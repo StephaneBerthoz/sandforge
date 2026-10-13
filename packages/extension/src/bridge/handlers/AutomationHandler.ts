@@ -1,5 +1,9 @@
+import { userInfo } from 'node:os';
+
 import type {
+  AuditOutcome,
   BaseMessage,
+  PipelineApprovalRecord,
   PipelineDefinition,
   PipelineHistoryEntry,
   PipelineHistoryStep,
@@ -31,6 +35,7 @@ import { memoryTriggerClaims } from '../../modules/automation/TriggerClaims.js';
 import type { RunHolder, TriggerClaims } from '../../modules/automation/TriggerClaims.js';
 import {
   validatePayload,
+  pipelineApprovalPayloadSchema,
   pipelineRunPayloadSchema,
   pipelineSavePayloadSchema,
   marketplaceListPayloadSchema,
@@ -40,8 +45,10 @@ import {
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
-import { registerPipelineSteps } from './pipelineSteps.js';
-import type { PipelineStepRunners } from './pipelineSteps.js';
+import { describeSyncConfigs, registerPipelineSteps } from './pipelineSteps.js';
+import type { ApprovalAsk, PipelineStepRunners } from './pipelineSteps.js';
+import { ApprovalGate } from '../../modules/automation/ApprovalGate.js';
+import { AuditTrailStore, auditUserKey } from '../../modules/audit/auditTrail.js';
 
 /**
  * How many runs the history keeps. Each entry carries the definition that ran,
@@ -91,7 +98,94 @@ function historyStep(result: PipelineStepResult): PipelineHistoryStep {
     ...(result.duration !== undefined ? { duration: result.duration } : {}),
     ...(result.summary !== undefined ? { summary: result.summary } : {}),
     ...(result.error !== undefined ? { error: result.error } : {}),
+    ...(result.approval !== undefined ? { approval: result.approval } : {}),
   };
+}
+
+/** How an Approval step's end reads in the audit trail. */
+const APPROVAL_OUTCOME: Readonly<Record<PipelineApprovalRecord['decision'], AuditOutcome>> = {
+  approved: 'success',
+  rejected: 'stopped',
+  timedOut: 'stopped',
+  cancelled: 'cancelled',
+};
+
+/**
+ * Who answers an Approval step in this window: the account VS Code runs
+ * under, as the audit trail names a user — a short hash, never the name,
+ * which often is a person's. Undefined when the account cannot be read.
+ */
+function localUserKey(): string | undefined {
+  try {
+    return auditUserKey(userInfo().username);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A run's time budget, held while an Approval step waits for a person. */
+interface RunBudget {
+  /** Start counting: the run starts. */
+  start(): void;
+  /** Stop counting: an Approval step waits. */
+  hold(): void;
+  /** Count again from where it stopped. */
+  resume(): void;
+  /** The run is over: never expire. */
+  end(): void;
+}
+
+/**
+ * Call `expire` once, when `ms` of the run have passed since `start` — not
+ * counting the time the budget was held.
+ * @param ms - The budget
+ * @param expire - What the end of the budget does
+ */
+function runBudget(ms: number, expire: () => void): RunBudget {
+  let left = ms;
+  let since = 0;
+  let started = false;
+  let over = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const fire = (): void => {
+    if (over) return;
+    over = true;
+    expire();
+  };
+  const count = (): void => {
+    since = Date.now();
+    timer = setTimeout(fire, left);
+  };
+  return {
+    start() {
+      if (started) return;
+      started = true;
+      count();
+    },
+    hold() {
+      if (timer === undefined) return;
+      clearTimeout(timer);
+      timer = undefined;
+      left = Math.max(0, left - (Date.now() - since));
+    },
+    resume() {
+      if (!started || over || timer !== undefined) return;
+      count();
+    },
+    end() {
+      over = true;
+      clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
+/** What one run hands the steps besides the module flows: who it is, and its time budget. */
+interface RunWiring {
+  /** The run's operation id: an Approval step's question is matched to the run by it. */
+  operationId: string;
+  /** Called with true while an Approval step waits for its answer, and false once it has it. */
+  onApprovalWait: (waiting: boolean) => void;
 }
 
 /** Message types handled by AutomationHandler. */
@@ -101,6 +195,8 @@ const AUTOMATION_TYPES = new Set([
   'pipeline:list',
   'pipeline:history',
   'pipeline:save',
+  'pipeline:approval',
+  'pipeline:sync-configs',
   'marketplace:list',
   'marketplace:install',
 ]);
@@ -124,9 +220,94 @@ export class AutomationHandler implements DomainHandler {
   private scheduler?: PipelineTriggerScheduler;
   /** Tells the user what the triggers did not do; set when they start. */
   private reportTrigger: (report: TriggerReport) => void = () => undefined;
+  /** The Approval steps waiting for an answer, in every run of this window; built on first use. */
+  private approvalGate?: ApprovalGate;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * The Approval steps' gate: the question goes to a VS Code notification and,
+   * for a run the page started, beside the step on the page, which is told
+   * the step waits on `pipeline:step`.
+   */
+  private approvals(): ApprovalGate {
+    const services = this.deps.services;
+    this.approvalGate ??= new ApprovalGate({
+      ...(services?.askApproval ? { ask: services.askApproval } : {}),
+      announce: (question) =>
+        this.postStepUpdate({
+          operationId: question.operationId,
+          stepId: question.stepId,
+          status: 'running',
+          approval: {
+            ...(question.message ? { message: question.message } : {}),
+            expiresAt: question.expiresAt,
+          },
+        }),
+      tooLate: (question) => services?.approvalTooLate?.(question),
+      who: localUserKey,
+    });
+    return this.approvalGate;
+  }
+
+  /**
+   * Put an Approval step's question for one run, hold the run's time budget
+   * while it waits, and record the answer in the audit trail.
+   */
+  private async askApproval(
+    ask: ApprovalAsk,
+    signal: AbortSignal | undefined,
+    run: RunWiring,
+  ): Promise<PipelineApprovalRecord> {
+    run.onApprovalWait(true);
+    try {
+      const record = await this.approvals().ask({ ...ask, operationId: run.operationId }, signal);
+      this.recordApproval(ask, record, run.operationId);
+      return record;
+    } finally {
+      run.onApprovalWait(false);
+    }
+  }
+
+  /**
+   * Write an Approval step's answer to the audit trail, beside the runs that
+   * wrote to an org: who answered it, when, where, and what. When it stands
+   * before a Sync step, it is the answer Production Guard took. Not written
+   * while `safety.auditLogging` is off, the switch that keeps the guard's
+   * decisions out of the trail.
+   */
+  private recordApproval(
+    ask: ApprovalAsk,
+    record: PipelineApprovalRecord,
+    operationId: string,
+  ): void {
+    try {
+      const kept =
+        this.deps.services?.getSandforgeSetting?.<boolean>('safety.auditLogging', true) !== false;
+      if (!kept) return;
+      new AuditTrailStore(this.deps.configStore).append({
+        id: crypto.randomUUID(),
+        action: 'pipeline_approval',
+        module: 'automation',
+        operationId,
+        outcome: APPROVAL_OUTCOME[record.decision],
+        objects: [],
+        details: {
+          pipeline: ask.pipelineName ?? '',
+          step: ask.stepName,
+          decision: record.decision,
+          ...(record.via ? { via: record.via } : {}),
+          ...(record.by ? { answeredBy: record.by } : {}),
+        },
+        timestamp: record.at,
+      });
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] audit trail: approval of run ${operationId} was not recorded — ${extractErrorMessage(err)}`,
+      );
+    }
+  }
 
   /** Inject pipeline marketplace service. */
   setPipelineMarketplace(marketplace: PipelineMarketplace): void {
@@ -267,6 +448,12 @@ export class AutomationHandler implements DomainHandler {
       case 'pipeline:save':
         this.handlePipelineSave(msg);
         return true;
+      case 'pipeline:approval':
+        this.handlePipelineApproval(msg);
+        return true;
+      case 'pipeline:sync-configs':
+        this.handleSyncConfigs(msg);
+        return true;
       case 'marketplace:list':
         this.handleMarketplaceList(msg);
         return true;
@@ -341,8 +528,51 @@ export class AutomationHandler implements DomainHandler {
     }
   }
 
-  /** An orchestrator for one run, or one check, with the steps the extension can run. */
-  private async buildOrchestrator(): Promise<PipelineOrchestrator> {
+  /**
+   * The page's answer to an Approval step of the run it started. One that
+   * comes after the step was answered, or gave up, changes nothing.
+   */
+  private handlePipelineApproval(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(pipelineApprovalPayloadSchema, msg, 'pipeline:error', this.deps);
+    if (!parsed) return;
+    const taken = this.approvals().answer(
+      parsed.operationId,
+      parsed.stepId,
+      parsed.decision,
+      'page',
+    );
+    if (!taken) {
+      this.deps.log(`[WARN] pipeline:approval for a step that no longer waits: ${parsed.stepId}`);
+    }
+  }
+
+  /**
+   * The saved Sync configurations a Sync step can run, each with whether it
+   * reads and what Production Guard does with a run of it: what the page
+   * checks a Sync step against before Run.
+   */
+  private handleSyncConfigs(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const configs = this.stepRunners ? describeSyncConfigs(this.stepRunners) : [];
+      const response = buildResponse(this.deps, msg, 'pipeline:sync-configs:response', {
+        configs,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} (${configs.length} configurations)`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:sync-configs', 'pipeline:error', msg, err);
+    }
+  }
+
+  /**
+   * An orchestrator for one run, or one check, with the steps the extension
+   * can run. An Approval step can ask wherever there is a window to ask in;
+   * for a check, that is all it needs to know.
+   * @param run - The run it is built for; absent for a check
+   */
+  private async buildOrchestrator(run?: RunWiring): Promise<PipelineOrchestrator> {
     const { PipelineBuilder } = await import('../../modules/automation/PipelineBuilder.js');
     const { TriggerEngine } = await import('../../modules/automation/TriggerEngine.js');
     const { StepLibrary } = await import('../../modules/automation/StepLibrary.js');
@@ -352,7 +582,16 @@ export class AutomationHandler implements DomainHandler {
 
     const stepExecutor = new StepExecutor();
     if (this.stepRunners) {
-      registerPipelineSteps(stepExecutor, this.stepRunners);
+      const wiring: RunWiring = run ?? { operationId: '', onApprovalWait: () => undefined };
+      registerPipelineSteps(stepExecutor, {
+        ...this.stepRunners,
+        ...(this.approvals().canAsk
+          ? {
+              askApproval: (ask: ApprovalAsk, signal?: AbortSignal) =>
+                this.askApproval(ask, signal, wiring),
+            }
+          : {}),
+      });
     }
 
     if (!this.deps.services) {
@@ -393,7 +632,20 @@ export class AutomationHandler implements DomainHandler {
       module: 'automation',
       operation: 'pipeline:execute',
     };
-    const orchestrator = await this.buildOrchestrator();
+    // The run's time budget (see below), which an Approval step holds while
+    // it waits.
+    const pipelineTimeout =
+      this.deps.services?.getSandforgeSetting?.('pipeline.timeout', 300_000) ?? 300_000;
+    const stop = new AbortController();
+    let outOfTime = false;
+    const budget = runBudget(pipelineTimeout, () => {
+      outOfTime = true;
+      stop.abort();
+    });
+    const orchestrator = await this.buildOrchestrator({
+      operationId,
+      onApprovalWait: (waiting) => (waiting ? budget.hold() : budget.resume()),
+    });
 
     this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
     const description = `Pipeline: ${pipeline.name}`;
@@ -451,17 +703,15 @@ export class AutomationHandler implements DomainHandler {
     // gave up on it with a TimeoutError, so the run reached neither History
     // nor the page, which went on waiting for an answer until its own limit.
     //
+    // The time an Approval step waits for a person is not counted: that wait
+    // has its own bound, the step's, of up to a day. Counted against the
+    // budget, an Approval left an hour to be answered was stopped at five
+    // minutes, as a run out of time.
+    //
     // The same signal is the one a cancel aborts: the run is registered with
     // it, so `execution:abort` from the page, or Cancel in Live Operations,
     // stops the run through the orchestrator's abort path.
-    const pipelineTimeout =
-      this.deps.services?.getSandforgeSetting?.('pipeline.timeout', 300_000) ?? 300_000;
-    const stop = new AbortController();
-    let outOfTime = false;
-    const timer = setTimeout(() => {
-      outOfTime = true;
-      stop.abort();
-    }, pipelineTimeout);
+    budget.start();
     let settleRegistered: (error?: Error) => void = () => {};
     this.deps.infraServices?.backgroundRegistry?.register(
       operationId,
@@ -480,7 +730,7 @@ export class AutomationHandler implements DomainHandler {
       settleRegistered(new Error(extractErrorMessage(err)));
       throw err;
     } finally {
-      clearTimeout(timer);
+      budget.end();
       // Release the event-emitter listeners so the closures don't pin the
       // orchestrator + pipeline graph in memory after execution.
       orchestrator.off?.('stepCompleted', stepCompletedListener);

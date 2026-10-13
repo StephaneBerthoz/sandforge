@@ -68,6 +68,8 @@ import { SmartActionHandler } from './handlers/SmartActionHandler.js';
 import { ExecutionHandler } from './handlers/ExecutionHandler.js';
 import { I18nHandler } from './handlers/I18nHandler.js';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry.js';
+import { SyncConfigStore } from '../modules/sync/SyncConfigStore.js';
+import { runPipelineSync, syncGuardRequest, syncGuardVerdict } from './handlers/pipelineSync.js';
 
 /**
  * Thenable-returning command executor — mirrors `vscode.commands.executeCommand`
@@ -161,6 +163,8 @@ export class ExtensionHandlers {
   private readonly i18nHandler: I18nHandler;
   private readonly syncHistoryStore: SyncHistoryStore;
   private executionHandler?: ExecutionHandler;
+  /** Where background runs register; a pipeline's Sync step cancels its run through it. */
+  private backgroundRegistry?: BackgroundOperationRegistry;
   private readonly refreshDetector: SandboxRefreshDetector;
 
   constructor(deps: ExtensionHandlersDeps) {
@@ -246,6 +250,26 @@ export class ExtensionHandlers {
       compare: (request, signal) => this.compareHandler.compareOrgs(request, signal),
       readOrgHealth: (orgId, signals) => this.monitorHandler.readOrgHealth(orgId, signals),
       notify: deps.services?.showNotification,
+      // A Sync step runs a configuration saved on the Sync page, through the
+      // run Sync's schedule makes — the same handler, guard and history — and
+      // asks the guard beforehand only what it will decide.
+      savedSyncConfig: (configId) => new SyncConfigStore(deps.configStore).load(configId),
+      listSyncConfigs: () => new SyncConfigStore(deps.configStore).list(),
+      syncGuard: (config) =>
+        syncGuardVerdict(
+          this.handlerDeps.infraServices?.productionGuard,
+          syncGuardRequest(config, deps.orgManager.getOrg(config.targetOrgId)?.orgType),
+        ),
+      runSync: (config, answer, signal) =>
+        runPipelineSync(
+          {
+            execute: (run) => this.syncHandler.executeScheduled(run),
+            registry: this.backgroundRegistry,
+          },
+          config,
+          answer,
+          signal,
+        ),
     });
     this.refreshDetector.onRefreshDetected((refresh) => this.forgetOrg(refresh.orgId));
     // After the org is forgotten, so a pipeline a refresh starts reaches the
@@ -355,6 +379,7 @@ export class ExtensionHandlers {
    * @param registry - The shared BackgroundOperationRegistry instance.
    */
   setBackgroundRegistry(registry: BackgroundOperationRegistry): void {
+    this.backgroundRegistry = registry;
     this.syncHandler.setRegistry(registry);
     this.seedHandler.setRegistry(registry);
     // Clone, CSV import and frozen-dataset loads run through BulkDataWriter
@@ -712,6 +737,8 @@ export class ExtensionHandlers {
         'pipeline:list',
         'pipeline:history',
         'pipeline:save',
+        'pipeline:approval',
+        'pipeline:sync-configs',
         'marketplace:list',
         'marketplace:install',
       ],

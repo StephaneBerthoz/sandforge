@@ -11,13 +11,14 @@ import type {
   PipelineStepType,
   PipelineWritePage,
   PipelineStepUpdate,
+  PipelineSyncConfigInfo,
   PipelineTrigger,
   PipelineTriggerStatus,
   TriggerConfig,
   TriggerType,
   PipelineHistoryEntry,
 } from '@sandforge/shared';
-import { isTriggeredRun } from '@sandforge/shared';
+import { isPipelineStepType, isRetiredPipelineStepType, isTriggeredRun } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -34,31 +35,9 @@ import type { PipelineScheduleRow } from './SchedulerCalendar';
 import { getLocalTimezone } from '../Sync/CronScheduleBuilder';
 
 /**
- * The `PipelineStepType` union as data, for narrowing untyped host payloads.
- *
- * The AI generator derives step types from keywords and emits values that are
- * not members of the union ('dataops', 'monitor'), so a generated step cannot
- * be cast — it has to be checked.
+ * The `TriggerType` union as data, for narrowing untyped host payloads: a
+ * generated draft can name triggers that are not members of it.
  */
-const PIPELINE_STEP_TYPES: readonly string[] = [
-  'seed',
-  'sync',
-  'backup',
-  'restore',
-  'anonymize',
-  'delete',
-  'compare',
-  'precheck',
-  'script',
-  'notification',
-  'approval',
-  'delay',
-  'condition',
-  'loop',
-  'parallel',
-];
-
-/** The `TriggerType` union as data. Same reason as {@link PIPELINE_STEP_TYPES}. */
 const TRIGGER_TYPES: readonly string[] = [
   'manual',
   'schedule',
@@ -175,15 +154,19 @@ function toCondition(raw: unknown): PipelineCondition | undefined {
 }
 
 /**
- * Turns the AI generator's loose pipeline into a `PipelineDefinition`.
+ * Turns the AI generator's or the Marketplace's loose pipeline into a
+ * `PipelineDefinition`, and says which step types it left out.
  *
  * `ai:generate-pipeline:response` carries `pipeline` as `Record<string, unknown>`:
  * the host's `GeneratedPipeline` (name, description, steps of
  * `{ name, type, config }`, an optional cron `schedule`, optional `triggers`
- * strings). Every field is narrowed rather than cast — an unknown step type
- * becomes a `script` step so the user still sees the step, marked as one that
- * cannot run (and so is the pipeline holding it), and an unknown trigger
- * string is dropped instead of poisoning the trigger panel.
+ * strings). Every field is narrowed rather than cast. A step of a type
+ * SandForge no longer has (Script, Loop, Parallel) is kept as it is, marked on
+ * the canvas as no longer supported; a step of a type no release ever had is
+ * left out and named beside the draft, as the generator names what it leaves
+ * out. Such a step used to become a Script step, a type that never ran and is
+ * gone. An unknown trigger string is dropped instead of poisoning the trigger
+ * panel.
  *
  * @param raw - The `pipeline` payload of the AI response.
  * @param fallbackName - Name to use when the generator returned none.
@@ -191,7 +174,7 @@ function toCondition(raw: unknown): PipelineCondition | undefined {
 function toPipelineDefinition(
   raw: Record<string, unknown>,
   fallbackName: string,
-): PipelineDefinition {
+): { pipeline: PipelineDefinition; leftOut: string[] } {
   const now = new Date().toISOString();
 
   const triggers: PipelineDefinition['triggers'] = [];
@@ -219,33 +202,44 @@ function toPipelineDefinition(
   }
 
   const rawSteps = Array.isArray(raw.steps) ? raw.steps : [];
-
-  return {
-    id: crypto.randomUUID(),
-    name: typeof raw.name === 'string' && raw.name.length > 0 ? raw.name : fallbackName,
-    description: typeof raw.description === 'string' ? raw.description : '',
-    version: 1,
-    steps: rawSteps.map((rawStep) => {
-      const step = asRecord(rawStep);
-      const type =
-        typeof step.type === 'string' && PIPELINE_STEP_TYPES.includes(step.type)
-          ? (step.type as PipelineStepType)
-          : 'script';
-      const condition = toCondition(step.condition);
-      return {
+  const leftOut: string[] = [];
+  const steps = rawSteps.flatMap((rawStep): PipelineDefinition['steps'] => {
+    const step = asRecord(rawStep);
+    if (!isPipelineStepType(step.type) && !isRetiredPipelineStepType(step.type)) {
+      const named = typeof step.type === 'string' && step.type !== '' ? step.type : '?';
+      if (!leftOut.includes(named)) leftOut.push(named);
+      return [];
+    }
+    // A retired type stays as it was written, for the canvas to mark: the
+    // union no longer names it, and the extension refuses it by name.
+    const type = step.type as PipelineStepType;
+    const condition = toCondition(step.condition);
+    return [
+      {
         id: crypto.randomUUID(),
         name: typeof step.name === 'string' && step.name.length > 0 ? step.name : type,
         type,
         config: asRecord(step.config),
         ...(condition ? { condition } : {}),
         continueOnError: false,
-      };
-    }),
-    triggers,
-    variables: [],
-    tags: [],
-    createdAt: now,
-    updatedAt: now,
+      },
+    ];
+  });
+
+  return {
+    leftOut,
+    pipeline: {
+      id: crypto.randomUUID(),
+      name: typeof raw.name === 'string' && raw.name.length > 0 ? raw.name : fallbackName,
+      description: typeof raw.description === 'string' ? raw.description : '',
+      version: 1,
+      steps,
+      triggers,
+      variables: [],
+      tags: [],
+      createdAt: now,
+      updatedAt: now,
+    },
   };
 }
 
@@ -296,6 +290,13 @@ export interface AutomationPageData {
   pipelinesLoading: boolean;
   /** Saved pipelines from the bridge query. */
   savedPipelines: PipelineDefinition[];
+  /**
+   * The saved Sync configurations a Sync step can run, with what Production
+   * Guard does with each; undefined until the extension has answered.
+   */
+  syncConfigs: PipelineSyncConfigInfo[] | undefined;
+  /** The names of the variables the current pipeline declares, which a Condition may test. */
+  declaredVariables: ReadonlySet<string>;
   /**
    * What the extension says each schedule and sandbox refresh trigger of the
    * current pipeline, as saved, will do.
@@ -362,6 +363,11 @@ export interface AutomationPageData {
    * started, which the extension stops through the orchestrator's abort path.
    */
   handleCancelRun: () => void;
+  /**
+   * Answer an Approval step of the run this page started that waits:
+   * `pipeline:approval`, the same choice as the VS Code notification's.
+   */
+  handleAnswerApproval: (stepId: string, decision: 'approved' | 'rejected') => void;
   /** Save the current pipeline. */
   handleSavePipeline: () => void;
   /** Load a saved pipeline and switch to canvas tab. */
@@ -480,6 +486,13 @@ export function useAutomationPageData(): AutomationPageData {
   // Bridge query: load pipeline history
   const historyQuery = useBridgeQuery<{ history: PipelineHistoryEntry[] }>('pipeline:history');
 
+  // Bridge query: the saved Sync configurations a Sync step can run, each
+  // with what Production Guard does with a run of it.
+  const syncConfigsQuery = useBridgeQuery<{ configs: PipelineSyncConfigInfo[] }>(
+    'pipeline:sync-configs',
+  );
+  const syncConfigs = syncConfigsQuery.data?.configs;
+
   // Derive running state from bridge mutation
   const isRunning = executeMutation.loading;
 
@@ -517,6 +530,19 @@ export function useAutomationPageData(): AutomationPageData {
       buildMessage<{ operationId: string }>('execution:abort', { operationId: runOperationId }),
     );
   }, [runOperationId, sendMessage]);
+
+  const handleAnswerApproval = useCallback(
+    (stepId: string, decision: 'approved' | 'rejected') => {
+      if (!runOperationId) return;
+      sendMessage(
+        buildMessage<{ operationId: string; stepId: string; decision: 'approved' | 'rejected' }>(
+          'pipeline:approval',
+          { operationId: runOperationId, stepId, decision },
+        ),
+      );
+    },
+    [runOperationId, sendMessage],
+  );
 
   // Derive history from bridge query
   const historyEntries = historyQuery.data?.history ?? [];
@@ -566,9 +592,16 @@ export function useAutomationPageData(): AutomationPageData {
         .map((org) => ({ id: org.id, alias: org.alias || org.username })),
     [orgs],
   );
+  const declaredVariables = useMemo(
+    () => new Set((pipeline?.variables ?? []).map((variable) => variable.name)),
+    [pipeline],
+  );
   const runBlockers = useMemo(
-    () => (pipeline ? blockedSteps(pipeline.steps, orgIds) : []),
-    [pipeline, orgIds],
+    () =>
+      pipeline
+        ? blockedSteps(pipeline.steps, orgIds, { declared: declaredVariables, syncConfigs })
+        : [],
+    [pipeline, orgIds, declaredVariables, syncConfigs],
   );
 
   // The execution view while running: each step as the host last reported
@@ -585,6 +618,10 @@ export function useAutomationPageData(): AutomationPageData {
         duration: update?.duration ?? 0,
         ...(update?.summary !== undefined ? { summary: update.summary } : {}),
         ...(update?.error !== undefined ? { error: update.error } : {}),
+        // An Approval step that waits, until the host says it has ended.
+        ...(update?.status === 'running' && update.approval
+          ? { awaitingApproval: update.approval }
+          : {}),
       };
     });
     const ended = steps.filter(
@@ -711,9 +748,22 @@ export function useAutomationPageData(): AutomationPageData {
       });
       return;
     }
-    const adopted = toPipelineDefinition(generated.pipeline, t('automation.newPipeline'));
+    const { pipeline: adopted, leftOut } = toPipelineDefinition(
+      generated.pipeline,
+      t('automation.newPipeline'),
+    );
+    // A step type no release has, which the host would have left out itself,
+    // is named beside the draft as the host names one.
+    const named = new Set(
+      suggestions.flatMap((suggestion) =>
+        suggestion.code === 'STEP_NOT_RUNNABLE' ? [suggestion.stepType] : [],
+      ),
+    );
+    const leftOutSuggestions: PipelineDraftSuggestion[] = leftOut
+      .filter((stepType) => !named.has(stepType))
+      .map((stepType) => ({ code: 'STEP_NOT_RUNNABLE', stepType }));
     setPipeline(adopted);
-    setDraft({ pipelineId: adopted.id, suggestions });
+    setDraft({ pipelineId: adopted.id, suggestions: [...suggestions, ...leftOutSuggestions] });
     setActiveTab('canvas');
   });
   useEffect(() => {
@@ -734,7 +784,7 @@ export function useAutomationPageData(): AutomationPageData {
       });
       return;
     }
-    setPipeline(toPipelineDefinition(installed.pipeline, t('automation.newPipeline')));
+    setPipeline(toPipelineDefinition(installed.pipeline, t('automation.newPipeline')).pipeline);
     setActiveTab('canvas');
     addNotification({
       level: 'success',
@@ -928,6 +978,8 @@ export function useAutomationPageData(): AutomationPageData {
     isRunning,
     pipelinesLoading: pipelinesQuery.loading && pipelinesQuery.data === null,
     savedPipelines,
+    syncConfigs,
+    declaredVariables,
     triggerStatuses,
     savedTriggers,
     sandboxes,
@@ -955,6 +1007,7 @@ export function useAutomationPageData(): AutomationPageData {
     handleCreatePipeline,
     handleRunPipeline,
     handleCancelRun,
+    handleAnswerApproval,
     handleSavePipeline,
     handleLoadPipeline,
     handleInstallTemplate,

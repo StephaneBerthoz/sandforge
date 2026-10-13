@@ -10,9 +10,9 @@ describe('StepLibrary', () => {
   });
 
   describe('getStepTypes', () => {
-    it('should return all 15 step types', () => {
+    it('should return all 12 step types', () => {
       const types = library.getStepTypes();
-      expect(types).toHaveLength(15);
+      expect(types).toHaveLength(12);
     });
 
     it('should include all expected step type values', () => {
@@ -29,16 +29,20 @@ describe('StepLibrary', () => {
         'compare',
         'precheck',
         'condition',
-        'loop',
-        'parallel',
         'delay',
         'approval',
-        'script',
         'notification',
       ];
 
       for (const e of expected) {
         expect(typeValues).toContain(e);
+      }
+    });
+
+    it('lists none of the step types SandForge no longer has', () => {
+      const typeValues: string[] = library.getStepTypes().map((t) => t.type);
+      for (const retired of ['script', 'loop', 'parallel']) {
+        expect(typeValues).not.toContain(retired);
       }
     });
   });
@@ -68,7 +72,7 @@ describe('StepLibrary', () => {
     });
 
     it('should return an empty array for array schema fields', () => {
-      const config = library.getDefaultConfig('sync');
+      const config = library.getDefaultConfig('backup');
       expect(config['objects']).toEqual([]);
     });
 
@@ -146,14 +150,7 @@ describe('StepLibrary', () => {
     });
 
     it('should assign control category to control-related steps', () => {
-      const controlSteps: PipelineStepType[] = [
-        'condition',
-        'loop',
-        'parallel',
-        'delay',
-        'approval',
-        'script',
-      ];
+      const controlSteps: PipelineStepType[] = ['condition', 'delay', 'approval'];
       for (const type of controlSteps) {
         const info = library.getStepType(type);
         expect(info?.category).toBe('control');

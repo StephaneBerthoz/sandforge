@@ -2,10 +2,10 @@
  * Keeps the Automation surfaces honest about what a pipeline step does.
  *
  * `StepExecutor` gives Delay and Condition handlers of its own, and the
- * extension registers four more for its runs in `pipelineSteps.ts` — Backup,
- * Compare, Pre-check and Notification, each through the flow its module's page
- * runs. Every other step type is refused: a pipeline that holds one does not
- * start. (Until the refusal, those types went to a pass-through that returned
+ * extension registers six more for its runs in `pipelineSteps.ts` — Backup,
+ * Compare, Pre-check, Notification, Approval and Sync, each through the flow
+ * its module runs. Every other step type is refused: a pipeline that holds one
+ * does not start. (Until the refusal, those types went to a pass-through that returned
  * success without opening a connection.) Around that sit the places that
  * describe steps: the predefined catalogue the host serves on
  * `pipeline:templates`, the Marketplace catalogue, the step registry's own
@@ -80,7 +80,7 @@ function handledStepTypes() {
   // extension hands the run handler the module flows.
   assert.match(
     automationHandler,
-    /registerPipelineSteps\(stepExecutor, this\.stepRunners\)/,
+    /registerPipelineSteps\(stepExecutor, \{\s*\.\.\.this\.stepRunners\b/,
     'the run handler no longer registers the module steps — they would be refused again',
   );
   assert.match(
@@ -98,10 +98,11 @@ function refusedStepTypes() {
 }
 
 /**
- * The step types that write to an org. None of them may run in a pipeline:
- * each runs from its own page, where Production Guard stops a write to a
- * production org or asks the person at the panel first, and a pipeline runs
- * unattended.
+ * The step types that write to an org. Each runs from its own page, where
+ * Production Guard stops a write to a production org or asks the person at
+ * the panel first. Sync alone also runs in a pipeline: a configuration saved
+ * on the Sync page, through Sync's own run, with an Approval step before it
+ * where the guard would ask, whose answer the guard takes.
  */
 const WRITE_STEP_TYPES = ['seed', 'sync', 'restore', 'anonymize', 'delete'];
 
@@ -288,25 +289,38 @@ test('no step config asks where to deliver something nothing delivers', () => {
   }
 });
 
-test('the approval step does not claim to hold a run', () => {
-  assert.ok(
-    refusedStepTypes().includes('approval'),
-    'approval has a handler now — re-read this gate before deleting it',
+test('the approval step holds a run until a person answers, and never past its wait', () => {
+  // It was described as an approval point a run went through unattended, and
+  // had no handler. It holds the run now: the question goes to a VS Code
+  // notification, never a modal a run nobody watches would leave open, and
+  // the step gives up when its wait ends.
+  assert.ok(handledStepTypes().includes('approval'), 'the approval step is refused again');
+  const handler = pipelineSteps.match(/function approvalHandler\([\s\S]*?\n\}/);
+  assert.ok(handler, 'no approvalHandler found in pipelineSteps.ts');
+  assert.match(handler[0], /runners\.askApproval\(/, 'the approval step no longer asks anyone');
+  assert.match(
+    handler[0],
+    /timeoutMs: minutes \* 60_000/,
+    'the approval step no longer bounds its wait',
   );
-  const approval = stepLibrary.match(/type: 'approval',[\s\S]*?description: '([^']*)'/);
+  const ask = read(extensionSrc, 'services.ts').match(
+    /askApproval: async \(question\) => \{[\s\S]*?\n {4}\},/,
+  );
+  assert.ok(ask, 'askApproval not found in services.ts');
+  assert.match(ask[0], /vscode\.window\.showInformationMessage\(/);
+  assert.doesNotMatch(ask[0], /modal:\s*true/, 'the approval question is a modal now');
+  const approval = stepLibrary.match(/type: 'approval',[\s\S]*?description:\s*'([^']*)'/);
   assert.ok(approval, "no 'approval' entry found in StepLibrary.ts");
-  assert.doesNotMatch(
-    approval[1],
-    /pause|wait|hold|block/i,
-    'the approval step promises to stop a run that runs to the end regardless',
-  );
+  assert.match(approval[1], /until someone approves it in VS Code/);
 });
 
 test('no pipeline view handles a status a run never reaches', () => {
   // `waiting_approval` was in the run-status union, badged in the history view
   // and treated as active in the execution view, although no code has ever
   // assigned it: the UI carried an approval concept nothing could produce.
-  // `paused` went the same way once nothing could pause a run.
+  // `paused` went the same way once nothing could pause a run. An Approval
+  // step that waits is a running step with a question, not a status of its
+  // run.
   const unreached = /waiting_approval|\bpaused\b/;
   const views = ['PipelineCanvas.tsx', 'PipelineExecutionView.tsx', 'PipelineHistoryView.tsx'];
   for (const file of views) {
@@ -420,25 +434,55 @@ test('a trigger starts a pipeline only through the run that refuses a step that 
   assert.match(automationHandler, /return orchestrator\.check\(pipeline\)/);
 });
 
-test('no step that writes to an org runs in a pipeline', () => {
+test('no step that writes to an org runs in a pipeline but Sync, and Sync only as Production Guard allows', () => {
   const handled = handledStepTypes();
   // Positive control: the walk sees the steps registered through a module.
-  for (const type of ['backup', 'compare', 'precheck', 'notification']) {
+  for (const type of ['backup', 'compare', 'precheck', 'notification', 'approval']) {
     assert.ok(handled.includes(type), `${type} is no longer seen as running — is the walk blind?`);
   }
   assert.deepEqual(
     handled.filter((type) => WRITE_STEP_TYPES.includes(type)),
-    [],
-    'a step that writes to an org runs in a pipeline now: it runs unattended, with no Production ' +
-      'Guard confirmation. Re-read the module page, both READMEs and the listing before relaxing this.',
+    ['sync'],
+    'another step that writes to an org runs in a pipeline now. Re-read the module page, both ' +
+      'READMEs and the listing before relaxing this.',
   );
-  // And the palette, which offers none of them, says where they run instead.
+  // Sync runs a saved configuration through Sync's own run, which consults
+  // Production Guard; a target the guard would ask about needs an Approval
+  // step before it, and the guard takes that answer rather than asking.
+  const check = pipelineSteps.match(/function checkSync\([\s\S]*?\n\}/);
+  assert.ok(check, 'no checkSync found in pipelineSteps.ts');
+  assert.match(
+    check[0],
+    /runners\.syncGuard\(config\)/,
+    'a Sync step no longer asks the guard first',
+  );
+  assert.match(
+    check[0],
+    /verdict\.decision === 'asks' && !approvalBefore\(context\)/,
+    'a Sync step into an org the guard asks about no longer needs an Approval before it',
+  );
+  const run = pipelineSteps.match(/function syncHandler\([\s\S]*?\n\}/);
+  assert.ok(run, 'no syncHandler found in pipelineSteps.ts');
+  assert.match(run[0], /runners\.runSync\(config, givenAnswer\(context\)/);
+  assert.match(
+    extensionHandlers,
+    /this\.syncHandler\.executeScheduled\(run\)/,
+    "a Sync step no longer runs through Sync's own run, which consults the guard",
+  );
+  const guard = read(extensionSrc, 'core', 'precheck', 'ProductionGuard.ts');
+  assert.match(
+    guard,
+    /const given = givenAnswers\.getStore\(\);\s*if \(given\) \{\s*return given\.approved;/,
+    "the guard no longer takes the Approval step's answer for its question",
+  );
+  // And the palette says where the others run instead, and what Sync needs.
   const note = JSON.parse(read(webviewSrc, 'i18n', 'locales', 'en.json')).automation.runnability
     .paletteNote;
   for (const label of ['Seed', 'Sync', 'Restore', 'Anonymize', 'Delete']) {
     assert.match(note, new RegExp(label), `the palette note does not name ${label}`);
   }
   assert.match(note, /write to an org/, 'the palette note does not say why they are refused');
+  assert.match(note, /Approval step before it/, 'the palette note does not say what Sync needs');
 });
 
 test('the Step Palette offers only the step types a pipeline runs', () => {

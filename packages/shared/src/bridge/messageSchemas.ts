@@ -291,6 +291,11 @@ const AutomationMessages = [
   msg('pipeline:history:response'),
   msg('pipeline:save'),
   msg('pipeline:save:response'),
+  // The page's answer to an Approval step that waits (AutomationHandler).
+  msg('pipeline:approval'),
+  // The saved Sync configurations a Sync step can run, with Production Guard's verdict.
+  msg('pipeline:sync-configs'),
+  msg('pipeline:sync-configs:response'),
   msg('marketplace:list'),
   msg('marketplace:list:response'),
   msg('marketplace:install'),

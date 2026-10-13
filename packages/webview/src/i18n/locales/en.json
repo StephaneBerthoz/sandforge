@@ -1754,13 +1754,10 @@
       "delete": "Delete",
       "compare": "Compare",
       "precheck": "Pre-Check",
-      "script": "Script",
       "notification": "Notification",
       "approval": "Approval",
       "delay": "Delay",
-      "condition": "Condition",
-      "loop": "Loop",
-      "parallel": "Parallel"
+      "condition": "Condition"
     },
     "stepCategories": {
       "data": "Data",
@@ -1812,7 +1809,6 @@
       "failedJobs": "Failed Apex jobs"
     },
     "stepConfigDelay": "Delay (seconds)",
-    "stepConfigScript": "Script",
     "stepConfigWhere": "WHERE clause",
     "stepConfigTemplate": "Template ID",
     "noExecution": "No active execution",
@@ -1824,7 +1820,7 @@
     "generatePipeline": "Generate with AI",
     "generatePipelinePrompt": "Describe the pipeline you want to create...",
     "marketplace": "Marketplace",
-    "marketplaceStepsNote": "Backup, Compare, Pre-Check, Notification, Delay and Condition steps run in a pipeline. Seed, Sync, Restore, Anonymize and Delete write to an org, so they run only from their own pages, and Script, Approval, Loop and Parallel steps do not run: a template that holds any of them installs, but its pipeline does not start.",
+    "marketplaceStepsNote": "Backup, Compare, Pre-Check, Notification, Delay, Condition, Approval and Sync steps run in a pipeline; a Sync step runs a configuration you choose, saved on the Sync page. Seed, Restore, Anonymize and Delete write to an org, so they run only from their own pages: a template that holds one installs, but its pipeline does not start.",
     "templateInstalled": "Template installed as new pipeline",
     "installFailed": "Could not install the template",
     "marketplaceAuthor": "Author",
@@ -1835,8 +1831,8 @@
     "runnability": {
       "cannotRun": "Cannot run",
       "typeCannotRun": "This step type cannot run in a pipeline yet.",
-      "writesToOrg": "This step writes to an org, so a pipeline does not run it: run it from its own page, where Production Guard asks before a write to a production org.",
-      "conditionNeedsCondition": "A Condition step needs a condition to test, and this page cannot set one yet. A Condition step from a Marketplace template carries its own.",
+      "writesToOrg": "A pipeline does not run this step: run it from its own page, where Production Guard asks before a write to a production org.",
+      "conditionNeedsCondition": "Choose what this Condition step tests.",
       "delayNeedsSeconds": "Set how many seconds this Delay step waits (from 0 up to 24 days).",
       "timeoutTooLong": "Set a timeout of at most 24 days (2,073,600,000 ms), or none.",
       "needsOrg": "Choose the org this step works on.",
@@ -1846,9 +1842,21 @@
       "compareNeedsTypes": "Choose at least one metadata type to compare.",
       "precheckNeedsChecks": "Choose what this Pre-Check reads: API usage, data storage, Apex error logs or failed Apex jobs.",
       "notificationNeedsMessage": "Write the message this notification shows (up to 500 characters).",
-      "paletteNote": "Only the steps a pipeline runs are listed. Steps that write to an org — Seed, Sync, Restore, Anonymize, Delete — run only from their own pages, where Production Guard asks first.",
+      "paletteNote": "Only the steps a pipeline runs are listed. Seed, Restore, Anonymize and Delete write to an org and run only from their own pages, where Production Guard asks first. Sync runs a configuration saved on the Sync page; one that writes to an org Production Guard asks about needs an Approval step before it.",
       "pipelineBlocked": "This pipeline cannot run. Remove or fix these steps first:",
-      "templateBlocked": "Cannot run as a pipeline. These step types do not run in one: {{types}}."
+      "templateBlocked": "Cannot run as a pipeline. These step types do not run in one: {{types}}.",
+      "conditionNeedsEarlierStep": "This Condition tests how the previous step went, and no step comes before it.",
+      "conditionNeedsCompare": "This Condition tests the differences a comparison found: put a Compare step before it.",
+      "conditionNeedsPrecheck": "This Condition tests a Pre-Check reading: put a Pre-Check that takes that reading before it.",
+      "noLongerSupported": "This step type is no longer supported: remove the step from the pipeline.",
+      "noLongerSupportedBadge": "No longer supported",
+      "approvalTimeout": "Set how many minutes this Approval waits, from 1 to 1,440 (a day), or leave it empty to wait an hour.",
+      "approvalMessageTooLong": "Shorten the approval message to at most 500 characters.",
+      "syncNeedsConfig": "Choose the saved Sync configuration this step runs.",
+      "syncConfigMissing": "The Sync configuration this step runs is no longer saved: choose another.",
+      "syncConfigInvalid": "The Sync configuration this step runs no longer validates: open it on the Sync page and save it again.",
+      "syncGuardRefuses": "Production Guard refuses this Sync on its target org, approved or not.",
+      "syncNeedsApproval": "This Sync writes to an org Production Guard asks about first (a production org or a Developer Edition): put an Approval step before it."
     },
     "emptyState": {
       "title": "Build Your First Pipeline",
@@ -1872,8 +1880,46 @@
     "errorCount_other": "{{count}} errors",
     "draftSuggestions": {
       "title": "Left out of this draft",
-      "writesToOrg": "A pipeline runs no step that writes to an org, so it cannot run {{page}}: run it from the {{page}} page, where Production Guard can stop it or ask first.",
+      "writesToOrg": "The draft leaves out the {{page}} work, which writes to an org: run it from the {{page}} page, where Production Guard can stop it or ask first.",
       "stepNotRunnable": "A pipeline cannot run a {{type}} step, so the draft leaves it out."
+    },
+    "stepConfigApprovalMessage": "Message shown with the question",
+    "stepConfigApprovalTimeout": "Wait for an answer (minutes)",
+    "stepConfigSyncConfig": "Saved Sync configuration",
+    "syncConfigSelect": "Choose a configuration",
+    "syncConfigNone": "No Sync configuration is saved yet: save one on the Sync page.",
+    "syncConfigGone": "A configuration that is no longer saved",
+    "stepConfigCondition": "Go on when",
+    "conditionChoose": "Choose a test",
+    "conditionKinds": {
+      "previousSucceeded": "The previous step succeeded",
+      "previousFailed": "The previous step failed",
+      "compareDifferences": "Compare found more than N differences",
+      "apiUsage": "API usage is above N%",
+      "storageUsage": "Data storage is above N%",
+      "recentErrors": "More than N Apex errors in the last 24 h",
+      "failedJobs": "More than N failed Apex jobs",
+      "custom": "As the template set it: {{field}} {{operator}} {{value}}"
+    },
+    "conditionThreshold": {
+      "compareDifferences": "More than this many differences",
+      "apiUsage": "API usage above (%)",
+      "storageUsage": "Data storage above (%)",
+      "recentErrors": "More Apex errors than",
+      "failedJobs": "More failed Apex jobs than"
+    },
+    "approval": {
+      "waiting": "Waiting for your approval until {{time}}.",
+      "approve": "Approve",
+      "reject": "Reject",
+      "record": {
+        "approvedOnPage": "Approved on the Automation page, {{time}}",
+        "approvedOnNotification": "Approved in the VS Code notification, {{time}}",
+        "rejectedOnPage": "Rejected on the Automation page, {{time}}",
+        "rejectedOnNotification": "Rejected in the VS Code notification, {{time}}",
+        "timedOut": "Not approved in time: nobody answered by {{time}}",
+        "cancelled": "Stopped before anyone answered, {{time}}"
+      }
     }
   },
   "ai": {
@@ -1960,7 +2006,8 @@
       "metadata_deploy": "Metadata Deployment",
       "realtime_sync": "Real-Time Sync",
       "subject_erase": "Subject Request Erasure",
-      "cleanup_delete": "Cleanup Delete"
+      "cleanup_delete": "Cleanup Delete",
+      "pipeline_approval": "Pipeline approval"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",

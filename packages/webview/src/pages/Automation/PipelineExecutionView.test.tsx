@@ -123,4 +123,51 @@ describe('PipelineExecutionView', () => {
     render(<PipelineExecutionView execution={completed} onCancel={vi.fn()} />);
     expect(screen.queryByTestId('execution-cancel')).toBeNull();
   });
+
+  it('offers Approve and Reject beside an Approval step that waits, with its message', () => {
+    const onAnswerApproval = vi.fn();
+    const waiting: PipelineExecutionData = {
+      ...execution,
+      steps: [
+        {
+          stepId: 'ok',
+          stepName: 'Look first',
+          stepType: 'approval',
+          status: 'running',
+          awaitingApproval: {
+            message: 'Check the comparison.',
+            expiresAt: '2026-10-13T09:00:00.000Z',
+          },
+        },
+      ],
+    };
+    render(<PipelineExecutionView execution={waiting} onAnswerApproval={onAnswerApproval} />);
+
+    const question = screen.getByTestId('exec-approval-ok');
+    expect(question.textContent).toContain('Waiting for your approval until');
+    expect(question.textContent).toContain('Check the comparison.');
+    fireEvent.click(screen.getByTestId('exec-approve-ok'));
+    fireEvent.click(screen.getByTestId('exec-reject-ok'));
+    expect(onAnswerApproval.mock.calls).toEqual([
+      ['ok', 'approved'],
+      ['ok', 'rejected'],
+    ]);
+  });
+
+  it('offers no answer once the Approval step has ended', () => {
+    const ended: PipelineExecutionData = {
+      ...execution,
+      steps: [
+        {
+          stepId: 'ok',
+          stepName: 'Look first',
+          stepType: 'approval',
+          status: 'completed',
+          awaitingApproval: { expiresAt: '2026-10-13T09:00:00.000Z' },
+        },
+      ],
+    };
+    render(<PipelineExecutionView execution={ended} onAnswerApproval={vi.fn()} />);
+    expect(screen.queryByTestId('exec-approval-ok')).toBeNull();
+  });
 });

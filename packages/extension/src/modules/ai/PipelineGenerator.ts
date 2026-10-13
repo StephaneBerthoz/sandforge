@@ -38,10 +38,13 @@ export interface GeneratedPipeline {
 }
 
 /**
- * The step types a pipeline runs: Delay and Condition, and Backup, Compare,
- * Pre-check and Notification through the modules that own their work. The
- * step executor refuses every other type before the run starts, and the
- * Automation page shows such a step blocked.
+ * The step types a draft may hold: Delay and Condition, Backup, Compare,
+ * Pre-check, Notification, and Approval, which waits for an answer in VS Code
+ * and needs nothing else to run. A Sync step runs a configuration saved on
+ * the Sync page, which no draft can choose, so the Sync work a description
+ * asks for is left out with a word of where it runs. The step executor
+ * refuses every other type before the run starts, and the Automation page
+ * shows such a step blocked.
  */
 const RUNNABLE_STEP_TYPES: ReadonlySet<string> = new Set<PipelineStepType>([
   'delay',
@@ -50,6 +53,7 @@ const RUNNABLE_STEP_TYPES: ReadonlySet<string> = new Set<PipelineStepType>([
   'compare',
   'precheck',
   'notification',
+  'approval',
 ]);
 
 /**
@@ -72,9 +76,9 @@ const KEYWORD_STEP_MAP: Record<string, PipelineStepType> = {
 
 /**
  * Keywords for the work that writes to an org, mapped to the page that runs
- * it. A pipeline runs unattended, with nobody there to answer Production
- * Guard, so it runs no step that writes: such a wish draws no step, and a
- * suggestion to run it from its page.
+ * it. A draft holds no step that writes: such a wish draws no step, and a
+ * suggestion to run it from its page, where Production Guard can stop it or
+ * ask first.
  */
 const WRITE_KEYWORD_PAGE: Record<string, PipelineWritePage> = {
   sync: 'sync',
@@ -120,7 +124,7 @@ export function suggestionText(suggestion: PipelineDraftSuggestion): string {
     return `A pipeline cannot run a ${suggestion.stepType} step, so the draft leaves it out.`;
   }
   const page = PAGE_NAME[suggestion.page];
-  return `A pipeline runs no step that writes to an org, so it cannot run ${page}: run it from the ${page} page, where Production Guard can stop or ask first.`;
+  return `The draft leaves out the ${page} work, which writes to an org: run it from the ${page} page, where Production Guard can stop or ask first.`;
 }
 
 /** Schedule keywords mapped to cron-like expressions. */

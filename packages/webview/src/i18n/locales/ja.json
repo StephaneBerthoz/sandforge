@@ -1652,13 +1652,10 @@
       "delete": "削除",
       "compare": "比較",
       "precheck": "事前チェック",
-      "script": "スクリプト",
       "notification": "通知",
       "approval": "承認",
       "delay": "遅延",
-      "condition": "条件",
-      "loop": "ループ",
-      "parallel": "並列"
+      "condition": "条件"
     },
     "stepCategories": {
       "data": "データ",
@@ -1710,7 +1707,6 @@
       "failedJobs": "失敗した Apex ジョブ"
     },
     "stepConfigDelay": "遅延（秒）",
-    "stepConfigScript": "スクリプト",
     "stepConfigWhere": "WHERE句",
     "stepConfigTemplate": "テンプレートID",
     "noExecution": "アクティブな実行はありません",
@@ -1722,7 +1718,7 @@
     "generatePipeline": "AIで生成",
     "generatePipelinePrompt": "作成したいパイプラインを記述してください...",
     "marketplace": "マーケットプレイス",
-    "marketplaceStepsNote": "バックアップ、比較、事前チェック、通知、遅延、条件のステップはパイプラインで実行されます。Seed、Sync、リストア、匿名化、削除は組織に書き込むため専用のページからのみ実行され、スクリプト、承認、ループ、並列のステップは実行されません。これらを含むテンプレートはインストールできますが、そのパイプラインは開始されません。",
+    "marketplaceStepsNote": "バックアップ、比較、事前チェック、通知、遅延、条件、承認、Sync のステップはパイプラインで実行されます。Sync ステップは、Sync ページで保存した構成のうち選択したものを実行します。Seed、リストア、匿名化、削除は組織に書き込むため専用のページからのみ実行されます。これらを含むテンプレートはインストールできますが、そのパイプラインは開始されません。",
     "templateInstalled": "テンプレートが新しいパイプラインとしてインストールされました",
     "installFailed": "テンプレートをインストールできませんでした",
     "marketplaceAuthor": "作成者",
@@ -1733,8 +1729,8 @@
     "runnability": {
       "cannotRun": "実行できません",
       "typeCannotRun": "このステップタイプはまだパイプラインで実行できません。",
-      "writesToOrg": "このステップは組織に書き込むため、パイプラインでは実行されません。専用のページから実行してください。そのページでは、本番組織への書き込みの前に Production Guard が確認します。",
-      "conditionNeedsCondition": "条件ステップには評価する条件が必要ですが、このページではまだ条件を設定できません。Marketplace のテンプレートの条件ステップには条件が含まれています。",
+      "writesToOrg": "このステップはパイプラインでは実行されません。専用のページから実行してください。そのページでは、本番組織への書き込みの前に Production Guard が確認します。",
+      "conditionNeedsCondition": "この条件ステップで評価する内容を選択してください。",
       "delayNeedsSeconds": "この遅延ステップの待機秒数を設定してください（0秒から24日まで）。",
       "timeoutTooLong": "タイムアウトは24日（2,073,600,000 ms）以内にするか、設定しないでください。",
       "needsOrg": "このステップが対象とする組織を選択してください。",
@@ -1744,9 +1740,21 @@
       "compareNeedsTypes": "比較するメタデータタイプを1つ以上選択してください。",
       "precheckNeedsChecks": "この事前チェックで読み取る項目を選択してください：API 使用量、データストレージ、Apex エラーログ、失敗した Apex ジョブ。",
       "notificationNeedsMessage": "この通知に表示するメッセージを入力してください（最大500文字）。",
-      "paletteNote": "パイプラインが実行するステップだけを表示しています。組織に書き込むステップ（Seed、Sync、リストア、匿名化、削除）は、Production Guard が先に確認する専用のページからのみ実行できます。",
+      "paletteNote": "パイプラインが実行するステップだけを表示しています。Seed、リストア、匿名化、削除は組織に書き込むため、Production Guard が先に確認する専用のページからのみ実行できます。Sync は Sync ページで保存した構成を実行します。Production Guard が確認する組織に書き込む場合は、その前に承認ステップが必要です。",
       "pipelineBlocked": "このパイプラインは実行できません。先に次のステップを削除または修正してください：",
-      "templateBlocked": "パイプラインとして実行できません。パイプラインで実行されないステップタイプ：{{types}}。"
+      "templateBlocked": "パイプラインとして実行できません。パイプラインで実行されないステップタイプ：{{types}}。",
+      "conditionNeedsEarlierStep": "この条件は前のステップの結果を評価しますが、その前にステップがありません。",
+      "conditionNeedsCompare": "この条件は比較で見つかった差異を評価します。その前に比較ステップを置いてください。",
+      "conditionNeedsPrecheck": "この条件は事前チェックの測定値を評価します。その測定を行う事前チェックを前に置いてください。",
+      "noLongerSupported": "この種類のステップはサポートされなくなりました。パイプラインから削除してください。",
+      "noLongerSupportedBadge": "サポート終了",
+      "approvalTimeout": "この承認が待つ時間を 1～1,440 分（1 日）で指定してください。空欄にすると 1 時間待ちます。",
+      "approvalMessageTooLong": "承認メッセージを 500 文字以内にしてください。",
+      "syncNeedsConfig": "このステップで実行する保存済みの Sync 構成を選択してください。",
+      "syncConfigMissing": "このステップで実行する Sync 構成は保存されていません。別の構成を選択してください。",
+      "syncConfigInvalid": "このステップで実行する Sync 構成は有効ではなくなりました。Sync ページで開いて保存し直してください。",
+      "syncGuardRefuses": "Production Guard は、承認の有無にかかわらず、この Sync の対象組織への書き込みを拒否します。",
+      "syncNeedsApproval": "この Sync は、Production Guard が事前に確認する組織（本番組織または Developer Edition）に書き込みます。その前に承認ステップを置いてください。"
     },
     "emptyState": {
       "title": "最初のパイプラインを作成",
@@ -1766,8 +1774,46 @@
     "errorCount_other": "{{count}}件のエラー",
     "draftSuggestions": {
       "title": "この下書きから除外されたもの",
-      "writesToOrg": "パイプラインは組織に書き込むステップを実行しないため、{{page}} は実行できません。{{page}} ページから実行してください。そのページでは Production Guard が停止するか、事前に確認できます。",
+      "writesToOrg": "この下書きには、組織に書き込む {{page}} の作業が含まれていません。{{page}} ページから実行してください。そのページでは Production Guard が停止するか、事前に確認できます。",
       "stepNotRunnable": "パイプラインは {{type}} ステップを実行できないため、下書きから除外しました。"
+    },
+    "stepConfigApprovalMessage": "質問と一緒に表示するメッセージ",
+    "stepConfigApprovalTimeout": "回答を待つ時間（分）",
+    "stepConfigSyncConfig": "保存済みの Sync 構成",
+    "syncConfigSelect": "構成を選択",
+    "syncConfigNone": "保存済みの Sync 構成はまだありません。Sync ページで保存してください。",
+    "syncConfigGone": "保存されていない構成",
+    "stepConfigCondition": "続行する条件",
+    "conditionChoose": "評価内容を選択",
+    "conditionKinds": {
+      "previousSucceeded": "前のステップが成功した",
+      "previousFailed": "前のステップが失敗した",
+      "compareDifferences": "比較で N 件を超える差異が見つかった",
+      "apiUsage": "API 使用率が N% を超えている",
+      "storageUsage": "データストレージが N% を超えている",
+      "recentErrors": "過去 24 時間の Apex エラーが N 件を超えている",
+      "failedJobs": "失敗した Apex ジョブが N 件を超えている",
+      "custom": "テンプレートの設定どおり: {{field}} {{operator}} {{value}}"
+    },
+    "conditionThreshold": {
+      "compareDifferences": "この件数を超える差異",
+      "apiUsage": "API 使用率の上限（%）",
+      "storageUsage": "データストレージの上限（%）",
+      "recentErrors": "この件数を超える Apex エラー",
+      "failedJobs": "この件数を超える失敗した Apex ジョブ"
+    },
+    "approval": {
+      "waiting": "{{time}} まであなたの承認を待っています。",
+      "approve": "承認",
+      "reject": "却下",
+      "record": {
+        "approvedOnPage": "Automation ページで承認、{{time}}",
+        "approvedOnNotification": "VS Code の通知で承認、{{time}}",
+        "rejectedOnPage": "Automation ページで却下、{{time}}",
+        "rejectedOnNotification": "VS Code の通知で却下、{{time}}",
+        "timedOut": "時間内に承認されませんでした: {{time}} までに回答がありませんでした",
+        "cancelled": "回答の前に停止、{{time}}"
+      }
     }
   },
   "ai": {
@@ -1854,7 +1900,8 @@
       "metadata_deploy": "メタデータのデプロイ",
       "realtime_sync": "リアルタイム同期",
       "subject_erase": "データ主体依頼による消去",
-      "cleanup_delete": "クリーンアップ削除"
+      "cleanup_delete": "クリーンアップ削除",
+      "pipeline_approval": "パイプラインの承認"
     },
     "filterByAction": "アクションでフィルター",
     "filterByModule": "モジュールでフィルター",

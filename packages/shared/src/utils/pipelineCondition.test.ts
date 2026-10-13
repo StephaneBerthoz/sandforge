@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { conditionDefect, evaluateCondition } from './pipelineCondition';
+import {
+  COMPARE_DIFFERENCE_COUNT,
+  conditionDefect,
+  conditionSourceDefect,
+  evaluateCondition,
+  PREVIOUS_STEP_STATUS,
+} from './pipelineCondition';
 import type { PipelineCondition } from '../types/automation.types';
 
 describe('conditionDefect', () => {
@@ -166,5 +172,54 @@ describe('evaluateCondition — each operator', () => {
     expect(() => at('matches', '(', { f: 'x' })).toThrow(
       'the condition matches "f" against "(", which is not a valid pattern',
     );
+  });
+});
+
+describe('conditionSourceDefect', () => {
+  const none = new Set<string>();
+
+  it('asks for a step before one that tests how the previous step went', () => {
+    expect(conditionSourceDefect({ field: PREVIOUS_STEP_STATUS }, [], none)).toBe('noEarlierStep');
+    expect(
+      conditionSourceDefect({ field: PREVIOUS_STEP_STATUS }, [{ type: 'delay', config: {} }], none),
+    ).toBeUndefined();
+  });
+
+  it('asks for a Compare step before one that tests the differences it found', () => {
+    expect(
+      conditionSourceDefect(
+        { field: COMPARE_DIFFERENCE_COUNT },
+        [{ type: 'backup', config: {} }],
+        none,
+      ),
+    ).toBe('noCompare');
+    expect(
+      conditionSourceDefect(
+        { field: COMPARE_DIFFERENCE_COUNT },
+        [{ type: 'compare', config: {} }],
+        none,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('asks for a Pre-check that takes the very reading tested', () => {
+    const storageOnly = [{ type: 'precheck' as const, config: { checks: ['storage'] } }];
+    expect(conditionSourceDefect({ field: 'apiUsagePercent' }, storageOnly, none)).toBe(
+      'noPrecheck',
+    );
+    expect(
+      conditionSourceDefect({ field: 'storageUsagePercent' }, storageOnly, none),
+    ).toBeUndefined();
+  });
+
+  it('leaves alone a value the pipeline declares, and one no step hands on', () => {
+    expect(
+      conditionSourceDefect(
+        { field: COMPARE_DIFFERENCE_COUNT },
+        [],
+        new Set([COMPARE_DIFFERENCE_COUNT]),
+      ),
+    ).toBeUndefined();
+    expect(conditionSourceDefect({ field: 'region' }, [], none)).toBeUndefined();
   });
 });

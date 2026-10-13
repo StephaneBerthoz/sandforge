@@ -254,6 +254,9 @@ import type {
   PipelineHistoryResponse,
   PipelineSaveRequest,
   PipelineSaveResponse,
+  PipelineApprovalAnswerRequest,
+  PipelineSyncConfigsRequest,
+  PipelineSyncConfigsResponse,
   MigrationImportRequest,
   MigrationImportResponse,
   MigrationImportSfdmuRequest,
@@ -579,6 +582,8 @@ export type WebViewToExtensionMessage =
   | PipelineHistoryRequest
   | PipelineSaveRequest
   | PipelineTemplatesRequest
+  | PipelineApprovalAnswerRequest
+  | PipelineSyncConfigsRequest
   | MigrationImportRequest
   | MigrationImportSfdmuRequest
   | MigrationSaveSyncConfigRequest
@@ -793,6 +798,7 @@ export type ExtensionToWebViewMessage =
   | PipelineRunResponse
   | PipelineStepUpdate
   | PipelineErrorResponse
+  | PipelineSyncConfigsResponse
   | MigrationImportResponse
   | MigrationImportSfdmuResponse
   | MigrationSaveSyncConfigResponse

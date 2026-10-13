@@ -2,9 +2,16 @@ import React, { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   MetadataComponentType,
+  PipelineCondition,
   PipelineStep,
   PipelineStepType,
+  PipelineSyncConfigInfo,
   SalesforceOrg,
+} from '@sandforge/shared';
+import {
+  APPROVAL_DEFAULT_TIMEOUT_MINUTES,
+  APPROVAL_MAX_MESSAGE_LENGTH,
+  APPROVAL_MAX_TIMEOUT_MINUTES,
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -13,11 +20,23 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { CategorySelector } from '../Compare/CategorySelector';
 import { MAX_NOTIFICATION_LENGTH, MAX_STEP_TIMEOUT_MS, PRECHECK_CHECKS } from './stepRunnability';
+import {
+  CONDITION_KINDS,
+  conditionFor,
+  kindOf,
+  takesThreshold,
+  thresholdMax,
+} from './conditionPresets';
 
 /** StepConfigPanel props. */
 export interface StepConfigPanelProps {
   step?: PipelineStep;
   onUpdate?: (stepId: string, updates: Partial<PipelineStep>) => void;
+  /**
+   * The saved Sync configurations a Sync step can run, as the extension
+   * describes them; absent until it has.
+   */
+  syncConfigs?: readonly PipelineSyncConfigInfo[];
   className?: string;
 }
 
@@ -30,17 +49,43 @@ interface ConfigField {
   key: string;
   labelKey: string;
   type: 'text' | 'number' | 'boolean' | 'org' | 'list' | 'checks';
+  /** For a number the step may leave unset: cleared, the key is removed rather than set to 0. */
+  optional?: boolean;
+  /** The bounds of a number, and the length of a text, the step accepts. */
+  min?: number;
+  max?: number;
+  maxLength?: number;
+  /** What an unset field stands for, shown in it. */
+  placeholder?: string;
 }
 
-/** Step-type specific config fields. Compare has a section of its own (see below). */
+/**
+ * Step-type specific config fields. Compare, Condition and Sync have sections
+ * of their own (see below).
+ */
 const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, ConfigField[]>> = {
   seed: [
     { key: 'objectName', labelKey: 'common.object', type: 'text' },
     { key: 'recordCount', labelKey: 'seed.recordCount', type: 'number' },
   ],
-  sync: [
-    { key: 'sourceOrg', labelKey: 'sync.source', type: 'text' },
-    { key: 'targetOrg', labelKey: 'sync.target', type: 'text' },
+  // Who answers is whoever is at the VS Code window: the step asks for what
+  // it says with its question, and how long it waits.
+  approval: [
+    {
+      key: 'message',
+      labelKey: 'automation.stepConfigApprovalMessage',
+      type: 'text',
+      maxLength: APPROVAL_MAX_MESSAGE_LENGTH,
+    },
+    {
+      key: 'timeoutMinutes',
+      labelKey: 'automation.stepConfigApprovalTimeout',
+      type: 'number',
+      optional: true,
+      min: 1,
+      max: APPROVAL_MAX_TIMEOUT_MINUTES,
+      placeholder: String(APPROVAL_DEFAULT_TIMEOUT_MINUTES),
+    },
   ],
   // What DataOps's Backup request takes: the org, and the objects it reads.
   backup: [
@@ -56,7 +101,6 @@ const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, ConfigField[]>> = {
   // step asks for the text it shows and for no address to send it to.
   notification: [{ key: 'message', labelKey: 'automation.stepConfigMessage', type: 'text' }],
   delay: [{ key: 'seconds', labelKey: 'automation.stepConfigDelay', type: 'number' }],
-  script: [{ key: 'script', labelKey: 'automation.stepConfigScript', type: 'text' }],
   delete: [
     { key: 'objectName', labelKey: 'common.object', type: 'text' },
     { key: 'query', labelKey: 'automation.stepConfigWhere', type: 'text' },
@@ -145,12 +189,129 @@ const OrgField: React.FC<OrgFieldProps> = ({
   );
 };
 
+/** Props of {@link ConditionEditor}. */
+interface ConditionEditorProps {
+  stepId: string;
+  condition: PipelineCondition | undefined;
+  onChange: (condition: PipelineCondition) => void;
+}
+
+/**
+ * The test a Condition step makes, chosen among the values a run hands on:
+ * how the previous step went, the differences a Compare found, a Pre-check's
+ * readings. A condition a Marketplace template set that none of these writes
+ * is shown as it stands, until another is chosen.
+ */
+const ConditionEditor: React.FC<ConditionEditorProps> = ({ stepId, condition, onChange }) => {
+  const { t } = useTranslation();
+  const read = kindOf(condition);
+  const custom = condition !== undefined && read === undefined;
+  const options = [
+    ...(custom
+      ? [
+          {
+            value: 'custom',
+            label: t('automation.conditionKinds.custom', {
+              field: condition.field,
+              operator: condition.operator,
+              value: String(condition.value),
+            }),
+          },
+        ]
+      : []),
+    ...CONDITION_KINDS.map((kind) => ({
+      value: kind,
+      label: t(`automation.conditionKinds.${kind}`),
+    })),
+  ];
+  const threshold = read?.threshold ?? 0;
+  return (
+    <>
+      <Select
+        label={t('automation.stepConfigCondition')}
+        placeholder={t('automation.conditionChoose')}
+        options={options}
+        value={custom ? 'custom' : (read?.kind ?? '')}
+        onChange={(e) => {
+          const kind = CONDITION_KINDS.find((candidate) => candidate === e.target.value);
+          if (kind) onChange(conditionFor(kind, threshold));
+        }}
+        className="text-xs"
+        data-testid="config-condition-kind"
+      />
+      {read && takesThreshold(read.kind) && (
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] text-text-secondary">
+            {t(`automation.conditionThreshold.${read.kind}`)}
+          </span>
+          <input
+            // Remounted for another step, so the number is that step's.
+            key={stepId}
+            type="number"
+            value={threshold}
+            min={0}
+            max={thresholdMax(read.kind)}
+            onChange={(e) => onChange(conditionFor(read.kind, Number(e.target.value)))}
+            className={INPUT_CLASS}
+            data-testid="config-condition-threshold"
+          />
+        </label>
+      )}
+    </>
+  );
+};
+
+/** Props of {@link SyncConfigField}. */
+interface SyncConfigFieldProps {
+  value: unknown;
+  syncConfigs: readonly PipelineSyncConfigInfo[] | undefined;
+  onChange: (configId: string) => void;
+}
+
+/**
+ * The saved Sync configuration a Sync step runs, chosen among those the Sync
+ * page saved. One the step names that is no longer saved stays chosen, and the
+ * step is marked until another is picked.
+ */
+const SyncConfigField: React.FC<SyncConfigFieldProps> = ({ value, syncConfigs, onChange }) => {
+  const { t } = useTranslation();
+  const configs = syncConfigs ?? [];
+  const chosen = typeof value === 'string' ? value : '';
+  const options = configs.map((config) => ({ value: config.id, label: config.name }));
+  if (chosen !== '' && !configs.some((config) => config.id === chosen)) {
+    options.unshift({ value: chosen, label: t('automation.syncConfigGone') });
+  }
+  return (
+    <>
+      <Select
+        label={t('automation.stepConfigSyncConfig')}
+        placeholder={t('automation.syncConfigSelect')}
+        options={options}
+        value={chosen}
+        onChange={(e) => onChange(e.target.value)}
+        className="text-xs"
+        data-testid="config-configId"
+      />
+      {syncConfigs !== undefined && configs.length === 0 && (
+        <p className="text-[10px] text-text-secondary" data-testid="config-sync-none">
+          {t('automation.syncConfigNone')}
+        </p>
+      )}
+    </>
+  );
+};
+
 /**
  * Step configuration panel for editing step properties
  * including name, timeout, retries, continueOnError,
  * and step-type-specific configuration fields.
  */
-export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate, className }) => {
+export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
+  step,
+  onUpdate,
+  syncConfigs,
+  className,
+}) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const checksLabelId = useId();
@@ -174,10 +335,11 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
     onUpdate?.(step.id, updates);
   };
 
+  /** Set one key of the step's config; `undefined` removes it. */
   const handleConfigUpdate = (key: string, value: unknown) => {
-    onUpdate?.(step.id, {
-      config: { ...config, [key]: value },
-    });
+    const next: Record<string, unknown> = { ...config, [key]: value };
+    if (value === undefined) delete next[key];
+    onUpdate?.(step.id, { config: next });
   };
 
   /** The checks a Pre-check holds that it can run; any other name is dropped on the next change. */
@@ -266,14 +428,22 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
               type={field.type}
               value={String(config[field.key] ?? '')}
               maxLength={
-                step.type === 'notification' && field.key === 'message'
+                field.maxLength ??
+                (step.type === 'notification' && field.key === 'message'
                   ? MAX_NOTIFICATION_LENGTH
-                  : undefined
+                  : undefined)
               }
+              min={field.min}
+              max={field.max}
+              placeholder={field.placeholder}
               onChange={(e) =>
                 handleConfigUpdate(
                   field.key,
-                  field.type === 'number' ? Number(e.target.value) : e.target.value,
+                  field.type !== 'number'
+                    ? e.target.value
+                    : field.optional && e.target.value === ''
+                      ? undefined
+                      : Number(e.target.value),
                 )
               }
               className={INPUT_CLASS}
@@ -364,7 +534,10 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
       </label>
 
       {/* Step-type-specific config fields */}
-      {(configFields.length > 0 || step.type === 'compare') && (
+      {(configFields.length > 0 ||
+        step.type === 'compare' ||
+        step.type === 'condition' ||
+        step.type === 'sync') && (
         <div
           className="flex flex-col gap-2 mt-1 pt-2 border-t border-(--sf-border,#3c3c3c)"
           data-testid="step-type-config"
@@ -373,6 +546,20 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
             {t('automation.typeConfig', 'Type-specific config')}
           </span>
           {configFields.map(renderField)}
+          {step.type === 'condition' && (
+            <ConditionEditor
+              stepId={step.id}
+              condition={step.condition}
+              onChange={(condition) => handleUpdate({ condition })}
+            />
+          )}
+          {step.type === 'sync' && (
+            <SyncConfigField
+              value={config['configId']}
+              syncConfigs={syncConfigs}
+              onChange={(configId) => handleConfigUpdate('configId', configId)}
+            />
+          )}
           {/* What the Compare page's Run takes: two orgs and the metadata
               types to diff, chosen with the page's own controls. */}
           {step.type === 'compare' && (

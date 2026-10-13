@@ -26,14 +26,11 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'sync',
     label: 'Sync Data',
-    description: 'Synchronize data between orgs or external sources',
+    description:
+      'Run a Sync configuration saved on the Sync page; a production target needs an Approval step before it',
     category: 'data',
     icon: 'sync',
-    configSchema: {
-      sourceOrg: { type: 'string' },
-      targetOrg: { type: 'string' },
-      objects: { type: 'array' },
-    },
+    configSchema: { configId: { type: 'string' } },
   },
   {
     type: 'backup',
@@ -101,22 +98,6 @@ const STEP_REGISTRY: StepTypeInfo[] = [
     },
   },
   {
-    type: 'loop',
-    label: 'Loop',
-    description: 'Repeat a set of steps for each item in a collection',
-    category: 'control',
-    icon: 'repeat',
-    configSchema: { collection: { type: 'string' }, maxIterations: { type: 'number' } },
-  },
-  {
-    type: 'parallel',
-    label: 'Parallel',
-    description: 'Execute multiple steps simultaneously',
-    category: 'control',
-    icon: 'layers',
-    configSchema: { stepIds: { type: 'array' } },
-  },
-  {
     type: 'delay',
     label: 'Delay',
     description: 'Wait for a specified duration before continuing',
@@ -127,18 +108,13 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'approval',
     label: 'Approval',
-    description: 'Marks an approval point; a run goes through it unattended',
+    description:
+      'Pauses the run until someone approves it in VS Code; a rejection, or no answer in time, stops it',
     category: 'control',
     icon: 'user-check',
-    configSchema: { approvers: { type: 'array' }, message: { type: 'string' } },
-  },
-  {
-    type: 'script',
-    label: 'Script',
-    description: 'Execute a custom script or Apex anonymous block',
-    category: 'control',
-    icon: 'code',
-    configSchema: { language: { type: 'string' }, body: { type: 'string' } },
+    // Whoever answers in the VS Code window that runs the pipeline: no list
+    // of approvers, whom nothing could reach.
+    configSchema: { message: { type: 'string' }, timeoutMinutes: { type: 'number' } },
   },
   {
     type: 'notification',

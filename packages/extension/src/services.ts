@@ -19,6 +19,23 @@ import type { CompareDependencies } from './modules/compare/CompareOrchestrator.
 import { PipelineOrchestrator } from './modules/automation/PipelineOrchestrator.js';
 import type { PipelineOrchestratorDependencies } from './modules/automation/PipelineOrchestrator.js';
 
+/** What the approval notification names: the pipeline, the step, its message, and when it stops waiting. */
+export interface ApprovalQuestionText {
+  pipelineName?: string;
+  stepName: string;
+  message?: string;
+  /** When the step stops waiting, as an ISO date. */
+  expiresAt: string;
+}
+
+/** When an approval stops waiting, as the clock of the window reads it. */
+function approvalDeadline(expiresAt: string): string {
+  const at = new Date(expiresAt);
+  return Number.isNaN(at.getTime())
+    ? expiresAt
+    : at.toLocaleTimeString(vscode.env.language, { hour: '2-digit', minute: '2-digit' });
+}
+
 /**
  * CoreServices — the cross-cutting adapter bundle.
  * Every orchestrator and handler receives this subset via constructor
@@ -80,6 +97,21 @@ export interface CoreServices {
    * Notification step is refused before the run.
    */
   showNotification?: (message: string) => void;
+  /**
+   * Ask the person at the VS Code window to approve a pipeline's Approval
+   * step: a notification, not a modal — the run may be one a schedule started
+   * while nobody watches — with Approve and Reject. Resolves with the button
+   * pressed, or undefined when the notification was closed without one.
+   * Optional for the same test reason; where it is absent, an Approval step is
+   * refused before the run.
+   */
+  askApproval?: (question: ApprovalQuestionText) => Promise<'approve' | 'reject' | undefined>;
+  /**
+   * Tell the person who pressed Approve or Reject on a question that no
+   * longer waits — answered on the page, out of time, its run cancelled —
+   * that the press changed nothing.
+   */
+  approvalTooLate?: (question: ApprovalQuestionText) => void;
   /**
    * The window's one AI token counter, shared by every AI feature. `aiClient`
    * builds each adapter with it, so rebuilding the AI stack (any
@@ -242,6 +274,34 @@ export function createServices(
       vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
     showNotification: (message: string): void => {
       void vscode.window.showInformationMessage(message);
+    },
+    askApproval: async (question) => {
+      // The labels double as the answer, so they are compared in the
+      // language they were shown in.
+      const approve = vscode.l10n.t('Approve');
+      const reject = vscode.l10n.t('Reject');
+      const asked = vscode.l10n.t(
+        'SandForge: pipeline "{0}" waits for your approval at step "{1}", until {2}.',
+        question.pipelineName ?? '',
+        question.stepName,
+        approvalDeadline(question.expiresAt),
+      );
+      const choice = await vscode.window.showInformationMessage(
+        question.message ? `${asked} ${question.message}` : asked,
+        approve,
+        reject,
+      );
+      if (choice === approve) return 'approve';
+      if (choice === reject) return 'reject';
+      return undefined;
+    },
+    approvalTooLate: (question) => {
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t(
+          'SandForge: step "{0}" no longer waits for an answer, so this one changed nothing.',
+          question.stepName,
+        ),
+      );
     },
     sessionBudget,
     readTokenBudget,

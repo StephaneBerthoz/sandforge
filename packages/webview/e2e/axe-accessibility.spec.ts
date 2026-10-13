@@ -4989,7 +4989,7 @@ for (const theme of SCANNED_THEMES) {
       // A Delay step with no seconds: the notice, the canvas marker and the
       // palette, which offers only the steps a pipeline runs, are all on
       // screen for the scan.
-      await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(5);
+      await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(8);
       await page.getByTestId('palette-delay').click();
       await page.getByTestId('pipeline-blocked').waitFor({ state: 'visible', timeout: 5000 });
 
@@ -5008,6 +5008,67 @@ for (const theme of SCANNED_THEMES) {
         await page.getByTestId('step-type-config').waitFor({ state: 'visible', timeout: 5000 });
         expectNoViolations(await checkAccessibility(page));
       }
+    });
+
+    test('Automation step panel of an Approval, a Condition and a Sync step', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await bridge.waitForMessage('pipeline:sync-configs', { timeout: 10_000 });
+      await answerAll(page, 'pipeline:sync-configs', 'pipeline:sync-configs:response', {
+        configs: [
+          {
+            id: 'cfg-1',
+            name: 'Dev to QA',
+            valid: true,
+            sourceOrgId: DEV_SANDBOX.id,
+            targetOrgId: QA_SANDBOX.id,
+            guard: 'asks',
+          },
+        ],
+      });
+      await page.getByTestId('create-pipeline-btn').click();
+      // The wait and message of an Approval, the test and threshold of a
+      // Condition, the saved configuration of a Sync, each in the side panel.
+      await page.getByTestId('palette-approval').click();
+      await page.locator('[data-testid^="canvas-step-"]').last().click();
+      await page.getByTestId('config-timeoutMinutes').waitFor({ state: 'visible', timeout: 5000 });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('palette-condition').click();
+      await page.locator('[data-testid^="canvas-step-"]').last().click();
+      await page.getByTestId('config-condition-kind').selectOption('compareDifferences');
+      await page.getByTestId('config-condition-threshold').waitFor({ state: 'visible' });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('palette-sync').click();
+      await page.locator('[data-testid^="canvas-step-"]').last().click();
+      await page.getByTestId('config-configId').selectOption('cfg-1');
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Automation run waiting for an Approval, answered beside the step', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('create-pipeline-btn').click();
+      await page.getByTestId('palette-approval').click();
+      await page.getByTestId('run-pipeline-btn').click();
+      const request = await bridge.waitForMessage('pipeline:execute');
+      const stepId = (request.payload as { pipeline: { steps: Array<{ id: string }> } }).pipeline
+        .steps[0].id;
+      await sendExtensionMessage(page, {
+        type: 'pipeline:step',
+        id: 'approval-waiting',
+        payload: {
+          operationId: request.id,
+          stepId,
+          status: 'running',
+          approval: {
+            message: 'Read the comparison first.',
+            expiresAt: '2026-10-13T09:00:00.000Z',
+          },
+        },
+      });
+      await page.getByTestId(`exec-approve-${stepId}`).waitFor({ state: 'visible', timeout: 5000 });
+
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Automation pipeline while a run is in progress', async ({ page }) => {

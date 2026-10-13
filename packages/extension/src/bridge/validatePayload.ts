@@ -24,7 +24,10 @@ import {
   TEMPLATE_MAX_RULES,
   TEMPLATE_NAME_MAX_LENGTH,
   savedTemplateRuleSchema,
+  isPipelineStepType,
+  isRetiredPipelineStepType,
 } from '@sandforge/shared';
+import type { PipelineStepType, RetiredPipelineStepType } from '@sandforge/shared';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
 import {
@@ -1335,13 +1338,32 @@ export const smartActionAnalyzePayloadSchema = z.object({
 // ── automation:* (pipeline / operation / marketplace) payload schemas ──────
 // Mirror what useAutomationPageData / MonitorPage post.
 
+/**
+ * A step's type as a pipeline holds it: one SandForge has, or one it no
+ * longer has — Script, Loop, Parallel — which a pipeline saved by an earlier
+ * release can hold. That one still reads, so the pipeline loads and the page
+ * shows the step marked; the run refuses it before its first step, naming the
+ * step (StepExecutor). A type nobody ever had does not read.
+ */
+const storedStepTypeSchema = z.custom<PipelineStepType | RetiredPipelineStepType>(
+  (value) => isPipelineStepType(value) || isRetiredPipelineStepType(value),
+  { message: 'Not a pipeline step type' },
+);
+
 export const pipelineRunPayloadSchema = z.object({
   pipeline: z
     .object({
       name: z.string().min(1).max(200),
       // A step saved without a config has none to read; it is read as empty.
       steps: z
-        .array(z.object({ config: z.record(z.string(), z.unknown()).default({}) }).loose())
+        .array(
+          z
+            .object({
+              type: storedStepTypeSchema,
+              config: z.record(z.string(), z.unknown()).default({}),
+            })
+            .loose(),
+        )
         .max(200),
       // A definition that carries no variables or no triggers — one written
       // by hand, drafted elsewhere, or saved before they existed — declares
@@ -1365,6 +1387,12 @@ export const pipelineSavePayloadSchema = z.object({
   // Empty id stays legal: the handler falls back to crypto.randomUUID().
   id: z.string().max(200),
   config: z.record(z.string(), z.unknown()),
+});
+/** `pipeline:approval` — the page's answer to an Approval step of the run it started. */
+export const pipelineApprovalPayloadSchema = z.object({
+  operationId: opaqueIdSchema,
+  stepId: opaqueIdSchema,
+  decision: z.enum(['approved', 'rejected']),
 });
 export const marketplaceListPayloadSchema = z
   .object({

@@ -157,5 +157,9 @@
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Copiar o comando o copia e cancela a clonagem: o SandForge nunca o executa. Execute-o e depois execute a clonagem novamente.",
   "Copy the command": "Copiar o comando",
   "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Estes registros fazem os fluxos de {0} enviarem cerca de {1} e-mails individuais, mais do que os {2} de {3} que restam hoje (e-mails por registro: {4}). Além disso, um registro cujo fluxo falha ao salvar é recusado.",
-  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Estes registros fazem os fluxos de {0} enviarem cerca de {1} e-mails de fluxo de trabalho, mais do que os {2} de {3} que restam hoje (e-mails por registro: {4}). Além disso, um registro cujo fluxo falha ao salvar é recusado."
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Estes registros fazem os fluxos de {0} enviarem cerca de {1} e-mails de fluxo de trabalho, mais do que os {2} de {3} que restam hoje (e-mails por registro: {4}). Além disso, um registro cujo fluxo falha ao salvar é recusado.",
+  "Approve": "Aprovar",
+  "Reject": "Rejeitar",
+  "SandForge: pipeline \"{0}\" waits for your approval at step \"{1}\", until {2}.": "SandForge: o pipeline \"{0}\" aguarda sua aprovação na etapa \"{1}\", até {2}.",
+  "SandForge: step \"{0}\" no longer waits for an answer, so this one changed nothing.": "SandForge: a etapa \"{0}\" não aguarda mais uma resposta, então esta não mudou nada."
 }

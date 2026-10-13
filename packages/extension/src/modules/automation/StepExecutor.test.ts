@@ -25,10 +25,11 @@ function createContext(overrides?: Partial<StepContext>): StepContext {
 }
 
 /**
- * The thirteen step types the executor has no handler of its own for. Each of
+ * The ten step types the executor has no handler of its own for. Each of
  * them used to go to a pass-through that answered "completed" without doing
- * anything. Four — Backup, Compare, Pre-check, Notification — run once the
- * extension registers the module flows they use (see `pipelineSteps.ts`).
+ * anything. Six — Backup, Compare, Pre-check, Notification, Approval, Sync —
+ * run once the extension registers the module flows they use (see
+ * `pipelineSteps.ts`).
  */
 const UNRUNNABLE_TYPES: PipelineStepType[] = [
   'seed',
@@ -39,11 +40,8 @@ const UNRUNNABLE_TYPES: PipelineStepType[] = [
   'delete',
   'compare',
   'precheck',
-  'script',
   'notification',
   'approval',
-  'loop',
-  'parallel',
 ];
 
 describe('StepExecutor', () => {
@@ -397,6 +395,63 @@ describe('StepExecutor', () => {
           }),
         ),
       ).toBe('Condition step "Gate" matches "id" against "[", which is not a valid pattern.');
+    });
+
+    it('refuses a Condition step testing the differences of a comparison no Compare step before it makes', () => {
+      const gate = createStep({
+        id: 'gate',
+        type: 'condition',
+        name: 'Gate',
+        condition: { field: 'compareDifferenceCount', operator: 'gt', value: 10 },
+      });
+      const compare = createStep({ id: 'compare', type: 'compare', name: 'Diff' });
+      const declared = new Set<string>();
+
+      expect(executor.check(gate, { steps: [gate], index: 0, declared })).toBe(
+        'Condition step "Gate" tests how many differences a comparison found, and no Compare step comes before it.',
+      );
+      expect(executor.check(gate, { steps: [compare, gate], index: 1, declared })).toBeUndefined();
+    });
+
+    it('refuses a first step that tests how the previous step went', () => {
+      const gate = createStep({
+        type: 'condition',
+        name: 'Gate',
+        condition: { field: 'previousStepStatus', operator: 'eq', value: 'failed' },
+      });
+
+      expect(executor.check(gate, { steps: [gate], index: 0, declared: new Set() })).toBe(
+        'Condition step "Gate" tests how the previous step went, and no step comes before it.',
+      );
+    });
+
+    it('answers how the previous step went from the value the run hands on', async () => {
+      const gate = createStep({
+        type: 'condition',
+        name: 'Gate',
+        condition: { field: 'previousStepStatus', operator: 'eq', value: 'failed' },
+      });
+
+      const result = await executor.execute(
+        gate,
+        createContext({ variables: { previousStepStatus: 'failed' } }),
+      );
+
+      expect(result.status).toBe('completed');
+      expect(result.output).toEqual({ conditionMet: true });
+    });
+
+    it('refuses a step of a type SandForge no longer has, and says to remove it', async () => {
+      for (const type of ['script', 'loop', 'parallel']) {
+        const step = createStep({ type: type as PipelineStepType, name: 'Old step' });
+
+        const result = await executor.execute(step, createContext());
+
+        expect(result.status).toBe('failed');
+        expect(result.error).toBe(
+          `Step "Old step" is a ${type} step, which SandForge no longer supports: remove it from the pipeline.`,
+        );
+      }
     });
 
     it('should return failure result when handler throws', async () => {

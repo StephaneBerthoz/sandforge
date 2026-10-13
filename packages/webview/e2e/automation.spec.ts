@@ -230,7 +230,7 @@ function kpiValues(page: Page) {
   return page.getByTestId('automation-kpi-row').getByTestId('kpi-value');
 }
 
-/** Answer the four queries the page fires on mount, so nothing is left waiting. */
+/** Answer the queries the page fires on mount, so nothing is left waiting. */
 async function answerMountQueries(
   page: Page,
   options: {
@@ -239,11 +239,16 @@ async function answerMountQueries(
     triggers?: unknown[];
     history?: unknown[];
     templates?: unknown[];
+    /** The saved Sync configurations, with what Production Guard does with each. */
+    syncConfigs?: unknown[];
   } = {},
 ): Promise<void> {
   await respondToAll(page, 'pipeline:list', 'pipeline:list:response', {
     pipelines: options.pipelines ?? [],
     triggers: options.triggers ?? [],
+  });
+  await respondToAll(page, 'pipeline:sync-configs', 'pipeline:sync-configs:response', {
+    configs: options.syncConfigs ?? [],
   });
   await respondToAll(page, 'pipeline:history', 'pipeline:history:response', {
     history: options.history ?? [],
@@ -429,7 +434,10 @@ test.describe('Automation page — saved pipelines', () => {
     const notice = page.getByTestId('pipeline-blocked');
     await expect(notice).toContainText('This pipeline cannot run.');
     await expect(page.getByTestId('pipeline-blocked-step-1')).toHaveText(
-      'Query Accounts (Sync) — This step writes to an org, so a pipeline does not run it: ' +
+      'Query Accounts (Sync) — Choose the saved Sync configuration this step runs.',
+    );
+    await expect(page.getByTestId('pipeline-blocked-step-3')).toHaveText(
+      'Load Target (Seed) — A pipeline does not run this step: ' +
         'run it from its own page, where Production Guard asks before a write to a production org.',
     );
     await expect(page.locator('[data-testid^="canvas-blocked-"]')).toHaveCount(3);
@@ -507,13 +515,22 @@ test.describe('Automation page — canvas editing', () => {
     await page.getByTestId('create-pipeline-btn').click();
 
     await expect(page.getByTestId('palette-runnable-note')).toContainText(
-      'Steps that write to an org — Seed, Sync, Restore, Anonymize, Delete — run only from their own pages',
+      'Seed, Restore, Anonymize and Delete write to an org and run only from their own pages',
     );
-    await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(5);
-    for (const type of ['backup', 'compare', 'precheck', 'delay', 'notification']) {
+    await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(8);
+    for (const type of [
+      'sync',
+      'backup',
+      'compare',
+      'precheck',
+      'condition',
+      'delay',
+      'approval',
+      'notification',
+    ]) {
       await expect(page.getByTestId(`palette-${type}`)).toBeEnabled();
     }
-    for (const type of ['seed', 'sync', 'delete', 'script', 'condition']) {
+    for (const type of ['seed', 'delete', 'script', 'loop', 'parallel']) {
       await expect(page.getByTestId(`palette-${type}`)).toHaveCount(0);
     }
     await expect(page.getByTestId('automation-content')).not.toContainText('Coming soon');
@@ -611,6 +628,134 @@ test.describe('Automation page — canvas editing', () => {
     await page.getByTestId('execution-cancel').click();
     const aborts = await waitForOutgoing(page, 'execution:abort');
     expect(aborts).toEqual([expect.objectContaining({ payload: { operationId: request.id } })]);
+  });
+
+  test('a Condition step is given its test, and is refused a test nothing before it answers', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('palette-condition').click();
+
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'Choose what this Condition step tests.',
+    );
+    await canvasSteps(page).first().click();
+    await page.getByTestId('config-condition-kind').selectOption('previousFailed');
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'This Condition tests how the previous step went, and no step comes before it.',
+    );
+
+    await page.getByTestId('config-condition-kind').selectOption('compareDifferences');
+    await page.getByTestId('config-condition-threshold').fill('10');
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'put a Compare step before it',
+    );
+  });
+
+  test('a Sync into an org Production Guard asks about needs an Approval before it, which the run view answers', async ({
+    page,
+  }) => {
+    const [source, target] = MOCK_ORGS as Array<{ id: string }>;
+    await openAutomation(page);
+    await answerMountQueries(page, {
+      syncConfigs: [
+        {
+          id: 'cfg-prod',
+          name: 'Accounts into production',
+          valid: true,
+          sourceOrgId: source.id,
+          targetOrgId: target.id,
+          guard: 'asks',
+        },
+      ],
+    });
+    await page.getByTestId('create-pipeline-btn').click();
+
+    // A Sync on its own: the guard would ask, and nobody may be there.
+    await page.getByTestId('palette-sync').click();
+    await canvasSteps(page).first().click();
+    await page.getByTestId('config-configId').selectOption('cfg-prod');
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'put an Approval step before it',
+    );
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+    const syncId =
+      (await canvasSteps(page).first().getAttribute('data-testid'))?.replace('canvas-step-', '') ??
+      '';
+    await page.getByTestId(`remove-step-${syncId}`).click();
+
+    // Approval first, then the Sync: it runs, the Approval's answer standing
+    // for the guard's question.
+    await page.getByTestId('palette-approval').click();
+    await page.getByTestId('palette-sync').click();
+    await canvasSteps(page).nth(1).click();
+    await page.getByTestId('config-configId').selectOption('cfg-prod');
+    await expect(page.getByTestId('pipeline-blocked')).toHaveCount(0);
+    await page.getByTestId('run-pipeline-btn').click();
+
+    const runs = await waitForOutgoing(page, 'pipeline:execute');
+    const request = runs[runs.length - 1];
+    const sent = (request.payload as { pipeline: { steps: Array<Record<string, unknown>> } })
+      .pipeline.steps;
+    expect(sent.map((step) => step.type)).toEqual(['approval', 'sync']);
+    expect(sent[1].config).toEqual({ configId: 'cfg-prod' });
+
+    // The host says the Approval waits; the page offers the same choice as
+    // the notification in VS Code.
+    const approvalId = sent[0].id as string;
+    await sendExtensionMessage(page, {
+      type: 'pipeline:step',
+      id: 'approval-waiting',
+      payload: {
+        operationId: request.id,
+        stepId: approvalId,
+        status: 'running',
+        approval: { message: 'Read the comparison first.', expiresAt: '2026-10-13T09:00:00.000Z' },
+      },
+    });
+    await expect(page.getByTestId(`exec-approval-${approvalId}`)).toContainText(
+      'Read the comparison first.',
+    );
+    await page.getByTestId(`exec-approve-${approvalId}`).click();
+    const answers = await waitForOutgoing(page, 'pipeline:approval');
+    expect(answers).toEqual([
+      expect.objectContaining({
+        payload: { operationId: request.id, stepId: approvalId, decision: 'approved' },
+      }),
+    ]);
+  });
+
+  test('a saved pipeline holding a step SandForge no longer has opens, marked, and cannot run', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page, {
+      pipelines: [
+        {
+          ...SAVED_PIPELINES[1],
+          id: 'pipe-old',
+          name: 'Old release',
+          steps: [
+            {
+              id: 'step-old',
+              name: 'Run Apex tests',
+              type: 'script',
+              config: { language: 'apex' },
+              continueOnError: false,
+            },
+          ],
+        },
+      ],
+    });
+    await page.getByTestId('saved-pipeline-pipe-old').click();
+
+    await expect(page.getByTestId('canvas-blocked-step-old')).toHaveText('No longer supported');
+    await expect(page.getByTestId('pipeline-blocked-step-old')).toHaveText(
+      'Run Apex tests (script) — This step type is no longer supported: remove the step from the pipeline.',
+    );
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
   });
 
   test('selecting a step opens its config panel and renaming it redraws the canvas', async ({
@@ -913,7 +1058,8 @@ test.describe('Automation page — marketplace', () => {
     });
 
     await expect(page.getByTestId('marketplace-template-blocked-mkt-1')).toContainText(
-      'Cannot run as a pipeline. These step types do not run in one: Sync, Anonymize, Seed.',
+      // Sync runs, once a saved configuration is chosen for it after Install.
+      'Cannot run as a pipeline. These step types do not run in one: Anonymize, Seed.',
     );
     await expect(page.getByTestId('marketplace-template-blocked-mkt-2')).toHaveCount(0);
   });

@@ -210,7 +210,27 @@ export {
   type ForgeRunGateCode,
   type ForgeRunGateStop,
 } from './utils/forge-run-gate.js';
-export { conditionDefect, evaluateCondition } from './utils/pipelineCondition.js';
+export {
+  COMPARE_DIFFERENCE_COUNT,
+  conditionDefect,
+  conditionSourceDefect,
+  evaluateCondition,
+  PRECHECK_VARIABLES,
+  PREVIOUS_STEP_STATUS,
+  type ConditionSourceDefect,
+} from './utils/pipelineCondition.js';
+export {
+  APPROVAL_DEFAULT_TIMEOUT_MINUTES,
+  APPROVAL_MAX_MESSAGE_LENGTH,
+  APPROVAL_MAX_TIMEOUT_MINUTES,
+  approvalDefect,
+  approvalTimeoutMinutes,
+  isPipelineStepType,
+  isRetiredPipelineStepType,
+  PIPELINE_STEP_TYPES,
+  RETIRED_PIPELINE_STEP_TYPES,
+  type ApprovalDefect,
+} from './utils/pipelineStepRules.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';

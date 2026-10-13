@@ -148,7 +148,7 @@ describe('PipelineOrchestrator', () => {
 
       expect(deps.stepExecutor.execute).toHaveBeenCalledWith(
         pipeline.steps[0],
-        expect.objectContaining({ variables: vars }),
+        expect.objectContaining({ variables: expect.objectContaining(vars) }),
       );
     });
 
@@ -900,6 +900,77 @@ describe('PipelineOrchestrator', () => {
       expect(run.status).toBe('failed');
     });
 
+    it('lets a Condition go one way when the step before it failed and continued on error', async () => {
+      deps.stepExecutor.registerHandler('backup', async (step) => ({
+        stepId: step.id,
+        stepName: step.name,
+        stepType: step.type,
+        status: 'failed',
+        error: 'The org did not answer.',
+      }));
+      const backup: PipelineStep = {
+        id: 'backup',
+        name: 'Backup',
+        type: 'backup',
+        config: {},
+        continueOnError: true,
+      };
+      const failedGate = gate({
+        condition: { field: 'previousStepStatus', operator: 'eq', value: 'failed' },
+      });
+
+      const run = await orchestrator.execute(
+        createPipeline({ steps: [backup, failedGate, delayStep('then')] }),
+        {},
+        'manual',
+      );
+
+      expect(run.stepResults[1].output).toEqual({ conditionMet: true });
+      expect(statuses(run)).toEqual([
+        ['backup', 'failed'],
+        ['gate', 'completed'],
+        ['then', 'completed'],
+      ]);
+    });
+
+    it('hands on that the step before succeeded, so a Condition on failure holds the run back', async () => {
+      const failedGate = gate({
+        condition: { field: 'previousStepStatus', operator: 'eq', value: 'failed' },
+      });
+
+      const run = await orchestrator.execute(
+        createPipeline({ steps: [delayStep('first'), failedGate, delayStep('then')] }),
+        {},
+        'manual',
+      );
+
+      expect(run.stepResults[1].output).toEqual({ conditionMet: false });
+      expect(statuses(run)).toEqual([
+        ['first', 'completed'],
+        ['gate', 'completed'],
+        ['then', 'skipped'],
+      ]);
+    });
+
+    it('refuses, before any step runs, a Condition on differences no Compare step before it finds', async () => {
+      const execute = vi.spyOn(deps.stepExecutor, 'execute');
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            delayStep('first'),
+            gate({ condition: { field: 'compareDifferenceCount', operator: 'gt', value: 5 } }),
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(run.status).toBe('failed');
+      expect(run.error).toContain('no Compare step comes before it');
+      expect(execute).not.toHaveBeenCalled();
+    });
+
     it('lets a Condition test what a step before it handed on', async () => {
       // A Pre-check hands on the API usage it read; the Condition after it
       // used to find only the variables the run started with.
@@ -917,7 +988,7 @@ describe('PipelineOrchestrator', () => {
         id: 'check',
         name: 'Check',
         type: 'precheck',
-        config: {},
+        config: { checks: ['apiLimits'] },
         continueOnError: false,
       };
 

@@ -679,23 +679,20 @@ describe('AutomationHandler', () => {
     });
 
     it.each([
-      // The steps that write to an org: a pipeline runs unattended, and each
-      // of them runs from its own page, behind Production Guard.
-      'seed',
-      'sync',
-      'restore',
-      'anonymize',
-      'delete',
-      'script',
-      'approval',
-      'loop',
-      'parallel',
-      // Names the predefined templates and the AI draft use, outside the union.
-      'dataops:backup',
-      'dataops',
+      // The steps that write to an org, Sync aside: each runs from its own
+      // page, behind Production Guard.
+      ['seed', 'and this step type cannot run in a pipeline yet.'],
+      ['restore', 'and this step type cannot run in a pipeline yet.'],
+      ['anonymize', 'and this step type cannot run in a pipeline yet.'],
+      ['delete', 'and this step type cannot run in a pipeline yet.'],
+      // The types SandForge no longer has, as a pipeline saved by an earlier
+      // release holds them: it still reads, and does not start.
+      ['script', 'which SandForge no longer supports: remove it from the pipeline.'],
+      ['loop', 'which SandForge no longer supports: remove it from the pipeline.'],
+      ['parallel', 'which SandForge no longer supports: remove it from the pipeline.'],
     ])(
       'refuses a pipeline holding a %s step before any step runs, and History records it failed',
-      async (type) => {
+      async (type, reason) => {
         const { services, ends } = realServices();
         deps.services = services;
         // The module flows are there: the refusal is the step type's own.
@@ -713,7 +710,7 @@ describe('AutomationHandler', () => {
           expect.objectContaining({
             stepId: 's2',
             status: 'failed',
-            error: `Step "Do the work" is a ${type} step, and this step type cannot run in a pipeline yet.`,
+            error: `Step "Do the work" is a ${type} step, ${reason}`,
           }),
         ]);
         expect(result.error).toMatch(/^Pipeline did not start: /);
@@ -726,6 +723,24 @@ describe('AutomationHandler', () => {
         expect(entry['status']).toBe('failed');
         expect(entry['stepCount']).toBe(1);
         expect(entry['errorCount']).toBe(1);
+      },
+    );
+
+    it.each(['dataops:backup', 'dataops'])(
+      'refuses at the door a pipeline holding a %s step, a type no release ever had',
+      async (type) => {
+        deps.services = realServices().services;
+        handler.setStepRunners(fakeRunners());
+
+        await run([
+          { type: 'delay', config: { seconds: 0 } },
+          { type, name: 'Do the work' },
+        ]);
+
+        expect(posted(deps, 'pipeline:run:response')).toHaveLength(0);
+        const [refusal] = posted(deps, 'pipeline:error');
+        expect(refusal.payload).toMatchObject({ code: 'INVALID_PAYLOAD' });
+        expect(deps.configStore.getByCategory('pipeline-history')).toEqual({});
       },
     );
 
@@ -1143,6 +1158,260 @@ describe('AutomationHandler', () => {
       ]);
       // History says how many steps ran: the one passed over is not one of them.
       expect(onlyHistoryEntry(deps)['stepCount']).toBe(1);
+    });
+
+    describe('an Approval step', () => {
+      /** Services whose VS Code notification is shown and never answered. */
+      function askingServices(timeoutMs = 300_000): {
+        services: HandlerDeps['services'];
+        asked: Array<{ stepName: string; expiresAt: string }>;
+      } {
+        const asked: Array<{ stepName: string; expiresAt: string }> = [];
+        const { services } = realServices(timeoutMs);
+        return {
+          asked,
+          services: {
+            ...services,
+            askApproval: vi.fn((question: { stepName: string; expiresAt: string }) => {
+              asked.push(question);
+              return new Promise<undefined>(() => undefined);
+            }),
+          } as unknown as HandlerDeps['services'],
+        };
+      }
+
+      /** Wait until the page has been told a step waits for an answer. */
+      async function waitingStep(): Promise<{ stepId: string; expiresAt: string }> {
+        for (let i = 0; i < 50; i++) {
+          const waiting = posted(deps, 'pipeline:step')
+            .map((message) => message.payload as Record<string, unknown>)
+            .find((payload) => payload['approval'] !== undefined);
+          if (waiting) {
+            const approval = waiting['approval'] as { expiresAt: string };
+            return { stepId: String(waiting['stepId']), expiresAt: approval.expiresAt };
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        throw new Error('the page was never told a step waits');
+      }
+
+      /** The page's answer to the step, as `pipeline:approval`. */
+      async function answer(stepId: string, decision: 'approved' | 'rejected'): Promise<void> {
+        await handler.handle(
+          inboundRequest({
+            id: `answer-${stepId}`,
+            type: 'pipeline:approval',
+            timestamp: Date.now(),
+            payload: { operationId: 'run-real', stepId, decision },
+          } as unknown as BaseMessage),
+        );
+      }
+
+      it('holds the run until the page approves it, then runs the next step and records who and when', async () => {
+        const { services, asked } = askingServices();
+        deps.services = services;
+        const flows = fakeRunners();
+        handler.setStepRunners(flows);
+
+        const done = run([
+          { type: 'approval', name: 'Look first', config: { message: 'Check the diff.' } },
+          { type: 'notification', name: 'Tell me', config: { message: 'Approved.' } },
+        ]);
+        const waiting = await waitingStep();
+        expect(asked).toEqual([expect.objectContaining({ stepName: 'Look first' })]);
+        expect(flows.notify).not.toHaveBeenCalled();
+        await answer(waiting.stepId, 'approved');
+        await done;
+
+        const result = runResponse(deps);
+        expect(result.status).toBe('completed');
+        expect(flows.notify).toHaveBeenCalledWith('Refresh QA: Approved.');
+        const [approvalStep] = onlyHistoryEntry(deps)['steps'] as Array<Record<string, unknown>>;
+        expect(approvalStep).toMatchObject({
+          stepName: 'Look first',
+          status: 'completed',
+          approval: { decision: 'approved', via: 'page', at: expect.any(String) },
+        });
+        const trail = deps.configStore.get('audit:trail') as Array<Record<string, unknown>>;
+        expect(trail).toEqual([
+          expect.objectContaining({
+            action: 'pipeline_approval',
+            module: 'automation',
+            operationId: 'run-real',
+            outcome: 'success',
+            details: expect.objectContaining({
+              pipeline: 'Refresh QA',
+              step: 'Look first',
+              decision: 'approved',
+              via: 'page',
+            }),
+          }),
+        ]);
+      });
+
+      it('ends the run failed, rejected, when the page rejects it', async () => {
+        deps.services = askingServices().services;
+        const flows = fakeRunners();
+        handler.setStepRunners(flows);
+
+        const done = run([
+          { type: 'approval', name: 'Look first' },
+          { type: 'notification', name: 'Tell me', config: { message: 'Approved.' } },
+        ]);
+        await answer((await waitingStep()).stepId, 'rejected');
+        await done;
+
+        const result = runResponse(deps);
+        expect(result.status).toBe('failed');
+        expect(result.error).toMatch(
+          /^Approval step "Look first" was rejected on the Automation page at /,
+        );
+        expect(flows.notify).not.toHaveBeenCalled();
+      });
+
+      it('does not count the wait for an answer against the pipeline timeout', async () => {
+        // A budget of 30 ms, and an answer a good deal later: the run is not
+        // stopped as out of time while the step waits for a person.
+        deps.services = askingServices(30).services;
+        handler.setStepRunners(fakeRunners());
+
+        const done = run([{ type: 'approval', name: 'Look first' }]);
+        const waiting = await waitingStep();
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        await answer(waiting.stepId, 'approved');
+        await done;
+
+        expect(runResponse(deps).status).toBe('completed');
+      });
+
+      it('takes no answer for a step that no longer waits', async () => {
+        await answer('s1', 'approved');
+
+        expect(posted(deps, 'pipeline:error')).toHaveLength(0);
+        expect(deps.log).toHaveBeenCalledWith(
+          '[WARN] pipeline:approval for a step that no longer waits: s1',
+        );
+      });
+
+      it('is refused before the run where no window can ask anyone', async () => {
+        deps.services = realServices().services;
+        handler.setStepRunners(fakeRunners());
+
+        await run([{ type: 'approval', name: 'Look first' }]);
+
+        expect(runResponse(deps).error).toBe(
+          'Pipeline did not start: Approval step "Look first" cannot ask anyone: there is no VS Code window to ask in.',
+        );
+      });
+    });
+
+    describe('a Sync step', () => {
+      /** A saved Sync configuration, as the Sync page stores one. */
+      const saved = {
+        id: 'cfg-1',
+        name: 'Accounts to dev',
+        description: '',
+        sourceOrgId: 'org-a',
+        targetOrgId: 'org-b',
+        direction: 'source_to_target',
+        mode: 'full',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'insert',
+            batchSize: 200,
+            fieldMappings: [],
+            transformRules: [],
+            excludedFields: [],
+            addOnFields: [],
+          },
+        ],
+        conflictStrategy: 'source_wins',
+        enableRollback: false,
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+      };
+
+      function syncRunners(guard: 'allowed' | 'asks'): PipelineStepRunners {
+        return fakeRunners({
+          savedSyncConfig: (id) => (id === 'cfg-1' ? saved : undefined),
+          listSyncConfigs: () => [saved],
+          syncGuard: () => ({ decision: guard }),
+          runSync: vi.fn(async () => ({
+            configId: 'cfg-1',
+            operationId: 'sync-op',
+            status: 'success' as const,
+            objectResults: [],
+            totalProcessed: 5,
+            totalSuccess: 5,
+            totalFailed: 0,
+            totalSkipped: 0,
+            duration: 10,
+            timestamp: '2026-10-13T08:00:00.000Z',
+          })),
+        });
+      }
+
+      it('refuses, before any step runs, a Sync into an org the guard asks about with no Approval before it', async () => {
+        deps.services = realServices().services;
+        const flows = syncRunners('asks');
+        handler.setStepRunners(flows);
+
+        await run([{ type: 'sync', name: 'Copy accounts', config: { configId: 'cfg-1' } }]);
+
+        const result = runResponse(deps);
+        expect(result.status).toBe('failed');
+        expect(result.error).toContain('put an Approval step before it');
+        expect(flows.runSync).not.toHaveBeenCalled();
+      });
+
+      it('runs a Sync into a sandbox with no approval, and History keeps its counts', async () => {
+        deps.services = realServices().services;
+        const flows = syncRunners('allowed');
+        handler.setStepRunners(flows);
+
+        await run([{ type: 'sync', name: 'Copy accounts', config: { configId: 'cfg-1' } }]);
+
+        expect(runResponse(deps).status).toBe('completed');
+        expect(flows.runSync).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'cfg-1' }),
+          { approved: false },
+          expect.any(AbortSignal),
+        );
+        expect(onlyHistoryEntry(deps)['steps']).toEqual([
+          expect.objectContaining({
+            stepName: 'Copy accounts',
+            summary:
+              'Synced "Accounts to dev" into dev: 5 records written, 0 failed and 0 skipped of 5 read.',
+          }),
+        ]);
+      });
+
+      it('lists the saved configurations with what the guard does with each', async () => {
+        handler.setStepRunners(syncRunners('asks'));
+
+        await handler.handle(
+          inboundRequest({
+            id: 'configs-1',
+            type: 'pipeline:sync-configs',
+            timestamp: Date.now(),
+          } as unknown as BaseMessage),
+        );
+
+        const [response] = posted(deps, 'pipeline:sync-configs:response');
+        expect(response.payload).toEqual({
+          configs: [
+            {
+              id: 'cfg-1',
+              name: 'Accounts to dev',
+              valid: true,
+              sourceOrgId: 'org-a',
+              targetOrgId: 'org-b',
+              guard: 'asks',
+            },
+          ],
+        });
+      });
     });
   });
 

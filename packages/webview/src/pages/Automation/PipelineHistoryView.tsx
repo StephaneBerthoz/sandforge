@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
+  PipelineApprovalRecord,
   PipelineHistoryEntry,
   PipelineHistoryStatus,
   PipelineStepResult,
@@ -65,6 +66,30 @@ function missedLine(entry: PipelineHistoryEntry, t: TFunction): string {
         : t('automation.missed.busy', { time, since });
     case 'cannotRun':
       return t('automation.missed.cannotRun', { time });
+  }
+}
+
+/**
+ * How an Approval step was answered, in the reader's language: approved or
+ * rejected, where, and when — or that nobody answered in time, or its run was
+ * cancelled while it waited.
+ */
+export function approvalLine(record: PipelineApprovalRecord, t: TFunction): string {
+  const time = formatTriggerTime(record.at) ?? t('common.dateUnknown');
+  const inVsCode = record.via === 'notification';
+  switch (record.decision) {
+    case 'approved':
+      return inVsCode
+        ? t('automation.approval.record.approvedOnNotification', { time })
+        : t('automation.approval.record.approvedOnPage', { time });
+    case 'rejected':
+      return inVsCode
+        ? t('automation.approval.record.rejectedOnNotification', { time })
+        : t('automation.approval.record.rejectedOnPage', { time });
+    case 'timedOut':
+      return t('automation.approval.record.timedOut', { time });
+    case 'cancelled':
+      return t('automation.approval.record.cancelled', { time });
   }
 }
 
@@ -170,6 +195,11 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                       {(step.error ?? step.summary) && (
                         <span className={step.error ? 'text-status-error' : undefined}>
                           {step.error ?? step.summary}
+                        </span>
+                      )}
+                      {step.approval && (
+                        <span data-testid={`history-approval-${entry.runId}-${index}`}>
+                          {approvalLine(step.approval, t)}
                         </span>
                       )}
                     </li>

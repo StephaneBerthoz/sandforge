@@ -51,6 +51,8 @@ export const AutomationPage: React.FC = () => {
     isRunning,
     pipelinesLoading,
     savedPipelines,
+    syncConfigs,
+    declaredVariables,
     triggerStatuses,
     savedTriggers,
     sandboxes,
@@ -78,6 +80,7 @@ export const AutomationPage: React.FC = () => {
     handleCreatePipeline,
     handleRunPipeline,
     handleCancelRun,
+    handleAnswerApproval,
     handleSavePipeline,
     handleLoadPipeline,
     handleInstallTemplate,
@@ -249,7 +252,10 @@ export const AutomationPage: React.FC = () => {
                   <span className="text-xs text-text-secondary">
                     {t('automation.stepCount', { count: p.steps.length })}
                   </span>
-                  {blockedSteps(p.steps, orgIds).length > 0 && (
+                  {blockedSteps(p.steps, orgIds, {
+                    syncConfigs,
+                    declared: new Set((p.variables ?? []).map((variable) => variable.name)),
+                  }).length > 0 && (
                     <Badge variant="warning" data-testid={`saved-pipeline-blocked-${p.id}`}>
                       {t('automation.runnability.cannotRun')}
                     </Badge>
@@ -334,11 +340,17 @@ export const AutomationPage: React.FC = () => {
               <div className="flex gap-(--sf-space-4)">
                 <div className="flex-1">
                   {isRunning ? (
-                    <PipelineExecutionView execution={executionData} onCancel={handleCancelRun} />
+                    <PipelineExecutionView
+                      execution={executionData}
+                      onCancel={handleCancelRun}
+                      onAnswerApproval={handleAnswerApproval}
+                    />
                   ) : (
                     <PipelineCanvas
                       steps={pipeline?.steps}
                       orgIds={orgIds}
+                      declared={declaredVariables}
+                      syncConfigs={syncConfigs}
                       selectedStepId={selectedStepId}
                       onSelectStep={(id) => {
                         setSelectedStepId(id);
@@ -352,6 +364,7 @@ export const AutomationPage: React.FC = () => {
                   <StepConfigPanel
                     step={pipeline?.steps.find((s) => s.id === selectedStepId)}
                     onUpdate={handleUpdateStep}
+                    syncConfigs={syncConfigs}
                   />
                 </div>
               </div>

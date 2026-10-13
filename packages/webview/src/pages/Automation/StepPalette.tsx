@@ -29,11 +29,8 @@ const STEP_ENTRIES: StepPaletteEntry[] = [
   { type: 'compare', category: 'quality' },
   { type: 'precheck', category: 'quality' },
   { type: 'condition', category: 'control' },
-  { type: 'loop', category: 'control' },
-  { type: 'parallel', category: 'control' },
   { type: 'delay', category: 'control' },
   { type: 'approval', category: 'control' },
-  { type: 'script', category: 'control' },
   { type: 'notification', category: 'notification' },
 ];
 
@@ -51,12 +48,13 @@ const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' |
  * The step types the palette adds: the ones a pipeline built on this page can
  * run, as `paletteBlocker` reads them.
  *
- * It listed all fifteen, ten of them disabled: the five that write to an org
- * marked "Not in pipelines", and Script, Approval, Loop, Parallel and
- * Condition — which runs, but gets no condition from this page — marked
- * "Coming soon". None of the ten could be added, and all ten read as on
- * offer. The note above the list says where the steps that write to an org
- * run instead, since those are the ones a reader comes looking for.
+ * It listed all fifteen, ten of them disabled under "Not in pipelines" or
+ * "Coming soon": none of the ten could be added, and all ten read as on
+ * offer. Script, Loop and Parallel are gone for good; Approval waits for an
+ * answer in VS Code, Condition is given its test in the Step Config Panel,
+ * and Sync runs a configuration saved on the Sync page. The note above the
+ * list says where the steps that write to an org and do not run here run
+ * instead, since those are the ones a reader comes looking for.
  */
 const OFFERED_ENTRIES = STEP_ENTRIES.filter((entry) => paletteBlocker(entry.type) === undefined);
 

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import type { ForgeRemovalRisk } from '@sandforge/shared';
 
 /** Safety tier classification for Salesforce orgs */
@@ -286,6 +288,39 @@ export interface ProductionGuardOptions {
 }
 
 /**
+ * The answer to the guard's confirmation given before the run asked it: a
+ * pipeline's Approval step, which a person answered in VS Code before the
+ * Sync step after it started. `approved` false stands for nobody having
+ * approved — no Approval step before the run, or one rejected or left
+ * unanswered — and a question is then declined, never put to a modal nobody
+ * watches.
+ */
+export interface GivenAnswer {
+  approved: boolean;
+}
+
+/**
+ * The answer given for the run under way, by async call chain: the run a
+ * pipeline step starts carries it through every await, and a run started
+ * elsewhere at the same moment — from the Sync page, by its schedule — does
+ * not see it.
+ */
+const givenAnswers = new AsyncLocalStorage<GivenAnswer>();
+
+/**
+ * Run `work` with `answer` standing for the confirmation the guard would
+ * otherwise ask for. The guard still checks every request: a run it refuses
+ * is refused whatever the answer, and a run it lets through without asking
+ * never reads it. Only the question is answered, and the decision the write
+ * path records is the person's — `confirmed`, or `declined`.
+ * @param answer - The answer given before the run
+ * @param work - The run
+ */
+export function withGivenAnswer<T>(answer: GivenAnswer, work: () => Promise<T>): Promise<T> {
+  return givenAnswers.run(answer, work);
+}
+
+/**
  * Guards against dangerous operations on production and staging orgs.
  * Enforces tier-based rules for writes, deletes, and large-volume operations.
  */
@@ -327,10 +362,11 @@ export class ProductionGuard {
    * Whether a confirmation can be put to someone. With no confirmation UI — a
    * unit test, a command-line runner — {@link confirmIfNeeded} lets through a
    * run it would otherwise have asked about, and a record of that run must not
-   * say that anyone confirmed it.
+   * say that anyone confirmed it. A run given its answer beforehand
+   * ({@link withGivenAnswer}) was answered by a person, whatever UI there is.
    */
   get canAskForConfirmation(): boolean {
-    return this.options.requestConfirmation !== undefined;
+    return this.options.requestConfirmation !== undefined || givenAnswers.getStore() !== undefined;
   }
 
   /**
@@ -340,12 +376,21 @@ export class ProductionGuard {
    * When no confirmation UI is wired (unit tests, headless hosts), proceeds
    * and returns true — the pre-existing behavior for every caller.
    *
+   * A run given its answer beforehand ({@link withGivenAnswer}) takes that
+   * answer, and nothing is shown: a pipeline runs where nobody may be
+   * watching, and a modal left open held its Sync step until the run's time
+   * ran out — to start writing whenever someone came back and pressed it.
+   *
    * @param result - The check of the operation.
    * @param orgTier - The tier of the org it writes to, which the question names.
    */
   async confirmIfNeeded(result: SafetyCheckResult, orgTier: SafetyTier): Promise<boolean> {
     if (!result.allowed || !result.requiresConfirmation) {
       return result.allowed;
+    }
+    const given = givenAnswers.getStore();
+    if (given) {
+      return given.approved;
     }
     if (!this.options.requestConfirmation) {
       return true;

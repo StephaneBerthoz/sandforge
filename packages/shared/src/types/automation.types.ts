@@ -14,13 +14,63 @@ export type PipelineStepType =
   | 'delete'
   | 'compare'
   | 'precheck'
-  | 'script'
   | 'notification'
   | 'approval'
   | 'delay'
-  | 'condition'
-  | 'loop'
-  | 'parallel';
+  | 'condition';
+
+/**
+ * Step types earlier releases offered and SandForge no longer has. None of
+ * them ever ran: a Script, Loop or Parallel step was refused before its
+ * pipeline started, release after release. A pipeline saved with one still
+ * reads — the step is shown, marked as no longer supported — and is refused
+ * before it starts, naming the step.
+ */
+export type RetiredPipelineStepType = 'script' | 'loop' | 'parallel';
+
+/**
+ * How an Approval step ended: a person approved or rejected it, nobody
+ * answered within its time, or its run was cancelled while it waited.
+ */
+export type PipelineApprovalDecision = 'approved' | 'rejected' | 'timedOut' | 'cancelled';
+
+/** Where a person answered an Approval step: the VS Code notification, or the Automation page. */
+export type PipelineApprovalChannel = 'notification' | 'page';
+
+/** Who answered an Approval step, when, and how: what the run history and the audit trail keep. */
+export interface PipelineApprovalRecord {
+  decision: PipelineApprovalDecision;
+  /** Where the answer was given; absent when nobody answered. */
+  via?: PipelineApprovalChannel;
+  /** When the step was answered, or gave up waiting. */
+  at: ISODateString;
+  /**
+   * Who answered: the account the VS Code window runs under, as a short hash
+   * (`sha256:` and twelve hex characters), never the account name itself.
+   * Absent when nobody answered, or when the account could not be read.
+   */
+  by?: string;
+}
+
+/**
+ * A saved Sync configuration as a pipeline's Sync step sees it: whether Sync
+ * can run it as it is stored, the orgs it names, and what Production Guard
+ * does with a run of it — before anyone is asked.
+ */
+export interface PipelineSyncConfigInfo {
+  id: string;
+  name: string;
+  /** Whether the stored configuration reads as one Sync can run. */
+  valid: boolean;
+  sourceOrgId?: string;
+  targetOrgId?: string;
+  /**
+   * What Production Guard does with a run of it: lets it through, asks a
+   * person first (a production org, a Developer Edition), or refuses it
+   * whatever anyone answers. Absent for a configuration that does not read.
+   */
+  guard?: 'allowed' | 'asks' | 'refused';
+}
 
 /** Trigger type for automated pipeline execution */
 export type TriggerType =
@@ -138,6 +188,8 @@ export interface PipelineStepResult {
    * the step a cancelled run stops: it did not do its work.
    */
   cancelled?: boolean;
+  /** For an Approval step: who answered it, when, and how — or that nobody did. */
+  approval?: PipelineApprovalRecord;
   startTime?: ISODateString;
   endTime?: ISODateString;
   duration?: number;
@@ -154,6 +206,8 @@ export interface PipelineHistoryStep {
   summary?: string;
   /** Why the step failed. */
   error?: string;
+  /** For an Approval step: who answered it, when, and how (see {@link PipelineStepResult.approval}). */
+  approval?: PipelineApprovalRecord;
 }
 
 /**

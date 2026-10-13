@@ -3,16 +3,27 @@ import { useTranslation } from 'react-i18next';
 import type { PipelineStepResult, PipelineRunStatus } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../theme';
 import { formatDurationSec } from '../../utils/formatters';
+import { formatTriggerTime } from './TriggerConfigPanel';
+
+/**
+ * One step of the run in progress, as the host last reported it. An Approval
+ * step that waits for an answer says so, with its message and when it stops
+ * waiting.
+ */
+export interface PipelineExecutionStep extends PipelineStepResult {
+  awaitingApproval?: { message?: string; expiresAt: string };
+}
 
 /** Execution view data. */
 export interface PipelineExecutionData {
   runId: string;
   pipelineName: string;
   status: PipelineRunStatus;
-  steps: PipelineStepResult[];
+  steps: PipelineExecutionStep[];
   startTime: string;
   elapsed: number;
   progress: number;
@@ -26,6 +37,11 @@ export interface PipelineExecutionData {
 export interface PipelineExecutionViewProps {
   execution?: PipelineExecutionData;
   onCancel?: () => void;
+  /**
+   * Answer an Approval step that waits: the same choice as the VS Code
+   * notification's, whichever comes first.
+   */
+  onAnswerApproval?: (stepId: string, decision: 'approved' | 'rejected') => void;
   className?: string;
 }
 
@@ -70,6 +86,7 @@ function runStatusBadge(status: PipelineRunStatus): BadgeVariant {
 export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
   execution,
   onCancel,
+  onAnswerApproval,
   className,
 }) => {
   const { t } = useTranslation();
@@ -189,6 +206,47 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
               >
                 {step.summary}
               </p>
+            )}
+            {/* The question an Approval step waits on, with the answers the
+                notification in VS Code offers: whichever is pressed first is
+                the step's. */}
+            {step.status === 'running' && step.awaitingApproval && (
+              <div
+                className="w-full flex flex-col gap-1 mt-1"
+                data-testid={`exec-approval-${step.stepId}`}
+              >
+                <p className="text-[10px] text-text-primary">
+                  {t('automation.approval.waiting', {
+                    time:
+                      formatTriggerTime(step.awaitingApproval.expiresAt) ?? t('common.dateUnknown'),
+                  })}
+                </p>
+                {/* On the tint of a running step, as its summary is: the
+                    secondary text colour fell short of AA there. */}
+                {step.awaitingApproval.message && (
+                  <p className="text-[10px] text-text-primary">{step.awaitingApproval.message}</p>
+                )}
+                {onAnswerApproval && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => onAnswerApproval(step.stepId, 'approved')}
+                      data-testid={`exec-approve-${step.stepId}`}
+                    >
+                      {t('automation.approval.approve')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => onAnswerApproval(step.stepId, 'rejected')}
+                      data-testid={`exec-reject-${step.stepId}`}
+                    >
+                      {t('automation.approval.reject')}
+                    </Button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         ))}

@@ -29,6 +29,7 @@ export type AuditAction =
   | 'delete_execute'
   | 'compare_execute'
   | 'pipeline_run'
+  | 'pipeline_approval'
   | 'settings_change'
   | 'template_create'
   | 'template_update'

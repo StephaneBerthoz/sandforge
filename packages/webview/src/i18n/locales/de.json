@@ -1754,13 +1754,10 @@
       "delete": "Löschung",
       "compare": "Vergleich",
       "precheck": "Vorabprüfung",
-      "script": "Skript",
       "notification": "Benachrichtigung",
       "approval": "Genehmigung",
       "delay": "Verzögerung",
-      "condition": "Bedingung",
-      "loop": "Schleife",
-      "parallel": "Parallel"
+      "condition": "Bedingung"
     },
     "stepCategories": {
       "data": "Daten",
@@ -1812,7 +1809,6 @@
       "failedJobs": "Fehlgeschlagene Apex-Jobs"
     },
     "stepConfigDelay": "Verzögerung (Sekunden)",
-    "stepConfigScript": "Skript",
     "stepConfigWhere": "WHERE-Klausel",
     "stepConfigTemplate": "Vorlagen-ID",
     "noExecution": "Keine aktive Ausführung",
@@ -1824,7 +1820,7 @@
     "generatePipeline": "Mit KI generieren",
     "generatePipelinePrompt": "Beschreiben Sie die Pipeline, die Sie erstellen möchten...",
     "marketplace": "Marketplace",
-    "marketplaceStepsNote": "Sicherungs-, Vergleichs-, Vorabprüfungs-, Benachrichtigungs-, Verzögerungs- und Bedingungsschritte laufen in einer Pipeline. Seed, Sync, Wiederherstellung, Anonymisierung und Löschung schreiben in eine Org und laufen deshalb nur auf ihrer eigenen Seite, und Skript-, Genehmigungs-, Schleifen- und Parallel-Schritte laufen nicht: Eine Vorlage, die einen davon enthält, wird installiert, aber ihre Pipeline startet nicht.",
+    "marketplaceStepsNote": "Sicherungs-, Vergleichs-, Vorabprüfungs-, Benachrichtigungs-, Verzögerungs-, Bedingungs-, Genehmigungs- und Sync-Schritte laufen in einer Pipeline; ein Sync-Schritt führt eine von Ihnen gewählte, auf der Sync-Seite gespeicherte Konfiguration aus. Seed, Wiederherstellung, Anonymisierung und Löschung schreiben in eine Org und laufen deshalb nur auf ihrer eigenen Seite: Eine Vorlage, die einen davon enthält, wird installiert, aber ihre Pipeline startet nicht.",
     "templateInstalled": "Vorlage als neue Pipeline installiert",
     "installFailed": "Vorlage konnte nicht installiert werden",
     "marketplaceAuthor": "Autor",
@@ -1835,8 +1831,8 @@
     "runnability": {
       "cannotRun": "Nicht ausführbar",
       "typeCannotRun": "Dieser Schritttyp kann noch nicht in einer Pipeline laufen.",
-      "writesToOrg": "Dieser Schritt schreibt in eine Org, deshalb führt eine Pipeline ihn nicht aus: Starten Sie ihn auf seiner eigenen Seite, wo Production Guard vor einem Schreibvorgang in eine Produktions-Org nachfragt.",
-      "conditionNeedsCondition": "Ein Bedingungsschritt braucht eine Bedingung, die er prüft, und auf dieser Seite lässt sich noch keine festlegen. Ein Bedingungsschritt aus einer Marketplace-Vorlage bringt seine eigene mit.",
+      "writesToOrg": "Eine Pipeline führt diesen Schritt nicht aus: Starten Sie ihn auf seiner eigenen Seite, wo Production Guard vor einem Schreibvorgang in eine Produktions-Org nachfragt.",
+      "conditionNeedsCondition": "Wählen Sie, was dieser Bedingungsschritt prüft.",
       "delayNeedsSeconds": "Legen Sie fest, wie viele Sekunden dieser Verzögerungsschritt wartet (0 Sekunden bis 24 Tage).",
       "timeoutTooLong": "Legen Sie ein Timeout von höchstens 24 Tagen (2.073.600.000 ms) fest, oder keines.",
       "needsOrg": "Wählen Sie die Org, mit der dieser Schritt arbeitet.",
@@ -1846,9 +1842,21 @@
       "compareNeedsTypes": "Wählen Sie mindestens einen Metadatentyp zum Vergleichen.",
       "precheckNeedsChecks": "Wählen Sie, was diese Vorabprüfung liest: API-Nutzung, Datenspeicher, Apex-Fehlerprotokolle oder fehlgeschlagene Apex-Jobs.",
       "notificationNeedsMessage": "Schreiben Sie die Nachricht, die diese Benachrichtigung anzeigt (höchstens 500 Zeichen).",
-      "paletteNote": "Aufgeführt sind nur die Schritte, die eine Pipeline ausführt. Schritte, die in eine Org schreiben — Seed, Sync, Wiederherstellung, Anonymisierung, Löschung — laufen nur auf ihrer eigenen Seite, wo Production Guard zuerst nachfragt.",
+      "paletteNote": "Aufgeführt sind nur die Schritte, die eine Pipeline ausführt. Seed, Wiederherstellung, Anonymisierung und Löschung schreiben in eine Org und laufen nur auf ihrer eigenen Seite, wo Production Guard zuerst nachfragt. Sync führt eine auf der Sync-Seite gespeicherte Konfiguration aus; schreibt er in eine Org, bei der Production Guard nachfragt, braucht er einen Genehmigungsschritt davor.",
       "pipelineBlocked": "Diese Pipeline kann nicht laufen. Entfernen oder korrigieren Sie zuerst diese Schritte:",
-      "templateBlocked": "Kann nicht als Pipeline laufen. Diese Schritttypen laufen in keiner Pipeline: {{types}}."
+      "templateBlocked": "Kann nicht als Pipeline laufen. Diese Schritttypen laufen in keiner Pipeline: {{types}}.",
+      "conditionNeedsEarlierStep": "Diese Bedingung prüft, wie der vorherige Schritt verlief, aber vor ihr steht kein Schritt.",
+      "conditionNeedsCompare": "Diese Bedingung prüft die Unterschiede, die ein Vergleich gefunden hat: Setzen Sie einen Vergleichsschritt davor.",
+      "conditionNeedsPrecheck": "Diese Bedingung prüft einen Messwert der Vorabprüfung: Setzen Sie eine Vorabprüfung davor, die diesen Wert misst.",
+      "noLongerSupported": "Dieser Schritttyp wird nicht mehr unterstützt: Entfernen Sie den Schritt aus der Pipeline.",
+      "noLongerSupportedBadge": "Nicht mehr unterstützt",
+      "approvalTimeout": "Legen Sie fest, wie viele Minuten diese Genehmigung wartet, von 1 bis 1.440 (ein Tag), oder lassen Sie das Feld leer, um eine Stunde zu warten.",
+      "approvalMessageTooLong": "Kürzen Sie die Genehmigungsnachricht auf höchstens 500 Zeichen.",
+      "syncNeedsConfig": "Wählen Sie die gespeicherte Sync-Konfiguration, die dieser Schritt ausführt.",
+      "syncConfigMissing": "Die Sync-Konfiguration, die dieser Schritt ausführt, ist nicht mehr gespeichert: Wählen Sie eine andere.",
+      "syncConfigInvalid": "Die Sync-Konfiguration, die dieser Schritt ausführt, ist nicht mehr gültig: Öffnen Sie sie auf der Sync-Seite und speichern Sie sie erneut.",
+      "syncGuardRefuses": "Production Guard lehnt diesen Sync in seiner Ziel-Org ab, ob genehmigt oder nicht.",
+      "syncNeedsApproval": "Dieser Sync schreibt in eine Org, bei der Production Guard zuerst nachfragt (eine Produktions-Org oder eine Developer Edition): Setzen Sie einen Genehmigungsschritt davor."
     },
     "emptyState": {
       "title": "Erstellen Sie Ihre erste Pipeline",
@@ -1872,8 +1880,46 @@
     "errorCount_other": "{{count}} Fehler",
     "draftSuggestions": {
       "title": "In diesem Entwurf ausgelassen",
-      "writesToOrg": "Eine Pipeline führt keinen Schritt aus, der in eine Org schreibt, und kann {{page}} deshalb nicht ausführen: Starten Sie es auf der Seite {{page}}, wo Production Guard es anhalten oder zuerst nachfragen kann.",
+      "writesToOrg": "Der Entwurf lässt die {{page}}-Arbeit weg, die in eine Org schreibt: Starten Sie sie auf der Seite {{page}}, wo Production Guard sie anhalten oder zuerst nachfragen kann.",
       "stepNotRunnable": "Eine Pipeline kann keinen Schritt vom Typ {{type}} ausführen, deshalb lässt der Entwurf ihn aus."
+    },
+    "stepConfigApprovalMessage": "Mit der Frage angezeigte Nachricht",
+    "stepConfigApprovalTimeout": "Auf eine Antwort warten (Minuten)",
+    "stepConfigSyncConfig": "Gespeicherte Sync-Konfiguration",
+    "syncConfigSelect": "Konfiguration wählen",
+    "syncConfigNone": "Es ist noch keine Sync-Konfiguration gespeichert: Speichern Sie eine auf der Sync-Seite.",
+    "syncConfigGone": "Eine nicht mehr gespeicherte Konfiguration",
+    "stepConfigCondition": "Fortfahren, wenn",
+    "conditionChoose": "Prüfung wählen",
+    "conditionKinds": {
+      "previousSucceeded": "Der vorherige Schritt war erfolgreich",
+      "previousFailed": "Der vorherige Schritt ist fehlgeschlagen",
+      "compareDifferences": "Der Vergleich hat mehr als N Unterschiede gefunden",
+      "apiUsage": "Die API-Nutzung liegt über N %",
+      "storageUsage": "Der Datenspeicher liegt über N %",
+      "recentErrors": "Mehr als N Apex-Fehler in den letzten 24 Std.",
+      "failedJobs": "Mehr als N fehlgeschlagene Apex-Jobs",
+      "custom": "Wie von der Vorlage festgelegt: {{field}} {{operator}} {{value}}"
+    },
+    "conditionThreshold": {
+      "compareDifferences": "Mehr Unterschiede als",
+      "apiUsage": "API-Nutzung über (%)",
+      "storageUsage": "Datenspeicher über (%)",
+      "recentErrors": "Mehr Apex-Fehler als",
+      "failedJobs": "Mehr fehlgeschlagene Apex-Jobs als"
+    },
+    "approval": {
+      "waiting": "Wartet bis {{time}} auf Ihre Genehmigung.",
+      "approve": "Genehmigen",
+      "reject": "Ablehnen",
+      "record": {
+        "approvedOnPage": "Auf der Automation-Seite genehmigt, {{time}}",
+        "approvedOnNotification": "In der VS Code-Benachrichtigung genehmigt, {{time}}",
+        "rejectedOnPage": "Auf der Automation-Seite abgelehnt, {{time}}",
+        "rejectedOnNotification": "In der VS Code-Benachrichtigung abgelehnt, {{time}}",
+        "timedOut": "Nicht rechtzeitig genehmigt: Bis {{time}} hat niemand geantwortet",
+        "cancelled": "Angehalten, bevor jemand geantwortet hat, {{time}}"
+      }
     }
   },
   "ai": {
@@ -1960,7 +2006,8 @@
       "metadata_deploy": "Metadaten-Bereitstellung",
       "realtime_sync": "Echtzeit-Synchronisierung",
       "subject_erase": "Löschung auf Betroffenenanfrage",
-      "cleanup_delete": "Bereinigungslöschung"
+      "cleanup_delete": "Bereinigungslöschung",
+      "pipeline_approval": "Pipeline-Genehmigung"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",

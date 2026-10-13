@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { consultProductionGuard, strongerDecision } from './consultProductionGuard.js';
-import { ProductionGuard } from './ProductionGuard.js';
+import { ProductionGuard, withGivenAnswer } from './ProductionGuard.js';
 import type { OperationRequest } from './ProductionGuard.js';
 
 const request = (over: Partial<OperationRequest> = {}): OperationRequest => ({
@@ -75,6 +75,72 @@ describe('consultProductionGuard', () => {
     const { decision } = await consultProductionGuard(guard, request({ orgTier: 'production' }));
 
     expect(decision).toBe('allowed');
+  });
+
+  it('takes an approval given beforehand as the answer, shows nothing, and records it confirmed', async () => {
+    const ask = vi.fn();
+    const guard = new ProductionGuard({ requestConfirmation: ask });
+
+    const { decision } = await withGivenAnswer({ approved: true }, () =>
+      consultProductionGuard(guard, request({ orgTier: 'production' })),
+    );
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(decision).toBe('confirmed');
+  });
+
+  it('records a person as having answered even on a host with no confirmation UI', async () => {
+    const guard = new ProductionGuard();
+
+    const { decision } = await withGivenAnswer({ approved: true }, () =>
+      consultProductionGuard(guard, request({ orgTier: 'production' })),
+    );
+
+    expect(decision).toBe('confirmed');
+  });
+
+  it('declines, without showing anything, a question nobody approved beforehand', async () => {
+    const ask = vi.fn().mockResolvedValue(true);
+    const guard = new ProductionGuard({ requestConfirmation: ask });
+
+    const { decision } = await withGivenAnswer({ approved: false }, () =>
+      consultProductionGuard(guard, request({ orgTier: 'production' })),
+    );
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(decision).toBe('declined');
+  });
+
+  it('refuses what it refuses, an approval given beforehand or not', async () => {
+    const guard = new ProductionGuard({ requestConfirmation: vi.fn() });
+
+    const { decision } = await withGivenAnswer({ approved: true }, () =>
+      consultProductionGuard(guard, request({ orgTier: 'production', operation: 'delete' })),
+    );
+
+    expect(decision).toBe('refused');
+  });
+
+  it('keeps an approval given to one run from answering another run under way', async () => {
+    // A Sync started from its page while a pipeline's Sync step runs must
+    // still be asked: the answer belongs to the pipeline's run alone.
+    const ask = vi.fn().mockResolvedValue(false);
+    const guard = new ProductionGuard({ requestConfirmation: ask });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const pipelineRun = withGivenAnswer({ approved: true }, async () => {
+      await held;
+      return consultProductionGuard(guard, request({ orgTier: 'production' }));
+    });
+    const pageRun = consultProductionGuard(guard, request({ orgTier: 'production' }));
+    release();
+
+    expect((await pageRun).decision).toBe('declined');
+    expect((await pipelineRun).decision).toBe('confirmed');
+    expect(ask).toHaveBeenCalledTimes(1);
   });
 
   it('asks the guard to judge the run once, as the run is described', async () => {

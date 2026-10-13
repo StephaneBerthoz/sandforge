@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { PipelineStep, PipelineStepType } from '@sandforge/shared';
+import type { PipelineStep, PipelineStepType, PipelineSyncConfigInfo } from '@sandforge/shared';
 import {
   MAX_STEP_TIMEOUT_MS,
   blockedSteps,
@@ -23,13 +23,13 @@ function step(
   };
 }
 
-/** The steps that write to an org: the extension runs none of them in a pipeline. */
-const WRITE_STEPS: PipelineStepType[] = ['seed', 'sync', 'restore', 'anonymize', 'delete'];
+/** The steps that write to an org and that the extension runs in no pipeline. */
+const WRITE_STEPS: PipelineStepType[] = ['seed', 'restore', 'anonymize', 'delete'];
 
-/** The control steps the extension has no handler for yet. */
-const NOT_BUILT: PipelineStepType[] = ['script', 'approval', 'loop', 'parallel'];
+/** The step types SandForge no longer has, as a pipeline saved earlier holds them. */
+const RETIRED = ['script', 'loop', 'parallel'];
 
-/** The step types that run, the four that read an org or tell the user among them. */
+/** The step types that run. */
 const RUNNABLE: PipelineStepType[] = [
   'delay',
   'condition',
@@ -37,13 +37,15 @@ const RUNNABLE: PipelineStepType[] = [
   'compare',
   'precheck',
   'notification',
+  'approval',
+  'sync',
 ];
 
 /** Two orgs connected on this page. */
 const ORGS = new Set(['org-a', 'org-b']);
 
 describe('typeBlocker', () => {
-  it('lets the six step types the extension runs through', () => {
+  it('lets the eight step types the extension runs through', () => {
     for (const type of RUNNABLE) {
       expect(typeBlocker(type)).toBeUndefined();
     }
@@ -55,17 +57,22 @@ describe('typeBlocker', () => {
     }
   });
 
-  it('refuses the control steps not built yet, and a type the page has never heard of', () => {
-    for (const type of NOT_BUILT) {
-      expect(typeBlocker(type)).toBe('typeCannotRun');
+  it('marks the types SandForge no longer has as no longer supported', () => {
+    for (const type of RETIRED) {
+      expect(typeBlocker(type)).toBe('noLongerSupported');
     }
+  });
+
+  it('refuses a type the page has never heard of', () => {
     expect(typeBlocker('dataops:backup')).toBe('typeCannotRun');
   });
 });
 
 describe('paletteBlocker', () => {
-  it('keeps Condition out of the palette: this page cannot give it a condition', () => {
-    expect(paletteBlocker('condition')).toBe('conditionNeedsCondition');
+  it('offers Condition, Approval and Sync, and none of the steps that write from their own pages', () => {
+    expect(paletteBlocker('condition')).toBeUndefined();
+    expect(paletteBlocker('approval')).toBeUndefined();
+    expect(paletteBlocker('sync')).toBeUndefined();
     expect(paletteBlocker('backup')).toBeUndefined();
     expect(paletteBlocker('seed')).toBe('writesToOrg');
   });
@@ -94,7 +101,9 @@ describe('stepBlocker', () => {
 
   it('keeps the type reason ahead of any configuration', () => {
     expect(stepBlocker(step('seed', { seconds: 30 }))).toBe('writesToOrg');
-    expect(stepBlocker(step('script', { seconds: 30 }))).toBe('typeCannotRun');
+    expect(stepBlocker(step('script' as PipelineStepType, { seconds: 30 }))).toBe(
+      'noLongerSupported',
+    );
   });
 
   it('refuses a timeout a timer cannot hold, which fired after 1 ms', () => {
@@ -173,6 +182,118 @@ describe('stepBlocker', () => {
     expect(stepBlocker(step('notification', { message: 'x'.repeat(501) }))).toBe(
       'notificationNeedsMessage',
     );
+  });
+
+  it('asks a Condition testing a handed-on value for the step before it that hands it on', () => {
+    const gate = step(
+      'condition',
+      {},
+      { condition: { field: 'compareDifferenceCount', operator: 'gt', value: 10 } },
+    );
+    const compare = step('compare', {
+      sourceOrgId: 'org-a',
+      targetOrgId: 'org-b',
+      types: ['Flow'],
+    });
+    expect(stepBlocker(gate, ORGS, { steps: [gate], index: 0 })).toBe('conditionNeedsCompare');
+    expect(stepBlocker(gate, ORGS, { steps: [compare, gate], index: 1 })).toBeUndefined();
+
+    const afterFailure = step(
+      'condition',
+      {},
+      { condition: { field: 'previousStepStatus', operator: 'eq', value: 'failed' } },
+    );
+    expect(stepBlocker(afterFailure, ORGS, { steps: [afterFailure], index: 0 })).toBe(
+      'conditionNeedsEarlierStep',
+    );
+
+    const usage = step(
+      'condition',
+      {},
+      { condition: { field: 'apiUsagePercent', operator: 'gt', value: 60 } },
+    );
+    const storageCheck = step('precheck', { orgId: 'org-a', checks: ['storage'] });
+    expect(stepBlocker(usage, ORGS, { steps: [storageCheck, usage], index: 1 })).toBe(
+      'conditionNeedsPrecheck',
+    );
+    expect(
+      stepBlocker(usage, ORGS, {
+        steps: [usage],
+        index: 0,
+        declared: new Set(['apiUsagePercent']),
+      }),
+    ).toBeUndefined();
+  });
+
+  it('asks an Approval step for a wait from a minute to a day, and a short message', () => {
+    expect(stepBlocker(step('approval'))).toBeUndefined();
+    expect(stepBlocker(step('approval', { timeoutMinutes: 0 }))).toBe('approvalTimeout');
+    expect(stepBlocker(step('approval', { timeoutMinutes: 1441 }))).toBe('approvalTimeout');
+    expect(stepBlocker(step('approval', { message: 'x'.repeat(501) }))).toBe(
+      'approvalMessageTooLong',
+    );
+  });
+
+  describe('a Sync step', () => {
+    const guarded: PipelineSyncConfigInfo = {
+      id: 'cfg-prod',
+      name: 'Into production',
+      valid: true,
+      sourceOrgId: 'org-a',
+      targetOrgId: 'org-b',
+      guard: 'asks',
+    };
+    const sandbox: PipelineSyncConfigInfo = { ...guarded, id: 'cfg-sbx', guard: 'allowed' };
+    const refused: PipelineSyncConfigInfo = { ...guarded, id: 'cfg-del', guard: 'refused' };
+    const broken: PipelineSyncConfigInfo = { id: 'cfg-old', name: 'Old', valid: false };
+    const syncConfigs = [guarded, sandbox, refused, broken];
+    const sync = (configId?: string) => step('sync', configId === undefined ? {} : { configId });
+    const approval = step('approval');
+
+    it('asks for a saved configuration, and refuses one deleted or no longer valid', () => {
+      expect(stepBlocker(sync(), ORGS, { steps: [sync()], index: 0, syncConfigs })).toBe(
+        'syncNeedsConfig',
+      );
+      expect(stepBlocker(sync('gone'), ORGS, { steps: [], index: 0, syncConfigs })).toBe(
+        'syncConfigMissing',
+      );
+      expect(stepBlocker(sync('cfg-old'), ORGS, { steps: [], index: 0, syncConfigs })).toBe(
+        'syncConfigInvalid',
+      );
+    });
+
+    it('refuses a target the guard asks about unless an Approval step comes before it', () => {
+      const alone = sync('cfg-prod');
+      expect(stepBlocker(alone, ORGS, { steps: [alone], index: 0, syncConfigs })).toBe(
+        'syncNeedsApproval',
+      );
+      expect(
+        stepBlocker(alone, ORGS, { steps: [approval, alone], index: 1, syncConfigs }),
+      ).toBeUndefined();
+    });
+
+    it('lets a sandbox target run with no Approval step', () => {
+      const alone = sync('cfg-sbx');
+      expect(stepBlocker(alone, ORGS, { steps: [alone], index: 0, syncConfigs })).toBeUndefined();
+    });
+
+    it('refuses what the guard refuses, an Approval before it or not', () => {
+      const late = sync('cfg-del');
+      expect(stepBlocker(late, ORGS, { steps: [approval, late], index: 1, syncConfigs })).toBe(
+        'syncGuardRefuses',
+      );
+    });
+
+    it('refuses a configuration whose org is not connected here', () => {
+      const alone = sync('cfg-sbx');
+      expect(
+        stepBlocker(alone, new Set(['org-a']), { steps: [alone], index: 0, syncConfigs }),
+      ).toBe('orgNotConnected');
+    });
+
+    it('leaves the rest to the extension until it has described the saved configurations', () => {
+      expect(stepBlocker(sync('cfg-prod'), ORGS, { steps: [], index: 0 })).toBeUndefined();
+    });
   });
 
   it('takes any org id when it does not know the connected orgs: the extension checks it', () => {

@@ -153,7 +153,7 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
   {
     id: 'tpl-dev-onboarding',
     name: 'New Developer Onboarding',
-    description: 'Provision a new developer sandbox with test data and standard configuration.',
+    description: 'Provision a new developer sandbox with test data.',
     category: 'environment',
     rating: 4.6,
     steps: [
@@ -170,12 +170,6 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Generate sample accounts',
       },
       {
-        name: 'Configure Permissions',
-        type: 'script',
-        config: { language: 'apex' },
-        description: 'Assign permission sets',
-      },
-      {
         name: 'Show Notification',
         type: 'notification',
         config: { message: 'The developer sandbox is provisioned.' },
@@ -187,8 +181,7 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
   {
     id: 'tpl-release-validation',
     name: 'Release Validation',
-    description:
-      'Validate a release by running pre-checks, comparing orgs, and verifying data integrity.',
+    description: 'Validate a release by running pre-checks and comparing orgs.',
     category: 'environment',
     rating: 4.7,
     steps: [
@@ -203,12 +196,6 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         type: 'compare',
         config: {},
         description: 'Compare metadata between orgs',
-      },
-      {
-        name: 'Run Test Suite',
-        type: 'script',
-        config: { language: 'apex', body: 'System.runTests()' },
-        description: 'Execute Apex tests',
       },
     ],
     tags: ['release', 'validation', 'deployment'],
@@ -339,12 +326,6 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         type: 'backup',
         config: { objects: ['__metadata__'] },
         description: 'Export org metadata',
-      },
-      {
-        name: 'Archive',
-        type: 'script',
-        config: { language: 'shell' },
-        description: 'Compress and archive the backup',
       },
     ],
     tags: ['backup', 'full', 'archive'],

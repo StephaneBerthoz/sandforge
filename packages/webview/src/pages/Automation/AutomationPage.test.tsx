@@ -186,8 +186,9 @@ describe('AutomationPage', () => {
     const note = screen.getByTestId('pipeline-draft-suggestions');
     expect(note.getAttribute('role')).toBe('note');
     expect([...note.querySelectorAll('li')].map((item) => item.textContent)).toEqual([
-      'A pipeline runs no step that writes to an org, so it cannot run Sync: run it from the Sync page, where Production Guard can stop it or ask first.',
-      'A pipeline cannot run a Loop step, so the draft leaves it out.',
+      'The draft leaves out the Sync work, which writes to an org: run it from the Sync page, where Production Guard can stop it or ask first.',
+      // Loop has no label any more: it is named as the model wrote it.
+      'A pipeline cannot run a loop step, so the draft leaves it out.',
     ]);
   });
 
@@ -339,12 +340,12 @@ describe('AutomationPage', () => {
     fireEvent.click(screen.getByText('Marketplace'));
     const notice = screen.getByTestId('automation-marketplace-steps-note');
     expect(notice.textContent).toContain(
-      'Backup, Compare, Pre-Check, Notification, Delay and Condition steps run in a pipeline',
+      'Backup, Compare, Pre-Check, Notification, Delay, Condition, Approval and Sync steps run in a pipeline',
     );
     expect(notice.textContent).toContain(
-      'Seed, Sync, Restore, Anonymize and Delete write to an org, so they run only from their own pages',
+      'Seed, Restore, Anonymize and Delete write to an org, so they run only from their own pages',
     );
-    expect(notice.textContent).toContain('Script, Approval, Loop and Parallel steps do not run');
+    expect(notice.textContent).not.toMatch(/Script|Loop|Parallel/);
     expect(notice.textContent).not.toMatch(/Coming soon|\byet\b|report success/i);
   });
 
@@ -389,7 +390,7 @@ describe('AutomationPage', () => {
       // Seed writes to an org: it runs from the Seed page, where Production
       // Guard asks first, and never unattended in a pipeline.
       expect(screen.getByTestId('pipeline-blocked-s-seed').textContent).toBe(
-        'Load Target (Seed) — This step writes to an org, so a pipeline does not run it: ' +
+        'Load Target (Seed) — A pipeline does not run this step: ' +
           'run it from its own page, where Production Guard asks before a write to a production org.',
       );
       // The Delay step has its seconds: it is not what blocks the pipeline.

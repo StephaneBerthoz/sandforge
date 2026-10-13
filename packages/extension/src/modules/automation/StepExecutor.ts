@@ -1,4 +1,10 @@
-import type { PipelineStep, PipelineStepResult, PipelineStepType } from '@sandforge/shared';
+import type {
+  ConditionSourceDefect,
+  PipelineStep,
+  PipelineStepResult,
+  PipelineStepType,
+} from '@sandforge/shared';
+import { conditionSourceDefect, isRetiredPipelineStepType } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { conditionDefect, evaluateCondition } from './ConditionalRouter.js';
 
@@ -25,10 +31,27 @@ export interface StepContext {
 export type StepHandler = (step: PipelineStep, context: StepContext) => Promise<PipelineStepResult>;
 
 /**
- * Reads a step's configuration before anything runs, and says what keeps the
- * step from doing its work — or nothing when it can run.
+ * Where a step sits in its pipeline, for a check that reads more than the
+ * step: a Condition needs a step before it that hands on the value it tests,
+ * and a Sync step whose target Production Guard asks about needs an Approval
+ * step before it.
  */
-export type StepCheck = (step: PipelineStep) => string | undefined;
+export interface StepCheckContext {
+  /** Every step of the pipeline, in order. */
+  steps: readonly PipelineStep[];
+  /** Where the step checked sits in `steps`. */
+  index: number;
+  /** The names of the variables the pipeline declares. */
+  declared: ReadonlySet<string>;
+}
+
+/**
+ * Reads a step's configuration before anything runs, and says what keeps the
+ * step from doing its work — or nothing when it can run. Without `context`
+ * the step is checked on its own, as the executor does as it runs it: what
+ * depends on the steps around it was checked before the run started.
+ */
+export type StepCheck = (step: PipelineStep, context?: StepCheckContext) => string | undefined;
 
 /**
  * The longest wait a Delay step accepts: 24 days. A timer holds little more —
@@ -123,8 +146,14 @@ function createFailureResult(
   };
 }
 
-/** Why a step whose type has no handler is refused. */
+/**
+ * Why a step whose type has no handler is refused. A type SandForge no longer
+ * has says so, and what to do: it will not run in a later release either.
+ */
 function notRunnable(step: PipelineStep): string {
+  if (isRetiredPipelineStepType(step.type)) {
+    return `Step "${step.name}" is a ${String(step.type)} step, which SandForge no longer supports: remove it from the pipeline.`;
+  }
   return `Step "${step.name}" is a ${String(step.type)} step, and this step type cannot run in a pipeline yet.`;
 }
 
@@ -173,17 +202,48 @@ function checkDelay(step: PipelineStep): string | undefined {
   return undefined;
 }
 
+/** Why nothing before a Condition step hands on the value it tests, in a sentence. */
+function sourceProblem(step: PipelineStep, field: string, defect: ConditionSourceDefect): string {
+  const who = `Condition step "${step.name}"`;
+  switch (defect) {
+    case 'noEarlierStep':
+      return `${who} tests how the previous step went, and no step comes before it.`;
+    case 'noCompare':
+      return `${who} tests how many differences a comparison found, and no Compare step comes before it.`;
+    case 'noPrecheck':
+      return `${who} tests ${field}, which a Pre-check hands on, and no Pre-check before it takes that reading.`;
+  }
+}
+
 /**
  * A Condition step with nothing to evaluate used to report its condition met.
  * An operator outside the list evaluated to false, which read as a real answer.
  */
-function checkCondition(step: PipelineStep): string | undefined {
+function conditionProblem(step: PipelineStep): string | undefined {
   const condition = step.condition;
   if (!condition || typeof condition.field !== 'string' || condition.field.trim() === '') {
     return `Condition step "${step.name}" has no condition to evaluate.`;
   }
   const defect = conditionDefect(condition);
   return defect === undefined ? undefined : `Condition step "${step.name}" ${defect}.`;
+}
+
+/**
+ * Before the run, the condition itself (see {@link conditionProblem}), and a
+ * step before it that hands on the value it tests: one that tested the
+ * differences a Compare found, with no Compare before it, was refused only
+ * once the run reached it, after the steps before it had run.
+ */
+function checkCondition(step: PipelineStep, context?: StepCheckContext): string | undefined {
+  const problem = conditionProblem(step);
+  if (problem !== undefined || !step.condition || !context) return problem;
+  const condition = step.condition;
+  const source = conditionSourceDefect(
+    condition,
+    context.steps.slice(0, context.index),
+    context.declared,
+  );
+  return source === undefined ? undefined : sourceProblem(step, condition.field, source);
 }
 
 /**
@@ -331,13 +391,15 @@ export class StepExecutor {
    * handler, its timeout cannot be kept, or its configuration leaves the
    * handler nothing to do.
    * @param step - The step to check
+   * @param context - Where the step sits in its pipeline; without it, what
+   *   depends on the steps around it is not checked
    * @returns The reason, or undefined when the step can run
    */
-  check(step: PipelineStep): string | undefined {
+  check(step: PipelineStep, context?: StepCheckContext): string | undefined {
     if (!this.handlers.has(step.type)) {
       return notRunnable(step);
     }
-    return timeoutProblem(step) ?? this.checks.get(step.type)?.(step);
+    return timeoutProblem(step) ?? this.checks.get(step.type)?.(step, context);
   }
 
   /**
@@ -377,10 +439,10 @@ export class StepExecutor {
 
   /**
    * Delay and Condition run wherever a pipeline runs. Backup, Compare,
-   * Pre-check and Notification run through the modules that own their work,
-   * which the extension registers for its runs (see `pipelineSteps.ts`). The
-   * others — every step that writes to an org among them — have no handler,
-   * and are refused.
+   * Pre-check, Notification, Approval and Sync run through the modules that
+   * own their work, which the extension registers for its runs (see
+   * `pipelineSteps.ts`). The others — Seed, Restore, Anonymize and Delete,
+   * which write to an org — have no handler, and are refused.
    */
   private registerDefaults(): void {
     this.handlers.set('delay', this.createDelayHandler());
@@ -418,7 +480,7 @@ export class StepExecutor {
   private createConditionHandler(): StepHandler {
     return async (step: PipelineStep, context: StepContext): Promise<PipelineStepResult> => {
       const startTime = new Date().toISOString();
-      const refusal = checkCondition(step);
+      const refusal = conditionProblem(step);
 
       if (refusal || !step.condition) {
         return createFailureResult(step, refusal ?? 'No condition', startTime);

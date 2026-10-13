@@ -19,6 +19,9 @@ import {
   dataOpsCleanupDeletePayloadSchema,
   monitorOpenApexJobsPayloadSchema,
   compareExecutePayloadSchema,
+  pipelineApprovalPayloadSchema,
+  pipelineRunPayloadSchema,
+  savedPipelineSchema,
 } from './validatePayload.js';
 import { inboundRequest } from '../test/mockFactories.js';
 
@@ -520,5 +523,43 @@ describe('compareExecutePayloadSchema', () => {
         types: [],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('the step types a stored pipeline reads with', () => {
+  /** A saved pipeline holding one step of `type`. */
+  function saved(type: string): Record<string, unknown> {
+    return { id: 'pipe-1', name: 'Nightly', steps: [{ id: 's1', name: 'Step', type, config: {} }] };
+  }
+
+  it('reads a step of a type SandForge no longer has, for the run to refuse by name', () => {
+    for (const type of ['script', 'loop', 'parallel']) {
+      expect(savedPipelineSchema.safeParse(saved(type)).success).toBe(true);
+    }
+  });
+
+  it('reads the types SandForge has, Approval and Sync among them', () => {
+    for (const type of ['approval', 'sync', 'condition', 'backup']) {
+      expect(pipelineRunPayloadSchema.safeParse({ pipeline: saved(type) }).success).toBe(true);
+    }
+  });
+
+  it('refuses a type no release ever had, and a step with no type', () => {
+    expect(savedPipelineSchema.safeParse(saved('dataops')).success).toBe(false);
+    expect(
+      savedPipelineSchema.safeParse({ id: 'pipe-1', name: 'Nightly', steps: [{ config: {} }] })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('pipelineApprovalPayloadSchema', () => {
+  it('takes an approval or a rejection of a step of a run, and nothing else', () => {
+    const answer = { operationId: 'op-1', stepId: 's1', decision: 'approved' };
+    expect(pipelineApprovalPayloadSchema.safeParse(answer).success).toBe(true);
+    expect(pipelineApprovalPayloadSchema.safeParse({ ...answer, decision: 'maybe' }).success).toBe(
+      false,
+    );
+    expect(pipelineApprovalPayloadSchema.safeParse({ ...answer, stepId: '' }).success).toBe(false);
   });
 });

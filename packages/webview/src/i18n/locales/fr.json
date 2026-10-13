@@ -1754,13 +1754,10 @@
       "delete": "Suppression",
       "compare": "Comparaison",
       "precheck": "Vérification préalable",
-      "script": "Script",
       "notification": "Notification",
       "approval": "Approbation",
       "delay": "Délai",
-      "condition": "Condition",
-      "loop": "Boucle",
-      "parallel": "Parallèle"
+      "condition": "Condition"
     },
     "stepCategories": {
       "data": "Données",
@@ -1812,7 +1809,6 @@
       "failedJobs": "Jobs Apex en échec"
     },
     "stepConfigDelay": "Délai (secondes)",
-    "stepConfigScript": "Script",
     "stepConfigWhere": "Clause WHERE",
     "stepConfigTemplate": "ID de modèle",
     "noExecution": "Aucune exécution active",
@@ -1824,7 +1820,7 @@
     "generatePipeline": "Générer avec l'IA",
     "generatePipelinePrompt": "Décrivez le pipeline que vous souhaitez créer...",
     "marketplace": "Marketplace",
-    "marketplaceStepsNote": "Les étapes Sauvegarde, Comparaison, Vérification préalable, Notification, Délai et Condition s'exécutent dans un pipeline. Seed, Sync, Restauration, Anonymisation et Suppression écrivent dans une org : elles ne s'exécutent que depuis leur propre page, et les étapes Script, Approbation, Boucle et Parallèle ne s'exécutent pas. Un modèle qui en contient une s'installe, mais son pipeline ne démarre pas.",
+    "marketplaceStepsNote": "Les étapes Sauvegarde, Comparaison, Vérification préalable, Notification, Délai, Condition, Approbation et Sync s'exécutent dans un pipeline ; une étape Sync exécute une configuration que vous choisissez, enregistrée sur la page Sync. Seed, Restauration, Anonymisation et Suppression écrivent dans une org : elles ne s'exécutent que depuis leur propre page, et un modèle qui en contient une s'installe, mais son pipeline ne démarre pas.",
     "templateInstalled": "Modèle installé comme nouveau pipeline",
     "installFailed": "Impossible d'installer le modèle",
     "marketplaceAuthor": "Auteur",
@@ -1835,8 +1831,8 @@
     "runnability": {
       "cannotRun": "Non exécutable",
       "typeCannotRun": "Ce type d'étape ne peut pas encore s'exécuter dans un pipeline.",
-      "writesToOrg": "Cette étape écrit dans une org, donc un pipeline ne l'exécute pas : lancez-la depuis sa propre page, où Production Guard demande confirmation avant d'écrire dans une org de production.",
-      "conditionNeedsCondition": "Une étape Condition a besoin d'une condition à tester, et cette page ne sait pas encore en définir une. Une étape Condition issue d'un modèle de la Marketplace apporte la sienne.",
+      "writesToOrg": "Un pipeline n'exécute pas cette étape : lancez-la depuis sa propre page, où Production Guard demande confirmation avant d'écrire dans une org de production.",
+      "conditionNeedsCondition": "Choisissez ce que teste cette étape Condition.",
       "delayNeedsSeconds": "Indiquez combien de secondes attend cette étape Délai (de 0 à 24 jours).",
       "timeoutTooLong": "Indiquez un timeout de 24 jours au plus (2 073 600 000 ms), ou aucun.",
       "needsOrg": "Choisissez l'org sur laquelle travaille cette étape.",
@@ -1846,9 +1842,21 @@
       "compareNeedsTypes": "Choisissez au moins un type de métadonnées à comparer.",
       "precheckNeedsChecks": "Choisissez ce que lit cette Vérification préalable : usage de l'API, stockage des données, logs d'erreurs Apex ou jobs Apex en échec.",
       "notificationNeedsMessage": "Écrivez le message qu'affiche cette notification (500 caractères au plus).",
-      "paletteNote": "Seules les étapes qu'un pipeline exécute sont proposées. Les étapes qui écrivent dans une org — Seed, Sync, Restauration, Anonymisation, Suppression — ne s'exécutent que depuis leur propre page, où Production Guard demande d'abord confirmation.",
+      "paletteNote": "Seules les étapes qu'un pipeline exécute sont proposées. Seed, Restauration, Anonymisation et Suppression écrivent dans une org et ne s'exécutent que depuis leur propre page, où Production Guard demande d'abord confirmation. Sync exécute une configuration enregistrée sur la page Sync ; s'il écrit dans une org pour laquelle Production Guard demande confirmation, il lui faut une étape Approbation avant lui.",
       "pipelineBlocked": "Ce pipeline ne peut pas s'exécuter. Retirez ou corrigez d'abord ces étapes :",
-      "templateBlocked": "Ne peut pas s'exécuter comme pipeline. Ces types d'étapes ne s'exécutent pas dans un pipeline : {{types}}."
+      "templateBlocked": "Ne peut pas s'exécuter comme pipeline. Ces types d'étapes ne s'exécutent pas dans un pipeline : {{types}}.",
+      "conditionNeedsEarlierStep": "Cette Condition teste le résultat de l'étape précédente, et aucune étape ne la précède.",
+      "conditionNeedsCompare": "Cette Condition teste les différences trouvées par une comparaison : placez une étape Comparaison avant elle.",
+      "conditionNeedsPrecheck": "Cette Condition teste une mesure de Vérification préalable : placez avant elle une Vérification préalable qui prend cette mesure.",
+      "noLongerSupported": "Ce type d'étape n'est plus pris en charge : retirez l'étape du pipeline.",
+      "noLongerSupportedBadge": "Plus pris en charge",
+      "approvalTimeout": "Indiquez combien de minutes cette Approbation attend, de 1 à 1 440 (une journée), ou laissez vide pour attendre une heure.",
+      "approvalMessageTooLong": "Raccourcissez le message d'approbation à 500 caractères au plus.",
+      "syncNeedsConfig": "Choisissez la configuration Sync enregistrée que cette étape exécute.",
+      "syncConfigMissing": "La configuration Sync que cette étape exécute n'est plus enregistrée : choisissez-en une autre.",
+      "syncConfigInvalid": "La configuration Sync que cette étape exécute n'est plus valide : ouvrez-la sur la page Sync et enregistrez-la de nouveau.",
+      "syncGuardRefuses": "Production Guard refuse ce Sync sur son org cible, qu'il soit approuvé ou non.",
+      "syncNeedsApproval": "Ce Sync écrit dans une org pour laquelle Production Guard demande d'abord confirmation (une org de production ou une Developer Edition) : placez une étape Approbation avant lui."
     },
     "emptyState": {
       "title": "Créez votre premier pipeline",
@@ -1872,8 +1880,46 @@
     "errorCount_other": "{{count}} erreurs",
     "draftSuggestions": {
       "title": "Laissé hors de ce brouillon",
-      "writesToOrg": "Un pipeline n'exécute aucune étape qui écrit dans une org, donc il ne peut pas lancer {{page}} : lancez-le depuis la page {{page}}, où Production Guard peut l'arrêter ou demander confirmation d'abord.",
+      "writesToOrg": "Le brouillon laisse de côté le travail de {{page}}, qui écrit dans une org : lancez-le depuis la page {{page}}, où Production Guard peut l'arrêter ou demander confirmation d'abord.",
       "stepNotRunnable": "Un pipeline ne peut pas exécuter une étape {{type}}, donc le brouillon la laisse de côté."
+    },
+    "stepConfigApprovalMessage": "Message affiché avec la question",
+    "stepConfigApprovalTimeout": "Attente de la réponse (minutes)",
+    "stepConfigSyncConfig": "Configuration Sync enregistrée",
+    "syncConfigSelect": "Choisissez une configuration",
+    "syncConfigNone": "Aucune configuration Sync n'est encore enregistrée : enregistrez-en une sur la page Sync.",
+    "syncConfigGone": "Une configuration qui n'est plus enregistrée",
+    "stepConfigCondition": "Continuer quand",
+    "conditionChoose": "Choisissez un test",
+    "conditionKinds": {
+      "previousSucceeded": "L'étape précédente a réussi",
+      "previousFailed": "L'étape précédente a échoué",
+      "compareDifferences": "La comparaison a trouvé plus de N différences",
+      "apiUsage": "L'utilisation de l'API dépasse N %",
+      "storageUsage": "Le stockage des données dépasse N %",
+      "recentErrors": "Plus de N erreurs Apex au cours des dernières 24 h",
+      "failedJobs": "Plus de N jobs Apex en échec",
+      "custom": "Tel que le modèle l'a défini : {{field}} {{operator}} {{value}}"
+    },
+    "conditionThreshold": {
+      "compareDifferences": "Plus de différences que",
+      "apiUsage": "Utilisation de l'API au-delà de (%)",
+      "storageUsage": "Stockage des données au-delà de (%)",
+      "recentErrors": "Plus d'erreurs Apex que",
+      "failedJobs": "Plus de jobs Apex en échec que"
+    },
+    "approval": {
+      "waiting": "En attente de votre approbation jusqu'à {{time}}.",
+      "approve": "Approuver",
+      "reject": "Rejeter",
+      "record": {
+        "approvedOnPage": "Approuvé sur la page Automation, {{time}}",
+        "approvedOnNotification": "Approuvé dans la notification VS Code, {{time}}",
+        "rejectedOnPage": "Rejeté sur la page Automation, {{time}}",
+        "rejectedOnNotification": "Rejeté dans la notification VS Code, {{time}}",
+        "timedOut": "Pas approuvé à temps : personne n'a répondu avant {{time}}",
+        "cancelled": "Arrêté avant que quiconque réponde, {{time}}"
+      }
     }
   },
   "ai": {
@@ -1960,7 +2006,8 @@
       "metadata_deploy": "Déploiement de métadonnées",
       "realtime_sync": "Synchronisation en temps réel",
       "subject_erase": "Effacement sur demande",
-      "cleanup_delete": "Suppression de nettoyage"
+      "cleanup_delete": "Suppression de nettoyage",
+      "pipeline_approval": "Approbation de pipeline"
     },
     "filterByAction": "Filtrer par action",
     "filterByModule": "Filtrer par module",

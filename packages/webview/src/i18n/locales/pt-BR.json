@@ -1754,13 +1754,10 @@
       "delete": "Exclusão",
       "compare": "Comparação",
       "precheck": "Pré-verificação",
-      "script": "Script",
       "notification": "Notificação",
       "approval": "Aprovação",
       "delay": "Atraso",
-      "condition": "Condição",
-      "loop": "Loop",
-      "parallel": "Paralelo"
+      "condition": "Condição"
     },
     "stepCategories": {
       "data": "Dados",
@@ -1812,7 +1809,6 @@
       "failedJobs": "Jobs do Apex com falha"
     },
     "stepConfigDelay": "Atraso (segundos)",
-    "stepConfigScript": "Script",
     "stepConfigWhere": "Cláusula WHERE",
     "stepConfigTemplate": "ID do modelo",
     "noExecution": "Sem execução ativa",
@@ -1824,7 +1820,7 @@
     "generatePipeline": "Gerar com IA",
     "generatePipelinePrompt": "Descreva o pipeline que você quer criar...",
     "marketplace": "Marketplace",
-    "marketplaceStepsNote": "As etapas Backup, Comparação, Pré-verificação, Notificação, Atraso e Condição são executadas em um pipeline. Seed, Sync, Restauração, Anonimização e Exclusão gravam em uma org, então só são executadas pela própria página, e as etapas Script, Aprovação, Loop e Paralelo não são executadas: um modelo que contenha uma delas é instalado, mas seu pipeline não é iniciado.",
+    "marketplaceStepsNote": "As etapas Backup, Comparação, Pré-verificação, Notificação, Atraso, Condição, Aprovação e Sync são executadas em um pipeline; uma etapa Sync executa uma configuração que você escolhe, salva na página Sync. Seed, Restauração, Anonimização e Exclusão gravam em uma org, então só são executadas pela própria página: um modelo que contenha uma delas é instalado, mas seu pipeline não é iniciado.",
     "templateInstalled": "Modelo instalado como novo pipeline",
     "installFailed": "Não foi possível instalar o modelo",
     "marketplaceAuthor": "Autor",
@@ -1835,8 +1831,8 @@
     "runnability": {
       "cannotRun": "Não executável",
       "typeCannotRun": "Este tipo de etapa ainda não pode ser executado em um pipeline.",
-      "writesToOrg": "Esta etapa grava em uma org, então um pipeline não a executa: execute-a pela própria página dela, onde o Production Guard pergunta antes de gravar em uma org de produção.",
-      "conditionNeedsCondition": "Uma etapa Condição precisa de uma condição para testar, e esta página ainda não consegue definir uma. Uma etapa Condição vinda de um modelo do Marketplace traz a sua.",
+      "writesToOrg": "Um pipeline não executa esta etapa: execute-a pela própria página dela, onde o Production Guard pergunta antes de gravar em uma org de produção.",
+      "conditionNeedsCondition": "Escolha o que esta etapa Condição testa.",
       "delayNeedsSeconds": "Defina quantos segundos esta etapa Atraso espera (de 0 a 24 dias).",
       "timeoutTooLong": "Defina um timeout de no máximo 24 dias (2.073.600.000 ms), ou nenhum.",
       "needsOrg": "Escolha a org com que esta etapa trabalha.",
@@ -1846,9 +1842,21 @@
       "compareNeedsTypes": "Escolha pelo menos um tipo de metadados para comparar.",
       "precheckNeedsChecks": "Escolha o que esta Pré-verificação lê: uso da API, armazenamento de dados, logs de erro do Apex ou jobs do Apex com falha.",
       "notificationNeedsMessage": "Escreva a mensagem que esta notificação exibe (no máximo 500 caracteres).",
-      "paletteNote": "Só são oferecidas as etapas que um pipeline executa. As etapas que gravam em uma org — Seed, Sync, Restauração, Anonimização, Exclusão — só são executadas pela própria página, onde o Production Guard pergunta antes.",
+      "paletteNote": "Só são oferecidas as etapas que um pipeline executa. Seed, Restauração, Anonimização e Exclusão gravam em uma org e só são executadas pela própria página, onde o Production Guard pergunta antes. Sync executa uma configuração salva na página Sync; se ela grava em uma org sobre a qual o Production Guard pergunta, precisa de uma etapa Aprovação antes.",
       "pipelineBlocked": "Este pipeline não pode ser executado. Remova ou corrija estas etapas primeiro:",
-      "templateBlocked": "Não pode ser executado como pipeline. Estes tipos de etapa não são executados em um pipeline: {{types}}."
+      "templateBlocked": "Não pode ser executado como pipeline. Estes tipos de etapa não são executados em um pipeline: {{types}}.",
+      "conditionNeedsEarlierStep": "Esta Condição testa como foi a etapa anterior, e nenhuma etapa vem antes dela.",
+      "conditionNeedsCompare": "Esta Condição testa as diferenças que uma comparação encontrou: coloque uma etapa Comparação antes dela.",
+      "conditionNeedsPrecheck": "Esta Condição testa uma leitura de Pré-verificação: coloque antes dela uma Pré-verificação que faça essa leitura.",
+      "noLongerSupported": "Este tipo de etapa não é mais suportado: remova a etapa do pipeline.",
+      "noLongerSupportedBadge": "Não é mais suportado",
+      "approvalTimeout": "Informe quantos minutos esta Aprovação aguarda, de 1 a 1.440 (um dia), ou deixe vazio para aguardar uma hora.",
+      "approvalMessageTooLong": "Encurte a mensagem de aprovação para no máximo 500 caracteres.",
+      "syncNeedsConfig": "Escolha a configuração de Sync salva que esta etapa executa.",
+      "syncConfigMissing": "A configuração de Sync que esta etapa executa não está mais salva: escolha outra.",
+      "syncConfigInvalid": "A configuração de Sync que esta etapa executa não é mais válida: abra-a na página Sync e salve-a novamente.",
+      "syncGuardRefuses": "O Production Guard recusa este Sync na org de destino, aprovado ou não.",
+      "syncNeedsApproval": "Este Sync grava em uma org sobre a qual o Production Guard pergunta antes (uma org de produção ou uma Developer Edition): coloque uma etapa Aprovação antes dele."
     },
     "emptyState": {
       "title": "Crie seu primeiro pipeline",
@@ -1872,8 +1880,46 @@
     "errorCount_other": "{{count}} erros",
     "draftSuggestions": {
       "title": "Deixado fora deste rascunho",
-      "writesToOrg": "Um pipeline não executa nenhuma etapa que grave em uma org, então não pode executar {{page}}: execute-o pela página {{page}}, onde o Production Guard pode pará-lo ou perguntar antes.",
+      "writesToOrg": "O rascunho deixa de fora o trabalho de {{page}}, que grava em uma org: execute-o pela página {{page}}, onde o Production Guard pode pará-lo ou perguntar antes.",
       "stepNotRunnable": "Um pipeline não pode executar uma etapa {{type}}, então o rascunho a deixa de fora."
+    },
+    "stepConfigApprovalMessage": "Mensagem exibida com a pergunta",
+    "stepConfigApprovalTimeout": "Aguardar resposta (minutos)",
+    "stepConfigSyncConfig": "Configuração de Sync salva",
+    "syncConfigSelect": "Escolha uma configuração",
+    "syncConfigNone": "Nenhuma configuração de Sync foi salva ainda: salve uma na página Sync.",
+    "syncConfigGone": "Uma configuração que não está mais salva",
+    "stepConfigCondition": "Continuar quando",
+    "conditionChoose": "Escolha um teste",
+    "conditionKinds": {
+      "previousSucceeded": "A etapa anterior foi concluída",
+      "previousFailed": "A etapa anterior falhou",
+      "compareDifferences": "A comparação encontrou mais de N diferenças",
+      "apiUsage": "O uso da API está acima de N%",
+      "storageUsage": "O armazenamento de dados está acima de N%",
+      "recentErrors": "Mais de N erros de Apex nas últimas 24 h",
+      "failedJobs": "Mais de N jobs de Apex com falha",
+      "custom": "Como o modelo definiu: {{field}} {{operator}} {{value}}"
+    },
+    "conditionThreshold": {
+      "compareDifferences": "Mais diferenças que",
+      "apiUsage": "Uso da API acima de (%)",
+      "storageUsage": "Armazenamento de dados acima de (%)",
+      "recentErrors": "Mais erros de Apex que",
+      "failedJobs": "Mais jobs de Apex com falha que"
+    },
+    "approval": {
+      "waiting": "Aguardando sua aprovação até {{time}}.",
+      "approve": "Aprovar",
+      "reject": "Rejeitar",
+      "record": {
+        "approvedOnPage": "Aprovado na página Automation, {{time}}",
+        "approvedOnNotification": "Aprovado na notificação do VS Code, {{time}}",
+        "rejectedOnPage": "Rejeitado na página Automation, {{time}}",
+        "rejectedOnNotification": "Rejeitado na notificação do VS Code, {{time}}",
+        "timedOut": "Não aprovado a tempo: ninguém respondeu até {{time}}",
+        "cancelled": "Interrompido antes que alguém respondesse, {{time}}"
+      }
     }
   },
   "ai": {
@@ -1960,7 +2006,8 @@
       "metadata_deploy": "Implantação de metadados",
       "realtime_sync": "Sincronização em tempo real",
       "subject_erase": "Apagamento por solicitação de titular",
-      "cleanup_delete": "Exclusão de limpeza"
+      "cleanup_delete": "Exclusão de limpeza",
+      "pipeline_approval": "Aprovação de pipeline"
     },
     "filterByAction": "Filtrar por ação",
     "filterByModule": "Filtrar por módulo",

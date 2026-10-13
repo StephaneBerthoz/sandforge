@@ -157,5 +157,9 @@
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "「コマンドをコピー」はコマンドをコピーしてクローンをキャンセルします。SandForge がコマンドを実行することはありません。実行してから、クローンをもう一度実行してください。",
   "Copy the command": "コマンドをコピー",
   "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "これらのレコードにより {0} のフローが約 {1} 通の単一メールを送信します。本日の残り {2} 通（上限 {3} 通）を超えます（レコードあたりのメール数: {4}）。それを超えると、保存時にフローが失敗したレコードは拒否されます。",
-  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "これらのレコードにより {0} のフローが約 {1} 通のワークフローメールを送信します。本日の残り {2} 通（上限 {3} 通）を超えます（レコードあたりのメール数: {4}）。それを超えると、保存時にフローが失敗したレコードは拒否されます。"
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "これらのレコードにより {0} のフローが約 {1} 通のワークフローメールを送信します。本日の残り {2} 通（上限 {3} 通）を超えます（レコードあたりのメール数: {4}）。それを超えると、保存時にフローが失敗したレコードは拒否されます。",
+  "Approve": "承認",
+  "Reject": "却下",
+  "SandForge: pipeline \"{0}\" waits for your approval at step \"{1}\", until {2}.": "SandForge: パイプライン「{0}」がステップ「{1}」で {2} まであなたの承認を待っています。",
+  "SandForge: step \"{0}\" no longer waits for an answer, so this one changed nothing.": "SandForge: ステップ「{0}」はもう回答を待っていないため、この回答では何も変わりませんでした。"
 }

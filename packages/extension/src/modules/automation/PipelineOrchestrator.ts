@@ -12,6 +12,7 @@ import type { StepExecutor } from './StepExecutor';
 import type { ConditionalRouter } from './ConditionalRouter';
 import type { PipelineHistory } from './PipelineHistory';
 import type { CoreServices } from '../../services.js';
+import { PREVIOUS_STEP_STATUS } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /**
@@ -162,7 +163,9 @@ export class PipelineOrchestrator {
    *   to it, and the steps in between are passed over. The target used to run
    *   twice: once when routed to, and again when its turn came.
    * - A completed step may hand values on to the steps after it (see
-   *   {@link handedOn}); they are laid over the run's variables.
+   *   {@link handedOn}); they are laid over the run's variables. Every step
+   *   that ran hands on how it went, as `previousStepStatus`: `succeeded` or
+   *   `failed`.
    * - A step whose work was cancelled (its result says `cancelled`) ends the
    *   run there, cancelled, whatever its `continueOnError` says.
    *
@@ -232,6 +235,9 @@ export class PipelineOrchestrator {
       }
       this.emit('stepCompleted', { runId: run.id, stepResult: result });
       Object.assign(values, handedOn(result));
+      // How the step that ran last went, for a Condition after it: a step
+      // set to continue on error can fail, and the run go one way or another.
+      values[PREVIOUS_STEP_STATUS] = result.status === 'completed' ? 'succeeded' : 'failed';
 
       // A step cut short by the abort failed because the run was stopped, not
       // on its own: the run is cancelled, and nothing is routed from it. So is
@@ -457,11 +463,17 @@ export class PipelineOrchestrator {
     return this.refusals(pipeline).map(({ reason }) => reason);
   }
 
-  /** Each step that cannot run, with the reason. */
+  /**
+   * Each step that cannot run, with the reason. A step is checked where it
+   * sits: a Condition needs a step before it that hands on what it tests, a
+   * Sync step that Production Guard would ask about needs an Approval step
+   * before it.
+   */
   private refusals(pipeline: PipelineDefinition): Array<{ step: PipelineStep; reason: string }> {
+    const declared = new Set(pipeline.variables.map((variable) => variable.name));
     return pipeline.steps.flatMap((step, index) => {
       const reason =
-        this.deps.stepExecutor.check(step) ??
+        this.deps.stepExecutor.check(step, { steps: pipeline.steps, index, declared }) ??
         this.conditionProblem(step) ??
         routeProblem(step, index, pipeline.steps);
       return reason === undefined ? [] : [{ step, reason }];

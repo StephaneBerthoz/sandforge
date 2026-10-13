@@ -157,5 +157,9 @@
   "Copy the command copies it and cancels the clone: SandForge never runs it. Run it, then execute the clone again.": "Befehl kopieren kopiert ihn und bricht den Klon ab: SandForge führt ihn nie aus. Führen Sie ihn aus und starten Sie den Klon dann erneut.",
   "Copy the command": "Befehl kopieren",
   "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Diese Datensätze lassen die Flows von {0} etwa {1} Einzel-E-Mails senden, mehr als die {2} von {3}, die heute noch übrig sind (E-Mails pro Datensatz: {4}). Darüber hinaus wird ein Datensatz, dessen Flow beim Speichern fehlschlägt, abgelehnt.",
-  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Diese Datensätze lassen die Flows von {0} etwa {1} Workflow-E-Mails senden, mehr als die {2} von {3}, die heute noch übrig sind (E-Mails pro Datensatz: {4}). Darüber hinaus wird ein Datensatz, dessen Flow beim Speichern fehlschlägt, abgelehnt."
+  "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "Diese Datensätze lassen die Flows von {0} etwa {1} Workflow-E-Mails senden, mehr als die {2} von {3}, die heute noch übrig sind (E-Mails pro Datensatz: {4}). Darüber hinaus wird ein Datensatz, dessen Flow beim Speichern fehlschlägt, abgelehnt.",
+  "Approve": "Genehmigen",
+  "Reject": "Ablehnen",
+  "SandForge: pipeline \"{0}\" waits for your approval at step \"{1}\", until {2}.": "SandForge: Die Pipeline „{0}“ wartet bei Schritt „{1}“ bis {2} auf Ihre Genehmigung.",
+  "SandForge: step \"{0}\" no longer waits for an answer, so this one changed nothing.": "SandForge: Schritt „{0}“ wartet nicht mehr auf eine Antwort, diese hat also nichts geändert."
 }

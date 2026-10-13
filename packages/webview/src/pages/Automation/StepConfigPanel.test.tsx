@@ -253,3 +253,164 @@ describe('StepConfigPanel — the steps that run a module', () => {
     });
   });
 });
+
+describe('StepConfigPanel — Approval, Condition and Sync', () => {
+  it('asks an Approval step for its message and how many minutes it waits, an hour unless set', () => {
+    const onUpdate = vi.fn();
+    render(
+      <StepConfigPanel
+        step={{
+          id: 'step-a',
+          name: 'Look first',
+          type: 'approval',
+          config: {},
+          continueOnError: false,
+        }}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    const minutes = screen.getByTestId('config-timeoutMinutes') as HTMLInputElement;
+    expect(minutes.placeholder).toBe('60');
+    expect(minutes.max).toBe('1440');
+    fireEvent.change(minutes, { target: { value: '15' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-a', { config: { timeoutMinutes: 15 } });
+    fireEvent.change(screen.getByTestId('config-message'), { target: { value: 'Check it.' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-a', { config: { message: 'Check it.' } });
+    expect((screen.getByTestId('config-message') as HTMLInputElement).maxLength).toBe(500);
+  });
+
+  it('removes the wait when it is cleared, rather than setting it to 0', () => {
+    const onUpdate = vi.fn();
+    render(
+      <StepConfigPanel
+        step={{
+          id: 'step-a',
+          name: 'Look first',
+          type: 'approval',
+          config: { timeoutMinutes: 15 },
+          continueOnError: false,
+        }}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('config-timeoutMinutes'), { target: { value: '' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-a', { config: {} });
+  });
+
+  it('gives a Condition step its test: the previous step, or a count above a number', () => {
+    const onUpdate = vi.fn();
+    const condition: PipelineStep = {
+      id: 'step-c',
+      name: 'Gate',
+      type: 'condition',
+      config: {},
+      continueOnError: false,
+    };
+    const { rerender } = render(<StepConfigPanel step={condition} onUpdate={onUpdate} />);
+
+    fireEvent.change(screen.getByTestId('config-condition-kind'), {
+      target: { value: 'previousFailed' },
+    });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-c', {
+      condition: { field: 'previousStepStatus', operator: 'eq', value: 'failed' },
+    });
+    expect(screen.queryByTestId('config-condition-threshold')).toBeNull();
+
+    rerender(
+      <StepConfigPanel
+        step={{
+          ...condition,
+          condition: { field: 'compareDifferenceCount', operator: 'gt', value: 0 },
+        }}
+        onUpdate={onUpdate}
+      />,
+    );
+    expect((screen.getByTestId('config-condition-kind') as HTMLSelectElement).value).toBe(
+      'compareDifferences',
+    );
+    fireEvent.change(screen.getByTestId('config-condition-threshold'), {
+      target: { value: '25' },
+    });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-c', {
+      condition: { field: 'compareDifferenceCount', operator: 'gt', value: 25 },
+    });
+  });
+
+  it('shows a condition a template set as it stands until another is chosen', () => {
+    render(
+      <StepConfigPanel
+        step={{
+          id: 'step-c',
+          name: 'Gate',
+          type: 'condition',
+          config: {},
+          continueOnError: false,
+          condition: { field: 'env', operator: 'eq', value: 'prod' },
+        }}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    const kind = screen.getByTestId('config-condition-kind') as HTMLSelectElement;
+    expect(kind.value).toBe('custom');
+    expect(kind.selectedOptions[0].textContent).toBe('As the template set it: env eq prod');
+  });
+
+  it('asks a Sync step for one of the saved Sync configurations, and says when there is none', () => {
+    const onUpdate = vi.fn();
+    const sync: PipelineStep = {
+      id: 'step-s',
+      name: 'Copy',
+      type: 'sync',
+      config: {},
+      continueOnError: false,
+    };
+    const { rerender } = render(
+      <StepConfigPanel
+        step={sync}
+        onUpdate={onUpdate}
+        syncConfigs={[
+          { id: 'cfg-1', name: 'Accounts to dev', valid: true, guard: 'allowed' },
+          { id: 'cfg-2', name: 'Contacts', valid: true, guard: 'asks' },
+        ]}
+      />,
+    );
+
+    const picker = screen.getByTestId('config-configId') as HTMLSelectElement;
+    expect([...picker.options].map((option) => option.textContent)).toEqual([
+      'Choose a configuration',
+      'Accounts to dev',
+      'Contacts',
+    ]);
+    fireEvent.change(picker, { target: { value: 'cfg-2' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-s', { config: { configId: 'cfg-2' } });
+    // The source and target org boxes the step used to ask for are gone.
+    expect(screen.queryByTestId('config-sourceOrg')).toBeNull();
+
+    rerender(<StepConfigPanel step={sync} onUpdate={onUpdate} syncConfigs={[]} />);
+    expect(screen.getByTestId('config-sync-none').textContent).toBe(
+      'No Sync configuration is saved yet: save one on the Sync page.',
+    );
+  });
+
+  it('keeps a Sync configuration that is no longer saved chosen, and says so', () => {
+    render(
+      <StepConfigPanel
+        step={{
+          id: 'step-s',
+          name: 'Copy',
+          type: 'sync',
+          config: { configId: 'cfg-gone' },
+          continueOnError: false,
+        }}
+        syncConfigs={[{ id: 'cfg-1', name: 'Accounts to dev', valid: true }]}
+      />,
+    );
+
+    const picker = screen.getByTestId('config-configId') as HTMLSelectElement;
+    expect(picker.value).toBe('cfg-gone');
+    expect(picker.selectedOptions[0].textContent).toBe('A configuration that is no longer saved');
+  });
+});

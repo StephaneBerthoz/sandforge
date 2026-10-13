@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PipelineStep, PipelineStepType } from '@sandforge/shared';
+import type { PipelineStep, PipelineStepType, PipelineSyncConfigInfo } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { stepBlocker } from './stepRunnability';
@@ -14,12 +14,17 @@ export interface PipelineCanvasProps {
   onConnectSteps?: (fromStepId: string, toStepId: string) => void;
   /** The ids of the orgs connected here: a step naming another org is marked. */
   orgIds?: ReadonlySet<string>;
+  /** The variables the pipeline declares, which a Condition may test. */
+  declared?: ReadonlySet<string>;
+  /** The saved Sync configurations as the extension describes them, once it has. */
+  syncConfigs?: readonly PipelineSyncConfigInfo[];
 }
 
 /**
  * The dot beside a step's name, in an identity hue per type. The type is also
  * written in the badge next to it, so types a shade apart before (backup and
- * restore, script and delay) may share a hue.
+ * restore) may share a hue. A type SandForge no longer has gets the neutral
+ * dot.
  */
 const STEP_COLORS: Partial<Record<PipelineStepType, string>> = {
   seed: 'bg-hue-green',
@@ -30,13 +35,10 @@ const STEP_COLORS: Partial<Record<PipelineStepType, string>> = {
   delete: 'bg-hue-rose',
   compare: 'bg-hue-cyan',
   precheck: 'bg-hue-teal',
-  script: 'bg-text-secondary',
   notification: 'bg-hue-yellow',
   approval: 'bg-hue-orange',
   delay: 'bg-text-secondary',
   condition: 'bg-hue-indigo',
-  loop: 'bg-hue-purple',
-  parallel: 'bg-hue-fuchsia',
 };
 
 /** Visual pipeline canvas showing steps as connected nodes. */
@@ -46,6 +48,8 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
   onSelectStep,
   onRemoveStep,
   orgIds,
+  declared,
+  syncConfigs,
 }) => {
   const { t } = useTranslation();
 
@@ -72,7 +76,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
         const colorClass = STEP_COLORS[step.type] ?? 'bg-text-secondary';
         // A saved pipeline, a Marketplace template or an AI draft can hold a
         // step the palette would not add: it is marked where it sits.
-        const blocker = stepBlocker(step, orgIds);
+        const blocker = stepBlocker(step, orgIds, { steps, index, declared, syncConfigs });
 
         // The node holds two buttons side by side, one that selects the step
         // and one that removes it. It used to be a role="button" div with the
@@ -106,7 +110,9 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
                     title={t(`automation.runnability.${blocker}`)}
                     data-testid={`canvas-blocked-${step.id}`}
                   >
-                    {t('automation.runnability.cannotRun')}
+                    {blocker === 'noLongerSupported'
+                      ? t('automation.runnability.noLongerSupportedBadge')
+                      : t('automation.runnability.cannotRun')}
                   </Badge>
                 )}
               </button>

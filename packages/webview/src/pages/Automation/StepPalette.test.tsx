@@ -1,27 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import { PIPELINE_STEP_TYPES } from '@sandforge/shared';
 import { StepPalette } from './StepPalette';
 import { paletteBlocker } from './stepRunnability';
-
-/** Every step type the shared union declares. */
-const ALL_STEP_TYPES = [
-  'seed',
-  'sync',
-  'backup',
-  'restore',
-  'anonymize',
-  'delete',
-  'compare',
-  'precheck',
-  'script',
-  'notification',
-  'approval',
-  'delay',
-  'condition',
-  'loop',
-  'parallel',
-] as const;
 
 /** The step types the palette renders a button for, in the order it shows them. */
 function offeredTypes(): string[] {
@@ -42,8 +24,17 @@ describe('StepPalette', () => {
     // It listed all fifteen, ten of them disabled under "Not in pipelines" or
     // "Coming soon": none of the ten could be added.
     render(<StepPalette />);
-    expect(offeredTypes()).toEqual(['backup', 'compare', 'precheck', 'delay', 'notification']);
-    expect(ALL_STEP_TYPES.filter((type) => paletteBlocker(type) === undefined).sort()).toEqual(
+    expect(offeredTypes()).toEqual([
+      'sync',
+      'backup',
+      'compare',
+      'precheck',
+      'condition',
+      'delay',
+      'approval',
+      'notification',
+    ]);
+    expect(PIPELINE_STEP_TYPES.filter((type) => paletteBlocker(type) === undefined).sort()).toEqual(
       offeredTypes().sort(),
     );
     for (const button of screen.getAllByRole('button')) {
@@ -65,30 +56,36 @@ describe('StepPalette', () => {
     const onAdd = vi.fn();
     render(<StepPalette onAddStep={onAdd} />);
 
-    for (const type of ['backup', 'compare', 'precheck', 'notification', 'delay']) {
-      fireEvent.click(screen.getByTestId(`palette-${type}`));
-    }
-    expect(onAdd.mock.calls.map(([type]) => type)).toEqual([
+    const offered = [
+      'sync',
       'backup',
       'compare',
       'precheck',
-      'notification',
+      'condition',
       'delay',
-    ]);
+      'approval',
+      'notification',
+    ];
+    for (const type of offered) {
+      fireEvent.click(screen.getByTestId(`palette-${type}`));
+    }
+    expect(onAdd.mock.calls.map(([type]) => type)).toEqual(offered);
   });
 
   it('offers no step a pipeline refuses, and says where the steps that write run', () => {
     render(<StepPalette />);
-    for (const type of ['seed', 'sync', 'restore', 'anonymize', 'delete']) {
+    for (const type of ['seed', 'restore', 'anonymize', 'delete']) {
       expect(screen.queryByTestId(`palette-${type}`)).toBeNull();
     }
-    for (const type of ['script', 'approval', 'loop', 'parallel', 'condition']) {
+    // Gone for good: no palette entry, and no label to show one with.
+    for (const type of ['script', 'loop', 'parallel']) {
       expect(screen.queryByTestId(`palette-${type}`)).toBeNull();
     }
     const note = screen.getByTestId('palette-runnable-note').textContent ?? '';
     expect(note).toContain(
-      'Steps that write to an org — Seed, Sync, Restore, Anonymize, Delete — run only from their own pages',
+      'Seed, Restore, Anonymize and Delete write to an org and run only from their own pages',
     );
+    expect(note).toContain('needs an Approval step before it');
     expect(note).not.toMatch(/\byet\b/);
   });
 

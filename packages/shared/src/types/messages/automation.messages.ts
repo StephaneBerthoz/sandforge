@@ -1,5 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
-import type { PipelineTriggerStatus } from '../automation.types.js';
+import type { PipelineSyncConfigInfo, PipelineTriggerStatus } from '../automation.types.js';
 
 /**
  * Response for `pipeline:execute` — the pipeline execution
@@ -30,7 +30,39 @@ export interface PipelineStepUpdate extends BaseMessage {
     summary?: string;
     /** Why the step failed. */
     error?: string;
+    /**
+     * Set while an Approval step waits for an answer: the message it asks
+     * with, and when it stops waiting. The page offers Approve and Reject
+     * beside the step, as the VS Code notification does.
+     */
+    approval?: { message?: string; expiresAt: string };
   };
+}
+
+/**
+ * The page's answer to an Approval step of the run it started, as Approve or
+ * Reject beside the step. The first answer — this one or the notification's —
+ * is the step's; one that comes after it changes nothing. No reply: the step's
+ * end arrives on `pipeline:step`.
+ */
+export interface PipelineApprovalAnswerRequest extends BaseMessage {
+  type: 'pipeline:approval';
+  payload: { operationId: string; stepId: string; decision: 'approved' | 'rejected' };
+}
+
+/** The saved Sync configurations a pipeline's Sync step can run. */
+export interface PipelineSyncConfigsRequest extends BaseMessage {
+  type: 'pipeline:sync-configs';
+}
+
+/**
+ * Each saved Sync configuration, with whether it reads and what Production
+ * Guard does with a run of it — what the page checks a Sync step against
+ * before Run, as the extension does before the run.
+ */
+export interface PipelineSyncConfigsResponse extends BaseMessage {
+  type: 'pipeline:sync-configs:response';
+  payload: { configs: PipelineSyncConfigInfo[] };
 }
 
 /** Error response for pipeline operations (emitted via sendHandlerError). */

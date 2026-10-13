@@ -119,6 +119,53 @@ describe('PipelineHistoryView', () => {
     ]);
   });
 
+  it('says how each Approval step was answered: what, where and when, or that nobody did', () => {
+    render(
+      <PipelineHistoryView
+        entries={[
+          {
+            ...entries[1],
+            steps: [
+              {
+                stepName: 'Look first',
+                stepType: 'approval',
+                status: 'completed',
+                approval: {
+                  decision: 'approved',
+                  via: 'notification',
+                  at: '2026-10-13T08:00:20.000Z',
+                  by: 'sha256:0123456789ab',
+                },
+              },
+              {
+                stepName: 'Again',
+                stepType: 'approval',
+                status: 'failed',
+                approval: { decision: 'rejected', via: 'page', at: '2026-10-13T08:01:00.000Z' },
+              },
+              {
+                stepName: 'Later',
+                stepType: 'approval',
+                status: 'failed',
+                approval: { decision: 'timedOut', at: '2026-10-13T09:01:00.000Z' },
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('history-approval-run-2-0').textContent).toMatch(
+      /^Approved in the VS Code notification, .+/,
+    );
+    expect(screen.getByTestId('history-approval-run-2-1').textContent).toMatch(
+      /^Rejected on the Automation page, .+/,
+    );
+    expect(screen.getByTestId('history-approval-run-2-2').textContent).toMatch(
+      /^Not approved in time: nobody answered by .+/,
+    );
+  });
+
   it('lists no steps for a run written before steps were kept', () => {
     render(<PipelineHistoryView entries={entries} />);
     expect(screen.queryByTestId('history-steps-run-1')).toBeNull();

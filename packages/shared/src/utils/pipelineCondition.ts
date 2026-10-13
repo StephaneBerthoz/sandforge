@@ -1,4 +1,8 @@
-import type { ConditionOperator, PipelineCondition } from '../types/automation.types.js';
+import type {
+  ConditionOperator,
+  PipelineCondition,
+  PipelineStep,
+} from '../types/automation.types.js';
 
 /**
  * How a pipeline condition is read: what keeps one from being evaluated, and
@@ -183,4 +187,80 @@ export function evaluateCondition(
     case 'is_not_empty':
       return !isUnset(actual);
   }
+}
+
+/**
+ * The value a run hands on after each step that ran: `succeeded` or `failed`,
+ * for the step that ran last. A Condition after a step that may fail — one
+ * set to continue on error — tests it to go one way or the other.
+ */
+export const PREVIOUS_STEP_STATUS = 'previousStepStatus';
+
+/**
+ * The value a Compare step hands on: how many components differ between the
+ * two orgs — only in one, only in the other, or modified.
+ */
+export const COMPARE_DIFFERENCE_COUNT = 'compareDifferenceCount';
+
+/**
+ * The value each Pre-check check hands on, by check: API usage and data
+ * storage in percent, Apex errors of the last day and failed Apex jobs in
+ * counts. `apiUsagePercent` is what the Marketplace's API Limit Monitoring
+ * template tests.
+ */
+export const PRECHECK_VARIABLES = {
+  apiLimits: 'apiUsagePercent',
+  storage: 'storageUsagePercent',
+  recentErrors: 'recentErrorCount',
+  failedJobs: 'failedJobCount',
+} as const;
+
+/**
+ * Why nothing before a Condition step gives it the value it tests:
+ *
+ * - `noEarlierStep`: it tests how the previous step went, and is the first step.
+ * - `noCompare`: it tests how many differences a comparison found, and no
+ *   Compare step comes before it.
+ * - `noPrecheck`: it tests a Pre-check reading, and no Pre-check before it
+ *   takes that reading.
+ */
+export type ConditionSourceDefect = 'noEarlierStep' | 'noCompare' | 'noPrecheck';
+
+/** The checks a Pre-check step's configuration holds. */
+function precheckChecks(step: Pick<PipelineStep, 'config'>): unknown[] {
+  const checks = step.config?.['checks'];
+  return Array.isArray(checks) ? checks : [];
+}
+
+/**
+ * Why no step before a Condition step hands on the value its condition tests,
+ * or undefined when one does, when the pipeline declares a variable of that
+ * name, or when the value is none a step hands on (a run's own variable).
+ *
+ * A condition on a value nobody set was refused only once the run reached it
+ * ("has no value to compare with"), after the steps before it had run.
+ * @param condition - The condition the step tests
+ * @param earlier - The steps before it, in pipeline order
+ * @param declared - The names of the variables the pipeline declares
+ */
+export function conditionSourceDefect(
+  condition: Pick<PipelineCondition, 'field'>,
+  earlier: ReadonlyArray<Pick<PipelineStep, 'type' | 'config'>>,
+  declared: ReadonlySet<string>,
+): ConditionSourceDefect | undefined {
+  const { field } = condition;
+  if (declared.has(field)) return undefined;
+  if (field === PREVIOUS_STEP_STATUS) {
+    return earlier.length > 0 ? undefined : 'noEarlierStep';
+  }
+  if (field === COMPARE_DIFFERENCE_COUNT) {
+    return earlier.some((step) => step.type === 'compare') ? undefined : 'noCompare';
+  }
+  const check = (Object.keys(PRECHECK_VARIABLES) as Array<keyof typeof PRECHECK_VARIABLES>).find(
+    (name) => PRECHECK_VARIABLES[name] === field,
+  );
+  if (check === undefined) return undefined;
+  return earlier.some((step) => step.type === 'precheck' && precheckChecks(step).includes(check))
+    ? undefined
+    : 'noPrecheck';
 }

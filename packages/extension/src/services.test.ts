@@ -145,6 +145,34 @@ describe('services', () => {
       expect(shown).toBeUndefined();
     });
 
+    it("asks for a pipeline's approval in a notification with Approve and Reject, not a modal", async () => {
+      const services = createServices(context);
+      showInformationMessage.mockResolvedValueOnce('Reject' as never);
+
+      const choice = await services.askApproval?.({
+        pipelineName: 'Nightly',
+        stepName: 'Look first',
+        message: 'Check the diff.',
+        expiresAt: 'not a date',
+      });
+
+      expect(showInformationMessage).toHaveBeenLastCalledWith(
+        'SandForge: pipeline "Nightly" waits for your approval at step "Look first", until not a date. Check the diff.',
+        'Approve',
+        'Reject',
+      );
+      expect(choice).toBe('reject');
+    });
+
+    it('reads an approval notification closed without a button as no answer', async () => {
+      const services = createServices(context);
+      showInformationMessage.mockResolvedValueOnce(undefined);
+
+      await expect(
+        services.askApproval?.({ stepName: 'Look first', expiresAt: '2026-10-13T09:00:00.000Z' }),
+      ).resolves.toBeUndefined();
+    });
+
     it('returns a Services object with every expected field', () => {
       const services = createServices(context);
 

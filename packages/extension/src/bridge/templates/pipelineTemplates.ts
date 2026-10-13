@@ -3,8 +3,7 @@ export const PIPELINE_TEMPLATES = [
   {
     id: 'tpl-sandbox-refresh',
     name: 'Sandbox Refresh',
-    description:
-      'Full sandbox refresh: backup data, seed test data, verify deployment, run smoke tests.',
+    description: 'Full sandbox refresh: backup data, seed test data, verify deployment.',
     category: 'environment',
     steps: [
       {
@@ -21,11 +20,6 @@ export const PIPELINE_TEMPLATES = [
         name: 'Verify Deployment',
         type: 'compare:execute',
         description: 'Compare metadata between source and target.',
-      },
-      {
-        name: 'Run Smoke Tests',
-        type: 'script:apex',
-        description: 'Execute Apex smoke test suite.',
       },
     ],
   },

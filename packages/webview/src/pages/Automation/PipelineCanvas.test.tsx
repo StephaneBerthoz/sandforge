@@ -129,13 +129,73 @@ describe('PipelineCanvas', () => {
       'run it from its own page',
     );
     expect(screen.getByTestId('canvas-blocked-s3')).toBeDefined();
-    expect(screen.getByTestId('canvas-blocked-c1').getAttribute('title')).toContain(
-      'needs a condition to test',
+    expect(screen.getByTestId('canvas-blocked-c1').getAttribute('title')).toBe(
+      'Choose what this Condition step tests.',
     );
     expect(screen.getByTestId('canvas-blocked-d1').getAttribute('title')).toBe(
       'Set how many seconds this Delay step waits (from 0 up to 24 days).',
     );
     // A Delay step with its seconds runs, and is not marked.
     expect(screen.queryByTestId('canvas-blocked-d2')).toBeNull();
+  });
+
+  it('marks a step of a type SandForge no longer has as no longer supported, and says to remove it', () => {
+    // A pipeline saved by an earlier release can hold one: it still loads.
+    render(
+      <PipelineCanvas
+        steps={[
+          {
+            id: 'old',
+            name: 'Run tests',
+            type: 'script' as PipelineStep['type'],
+            config: { language: 'apex' },
+            continueOnError: false,
+          },
+        ]}
+      />,
+    );
+
+    const badge = screen.getByTestId('canvas-blocked-old');
+    expect(badge.textContent).toBe('No longer supported');
+    expect(badge.getAttribute('title')).toBe(
+      'This step type is no longer supported: remove the step from the pipeline.',
+    );
+  });
+
+  it('marks a Sync into an org Production Guard asks about until an Approval step comes before it', () => {
+    const syncConfigs = [
+      {
+        id: 'cfg-1',
+        name: 'Accounts',
+        valid: true,
+        sourceOrgId: 'org-a',
+        targetOrgId: 'org-b',
+        guard: 'asks' as const,
+      },
+    ];
+    const sync: PipelineStep = {
+      id: 'sync',
+      name: 'Copy',
+      type: 'sync',
+      config: { configId: 'cfg-1' },
+      continueOnError: false,
+    };
+    const approval: PipelineStep = {
+      id: 'ok',
+      name: 'Look first',
+      type: 'approval',
+      config: {},
+      continueOnError: false,
+    };
+
+    const { unmount } = render(<PipelineCanvas steps={[sync]} syncConfigs={syncConfigs} />);
+    expect(screen.getByTestId('canvas-blocked-sync').getAttribute('title')).toContain(
+      'put an Approval step before it',
+    );
+    unmount();
+
+    render(<PipelineCanvas steps={[approval, sync]} syncConfigs={syncConfigs} />);
+    expect(screen.queryByTestId('canvas-blocked-sync')).toBeNull();
+    expect(screen.queryByTestId('canvas-blocked-ok')).toBeNull();
   });
 });

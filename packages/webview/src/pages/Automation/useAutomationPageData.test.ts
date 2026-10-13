@@ -272,26 +272,48 @@ describe('useAutomationPageData — the AI-generated pipeline reaches the canvas
     expect(result.current.activeTab).toBe('canvas');
   });
 
-  it('should keep a step the canvas cannot type rather than lose it', () => {
+  it('leaves out a step of a type no release has, and names it beside the draft', () => {
     const { result, rerender } = renderHook(() => useAutomationPageData());
 
-    // The host generator maps keywords to strings that are not PipelineStepType
-    // members ('dataops', 'monitor'); a trigger string that names no trigger
-    // type ('error_detected') is dropped.
+    // A draft step of a type that is not a PipelineStepType member ('dataops')
+    // used to land as a Script step, a type that never ran and is gone. A
+    // trigger string that names no trigger type ('error_detected') is dropped.
     mutationFor('ai:generate-pipeline').data = {
       success: true,
       pipeline: {
         name: 'Nightly refresh',
-        steps: [{ name: 'Anonymize PII', type: 'dataops', config: {} }],
+        steps: [
+          { name: 'Anonymize PII', type: 'dataops', config: {} },
+          { name: 'Wait', type: 'delay', config: { seconds: 1 } },
+        ],
         triggers: ['error_detected', 'sandbox_refresh'],
       },
     };
     rerender();
 
-    expect(result.current.stepCount).toBe(1);
-    expect(result.current.pipeline?.steps[0].name).toBe('Anonymize PII');
-    expect(result.current.pipeline?.steps[0].type).toBe('script');
+    expect(result.current.pipeline?.steps.map((step) => step.type)).toEqual(['delay']);
+    expect(result.current.draftSuggestions).toEqual([
+      { code: 'STEP_NOT_RUNNABLE', stepType: 'dataops' },
+    ]);
     expect(result.current.pipeline?.triggers.map((tr) => tr.type)).toEqual(['sandbox_refresh']);
+  });
+
+  it('keeps a step of a type SandForge no longer has, for the canvas to mark', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('marketplace:install').data = {
+      success: true,
+      pipeline: {
+        name: 'Old template',
+        steps: [{ name: 'Run tests', type: 'script', config: { language: 'apex' } }],
+      },
+    };
+    rerender();
+
+    expect(result.current.pipeline?.steps.map((step) => step.type)).toEqual(['script']);
+    expect(result.current.runBlockers.map((blocked) => blocked.blocker)).toEqual([
+      'noLongerSupported',
+    ]);
   });
 
   it('loads nothing and says nothing when the draft was stopped', () => {
@@ -360,14 +382,14 @@ describe('useAutomationPageData — the AI-generated pipeline reaches the canvas
 
       mutationFor('ai:generate-pipeline').data = {
         success: false,
-        error: 'A pipeline runs no step that writes to an org, so it cannot run Sync: …',
+        error: 'The draft leaves out the Sync work, which writes to an org: …',
         suggestions: [{ code: 'WRITES_TO_ORG', page: 'sync' }],
       };
       rerender();
 
       expect(result.current.pipeline).toBeUndefined();
       expect(result.current.error).toBe(
-        "Un pipeline n'exécute aucune étape qui écrit dans une org, donc il ne peut pas lancer Sync : lancez-le depuis la page Sync, où Production Guard peut l'arrêter ou demander confirmation d'abord.",
+        "Le brouillon laisse de côté le travail de Sync, qui écrit dans une org : lancez-le depuis la page Sync, où Production Guard peut l'arrêter ou demander confirmation d'abord.",
       );
       expect(notifications.map((n) => n.message)).toEqual([result.current.error]);
     } finally {
@@ -464,17 +486,59 @@ describe('useAutomationPageData — the History tab follows the runs', () => {
   });
 });
 
+describe('useAutomationPageData — a Sync step', () => {
+  it('refuses to send a Sync into an org the guard asks about until an Approval step comes before it', () => {
+    queryData.set('pipeline:sync-configs', {
+      configs: [
+        {
+          id: 'cfg-1',
+          name: 'Accounts',
+          valid: true,
+          sourceOrgId: 'org-a',
+          targetOrgId: 'org-b',
+          guard: 'asks',
+        },
+      ],
+    });
+    useOrgStore.setState({
+      orgs: [
+        { id: 'org-a', alias: 'uat', username: 'u1', orgType: 'Sandbox' },
+        { id: 'org-b', alias: 'prod', username: 'u2', orgType: 'Production' },
+      ] as unknown as SalesforceOrg[],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleAddStep('sync'));
+    const [sync] = result.current.pipeline?.steps ?? [];
+    act(() => result.current.handleUpdateStep(sync.id, { config: { configId: 'cfg-1' } }));
+
+    expect(result.current.runBlockers.map((blocked) => blocked.blocker)).toEqual([
+      'syncNeedsApproval',
+    ]);
+    act(() => result.current.handleRunPipeline());
+    expect(mutationFor('pipeline:execute').mutate).not.toHaveBeenCalled();
+
+    // An Approval step after the Sync is no answer to its question.
+    act(() => result.current.handleAddStep('approval'));
+    expect(result.current.runBlockers.map((blocked) => blocked.stepId)).toEqual([sync.id]);
+    useOrgStore.setState({ orgs: [] });
+  });
+});
+
 describe('useAutomationPageData — a pipeline with a step that cannot run is not sent', () => {
   it('does not add a step of a type that cannot run', () => {
     const { result } = renderHook(() => useAutomationPageData());
     act(() => result.current.handleCreatePipeline());
 
     act(() => result.current.handleAddStep('seed'));
-    act(() => result.current.handleAddStep('condition'));
+    act(() => result.current.handleAddStep('restore'));
     expect(result.current.stepCount).toBe(0);
 
     act(() => result.current.handleAddStep('delay'));
-    expect(result.current.stepCount).toBe(1);
+    act(() => result.current.handleAddStep('condition'));
+    act(() => result.current.handleAddStep('approval'));
+    act(() => result.current.handleAddStep('sync'));
+    expect(result.current.stepCount).toBe(4);
   });
 
   it('marks every step of an AI draft that cannot run, and refuses to send it', () => {
@@ -486,8 +550,7 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
         name: 'Nightly refresh',
         steps: [
           { name: 'Copy accounts', type: 'sync', config: {} },
-          // 'dataops' is not a step type: it lands as a script step.
-          { name: 'Mask PII', type: 'dataops', config: {} },
+          { name: 'Mask PII', type: 'anonymize', config: {} },
         ],
       },
     };
@@ -496,8 +559,9 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
     expect(
       result.current.runBlockers.map((blocked) => [blocked.stepName, blocked.blocker]),
     ).toEqual([
-      ['Copy accounts', 'writesToOrg'],
-      ['Mask PII', 'typeCannotRun'],
+      // A Sync step runs a saved configuration, and this one names none.
+      ['Copy accounts', 'syncNeedsConfig'],
+      ['Mask PII', 'writesToOrg'],
     ]);
 
     act(() => result.current.handleRunPipeline());
@@ -680,6 +744,41 @@ describe('useAutomationPageData — a run in progress', () => {
     };
     expect(envelope.payload.type).toBe('execution:abort');
     expect(envelope.payload.payload.operationId).toBe('wv-run-1');
+  });
+
+  it('offers Approve and Reject beside an Approval step that waits, until the extension says it ended', () => {
+    const { result } = startRun();
+    const [first] = result.current.pipeline?.steps ?? [];
+
+    receive('pipeline:step', {
+      operationId: 'wv-run-1',
+      stepId: first.id,
+      status: 'running',
+      approval: { message: 'Check the diff.', expiresAt: '2026-10-13T09:00:00.000Z' },
+    });
+    expect(result.current.executionData?.steps[0].awaitingApproval).toEqual({
+      message: 'Check the diff.',
+      expiresAt: '2026-10-13T09:00:00.000Z',
+    });
+
+    receive('pipeline:step', { operationId: 'wv-run-1', stepId: first.id, status: 'completed' });
+    expect(result.current.executionData?.steps[0].awaitingApproval).toBeUndefined();
+  });
+
+  it('answers an Approval step of its own run on pipeline:approval', () => {
+    const { result } = startRun();
+
+    act(() => result.current.handleAnswerApproval('step-9', 'rejected'));
+
+    const envelope = posted.mock.calls[0][0] as {
+      payload: { type: string; payload: Record<string, unknown> };
+    };
+    expect(envelope.payload.type).toBe('pipeline:approval');
+    expect(envelope.payload.payload).toEqual({
+      operationId: 'wv-run-1',
+      stepId: 'step-9',
+      decision: 'rejected',
+    });
   });
 
   it('sends no cancel before a run has started', () => {
