@@ -1,0 +1,23 @@
+{
+  "forge dry run": {
+    "nodes": 78
+  },
+  "forge rehearsal": {
+    "rows": 39,
+    "judged": 1,
+    "passed": 0
+  },
+  "forge clone": {
+    "written": 38,
+    "failed": 0
+  },
+  "forge remove": {
+    "firstStatus": "partial",
+    "refusedItems": 1,
+    "left": 0
+  },
+  "dataops backup": {
+    "held": 1200,
+    "orgCount": 1200
+  }
+}

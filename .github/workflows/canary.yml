@@ -1,0 +1,126 @@
+name: Canary
+
+# SandForge's own commands, run end to end once a week against the two
+# Developer Editions made for SandForge alone (test/fixtures/trap-org/README.md):
+# the trap probes, a Forge dry run, rehearsal, clone, verification and removal,
+# and a DataOps backup read. Every other suite runs against mocks, and every
+# serious defect of the 1.4x series came out of a real run instead; this one
+# sees a Salesforce release or a dependency that breaks a run before a user does.
+#
+# Never a client org: the repository and its logs are public. The canary prints
+# counts and verdicts, masks any Salesforce id an error message carries, and
+# keeps the rest of its output in the runner's temporary directory, which is
+# not uploaded.
+#
+# It logs in with the JWT bearer flow, through an External Client App in each
+# org, from these repository secrets; without them it says so and runs nothing:
+#   SF_CANARY_JWT_KEY          the private key whose certificate both apps hold
+#   SF_CANARY_SOURCE_CLIENT_ID the consumer key of SANDFORGE-SOURCE's app
+#   SF_CANARY_SOURCE_USERNAME  the user it logs in as there
+#   SF_CANARY_TARGET_CLIENT_ID the consumer key of SANDFORGE-TRAP's app
+#   SF_CANARY_TARGET_USERNAME  the user it logs in as there
+
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Canary on the trap pair
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Credentials
+        id: creds
+        env:
+          KEY: ${{ secrets.SF_CANARY_JWT_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No SF_CANARY_* secrets: the canary has no org to log in to and runs nothing."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.creds.outputs.ready == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # pnpm version comes from the packageManager field in package.json
+      - if: steps.creds.outputs.ready == 'true'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - if: steps.creds.outputs.ready == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        if: steps.creds.outputs.ready == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # The standalone build carries its own Node: the CLI keeps to the version
+      # it ships with, whatever the job's Node is.
+      - name: Install the Salesforce CLI
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/sf"
+          curl -fsSL https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz \
+            | tar -xJ -C "$RUNNER_TEMP/sf" --strip-components 1
+          echo "$RUNNER_TEMP/sf/bin" >> "$GITHUB_PATH"
+
+      # The CLI prints the username and org id it logged in to: kept out of the log.
+      - name: Log in to the trap pair
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          KEY: ${{ secrets.SF_CANARY_JWT_KEY }}
+          SOURCE_CLIENT_ID: ${{ secrets.SF_CANARY_SOURCE_CLIENT_ID }}
+          SOURCE_USERNAME: ${{ secrets.SF_CANARY_SOURCE_USERNAME }}
+          TARGET_CLIENT_ID: ${{ secrets.SF_CANARY_TARGET_CLIENT_ID }}
+          TARGET_USERNAME: ${{ secrets.SF_CANARY_TARGET_USERNAME }}
+        run: |
+          umask 077
+          key="$RUNNER_TEMP/canary.key"
+          printf '%s\n' "$KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+          sf org login jwt --client-id "$SOURCE_CLIENT_ID" --jwt-key-file "$key" \
+            --username "$SOURCE_USERNAME" --alias SANDFORGE-SOURCE \
+            --instance-url https://login.salesforce.com > /dev/null
+          sf org login jwt --client-id "$TARGET_CLIENT_ID" --jwt-key-file "$key" \
+            --username "$TARGET_USERNAME" --alias SANDFORGE-TRAP \
+            --instance-url https://login.salesforce.com > /dev/null
+          echo "logged in to SANDFORGE-SOURCE and SANDFORGE-TRAP"
+
+      - name: Build shared
+        if: steps.creds.outputs.ready == 'true'
+        run: pnpm build:shared
+
+      - name: Run the canary
+        if: steps.creds.outputs.ready == 'true'
+        run: pnpm canary
+
+      # One open issue at a time: a canary that keeps failing comments on it.
+      - name: Say so in an issue
+        if: failure() && steps.creds.outputs.ready == 'true' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh label create canary --color B60205 --description "The weekly canary failed" 2> /dev/null || true
+          open=$(gh issue list --label canary --state open --json number --jq '.[0].number')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "Failed again: $run_url"
+          else
+            gh issue create --label canary --title "Canary failed" \
+              --body "The weekly canary failed on the trap pair: $run_url (its summary says which step)."
+          fi

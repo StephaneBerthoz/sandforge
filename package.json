@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm --filter @sandforge/shared build && pnpm --filter {./packages/extension} build && pnpm --filter @sandforge/webview build && pnpm run copy:webview",
     "copy:webview": "node -e \"fs.rmSync('packages/extension/webview-dist',{recursive:true,force:true});fs.cpSync('packages/webview/dist','packages/extension/webview-dist',{recursive:true})\"",
+    "canary": "node scripts/canary.mjs",
     "build:shared": "pnpm --filter @sandforge/shared build",
     "build:extension": "pnpm --filter {./packages/extension} build",
     "build:webview": "pnpm --filter @sandforge/webview build",

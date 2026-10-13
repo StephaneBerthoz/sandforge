@@ -120,3 +120,27 @@ made up.
 `sf api request rest` (2.152) refuses a DELETE without a body and with an empty `--body` alike
 ("No 'mode' found in 'body' entry"). The script sends those through a request file whose raw body
 is empty.
+
+## The canary
+
+`pnpm canary` (`scripts/canary.mjs`) runs SandForge's own commands against the pair: the probes
+above, then a Forge clone from the seeded account `Trap Account 01` (dry run, rehearsal, clone,
+verification, removal), then a DataOps backup of every contact. It removes what it wrote however
+the run ends, and prints counts and verdicts, never an id. `--skip-probes` leaves out the probes
+(about six minutes, and probe 17 takes one of the day's fifteen emails).
+
+- The clone runs as a holder of `Trap_Bypass`, which the dry run names as the bypass of trap 9's
+  flow: without it the day's emails run out after seven contacts and the rest are refused. The
+  canary assigns it before the rehearsal and takes it back after the removal, so that the probes
+  find it assigned to nobody (trap 3).
+- The first removal leaves the item trap 8 holds; the canary checks `Trap_Allow_Delete__c` on it
+  and removes the rest with `--include-changed`, then counts by id what the target still holds.
+- `canary-clone-config.json` gives the clone the decisions the target needs (a value for
+  `Trap_Target_Only__c`, the picklist values it refuses). `canary-baseline.json` holds the counts
+  of the last accepted run; a run that counts otherwise fails, and `--update-baseline` records a
+  change that is meant.
+
+`.github/workflows/canary.yml` runs it every Monday and on demand, logged in with the JWT bearer
+flow through an External Client App in each org; it names the secrets it needs and runs nothing
+without them. A scheduled run that fails opens an issue labelled `canary`, or comments on the one
+still open.

@@ -1,0 +1,15 @@
+{
+  "defaultValues": [
+    { "object": "Account", "field": "Trap_Target_Only__c", "value": "cloned by SandForge" }
+  ],
+  "picklistValueMappings": [
+    {
+      "object": "Case",
+      "field": "Trap_Late__c",
+      "recordType": "Trap_Empty",
+      "from": "Y",
+      "to": null
+    },
+    { "object": "Trap_Item__c", "field": "Trap_Subcategory__c", "from": "Laptop", "to": null }
+  ]
+}
