@@ -499,6 +499,7 @@ describe('ForgeHandler', () => {
       expect(target.query.mock.calls[0][0]).toContain('FROM RecordType WHERE IsActive = true');
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
         beforeWrite: expect.any(Function),
+        stream: { ceiling: 50_000 },
         recordTypeMappings: [
           { sourceId: '012SRCACC000001', targetId: '012TGTACC000001', developerName: 'Business' },
           { sourceId: '012SRCOPP000001', targetId: '012TGTOPP000001', developerName: 'Business' },
@@ -515,6 +516,7 @@ describe('ForgeHandler', () => {
 
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
         beforeWrite: expect.any(Function),
+        stream: { ceiling: 50_000 },
         recordTypeMappings: undefined,
       });
       const responses = vi
@@ -536,6 +538,7 @@ describe('ForgeHandler', () => {
 
         expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
           beforeWrite: expect.any(Function),
+          stream: { ceiling: 50_000 },
           recordTypeMappings: undefined,
         });
       } finally {
@@ -553,6 +556,7 @@ describe('ForgeHandler', () => {
 
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
         beforeWrite: expect.any(Function),
+        stream: { ceiling: 50_000 },
         recordTypeMappings: undefined,
       });
     });
@@ -1183,6 +1187,7 @@ describe('ForgeHandler', () => {
       expect(orchestrator.execute).toHaveBeenCalledWith(graph, config, {
         recordTypeMappings: undefined,
         beforeWrite: expect.any(Function),
+        stream: { ceiling: 50_000 },
       });
       expect(unsubscribe).toHaveBeenCalled();
 
@@ -1213,6 +1218,7 @@ describe('ForgeHandler', () => {
 
       expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
         beforeWrite: expect.any(Function),
+        stream: { ceiling: 50_000 },
         recordTypeMappings: undefined,
         anonymizationRules: { email: 'hash', phone: 'redact' },
       });

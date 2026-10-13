@@ -24,13 +24,17 @@ function statusLine(
   }
   if (status === 'done' && result) {
     if (result.rows === 0) return t('forge.rehearsal.nothing');
-    const done = t('forge.rehearsal.done', {
+    // A row the target refused for a record it holds, which the run links
+    // to: counted apart, never among the refused.
+    const linked = result.linked ?? 0;
+    const judged = t('forge.rehearsal.done', {
       judged: result.judged,
       passed: result.passed,
-      refused: result.judged - result.passed,
+      refused: result.judged - result.passed - linked,
       notJudged: result.notJudged,
       calls: result.calls,
     });
+    const done = linked > 0 ? `${judged} ${t('forge.rehearsal.linked', { linked })}` : judged;
     // The updates the run makes after its inserts, apart: only the command
     // line said those it could not rehearse, and the panel's line read as
     // the verdict on every write of the run.

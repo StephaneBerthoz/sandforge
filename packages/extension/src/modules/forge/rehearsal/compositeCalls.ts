@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import {
   canonicalRecordId,
+  existingRecordOf,
   saveErrorDetail,
-  toSaveOutcomes,
+  toSaveOutcome,
   type SaveErrorDetail,
   type SaveOutcome,
 } from '../../../core/common/existingRecordMatch.js';
 import type { RehearsedRow } from './RehearsalWriter.js';
-import { ancestorsOf, type RowFamily } from './rehearsalSample.js';
+import { ancestorsOf, type LinkedTo, type RowFamily } from './rehearsalSample.js';
 
 /** Collections requests one composite call may hold. */
 export const COLLECTIONS_PER_CALL = 5;
@@ -226,6 +227,11 @@ const ROLLBACK_REF = 'rollback';
  *   it through (the trap kit's probe 14).
  * @param rowOf - The row a value stands for, when it is a placeholder.
  * @param updates - The updates the call sends after its inserts.
+ * @param linked - By `seq`, what a row an earlier call saw refused for a
+ *   record the target holds stands for: the id its refusal named, or the row
+ *   of an earlier call that holds the value it collided with. A lookup to it
+ *   goes as that id, or as that row's new id, as the run's writer links what
+ *   hangs from such a row to the record named.
  * @throws When a row or an update names a record the run creates that the
  *   call does not hold, or the call would hold more subrequests than one may.
  */
@@ -236,6 +242,7 @@ export function compositeBody(
   apiPath: string,
   headers: Readonly<Record<string, string>>,
   updates: readonly PlannedUpdate[] = [],
+  linked: ReadonlyMap<number, LinkedTo> = new Map(),
 ): CompositeRequestBody {
   if (updates.length > updatesRoomOf(call.collections.length)) {
     throw new Error(
@@ -249,6 +256,14 @@ export function compositeBody(
       at.set(seq, `@{${collectionRef(index)}[${position}].id}`),
     ),
   );
+  /** What a lookup to `parent` goes as: its new id in the call, or what it is linked to. */
+  const referenceTo = (parent: RehearsedRow): string | undefined => {
+    const own = at.get(parent.seq);
+    if (own !== undefined) return own;
+    const standIn = linked.get(parent.seq);
+    if (standIn === undefined) return undefined;
+    return 'id' in standIn ? standIn.id : at.get(standIn.seq);
+  };
   const rowsOf = (collection: PlannedCollection): RehearsedRow[] =>
     collection.seqs.map((seq) => {
       const row = family.bySeq.get(seq);
@@ -270,7 +285,7 @@ export function compositeBody(
             record[field] = value;
             continue;
           }
-          const reference = at.get(parent.seq);
+          const reference = referenceTo(parent);
           if (reference === undefined) {
             throw new Error(
               `${row.objectApiName} row ${row.seq} names a record the run creates that its call does not hold`,
@@ -298,7 +313,7 @@ export function compositeBody(
         body[field] = value;
         continue;
       }
-      const reference = at.get(parent.seq);
+      const reference = referenceTo(parent);
       if (reference === undefined) {
         throw new Error(
           `An update of ${update.objectApiName} names a record the run creates that its call does not hold`,
@@ -397,9 +412,17 @@ function halted(sub: Subresponse): boolean {
  * rolled back.
  *
  * @param updates - How many updates the call sent after its Collections requests.
+ * @param objectOf - The object of a row, by `seq`: a duplicate rule's match
+ *   is kept only when it is of the object written, as the run's writer
+ *   keeps it.
  * @throws When the answer is not a composite answer of this call.
  */
-export function readCompositeAnswer(raw: unknown, call: PlannedCall, updates = 0): CallAnswer {
+export function readCompositeAnswer(
+  raw: unknown,
+  call: PlannedCall,
+  updates = 0,
+  objectOf: (seq: number) => string | undefined = () => undefined,
+): CallAnswer {
   const parsed = compositeAnswerSchema.safeParse(raw);
   if (!parsed.success)
     throw new Error('The target answered the rehearsal with no composite answer');
@@ -438,7 +461,12 @@ export function readCompositeAnswer(raw: unknown, call: PlannedCall, updates = 0
           `The target answered ${results.data.length} rows of the ${collection.seqs.length} a request sent`,
         );
       }
-      return { kind: 'rows', outcomes: toSaveOutcomes(sub.body, '') };
+      return {
+        kind: 'rows',
+        outcomes: results.data.map((result, position) =>
+          toSaveOutcome(result, objectOf(collection.seqs[position]) ?? ''),
+        ),
+      };
     }
     const errors = errorBodySchema.safeParse(sub.body);
     if (sub.httpStatusCode >= 400 && errors.success && errors.data.length > 0) {
@@ -489,15 +517,33 @@ function stopOf(answer: readonly CollectionAnswer[]): number {
   );
 }
 
-/** A row's verdict, from one call. */
-export type RowVerdict = { passed: true } | { passed: false; errors: SaveErrorDetail[] };
+/**
+ * A row's verdict, from one call. `linkedTo` is set on a row refused only
+ * because the target holds it, naming which record: the run's writer links
+ * to that record (`existingRecordOf`) and writes what hangs from it under it,
+ * so the row is not a refusal that holds back its children.
+ */
+export type RowVerdict =
+  { passed: true } | { passed: false; errors: SaveErrorDetail[]; linkedTo?: string };
 
 /**
  * Each row's verdict from a call's answer: every row of the requests before
  * the one the call stopped at was created; the rows of that one have their
  * own verdict; the rows after it were never tried, and get none.
+ *
+ * A row refused because the target holds it, by a refusal that names that
+ * record, is read with the rule the run's writer links by
+ * (`existingRecordOf`, any language the message is in), and its verdict
+ * names the record.
+ *
+ * @param keyPrefixOf - The target's key prefix of a row's object, by `seq`:
+ *   a record named that is of another object is not linked to.
  */
-export function verdictsOf(call: PlannedCall, answer: CollectionAnswer[]): Map<number, RowVerdict> {
+export function verdictsOf(
+  call: PlannedCall,
+  answer: CollectionAnswer[],
+  keyPrefixOf: (seq: number) => string | null | undefined = () => undefined,
+): Map<number, RowVerdict> {
   const verdicts = new Map<number, RowVerdict>();
   const stop = stopOf(answer);
   call.collections.forEach((collection, index) => {
@@ -509,12 +555,16 @@ export function verdictsOf(call: PlannedCall, answer: CollectionAnswer[]): Map<n
         return;
       }
       const outcome = own.kind === 'rows' ? own.outcomes[position] : undefined;
-      verdicts.set(
-        seq,
-        outcome && !outcome.success
-          ? { passed: false, errors: outcome.errorDetails ?? [] }
-          : { passed: true },
-      );
+      if (!outcome || outcome.success) {
+        verdicts.set(seq, { passed: true });
+        return;
+      }
+      const existing = existingRecordOf(outcome, keyPrefixOf(seq));
+      verdicts.set(seq, {
+        passed: false,
+        errors: outcome.errorDetails ?? [],
+        ...(existing.kind === 'linked' ? { linkedTo: existing.id } : {}),
+      });
     });
   });
   return verdicts;

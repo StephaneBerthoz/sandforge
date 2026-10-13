@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import {
+  FORGE_CURSOR_MAX_EMPTY_PAGES,
   FORGE_QUERY_MAX_PAGES,
   FORGE_QUERY_MAX_RECORDS,
+  cursorPages,
   objectOfQuery,
   queryAllPages,
   type PagedQuerySource,
@@ -92,6 +94,80 @@ describe('queryAllPages', () => {
     expect(result.pages).toBe(1);
     expect(result.records).toHaveLength(5);
     expect(result.truncated).toBe(true);
+  });
+});
+
+describe('queryAllPages, bounded by the run', () => {
+  it('holds no more rows than the bound the run sets, and says the read was cut', async () => {
+    const source = sourceOf([
+      { records: rows(3, 0), done: false, nextRecordsUrl: '/next/1' },
+      { records: rows(3, 3), done: true },
+    ]);
+
+    const result = await queryAllPages(source, 'SELECT Id FROM Account', 4);
+
+    expect(result.records).toEqual(rows(4));
+    expect(result.truncated).toBe(true);
+  });
+
+  it('follows a cursor of small pages past the default page bound when the bound set needs it', async () => {
+    // 600 pages of 200 rows: 120 000 rows, past the 500 pages a read of the
+    // default bound takes.
+    const pages: QueryPage<Row>[] = Array.from({ length: 600 }, (_, i) => ({
+      records: rows(200, i * 200),
+      done: i === 599,
+      nextRecordsUrl: `/next/${i + 1}`,
+    }));
+
+    const result = await queryAllPages(sourceOf(pages), 'SELECT Id FROM Task', 200_000);
+
+    expect(result.records).toHaveLength(120_000);
+    expect(result.truncated).toBe(false);
+  });
+});
+
+describe('cursorPages', () => {
+  it('asks for the next page only once the one before is taken, and holds none of them', async () => {
+    const source = sourceOf([
+      { records: rows(2, 0), done: false, nextRecordsUrl: '/next/1' },
+      { records: rows(2, 2), done: false, nextRecordsUrl: '/next/2' },
+      { records: rows(1, 4), done: true },
+    ]);
+
+    const pages = cursorPages(source, 'SELECT Id FROM Contact ORDER BY Id');
+    const first = await pages.next();
+    expect(first.value).toEqual(rows(2, 0));
+    // The page under way is the only one asked for.
+    expect(source.queryMore).not.toHaveBeenCalled();
+    const rest: Row[][] = [];
+    for await (const page of pages) rest.push(page);
+
+    expect(rest).toEqual([rows(2, 2), rows(1, 4)]);
+    expect(source.queryMore).toHaveBeenCalledTimes(2);
+    expect(source.queryMore).toHaveBeenNthCalledWith(2, '/next/2');
+  });
+
+  it('reads past the bound that holds every row in memory: the statement bounds it', async () => {
+    const pages: QueryPage<Row>[] = Array.from({ length: 30 }, (_, i) => ({
+      records: rows(2000, i * 2000),
+      done: i === 29,
+      nextRecordsUrl: `/next/${i + 1}`,
+    }));
+    let read = 0;
+    for await (const page of cursorPages(sourceOf(pages), 'SELECT Id FROM Task ORDER BY Id')) {
+      read += page.length;
+    }
+    expect(read).toBeGreaterThan(FORGE_QUERY_MAX_RECORDS);
+  });
+
+  it('stops after a run of empty pages from a cursor that never says it is done', async () => {
+    const source = sourceOf([{ records: [], done: false, nextRecordsUrl: '/loop' }]);
+    let pages = 0;
+    for await (const page of cursorPages(source, 'SELECT Id FROM Lead')) {
+      expect(page).toEqual([]);
+      pages++;
+    }
+    expect(pages).toBe(FORGE_CURSOR_MAX_EMPTY_PAGES);
   });
 });
 

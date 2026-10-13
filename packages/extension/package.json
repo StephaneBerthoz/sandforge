@@ -303,6 +303,13 @@
           ],
           "description": "%config.forge.graphView.description%"
         },
+        "sandforge.forge.maxRecordsPerObject": {
+          "type": "number",
+          "default": 50000,
+          "minimum": 1,
+          "maximum": 1000000,
+          "description": "%config.forge.maxRecordsPerObject.description%"
+        },
         "sandforge.seed.defaultBatchSize": {
           "type": "number",
           "default": 200,

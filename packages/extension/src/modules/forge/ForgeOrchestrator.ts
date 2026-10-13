@@ -7,7 +7,7 @@ import type {
   ForgePlan,
   ForgeWriteOptions,
 } from '@sandforge/shared';
-import { BYTES_PER_MB, leftOutByTheUser } from '@sandforge/shared';
+import { BYTES_PER_MB, FORGE_READ_CEILING_PER_OBJECT, leftOutByTheUser } from '@sandforge/shared';
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
 import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
@@ -53,6 +53,12 @@ export interface ForgeOrchestratorDeps {
    * choice of the one before it.
    */
   setWriteOptions?: (options: ForgeWriteOptions) => void;
+  /**
+   * Set the most rows of one object the run about to start reads
+   * (`sandforge.forge.maxRecordsPerObject`): the bound of every read that
+   * holds its rows. Told before every run, as `setWriteOptions` is.
+   */
+  setReadOptions?: (options: { maxRecordsPerObject: number }) => void;
 }
 
 /**
@@ -238,7 +244,10 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   async execute(
     graph: ForgeGraph,
     config: ForgeConfig,
-    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings' | 'writtenBefore' | 'beforeWrite'> & {
+    runOptions?: Pick<
+      ExecuteOptions,
+      'recordTypeMappings' | 'writtenBefore' | 'beforeWrite' | 'stream'
+    > & {
       anonymizationRules?: ForgeAnonymizationMethods;
       files?: ForgeFileCopyOption;
     },
@@ -266,6 +275,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         : undefined;
       const writtenBefore = runOptions?.writtenBefore;
       const beforeWrite = runOptions?.beforeWrite;
+      // Read page by page when it reads whole tables: see `ExecuteOptions.stream`.
+      const stream = runOptions?.stream;
       // The objects unchecked on the Forge page leave the run as objects
       // excluded by name: the rows that cannot be written without one of
       // their records are held back and said, not sent for the target to
@@ -305,6 +316,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               files,
               writtenBefore,
               beforeWrite,
+              stream,
               dryRun,
               decisions,
             }
@@ -320,6 +332,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               files ||
               writtenBefore ||
               beforeWrite ||
+              stream ||
               dryRun ||
               decisions
             ? {
@@ -335,6 +348,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
                 files,
                 writtenBefore,
                 beforeWrite,
+                stream,
                 dryRun,
                 decisions,
               }
@@ -343,6 +357,9 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // Forge sets each record's owner itself: the target's assignment rules
       // apply only when the run asks for them.
       this.deps.setWriteOptions?.({ applyAssignmentRules: config.applyAssignmentRules === true });
+      this.deps.setReadOptions?.({
+        maxRecordsPerObject: stream?.ceiling ?? FORGE_READ_CEILING_PER_OBJECT,
+      });
       const summary = await this.deps.executor.execute(
         graph,
         config.sourceOrgId,
@@ -362,6 +379,10 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       const message = extractErrorMessage(err);
       this.emit('forge:error', { message });
       throw err;
+    } finally {
+      // What reads through the same deps after the run — a rehearsal, a
+      // verification — reads to the default, never to this run's number.
+      this.deps.setReadOptions?.({ maxRecordsPerObject: FORGE_READ_CEILING_PER_OBJECT });
     }
   }
 }

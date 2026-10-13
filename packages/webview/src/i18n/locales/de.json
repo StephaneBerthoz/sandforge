@@ -2610,6 +2610,7 @@
       "rehearsing": "Generalprobe: Aufruf {{call}} von {{calls}}, zurückgesetzt, sobald er endet…",
       "done": "Generalprobe beendet, jeder Schreibvorgang zurückgesetzt. Beurteilt: {{judged}}; würden gespeichert: {{passed}}; abgelehnt: {{refused}}; nicht beurteilt: {{notJudged}}; Composite-Aufrufe: {{calls}}.",
       "updates": "Aktualisierungen, die der Durchlauf nach seinen Einfügungen vornimmt: {{judged}} beurteilt, {{passed}} würden gespeichert, {{refused}} abgelehnt; {{notRehearsed}} von {{updates}} nicht geprobt.",
+      "linked": "Mit einem Datensatz verknüpft, den die Ziel-Org bereits enthält, wie der Lauf sie verknüpft: {{linked}}.",
       "nothing": "Generalprobe beendet: Der Lauf legt keine Zeile an, und nichts wurde gesendet.",
       "declined": "Generalprobe bei ihrer Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
       "error": "Die Generalprobe konnte nicht laufen: {{error}}"

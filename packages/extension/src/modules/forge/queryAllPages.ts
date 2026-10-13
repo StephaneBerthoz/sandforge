@@ -14,16 +14,25 @@
  * all, which is the pattern that produced the defect it was fixing.
  */
 
-/** Heap bound: a clone that big is a configuration mistake, not a use case. */
+/**
+ * Heap bound of a read that holds its rows, unless the run asks for another
+ * (`sandforge.forge.maxRecordsPerObject`, the clone command's
+ * `--max-records-per-object`).
+ */
 export const FORGE_QUERY_MAX_RECORDS = 50_000;
 
 /**
- * Termination bound, independent of the record count.
+ * Termination bound, independent of the record count: the pages of a read
+ * of the default bound, and as many as a higher one needs at the smallest
+ * page an org answers with, 200 rows.
  *
  * A cursor that keeps returning `done: false` with zero records would spin
  * forever against the record cap alone.
  */
 export const FORGE_QUERY_MAX_PAGES = 500;
+
+/** The smallest page an org answers a cursor with. */
+const SMALLEST_PAGE = 200;
 
 /** One page of a SOQL result, as jsforce returns it. */
 export interface QueryPage<T> {
@@ -51,31 +60,61 @@ export interface PagedQueryResult<T> {
  *
  * @param source - Connection-like object exposing `query` / `queryMore`.
  * @param soql - The query to run.
+ * @param maxRecords - The most rows the read holds: {@link FORGE_QUERY_MAX_RECORDS}
+ *   unless the run asks for another.
  * @returns The records read, the page count, and whether a bound cut it short.
  */
 export async function queryAllPages<T>(
   source: PagedQuerySource<T>,
   soql: string,
+  maxRecords: number = FORGE_QUERY_MAX_RECORDS,
 ): Promise<PagedQueryResult<T>> {
+  const maxPages = Math.max(FORGE_QUERY_MAX_PAGES, Math.ceil(maxRecords / SMALLEST_PAGE));
   let page = await source.query(soql);
   const records: T[] = [...page.records];
   let pages = 1;
 
-  while (
-    !page.done &&
-    page.nextRecordsUrl &&
-    records.length < FORGE_QUERY_MAX_RECORDS &&
-    pages < FORGE_QUERY_MAX_PAGES
-  ) {
+  while (!page.done && page.nextRecordsUrl && records.length < maxRecords && pages < maxPages) {
     page = await source.queryMore(page.nextRecordsUrl);
     records.push(...page.records);
     pages++;
   }
 
-  const capped =
-    records.length > FORGE_QUERY_MAX_RECORDS ? records.slice(0, FORGE_QUERY_MAX_RECORDS) : records;
+  const capped = records.length > maxRecords ? records.slice(0, maxRecords) : records;
 
-  return { records: capped, pages, truncated: !page.done };
+  // Cut by the bound on its last page, the read left rows out all the same.
+  return { records: capped, pages, truncated: !page.done || capped.length < records.length };
+}
+
+/**
+ * Empty pages in a row after which a cursor that says it is not done is taken
+ * as one that will never be: the termination bound of a read that holds no
+ * count of the rows, as {@link FORGE_QUERY_MAX_PAGES} is of one that does.
+ */
+export const FORGE_CURSOR_MAX_EMPTY_PAGES = 5;
+
+/**
+ * Each page of `soql` as the org answers it, the next asked only once the
+ * caller has taken the one before: nothing holds the rows of two pages, and a
+ * run that writes each page before it asks for the next holds a page at a
+ * time whatever the table holds. No bound on the rows: the statement's own
+ * `LIMIT` is the caller's.
+ *
+ * @param source - Connection-like object exposing `query` / `queryMore`.
+ * @param soql - The query to run.
+ */
+export async function* cursorPages<T>(
+  source: PagedQuerySource<T>,
+  soql: string,
+): AsyncGenerator<T[]> {
+  let page = await source.query(soql);
+  let empty = page.records.length === 0 ? 1 : 0;
+  yield page.records;
+  while (!page.done && page.nextRecordsUrl && empty < FORGE_CURSOR_MAX_EMPTY_PAGES) {
+    page = await source.queryMore(page.nextRecordsUrl);
+    empty = page.records.length === 0 ? empty + 1 : 0;
+    yield page.records;
+  }
 }
 
 /**

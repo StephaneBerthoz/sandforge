@@ -122,6 +122,18 @@ describe('ForgeRehearseAction', () => {
     expect((screen.getByTestId('rehearse-button') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('counts the rows linked to a record the target holds apart, never among the refused', () => {
+    render(<ForgeRehearseAction />);
+    fireEvent.click(screen.getByTestId('rehearse-button'));
+    fromExtension('forge:rehearse:response', {
+      rehearsal: { ...VERDICTS, judged: 4, passed: 3, linked: 1, notJudged: 0 },
+    });
+    expect(screen.getByTestId('forge-rehearse-status')?.textContent).toContain(
+      'Judged: 4; would save: 3; refused: 0; not judged: 0; composite calls: 2. ' +
+        'Linked to a record the target org already holds, as the run links them: 1.',
+    );
+  });
+
   it('says the updates the run makes after its inserts apart: judged, refused, and those not rehearsed', () => {
     render(<ForgeRehearseAction />);
     fireEvent.click(screen.getByTestId('rehearse-button'));

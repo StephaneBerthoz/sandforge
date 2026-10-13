@@ -338,6 +338,23 @@ already gone; nowhere, it is not visible to the user the removal runs as.
 | `referenceDataObjects` | `['BusinessHours', 'OperatingHours']`    | objects to map by Name instead of cloning                                      |
 | `files`                | — (no file read)                         | `{ maxFileBytes, acceptedAsIs }`: copy the files of the cloned records         |
 | `keepContactPoints`    | `false`                                  | write email addresses and phone numbers as read; off, each is neutralized      |
+| `stream`               | — (every node read whole)                | a run of whole tables read and written page by page; see below                 |
+
+`stream` is how a run of whole tables reads: each object with the org's
+cursor, in the order of its ids, each page written before the next is read,
+so the run holds a page of rows whatever a table holds. Its gate is shown a
+count of each table before anything is read (`ForgeWriteBoundary.counted`),
+each object ends on one line and its failure is judged on all its pages, and
+`onPage` is told, as each page is written, what it created and the last id it
+read — what a run stopped part way leaves to remove, kept by the extension in
+a journal that a closed window leaves listed with the older runs, and to resume
+from (`resumeAfter`). `ceiling` is the most rows of one object it reads
+(`sandforge.forge.maxRecordsPerObject`). A record-scoped run, one that copies
+files or upserts, and one whose graph holds emails, read every node whole as
+before; so do the catalog, the tasks and the objects mapped by name within a
+streamed run. `pageSize` cuts the pages to a size of its own: a test seam, and
+the clone command's `SANDFORGE_FORGE_PAGE_SIZE` diagnostic, under which a
+record-scoped run reads its statements through the cursor too.
 
 `'keep'` holds for the records the run does not write, whose ids a sandbox
 refreshed from the same production can share with the source. A lookup at the

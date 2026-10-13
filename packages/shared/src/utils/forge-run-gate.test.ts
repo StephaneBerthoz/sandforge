@@ -31,6 +31,10 @@ describe('forge run gate stops', () => {
         storage: { estimateMB: 66.8, remainingMB: -3 },
       }),
     ).toEqual({ code: 'STORAGE_EXCEEDED', storage: { estimateMB: 66.8, remainingMB: -3 } });
+    expect(forgeRunGateStopOf({ code: 'READ_DECLINED', ceiling: 200_000 })).toEqual({
+      code: 'READ_DECLINED',
+      ceiling: 200_000,
+    });
   });
 
   it('reads nothing from a field that is not a stop', () => {
@@ -40,5 +44,6 @@ describe('forge run gate stops', () => {
       null,
     );
     expect(forgeRunGateStopOf('PRODUCTION_TARGET')).toBeNull();
+    expect(forgeRunGateStopOf({ code: 'READ_DECLINED', ceiling: -1 })).toBeNull();
   });
 });

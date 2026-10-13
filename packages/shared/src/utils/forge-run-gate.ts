@@ -29,6 +29,14 @@ import { z } from 'zod';
  */
 export const FORGE_READ_CEILING_PER_OBJECT = 50_000;
 
+/**
+ * The most `sandforge.forge.maxRecordsPerObject` — the clone command's
+ * `--max-records-per-object` — may set: a run from a record holds every row
+ * it reads, and past this one object of it would not fit in the memory of an
+ * extension host.
+ */
+export const FORGE_MAX_RECORDS_PER_OBJECT_BOUND = 1_000_000;
+
 export const FORGE_RUN_GATE_CODES = [
   'PRODUCTION_TARGET',
   'AUTOMATION_DECLINED',
@@ -50,11 +58,18 @@ export interface ForgeRunGateStop {
    * allocation says so.
    */
   storage?: { estimateMB: number; remainingMB: number };
+  /**
+   * For a run cancelled at the confirmation of the tables it reads past the
+   * most rows of one object it is set to read: that number, as the run held
+   * it (`sandforge.forge.maxRecordsPerObject`).
+   */
+  ceiling?: number;
 }
 
 const stopSchema = z.object({
   code: z.enum(FORGE_RUN_GATE_CODES),
   storage: z.object({ estimateMB: z.number().nonnegative(), remainingMB: z.number() }).optional(),
+  ceiling: z.number().int().positive().optional(),
 });
 
 /** Whether `value` is one of the codes a run stops at its gate with. */
@@ -69,6 +84,10 @@ export function isForgeRunGateCode(value: unknown): value is ForgeRunGateCode {
 export function forgeRunGateStopOf(value: unknown): ForgeRunGateStop | null {
   const parsed = stopSchema.safeParse(value);
   if (!parsed.success) return null;
-  const { code, storage } = parsed.data;
-  return storage ? { code, storage } : { code };
+  const { code, storage, ceiling } = parsed.data;
+  return {
+    code,
+    ...(storage ? { storage } : {}),
+    ...(ceiling !== undefined ? { ceiling } : {}),
+  };
 }

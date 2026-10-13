@@ -38,6 +38,7 @@
   "config.telemetry.description": "Record extension errors locally for diagnosis. Nothing is sent over the network.",
   "config.orgs.validateOnStartup.description": "Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI",
   "config.forge.graphView.description": "How Forge shows a graph's objects on its discovery, Review and execution screens. `auto` draws them as a graph up to 25 objects and lists them in a table past that; `graph` and `table` always show that view. The Graph View / Table View switch on any of these screens overrides this setting until the panel is closed.",
+  "config.forge.maxRecordsPerObject.description": "Most records of one object a Forge clone reads (default 50,000). A clone of whole tables reads and writes them page by page, holding one page at a time, and asks before it reads a table past this number; a clone from one record holds every record it reads, so a higher number takes more memory there. An object with more records is read up to this number and reported as truncated. The Records per object cap of a run applies below it.",
   "config.seed.defaultBatchSize.description": "Default batch size for Seed data operations",
   "config.sync.defaultBatchSize.description": "Default batch size for Sync data operations",
   "config.sync.maxConcurrentOps.description": "Maximum concurrent sync operations",

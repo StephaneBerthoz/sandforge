@@ -360,6 +360,31 @@ describe('ForgeOrchestrator', () => {
       ]);
     });
 
+    it('sets the most rows of one object the run reads before the executor reads, and the default once it ends', async () => {
+      const told: Array<{ maxRecordsPerObject: number; executed: number }> = [];
+      const ordered = new ForgeOrchestrator({
+        ...deps,
+        setReadOptions: (options) =>
+          told.push({
+            ...options,
+            executed: vi.mocked(deps.executor.execute).mock.calls.length,
+          }),
+      });
+
+      await ordered.execute(createMockGraph(), createMockConfig(), {
+        stream: { ceiling: 200_000 },
+      });
+
+      expect(told).toEqual([
+        { maxRecordsPerObject: 200_000, executed: 0 },
+        { maxRecordsPerObject: 50_000, executed: 1 },
+      ]);
+      // And the run is told how to read page by page.
+      expect(vi.mocked(deps.executor.execute).mock.calls[0][4]).toMatchObject({
+        stream: { ceiling: 200_000 },
+      });
+    });
+
     it('leaves out by name the objects unchecked on the page, not those discovery left out, in both input modes', async () => {
       // Unchecked on the page, the prices were skipped as a node discovery
       // left out is: the line items were sent all the same, and the target

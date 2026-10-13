@@ -372,6 +372,49 @@ describe("a rehearsal's lines", () => {
     ]);
   });
 
+  it('say the rows linked to a record the target holds apart from the refused, as the run links them', () => {
+    const lines = rehearsalLines(
+      {
+        gaps: [
+          {
+            id: 'unique_value_collision|Account|||',
+            kind: 'unique_value_collision',
+            severity: 'warning',
+            source: 'rehearsal',
+            objectApiName: 'Account',
+            rows: 1,
+            detail: {
+              statusCode: 'DUPLICATE_VALUE',
+              rowsOfTheRun: 1,
+              linkedToTheRecordItNames: true,
+            },
+            decisions: ['exclude_object', 'ignore'],
+            defaultDecision: 'ignore',
+          },
+        ],
+        rows: 39,
+        sampled: 39,
+        judged: 39,
+        passed: 38,
+        linked: 1,
+        notJudged: 0,
+        notJudgedWhy: [],
+        updates: 0,
+        updatesJudged: 0,
+        updatesPassed: 0,
+        updatesNotRehearsed: 0,
+        calls: 2,
+        plannedCalls: 1,
+      },
+      'TGT',
+    );
+    expect(lines).toEqual([
+      'rehearsed in TGT: 39 judged, 38 would save, 1 linked to a record the target holds, ' +
+        '0 refused, 0 not judged (2 call(s), every write rolled back)',
+      '  refused  Account: DUPLICATE_VALUE, 1 row(s) (a real run links it to the record the target holds)',
+    ]);
+  });
+
   it('say the updates judged, and an update refused apart from the rows', () => {
     const lines = rehearsalLines(
       {

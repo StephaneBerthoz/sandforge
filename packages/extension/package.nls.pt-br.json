@@ -38,6 +38,7 @@
   "config.telemetry.description": "Registrar localmente os erros da extensão para diagnóstico. Nada é enviado pela rede.",
   "config.orgs.validateOnStartup.description": "Validar organizações registradas na inicialização e atualizar automaticamente sessões expiradas via CLI sf",
   "config.forge.graphView.description": "Como o Forge mostra os objetos de um grafo nas telas de descoberta, de revisão e de execução. `auto` os desenha como grafo até 25 objetos e, acima disso, os lista em uma tabela; `graph` e `table` sempre mostram essa visualização. O seletor Visualização em grafo / Visualização em tabela de qualquer uma das telas prevalece sobre esta configuração até o painel ser fechado.",
+  "config.forge.maxRecordsPerObject.description": "Número máximo de registros de um objeto que um clone do Forge lê (50.000 por padrão). Um clone de tabelas inteiras os lê e grava página por página, sem guardar mais de uma página por vez, e pergunta antes de ler uma tabela que passe desse número; um clone a partir de um registro guarda tudo o que lê, e um número maior ocupa ali mais memória. Um objeto com mais registros é lido até esse número e indicado como truncado. O limite Registros por objeto de uma execução se aplica abaixo dele.",
   "config.seed.defaultBatchSize.description": "Tamanho de lote padrão para operações de dados do Seed",
   "config.sync.defaultBatchSize.description": "Tamanho de lote padrão para operações de dados do Sync",
   "config.sync.maxConcurrentOps.description": "Número máximo de operações de sincronização simultâneas",

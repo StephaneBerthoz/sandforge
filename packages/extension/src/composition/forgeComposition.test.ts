@@ -725,6 +725,105 @@ describe('initForgeComposition', () => {
     );
   });
 
+  it("reads a run of whole tables through the org's cursor, a page written before the next is asked for, and counts its tables first", async () => {
+    const steps: string[] = [];
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      if (orgId === 'tgt') {
+        return {
+          ...connection,
+          sobject: (objectApiName: string) => ({
+            create: vi.fn(async (records: unknown[]) => {
+              steps.push(`write ${objectApiName} ${records.length}`);
+              return records.map((_, i) => ({
+                id: sfId(objectApiName, 900 + steps.length * 10 + i),
+                success: true,
+                errors: [],
+              }));
+            }),
+          }),
+        } as unknown as Connection;
+      }
+      const answer = connection.query;
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string) => {
+          if (/COUNT\(\)/i.test(soql)) steps.push(`count ${/FROM (\w+)/.exec(soql)?.[1]}`);
+          const page = await answer(soql);
+          if (!/\bFROM\s+Account\b/i.test(soql) || /COUNT\(\)/i.test(soql)) return page;
+          steps.push(`read Account ${soql.endsWith(' ORDER BY Id') ? 'in id order' : soql}`);
+          return { ...page, records: page.records.slice(0, 1), done: false, nextRecordsUrl: '/n' };
+        }),
+        queryMore: vi.fn(async () => {
+          steps.push('read Account, next page');
+          return {
+            totalSize: 2,
+            done: true,
+            records: [{ Id: sfId('Account', 2), Name: 'Account 2' }],
+          };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const plans: unknown[] = [];
+
+    await orchestrator.execute(graph, SOQL_CONFIG, {
+      beforeWrite: async (boundary) => {
+        plans.push(boundary.objects.map(({ objectApiName, counted }) => [objectApiName, counted]));
+      },
+      stream: {},
+    });
+
+    expect(plans).toEqual([
+      [
+        ['Account', { rows: 2 }],
+        ['Contact', { rows: 2 }],
+        ['Opportunity', { rows: 2 }],
+      ],
+    ]);
+    // Every table counted before the first read; the accounts read a page,
+    // written, then the next page read.
+    expect(steps.slice(0, 3)).toEqual(['count Account', 'count Contact', 'count Opportunity']);
+    expect(steps.filter((step) => /^(read|write) Account/.test(step))).toEqual([
+      'read Account in id order',
+      'write Account 1',
+      'read Account, next page',
+      'write Account 1',
+    ]);
+  });
+
+  it('reads no more rows of an object than the run is set to read, and says the rest was not read', async () => {
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      if (orgId !== 'src') return connection as unknown as Connection;
+      const answer = connection.query;
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string) => {
+          const page = await answer(soql);
+          if (!/\bFROM\s+Account\b/i.test(soql) || /COUNT\(\)/i.test(soql)) return page;
+          return { ...page, records: page.records.slice(0, 1), done: false, nextRecordsUrl: '/n' };
+        }),
+        queryMore: vi.fn(async () => ({
+          totalSize: 2,
+          done: true,
+          records: [{ Id: sfId('Account', 2), Name: 'Account 2' }],
+        })),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+
+    const result = await orchestrator.execute(graph, SOQL_CONFIG, {
+      beforeWrite: async () => {},
+      stream: { ceiling: 1 },
+    });
+
+    expect(result.truncatedObjects).toEqual(['Account', 'Contact', 'Opportunity']);
+    expect(result.idRemapCount).toBe(3);
+  });
+
   it('names an object whose source read a bound stopped in the run result', async () => {
     // The source keeps a Contact cursor open forever: the page bound is what
     // ends the read, and only the composition sees that it did.

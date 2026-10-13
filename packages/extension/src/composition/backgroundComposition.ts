@@ -312,7 +312,7 @@ function readQuestion(question: ReadConfirmation): string[] {
   }
   lines.push(
     vscode.l10n.t(
-      'The clone holds every record it reads of an object until it writes them: past {0} records of one object, VS Code may run out of memory. A clone of one record reads only what its record reaches of each table. To read fewer, set Records per object on the Forge page.',
+      'A clone of whole tables reads and writes them page by page, holding one page at a time, and reads {0} records of one object at most, saying the rest was not read; a clone of one record holds every record it reads, and reads only what its record reaches of each table. To read fewer, set Records per object on the Forge page; to read more, raise sandforge.forge.maxRecordsPerObject.',
       question.ceiling,
     ),
     vscode.l10n.t('Nothing has been read or written yet.'),

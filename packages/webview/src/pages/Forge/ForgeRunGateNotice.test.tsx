@@ -59,6 +59,15 @@ describe('ForgeRunGateNotice', () => {
     expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(text);
   });
 
+  it('says the most rows of one object the run was set to read, past which the user cancelled', () => {
+    act(() => useForgeRunGateStore.getState().setStop({ code: 'READ_DECLINED', ceiling: 200_000 }));
+    render(<ForgeRunGateNotice />);
+
+    expect(screen.getByTestId('forge-run-gate-reason').textContent).toBe(
+      'You cancelled the run at the confirmation of the tables it reads with no cap per object, each past 200,000 records. Nothing was read or written. Set Records per object to read fewer.',
+    );
+  });
+
   it('says a run that needed a confirmation nobody could give was stopped', () => {
     act(() => useForgeRunGateStore.getState().setStop({ code: 'CONFIRMATION_UNAVAILABLE' }));
     render(<ForgeRunGateNotice />);

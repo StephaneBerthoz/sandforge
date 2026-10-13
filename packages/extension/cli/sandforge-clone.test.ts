@@ -119,6 +119,12 @@ describe('sandforge-clone flag validation', () => {
     ['a --max-total that is not a number', argv('--max-total', 'lots')],
     ['a --max-total of no record', argv('--max-total', '0')],
     ['a --max-total that is not a whole number', argv('--max-total', '2.5')],
+    ['a --max-records-per-object of no record', argv('--max-records-per-object', '0')],
+    [
+      'a --max-records-per-object past what a read may hold',
+      argv('--max-records-per-object', '1000001'),
+    ],
+    ['a --max-records-per-object that is not a number', argv('--max-records-per-object', 'all')],
   ])('exits 2 on %s before any org is loaded', async (_label, args) => {
     expect(await run(args)).toBe(2);
     expect(mockExecFileSync).not.toHaveBeenCalled();
@@ -147,6 +153,41 @@ describe('sandforge-clone flag validation', () => {
       acceptAutomation: true,
       maxTotal: 25,
     });
+  });
+
+  it('reads 50 000 records of one object at most unless told, and passes the number to the run', () => {
+    const graph = {
+      nodes: [],
+      edges: [],
+      totalRecords: 0,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+    expect(parseArgs(argv())).toMatchObject({ readCeiling: 50_000 });
+    expect(parseArgs(argv()).pageSize).toBeUndefined();
+    const args = parseArgs(argv('--max-records-per-object', '200000'));
+    expect(args.readCeiling).toBe(200_000);
+    expect(executeOptions(args, graph, []).stream).toEqual({ ceiling: 200_000 });
+  });
+
+  it('reads in pages of the size the diagnostic gives, and refuses one that is no size', async () => {
+    const args = parseArgs(argv(), { SANDFORGE_FORGE_PAGE_SIZE: '50' });
+    expect(args.pageSize).toBe(50);
+    expect(
+      executeOptions(
+        args,
+        { nodes: [], edges: [], totalRecords: 0, estimatedSizeMB: 0, estimatedDurationSeconds: 0 },
+        [],
+      ).stream,
+    ).toEqual({ ceiling: 50_000, pageSize: 50 });
+    const exit = vi.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`exit ${String(code)}`);
+    });
+    try {
+      expect(() => parseArgs(argv(), { SANDFORGE_FORGE_PAGE_SIZE: 'big' })).toThrow('exit 2');
+    } finally {
+      exit.mockRestore();
+    }
   });
 
   it('reaches the org lookup when every flag is valid', async () => {

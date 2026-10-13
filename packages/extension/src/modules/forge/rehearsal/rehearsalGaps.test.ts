@@ -175,6 +175,37 @@ describe('the gaps of the rows a rehearsal saw refused', () => {
     expect(gap.severity).toBe('warning');
   });
 
+  it('take a row the run links to the record its refusal names as a warning, even when no field is named', () => {
+    // The target's unique index on an external id names no field: read as a
+    // refusal, it was a blocking gap of a row the real run linked.
+    const entry = refused('Account', { Ext_Id__c: 'X-1' }, [
+      {
+        statusCode: 'DUPLICATE_VALUE',
+        message:
+          'duplicate value found: Ext_Id__c duplicates value on record with id: 001000000000777',
+        fields: [],
+      },
+    ]);
+    const [gap] = rehearsalGaps([{ ...entry, linked: true }]);
+    expect(gap).toMatchObject({
+      id: forgeGapId('unique_value_collision', 'Account'),
+      kind: 'unique_value_collision',
+      severity: 'warning',
+      decisions: ['exclude_object', 'ignore'],
+      defaultDecision: 'ignore',
+    });
+    expect(gap.detail).toMatchObject({
+      linkedToTheRecordItNames: true,
+      statusCode: 'DUPLICATE_VALUE',
+    });
+    expect(gap.detail?.['message']).toBeUndefined();
+    // Not linked, the same refusal blocks.
+    expect(rehearsalGaps([entry])[0]).toMatchObject({
+      kind: 'rehearsal_refusal',
+      severity: 'blocking',
+    });
+  });
+
   it('count a row refused twice on the same gap once', () => {
     const [gap] = rehearsalGaps([
       refused('Account', {}, [

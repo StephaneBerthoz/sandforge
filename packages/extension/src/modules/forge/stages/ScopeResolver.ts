@@ -543,6 +543,13 @@ export interface NodeQueryInput {
    * `ScopedSoqlBuildOpts.under`.
    */
   under?: ReadonlySet<string>;
+  /**
+   * A run of whole tables read page by page: its rows come in the order of
+   * their ids, so a page ends where the next begins and a run stopped part
+   * way resumes after the last id it wrote (`afterId`). Not read in scoped
+   * mode, whose reads are held to the rows a record reaches.
+   */
+  inIdOrder?: { afterId?: string };
 }
 
 /** The statements that read one node's records, as {@link queryNodeRecords} runs them. */
@@ -645,9 +652,16 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     // Outside scoped mode the object's filter is its whole WHERE clause. This
     // is how a SOQL-mode run applies its query's WHERE to the object after FROM;
     // without it that object was read from its whole table.
-    const where = input.extraWhere ? ` WHERE (${input.extraWhere})` : '';
+    const terms = [
+      ...(input.extraWhere ? [`(${input.extraWhere})`] : []),
+      ...(input.inIdOrder?.afterId !== undefined
+        ? [`Id > ${soqlIdLiteral(input.inIdOrder.afterId)}`]
+        : []),
+    ];
+    const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
+    const order = input.inIdOrder ? ' ORDER BY Id' : '';
     statements = [
-      `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(input.node.objectApiName)}${where}`,
+      `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(input.node.objectApiName)}${where}${order}`,
     ];
   }
 
@@ -666,6 +680,18 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     }
   }
   return { kind: 'query', statements, ...byId };
+}
+
+/**
+ * A record id as a SOQL literal. The id a run resumes after comes from a file
+ * the run wrote, read back: anything but an id's 15 or 18 letters and digits
+ * is refused rather than put in a statement.
+ */
+function soqlIdLiteral(id: string): string {
+  if (!/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(id)) {
+    throw new Error(`Not a record id to resume after: ${JSON.stringify(id.slice(0, 40))}`);
+  }
+  return `'${id}'`;
 }
 
 /**

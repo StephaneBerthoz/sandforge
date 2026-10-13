@@ -4,7 +4,7 @@ import type {
   ForgeGapKind,
   ForgeGapSeverity,
 } from '@sandforge/shared';
-import { forgeGapId, mergeGaps } from '@sandforge/shared';
+import { ALREADY_EXISTS_ERROR, forgeGapId, mergeGaps } from '@sandforge/shared';
 import type { SaveErrorDetail } from '../../../core/common/existingRecordMatch.js';
 import type { RehearsedRow } from './RehearsalWriter.js';
 
@@ -124,6 +124,12 @@ export interface RefusedRow {
   standsFor: number;
   /** Set when what was refused is an update the run makes after its inserts. */
   onUpdate?: true;
+  /**
+   * Set when the target refused the row for a record it holds, and named it:
+   * the run's writer links the row to that record, and writes what hangs
+   * from it under it.
+   */
+  linked?: true;
 }
 
 /**
@@ -147,6 +153,50 @@ function recordTypeOf(
 ): string | undefined {
   const id = row.fields['RecordTypeId'];
   return typeof id === 'string' ? recordTypeNames.get(id.slice(0, 15)) : undefined;
+}
+
+/**
+ * The gap of a row the target refused for a record it holds, naming it: a
+ * warning whether or not the refusal names the field, since the run's writer
+ * links the row to that record and nothing hanging from it is lost. A unique
+ * value's refusal is the collision the simulation reports
+ * (`unique_value_collision`); the target's own unique index on an external
+ * id named no field when a Developer Edition target refused a root account
+ * so, and the rehearsal reported a blocking refusal of a row the real run
+ * linked.
+ */
+function linkedGapOf(
+  refused: RefusedRow,
+  error: SaveErrorDetail,
+  code: string,
+  detail: (field?: string) => NonNullable<ForgeGap['detail']>,
+): ForgeGap {
+  const { row } = refused;
+  const field = error.fields[0];
+  const kind: ForgeGapKind =
+    code === ALREADY_EXISTS_ERROR ? 'unique_value_collision' : 'rehearsal_refusal';
+  return {
+    id: forgeGapId(
+      kind,
+      row.objectApiName,
+      field,
+      undefined,
+      kind === 'rehearsal_refusal' ? code : undefined,
+    ),
+    kind,
+    severity: 'warning',
+    source: 'rehearsal',
+    objectApiName: row.objectApiName,
+    ...(field !== undefined ? { field } : {}),
+    ...(kind === 'rehearsal_refusal' ? { value: code } : {}),
+    rows: 1,
+    detail: { ...detail(field), linkedToTheRecordItNames: true },
+    decisions:
+      field !== undefined
+        ? ['leave_empty', 'exclude_object', 'ignore']
+        : ['exclude_object', 'ignore'],
+    defaultDecision: 'ignore',
+  };
 }
 
 /** One gap of one error of one row: rows 1, merged with the others' afterwards. */
@@ -196,6 +246,7 @@ function gapsOfError(
       },
     ];
   }
+  if (refused.linked) return [linkedGapOf(refused, error, code, detail)];
   const known = KIND_OF_CODE.get(code);
   if (known && error.fields.length > 0) {
     // A required field's refusal names every field the row lacks: each is a

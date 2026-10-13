@@ -7,6 +7,7 @@ import type {
   ForgeExecutionResult,
   ForgeGraph,
   ForgeGraphNode,
+  ForgeRemovalPlan,
   ForgeTargetAutomation,
 } from '@sandforge/shared';
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
@@ -19,6 +20,8 @@ import type {
   ForgeWriteBoundary,
 } from '../../modules/forge/ForgeExecutor.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import type { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
+import type { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { RunConfirmation } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -248,7 +251,7 @@ describe('forge:execute, the gate before the first write', () => {
       async (
         _graph: ForgeGraph,
         _config: ForgeConfig,
-        options?: Pick<ExecuteOptions, 'beforeWrite'>,
+        options?: Pick<ExecuteOptions, 'beforeWrite' | 'stream'>,
       ) => {
         if (boundary) await options?.beforeWrite?.(boundary);
         calls.push('written');
@@ -1136,6 +1139,57 @@ describe('forge:execute, the gate before the first write', () => {
       expect(questions.map((q) => q.stage)).toEqual(['automation', 'read']);
     });
 
+    it('asks nothing of a table under the most rows of one object the settings set, and the run reads to it', async () => {
+      settings['forge.maxRecordsPerObject'] = 100_000;
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await execute(big());
+
+      expect(questions).toEqual([]);
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toMatchObject({
+        stream: { ceiling: 100_000 },
+      });
+    });
+
+    it('asks past the most rows of one object the settings set, with that number', async () => {
+      settings['forge.maxRecordsPerObject'] = 60_000;
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await execute(big());
+
+      expect(questions).toEqual([expect.objectContaining({ stage: 'read', ceiling: 60_000 })]);
+    });
+
+    it('says the most rows the run was set to read when the user declines past it', async () => {
+      settings['forge.maxRecordsPerObject'] = 60_000;
+      answers = [false];
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await execute(big());
+
+      expectStoppedAtTheGate('READ_DECLINED');
+      expect(posted('forge:execute:error')[0].payload).toMatchObject({
+        gate: { code: 'READ_DECLINED', ceiling: 60_000 },
+      });
+    });
+
+    it.each([
+      [5_000_000, 1_000_000],
+      ['all', 50_000],
+      [0, 50_000],
+    ])('holds a setting of %s to %i, what a run may read', async (setting, ceiling) => {
+      settings['forge.maxRecordsPerObject'] = setting;
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+
+      await execute(graphOf({ recordCount: 10 }));
+
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]?.stream).toEqual({ ceiling });
+    });
+
     it('asks nothing of a run whose cap per object keeps every read under the ceiling', async () => {
       const orchestrator = orchestratorHanding();
       handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
@@ -1164,6 +1218,131 @@ describe('forge:execute, the gate before the first write', () => {
 
       expect(orchestrator.execute).not.toHaveBeenCalled();
       expectStoppedAtTheGate('CONFIRMATION_UNAVAILABLE');
+    });
+  });
+
+  describe('the journal of a run of whole tables', () => {
+    const PAGE = {
+      objectApiName: 'Contact',
+      created: [{ sourceId: '003000000000001AAA', targetId: '003000000000901AAA' }],
+    };
+
+    function journalOf(leftOver: ForgeRemovalPlan[] = []) {
+      return {
+        begin: vi.fn(async () => {}),
+        page: vi.fn(async () => {}),
+        end: vi.fn(async () => {}),
+        leftOver: vi.fn(async () => leftOver),
+        forget: vi.fn(async () => {}),
+      };
+    }
+
+    function runOfWholeTables(): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id: 'wv-execute',
+          type: 'forge:execute',
+          timestamp: Date.now(),
+          payload: {
+            graph: graphOf({ recordCount: 10 }),
+            config: {
+              ...CONFIG,
+              inputMode: 'soql',
+              recordId: undefined,
+              soqlQuery: 'SELECT Id FROM Contact',
+            },
+          },
+        } as BaseMessage),
+      );
+    }
+
+    it('keeps what each page created while the run goes, and drops it once the run is in the history', async () => {
+      const journal = journalOf();
+      const orchestrator = orchestratorHanding();
+      orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
+        await options?.stream?.onPage?.(PAGE);
+        return RESULT;
+      });
+      handler.setForgeOrchestrator(orchestrator, {
+        targetAutomation: readerOf(QUIET),
+        runJournal: journal as unknown as ForgeRunJournal,
+      });
+
+      await runOfWholeTables();
+
+      const [id] = journal.begin.mock.calls[0] as unknown as [string, string, Date];
+      expect(journal.begin).toHaveBeenCalledWith(id, 'tgt-org', expect.any(Date));
+      expect(journal.page).toHaveBeenCalledWith(id, PAGE);
+      expect(journal.end).toHaveBeenCalledWith(id);
+    });
+
+    it('runs on when its journal cannot be written: the history records what it created', async () => {
+      const journal = journalOf();
+      journal.page.mockRejectedValue(new Error('ENOSPC'));
+      const orchestrator = orchestratorHanding();
+      orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
+        await options?.stream?.onPage?.(PAGE);
+        await options?.stream?.onPage?.(PAGE);
+        return RESULT;
+      });
+      handler.setForgeOrchestrator(orchestrator, {
+        targetAutomation: readerOf(QUIET),
+        runJournal: journal as unknown as ForgeRunJournal,
+      });
+
+      await runOfWholeTables();
+
+      expect(posted('forge:execute:response')).toHaveLength(1);
+      expect(posted('forge:execute:error')).toEqual([]);
+    });
+
+    it('keeps no journal of a run from a record, which writes once it has read', async () => {
+      const journal = journalOf();
+      handler.setForgeOrchestrator(orchestratorHanding(), {
+        targetAutomation: readerOf(QUIET),
+        runJournal: journal as unknown as ForgeRunJournal,
+      });
+
+      await execute();
+
+      expect(journal.begin).not.toHaveBeenCalled();
+    });
+
+    it('offers what a run a closed window never ended created, among the runs the history dropped', async () => {
+      const left: ForgeRemovalPlan = {
+        forgeId: 'forge-run-1',
+        targetOrgId: 'tgt-org',
+        timestamp: '2026-10-13T10:00:00.000Z',
+        duration: 0,
+        status: 'partial',
+        objects: [{ objectApiName: 'Contact', ids: ['003000000000901AAA'] }],
+        linked: 0,
+      };
+      const journal = journalOf([left]);
+      const plans: ForgeRemovalPlan[] = [];
+      const removalPlans = {
+        list: vi.fn(async () => plans),
+        putIfAbsent: vi.fn(async (plan: ForgeRemovalPlan) => void plans.push(plan)),
+      };
+      handler.setForgeOrchestrator(orchestratorHanding(), {
+        runJournal: journal as unknown as ForgeRunJournal,
+        removalPlans: removalPlans as unknown as ForgeRemovalPlanStore,
+      });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'wv-history',
+          type: 'forge:history:list',
+          timestamp: Date.now(),
+          payload: {},
+        } as BaseMessage),
+      );
+
+      expect(removalPlans.putIfAbsent).toHaveBeenCalledWith(left);
+      expect(journal.forget).toHaveBeenCalledWith('forge-run-1');
+      expect(posted('forge:history:list:response')[0].payload).toMatchObject({
+        olderRuns: [left],
+      });
     });
   });
 

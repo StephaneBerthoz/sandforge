@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeRehearsalProgress } from '@sandforge/shared';
 import { forgeGapId } from '@sandforge/shared';
+import { canonicalRecordId } from '../../../core/common/existingRecordMatch.js';
 import type { RehearsalWriter } from './RehearsalWriter.js';
 import type { CompositeRequestBody } from './compositeCalls.js';
 import {
@@ -12,7 +13,25 @@ import {
 
 const PREFIX: Record<string, string> = { Account: '001', Contact: '003', Opportunity: '006' };
 
-type Rule = (objectApiName: string, record: Record<string, unknown>) => string | undefined;
+/** A refusal: a status code alone, given as its message too, or the error as the platform words it. */
+type Refusal = string | { statusCode: string; message: string; fields?: string[] };
+
+/**
+ * What the target says of a row: `created` holds the rows its call created
+ * before it, with their new ids, as a unique index sees them.
+ */
+type Rule = (
+  objectApiName: string,
+  record: Record<string, unknown>,
+  created: ReadonlyArray<{ record: Record<string, unknown>; id: string }>,
+) => Refusal | undefined;
+
+/** An 18-character id of the object whose key prefix starts `id15`, its checksum right. */
+function idOf(id15: string): string {
+  const id = canonicalRecordId(id15);
+  if (id === undefined) throw new Error(`${id15} is no id`);
+  return id;
+}
 
 /** What the target says of an update of a record a call created, by its id. */
 type UpdateRule = (
@@ -47,6 +66,7 @@ function fakeTarget(rule: Rule, commits = false, updateRule: UpdateRule = () => 
     };
     const collections = body.compositeRequest.slice(0, -1);
     const answers: unknown[] = [];
+    const created: Array<{ record: Record<string, unknown>; id: string }> = [];
     let stoppedAt = -1;
     for (const [index, sub] of collections.entries()) {
       if (sub.method === 'PATCH') {
@@ -71,14 +91,17 @@ function fakeTarget(rule: Rule, commits = false, updateRule: UpdateRule = () => 
         const resolved: Record<string, unknown> = {};
         for (const [field, value] of Object.entries(record)) resolved[field] = resolve(value);
         const type = (record.attributes as { type: string }).type;
-        const refusal = rule(type, resolved);
-        return refusal
-          ? { success: false, errors: [{ statusCode: refusal, message: refusal, fields: [] }] }
-          : {
-              id: `${PREFIX[type] ?? 'a0X'}${String(++next).padStart(15, '0')}`,
-              success: true,
-              errors: [],
-            };
+        const refusal = rule(type, resolved, created);
+        if (refusal) {
+          const error =
+            typeof refusal === 'string'
+              ? { statusCode: refusal, message: refusal, fields: [] }
+              : { fields: [], ...refusal };
+          return { success: false, errors: [error] };
+        }
+        const id = idOf(`${PREFIX[type] ?? 'a0X'}${String(++next).padStart(12, '0')}`);
+        created.push({ record: resolved, id });
+        return { id, success: true, errors: [] };
       });
       results.set(sub.referenceId, outcomes);
       if (outcomes.some((o) => !o.success)) {
@@ -637,5 +660,187 @@ describe('a rehearsal', () => {
     expect(result.notJudgedWhy).toEqual([
       { objectApiName: 'Account', rows: 1, reason: 'beyond_a_call' },
     ]);
+  });
+  describe('a row the target refuses for a record it holds', () => {
+    /** The account the target already holds, under the external id the run's account carries. */
+    const HELD = idOf('001000000000777');
+    const heldAs =
+      (message: string): Rule =>
+      (type, record) =>
+        type === 'Account' && record['Ext_Id__c'] === 'X-1'
+          ? { statusCode: 'DUPLICATE_VALUE', message }
+          : undefined;
+    const accountAndContacts = preparing([
+      { object: 'Account', rows: [{ Name: 'A', Ext_Id__c: 'X-1' }] },
+      {
+        object: 'Contact',
+        rows: [{ LastName: 'B' }, { LastName: 'C' }],
+        parentField: 'AccountId',
+      },
+    ]);
+
+    it('counts it linked, as the run links it, and judges its children under the record named', async () => {
+      const target = fakeTarget(
+        heldAs(`duplicate value found: Ext_Id__c duplicates value on record with id: ${HELD}`),
+      );
+      const result = await rehearse(
+        deps({ prepare: accountAndContacts, composite: target.composite }),
+      );
+
+      expect(result).toMatchObject({
+        rows: 3,
+        judged: 3,
+        passed: 2,
+        linked: 1,
+        notJudged: 0,
+        notJudgedWhy: [],
+        calls: 2,
+      });
+      // The second call creates the contacts alone, under the account the target holds.
+      const second = target.calls[1].compositeRequest;
+      expect(second.map((sub) => sub.referenceId)).toEqual(['rows0', 'rollback']);
+      expect((second[0].body as { records: unknown[] }).records).toEqual([
+        { attributes: { type: 'Contact' }, LastName: 'B', AccountId: HELD },
+        { attributes: { type: 'Contact' }, LastName: 'C', AccountId: HELD },
+      ]);
+      // A warning, as the simulation reports a unique value the target holds:
+      // never a blocking refusal that would have the user hold the run back.
+      expect(result.gaps).toEqual([
+        expect.objectContaining({
+          id: forgeGapId('unique_value_collision', 'Account'),
+          kind: 'unique_value_collision',
+          severity: 'warning',
+          defaultDecision: 'ignore',
+        }),
+      ]);
+    });
+
+    it('reads the record a French org names, as the run does', async () => {
+      const target = fakeTarget(
+        heldAs(
+          `valeur en double trouvée : Ext_Id__c duplique la valeur de l'enregistrement ` +
+            `ID : ${HELD}`,
+        ),
+      );
+      const result = await rehearse(
+        deps({ prepare: accountAndContacts, composite: target.composite }),
+      );
+
+      expect(result).toMatchObject({ judged: 3, passed: 2, linked: 1, notJudged: 0 });
+      expect(
+        (target.calls[1].compositeRequest[0].body as { records: Array<{ AccountId: unknown }> })
+          .records[0].AccountId,
+      ).toBe(HELD);
+    });
+
+    it('stays a refusal that holds back its children when the refusal names no record', async () => {
+      // Salesforce writes <unknown> where the running user cannot see the
+      // record: the run's writer links nothing, and fails the row.
+      const target = fakeTarget(
+        heldAs('duplicate value found: Ext_Id__c duplicates value on record with id: <unknown>'),
+      );
+      const result = await rehearse(
+        deps({ prepare: accountAndContacts, composite: target.composite }),
+      );
+
+      expect(result).toMatchObject({ judged: 1, passed: 0, linked: 0, notJudged: 2, calls: 1 });
+      expect(result.notJudgedWhy).toEqual([
+        { objectApiName: 'Contact', rows: 2, reason: 'parent_refused' },
+      ]);
+      expect(result.gaps[0]).toMatchObject({
+        id: forgeGapId('rehearsal_refusal', 'Account', undefined, undefined, 'DUPLICATE_VALUE'),
+        severity: 'blocking',
+      });
+    });
+
+    it('stays a refusal when the record named is of another object', async () => {
+      const target = fakeTarget(
+        heldAs(
+          `duplicate value found: Ext_Id__c duplicates value on record with id: ${idOf('003000000000777')}`,
+        ),
+      );
+      const result = await rehearse(
+        deps({ prepare: accountAndContacts, composite: target.composite }),
+      );
+
+      expect(result).toMatchObject({ judged: 1, linked: 0, notJudged: 2 });
+    });
+
+    it('links a row to the row of its call that holds the same value, and judges its children under that one', async () => {
+      // Two accounts of the run carry one external id: the real run writes the
+      // first, and links the second to it. The record the refusal names was
+      // created by the call, and rolled back with it.
+      const target = fakeTarget((type, record, created) => {
+        if (type !== 'Account') return undefined;
+        const twin = created.find((c) => c.record['Ext_Id__c'] === record['Ext_Id__c']);
+        return twin
+          ? {
+              statusCode: 'DUPLICATE_VALUE',
+              message: `duplicate value found: Ext_Id__c duplicates value on record with id: ${twin.id}`,
+            }
+          : undefined;
+      });
+      const result = await rehearse(
+        deps({
+          prepare: preparing([
+            {
+              object: 'Account',
+              rows: [
+                { Name: 'A', Ext_Id__c: 'X-1' },
+                { Name: 'A again', Ext_Id__c: 'X-1' },
+              ],
+            },
+            {
+              object: 'Contact',
+              rows: [{ LastName: 'B' }],
+              parentField: 'AccountId',
+              parentIndex: () => 1,
+            },
+          ]),
+          composite: target.composite,
+        }),
+      );
+
+      expect(result).toMatchObject({ judged: 3, passed: 2, linked: 1, notJudged: 0, calls: 2 });
+      // The contact goes again with the first account, which it now hangs from.
+      const second = target.calls[1].compositeRequest;
+      expect(second.map((sub) => sub.referenceId)).toEqual(['rows0', 'rows1', 'rollback']);
+      expect((second[0].body as { records: unknown[] }).records).toEqual([
+        { attributes: { type: 'Account' }, Name: 'A', Ext_Id__c: 'X-1' },
+      ]);
+      expect((second[1].body as { records: unknown[] }).records).toEqual([
+        { attributes: { type: 'Contact' }, LastName: 'B', AccountId: '@{rows0[0].id}' },
+      ]);
+    });
+
+    it('sends no update of the record it is linked to, which the run never writes', async () => {
+      const target = fakeTarget(
+        heldAs(`duplicate value found: Ext_Id__c duplicates value on record with id: ${HELD}`),
+      );
+      const result = await rehearse(
+        deps({
+          prepare: async (writer) => {
+            const [account] = await writer.insertRecords('target', 'Account', [
+              { Name: 'A', Ext_Id__c: 'X-1' },
+            ]);
+            await writer.insertRecords('target', 'Contact', [
+              { LastName: 'B', AccountId: account.id },
+            ]);
+            await writer.updateRecords('target', 'Account', [{ Id: account.id, Rating: 'Hot' }]);
+          },
+          composite: target.composite,
+        }),
+      );
+
+      expect(result).toMatchObject({ judged: 2, linked: 1, updatesJudged: 0 });
+      expect(result.updatesNotRehearsed).toBe(1);
+      // The first call carried it, stopped at the account before it was
+      // tried; the call that judges the contact carries it no more.
+      expect(target.calls).toHaveLength(2);
+      expect(target.calls[1].compositeRequest.map((sub) => sub.referenceId)).toEqual([
+        'rows0',
+        'rollback',
+      ]);
+    });
   });
 });

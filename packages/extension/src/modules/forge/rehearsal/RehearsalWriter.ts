@@ -44,7 +44,7 @@ const PLACEHOLDER_MARK = 'RHZ';
 const PLACEHOLDER_IN_TEXT_RE = /[A-Za-z0-9]{3}RHZ[A-Za-z0-9]{12}/g;
 
 /** The key prefix a placeholder takes when the target's describe gives the object none. */
-const NO_KEY_PREFIX = '000';
+export const NO_KEY_PREFIX = '000';
 
 /**
  * The placeholder id of the `seq`-th record the run would create: 18

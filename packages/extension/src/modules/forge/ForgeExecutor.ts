@@ -69,6 +69,8 @@ import {
   type NodeQueryResult,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
+import { pagesOfStatement } from './stages/PagedRows.js';
+import { FORGE_QUERY_MAX_RECORDS } from './queryAllPages.js';
 import { ContactPointNeutralizer } from './stages/ContactPointNeutralizer.js';
 import {
   cleanNodeRecords,
@@ -534,6 +536,63 @@ export interface ExecuteOptions {
    * `readsBeforeWriting`.
    */
   beforeWrite?: (boundary: ForgeWriteBoundary) => Promise<void>;
+  /**
+   * Read and write a run of whole tables page by page: each object read with
+   * the org's cursor in the order of its ids, each page written before the
+   * next is read, so the run holds a page of rows whatever a table holds. See
+   * {@link ForgeStreamOptions}. A run read from a record, one that copies
+   * files, one that upserts, and one whose graph holds emails are read whole
+   * as before: their reads are bounded by what a record reaches, or their
+   * writes take an object whole.
+   */
+  stream?: ForgeStreamOptions;
+}
+
+/** How a run of whole tables is read and written page by page: see {@link ExecuteOptions.stream}. */
+export interface ForgeStreamOptions {
+  /**
+   * Rows a page holds; each page of the org's cursor as it comes when absent.
+   * A test seam, never a setting: an org answers in pages of up to 2 000 rows,
+   * and a run's paging is proved with pages of a few.
+   */
+  pageSize?: number;
+  /**
+   * The most rows of one object the run reads (`sandforge.forge.maxRecordsPerObject`):
+   * an object whose table holds more is read to it and said truncated, as one
+   * a bound stopped is. Absent, the cap on each object is the only bound.
+   */
+  ceiling?: number;
+  /**
+   * Per object, where a run before this one stopped: its read resumes after
+   * the last id that run wrote, and counts the rows it had read against the
+   * cap. Meant with `writtenBefore`, which links what hangs from those rows
+   * to the records that run created.
+   */
+  resumeAfter?: Readonly<Record<string, ForgeStreamCheckpoint>>;
+  /**
+   * Told once each page of an object read page by page is written, before
+   * the next is read: where the object stands, and the records the page
+   * created. What it keeps is what a run stopped part way leaves to remove
+   * and to resume from; what it throws stops the run there, as a failure.
+   */
+  onPage?: (page: ForgeStreamPage) => void | Promise<void>;
+}
+
+/** Where a run read page by page stands with one object: see {@link ForgeStreamOptions.resumeAfter}. */
+export interface ForgeStreamCheckpoint {
+  /** The id of the last row of the last page the run wrote. */
+  lastId: string;
+  /** The rows of the object the run had read, against the cap on each object. */
+  read: number;
+}
+
+/** One page of an object written, as {@link ForgeStreamOptions.onPage} is told it. */
+export interface ForgeStreamPage {
+  objectApiName: string;
+  /** Where the object stands once the page is written; absent for a page that held no row. */
+  checkpoint?: ForgeStreamCheckpoint;
+  /** The records the page created in the target, by source id: none on a dry run. */
+  created: Array<{ sourceId: string; targetId: string }>;
 }
 
 /** What a run is about to write, as {@link ExecuteOptions.beforeWrite} is handed it. */
@@ -541,10 +600,27 @@ export interface ForgeWriteBoundary {
   /**
    * Per object, the rows read to write. A row a retried run already wrote is
    * left out: the run links to it and writes nothing of it.
+   *
+   * A run read page by page holds no rows before it writes the first: each
+   * object comes with no rows and what its count says instead (`counted`) —
+   * the rows its table holds under the run's filter, no more than the run
+   * reads of it, and how many of them are person accounts or their contacts,
+   * whose storage differs. A row the retried run wrote is counted in.
    */
-  objects: ReadonlyArray<{ objectApiName: string; rows: readonly Record<string, unknown>[] }>;
+  objects: ReadonlyArray<{
+    objectApiName: string;
+    rows: readonly Record<string, unknown>[];
+    counted?: ForgeCountedObject;
+  }>;
   /** Whether the run is a dry run, which writes none of them. */
   dryRun: boolean;
+}
+
+/** What a count says of an object a run read page by page will write: see {@link ForgeWriteBoundary.objects}. */
+export interface ForgeCountedObject {
+  rows: number;
+  /** Of them, person accounts (`Account`) or the contacts of person accounts (`Contact`). */
+  personAccounts?: number;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -562,6 +638,20 @@ export interface ForgeExecutorDeps {
     soql: string,
     onTruncated?: () => void,
   ) => Promise<Record<string, unknown>[]>;
+  /**
+   * Each page of a statement as the org answers it, the next asked only once
+   * the caller has taken the one before, with no bound on the rows but the
+   * statement's own `LIMIT`: what a run of whole tables reads page by page
+   * with (`ExecuteOptions.stream`). Optional: without it such a run reads
+   * each statement whole through `queryRecords` and pages its writes alone.
+   */
+  queryPages?: (orgId: string, soql: string) => AsyncIterable<Record<string, unknown>[]>;
+  /**
+   * How many rows a `SELECT COUNT() …` statement selects: what a run read
+   * page by page shows its gate in place of the rows it does not hold yet.
+   * Optional: without it the gate is shown discovery's counts.
+   */
+  countRecords?: (orgId: string, soql: string) => Promise<number>;
   /** Insert records into a Salesforce org. */
   insertRecords: (
     orgId: string,
@@ -1007,6 +1097,122 @@ interface PrereadNode {
   > | null;
 }
 
+/**
+ * Where the read of an object of a run read page by page stands, and what its
+ * pages written so far came to: see `streamNode`.
+ */
+interface NodeCursor {
+  /** The pages of its statement, opened by its first read. */
+  pages?: AsyncGenerator<Record<string, unknown>[]>;
+  /** Whether the statement has no page left, or the ceiling cut it. */
+  ended: boolean;
+  /** Pages the statement has given so far. */
+  taken: number;
+  /** Rows of the object read, a run this one resumes included. */
+  read: number;
+  /** Rows the ceiling leaves to read; undefined without a ceiling below the cap. */
+  room?: number;
+  /** The id the read resumes after, from a run before this one. */
+  readonly resumeAfter?: string;
+  /** The id of the last row read. */
+  lastId?: string;
+  /** Whether a read of one of its pages failed. */
+  failed?: boolean;
+  /** The source fields its first read described, kept for the pages after. */
+  described?: FieldInfo[];
+  /** The target describe its first read started, kept for the pages after. */
+  targetSets?: PrereadNode['targetSetsPending'];
+  /** What its pages written so far came to. */
+  readonly carry: PageCarry;
+}
+
+/**
+ * What the pages of an object read page by page came to, written so far: the
+ * line that ends the object says it, and its failure is judged on it, as a
+ * node read whole is judged on its rows.
+ */
+interface PageCarry {
+  /** Pages handed to the write. */
+  pages: number;
+  /** Rows the reads kept, once what they hold back as they read is out. */
+  rows: number;
+  /** Rows sent to the target, after what the write holds back. */
+  sent: number;
+  succeeded: number;
+  updated: number;
+  linked: number;
+  failed: number;
+  alreadyExists: number;
+  unidentified: number;
+  /** Rows the run retried wrote, linked to and not written again. */
+  writtenBefore: number;
+  /** Person accounts' contacts linked to the one the platform wrote. */
+  withTheirAccount: number;
+  /** Person accounts' contacts never sent, the target holding none of them. */
+  personContactsUnlinked: number;
+  /** Person accounts' contacts sent on their own, and why. */
+  sentOnTheirOwn: number;
+  onTheirOwnWhy: string;
+  /** Rows held back for want of their parent. */
+  withoutParent: number;
+  /** The same rows, per lookup and parent object, for the report that ends the object. */
+  readonly withoutParentGroups: Map<string, ParentNotWritten & { count: number }>;
+  /** Whether those rows were reported, once the object ended or stopped. */
+  withoutParentSaid?: boolean;
+  /**
+   * The rows of the object still to read, as its count says: what a cancel
+   * between two pages keeps from the target.
+   */
+  rowsLeft: () => number;
+  /** Rows held back before the write, per reason. */
+  readonly held: Map<string, number>;
+  /** Why a page held the object back whole, for a record type; the rows of every page are held then. */
+  heldWhole?: string;
+  heldWholeRows: number;
+  /** The picklist values not written as read. */
+  readonly picklists: PicklistChangeTally;
+  writtenWithoutFields?: WrittenWithoutFields;
+  /** The flags of relations linked to that could not be given back. */
+  readonly flagsNotKept: string[];
+}
+
+/** No page written yet. */
+function emptyPageCarry(): PageCarry {
+  return {
+    pages: 0,
+    rows: 0,
+    sent: 0,
+    succeeded: 0,
+    updated: 0,
+    linked: 0,
+    failed: 0,
+    alreadyExists: 0,
+    unidentified: 0,
+    writtenBefore: 0,
+    withTheirAccount: 0,
+    personContactsUnlinked: 0,
+    sentOnTheirOwn: 0,
+    onTheirOwnWhy: '',
+    withoutParent: 0,
+    withoutParentGroups: new Map(),
+    rowsLeft: () => 0,
+    held: new Map(),
+    heldWholeRows: 0,
+    picklists: new PicklistChangeTally(),
+    flagsNotKept: [],
+  };
+}
+
+/** Count `reasons` into the rows a carry says were held back before the write. */
+function carryHeld(carry: PageCarry, reasons: readonly HeldBackReason[]): void {
+  for (const { count, why } of reasons) carry.held.set(why, (carry.held.get(why) ?? 0) + count);
+}
+
+/** The rows a carry says were held back before the write, per reason, in the order first met. */
+function heldOfCarry(carry: PageCarry): HeldBackReason[] {
+  return [...carry.held].map(([why, count]) => ({ count, why }));
+}
+
 /** A node read once and to be read again, with the source fields its read described. */
 interface NodeReadOnce {
   readonly node: ForgeGraphNode;
@@ -1137,6 +1343,10 @@ interface ExecutionState {
   readonly failedReads: Set<string>;
   /** Per object, the key prefix of its ids in the source org, once the run has told it. */
   readonly sourceKeyPrefixes: Map<string, string>;
+  /** Per object read page by page, while it is: where its read stands. See `streamNode`. */
+  readonly cursors: Map<string, NodeCursor>;
+  /** Per object, the rows its count said the run would write, once shown to the gate. */
+  readonly counted: Map<string, number>;
   /**
    * The objects whose key prefix a read has asked for, told or not: an object
    * whose describe fails is not asked again for each read after. See
@@ -1648,13 +1858,28 @@ function parentNotWrittenSamples(
   held: ReadonlyMap<number, ParentNotWritten>,
   failedObjects: ReadonlySet<string>,
 ): ExecutionErrorSample[] {
-  const groups = new Map<string, ParentNotWritten & { count: number }>();
-  for (const { field, parentObject } of held.values()) {
+  return samplesOfParentsNotWritten(groupsOfParentsNotWritten(held.values()), failedObjects);
+}
+
+/** Per lookup and parent object, how many of `held` were held back for want of their parent. */
+function groupsOfParentsNotWritten(
+  held: Iterable<ParentNotWritten>,
+  into: Map<string, ParentNotWritten & { count: number }> = new Map(),
+): Map<string, ParentNotWritten & { count: number }> {
+  for (const { field, parentObject } of held) {
     const key = `${field}|${parentObject}`;
-    const group = groups.get(key) ?? { field, parentObject, count: 0 };
+    const group = into.get(key) ?? { field, parentObject, count: 0 };
     group.count++;
-    groups.set(key, group);
+    into.set(key, group);
   }
+  return into;
+}
+
+/** The samples of rows held back for want of their parent, grouped: the largest groups, three at most. */
+function samplesOfParentsNotWritten(
+  groups: ReadonlyMap<string, ParentNotWritten & { count: number }>,
+  failedObjects: ReadonlySet<string>,
+): ExecutionErrorSample[] {
   return [...groups.values()]
     .sort((a, b) => b.count - a.count)
     .slice(0, 3)
@@ -1995,6 +2220,52 @@ function heldBackWhole(
 ): string {
   const count = failed + heldBackCount(alsoHeld);
   return `Held back ${objectApiName}, nothing written, ${count} failed${ofThemHeldBack(alsoHeld)}`;
+}
+
+/** What a line says of the person accounts' contacts sent as contacts of their own, or nothing. */
+function ownSentNote(count: number): string {
+  return count > 0
+    ? `, ${count} ${count === 1 ? "person account's contact" : "person accounts' contacts"} ` +
+        'sent on their own: the target wrote none with their account'
+    : '';
+}
+
+/**
+ * Samples an object read page by page keeps of the rows the target refused,
+ * across its pages: the three a node written whole keeps.
+ */
+const PAGED_SAMPLES_KEPT = 3;
+
+/**
+ * What the line that ends an object read page by page counts, as the line of
+ * a write counts a node read whole: written, updated, linked, the rows the run
+ * retried wrote, then the failures with the rows held back among them.
+ */
+function pagedCounts(
+  config: ForgeStageConfig,
+  carry: PageCarry,
+  held: readonly HeldBackReason[],
+): string {
+  const succeeded = config.dryRun ? 'would be inserted' : 'succeeded';
+  const updated = carry.updated > 0 ? `, ${carry.updated} updated through their external id` : '';
+  const linked =
+    carry.linked > 0 ? `, ${carry.linked} linked to records already in the target` : '';
+  const withTheirAccount =
+    carry.withTheirAccount > 0
+      ? `, ${carry.withTheirAccount} written by the platform with their person account`
+      : '';
+  const already =
+    carry.writtenBefore > 0
+      ? `, ${carry.writtenBefore} already in the target from the run retried`
+      : '';
+  const unidentified =
+    carry.unidentified > 0
+      ? ` (${carry.unidentified} already in the target without Salesforce naming the record — their children lose the link)`
+      : '';
+  return (
+    `${carry.succeeded} ${succeeded}${updated}${linked}${withTheirAccount}${already}, ` +
+    `${carry.failed + heldBackCount(held)} failed${unidentified}${ofThemHeldBack(held)}`
+  );
 }
 
 /**
@@ -2602,6 +2873,8 @@ export class ForgeExecutor {
       notSent: new Map<string, number>(),
       failedReads: new Set<string>(),
       sourceKeyPrefixes: new Map<string, string>(),
+      cursors: new Map<string, NodeCursor>(),
+      counted: new Map<string, number>(),
       keyPrefixesAsked: new Set<string>(),
       readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       writtenObjects: new Set<string>(),
@@ -2903,7 +3176,10 @@ export class ForgeExecutor {
      * reads it never lets it do. A single pass's one order is the one writing
      * needs.
      */
-    const twoPhase = readsBeforeWriting(config);
+    // A run read page by page writes each object as it reads it, as a run of
+    // whole tables always could: its gate is shown counts, not rows.
+    const streamed = this.streamsTheRun(state);
+    const twoPhase = !streamed && readsBeforeWriting(config);
     const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state);
     // A scoped read takes its turns in this order, save a node that waits for
     // a parent still to come: see `readInTurn`.
@@ -3022,6 +3298,11 @@ export class ForgeExecutor {
       state.writtenObjects.add(node.objectApiName);
     }
 
+    // A run read page by page holds no row before it writes the first: its
+    // gate is shown what a count of each table says it will write, before
+    // anything is read.
+    if (streamed && config.beforeWrite) await this.countBeforeWrite(state, runOrder);
+
     for (const node of runOrder) {
       // Abort is checked per node, not only per batch: waitIfPaused() runs
       // between batches, so a node small enough to fit one batch never reached
@@ -3091,6 +3372,8 @@ export class ForgeExecutor {
 
       if (twoPhase) {
         await this.readInTurn(node, state);
+      } else if (streamed && this.streamsNode(node, state)) {
+        await this.streamNode(node, state);
       } else {
         if (await this.readNode(node, state, false, true)) await this.writeNode(node, state);
         // The emails that wait for the task each names go in once the task
@@ -3299,6 +3582,496 @@ export class ForgeExecutor {
     // Every write is done: the target's dates of them are final.
     await this.readWrittenBetween(state);
     return this.summaryOf(state);
+  }
+
+  /**
+   * Whether the run is read and written page by page: asked to be, of whole
+   * tables, copying no file, upserting nothing, with no email in its graph.
+   * A run read from a record reads what the record reaches and writes once
+   * every node is read; one that copies files measures them all before it
+   * writes; an upsert checks an object's keys over all its rows; an email on
+   * a case waits for the task it names, held until the tasks are written, and
+   * takes its own size of storage, which no count says.
+   */
+  private streamsTheRun(state: ExecutionState): boolean {
+    const { config, graph } = state;
+    return (
+      config.stream !== undefined &&
+      !config.isScoped &&
+      config.files === undefined &&
+      config.upsertMode === 'off' &&
+      !graph.nodes.some((n) => n.included && n.objectApiName === EMAIL_MESSAGE)
+    );
+  }
+
+  /**
+   * Whether a node of a run read page by page is itself read so: not the
+   * catalog, whose prices go in two rounds, the standard ones first, one per
+   * product and book, which the rows of every page decide together; not the
+   * tasks, which the platform writes with the emails; not an object mapped by
+   * name. Those are read whole, within the run, as before.
+   */
+  private streamsNode(node: ForgeGraphNode, state: ExecutionState): boolean {
+    const object = node.objectApiName;
+    return (
+      !CATALOG_OBJECTS.has(object) &&
+      !isPricebookEntry(object) &&
+      object !== TASK &&
+      !state.config.referenceDataObjects.has(object)
+    );
+  }
+
+  /**
+   * The most rows of a node a run read page by page reads: the cap on each
+   * object, and the ceiling of a node it reads so. Undefined for no bound.
+   */
+  private readBound(state: ExecutionState, node: ForgeGraphNode): number | undefined {
+    const cap = state.config.maxRecordsPerObject;
+    const capped = cap !== undefined && cap > 0 ? Math.floor(cap) : undefined;
+    const ceiling = this.streamsNode(node, state) ? state.config.stream?.ceiling : undefined;
+    if (capped === undefined) return ceiling;
+    return ceiling === undefined ? capped : Math.min(capped, ceiling);
+  }
+
+  /**
+   * Show the gate of a run read page by page what it will write, before a
+   * row is read: per object it writes, the rows a count of its table says,
+   * under the run's filter and no more than the run reads of it, the person
+   * accounts and their contacts apart. A count that fails, or deps that count
+   * nothing, leave discovery's count. What the run writes nothing of — an
+   * object left out, refused by the target, mapped by name — is not shown.
+   */
+  private async countBeforeWrite(
+    state: ExecutionState,
+    runOrder: readonly ForgeGraphNode[],
+  ): Promise<void> {
+    const { config } = state;
+    const beforeWrite = config.beforeWrite;
+    if (!beforeWrite) return;
+    const objects: Array<{
+      objectApiName: string;
+      rows: Record<string, unknown>[];
+      counted: ForgeCountedObject;
+    }> = [];
+    for (const node of runOrder) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      const object = node.objectApiName;
+      if (!node.included || !state.writtenObjects.has(object)) continue;
+      if (config.referenceDataObjects.has(object)) continue;
+      const counted = await this.countToWrite(state, node);
+      state.counted.set(object, counted.rows);
+      objects.push({ objectApiName: object, rows: [], counted });
+    }
+    if (this.isAborted) {
+      throw new ForgeAbortedError(
+        'Forge execution was aborted by user request. Remaining objects were not processed.',
+      );
+    }
+    await beforeWrite({ objects, dryRun: config.dryRun });
+  }
+
+  /** What a count says the run will write of `node`: see `countBeforeWrite`. */
+  private async countToWrite(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+  ): Promise<ForgeCountedObject> {
+    const object = node.objectApiName;
+    const resumed = this.streamsNode(node, state)
+      ? state.config.stream?.resumeAfter.get(object)
+      : undefined;
+    const filter = state.config.objectSoqlFilters?.[object];
+    const countRecords = this.deps.countRecords;
+    const count = async (extra?: string): Promise<number | undefined> => {
+      if (!countRecords) return undefined;
+      const terms = [
+        ...(filter ? [`(${filter})`] : []),
+        ...(extra ? [extra] : []),
+        ...(resumed && /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(resumed.lastId)
+          ? [`Id > '${resumed.lastId}'`]
+          : []),
+      ];
+      const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
+      try {
+        return await countRecords(
+          state.sourceOrgId,
+          `SELECT COUNT() FROM ${assertSoqlIdentifier(object)}${where}`,
+        );
+      } catch {
+        return undefined;
+      }
+    };
+    const bound = this.readBound(state, node);
+    const left = bound === undefined ? undefined : Math.max(0, bound - (resumed?.read ?? 0));
+    const total = (await count()) ?? node.recordCount;
+    const rows = left === undefined ? total : Math.min(total, left);
+    if (object !== ACCOUNT && object !== CONTACT) return { rows };
+    const fields = await this.deps
+      .describeFields(state.sourceOrgId, object)
+      .catch((): FieldInfo[] => []);
+    if (!fields.some((field) => field.name === 'IsPersonAccount')) return { rows };
+    const persons = await count('IsPersonAccount = true');
+    return persons === undefined ? { rows } : { rows, personAccounts: Math.min(persons, rows) };
+  }
+
+  /**
+   * Read and write one object of a run read page by page: a page of its rows
+   * read, that page written, then the next — so that the run holds a page of
+   * rows whatever the table holds. Each page goes through the read and the
+   * write a node read whole goes through; the object ends on one line, its
+   * failure judged on all its pages as a node read whole is on its rows.
+   * Between two pages a cancel stops the run, as between two calls. Each page
+   * written is told to `onPage`: where the object stands, and what the page
+   * created.
+   */
+  private async streamNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
+    const object = node.objectApiName;
+    const resumed = state.config.stream?.resumeAfter.get(object);
+    const cursor: NodeCursor = {
+      ended: false,
+      taken: 0,
+      read: resumed?.read ?? 0,
+      ...(resumed ? { resumeAfter: resumed.lastId, lastId: resumed.lastId } : {}),
+      carry: emptyPageCarry(),
+    };
+    const bound = this.readBound(state, node);
+    // Read whole by the run it resumes: nothing left to read of it.
+    if (bound !== undefined && cursor.read >= bound) return;
+    const expected = state.counted.get(object) ?? tableRowsToRead(node, bound);
+    cursor.carry.rowsLeft = () => Math.max(0, expected - (cursor.read - (resumed?.read ?? 0)));
+    state.cursors.set(object, cursor);
+    try {
+      for (;;) {
+        if (this.isAborted) {
+          // Stopped between two pages: the object ends on a line that says
+          // what it wrote, and what it never read to send — or, its count all
+          // read, as an object written whole ends, before the run stops.
+          if (cursor.carry.pages > 0 && cursor.carry.rowsLeft() > 0) {
+            this.stopStreamedNode(node, state, cursor.carry, 0, `Stopped ${node.objectApiName}`);
+          } else if (cursor.carry.pages > 0) {
+            this.endStreamedNode(node, state, cursor.carry);
+          }
+          throw new ForgeAbortedError(
+            'Forge execution was aborted by user request. Remaining objects were not processed.',
+          );
+        }
+        if (!(await this.readNode(node, state, false, true))) break;
+        await this.writeNode(node, state, undefined, cursor.carry);
+        // The contacts the platform wrote with the person accounts of the page.
+        if (object === ACCOUNT) await this.mapContactsOfPersonAccounts(state);
+        await this.tellPage(state, node, cursor);
+        if (cursor.ended) break;
+      }
+    } finally {
+      state.cursors.delete(object);
+      await cursor.pages?.return(undefined);
+    }
+    if (cursor.carry.pages > 0 && !cursor.failed) this.endStreamedNode(node, state, cursor.carry);
+  }
+
+  /**
+   * The next page of a node read page by page, from the statement its first
+   * read opened: the ceiling cuts the page that would pass it, and says the
+   * object truncated. None once the statement has no page left.
+   */
+  private async nextPage(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    cursor: NodeCursor,
+    soql: string,
+  ): Promise<Record<string, unknown>[]> {
+    if (cursor.ended) return [];
+    cursor.pages ??= pagesOfStatement(
+      this.deps,
+      state.sourceOrgId,
+      soql,
+      state.config.stream?.pageSize,
+      () => state.truncatedObjects.add(node.objectApiName),
+    );
+    const next = await cursor.pages.next();
+    if (next.done) {
+      cursor.ended = true;
+      return [];
+    }
+    cursor.taken++;
+    let page = next.value;
+    if (cursor.room !== undefined) {
+      if (page.length > cursor.room) {
+        // The statement asks one row past the ceiling: one there means the
+        // table holds more than the run reads of it.
+        page = page.slice(0, cursor.room);
+        cursor.ended = true;
+        state.truncatedObjects.add(node.objectApiName);
+      }
+      cursor.room -= page.length;
+    }
+    cursor.read += page.length;
+    const last = page[page.length - 1]?.['Id'];
+    if (typeof last === 'string') cursor.lastId = last;
+    return page;
+  }
+
+  /**
+   * Every row of a statement of a node read whole: through the org's cursor,
+   * a page at a time, when the run is given a page size — the diagnostic that
+   * shows a paged read against a real org — and to the ceiling; otherwise
+   * through `queryRecords`, whose bound is the deps'.
+   */
+  private async readWhole(
+    state: ExecutionState,
+    objectApiName: string,
+    soql: string,
+  ): Promise<Record<string, unknown>[]> {
+    const truncated = (): void => void state.truncatedObjects.add(objectApiName);
+    const pageSize = state.config.stream?.pageSize;
+    if (pageSize === undefined || !this.deps.queryPages) {
+      return this.deps.queryRecords(state.sourceOrgId, soql, truncated);
+    }
+    const most = state.config.stream?.ceiling ?? FORGE_QUERY_MAX_RECORDS;
+    const rows: Record<string, unknown>[] = [];
+    const pages = pagesOfStatement(this.deps, state.sourceOrgId, soql, pageSize);
+    try {
+      for await (const page of pages) {
+        rows.push(...page);
+        if (rows.length > most) {
+          truncated();
+          return rows.slice(0, most);
+        }
+      }
+    } finally {
+      await pages.return(undefined);
+    }
+    return rows;
+  }
+
+  /**
+   * The `LIMIT` of a node read page by page, and the rows the ceiling leaves
+   * it: one row past the ceiling is asked, to know whether the table holds
+   * more. Undefined for no bound.
+   */
+  private pagedLimit(state: ExecutionState, cursor: NodeCursor): number | undefined {
+    const cap = state.config.maxRecordsPerObject;
+    const capped = cap !== undefined && cap > 0 ? Math.floor(cap) - cursor.read : undefined;
+    const ceiling = state.config.stream?.ceiling;
+    const room = ceiling === undefined ? undefined : ceiling - cursor.read;
+    if (room !== undefined && (capped === undefined || room < capped)) {
+      cursor.room = Math.max(0, room);
+      return cursor.room + 1;
+    }
+    return capped === undefined ? undefined : Math.max(1, capped);
+  }
+
+  /** Tell `onPage` where a node read page by page stands, and what its page created. */
+  private async tellPage(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    cursor: NodeCursor,
+  ): Promise<void> {
+    const onPage = state.config.stream?.onPage;
+    if (!onPage) return;
+    const rows = state.preread.get(node.objectApiName)?.records ?? [];
+    const created = state.simulated
+      ? []
+      : rows.flatMap((row) => {
+          const id = row['Id'];
+          if (typeof id !== 'string' || !state.remapper.isCreated(id)) return [];
+          const targetId = state.remapper.get(id);
+          return targetId ? [{ sourceId: id, targetId }] : [];
+        });
+    await onPage({
+      objectApiName: node.objectApiName,
+      ...(cursor.lastId !== undefined
+        ? { checkpoint: { lastId: cursor.lastId, read: cursor.read } }
+        : {}),
+      created,
+    });
+  }
+
+  /**
+   * End an object read page by page on one line, as the write of a node read
+   * whole ends it, and judge its failure on every page: one whose rows mostly
+   * failed, held back whole, or of which nothing was sent for want of what it
+   * needs, is failed, and what cannot be written without it is skipped. Its
+   * pages' reports of the rows the target refused, and of the rows it held,
+   * go as one, as a node read whole has them.
+   */
+  private endStreamedNode(node: ForgeGraphNode, state: ExecutionState, carry: PageCarry): void {
+    const { config, onProgress } = state;
+    const object = node.objectApiName;
+    this.mergePageReports(state, object, carry);
+    this.saySentOnTheirOwn(state, carry.sentOnTheirOwn, carry.onTheirOwnWhy);
+    const excluded = heldForExclusionsOf(state, object);
+    const heldOfNode = state.heldForExclusions.get(object);
+    const held = [...heldOfCarry(carry), ...excluded];
+    const heldCount = heldBackCount(held);
+    const fail = (message: string): void => {
+      state.failedObjects.add(object);
+      onProgress({ objectName: object, status: 'error', progress: 100, message });
+    };
+    if (carry.heldWhole !== undefined) {
+      fail(
+        `${heldBackWhole(object, carry.heldWholeRows, excluded)}: ${carry.heldWhole}` +
+          ' Objects that cannot be written without it will be skipped.',
+      );
+      return;
+    }
+    if (carry.rows === 0 && heldOfNode && heldOfNode.size > 0) {
+      fail(nothingWrittenMessage(object, heldOfNode));
+      return;
+    }
+    const settled =
+      carry.succeeded + carry.updated + carry.linked + carry.writtenBefore + carry.withTheirAccount;
+    if (
+      carry.personContactsUnlinked > 0 &&
+      carry.withTheirAccount === 0 &&
+      carry.sent === 0 &&
+      carry.writtenBefore === 0 &&
+      carry.withoutParent === 0
+    ) {
+      fail(
+        `${heldBackWhole(object, carry.personContactsUnlinked, excluded)}: every record is a ` +
+          "person account's contact, which the platform writes with its account, and the run " +
+          'has none of them in the target. Objects that cannot be written without it will be ' +
+          'skipped.',
+      );
+      return;
+    }
+    if (settled === 0 && carry.failed === 0 && carry.sent === 0 && carry.withoutParent > 0) {
+      fail(
+        `${heldBackWhole(object, carry.withoutParent, excluded)}: every record points at a ` +
+          'parent this run did not write. Objects that cannot be written without it will be ' +
+          'skipped.',
+      );
+      return;
+    }
+    const total = settled + carry.failed;
+    const failureRate = total > 0 ? carry.failed / total : 0;
+    const onlyAlreadyExists = carry.failed > 0 && carry.alreadyExists === carry.failed;
+    const failedNode =
+      carry.failed > 0 && !onlyAlreadyExists && (settled === 0 || failureRate > 0.5);
+    const picklists = picklistChangesNote(carry.picklists.list());
+    const withoutFields = writtenWithoutFieldsNote(carry.writtenWithoutFields);
+    const readById = readAsParentsNote(state, object);
+    const ownNote = ownSentNote(carry.sentOnTheirOwn);
+    if (failedNode) {
+      fail(
+        settled === 0
+          ? `Failed all ${object} records: ${carry.failed + heldCount} failed` +
+              `${ofThemHeldBack(held)}${ownNote}${picklists}${readById}`
+          : `${carry.failed + heldCount}/${total + heldCount} ${object} records failed (>50%)` +
+              `${ofThemHeldBack(held)}${ownNote}${picklists}${withoutFields}${readById} — objects ` +
+              'that cannot be written without it will be skipped',
+      );
+      return;
+    }
+    const flagsNotKept = carry.flagsNotKept.map((flags) => `, ${flags}`).join('');
+    onProgress({
+      objectName: object,
+      status: 'done',
+      progress: 100,
+      message:
+        `${config.dryRun ? 'Simulated' : 'Completed'} ${object}: ${pagedCounts(config, carry, held)}` +
+        `${ownNote}${flagsNotKept}${picklists}${withoutFields}` +
+        `${leftToThePlatformNote(state, object)}${readById}`,
+    });
+  }
+
+  /**
+   * End an object read page by page that a cancel stopped, between two pages
+   * or before a call of one, on a line of its own: what its pages wrote,
+   * linked, held back and failed, and the rows the cancel kept from the
+   * target — those of the page it stopped in never sent, and those it never
+   * read, as its count says them. Stopped, not done; one whose rows mostly
+   * failed stays a failure.
+   */
+  private stopStreamedNode(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    carry: PageCarry,
+    notSentOfPage: number,
+    stopped: string,
+  ): void {
+    const object = node.objectApiName;
+    const notSent = notSentOfPage + carry.rowsLeft();
+    countNotSent(state, object, notSent);
+    this.mergePageReports(state, object, carry);
+    this.saySentOnTheirOwn(state, carry.sentOnTheirOwn, carry.onTheirOwnWhy);
+    const held = [...heldOfCarry(carry), ...heldForExclusionsOf(state, object)];
+    const settled =
+      carry.succeeded + carry.updated + carry.linked + carry.writtenBefore + carry.withTheirAccount;
+    const total = settled + carry.failed;
+    const failedNode =
+      carry.failed > 0 &&
+      carry.alreadyExists !== carry.failed &&
+      (settled === 0 || carry.failed / total > 0.5);
+    if (failedNode) state.failedObjects.add(object);
+    state.onProgress({
+      objectName: object,
+      status: failedNode ? 'error' : 'stopped',
+      progress: 100,
+      message:
+        `${stopped}: ${pagedCounts(state.config, carry, held)}, ${notSent} not sent` +
+        `${ownSentNote(carry.sentOnTheirOwn)}${carry.flagsNotKept.map((flags) => `, ${flags}`).join('')}` +
+        `${picklistChangesNote(carry.picklists.list())}` +
+        `${writtenWithoutFieldsNote(carry.writtenWithoutFields)}${leftToThePlatformNote(state, object)}`,
+    });
+  }
+
+  /**
+   * The reports a page at a time left of an object, as one: the rows held
+   * back for want of their parent, the rows the target refused, across its
+   * calls, and the rows it already held.
+   */
+  private mergePageReports(state: ExecutionState, objectApiName: string, carry: PageCarry): void {
+    if (carry.withoutParent > 0 && !carry.withoutParentSaid) {
+      const report: ExecutionObjectError = {
+        objectApiName,
+        stage: 'scope',
+        failedCount: carry.withoutParent,
+        attemptedCount: 0,
+        samples: samplesOfParentsNotWritten(carry.withoutParentGroups, state.failedObjects),
+      };
+      // Where a node read whole has it: before what the target refused of it.
+      const at = state.errors.findIndex(
+        (error) => error.objectApiName === objectApiName && error.stage === 'insert',
+      );
+      if (at === -1) state.errors.push(report);
+      else state.errors.splice(at, 0, report);
+      carry.withoutParentSaid = true;
+    }
+    const refused = state.errors.filter(
+      (error) => error.objectApiName === objectApiName && error.stage === 'insert',
+    );
+    if (refused.length > 0) {
+      const [first] = refused;
+      const merged: ExecutionObjectError = {
+        ...first,
+        failedCount: refused.reduce((sum, error) => sum + error.failedCount, 0),
+        // Every row the object's calls sent, those of pages the target took
+        // whole included, as a node written whole counts them.
+        attemptedCount: carry.succeeded + carry.updated + carry.linked + carry.failed,
+        samples: refused.flatMap((error) => error.samples).slice(0, PAGED_SAMPLES_KEPT),
+      };
+      const at = state.errors.indexOf(first);
+      const rest = state.errors.filter((error) => !refused.includes(error));
+      rest.splice(at, 0, merged);
+      state.errors.splice(0, state.errors.length, ...rest);
+    }
+    const existing = state.existingRecords.filter((entry) => entry.objectApiName === objectApiName);
+    if (existing.length > 1) {
+      const merged: ExistingRecordReport = {
+        objectApiName,
+        linked: existing.reduce((sum, entry) => sum + entry.linked, 0),
+        unidentified: existing.reduce((sum, entry) => sum + entry.unidentified, 0),
+      };
+      const at = state.existingRecords.indexOf(existing[0]);
+      const rest = state.existingRecords.filter((entry) => !existing.includes(entry));
+      rest.splice(at, 0, merged);
+      state.existingRecords.splice(0, state.existingRecords.length, ...rest);
+    }
   }
 
   /**
@@ -3601,7 +4374,11 @@ export class ForgeExecutor {
     state.skippedCount++;
     state.failedObjects.add(node.objectApiName);
     // A row the run this one retries wrote is in the target: nothing lost.
-    const lost = rowsRead?.filter((row) => !wasWrittenBefore(state.config, row)).length;
+    // Skipped before its read, an object a run read page by page counted for
+    // its gate lost what that count said.
+    const lost =
+      rowsRead?.filter((row) => !wasWrittenBefore(state.config, row)).length ??
+      state.counted.get(node.objectApiName);
     if (lost !== 0) {
       state.failedCount += lost ?? 0;
       state.errors.push({
@@ -5209,16 +5986,23 @@ export class ForgeExecutor {
     // Read again, a node of the catalog read at its turn holds the rows this
     // read takes: see `readAtItsTurn`.
     state.readAtItsTurn.delete(node.objectApiName);
+    // A node read page by page: this read takes its next page. See `streamNode`.
+    const cursor = state.cursors.get(node.objectApiName);
     try {
-      // Step 1: Scanning — describe fields to build SOQL and filter sets
-      onProgress({
-        objectName: node.objectApiName,
-        status: 'scanning',
-        progress: 0,
-        message: `Querying ${node.objectApiName} records...`,
-      });
+      // Step 1: Scanning — describe fields to build SOQL and filter sets.
+      // Said, and described, once for a node read page by page.
+      if (!cursor || cursor.taken === 0) {
+        onProgress({
+          objectName: node.objectApiName,
+          status: 'scanning',
+          progress: 0,
+          message: `Querying ${node.objectApiName} records...`,
+        });
+      }
 
-      const described = await this.deps.describeFields(sourceOrgId, node.objectApiName);
+      const described =
+        cursor?.described ?? (await this.deps.describeFields(sourceOrgId, node.objectApiName));
+      if (cursor) cursor.described = described;
       // Never read, so never written: see `withoutFileContent`. Said once the
       // rows are in, of an object with rows to write.
       const fieldInfos = described.filter((f) => !isFileContentField(f));
@@ -5248,7 +6032,10 @@ export class ForgeExecutor {
         rootObjectApiName: config.rootObjectApiName,
         rootRecordId: config.rootRecordId,
         extraWhere: config.objectSoqlFilters?.[node.objectApiName],
-        maxRecordsPerObject: config.maxRecordsPerObject,
+        maxRecordsPerObject: cursor ? this.pagedLimit(state, cursor) : config.maxRecordsPerObject,
+        ...(cursor
+          ? { inIdOrder: cursor.resumeAfter !== undefined ? { afterId: cursor.resumeAfter } : {} }
+          : {}),
         readObjects: state.readObjects,
         catalog: CATALOG_OBJECTS,
         // The root's object is read after the first pass only as the catalog
@@ -5311,21 +6098,25 @@ export class ForgeExecutor {
       // first. Only started on the path that writes, a simulation's too.
       const writes = prefetchTargetDescribe && !config.referenceDataObjects.has(node.objectApiName);
       const targetSetsPending = writes
-        ? describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
+        ? (cursor?.targetSets ??
+          describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
             (sets) => ({ ok: true as const, sets }),
             (error: unknown) => ({ ok: false as const, error }),
-          )
+          ))
         : null;
+      if (cursor) cursor.targetSets = targetSetsPending;
 
       const reached = state.scopeCache ? new Set<string>() : undefined;
       const records = await queryNodeRecords(
         query,
         (soql) =>
-          this.deps.queryRecords(sourceOrgId, soql, () =>
-            state.truncatedObjects.add(node.objectApiName),
-          ),
+          cursor
+            ? this.nextPage(state, node, cursor, soql)
+            : this.readWhole(state, node.objectApiName, soql),
         reached,
       );
+      // Its statement has no page left: the object is read.
+      if (cursor?.ended && records.length === 0 && cursor.taken > 0) return false;
       noteIdsRead(state, records);
       this.keepWhatStatusesNeed(state, node, records, reached);
       const heldBack = this.holdBackWhatExclusionsCost(
@@ -5449,7 +6240,9 @@ export class ForgeExecutor {
       // nothing of the object is written, and what cannot be written without
       // it is skipped, as behind a parent that failed.
       const heldOfNode = state.heldForExclusions.get(node.objectApiName);
-      if (heldBack > 0 && records.length === 0 && heldOfNode) {
+      // A page whose every row is held so says nothing of the object's other
+      // pages: the line that ends the object judges them all.
+      if (heldBack > 0 && records.length === 0 && heldOfNode && !cursor) {
         state.failedObjects.add(node.objectApiName);
         state.readByObject.set(node.objectApiName, heldOfNode.size);
         onProgress({
@@ -5522,7 +6315,11 @@ export class ForgeExecutor {
       // table, of which a record-scoped clone reads a few rows. The rows held
       // back for an object the user excluded were read to be cloned too, and
       // are counted with them as they are among the failed.
-      state.readByObject.set(node.objectApiName, records.length + (heldOfNode?.size ?? 0));
+      if (cursor) cursor.carry.rows += records.length;
+      state.readByObject.set(
+        node.objectApiName,
+        (cursor ? cursor.carry.rows : records.length) + (heldOfNode?.size ?? 0),
+      );
 
       // Held for the write pass: a simulation's too, which takes them through
       // it with a writer that writes nothing.
@@ -5575,6 +6372,7 @@ export class ForgeExecutor {
       }
       state.failedObjects.add(node.objectApiName);
       state.failedReads.add(node.objectApiName);
+      if (cursor) cursor.failed = true;
       // What failed is what the read was to bring. A run of whole tables
       // meant to read the table discovery counted, up to the cap on each
       // object. A record-scoped one meant to read the rows its scope names,
@@ -5583,7 +6381,10 @@ export class ForgeExecutor {
       // never meant to read, on its results, the command's summary and the
       // audit trail. It counts no row, and the object's failure is what says
       // how the run ended (`failedReads`).
-      const meantToRead = config.isScoped ? 0 : tableRowsToRead(node, config.maxRecordsPerObject);
+      // Read page by page, the pages before were read: what failed is the rest.
+      const meantToRead = config.isScoped
+        ? 0
+        : Math.max(0, tableRowsToRead(node, config.maxRecordsPerObject) - (cursor?.read ?? 0));
       state.failedCount += meantToRead;
       state.errors.push({
         objectApiName: node.objectApiName,
@@ -7873,8 +8674,12 @@ export class ForgeExecutor {
     node: ForgeGraphNode,
     state: ExecutionState,
     afterTheirTask?: Record<string, unknown>[],
+    page?: PageCarry,
   ): Promise<void> {
     const { config, sourceOrgId, targetOrgId, remapper } = state;
+    // A page of a node read page by page: what it comes to is carried to the
+    // line that ends the node, which judges its failure. See `streamNode`.
+    if (page) page.pages++;
     // The email node ends in one line, the emails that waited for their task
     // with the others: see `endOfTheEmails`.
     const onProgress =
@@ -7968,12 +8773,18 @@ export class ForgeExecutor {
       // Every row a person account's contact, and none in the target: nothing
       // of the object is there, as when every row is held back for want of
       // its parent, and what cannot be written without it is skipped.
+      if (page) {
+        page.withTheirAccount += withTheirAccount.linked;
+        carryHeld(page, withTheirAccount.notSent);
+        if (withTheirAccount.linked === 0) page.personContactsUnlinked += personContacts.size;
+      }
       if (
         personContacts.size > 0 &&
         withTheirAccount.linked === 0 &&
         records.length === 0 &&
         writtenBefore.length === 0
       ) {
+        if (page) return;
         state.failedObjects.add(node.objectApiName);
         onProgress({
           objectName: node.objectApiName,
@@ -7995,6 +8806,7 @@ export class ForgeExecutor {
         // In the target, so neither created nor failed: linked, as a row the
         // target already held is, and the rate counts them as the clone's.
         state.linkedCount += writtenBefore.length;
+        if (page) page.writtenBefore += writtenBefore.length;
         this.oweLookupsOfRowsWrittenBefore(
           state,
           node,
@@ -8003,12 +8815,14 @@ export class ForgeExecutor {
           targetUpdatableSet,
         );
         if (records.length === 0 && personContacts.size === 0) {
-          onProgress({
-            objectName: node.objectApiName,
-            status: 'done',
-            progress: 100,
-            message: `${completed}: 0 succeeded, ${writtenBefore.length} already in the target from the run retried, 0 failed`,
-          });
+          if (!page) {
+            onProgress({
+              objectName: node.objectApiName,
+              status: 'done',
+              progress: 100,
+              message: `${completed}: 0 succeeded, ${writtenBefore.length} already in the target from the run retried, 0 failed`,
+            });
+          }
           return;
         }
       }
@@ -8032,6 +8846,13 @@ export class ForgeExecutor {
         effectiveCreatableSet,
         state,
       );
+      // Read page by page, an object a page held back whole for a record type
+      // holds back the pages after it: the pages before it are written.
+      if (page?.heldWhole !== undefined && heldBack.length === 0) {
+        state.failedCount += records.length;
+        page.heldWholeRows += records.length;
+        return;
+      }
       if (heldBack.length > 0) {
         // What a simulation says of it: each record type, with those of the
         // target the user the run writes as may map it to.
@@ -8060,6 +8881,11 @@ export class ForgeExecutor {
             messages: [recordTypeBlockedMessage(use)],
           })),
         });
+        if (page) {
+          page.heldWhole ??= heldBack.map(recordTypeBlockedReason).join(' ');
+          page.heldWholeRows += records.length;
+          return;
+        }
         // Every row is held back, those of a record type open to the user
         // too, and the line says how many: each record type's reason counts
         // its own rows. It ends the node, so the rows an exclusion held back
@@ -8126,14 +8952,22 @@ export class ForgeExecutor {
       if (withoutParent.size > 0) {
         toWrite = toWrite.filter((_, index) => !withoutParent.has(index));
         state.failedCount += withoutParent.size;
-        state.errors.push({
-          objectApiName: node.objectApiName,
-          stage: 'scope',
-          failedCount: withoutParent.size,
-          attemptedCount: 0,
-          samples: parentNotWrittenSamples(withoutParent, state.failedObjects),
-        });
+        if (page) {
+          // Reported once for all the object's pages, as the object ends.
+          page.withoutParent += withoutParent.size;
+          groupsOfParentsNotWritten(withoutParent.values(), page.withoutParentGroups);
+          carryHeld(page, [{ count: withoutParent.size, why: WITHOUT_THEIR_PARENT }]);
+        } else {
+          state.errors.push({
+            objectApiName: node.objectApiName,
+            stage: 'scope',
+            failedCount: withoutParent.size,
+            attemptedCount: 0,
+            samples: parentNotWrittenSamples(withoutParent, state.failedObjects),
+          });
+        }
         if (toWrite.length === 0) {
+          if (page) return;
           state.failedObjects.add(node.objectApiName);
           // Ending the node, the line counts the rows an exclusion held back
           // as they were read with these; the emails waiting for their task
@@ -8283,6 +9117,7 @@ export class ForgeExecutor {
       for (const { picklistChanges = [] } of cleanedRecords) {
         changed.add(node.objectApiName, picklistChanges);
         state.picklistChanges.add(node.objectApiName, picklistChanges);
+        page?.picklists.add(node.objectApiName, picklistChanges);
       }
       const picklists = picklistChangesNote(changed.list());
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
@@ -8448,6 +9283,44 @@ export class ForgeExecutor {
       const nodeLinked = writeResult.linkedExistingCount;
       const nodeFailure = writeResult.failureCount;
       const nodeUnidentified = writeResult.unidentifiedExistingCount;
+
+      if (page) {
+        const handed = rounds.reduce((sum, round) => sum + round.records.length, 0);
+        const handedOver = rounds.flatMap((round) => round.cleaned);
+        page.sent += handed;
+        page.succeeded += nodeSuccess;
+        page.updated += nodeUpdated;
+        page.linked += nodeLinked;
+        page.failed += nodeFailure;
+        page.alreadyExists += writeResult.alreadyExistsCount;
+        page.unidentified += nodeUnidentified;
+        page.writtenWithoutFields = writeResult.writtenWithoutFields
+          ? addWrittenWithoutFields(page.writtenWithoutFields, writeResult.writtenWithoutFields)
+          : page.writtenWithoutFields;
+        if (writeResult.flagsNotKept) page.flagsNotKept.push(writeResult.flagsNotKept);
+        const notSentOfPage = stoppedBy
+          ? handed - (nodeSuccess + nodeUpdated + nodeLinked + nodeFailure)
+          : 0;
+        const ownSent = handedOver
+          .slice(0, handed - notSentOfPage)
+          .filter((row) => onTheirOwn.rows.has(row.source)).length;
+        page.sentOnTheirOwn += ownSent;
+        if (ownSent > 0) page.onTheirOwnWhy = onTheirOwn.why;
+        const held = [...heldOfCarry(page), ...heldForExclusionsOf(state, node.objectApiName)];
+        if (stoppedBy) {
+          this.stopStreamedNode(node, state, page, notSentOfPage, stopped);
+          throw stoppedBy;
+        }
+        // A step, not the end: the line that ends the node says the pages
+        // together.
+        onProgress({
+          objectName: node.objectApiName,
+          status: 'running',
+          progress: 0,
+          message: `${node.objectApiName}, page ${page.pages}: ${pagedCounts(config, page, held)}`,
+        });
+        return;
+      }
 
       // Fail-fast on partial-but-mostly-failure: if >50% of records
       // failed, mark the node as failed so the objects that cannot be

@@ -19,6 +19,7 @@ import type {
   GuardDecision,
 } from '@sandforge/shared';
 import {
+  FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
   emailsPerInsertOf,
   fileCopyRefusal,
   forgeAnonymizationRulesSchema,
@@ -153,8 +154,10 @@ import {
 import type {
   ExecutionSummary,
   ForgeProgressEvent,
+  ForgeStreamPage,
   ForgeWriteBoundary,
 } from '../../modules/forge/ForgeExecutor.js';
+import type { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Strict Salesforce record/org ID format. */
@@ -395,6 +398,8 @@ export interface ForgeServices {
    * history lists it.
    */
   removalPlans?: ForgeRemovalPlanStore;
+  /** What runs read page by page have created, kept as they go. */
+  runJournal?: ForgeRunJournal;
   /**
    * How many requests to Salesforce the executor's deps have sent so far —
    * what a run counts its calls by (`ForgeExecutorDeps.requestsSent`). Read
@@ -693,7 +698,8 @@ function rehearsalAuditDetails(rehearsal: ForgeRehearsal): Record<string, number
     sampled: rehearsal.sampled,
     judged: rehearsal.judged,
     passed: rehearsal.passed,
-    refused: rehearsal.judged - rehearsal.passed,
+    linked: rehearsal.linked ?? 0,
+    refused: rehearsal.judged - rehearsal.passed - (rehearsal.linked ?? 0),
     notJudged: rehearsal.notJudged,
     updatesJudged: rehearsal.updatesJudged,
     updatesRefused: rehearsal.updatesJudged - rehearsal.updatesPassed,
@@ -746,6 +752,9 @@ export class ForgeHandler implements DomainHandler {
   private templateStore?: ForgeTemplateStore;
   /** The removal plans of past runs, kept past the history's twenty (see {@link ForgeServices}). */
   private removalPlans?: ForgeRemovalPlanStore;
+  private runJournal?: ForgeRunJournal;
+  /** The journals of the runs under way, which a listing of the runs leaves where they are. */
+  private readonly journalsRunning = new Set<string>();
 
   /**
    * Per-org `describeGlobal` result, keyed by org id.
@@ -875,6 +884,7 @@ export class ForgeHandler implements DomainHandler {
       // `.sandforge/forge-templates.json` and could not be committed or shared.
       this.templateStore = services.templateStore;
       this.removalPlans = services.removalPlans;
+      this.runJournal = services.runJournal;
       this.requestsSent = services.requestsSent;
       this.rehearser = services.rehearser;
     }
@@ -1640,6 +1650,8 @@ export class ForgeHandler implements DomainHandler {
     this.executeOperationId = operationId;
     /** When the executor was handed the run: a run it stopped is recorded from then. */
     let startedAt = Date.now();
+    /** The journal of what the run creates, page by page, while it runs; see `ForgeRunJournal`. */
+    let journalId: string | undefined;
     /** The requests sent for the run before the executor had it: both orgs' record types. */
     const lookup = { requests: 0 };
     /** What the executor's deps had sent when it was handed the run; unknown before, or uncounted. */
@@ -1728,6 +1740,9 @@ export class ForgeHandler implements DomainHandler {
       // What fires as it updates them is put with it: in a client's sandbox,
       // a flow on orders sent each to an external system as the clone gave
       // it back its status.
+      // The most rows of one object the run reads: asked about past it, and
+      // read to it.
+      const readCeiling = this.maxRecordsPerObject();
       if (!dryRun) {
         const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
         if ('automation' in automation) emailsPerInsert = emailsPerInsertOf(automation.automation);
@@ -1750,9 +1765,14 @@ export class ForgeHandler implements DomainHandler {
         if (automationAnswer === 'confirmed') audit.confirm('automation');
         guardDecision = strongerDecision(guardDecision, automationAnswer);
         // The tables the run reads with no cap past the most rows of one
-        // object it holds at once, put to the user before the first is read:
-        // the run holds each object whole until it writes it.
-        const aboveCeiling = objectsAboveReadCeiling(graph, config.maxRecordsPerObject);
+        // object it reads, put to the user before the first is read: a run of
+        // whole tables reads them to that number, and a run from a record
+        // holds each object whole until it writes it.
+        const aboveCeiling = objectsAboveReadCeiling(
+          graph,
+          config.maxRecordsPerObject,
+          readCeiling,
+        );
         if (aboveCeiling.length > 0) {
           if (runController.signal.aborted) {
             stoppedBeforeStart = true;
@@ -1766,6 +1786,7 @@ export class ForgeHandler implements DomainHandler {
               source: this.deps.orgManager.getOrg(config.sourceOrgId)?.alias ?? config.sourceOrgId,
             },
             aboveCeiling,
+            readCeiling,
           );
           if (readAnswer === 'confirmed') audit.confirm('volume');
           guardDecision = strongerDecision(guardDecision, readAnswer);
@@ -1791,11 +1812,40 @@ export class ForgeHandler implements DomainHandler {
       }
       startedAt = Date.now();
       requestsAtStart = this.requestsSent?.();
+      // A run of whole tables writes page by page: what each page created is
+      // kept on disk as it goes, so a window closed under the run leaves its
+      // records removable. A run that ends records them in the history.
+      const journal = !dryRun && config.inputMode !== 'record' ? this.runJournal : undefined;
+      if (journal) {
+        journalId = `forge-run-${startedAt}`;
+        const id = journalId;
+        this.journalsRunning.add(id);
+        await journal.begin(id, config.targetOrgId, new Date(startedAt)).catch((err: unknown) => {
+          logger.warn(`Forge run journal not started: ${extractErrorMessage(err)}`);
+        });
+      }
+      const keptId = journalId;
+      let journalUnwritable = false;
       const executed = await this.orchestrator.execute(graph, config, {
         recordTypeMappings,
         anonymizationRules,
         files,
         writtenBefore,
+        stream: {
+          ceiling: readCeiling,
+          // A journal that cannot be written costs the run nothing: the
+          // history records what it created once it ends. Said once.
+          ...(journal && keptId
+            ? {
+                onPage: (page: ForgeStreamPage) =>
+                  journal.page(keptId, page).catch((err: unknown) => {
+                    if (journalUnwritable) return;
+                    journalUnwritable = true;
+                    logger.warn(`Forge run journal not written: ${extractErrorMessage(err)}`);
+                  }),
+              }
+            : {}),
+        },
         beforeWrite: this.writeGate({
           guard,
           targetOrgId: config.targetOrgId,
@@ -1990,6 +2040,13 @@ export class ForgeHandler implements DomainHandler {
         this.liveTracker?.fail(operationId, extractErrorMessage(error));
       }
     } finally {
+      // Ended, the run is in the history, or created nothing worth keeping.
+      if (journalId) {
+        await this.runJournal?.end(journalId).catch((err: unknown) => {
+          logger.warn(`Forge run journal not dropped: ${extractErrorMessage(err)}`);
+        });
+        this.journalsRunning.delete(journalId);
+      }
       releaseRun(runError);
       if (this.executeOperationId === operationId) this.executeOperationId = null;
       // Unsubscribe BEFORE flushing so the flush's terminal event
@@ -2377,10 +2434,12 @@ export class ForgeHandler implements DomainHandler {
 
   /**
    * Put to the user, before the run reads anything, the source tables it
-   * reads with no cap per object past `READ_CEILING_PER_OBJECT` rows
-   * (`objectsAboveReadCeiling`): the run holds every row of an object until
-   * it writes them, and the question the write gate asks comes once they are
-   * all read — too late for a read that does not fit in memory.
+   * reads with no cap per object past `ceiling` rows, the most it reads of
+   * one object (`objectsAboveReadCeiling`, `sandforge.forge.maxRecordsPerObject`):
+   * a run of whole tables reads such a table to that number and no further;
+   * a run from a record holds every row of an object until it writes them,
+   * and the question the write gate asks comes once they are all read — too
+   * late for a read that does not fit in memory.
    *
    * @returns `confirmed`: a person answered.
    * @throws ForgeRunGateError when the user declines, or nobody can be asked.
@@ -2389,9 +2448,10 @@ export class ForgeHandler implements DomainHandler {
     guard: ProductionGuard,
     target: { org: string; orgTier: SafetyTier; source: string },
     objects: Array<{ objectApiName: string; rows: number }>,
+    ceiling: number,
   ): Promise<GuardDecision> {
     logger.info('Forge read past the ceiling', {
-      ceiling: READ_CEILING_PER_OBJECT,
+      ceiling,
       objects: Object.fromEntries(
         objects.slice(0, 20).map((object) => [object.objectApiName, object.rows]),
       ),
@@ -2402,7 +2462,7 @@ export class ForgeHandler implements DomainHandler {
       orgTier: target.orgTier,
       source: target.source,
       objects,
-      ceiling: READ_CEILING_PER_OBJECT,
+      ceiling,
     });
     if (answer === 'confirmed') return 'confirmed';
     throw answer === 'declined'
@@ -2410,12 +2470,28 @@ export class ForgeHandler implements DomainHandler {
           'READ_DECLINED',
           'Forge execution was cancelled at the confirmation of the tables it reads with no cap ' +
             'per object. Nothing was read or written.',
+          undefined,
+          ceiling,
         )
       : new ForgeRunGateError(
           'CONFIRMATION_UNAVAILABLE',
           'Forge execution needed a confirmation of the tables it reads with no cap per object, ' +
             'and there was no one to ask. Nothing was read or written.',
         );
+  }
+
+  /**
+   * `sandforge.forge.maxRecordsPerObject`: the most rows of one object a run
+   * reads, no more than {@link FORGE_MAX_RECORDS_PER_OBJECT_BOUND}.
+   */
+  private maxRecordsPerObject(): number {
+    const value = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'forge.maxRecordsPerObject',
+      READ_CEILING_PER_OBJECT,
+    );
+    return typeof value === 'number' && Number.isFinite(value) && value >= 1
+      ? Math.min(Math.floor(value), FORGE_MAX_RECORDS_PER_OBJECT_BOUND)
+      : READ_CEILING_PER_OBJECT;
   }
 
   /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks before it writes; 0 never asks. */
@@ -2737,6 +2813,7 @@ export class ForgeHandler implements DomainHandler {
   }
 
   private async handleHistoryList(msg: InboundRequest): Promise<void> {
+    await this.keepRunsLeftOver();
     const history = this.loadHistory();
     // The runs the history dropped whose records are still to remove: listed
     // apart, as older runs, from the plans kept of them.
@@ -2841,6 +2918,27 @@ export class ForgeHandler implements DomainHandler {
     } catch (err: unknown) {
       logger.warn(`Forge removal plans could not be read: ${extractErrorMessage(err)}`);
       return undefined;
+    }
+  }
+
+  /**
+   * Keep, as runs stopped part way, what the runs a closed window never ended
+   * had created, from their journals: listed with the runs the history
+   * dropped, and removable from there. A journal is dropped once its run is
+   * kept; one that cannot be read is left for the next listing.
+   */
+  private async keepRunsLeftOver(): Promise<void> {
+    const journal = this.runJournal;
+    const store = this.removalPlans;
+    if (!journal || !store) return;
+    try {
+      const running = new Set(this.journalsRunning);
+      for (const plan of await journal.leftOver(running)) {
+        await store.putIfAbsent(plan);
+        await journal.forget(plan.forgeId);
+      }
+    } catch (err: unknown) {
+      logger.warn(`Forge run journals could not be read: ${extractErrorMessage(err)}`);
     }
   }
 

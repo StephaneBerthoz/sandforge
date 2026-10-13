@@ -4,6 +4,7 @@ import {
   EVERY_ROW_UP_TO,
   ancestorsOf,
   familyOf,
+  familyWithLinks,
   sampleOf,
   shapeOf,
   withTheirParents,
@@ -98,5 +99,22 @@ describe('how the rows name one another', () => {
   it('adds to the sample the rows its rows name, in the order the run creates them', () => {
     expect(withTheirParents([role], family).map((r) => r.seq)).toEqual([0, 1, 2, 3]);
     expect(withTheirParents([account], family).map((r) => r.seq)).toEqual([0]);
+  });
+
+  it('names no row linked to a record the target holds as a parent, and counts the levels again', () => {
+    const linked = familyWithLinks(family, new Map([[0, { id: '001000000000777AAA' }]]));
+    expect(linked.parents.get(1)).toEqual([]);
+    expect(linked.parents.get(3)).toEqual([1, 2]);
+    expect([0, 1, 2, 3].map((seq) => linked.levels.get(seq))).toEqual([0, 0, 0, 1]);
+    expect(withTheirParents([role], linked).map((r) => r.seq)).toEqual([1, 2, 3]);
+  });
+
+  it('puts in the place of a row linked to another row of the run the row it is linked to', () => {
+    const twin = row(4, 'Account', { Name: 'A again' });
+    const under = row(5, 'Contact', { LastName: 'D', AccountId: twin.placeholderId });
+    const all = [...rows, twin, under];
+    const linked = familyWithLinks(familyOf(all, rowOfIn(all)), new Map([[4, { seq: 0 }]]));
+    expect(linked.parents.get(5)).toEqual([0]);
+    expect(linked.levels.get(5)).toBe(1);
   });
 });

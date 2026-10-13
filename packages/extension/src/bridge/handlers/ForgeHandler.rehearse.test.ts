@@ -335,6 +335,7 @@ describe('forge:rehearse', () => {
             sampled: 2,
             judged: 2,
             passed: 2,
+            linked: 0,
             refused: 0,
             notJudged: 0,
             updatesJudged: 0,

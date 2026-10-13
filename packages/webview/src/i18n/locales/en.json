@@ -2610,6 +2610,7 @@
       "rehearsing": "Rehearsal: call {{call}} of {{calls}}, rolled back as it ends…",
       "done": "Rehearsal done, every write rolled back. Judged: {{judged}}; would save: {{passed}}; refused: {{refused}}; not judged: {{notJudged}}; composite calls: {{calls}}.",
       "updates": "Updates the run makes after its inserts: {{judged}} judged, {{passed}} would save, {{refused}} refused; {{notRehearsed}} of {{updates}} not rehearsed.",
+      "linked": "Linked to a record the target org already holds, as the run links them: {{linked}}.",
       "nothing": "Rehearsal done: the run creates no row, and nothing was sent.",
       "declined": "Rehearsal cancelled at its confirmation. Nothing was sent to the target.",
       "error": "The rehearsal could not run: {{error}}"

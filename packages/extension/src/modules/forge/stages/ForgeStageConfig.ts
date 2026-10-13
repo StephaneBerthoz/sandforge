@@ -9,7 +9,7 @@
 
 import { BYTES_PER_MB, FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '@sandforge/shared';
 import type { ForgeRecordTypeMapping } from '@sandforge/shared';
-import type { ExecuteOptions } from '../ForgeExecutor.js';
+import type { ExecuteOptions, ForgeStreamCheckpoint, ForgeStreamPage } from '../ForgeExecutor.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { ForgeRunAnonymization } from '../ForgeAnonymizer.js';
 import { RunDecisions } from './RunDecisions.js';
@@ -71,6 +71,18 @@ export interface ForgeStageConfig {
   readonly writtenBefore: ReadonlyMap<string, string>;
   /** Handed every row before the first is written; absent, nothing looks at them first. */
   readonly beforeWrite?: ExecuteOptions['beforeWrite'];
+  /**
+   * How a run of whole tables is read and written page by page, when it is
+   * asked to be; absent, every node is read whole. A run read from a record
+   * is read whole all the same, through the cursor in pages when `pageSize`
+   * is given, to the ceiling. See `ExecuteOptions.stream`.
+   */
+  readonly stream?: {
+    readonly pageSize?: number;
+    readonly ceiling?: number;
+    readonly resumeAfter: ReadonlyMap<string, ForgeStreamCheckpoint>;
+    readonly onPage?: (page: ForgeStreamPage) => void | Promise<void>;
+  };
   /** The user's decisions about the rows, applied before they are written. */
   readonly decisions: RunDecisions;
   /**
@@ -80,6 +92,13 @@ export interface ForgeStageConfig {
    * both orgs' record types; empty before.
    */
   readonly recordTypeDecisions: ReadonlyMap<string, ForgeRecordTypeMapping>;
+}
+
+/** A count given as a positive whole number, floored; undefined for anything else. */
+function positiveWhole(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value >= 1
+    ? Math.floor(value)
+    : undefined;
 }
 
 /**
@@ -122,6 +141,14 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
       : undefined,
     writtenBefore: new Map(Object.entries(options?.writtenBefore ?? {})),
     beforeWrite: options?.beforeWrite,
+    stream: options?.stream
+      ? {
+          pageSize: positiveWhole(options.stream.pageSize),
+          ceiling: positiveWhole(options.stream.ceiling),
+          resumeAfter: new Map(Object.entries(options.stream.resumeAfter ?? {})),
+          onPage: options.stream.onPage,
+        }
+      : undefined,
     decisions: new RunDecisions(options?.decisions),
     recordTypeDecisions: new Map<string, ForgeRecordTypeMapping>(),
   };

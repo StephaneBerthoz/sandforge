@@ -2610,6 +2610,7 @@
       "rehearsing": "Répétition : appel {{call}} sur {{calls}}, annulé à sa fin…",
       "done": "Répétition terminée, chaque écriture annulée. Jugées : {{judged}} ; enregistrables : {{passed}} ; refusées : {{refused}} ; non jugées : {{notJudged}} ; appels composites : {{calls}}.",
       "updates": "Mises à jour que l'exécution fait après ses insertions : {{judged}} jugées, {{passed}} enregistrables, {{refused}} refusées ; {{notRehearsed}} sur {{updates}} non répétées.",
+      "linked": "Liées à un enregistrement que l'org cible contient déjà, comme l'exécution les lie : {{linked}}.",
       "nothing": "Répétition terminée : l'exécution ne crée aucune ligne, et rien n'a été envoyé.",
       "declined": "Répétition annulée à sa confirmation. Rien n'a été envoyé à la cible.",
       "error": "La répétition n'a pas pu se faire : {{error}}"

@@ -114,6 +114,25 @@ describe('writePlanOf', () => {
     expect(plan.totalRows).toBe(9);
     expect(plan.storageBytes).toBe(7 * 2 * KB + 2 * 8 * KB);
   });
+
+  it('measures an object a run read page by page by its count, person accounts apart', () => {
+    const plan = writePlanOf([
+      { objectApiName: 'Account', rows: [], counted: { rows: 10, personAccounts: 4 } },
+      { objectApiName: 'Contact', rows: [], counted: { rows: 12, personAccounts: 4 } },
+      { objectApiName: 'Campaign', rows: [], counted: { rows: 1 } },
+      { objectApiName: 'Case', rows: [], counted: { rows: 0 } },
+    ]);
+
+    expect(plan.objects.map(({ objectApiName, rows: n }) => [objectApiName, n])).toEqual([
+      ['Contact', 12],
+      ['Account', 10],
+      ['Campaign', 1],
+    ]);
+    expect(plan.totalRows).toBe(23);
+    // Six business accounts, four person accounts at 4 KB, eight contacts of
+    // their own and none for the person accounts', one campaign.
+    expect(plan.storageBytes).toBe(6 * 2 * KB + 4 * 4 * KB + 8 * 2 * KB + 8 * KB);
+  });
 });
 
 describe('readDataStorage', () => {

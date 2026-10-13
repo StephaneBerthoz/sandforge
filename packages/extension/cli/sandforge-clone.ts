@@ -58,6 +58,8 @@ import type {
 } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
+  FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
+  FORGE_READ_CEILING_PER_OBJECT,
   emailsPerInsertOf,
   forgeGapParts,
   FILE_COPY_CEILING_MB,
@@ -86,7 +88,7 @@ import type {
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
-import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
+import { cursorPages, queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { controllersOf, fieldBoundsOf } from '../src/modules/forge/describeBounds.js';
 import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
 import {
@@ -252,6 +254,16 @@ export interface CliArgs {
   /** The most records a run may write in all; past it, nothing is written (`--max-total`). */
   maxTotal: number;
   /**
+   * The most rows of one object a read takes; past it, the object is said
+   * truncated (`--max-records-per-object`).
+   */
+  readCeiling: number;
+  /**
+   * Rows a page of a read holds (`SANDFORGE_FORGE_PAGE_SIZE`): a diagnostic,
+   * which reads every statement through the org's cursor in pages of it.
+   */
+  pageSize?: number;
+  /**
    * Rehearse the clone instead of writing it (`--rehearse`): a sample of its
    * rows created in the target in calls each rolled back whole, for the
    * platform's verdict on every one. Nothing stays in the target.
@@ -390,6 +402,12 @@ Options:
   --max-total <n>        most records the run may write in all  (default: 10000)
                          Counted once every row is read: past it, nothing is
                          written. --max caps each object, this the whole run.
+  --max-records-per-object <n>
+                         most records one read of an object takes
+                                                                (default: 50000)
+                         An object with more is read to it and said
+                         TRUNCATED. A clone of a record holds what it reads,
+                         so a higher number takes more memory; 1000000 at most.
   --upsert               use external Id upsert when available  (default: insert)
                          Skips DUPLICATE_VALUE on re-runs of the same source records.
   --expand-orphans       single-hop expand orphan parent FKs    (default: off)
@@ -531,6 +549,14 @@ Verify what a run created:
   --audit <file>         record the verification in the audit trail kept in
                          <file>
 
+Environment:
+  SANDFORGE_FORGE_PAGE_SIZE=<n>
+                         a diagnostic: read every statement through the org's
+                         cursor and hand it on in pages of <n> rows, as a run of
+                         whole tables reads, to see a clone's paged read against
+                         a real org. Not a setting: an org answers in pages of
+                         200 to 2000 rows, and a page of <n> is cut from them.
+
 Exit codes:
   0  the clone ran; the rehearsal ran, whatever it found refused; the removal
      took every record it set out to take
@@ -668,7 +694,7 @@ export function readChoicesFile(
 }
 
 /** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
-export function parseArgs(argv: string[]): CliArgs {
+export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): CliArgs {
   const args = argv.slice(2);
   if (args.includes('-h') || args.includes('--help')) {
     process.stdout.write(HELP);
@@ -777,6 +803,7 @@ export function parseArgs(argv: string[]): CliArgs {
     get('--max-nodes') ??
     (template?.config.maxNodes !== undefined ? String(template.config.maxNodes) : undefined);
   const maxTotalRaw = get('--max-total');
+  const readCeilingRaw = get('--max-records-per-object');
   // Repeatable flags: scan all positions for matches.
   const collectRepeated = (flag: string): string[] => {
     const out: string[] = [];
@@ -896,6 +923,26 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--max-total takes a whole number of records, 1 or more.\n');
     process.exit(2);
   }
+  const readCeiling =
+    readCeilingRaw === undefined ? FORGE_READ_CEILING_PER_OBJECT : Number(readCeilingRaw);
+  if (
+    !Number.isInteger(readCeiling) ||
+    readCeiling < 1 ||
+    readCeiling > FORGE_MAX_RECORDS_PER_OBJECT_BOUND
+  ) {
+    process.stderr.write(
+      `--max-records-per-object takes a whole number of records, 1 to ` +
+        `${FORGE_MAX_RECORDS_PER_OBJECT_BOUND}.\n`,
+    );
+    process.exit(2);
+  }
+  const pageSizeRaw = env['SANDFORGE_FORGE_PAGE_SIZE'];
+  const pageSize =
+    pageSizeRaw === undefined || pageSizeRaw === '' ? undefined : Number(pageSizeRaw);
+  if (pageSize !== undefined && (!Number.isInteger(pageSize) || pageSize < 1)) {
+    process.stderr.write('SANDFORGE_FORGE_PAGE_SIZE takes a whole number of rows, 1 or more.\n');
+    process.exit(2);
+  }
   // A template that anonymizes or keeps contact points does so unless told
   // otherwise; there is no flag to turn either off, so the flag adds to it.
   const anonymize = has('--anonymize') || template?.config.anonymizePII === true;
@@ -966,6 +1013,8 @@ export function parseArgs(argv: string[]): CliArgs {
     files,
     acceptAutomation: has('--accept-automation'),
     maxTotal,
+    readCeiling,
+    ...(pageSize !== undefined ? { pageSize } : {}),
     rehearse: has('--rehearse'),
     decisions,
     anonymizationRules: { ...template?.anonymization?.rules },
@@ -1900,6 +1949,11 @@ export function executeOptions(
           acceptedAsIs: args.files.acceptedAsIs,
         }
       : undefined,
+    // The most rows of one object a read takes, and the diagnostic's pages.
+    stream: {
+      ceiling: args.readCeiling,
+      ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
+    },
   };
 }
 
@@ -2120,9 +2174,14 @@ export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): strin
       ? `; ${rehearsal.updatesJudged} update(s) judged, ${rehearsal.updatesPassed} would save, ` +
         `${rehearsal.updatesJudged - rehearsal.updatesPassed} refused`
       : '';
+  // A row the target refused for a record it holds is linked by the run, as
+  // its writer links it: neither saved nor refused.
+  const linked = rehearsal.linked ?? 0;
+  const linkedWords = linked > 0 ? `${linked} linked to a record the target holds, ` : '';
   const lines = [
     `rehearsed in ${target}: ${rehearsal.judged} judged, ${rehearsal.passed} would save, ` +
-      `${rehearsal.judged - rehearsal.passed} refused, ${rehearsal.notJudged} not judged${updates} ` +
+      `${linkedWords}${rehearsal.judged - rehearsal.passed - linked} refused, ` +
+      `${rehearsal.notJudged} not judged${updates} ` +
       `(${rehearsal.calls} call(s), every write rolled back)`,
   ];
   for (const gap of rehearsal.gaps) {
@@ -2145,6 +2204,9 @@ export function rehearsalLines(rehearsal: ForgeRehearsal, target: string): strin
         `${code}, ${gap.rows} row(s)${standsFor}` +
         (gap.detail?.writtenWithoutTheField === true
           ? ' (a real run writes it again without the field)'
+          : '') +
+        (gap.detail?.linkedToTheRecordItNames === true
+          ? ' (a real run links it to the record the target holds)'
           : ''),
     );
   }
@@ -3568,6 +3630,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const recordTypeCalls = requestsSent() - requestsBeforeRecordTypes;
   say(`record-types: ${recordTypeMappings.length} mappings`);
 
+  /** The statements read through the org's cursor, and the pages the org answered them in. */
+  const pagedReads = { statements: 0, pages: 0 };
   const executorDeps: ForgeExecutorDeps = {
     queryRecords: async (orgId, soql, onTruncated) => {
       const c = conns.get(orgId);
@@ -3581,9 +3645,35 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           queryMore: async (url) => c.queryMore<Record<string, unknown>>(url),
         },
         soql,
+        args.readCeiling,
       );
       if (truncated) onTruncated?.();
       return records;
+    },
+    // Each page as the org answers it, the next asked once the one before
+    // is taken: the paged read, which the diagnostic's pages go through.
+    queryPages: (orgId, soql) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      pagedReads.statements++;
+      return cursorPages<Record<string, unknown>>(
+        {
+          query: async (q) => {
+            pagedReads.pages++;
+            return c.query<Record<string, unknown>>(q);
+          },
+          queryMore: async (url) => {
+            pagedReads.pages++;
+            return c.queryMore<Record<string, unknown>>(url);
+          },
+        },
+        soql,
+      );
+    },
+    countRecords: async (orgId, soql) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return (await c.query(soql)).totalSize;
     },
     insertRecords: async (orgId, name, records) => {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
@@ -3864,7 +3954,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   say(
-    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''})`,
+    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''}${args.pageSize !== undefined ? `, READ IN PAGES OF ${args.pageSize}` : ''})`,
   );
   // The record types were read for the run, before the executor had it: the
   // extension counts them among its calls. A summary that counts none is left
@@ -3987,6 +4077,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       },
     );
     summary = withRecordTypeCalls(executed);
+    // The diagnostic says what went through the cursor, as the paged read it shows.
+    if (args.pageSize !== undefined) {
+      say(
+        `read in pages of ${args.pageSize}: ${pagedReads.statements} statement(s) through the ` +
+          `org's cursor, ${pagedReads.pages} page(s) answered`,
+      );
+    }
   } catch (err: unknown) {
     // Recorded as the panel records a run that did not end: stopped at its
     // gate under the gate's code; stopped by Ctrl-C, partial once it wrote;

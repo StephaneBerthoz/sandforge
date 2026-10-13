@@ -302,6 +302,13 @@ export interface ForgeRehearsal {
   judged: number;
   /** Rows judged that would save. */
   passed: number;
+  /**
+   * Rows judged that the target refused for a record it already holds, named
+   * in its refusal: the run links to that record, as its writer does, and the
+   * rows under it are judged with it as their parent. Neither saved nor
+   * refused; absent from a rehearsal that counted none apart.
+   */
+  linked?: number;
   /** Rows sent that got no verdict. */
   notJudged: number;
   /** Per object, the rows that got no verdict and why. */

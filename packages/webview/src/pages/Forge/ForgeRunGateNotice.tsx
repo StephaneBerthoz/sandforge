@@ -53,7 +53,8 @@ export const ForgeRunGateNotice: React.FC = () => {
         {t(STOP_KEYS[stop.code], {
           estimate: stop.storage?.estimateMB ?? 0,
           remaining: stop.storage?.remainingMB ?? 0,
-          ceiling: FORGE_READ_CEILING_PER_OBJECT.toLocaleString(uiLocale()),
+          // The number the run held, which the settings may have raised.
+          ceiling: (stop.ceiling ?? FORGE_READ_CEILING_PER_OBJECT).toLocaleString(uiLocale()),
         })}
       </p>
       <button

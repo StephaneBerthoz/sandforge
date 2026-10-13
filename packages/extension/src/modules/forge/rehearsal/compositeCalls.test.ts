@@ -325,6 +325,104 @@ describe("reading the updates of a call's answer", () => {
   });
 });
 
+describe('a row the target refuses for a record it holds', () => {
+  const call: PlannedCall = { collections: [{ level: 0, seqs: [0, 1] }] };
+  const HELD = '001000000000777AAA';
+  /** A call stopped at its one request, whose second row the target refused with `message`. */
+  const refusedWith = (message: string, statusCode = 'DUPLICATE_VALUE') => {
+    const answer = readCompositeAnswer(
+      {
+        compositeResponse: [
+          {
+            body: [
+              { id: '001000000000001AAA', success: true, errors: [] },
+              { success: false, errors: [{ statusCode, message, fields: [] }] },
+            ],
+            httpStatusCode: 200,
+            referenceId: 'rows0',
+          },
+          HALTED,
+        ],
+      },
+      call,
+    );
+    if (answer.kind !== 'rolled_back') throw new Error('not rolled back');
+    return answer.collections;
+  };
+
+  it('is linked to the record an English refusal names, by the rule the run writes by', () => {
+    const verdicts = verdictsOf(
+      call,
+      refusedWith(`duplicate value found: Ext_Id__c duplicates value on record with id: ${HELD}`),
+      () => '001',
+    );
+    expect(verdicts.get(1)).toMatchObject({ passed: false, linkedTo: HELD });
+    expect(verdicts.get(0)).toEqual({ passed: true });
+  });
+
+  it('is linked to the record a French refusal names', () => {
+    const verdicts = verdictsOf(
+      call,
+      refusedWith(
+        "valeur en double trouvée : Ext_Id__c duplique la valeur de l'enregistrement ID : 001000000000777",
+      ),
+      () => '001',
+    );
+    expect(verdicts.get(1)).toMatchObject({ passed: false, linkedTo: HELD });
+  });
+
+  it('is not linked when the refusal names no record, one of another object, or is no duplicate', () => {
+    const unknown = verdictsOf(
+      call,
+      refusedWith('duplicate value found: Ext_Id__c duplicates value on record with id: <unknown>'),
+      () => '001',
+    );
+    expect(unknown.get(1)).not.toHaveProperty('linkedTo');
+    const other = verdictsOf(
+      call,
+      refusedWith(`duplicate value found: Ext_Id__c duplicates value on record with id: ${HELD}`),
+      () => '003',
+    );
+    expect(other.get(1)).not.toHaveProperty('linkedTo');
+    const rule = verdictsOf(
+      call,
+      refusedWith(`id: ${HELD}`, 'FIELD_CUSTOM_VALIDATION_EXCEPTION'),
+      () => '001',
+    );
+    expect(rule.get(1)).not.toHaveProperty('linkedTo');
+  });
+
+  it('has its children name the record it is linked to, or the row of the call it stands for', () => {
+    const account = row(0, 'Account', { Name: 'A' });
+    const twin = row(1, 'Account', { Name: 'A' });
+    const contact = row(2, 'Contact', { LastName: 'B', AccountId: account.placeholderId });
+    const other = row(3, 'Contact', { LastName: 'C', AccountId: twin.placeholderId });
+    const first = row(4, 'Account', { Name: 'First' });
+    const rows = [account, twin, contact, other, first];
+    const body = compositeBody(
+      {
+        collections: [
+          { level: 0, seqs: [4] },
+          { level: 1, seqs: [2, 3] },
+        ],
+      },
+      familyOf(rows, rowOfIn(rows)),
+      rowOfIn(rows),
+      API,
+      HEADERS,
+      [],
+      new Map([
+        [0, { id: HELD }],
+        [1, { seq: 4 }],
+      ]),
+    );
+    expect((body.compositeRequest[1].body as { records: unknown[] }).records).toEqual([
+      { attributes: { type: 'Contact' }, LastName: 'B', AccountId: HELD },
+      { attributes: { type: 'Contact' }, LastName: 'C', AccountId: '@{rows0[0].id}' },
+    ]);
+  });
+});
+
 describe("reading a call's answer", () => {
   const call: PlannedCall = {
     collections: [

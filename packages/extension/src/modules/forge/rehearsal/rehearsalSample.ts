@@ -160,6 +160,55 @@ export function familyOf(
   return { bySeq, parents, levels };
 }
 
+/**
+ * What a row refused for a record the target holds stands for: the record
+ * its refusal named, or — when that record is one the same call created, and
+ * rolled back — the row that created it.
+ */
+export type LinkedTo = { id: string } | { seq: number };
+
+/**
+ * The family once some rows are known to be linked: a row the target refused
+ * for a record it holds stands no more as a parent — what hangs from it goes
+ * to that record — or, linked to a row that holds the value it collided
+ * with, gives its place to that row. Levels are counted again.
+ *
+ * @param linked - By `seq`, what each linked row stands for.
+ */
+export function familyWithLinks(
+  family: RowFamily,
+  linked: ReadonlyMap<number, LinkedTo>,
+): RowFamily {
+  if (linked.size === 0) return family;
+  const parents = new Map<number, number[]>();
+  for (const [seq, own] of family.parents) {
+    const kept = new Set<number>();
+    for (const parent of own) {
+      const standIn = linked.get(parent);
+      if (standIn === undefined) kept.add(parent);
+      else if ('seq' in standIn && standIn.seq !== seq) kept.add(standIn.seq);
+    }
+    parents.set(
+      seq,
+      [...kept].sort((a, b) => a - b),
+    );
+  }
+  // A row only names rows created before it, and a row linked to another
+  // gives way to one created before it in the same request: walked in
+  // order, every parent's level is known before its children's.
+  const levels = new Map<number, number>();
+  for (const seq of [...family.bySeq.keys()].sort((a, b) => a - b)) {
+    levels.set(
+      seq,
+      (parents.get(seq) ?? []).reduce(
+        (most, parent) => Math.max(most, (levels.get(parent) ?? 0) + 1),
+        0,
+      ),
+    );
+  }
+  return { bySeq: family.bySeq, parents, levels };
+}
+
 /** The rows a row needs before it, nearest first, each once. */
 export function ancestorsOf(seq: number, family: Pick<RowFamily, 'parents'>): number[] {
   const seen = new Set<number>();

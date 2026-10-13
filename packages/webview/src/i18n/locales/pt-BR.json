@@ -2610,6 +2610,7 @@
       "rehearsing": "Ensaio: chamada {{call}} de {{calls}}, revertida ao terminar…",
       "done": "Ensaio concluído, cada gravação revertida. Julgadas: {{judged}}; seriam salvas: {{passed}}; recusadas: {{refused}}; não julgadas: {{notJudged}}; chamadas composite: {{calls}}.",
       "updates": "Atualizações que a execução faz depois de suas inserções: {{judged}} julgadas, {{passed}} seriam salvas, {{refused}} recusadas; {{notRehearsed}} de {{updates}} não ensaiadas.",
+      "linked": "Vinculadas a um registro que a org de destino já contém, como a execução as vincula: {{linked}}.",
       "nothing": "Ensaio concluído: a execução não cria nenhuma linha, e nada foi enviado.",
       "declined": "Ensaio cancelado na confirmação. Nada foi enviado ao destino.",
       "error": "Não foi possível fazer o ensaio: {{error}}"

@@ -198,6 +198,50 @@ describe('buildNodeQuery', () => {
     });
   });
 
+  it('reads a whole table in the order of its ids, after the id a run stopped at, when read page by page', () => {
+    const result = buildNodeQuery({
+      node: makeNode('Account'),
+      edges: [],
+      fieldInfos: FIELDS,
+      scopedBuilder: null,
+      scopeCache: null,
+      extraWhere: "Industry = 'X' OR Rating = 'Hot'",
+      maxRecordsPerObject: 200,
+      inIdOrder: { afterId: '001000000000777AAA' },
+    });
+    expect(result).toEqual({
+      kind: 'query',
+      statements: [
+        "SELECT Id, Name FROM Account WHERE (Industry = 'X' OR Rating = 'Hot') AND " +
+          "Id > '001000000000777AAA' ORDER BY Id LIMIT 200",
+      ],
+      limit: 200,
+    });
+    expect(
+      buildNodeQuery({
+        node: makeNode('Account'),
+        edges: [],
+        fieldInfos: FIELDS,
+        scopedBuilder: null,
+        scopeCache: null,
+        inIdOrder: {},
+      }),
+    ).toEqual({ kind: 'query', statements: ['SELECT Id, Name FROM Account ORDER BY Id'] });
+  });
+
+  it('refuses to resume after anything but a record id', () => {
+    expect(() =>
+      buildNodeQuery({
+        node: makeNode('Account'),
+        edges: [],
+        fieldInfos: FIELDS,
+        scopedBuilder: null,
+        scopeCache: null,
+        inIdOrder: { afterId: "x' OR Name != '" },
+      }),
+    ).toThrow(/Not a record id/);
+  });
+
   it('falls back to selecting Id when no field is queryable', () => {
     const result = buildNodeQuery({
       node: makeNode('Account'),

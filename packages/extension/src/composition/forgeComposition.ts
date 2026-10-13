@@ -13,6 +13,7 @@ import { forgeWriteHeaders, type ForgeWriteOptions } from '@sandforge/shared';
 import {
   FORGE_QUERY_MAX_PAGES,
   FORGE_QUERY_MAX_RECORDS,
+  cursorPages,
   objectOfQuery,
   queryAllPages,
 } from '../modules/forge/queryAllPages.js';
@@ -178,6 +179,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../modules/forge/TargetAutomationReader.js'),
     import('../modules/forge/TargetGapReader.js'),
     import('../modules/forge/ForgeRemovalPlanStore.js'),
+    import('../modules/forge/ForgeRunJournal.js'),
   ])
     .then(
       ([
@@ -195,6 +197,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { TargetAutomationReader, answerOf },
         { TargetGapReader },
         { ForgeRemovalPlanStore },
+        { nodeRunJournal },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -376,6 +379,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
          * executor holds one run at a time.
          */
         let runWrites: ForgeWriteOptions = { applyAssignmentRules: false };
+        /**
+         * The most rows of one object the run under way reads, as the
+         * orchestrator sets it before each run (`setReadOptions`).
+         */
+        let runReads = { maxRecordsPerObject: FORGE_QUERY_MAX_RECORDS };
 
         const executorDeps: ForgeExecutorDeps = {
           queryRecords: async (orgId, soql, onTruncated) => {
@@ -397,6 +405,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
                 },
               },
               soql,
+              runReads.maxRecordsPerObject,
             );
             if (truncated) {
               // The output channel says how short the read was; the callback
@@ -404,12 +413,37 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               onTruncated?.();
               log(
                 `[forge] ${objectOfQuery(soql)}: query stopped at ${records.length} record(s) ` +
-                  `after ${pages} page(s) (cap: ${FORGE_QUERY_MAX_RECORDS} records / ` +
-                  `${FORGE_QUERY_MAX_PAGES} pages) — the source has more rows than were ` +
-                  `cloned. Split the run with filters that each stay under the bound to clone the rest.`,
+                  `after ${pages} page(s) (cap: ${runReads.maxRecordsPerObject} records, ` +
+                  `sandforge.forge.maxRecordsPerObject; at least ${FORGE_QUERY_MAX_PAGES} pages) ` +
+                  '— the source has more rows than were cloned. Split the run with filters that ' +
+                  'each stay under the bound to clone the rest.',
               );
             }
             return records;
+          },
+          // A run of whole tables reads each object a page at a time, writing
+          // each before it asks for the next: nothing here holds the rows.
+          queryPages: (orgId, soql) =>
+            (async function* pages(): AsyncGenerator<Record<string, unknown>[]> {
+              const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+              yield* cursorPages<Record<string, unknown>>(
+                {
+                  query: async (q) => {
+                    countExecutorRequest();
+                    return conn.query<Record<string, unknown>>(q);
+                  },
+                  queryMore: async (url) => {
+                    countExecutorRequest();
+                    return conn.queryMore<Record<string, unknown>>(url);
+                  },
+                },
+                soql,
+              );
+            })(),
+          countRecords: async (orgId, soql) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return (await conn.query(soql)).totalSize;
           },
           // `allowRecursive` is what makes jsforce split an oversized array
           // itself: `if (records.length > MAX_DML_COUNT && options.allowRecursive)`
@@ -642,6 +676,10 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             })
           : undefined;
 
+        // What a run of whole tables creates, page by page, kept as it goes:
+        // removable once a window closed under the run.
+        const runJournal = deps.storagePath ? nodeRunJournal(deps.storagePath) : undefined;
+
         // A rehearsal reads through the run's own deps, and creates its sample
         // in the target in composite calls that each roll back whole. Its
         // calls are its own to count: they are none of a run's. The duplicate
@@ -673,6 +711,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           setWriteOptions: (options) => {
             runWrites = options;
           },
+          setReadOptions: (options) => {
+            runReads = options;
+          },
         });
 
         handlers.setForgeOrchestrator(forgeOrchestrator, {
@@ -683,6 +724,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           targetGaps,
           templateStore,
           removalPlans,
+          runJournal,
           rehearser,
           // The executor's own count, read as a run goes: its progress says
           // the calls made so far, which its result counts once it ends.

@@ -2610,6 +2610,7 @@
       "rehearsing": "Ensayo: llamada {{call}} de {{calls}}, revertida al terminar…",
       "done": "Ensayo terminado, cada escritura revertida. Juzgadas: {{judged}}; se guardarían: {{passed}}; rechazadas: {{refused}}; sin juzgar: {{notJudged}}; llamadas composite: {{calls}}.",
       "updates": "Actualizaciones que la ejecución hace después de sus inserciones: {{judged}} juzgadas, {{passed}} se guardarían, {{refused}} rechazadas; {{notRehearsed}} de {{updates}} sin ensayar.",
+      "linked": "Vinculadas a un registro que la org destino ya contiene, como las vincula la ejecución: {{linked}}.",
       "nothing": "Ensayo terminado: la ejecución no crea ninguna fila y no se envió nada.",
       "declined": "Ensayo cancelado en su confirmación. No se envió nada al destino.",
       "error": "No se pudo hacer el ensayo: {{error}}"

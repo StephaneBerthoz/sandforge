@@ -3,13 +3,20 @@ import type {
   ForgeRehearsalNotJudgedReason,
   ForgeRehearsalProgress,
 } from '@sandforge/shared';
-import { RehearsalWriter, type RehearsedRow, type RehearsedUpdate } from './RehearsalWriter.js';
+import {
+  NO_KEY_PREFIX,
+  RehearsalWriter,
+  type RehearsedRow,
+  type RehearsedUpdate,
+} from './RehearsalWriter.js';
 import {
   ancestorsOf,
   familyOf,
+  familyWithLinks,
   sampleOf,
   sampleOfUpdates,
   withTheirParents,
+  type LinkedTo,
   type RowFamily,
 } from './rehearsalSample.js';
 import {
@@ -20,6 +27,7 @@ import {
   updateVerdictsOf,
   updatesRoomOf,
   verdictsOf,
+  type CollectionAnswer,
   type CompositeRequestBody,
   type PlannedCall,
   type PlannedUpdate,
@@ -147,6 +155,28 @@ function countsPerObject(
   return [...counts]
     .map(([objectApiName, count]) => ({ objectApiName, count }))
     .sort((a, b) => b.count - a.count || a.objectApiName.localeCompare(b.objectApiName));
+}
+
+/**
+ * What a row linked to `id` stands for: the record the target holds — or,
+ * when `id` is a record the same call created before it, and rolled back,
+ * the row that created it, whose value it collided with. Two rows of the run
+ * holding one unique value meet so: the real run writes the first and links
+ * the second to it.
+ */
+function linkOf(id: string, call: PlannedCall, answer: readonly CollectionAnswer[]): LinkedTo {
+  const named = id.slice(0, 15);
+  for (const [index, collection] of call.collections.entries()) {
+    const own = answer[index];
+    if (own?.kind !== 'rows') continue;
+    for (const [position, outcome] of own.outcomes.entries()) {
+      const seq = collection.seqs[position];
+      if (outcome.success && outcome.id.slice(0, 15) === named && seq !== undefined) {
+        return { seq };
+      }
+    }
+  }
+  return { id };
 }
 
 /** An update a rehearsal can send, with the rows its call must create for it. */
@@ -279,6 +309,14 @@ function plannedCallsOf(
  * name — created again, rolled back again. A row whose parent was refused is
  * not judged: the refusal of its parent says nothing of its own.
  *
+ * A row refused because the target holds it, by a refusal that names the
+ * record (`DUPLICATE_VALUE … id: …`, in the running user's language), is
+ * linked, as the run's writer links it: its children go in the next call
+ * with that record as their parent, and are judged. Run on a Developer
+ * Edition pair whose target held the root account's external id, the
+ * rehearsal read that account as refused and judged none of the 38 records
+ * under it, which the real run linked to the account and wrote.
+ *
  * The updates the run makes after its inserts — a lookup a second pass fills
  * in, a status given back — go in the call that creates their record and the
  * records they name, after its inserts and before the step that rolls it
@@ -301,7 +339,7 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
       return sendable ? [sendable] : [];
     }),
   );
-  const updates = updateSample.updates;
+  let updates = updateSample.updates;
   // The rows the updates sent are of, or name, are created to be updated.
   const toJudge = withTheirParents(
     [
@@ -316,11 +354,22 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     family,
   );
   const standsFor = (seq: number): number => sample.standsFor.get(seq) ?? 1;
+  /** The target's key prefix of a row's object, as its placeholder carries it. */
+  const keyPrefixOfSeq = (seq: number): string | null => {
+    const prefix = family.bySeq.get(seq)?.placeholderId.slice(0, 3);
+    return prefix === undefined || prefix === NO_KEY_PREFIX ? null : prefix;
+  };
 
   const verdicts = new Map<number, RowVerdict>();
   const notJudged = new Map<number, ForgeRehearsalNotJudgedReason>();
   const updateVerdicts = new Map<number, RowVerdict>();
-  const updatesNotJudged = new Map<number, ForgeRehearsalNotJudgedReason>();
+  // An update of a record the target held is never made: the run's writer
+  // writes nothing to a record it links to.
+  const updatesNotJudged = new Map<number, ForgeRehearsalNotJudgedReason | 'record_linked'>();
+  /** By `seq`, what each row refused for a record the target holds stands for. */
+  const linked = new Map<number, LinkedTo>();
+  /** The family as the calls still to come see it: a linked row is no row's parent. */
+  let judging = family;
   const initial = planCalls(toJudge, family);
   for (const seq of initial.beyond) notJudged.set(seq, 'beyond_a_call');
   const plannedCalls = plannedCallsOf(initial.calls, updates, family);
@@ -346,10 +395,18 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     });
   }
 
+  /** Whether a verdict holds back what hangs from its row: refused, and not linked. */
+  const refusal = (seq: number): boolean => {
+    const verdict = verdicts.get(seq);
+    return verdict?.passed === false && verdict.linkedTo === undefined;
+  };
   const refusedWithItsParents = (seq: number): boolean =>
-    [seq, ...ancestorsOf(seq, family)].some((s) => verdicts.get(s)?.passed === false);
+    [seq, ...ancestorsOf(seq, judging)].some(refusal);
   /** Why an update can get no verdict: a row it needs was refused, or will get none. */
-  const updateBlockedBy = (update: SendableUpdate): ForgeRehearsalNotJudgedReason | undefined => {
+  const updateBlockedBy = (
+    update: SendableUpdate,
+  ): ForgeRehearsalNotJudgedReason | 'record_linked' | undefined => {
+    if (linked.has(update.rowSeq)) return 'record_linked';
     for (const seq of update.needs) {
       if (refusedWithItsParents(seq)) return 'parent_refused';
       const reason = notJudged.get(seq);
@@ -362,9 +419,7 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     if (deps.signal?.aborted) throw new RehearsalCancelledError(calls);
     const judgeable = toJudge.filter((row) => {
       if (verdicts.has(row.seq) || notJudged.has(row.seq)) return false;
-      if (!ancestorsOf(row.seq, family).some((seq) => verdicts.get(seq)?.passed === false)) {
-        return true;
-      }
+      if (!ancestorsOf(row.seq, judging).some(refusal)) return true;
       notJudged.set(row.seq, 'parent_refused');
       return false;
     });
@@ -383,11 +438,11 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     }
     let call: PlannedCall | undefined;
     if (judgeable.length > 0) {
-      const plan = planCalls(judgeable, family);
+      const plan = planCalls(judgeable, judging);
       for (const seq of plan.beyond) notJudged.set(seq, 'beyond_a_call');
       call = plan.calls[0];
     } else {
-      const planned = updateCallOf(updatesLeft, family);
+      const planned = updateCallOf(updatesLeft, judging);
       for (const update of planned.beyond) updatesNotJudged.set(update.seq, 'beyond_a_call');
       call = planned.call;
     }
@@ -398,26 +453,71 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     );
     calls++;
     deps.onProgress?.({ phase: 'rehearsing', call: calls, calls: Math.max(plannedCalls, calls) });
-    const body = compositeBody(call, family, rowOf, deps.apiPath, deps.writeHeaders, carried);
-    const answer = readCompositeAnswer(await deps.composite(body), call, carried.length);
+    const body = compositeBody(
+      call,
+      family,
+      rowOf,
+      deps.apiPath,
+      deps.writeHeaders,
+      carried,
+      linked,
+    );
+    const answer = readCompositeAnswer(
+      await deps.composite(body),
+      call,
+      carried.length,
+      (seq) => family.bySeq.get(seq)?.objectApiName,
+    );
     if (answer.kind === 'not_rolled_back') {
       throw new RehearsalNotRolledBackError(answer.ids, objectsOfIds(answer.ids, rows));
     }
     // A row sent again as a parent takes the latest verdict: the one its
     // children were judged under.
-    for (const [seq, verdict] of verdictsOf(call, answer.collections)) verdicts.set(seq, verdict);
+    const newlyLinked = new Map<number, LinkedTo>();
+    for (const [seq, verdict] of verdictsOf(call, answer.collections, keyPrefixOfSeq)) {
+      verdicts.set(seq, verdict);
+      if (!verdict.passed && verdict.linkedTo !== undefined) {
+        newlyLinked.set(seq, linkOf(verdict.linkedTo, call, answer.collections));
+      }
+    }
     for (const [seq, verdict] of updateVerdictsOf(carried, answer)) {
       updateVerdicts.set(seq, verdict);
+    }
+    if (newlyLinked.size > 0) {
+      for (const [seq, to] of newlyLinked) linked.set(seq, to);
+      judging = familyWithLinks(family, linked);
+      // An update that sets a lookup to a linked row sets it to what the row
+      // stands for: the record named, which no call creates, or the row that
+      // holds its value.
+      updates = updates.map((update) => ({
+        ...update,
+        needs: update.needs.flatMap((seq) => {
+          const to = linked.get(seq);
+          if (to === undefined) return [seq];
+          return 'seq' in to ? [to.seq] : [];
+        }),
+      }));
     }
   }
 
   const refused: RefusedRow[] = [];
   let passed = 0;
+  let linkedRows = 0;
   for (const row of toJudge) {
     const verdict = verdicts.get(row.seq);
     if (!verdict) continue;
-    if (verdict.passed) passed++;
-    else refused.push({ row, errors: verdict.errors, standsFor: standsFor(row.seq) });
+    if (verdict.passed) {
+      passed++;
+      continue;
+    }
+    const isLinked = verdict.linkedTo !== undefined;
+    if (isLinked) linkedRows++;
+    refused.push({
+      row,
+      errors: verdict.errors,
+      standsFor: standsFor(row.seq),
+      ...(isLinked ? { linked: true as const } : {}),
+    });
   }
   let updatesPassed = 0;
   /** The run's updates the judged ones stand for. */
@@ -453,6 +553,7 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     sampled: toJudge.length,
     judged: verdicts.size,
     passed,
+    linked: linkedRows,
     notJudged: notJudged.size,
     notJudgedWhy: [...why].map(([key, count]) => {
       const [objectApiName, reason] = key.split('|') as [string, ForgeRehearsalNotJudgedReason];

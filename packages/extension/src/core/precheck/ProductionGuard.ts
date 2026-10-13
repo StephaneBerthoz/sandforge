@@ -163,8 +163,10 @@ export interface AutomationConfirmation {
 
 /**
  * What a run asks before it reads anything, when it reads source tables with
- * no cap per object past the most rows of one object it holds at once: it
- * holds every row it reads of an object until it writes them.
+ * no cap per object past the most rows of one object it reads
+ * (`sandforge.forge.maxRecordsPerObject`): a run of whole tables reads such a
+ * table to that number, a page at a time, and a run from a record holds every
+ * row it reads.
  */
 export interface ReadConfirmation {
   stage: 'read';
@@ -175,7 +177,7 @@ export interface ReadConfirmation {
   source: string;
   /** The objects past the ceiling, with the rows discovery counted in each table, the most first. */
   objects: Array<{ objectApiName: string; rows: number }>;
-  /** The most rows of one object a run reads without asking. */
+  /** The most rows of one object the run reads, past which it asks. */
   ceiling: number;
 }
 

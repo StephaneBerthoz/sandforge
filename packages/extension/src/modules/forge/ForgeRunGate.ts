@@ -93,15 +93,17 @@ export const DEFAULT_CONFIRM_ABOVE_RECORDS = 2_000;
 export const DEFAULT_MAX_TOTAL = 10_000;
 
 /**
- * The most rows of one object a run of the panel reads without asking first.
+ * The most rows of one object a run of the panel reads without asking first,
+ * unless `sandforge.forge.maxRecordsPerObject` says another number.
  *
- * A run holds every row it reads of an object until it has cleaned and
- * written them: the second pass, the rows held back for want of a parent and
- * the check that no two rows share an upsert key all take the object whole.
- * With Records per object on "All", nothing bounded that read — a cap is the
- * only bound a run of whole tables has, and a clone of one record reads all
- * its record reaches — and a table of millions of rows would go into the
- * extension host's memory, with nothing said before it.
+ * A run read from a record holds every row it reads of an object until it has
+ * cleaned and written them: the second pass, the rows held back for want of a
+ * parent and the check that no two rows share an upsert key all take the
+ * object whole. With Records per object on "All", nothing bounded that read —
+ * a cap is the only bound — and a table of millions of rows would go into the
+ * extension host's memory, with nothing said before it. A run of whole tables
+ * reads and writes each page before the next (`ExecuteOptions.stream`), and
+ * this number is the most it reads of one object.
  */
 export const READ_CEILING_PER_OBJECT = FORGE_READ_CEILING_PER_OBJECT;
 
@@ -210,15 +212,45 @@ export interface WritePlan {
   storageBytes: number;
 }
 
-/** The rows a run is about to write, counted and measured. An object with none is left out. */
+/**
+ * The data storage the rows a count says a run will write of `objectApiName`
+ * take, by the documented sizes: the person accounts apart — 4 KB each, being
+ * an account and a contact, and none for their contacts, which the platform
+ * writes with them. A count says nothing of an email's size: an object read
+ * page by page holds no email, which a run with emails reads whole.
+ */
+export function countedStorageBytes(
+  objectApiName: string,
+  counted: { rows: number; personAccounts?: number },
+): number {
+  const persons = Math.min(counted.personAccounts ?? 0, counted.rows);
+  const others = counted.rows - persons;
+  if (objectApiName === ACCOUNT) return others * RECORD_BYTES + persons * PERSON_ACCOUNT_BYTES;
+  if (objectApiName === CONTACT) return others * RECORD_BYTES;
+  return others * rowStorageBytes(objectApiName, {});
+}
+
+/**
+ * The rows a run is about to write, counted and measured. An object with none
+ * is left out. One that comes with what its count says (`counted`) — a run
+ * read page by page holds no row before it writes — is measured by the count.
+ */
 export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const measured = objects
-    .filter(({ rows }) => rows.length > 0)
-    .map(({ objectApiName, rows }) => ({
-      objectApiName,
-      rows: rows.length,
-      storageBytes: rows.reduce((sum, row) => sum + rowStorageBytes(objectApiName, row), 0),
-    }))
+    .map(({ objectApiName, rows, counted }) =>
+      counted
+        ? {
+            objectApiName,
+            rows: counted.rows,
+            storageBytes: countedStorageBytes(objectApiName, counted),
+          }
+        : {
+            objectApiName,
+            rows: rows.length,
+            storageBytes: rows.reduce((sum, row) => sum + rowStorageBytes(objectApiName, row), 0),
+          },
+    )
+    .filter(({ rows }) => rows > 0)
     .sort((a, b) => b.rows - a.rows || a.objectApiName.localeCompare(b.objectApiName));
   return {
     objects: measured,
@@ -680,16 +712,20 @@ export class ForgeRunGateError extends Error {
   readonly code: ForgeRunGateErrorCode;
   /** For a refusal for storage: what the rows take, and what the target had left, in MB. */
   readonly storage?: { estimateMB: number; remainingMB: number };
+  /** For a run cancelled at its read: the most rows of one object it was set to read. */
+  readonly ceiling?: number;
 
   constructor(
     code: ForgeRunGateErrorCode,
     message: string,
     storage?: { estimateMB: number; remainingMB: number },
+    ceiling?: number,
   ) {
     super(message);
     this.name = 'ForgeRunGateError';
     this.code = code;
     if (storage) this.storage = storage;
+    if (ceiling !== undefined) this.ceiling = ceiling;
   }
 
   /** The stop as the page is told it; none for a code of the command line's own. */
@@ -697,7 +733,11 @@ export class ForgeRunGateError extends Error {
     if (this.code === 'MAX_TOTAL_EXCEEDED' || this.code === 'AUTOMATION_NOT_ACCEPTED') {
       return undefined;
     }
-    return this.storage ? { code: this.code, storage: this.storage } : { code: this.code };
+    return {
+      code: this.code,
+      ...(this.storage ? { storage: this.storage } : {}),
+      ...(this.ceiling !== undefined ? { ceiling: this.ceiling } : {}),
+    };
   }
 }
 

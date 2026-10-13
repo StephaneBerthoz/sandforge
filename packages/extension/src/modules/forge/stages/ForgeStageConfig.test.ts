@@ -24,6 +24,25 @@ describe('resolveStageConfig', () => {
     expect(config.keepContactPoints).toBe(false);
   });
 
+  it('reads a run page by page only when asked, its sizes whole numbers of one or more', () => {
+    expect(resolveStageConfig(undefined).stream).toBeUndefined();
+    const onPage = (): void => {};
+    const config = resolveStageConfig({
+      stream: {
+        pageSize: 7.9,
+        ceiling: 0,
+        resumeAfter: { Account: { lastId: '001000000000777AAA', read: 10 } },
+        onPage,
+      },
+    });
+    expect(config.stream).toEqual({
+      pageSize: 7,
+      ceiling: undefined,
+      resumeAfter: new Map([['Account', { lastId: '001000000000777AAA', read: 10 }]]),
+      onPage,
+    });
+  });
+
   it('keeps the contact points as read only when the options say so', () => {
     expect(resolveStageConfig({ keepContactPoints: true }).keepContactPoints).toBe(true);
     expect(resolveStageConfig({ keepContactPoints: false }).keepContactPoints).toBe(false);
