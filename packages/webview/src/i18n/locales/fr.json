@@ -1302,6 +1302,8 @@
     "backupStoppedAtCapUncounted": "{{object}} : {{read}} lignes lues — arrêtée au plafond (sandforge.backup.maxRecordsPerObject).",
     "backupReadFailed": "{{object}} : {{read}} lignes lues sur {{held}} — la lecture a échoué à cet endroit.",
     "backupReadFailedUncounted": "{{object}} : {{read}} lignes lues — la lecture a échoué à cet endroit.",
+    "restorePartialBadge": "Partielle",
+    "backupExported": "Enregistrée dans {{path}}. Enregistrements par objet : {{records}}.",
     "backupDesc": "Créer et gérer les sauvegardes de données",
     "restore": "Restaurer",
     "restoreDesc": "Restaurer les données depuis une sauvegarde",

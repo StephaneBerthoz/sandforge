@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -17,8 +17,21 @@ import type { BackupRecord } from './BackupRecordStore.js';
  * activation, which parses the blob.
  */
 
-function createStore() {
+/**
+ * A store over files kept in memory, each with when it was last written: the
+ * time `clock.now` says when it is written.
+ *
+ * @param refuseRemoval - Whether the file system refuses to remove a file.
+ */
+function createStore(refuseRemoval: (filePath: string) => boolean = () => false) {
   const files = new Map<string, string>();
+  const modified = new Map<string, number>();
+  const clock = { now: 0 };
+  /** Write a file, at the time the clock says. */
+  const put = (p: string, content: string): void => {
+    files.set(p, content);
+    modified.set(p, clock.now);
+  };
   const store = new BackupRecordStore({
     storagePath: '/storage',
     readFile: async (p) => {
@@ -27,10 +40,10 @@ function createStore() {
       return content;
     },
     writeFile: async (p, content) => {
-      files.set(p, content);
+      put(p, content);
     },
     appendFile: async (p, content) => {
-      files.set(p, (files.get(p) ?? '') + content);
+      put(p, (files.get(p) ?? '') + content);
     },
     exists: async (p) => files.has(p),
     readLines: async function* (p) {
@@ -40,10 +53,16 @@ function createStore() {
     },
     mkdir: vi.fn(async () => undefined),
     rm: async (p) => {
+      if (refuseRemoval(p)) throw new Error('EBUSY: resource busy or locked');
       files.delete(p);
+      modified.delete(p);
     },
+    listFiles: async (dir) =>
+      [...files.keys()]
+        .filter((p) => path.dirname(p) === dir)
+        .map((p) => ({ name: path.basename(p), modifiedMs: modified.get(p) ?? clock.now })),
   });
-  return { files, store };
+  return { files, store, clock, put };
 }
 
 /** Every batch a pass over an object's records yields, in order. */
@@ -171,6 +190,102 @@ describe('BackupRecordStore', () => {
     expect(files.size).toBe(0);
     await expect(store.delete('op-1', 'Account')).resolves.toBeUndefined();
   });
+
+  describe('the files of a backup whose metadata was never saved', () => {
+    const HOUR = 60 * 60_000;
+    const DAY = 24 * HOUR;
+
+    /** The names of the files left in the backups directory. */
+    function left(files: Map<string, string>): string[] {
+      return [...files.keys()].map((p) => path.basename(p)).sort();
+    }
+
+    it('removes those of a backup no window has written to for longer than the safe age', async () => {
+      // A window that crashed in the middle of a backup: its pages, and no metadata.
+      const { files, store, clock } = createStore();
+      await store.begin('wv-crashed', 'Contact');
+      await store.append('wv-crashed', 'Contact', [{ Id: '003a' }]);
+      await store.begin('wv-crashed', 'My_Object__c');
+      clock.now = 2 * DAY;
+
+      const removed = await store.sweep([], DAY, clock.now);
+
+      expect(removed.sort()).toEqual([
+        'wv-crashed__Contact.ndjson',
+        'wv-crashed__My_Object__c.ndjson',
+      ]);
+      expect(files.size).toBe(0);
+    });
+
+    it('removes a file of the older form, one array an object, left the same way', async () => {
+      const { files, store, clock, put } = createStore();
+      put(path.join('/storage', 'backups', 'op-old__Lead.json'), '[{"Id":"00Qa"}]');
+      clock.now = 2 * DAY;
+
+      expect(await store.sweep([], DAY, clock.now)).toEqual(['op-old__Lead.json']);
+      expect(files.size).toBe(0);
+    });
+
+    it('keeps those of a backup written to more recently: another window may be taking it', async () => {
+      const { files, store, clock } = createStore();
+      await store.begin('wv-elsewhere', 'Contact');
+      clock.now = DAY - 1;
+
+      expect(await store.sweep([], DAY, clock.now)).toEqual([]);
+      expect(left(files)).toEqual(['wv-elsewhere__Contact.ndjson']);
+    });
+
+    it('keeps an object read whole long ago while the backup is still reading the next one', async () => {
+      // Contact was read whole two days ago; Lead got a page an hour ago.
+      const { files, store, clock } = createStore();
+      await store.begin('wv-long', 'Contact');
+      await store.append('wv-long', 'Contact', [{ Id: '003a' }]);
+      clock.now = 2 * DAY - HOUR;
+      await store.begin('wv-long', 'Lead');
+      clock.now = 2 * DAY;
+
+      expect(await store.sweep([], DAY, clock.now)).toEqual([]);
+      expect(left(files)).toEqual(['wv-long__Contact.ndjson', 'wv-long__Lead.ndjson']);
+    });
+
+    it('keeps those of a backup whose metadata is kept, or that this window is writing, whatever their age', async () => {
+      const { files, store, clock, put } = createStore();
+      await store.begin('wv-listed', 'Contact');
+      put(path.join('/storage', 'backups', 'wv-listed__Lead.json'), '[]');
+      await store.begin('wv-writing', 'Account');
+      await store.begin('wv-orphan', 'Account');
+      clock.now = 30 * DAY;
+
+      const removed = await store.sweep(['wv-listed', 'wv-writing'], DAY, clock.now);
+
+      expect(removed).toEqual(['wv-orphan__Account.ndjson']);
+      expect(left(files)).toEqual([
+        'wv-listed__Contact.ndjson',
+        'wv-listed__Lead.json',
+        'wv-writing__Account.ndjson',
+      ]);
+    });
+
+    it('leaves alone a file no backup writes', async () => {
+      const { files, store, clock, put } = createStore();
+      put(path.join('/storage', 'backups', 'notes.txt'), 'kept by hand');
+      put(path.join('/storage', 'backups', 'index.json'), '{}');
+      clock.now = 30 * DAY;
+
+      expect(await store.sweep([], DAY, clock.now)).toEqual([]);
+      expect(left(files)).toEqual(['index.json', 'notes.txt']);
+    });
+
+    it('removes the rest of a backup when one of its files cannot be removed', async () => {
+      const { files, store, clock } = createStore((p) => p.endsWith('Contact.ndjson'));
+      await store.begin('wv-crashed', 'Contact');
+      await store.begin('wv-crashed', 'Lead');
+      clock.now = 2 * DAY;
+
+      expect(await store.sweep([], DAY, clock.now)).toEqual(['wv-crashed__Lead.ndjson']);
+      expect(left(files)).toEqual(['wv-crashed__Contact.ndjson']);
+    });
+  });
 });
 
 describe('nodeBackupFiles', () => {
@@ -222,5 +337,31 @@ describe('nodeBackupFiles', () => {
     }
     expect(read).toEqual([{ Id: '00Qa' }]);
     expect(await files.exists(path.join(dir, 'backups', 'op-old__Lead.ndjson'))).toBe(false);
+  });
+
+  it('removes from disk the files of a backup left without metadata, once old enough', async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'sandforge-backup-store-'));
+    const store = new BackupRecordStore(nodeBackupFiles(dir));
+    await store.begin('wv-crashed', 'Contact');
+    await store.append('wv-crashed', 'Contact', [{ Id: '003a' }]);
+    await store.begin('wv-listed', 'Contact');
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60_000);
+    for (const name of ['wv-crashed__Contact.ndjson', 'wv-listed__Contact.ndjson']) {
+      await utimes(path.join(dir, 'backups', name), twoDaysAgo, twoDaysAgo);
+    }
+
+    const removed = await store.sweep(['wv-listed'], 24 * 60 * 60_000, Date.now());
+
+    expect(removed).toEqual(['wv-crashed__Contact.ndjson']);
+    const files = nodeBackupFiles(dir);
+    expect(await files.exists(path.join(dir, 'backups', 'wv-crashed__Contact.ndjson'))).toBe(false);
+    expect(await files.exists(path.join(dir, 'backups', 'wv-listed__Contact.ndjson'))).toBe(true);
+  });
+
+  it('lists no file in a storage no backup has written to yet', async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'sandforge-backup-store-'));
+
+    expect(await nodeBackupFiles(dir).listFiles(path.join(dir, 'backups'))).toEqual([]);
+    expect(await new BackupRecordStore(nodeBackupFiles(dir)).sweep([], 0, Date.now())).toEqual([]);
   });
 });

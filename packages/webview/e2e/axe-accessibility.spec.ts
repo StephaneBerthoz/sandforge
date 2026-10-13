@@ -6685,6 +6685,7 @@ for (const theme of STATE_THEMES) {
 
       await page.getByTestId('page-tab-restore').click();
       await expect(page.getByTestId('restore-partial-bk-cap')).toContainText('the read failed');
+      await expect(page.getByTestId('restore-partial-badge-bk-cap')).toHaveText('Partial');
       await expectReadable(page, theme);
 
       await page.getByTestId('page-tab-anonymize').click();

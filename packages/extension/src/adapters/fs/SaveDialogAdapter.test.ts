@@ -1,8 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import type * as vscode from 'vscode';
+import { mkdtemp, readFile, readdir, rm, writeFile as writeDiskFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 
-// The adapter imports `vscode` for its default host — the one path these tests
-// never take, since every case injects a host. The module still has to resolve.
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import * as vscode from 'vscode';
+
+// The adapter imports `vscode` for its default host. Every case but those of
+// the file written on disk injects a host; the module still has to resolve.
 vi.mock('vscode', () => ({
   window: { showSaveDialog: vi.fn() },
   workspace: { fs: { writeFile: vi.fn() } },
@@ -11,7 +15,7 @@ vi.mock('vscode', () => ({
 
 import { SaveDialogAdapter, type SaveDialogHost } from './SaveDialogAdapter.js';
 
-/** A stand-in for the three VS Code calls the adapter makes. */
+/** A stand-in for the VS Code calls the adapter makes. */
 function makeHost(overrides?: Partial<SaveDialogHost>): {
   host: SaveDialogHost;
   showSaveDialog: ReturnType<typeof vi.fn>;
@@ -89,5 +93,122 @@ describe('SaveDialogAdapter', () => {
     await new SaveDialogAdapter(host).save('export', 'x');
 
     expect(showSaveDialog.mock.calls[0][0].filters).toBeUndefined();
+  });
+});
+
+describe('SaveDialogAdapter.saveStream', () => {
+  /** A file opened at the place picked: each piece written to it, and how it ended. */
+  function openedFile() {
+    const pieces: string[] = [];
+    return {
+      pieces,
+      write: vi.fn(async (text: string) => {
+        pieces.push(text);
+      }),
+      close: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+  }
+
+  it('writes the pieces handed over to the file picked, and reports where with what the writing returned', async () => {
+    const file = openedFile();
+    const openFile = vi.fn().mockResolvedValue(file);
+    const { host } = makeHost({ openFile });
+
+    const outcome = await new SaveDialogAdapter(host).saveStream(
+      'backup.json',
+      async (append) => {
+        await append('{"a":');
+        await append('1}');
+        return 2;
+      },
+      ['json'],
+    );
+
+    expect(outcome).toEqual({ status: 'saved', path: '/home/u/limits.csv', result: 2 });
+    expect(openFile.mock.calls[0][0].fsPath).toBe('/home/u/limits.csv');
+    expect(file.pieces).toEqual(['{"a":', '1}']);
+    expect(file.close).toHaveBeenCalledTimes(1);
+    expect(file.abort).not.toHaveBeenCalled();
+  });
+
+  it('opens nothing and writes nothing when the dialog is dismissed', async () => {
+    const openFile = vi.fn();
+    const write = vi.fn();
+    const { host } = makeHost({ showSaveDialog: vi.fn().mockResolvedValue(undefined), openFile });
+
+    const outcome = await new SaveDialogAdapter(host).saveStream('backup.json', write);
+
+    expect(outcome).toEqual({ status: 'cancelled' });
+    expect(openFile).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('abandons the file, and says why, when the writing fails part-way', async () => {
+    const file = openedFile();
+    const { host } = makeHost({ openFile: vi.fn().mockResolvedValue(file) });
+
+    const outcome = await new SaveDialogAdapter(host).saveStream('backup.json', async (append) => {
+      await append('{"a":');
+      throw new Error('The backup of Contact is damaged at line 2 of its file');
+    });
+
+    expect(outcome).toEqual({
+      status: 'error',
+      message: 'The backup of Contact is damaged at line 2 of its file',
+    });
+    expect(file.abort).toHaveBeenCalledTimes(1);
+    expect(file.close).not.toHaveBeenCalled();
+  });
+
+  describe('on disk', () => {
+    let dir: string | undefined;
+
+    afterEach(async () => {
+      if (dir) await rm(dir, { recursive: true, force: true });
+      dir = undefined;
+    });
+
+    /** The real dialog, answering `picked` as a file on disk. */
+    function pick(picked: string): void {
+      vi.mocked(vscode.window.showSaveDialog).mockResolvedValue({
+        scheme: 'file',
+        fsPath: picked,
+      } as vscode.Uri);
+    }
+
+    it('writes the file piece by piece and leaves nothing else beside it', async () => {
+      dir = await mkdtemp(path.join(tmpdir(), 'sandforge-save-'));
+      const target = path.join(dir, 'backup.json');
+      pick(target);
+      const big = 'x'.repeat(1_000_000);
+
+      const outcome = await new SaveDialogAdapter().saveStream('backup.json', async (append) => {
+        await append('{"pieces":["');
+        await append(big);
+        await append('"]}\n');
+        return 'done';
+      });
+
+      expect(outcome).toEqual({ status: 'saved', path: target, result: 'done' });
+      expect(await readFile(target, 'utf8')).toBe(`{"pieces":["${big}"]}\n`);
+      expect(await readdir(dir)).toEqual(['backup.json']);
+    });
+
+    it('leaves the file picked as it was when the writing fails part-way', async () => {
+      dir = await mkdtemp(path.join(tmpdir(), 'sandforge-save-'));
+      const target = path.join(dir, 'backup.json');
+      await writeDiskFile(target, 'the export of yesterday', 'utf8');
+      pick(target);
+
+      const outcome = await new SaveDialogAdapter().saveStream('backup.json', async (append) => {
+        await append('{"half":');
+        throw new Error('ENOSPC: no space left on device');
+      });
+
+      expect(outcome).toEqual({ status: 'error', message: 'ENOSPC: no space left on device' });
+      expect(await readFile(target, 'utf8')).toBe('the export of yesterday');
+      expect(await readdir(dir)).toEqual(['backup.json']);
+    });
   });
 });

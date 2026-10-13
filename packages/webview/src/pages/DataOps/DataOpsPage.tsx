@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
+  BackupExportResult,
   BackupSummary,
   DataOpsAnonymizeCoverageResponse,
   DataOpsAnonymizePreviewResponse,
@@ -31,7 +31,7 @@ import { QualityPanel } from './QualityPanel';
 import { CompliancePanel } from './CompliancePanel';
 import { CleanupPanel } from './CleanupPanel';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
-import { uiLocale } from '../../utils/formatters';
+import { formatNumber, uiLocale } from '../../utils/formatters';
 
 /**
  * The objects templates mask, in the order their rules first name them: those
@@ -48,7 +48,6 @@ const DEFAULT_BACKUP_OBJECTS = ['Account', 'Contact'];
 
 /** Main DataOps page — wired to extension via bridge hooks. */
 export const DataOpsPage: React.FC = () => {
-  const { save } = useFileSave();
   const { t } = useTranslation();
 
   const DATAOPS_TABS: PageTab[] = [
@@ -107,14 +106,18 @@ export const DataOpsPage: React.FC = () => {
     timeoutMs: 60 * 60_000,
   });
 
-  /** Bridge mutation: export one backup as a downloadable document. */
-  const exportMutation = useBridgeMutation<{
-    operationId: string;
-    filename: string;
-    data: string;
-  }>('backup:export', {
+  /**
+   * Bridge mutation: export one backup. The host asks where, writes the file
+   * a batch of records at a time, and answers where it went and how many
+   * records of each object it holds — or that the dialog was dismissed.
+   */
+  const exportMutation = useBridgeMutation<BackupExportResult['payload']>('backup:export', {
     responseType: 'backup:export:result',
     errorType: 'dataops:error',
+    // The Save dialog waits on the user, and a backup holds up to its cap of
+    // rows per object, as many as a million: the 30 s default would call an
+    // export failed while the host was still writing it.
+    timeoutMs: 60 * 60_000,
   });
 
   /** Bridge mutation: anonymize data. */
@@ -315,15 +318,30 @@ export const DataOpsPage: React.FC = () => {
     exportMutation.mutate({ orgId: currentOrg.id, operationId });
   };
 
-  /** Hand the serialized backup to the browser as a download. */
+  /**
+   * Say where the host wrote the backup, and what the file holds. The whole
+   * document used to come back in one message for the page to save: every
+   * record of the backup, held on both sides of the bridge at once.
+   */
   useEffect(() => {
-    const payload = exportMutation.data;
-    if (!payload?.data) return;
-    // Saved by the host: a webview is sandboxed without `allow-downloads`, so
-    // the detached-anchor click this replaces frequently wrote nothing.
-    save(payload.filename, payload.data);
+    const outcome = exportMutation.data;
+    if (!outcome) return;
+    // Dismissing the dialog is not news.
+    if (outcome.status === 'saved') {
+      addNotification({
+        level: 'success',
+        title: t('common.export'),
+        message: t('dataops.backupExported', {
+          path: outcome.path,
+          records: outcome.objects
+            .map((o) => `${o.objectApiName} ${formatNumber(o.records)}`)
+            .join(', '),
+        }),
+        autoDismissMs: 6000,
+      });
+    }
     exportMutation.reset();
-  }, [exportMutation, save]);
+  }, [exportMutation, addNotification, t]);
 
   const handleSaveTemplate = (draft: AnonymizationTemplateDraft) => {
     setError(null);

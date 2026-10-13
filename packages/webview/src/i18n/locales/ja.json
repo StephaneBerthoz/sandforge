@@ -1232,6 +1232,8 @@
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} 行を読み取り — 上限で停止しました (sandforge.backup.maxRecordsPerObject)。",
     "backupReadFailed": "{{object}}: {{held}} 行のうち {{read}} 行を読み取り — そこで読み取りに失敗しました。",
     "backupReadFailedUncounted": "{{object}}: {{read}} 行を読み取り — そこで読み取りに失敗しました。",
+    "restorePartialBadge": "一部のみ",
+    "backupExported": "{{path}} に保存しました。オブジェクトごとのレコード数: {{records}}。",
     "backupDesc": "データバックアップの作成と管理",
     "restore": "リストア",
     "restoreDesc": "バックアップからデータをリストア",

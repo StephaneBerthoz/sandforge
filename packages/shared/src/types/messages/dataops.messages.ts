@@ -92,10 +92,23 @@ export interface BackupExportRequest extends BaseMessage {
   payload: { orgId: string; operationId: string };
 }
 
-/** Result of `backup:export` — a serialized document ready to download. */
+/** One object of a backup export, and the records the file holds of it. */
+export interface BackupExportObject {
+  objectApiName: string;
+  records: number;
+}
+
+/**
+ * Result of `backup:export`: the host wrote the backup to a file the user
+ * picked, and says where and how many records of each object it holds; or
+ * the dialog was dismissed, and nothing was written. A failure goes out on
+ * `dataops:error`.
+ */
 export interface BackupExportResult extends BaseMessage {
   type: 'backup:export:result';
-  payload: { operationId: string; filename: string; data: string };
+  payload:
+    | { operationId: string; status: 'saved'; path: string; objects: BackupExportObject[] }
+    | { operationId: string; status: 'cancelled' };
 }
 
 /** Anonymization templates */

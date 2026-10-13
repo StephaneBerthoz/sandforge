@@ -28,6 +28,8 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 /** The backup files, kept in memory, and the store over them that the handler writes through. */
 function memoryFiles() {
   const files = new Map<string, string>();
+  /** When each file was last written, in milliseconds since the epoch. */
+  const modified = new Map<string, number>();
   /** Every page added to a file, in order, with the record count each held. */
   const appended: Array<{ file: string; records: number }> = [];
   const store = new BackupRecordStore({
@@ -39,10 +41,12 @@ function memoryFiles() {
     },
     writeFile: async (p, content) => {
       files.set(p, content);
+      modified.set(p, Date.now());
     },
     appendFile: async (p, content) => {
       appended.push({ file: path.basename(p), records: content.trimEnd().split('\n').length });
       files.set(p, (files.get(p) ?? '') + content);
+      modified.set(p, Date.now());
     },
     exists: async (p) => files.has(p),
     readLines: async function* (p) {
@@ -51,15 +55,26 @@ function memoryFiles() {
     mkdir: async () => undefined,
     rm: async (p) => {
       files.delete(p);
+      modified.delete(p);
     },
+    listFiles: async (dir) =>
+      [...files.keys()]
+        .filter((p) => path.dirname(p) === dir)
+        .map((p) => ({ name: path.basename(p), modifiedMs: modified.get(p) ?? Date.now() })),
   });
+  /** Make a file of the backups directory last written `ms` ago. */
+  const age = (name: string, ms: number): void => {
+    modified.set(path.join('/storage', 'backups', name), Date.now() - ms);
+  };
+  /** The names of the files in the backups directory. */
+  const names = (): string[] => [...files.keys()].map((p) => path.basename(p)).sort();
   /** The records of one object of a backup, as its file holds them, one per line. */
   const recordsIn = (operationId: string, objectApiName: string): Array<Record<string, unknown>> =>
     (files.get(path.join('/storage', 'backups', `${operationId}__${objectApiName}.ndjson`)) ?? '')
       .split('\n')
       .filter((line) => line !== '')
       .map((line) => JSON.parse(line) as Record<string, unknown>);
-  return { files, appended, store, recordsIn };
+  return { files, appended, store, recordsIn, age, names };
 }
 
 interface Harness {
@@ -499,6 +514,90 @@ describe('DataOpsHandler backup record storage', () => {
     });
   });
 
+  describe('the files of a backup that never saved its metadata', () => {
+    const DAY = 24 * 60 * 60_000;
+
+    /** A backup's metadata, as `takeBackup` writes it, for a backup holding Contact. */
+    function listed(config: ConfigStore, operationId: string): void {
+      config.set(
+        `backup:${operationId}`,
+        {
+          operationId,
+          orgId: 'org-1',
+          objects: [{ objectApiName: 'Contact', recordCount: 1, truncated: false }],
+          totalRecords: 1,
+          timestamp: '2026-10-01T10:00:00.000Z',
+        },
+        'backups',
+      );
+    }
+
+    it('removes those no window has written to for a day, and keeps every backup listed', async () => {
+      // A window that crashed in the middle of a backup left its pages: no
+      // listing showed them, no restore read them, and no retention removed them.
+      const { handler, deps, config, files } = createHarness();
+      await files.store.begin('wv-crashed', 'Contact');
+      await files.store.append('wv-crashed', 'Contact', contactsOf(500));
+      await files.store.begin('wv-listed', 'Contact');
+      await files.store.begin('wv-elsewhere', 'Contact');
+      listed(config, 'wv-listed');
+      files.age('wv-crashed__Contact.ndjson', 2 * DAY);
+      files.age('wv-listed__Contact.ndjson', 30 * DAY);
+      // Another window's backup, with a page an hour ago: its metadata comes when it ends.
+      files.age('wv-elsewhere__Contact.ndjson', DAY / 24);
+
+      await handler.sweepBackupFiles();
+
+      expect(files.names()).toEqual(['wv-elsewhere__Contact.ndjson', 'wv-listed__Contact.ndjson']);
+      expect(deps.log).toHaveBeenCalledWith(
+        '[INFO] Removed 1 backup file(s) whose backup never saved its metadata: ' +
+          'wv-crashed__Contact.ndjson',
+      );
+    });
+
+    it('keeps the files of a backup this window is taking, however old they look', async () => {
+      const { handler, config, files } = createHarness();
+      const { queryMore } = pagedOrg(contactsOf(1_234));
+      const nextPage = queryMore.getMockImplementation();
+      let swept = false;
+      // Between the first page and the second: the backup has a file and no metadata.
+      queryMore.mockImplementation(async (url, options) => {
+        if (!swept) {
+          swept = true;
+          await handler.sweepBackupFiles(Date.now() + 30 * DAY);
+        }
+        return nextPage!(url, options);
+      });
+
+      await handler.handle(backupMsg('bk-live'));
+
+      expect(swept).toBe(true);
+      expect(files.recordsIn('bk-live', 'Contact')).toEqual(contactsOf(1_234));
+      expect(config.get('backup:bk-live')).toMatchObject({ totalRecords: 1_234 });
+    });
+
+    it('sweeps after a backup’s retention', async () => {
+      const { handler, files } = createHarness();
+      await files.store.begin('wv-crashed', 'Contact');
+      files.age('wv-crashed__Contact.ndjson', 2 * DAY);
+      pagedOrg(contactsOf(3));
+
+      await handler.handle(backupMsg('bk-next'));
+
+      await vi.waitFor(() => expect(files.names()).toEqual(['bk-next__Contact.ndjson']));
+    });
+
+    it('sweeps as the store is given, when the extension starts', async () => {
+      const { handler, files } = createHarness({ withStore: false });
+      await files.store.begin('wv-crashed', 'Contact');
+      files.age('wv-crashed__Contact.ndjson', 2 * DAY);
+
+      handler.setBackupRecordStore(files.store);
+
+      await vi.waitFor(() => expect(files.names()).toEqual([]));
+    });
+  });
+
   describe('a restore', () => {
     /** A connection a restore writes through: the recycle bin, and the upsert. */
     function restoringOrg(deletedIds: string[] = []) {
@@ -644,6 +743,44 @@ describe('DataOpsHandler backup record storage', () => {
         message,
       });
       // The page reads the notification channel, not the response.
+      expect(postedOf(deps, 'notification')[0]?.payload).toMatchObject({
+        level: 'warning',
+        message,
+      });
+    });
+
+    it('restores a backup whose read failed part-way, the rows it kept, and says the rest were left as they are', async () => {
+      // The Restore tab offers it now, as the command line always could.
+      const { handler, deps, config, files } = createHarness();
+      await files.store.begin('bk-failed', 'Contact');
+      await files.store.append('bk-failed', 'Contact', contactsOf(450));
+      keepMeta(
+        config,
+        'bk-failed',
+        [
+          {
+            objectApiName: 'Contact',
+            recordCount: 450,
+            orgCount: 1_234,
+            truncated: true,
+            stoppedAt: 'failure',
+          },
+        ],
+        { status: 'failed', partial: true },
+      );
+      const { upsert } = restoringOrg();
+
+      await handler.handle(rollbackMsg('bk-failed'));
+
+      expect(upsert.mock.calls.flatMap(([batch]) => batch)).toEqual(contactsOf(450));
+      const message =
+        "Rollback completed: 450 records restored. The backup held only part of the org's " +
+        'records, and the rest were left as they are: Contact 450 of 1234 (the read failed).';
+      expect(postedOf(deps, 'dataops:rollback:response')[0]?.payload).toMatchObject({
+        status: 'success',
+        partial: true,
+        message,
+      });
       expect(postedOf(deps, 'notification')[0]?.payload).toMatchObject({
         level: 'warning',
         message,

@@ -30,7 +30,14 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const completedBackups = backups.filter((b) => b.status === 'completed');
+  // A backup whose read failed part-way keeps the rows it read, and was
+  // listed on the Backup tab alone: only the command line could restore it.
+  // Offered here too, marked partial, its note saying how far the read got
+  // into each object it holds only part of. One kept with no row has nothing
+  // to restore.
+  const restorableBackups = backups.filter(
+    (b) => b.status === 'completed' || (b.status === 'failed' && b.totalRecords > 0),
+  );
 
   return (
     <div className="flex flex-col gap-3" data-testid="restore-panel">
@@ -47,7 +54,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         </div>
       )}
 
-      {completedBackups.length === 0 && !isRestoring && (
+      {restorableBackups.length === 0 && !isRestoring && (
         <EmptyState
           icon="📦"
           title={t('dataops.selectBackup')}
@@ -55,7 +62,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         />
       )}
 
-      {completedBackups.map((backup) => {
+      {restorableBackups.map((backup) => {
         const isSelected = backup.operationId === selectedBackupId;
         return (
           <div key={backup.operationId} data-testid={`restore-backup-${backup.operationId}`}>
@@ -68,6 +75,14 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 subtitle={t('common.recordCount', { count: backup.totalRecords })}
                 action={
                   <div className="flex items-center gap-2">
+                    {(backup.partial || backup.status === 'failed') && (
+                      <Badge
+                        variant="warning"
+                        data-testid={`restore-partial-badge-${backup.operationId}`}
+                      >
+                        {t('dataops.restorePartialBadge')}
+                      </Badge>
+                    )}
                     {isSelected && <Badge variant="info">{t('common.selected')}</Badge>}
                     {isSelected && onRestore && (
                       <Button

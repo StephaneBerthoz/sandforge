@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
-import type { SalesforceOrg } from '@sandforge/shared';
+import type { BackupExportResult, SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import { DataOpsPage } from './DataOpsPage';
 
 const mockOrgs: SalesforceOrg[] = [
@@ -97,7 +98,7 @@ let mockDeleteTemplateMutationState = {
 /** Mutable mutation state for backup:export. */
 let mockExportMutationState = {
   mutate: vi.fn(),
-  data: null as { operationId: string; filename: string; data: string } | null,
+  data: null as BackupExportResult['payload'] | null,
   loading: false,
   error: null as string | null,
   reset: vi.fn(),
@@ -522,6 +523,57 @@ describe('DataOpsPage', () => {
 
     expect(screen.getByTestId('dataops-error')).toBeDefined();
     expect(screen.getByText('Backup failed')).toBeDefined();
+  });
+
+  describe('a backup exported', () => {
+    it('waits while the user picks a file and the host writes every record to it', () => {
+      render(<DataOpsPage />);
+
+      expect(mutationOptions['backup:export']?.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
+    });
+
+    it('says where the host wrote the backup and how many records of each object it holds', () => {
+      useNotificationStore.setState({ notifications: [] });
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      const { rerender } = render(<DataOpsPage />);
+
+      mockExportMutationState = {
+        ...mockExportMutationState,
+        data: {
+          operationId: 'op-1',
+          status: 'saved',
+          path: '/home/u/backup.json',
+          objects: [
+            { objectApiName: 'Contact', records: 1234 },
+            { objectApiName: 'Lead', records: 0 },
+          ],
+        },
+      };
+      rerender(<DataOpsPage />);
+
+      expect(useNotificationStore.getState().notifications).toEqual([
+        expect.objectContaining({
+          level: 'success',
+          message: 'Saved to /home/u/backup.json. Records per object: Contact 1,234, Lead 0.',
+        }),
+      ]);
+      expect(mockExportMutationState.reset).toHaveBeenCalled();
+    });
+
+    it('says nothing when the dialog was dismissed', () => {
+      useNotificationStore.setState({ notifications: [] });
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      const { rerender } = render(<DataOpsPage />);
+
+      mockExportMutationState = {
+        ...mockExportMutationState,
+        data: { operationId: 'op-1', status: 'cancelled' },
+      };
+      rerender(<DataOpsPage />);
+
+      expect(useNotificationStore.getState().notifications).toEqual([]);
+      expect(mockExportMutationState.reset).toHaveBeenCalled();
+    });
   });
 
   it('should show the error of an export the extension refused', () => {
@@ -980,6 +1032,51 @@ describe('DataOpsPage', () => {
       fireEvent.click(screen.getByTestId('restore-btn-op-1'));
 
       expect(mockRollbackMutate).toHaveBeenCalledWith({ orgId: 'org-1', operationId: 'op-1' });
+    });
+
+    it('offers a backup whose read failed part-way, marked partial, and restores it', () => {
+      // Listed on the Backup tab, it could be restored from the command line only.
+      mockBackupsQueryState = {
+        ...mockBackupsQueryState,
+        data: {
+          backups: [
+            {
+              operationId: 'op-failed',
+              orgId: 'org-1',
+              timestamp: '2024-01-02T00:00:00Z',
+              totalRecords: 1300,
+              totalSize: 0,
+              status: 'failed',
+              partial: true,
+              objectResults: [
+                { objectApiName: 'Account', recordCount: 300, orgCount: 300, truncated: false },
+                {
+                  objectApiName: 'Contact',
+                  recordCount: 1000,
+                  orgCount: 1234,
+                  truncated: true,
+                  stoppedAt: 'failure',
+                },
+              ],
+            },
+          ],
+        },
+      };
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Restore'));
+
+      expect(screen.getByTestId('restore-partial-badge-op-failed').textContent).toBe('Partial');
+      expect(screen.getByTestId('restore-partial-op-failed').textContent).toContain(
+        'Contact: 1,000 of 1,234 rows read — the read failed there.',
+      );
+      const card = screen.getByTestId('restore-backup-op-failed');
+      fireEvent.click(card.querySelector('[role="button"]')!);
+      fireEvent.click(screen.getByTestId('restore-btn-op-failed'));
+
+      expect(mockRollbackMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        operationId: 'op-failed',
+      });
     });
   });
 });

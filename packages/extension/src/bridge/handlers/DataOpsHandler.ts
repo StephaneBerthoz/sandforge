@@ -7,6 +7,7 @@ import type {
   AnonymizePreviewObject,
   AnonymizePreviewValue,
   AuditObjectCounts,
+  BackupExportObject,
   BackupObjectHeld,
   BackupSummary,
   DataOpsAnonymizationRule,
@@ -81,6 +82,7 @@ import type {
   UnconfirmedRow,
 } from '../../modules/dataops/MaskingCheckpointStore.js';
 import { whatTheWriteLeft } from '../../core/common/thrownWrite.js';
+import { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -212,6 +214,16 @@ const BACKUP_CAP_MAX = 1_000_000;
 
 /** Rows a restore reads of a backup, and upserts, at a time: the most one REST collection takes. */
 const RESTORE_BATCH_SIZE = 200;
+
+/**
+ * How long the newest file of a backup with no metadata must have gone
+ * unwritten before its files are removed (`BackupRecordStore.sweep`). A
+ * backup under way in another window writes a page every few seconds, and
+ * the metadata it saves when it ends reaches this window through the state
+ * the windows share, after its files: a day leaves both far behind, and a
+ * crashed backup's pages go the next day.
+ */
+const ORPHAN_BACKUP_AGE_MS = 24 * 60 * 60_000;
 
 /** One object of a snapshot as it is read: the rows written so far, and why it stopped short. */
 type BackupObjectRead = BackupObjectHeld & { truncated: boolean };
@@ -641,6 +653,12 @@ export class DataOpsHandler implements DomainHandler {
   private backupRecords?: BackupRecordStore;
 
   /**
+   * The snapshots this window is writing, whose files have no metadata until
+   * they end: the sweep of files left without metadata never takes them.
+   */
+  private readonly backupsWriting = new Set<string>();
+
+  /**
    * HMAC key the masking engine falls back to for rules that carry no salt,
    * and the salt every hash rule is given (see `ruleConfig`).
    *
@@ -654,8 +672,19 @@ export class DataOpsHandler implements DomainHandler {
    */
   private readonly maskingKey = randomBytes(32).toString('hex');
 
-  /** @param deps - Injected handler dependencies. */
-  constructor(private readonly deps: HandlerDeps) {}
+  /** Where an export of a backup is written: a file the user picks. */
+  private readonly saveDialog: SaveDialogAdapter;
+
+  /**
+   * @param deps - Injected handler dependencies.
+   * @param saveDialog - Injected for tests; defaults to the real VS Code dialog.
+   */
+  constructor(
+    private readonly deps: HandlerDeps,
+    saveDialog?: SaveDialogAdapter,
+  ) {
+    this.saveDialog = saveDialog ?? new SaveDialogAdapter();
+  }
 
   /** The masking templates the user saved, kept in the config store. */
   private get savedTemplates(): AnonymizationTemplateStore {
@@ -741,6 +770,45 @@ export class DataOpsHandler implements DomainHandler {
    */
   setBackupRecordStore(store: BackupRecordStore): void {
     this.backupRecords = store;
+    // What a window that stopped in the middle of a backup left behind goes
+    // when the next window starts.
+    void this.sweepBackupFiles();
+  }
+
+  /**
+   * Remove the files of backups whose metadata was never saved — a window
+   * closed or crashed in the middle of one — once no window has written to
+   * them for {@link ORPHAN_BACKUP_AGE_MS}. No listing shows them, no restore
+   * reads them, and the retention, which goes by metadata, never removed them.
+   *
+   * Run when the store is given, as the extension starts, and after each
+   * backup's retention. Housekeeping: a failure is logged, never reported.
+   *
+   * @param now - The time now, in milliseconds since the epoch.
+   */
+  async sweepBackupFiles(now: number = Date.now()): Promise<void> {
+    const store = this.backupRecords;
+    if (!store) return;
+    try {
+      const keep = new Set(this.backupsWriting);
+      // Every backup a key names, its metadata or, for one kept in the config
+      // store before the files, its records: `backup:<id>` or `backup:<id>:<object>`.
+      for (const key of this.deps.configStore.getKeysByPrefix('backup:')) {
+        keep.add(key.slice('backup:'.length).split(':')[0]);
+      }
+      const removed = await store.sweep(keep, ORPHAN_BACKUP_AGE_MS, now);
+      if (removed.length > 0) {
+        this.deps.log(
+          `[INFO] Removed ${removed.length} backup file(s) whose backup never saved its metadata: ` +
+            removed.join(', '),
+        );
+      }
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] the files of backups that never saved their metadata were not removed: ` +
+          extractErrorMessage(err),
+      );
+    }
   }
 
   /**
@@ -1058,6 +1126,7 @@ export class DataOpsHandler implements DomainHandler {
     const cap = this.backupCap();
     /** Where the pages go as the org answers them. */
     const writer = this.backupWriter(operationId);
+    this.backupsWriting.add(operationId);
     /** The objects read to their end, or to the cap. */
     const taken: BackupObjectRead[] = [];
     /** The object under way, until it is read: a failure part-way says how far it got. */
@@ -1256,6 +1325,7 @@ export class DataOpsHandler implements DomainHandler {
       signal?.removeEventListener('abort', onAbort);
       settleBackup(backupError);
       this.activeOrgOperations.delete(lockKey);
+      this.backupsWriting.delete(operationId);
     }
   }
 
@@ -1474,6 +1544,7 @@ export class DataOpsHandler implements DomainHandler {
         `[WARN] backup retention failed after the snapshot was written: ${extractErrorMessage(pruneErr)}`,
       );
     }
+    void this.sweepBackupFiles();
   }
 
   /**
@@ -1532,12 +1603,20 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
-   * Serialize one backup, records included, so it can leave the machine.
+   * Write one backup, records included, to a file the user picks, so it can
+   * leave the machine.
    *
-   * dataops:backup writes record payloads into ConfigStore, which is VSCode
-   * globalState: a backup lived on one laptop with no way out. Nothing here
-   * touches the org — it reads what was already stored and hands back a
-   * document the webview downloads, the same shape sync:history:export uses.
+   * Nothing here touches the org: it reads what the backup kept and writes
+   * it out {@link RESTORE_BATCH_SIZE} records at a time, as a restore reads
+   * it. The document used to be built whole and posted to the page in one
+   * message, which saved it as one file: every record of every object, up to
+   * the cap of a million rows per object, held at once on both sides of the
+   * bridge. The page now hears where the file went and the records written
+   * per object, or that the dialog was dismissed.
+   *
+   * The document is the one the page saved (`sandforgeBackupVersion` 1):
+   * the backup's id, org, time and record count, then each object's records
+   * as an array, one record to a line.
    */
   private async handleBackupExport(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -1569,38 +1648,77 @@ export class DataOpsHandler implements DomainHandler {
       return;
     }
 
-    const objects: Record<string, unknown[]> = {};
-    try {
-      for (const obj of meta.objects ?? []) {
-        // The document is one message, which the page saves as one file: it
-        // carries every record of the backup, whichever form it was kept in.
-        const records: BackupRecord[] = [];
-        for await (const batch of await this.backupBatches(parsed.operationId, obj.objectApiName)) {
-          records.push(...batch);
-        }
-        objects[obj.objectApiName] = records;
-      }
-    } catch (err: unknown) {
-      sendHandlerError(this.deps, 'backup:export', 'dataops:error', msg, err);
+    const saved = await this.saveDialog.saveStream(
+      `sandforge-backup-${parsed.operationId}.json`,
+      (append) => this.writeBackupDocument(parsed, meta, append),
+      ['json'],
+    );
+    if (saved.status === 'error') {
+      sendHandlerError(this.deps, 'backup:export', 'dataops:error', msg, new Error(saved.message));
       return;
     }
 
-    const document = {
-      sandforgeBackupVersion: 1,
-      operationId: parsed.operationId,
-      orgId: meta.orgId,
-      timestamp: meta.timestamp ?? '',
-      totalRecords: meta.totalRecords ?? 0,
-      objects,
-    };
-
-    const response = buildResponse(this.deps, msg, 'backup:export:result', {
-      operationId: parsed.operationId,
-      filename: `sandforge-backup-${parsed.operationId}.json`,
-      data: JSON.stringify(document, null, 2),
-    });
+    const response = buildResponse(
+      this.deps,
+      msg,
+      'backup:export:result',
+      saved.status === 'saved'
+        ? {
+            operationId: parsed.operationId,
+            status: 'saved' as const,
+            path: saved.path,
+            objects: saved.result,
+          }
+        : { operationId: parsed.operationId, status: 'cancelled' as const },
+    );
     this.deps.broker.postToWebview(response);
-    this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    // Not the path: where a person keeps an export is theirs.
+    this.deps.log(`[TX] ${response.type} id=${response.id} ${saved.status}`);
+  }
+
+  /**
+   * Write a backup's export document through `append`, a batch of records
+   * at a time: never more than one batch of the backup in memory.
+   *
+   * @param backup - The backup's id and the org it was taken from.
+   * @param meta - The backup's metadata.
+   * @returns Per object, the records written.
+   */
+  private async writeBackupDocument(
+    backup: { operationId: string; orgId: string },
+    meta: { timestamp?: string; totalRecords?: number; objects?: Array<{ objectApiName: string }> },
+    append: (text: string) => Promise<void>,
+  ): Promise<BackupExportObject[]> {
+    const { operationId } = backup;
+    const header: Array<[string, string | number]> = [
+      ['sandforgeBackupVersion', 1],
+      ['operationId', operationId],
+      ['orgId', backup.orgId],
+      ['timestamp', meta.timestamp ?? ''],
+      ['totalRecords', meta.totalRecords ?? 0],
+    ];
+    const fields = header.map(([key, value]) => `  "${key}": ${JSON.stringify(value)},\n`);
+    await append(`{\n${fields.join('')}  "objects": {`);
+    const written: BackupExportObject[] = [];
+    for (const { objectApiName } of meta.objects ?? []) {
+      // One key per object, as the document built whole had it.
+      if (written.some((w) => w.objectApiName === objectApiName)) continue;
+      await append(`${written.length > 0 ? ',' : ''}\n    ${JSON.stringify(objectApiName)}: [`);
+      let records = 0;
+      for await (const batch of await this.backupBatches(operationId, objectApiName)) {
+        if (batch.length === 0) continue;
+        await append(
+          batch
+            .map((record, i) => `${records + i > 0 ? ',' : ''}\n      ${JSON.stringify(record)}`)
+            .join(''),
+        );
+        records += batch.length;
+      }
+      await append(records > 0 ? '\n    ]' : ']');
+      written.push({ objectApiName, records });
+    }
+    await append(`${written.length > 0 ? '\n  ' : ''}}\n}\n`);
+    return written;
   }
 
   /**

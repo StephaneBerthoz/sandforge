@@ -1302,6 +1302,8 @@
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} Zeilen gelesen — an der Obergrenze angehalten (sandforge.backup.maxRecordsPerObject).",
     "backupReadFailed": "{{object}}: {{read}} von {{held}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
     "backupReadFailedUncounted": "{{object}}: {{read}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
+    "restorePartialBadge": "Unvollständig",
+    "backupExported": "Gespeichert unter {{path}}. Datensätze pro Objekt: {{records}}.",
     "backupDesc": "Datensicherungen erstellen und verwalten",
     "restore": "Wiederherstellen",
     "restoreDesc": "Daten aus einer Sicherung wiederherstellen",

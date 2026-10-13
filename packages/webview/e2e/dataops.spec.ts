@@ -263,10 +263,12 @@ test.describe('DataOps — with a connected org', () => {
     await expect(page.getByTestId('page-tab-restore')).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('restore-panel')).toBeVisible();
     await expect(page.getByTestId('backup-panel')).toHaveCount(0);
-    // Restore only offers the backups that completed; the failed one is not a
-    // restore candidate.
+    // A backup whose read failed part-way keeps the rows it read: Restore
+    // offers it beside the completed one, marked partial.
     await expect(page.getByTestId('restore-backup-op-backup-1')).toBeVisible();
-    await expect(page.getByTestId('restore-backup-op-backup-2')).toHaveCount(0);
+    await expect(page.getByTestId('restore-backup-op-backup-2')).toBeVisible();
+    await expect(page.getByTestId('restore-partial-badge-op-backup-2')).toHaveText('Partial');
+    await expect(page.getByTestId('restore-partial-badge-op-backup-1')).toHaveCount(0);
 
     await page.getByTestId('page-tab-anonymize').click();
     await expect(page.getByTestId('page-tab-anonymize')).toHaveAttribute('aria-selected', 'true');

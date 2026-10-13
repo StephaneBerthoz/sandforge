@@ -70,6 +70,85 @@ describe('RestorePanel', () => {
   it('says nothing of a whole backup', () => {
     render(<RestorePanel backups={backups} />);
     expect(screen.queryByTestId('restore-partial-op-1')).toBeNull();
+    expect(screen.queryByTestId('restore-partial-badge-op-1')).toBeNull();
+  });
+
+  describe('a backup whose read failed part-way', () => {
+    /** As the host lists it: the object read whole, and the one the read failed on. */
+    const failedPartWay: BackupSummary = {
+      operationId: 'op-3',
+      orgId: 'org-1',
+      timestamp: '2026-01-02T00:00:00Z',
+      status: 'failed',
+      partial: true,
+      objectResults: [
+        { objectApiName: 'Account', recordCount: 300, orgCount: 300, truncated: false },
+        {
+          objectApiName: 'Contact',
+          recordCount: 1000,
+          orgCount: 1234,
+          truncated: true,
+          stoppedAt: 'failure',
+        },
+      ],
+      totalRecords: 1300,
+      totalSize: 0,
+    };
+
+    it('is offered for a restore, marked partial, with how far the read got', () => {
+      render(<RestorePanel backups={[failedPartWay]} />);
+
+      expect(screen.getByTestId('restore-backup-op-3')).toBeDefined();
+      expect(screen.getByTestId('restore-partial-badge-op-3').textContent).toBe('Partial');
+      const note = screen.getByTestId('restore-partial-op-3');
+      expect(note.querySelector('p')?.textContent).toBe(
+        'Partial: a restore brings back only the rows this backup read, and leaves the rest of each object as it is.',
+      );
+      expect([...note.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+        'Contact: 1,000 of 1,234 rows read — the read failed there.',
+      ]);
+    });
+
+    it('is restored on a click, as a completed one is', () => {
+      const onRestore = vi.fn();
+      render(
+        <RestorePanel backups={[failedPartWay]} selectedBackupId="op-3" onRestore={onRestore} />,
+      );
+
+      fireEvent.click(screen.getByTestId('restore-btn-op-3'));
+
+      expect(onRestore).toHaveBeenCalledWith('op-3');
+    });
+
+    it('is not offered when it kept no row: there is nothing to restore', () => {
+      render(<RestorePanel backups={backups} />);
+
+      expect(screen.queryByTestId('restore-backup-op-2')).toBeNull();
+    });
+  });
+
+  it('marks a backup stopped at the cap as partial', () => {
+    render(
+      <RestorePanel
+        backups={[
+          {
+            ...backups[0],
+            partial: true,
+            objectResults: [
+              {
+                objectApiName: 'Contact',
+                recordCount: 700,
+                orgCount: 1234,
+                truncated: true,
+                stoppedAt: 'cap',
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('restore-partial-badge-op-1').textContent).toBe('Partial');
   });
 
   it('offers a backup whose stored time is not a date as taken at an unknown time', () => {

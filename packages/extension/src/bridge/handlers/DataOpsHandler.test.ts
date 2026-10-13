@@ -3114,6 +3114,52 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
       expect(last('dataops:error')?.payload).toMatchObject({ code: 'NOTHING_TO_RESUME' });
     });
 
+    it('offers no resume of a run given its own list of objects to a page that never gives one', async () => {
+      // As it stands, pinned: a checkpoint is good for the objects its run
+      // addressed, and the coverage check looks it up under every object of
+      // the template, which is what the page runs. No caller in the product
+      // names a list — the page never does, Automation has no masking step,
+      // and no command line masks — so only a run like the ones here, which
+      // name Contact alone, keeps such a checkpoint, and only a run naming the
+      // same list resumes it.
+      const rows = contactsOf(2500);
+      let cancelOnce = true;
+      const { conn, update } = orgOf(rows, {
+        afterBatch: (written) => {
+          if (written === 10 && cancelOnce) {
+            cancelOnce = false;
+            cancelTheRun();
+          }
+        },
+      });
+      await maskContacts(conn);
+      const stopped = checkpointOf();
+      expect(stopped).toBeDefined();
+
+      await handler.handle(
+        inboundRequest({
+          id: 'cov-listed',
+          type: 'dataops:anonymize:coverage',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard' },
+        } as BaseMessage),
+      );
+      expect(last('dataops:anonymize:coverage:response')?.payload).not.toHaveProperty('checkpoint');
+
+      const callsBefore = update.mock.calls.length;
+      await handler.handle(
+        inboundRequest({
+          id: 'an-page-resume',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', resumeFrom: stopped?.id },
+        } as BaseMessage),
+      );
+      expect(update.mock.calls.length).toBe(callsBefore);
+      expect(last('dataops:error')?.payload).toMatchObject({ code: 'NOTHING_TO_RESUME' });
+      expect(checkpointOf()?.id).toBe(stopped?.id);
+    });
+
     it('refuses a resume that names another run than the one kept', async () => {
       const rows = contactsOf(300);
       const { conn, update } = orgOf(rows, { refuse: (id) => id === String(rows[0].Id) });

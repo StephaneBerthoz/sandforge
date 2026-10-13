@@ -1302,6 +1302,8 @@
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} rows read — stopped at the cap (sandforge.backup.maxRecordsPerObject).",
     "backupReadFailed": "{{object}}: {{read}} of {{held}} rows read — the read failed there.",
     "backupReadFailedUncounted": "{{object}}: {{read}} rows read — the read failed there.",
+    "restorePartialBadge": "Partial",
+    "backupExported": "Saved to {{path}}. Records per object: {{records}}.",
     "backupDesc": "Create and manage data backups",
     "restore": "Restore",
     "restoreDesc": "Restore data from a backup",

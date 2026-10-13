@@ -1,5 +1,15 @@
 import { createReadStream } from 'node:fs';
-import { access, appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import {
+  access,
+  appendFile,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import * as path from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -17,6 +27,15 @@ export interface BackupRecordStoreDeps {
   readLines: (filePath: string) => AsyncIterable<string>;
   mkdir: (dirPath: string) => Promise<void>;
   rm: (filePath: string) => Promise<void>;
+  /** The files directly in a directory, each with when it was last written; none when it is not there. */
+  listFiles: (dirPath: string) => Promise<StoredFile[]>;
+}
+
+/** A file of a directory, and when it was last written. */
+export interface StoredFile {
+  name: string;
+  /** When the file was last written, in milliseconds since the epoch. */
+  modifiedMs: number;
 }
 
 /** A record of a backup, as it was read from the org. */
@@ -44,7 +63,28 @@ export function nodeBackupFiles(storagePath: string): BackupRecordStoreDeps {
       await mkdir(dirPath, { recursive: true });
     },
     rm: (filePath) => rm(filePath, { force: true }),
+    listFiles: (dirPath) => filesIn(dirPath),
   };
+}
+
+/** The files directly in a directory, with when each was last written; none when it is not there. */
+async function filesIn(dirPath: string): Promise<StoredFile[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dirPath, { withFileTypes: true });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+  const files: StoredFile[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    // Removed between the listing and now, by another window's retention:
+    // there is nothing left to say about it.
+    const info = await stat(path.join(dirPath, entry.name)).catch(() => undefined);
+    if (info) files.push({ name: entry.name, modifiedMs: info.mtimeMs });
+  }
+  return files;
 }
 
 /** A file's lines, read a chunk at a time; the file is closed however the reading ends. */
@@ -57,6 +97,15 @@ async function* linesOf(filePath: string): AsyncGenerator<string> {
     lines.close();
     stream.destroy();
   }
+}
+
+/**
+ * A name as it goes into a file name: letters, digits, `_` and `-`, the rest
+ * as `_`. Both parts of a file's name are Salesforce API names or generated
+ * ids, but they reach the store from a message payload.
+ */
+function fileSegment(name: string): string {
+  return name.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
 /** Whether a value read back is a record: an object, not an array or nothing. */
@@ -99,9 +148,8 @@ export class BackupRecordStore {
     objectApiName: string,
     form: 'lines' | 'array' = 'lines',
   ): string {
-    // Both segments are Salesforce API names / generated ids, but they reach
-    // here from a message payload — keep them to a single path segment.
-    const safe = `${operationId}__${objectApiName}`.replace(/[^A-Za-z0-9_-]/g, '_');
+    // Kept to a single path segment: see fileSegment.
+    const safe = `${fileSegment(operationId)}__${fileSegment(objectApiName)}`;
     return path.join(this.dir, `${safe}.${form === 'lines' ? 'ndjson' : 'json'}`);
   }
 
@@ -196,5 +244,55 @@ export class BackupRecordStore {
   async delete(operationId: string, objectApiName: string): Promise<void> {
     await this.deps.rm(this.filePath(operationId, objectApiName)).catch(() => undefined);
     await this.deps.rm(this.filePath(operationId, objectApiName, 'array')).catch(() => undefined);
+  }
+
+  /**
+   * Remove the record files of backups whose metadata was never saved: a
+   * window that closed or crashed in the middle of a backup leaves the pages
+   * it wrote, which no listing shows, no restore reads and no retention
+   * removes, up to a million rows an object.
+   *
+   * A backup going on in another window has no metadata yet either, and the
+   * storage is the same for every window of the machine. Its files are told
+   * apart by age: the file of the object it reads gets a page every few
+   * seconds, so a backup is removed only once the newest of its files has
+   * not been written for `olderThanMs`. The files of one backup are taken
+   * together, so an object it read whole hours ago is not removed while it
+   * reads the next one. A backup's files share the name up to the first
+   * `__`; an object name may hold more, an id the store writes holds none,
+   * and an id that did would only gather more files under one age.
+   *
+   * @param keep - The backups whose files stay whatever their age: every one
+   *   whose metadata is kept, and every one this window is writing.
+   * @param olderThanMs - How long ago the newest file of a backup must have
+   *   been written for its files to be removed.
+   * @param now - The time now, in milliseconds since the epoch.
+   * @returns The names of the files removed.
+   */
+  async sweep(keep: Iterable<string>, olderThanMs: number, now: number): Promise<string[]> {
+    const kept = [...keep].map((operationId) => `${fileSegment(operationId)}__`);
+    const backups = new Map<string, StoredFile[]>();
+    for (const file of await this.deps.listFiles(this.dir)) {
+      // Only the files a backup writes: anything else here is not this store's.
+      if (!/\.(?:ndjson|json)$/.test(file.name)) continue;
+      const cut = file.name.indexOf('__');
+      if (cut <= 0) continue;
+      if (kept.some((prefix) => file.name.startsWith(prefix))) continue;
+      const backup = file.name.slice(0, cut);
+      backups.set(backup, [...(backups.get(backup) ?? []), file]);
+    }
+    const removed: string[] = [];
+    for (const files of backups.values()) {
+      const newest = Math.max(...files.map((f) => f.modifiedMs));
+      if (now - newest < olderThanMs) continue;
+      for (const file of files) {
+        // One file another process holds open is no reason to keep the rest.
+        await this.deps.rm(path.join(this.dir, file.name)).then(
+          () => removed.push(file.name),
+          () => undefined,
+        );
+      }
+    }
+    return removed;
   }
 }
