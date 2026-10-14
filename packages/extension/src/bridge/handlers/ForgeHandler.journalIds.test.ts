@@ -20,7 +20,11 @@ import { memoryRunFile, type ForgeRunStore } from '../../modules/forge/ForgeRunS
 import { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
-import type { RunRemovalOutcome } from '../../modules/forge/ForgeRunRemoval.js';
+import type {
+  RunRecords,
+  RunRemovalOptions,
+  RunRemovalOutcome,
+} from '../../modules/forge/ForgeRunRemoval.js';
 import type { RunToVerify } from '../../modules/forge/RunVerifier.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
@@ -41,8 +45,9 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 vi.mock('../../core/common/sforceLimitParser.js', () => ({ checkApiLimits: vi.fn() }));
 
-/** What each removal was handed to delete, and what it answers. */
+/** What each removal was handed to delete, how, and what it answers. */
 const removals: Array<Array<{ objectApiName: string; ids: string[] }>> = [];
+const removalOptions: RunRemovalOptions[] = [];
 let removalAnswer: (plan: Array<{ objectApiName: string; ids: string[] }>) => RunRemovalOutcome;
 vi.mock('../../modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../modules/forge/ForgeRunRemoval.js')>();
@@ -50,13 +55,41 @@ vi.mock('../../modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
     ...actual,
     removalOrg: () => ({}),
     removeRunRecords: vi.fn(
-      async (_org: unknown, plan: Array<{ objectApiName: string; ids: string[] }>) => {
+      async (
+        _org: unknown,
+        handed: Array<{ objectApiName: string; ids: string[] }> | RunRecords,
+        options: RunRemovalOptions,
+      ) => {
+        removalOptions.push(options);
+        // Read a page at a time, as a removal of a run past the bound is handed them.
+        const plan: Array<{ objectApiName: string; ids: string[] }> = [];
+        if (actual.isRunRecords(handed)) {
+          for (const { objectApiName } of handed.objects) {
+            const ids: string[] = [];
+            for await (const page of handed.pages(objectApiName)) ids.push(...page);
+            plan.push({ objectApiName, ids });
+          }
+        } else plan.push(...handed);
         removals.push(plan.map(({ objectApiName, ids }) => ({ objectApiName, ids: [...ids] })));
         return removalAnswer(plan);
       },
     ),
   };
 });
+
+/** What a removal of `plan` that took `gone` leaves, a page at a time, as a removal says it. */
+function leftAfter(
+  plan: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
+  gone: readonly string[],
+): RunRemovalOutcome['left'] {
+  const taken = new Set(gone);
+  return async function* left() {
+    for (const { objectApiName, ids } of plan) {
+      const still = ids.filter((id) => !taken.has(id));
+      if (still.length > 0) yield { objectApiName, ids: still };
+    }
+  };
+}
 
 /** What each verification was asked. */
 const verified: RunToVerify[] = [];
@@ -298,6 +331,7 @@ describe('a run whose ids are in its journal', () => {
 
   beforeEach(() => {
     removals.length = 0;
+    removalOptions.length = 0;
     verified.length = 0;
     removalAnswer = (plan) => ({
       objects: plan.map(({ objectApiName, ids }) => ({
@@ -314,6 +348,10 @@ describe('a run whose ids are in its journal', () => {
       })),
       cancelled: false,
       gone: plan.flatMap(({ ids }) => ids),
+      left: leftAfter(
+        plan,
+        plan.flatMap(({ ids }) => ids),
+      ),
       stamps: {},
     });
     disk = memoryDisk();
@@ -485,6 +523,10 @@ describe('a run whose ids are in its journal', () => {
       })),
       cancelled: false,
       gone: plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+      left: leftAfter(
+        plan,
+        plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+      ),
       stamps: {},
     });
 
@@ -503,6 +545,46 @@ describe('a run whose ids are in its journal', () => {
         ids: [targetOf('003', 3), targetOf('003', 2), targetOf('003', 1)],
       },
     ]);
+  });
+
+  it('keeps what a removal stamped beside the journal, not on the entry, and tells the next removal and Verify', async () => {
+    const entry = await runPastTheBound();
+    const stamped = { [targetOf('001', 1)]: '2026-10-14T12:00:05.000+0000' };
+    const refused = new Set([targetOf('001', 1)]);
+    removalAnswer = (plan) => ({
+      objects: plan.map(({ objectApiName, ids }) => ({
+        objectApiName,
+        planned: ids.length,
+        deleted: ids.filter((id) => !refused.has(id)).length,
+        alreadyGone: 0,
+        keptChanged: 0,
+        keptDependents: 0,
+        refused: ids.filter((id) => refused.has(id)).length,
+        heldBy: [],
+        unchecked: [],
+        reasons: [],
+      })),
+      cancelled: false,
+      gone: plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+      left: leftAfter(
+        plan,
+        plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+      ),
+      stamps: stamped,
+    });
+
+    await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+    expect(stored()[0]).not.toHaveProperty('removalStamps');
+    expect(await disk.journal.stampsOf(entry.journalId ?? '', 0)).toEqual(stamped);
+
+    await send('wv-verify', 'forge:verify:request', { forgeId: entry.forgeId });
+    expect(verified[0]?.removalStamps).toEqual(stamped);
+
+    refused.clear();
+    await send('wv-undo-again', 'forge:undo', { forgeId: entry.forgeId });
+    expect(removalOptions[1]?.removalStamps).toEqual(stamped);
+    expect(removals[1]).toEqual([{ objectApiName: 'Account', ids: [targetOf('001', 1)] }]);
   });
 
   it('verifies what the run created, its lookups read against every id the journal holds', async () => {

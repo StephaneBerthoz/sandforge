@@ -6,7 +6,7 @@ import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
 import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 import { ForgeAnonymizer } from './ForgeAnonymizer.js';
 import { ForgeAbortedError, ForgeExecutor } from './ForgeExecutor.js';
-import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
 import type {
@@ -136,6 +136,12 @@ interface FakeOrgOptions {
   onAnswer?: (call: number) => void;
   /** Whether the target is out of reach: every insert call throws. */
   insertsFail?: () => boolean;
+  /**
+   * The update call, by its number, before which the process is killed: it
+   * is never sent nor answered, and `onKill` is told first.
+   */
+  killBeforeUpdate?: number;
+  onKill?: () => void;
 }
 
 /** The rows of `object` per record type, as `SELECT RecordTypeId, COUNT(Id) n … GROUP BY RecordTypeId` answers. */
@@ -166,6 +172,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
   const target = new Map<string, Map<string, Row>>();
   const created: Record<string, number> = {};
   let inserted = 0;
+  let updateCalls = 0;
   const insertCalls: Array<{ object: string; rows: number }> = [];
   /** The record types counted per object, by the statement that counted them. */
   const recordTypeScans: string[] = [];
@@ -267,14 +274,19 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
       options.onAnswer?.(insertCalls.length);
       return results;
     }),
-    updateRecords: vi.fn(async (_org: string, object: string, rows: Row[]) =>
-      rows.map((row) => {
+    updateRecords: vi.fn(async (_org: string, object: string, rows: Row[]) => {
+      updateCalls++;
+      if (options.killBeforeUpdate === updateCalls) {
+        options.onKill?.();
+        return new Promise<never>(() => {});
+      }
+      return rows.map((row) => {
         const id = String(row['Id']);
         const record = target.get(object)?.get(id);
         if (record) Object.assign(record, { ...row, Id: undefined });
         return { id, success: record !== undefined, errors: record ? [] : ['not found'] };
-      }),
-    ),
+      });
+    }),
     isObjectCreatable: async () => true,
   };
   const executor = new ForgeExecutor(deps);
@@ -503,6 +515,35 @@ function statuses(): { schema: Schema; graph: ForgeGraph } {
       },
     },
     graph: graphOf([node('Account', 4), node('Contract', 12)], [edge('Account', 'Contract', true)]),
+  };
+}
+
+/**
+ * Contracts past Draft under their accounts, more of them than one call of
+ * statuses takes: their statuses go back in two calls.
+ */
+function manyStatuses(): { schema: Schema; graph: ForgeGraph } {
+  const accounts = Array.from({ length: 4 }, (_, n) => ({
+    Id: sourceId('Account', n),
+    Name: `Account ${n}`,
+  }));
+  const contracts = Array.from({ length: 250 }, (_, n) => ({
+    Id: sourceId('Contract', n),
+    AccountId: sourceId('Account', n % 4),
+    Status: 'Activated',
+  }));
+  return {
+    schema: {
+      Account: { fields: [text('Name')], rows: accounts },
+      Contract: {
+        fields: [lookup('AccountId', 'Account', false), text('Status', 'picklist')],
+        rows: contracts,
+      },
+    },
+    graph: graphOf(
+      [node('Account', 4), node('Contract', 250)],
+      [edge('Account', 'Contract', true)],
+    ),
   };
 }
 
@@ -1117,6 +1158,101 @@ describe('a run of whole tables read page by page', () => {
       ]);
     });
 
+    /**
+     * A journal file on disk that takes nothing more once the process is
+     * killed (`kill`): what the disk holds then is `disk.text()`.
+     */
+    function killableFile(): {
+      file: RunFile;
+      disk: ReturnType<typeof memoryRunFile>;
+      kill: () => void;
+      killed: () => boolean;
+    } {
+      const disk = memoryRunFile();
+      let dead = false;
+      return {
+        file: {
+          size: () => disk.size(),
+          append: (text: string) => {
+            if (!dead) disk.append(text);
+          },
+          read: (offset: number, length: number) => disk.read(offset, length),
+          close: () => {},
+        },
+        disk,
+        kill: () => {
+          dead = true;
+        },
+        killed: () => dead,
+      };
+    }
+
+    /**
+     * Run `build`'s clone in pages of 5 until the process is killed before the
+     * update call `killBefore` — the calls before it answered — then take it up
+     * from what the disk holds. What each update call sent, the killed one
+     * left out: it never left the machine.
+     */
+    async function killedInUpdatesAndResumed(
+      build: () => { schema: Schema; graph: ForgeGraph },
+      killBefore: number,
+      secondPassPageSize?: number,
+    ) {
+      const { schema, graph } = build();
+      const whole = await runOver(schema, graph);
+      const journal = killableFile();
+      const orgOptions: FakeOrgOptions = { killBeforeUpdate: killBefore, onKill: journal.kill };
+      const orgs = fakeOrgs(schema, orgOptions);
+      void orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        stream: { pageSize: 5, store: ForgeRunStore.open(journal.file), secondPassPageSize },
+      });
+      await vi.waitUntil(() => journal.killed());
+      orgOptions.killBeforeUpdate = undefined;
+      const store = ForgeRunStore.open(memoryRunFile(journal.disk.text()));
+      const resumed = await new ForgeExecutor(orgs.deps).execute(graph, 'src', 'tgt', () => {}, {
+        stream: { pageSize: 5, store, secondPassPageSize },
+      });
+      store.close();
+      const update = orgs.deps.updateRecords;
+      const sent = update
+        ? vi
+            .mocked(update)
+            .mock.calls.filter((_, call) => call !== killBefore - 1)
+            .map(([, object, rows]) => ({ object, rows }))
+        : [];
+      return { whole, orgs, resumed, sent };
+    }
+
+    it.each([2, 4, 6])(
+      'sends each record its lookups once when the process is killed in the second pass before update call %i, and the run is taken up',
+      async (killBefore) => {
+        const { whole, orgs, resumed, sent } = await killedInUpdatesAndResumed(
+          twoLookups,
+          killBefore,
+          2,
+        );
+        expect(orgs.written()).toEqual(whole.written());
+        expect(resumed.errors).toEqual([]);
+        const updated = sent.flatMap(({ rows }) => rows.map((row) => String(row['Id'])));
+        // One update per account in all, whichever part sent it.
+        expect(updated).toHaveLength(13);
+        expect(new Set(updated).size).toBe(13);
+      },
+    );
+
+    it('gives each status back once when the process is killed between two calls of statuses, and the run is taken up', async () => {
+      const { whole, orgs, resumed, sent } = await killedInUpdatesAndResumed(manyStatuses, 2);
+      expect(orgs.written()).toEqual(whole.written());
+      expect(resumed.errors).toEqual([]);
+      const given = sent
+        .filter(({ object }) => object === 'Contract')
+        .flatMap(({ rows }) => rows.map((row) => String(row['Id'])));
+      // 200 in the call before the kill, the 50 others once taken up.
+      expect(given).toHaveLength(250);
+      expect(new Set(given).size).toBe(250);
+      expect(sent.map(({ rows }) => rows.length)).toEqual([200, 50]);
+    });
+
     it('counts the records past its bound and leaves their ids in the journal', async () => {
       const { schema, graph } = selfLookups();
       const store = ForgeRunStore.open(memoryRunFile());
@@ -1220,6 +1356,54 @@ describe('a run of whole tables read page by page', () => {
           leftOut: { writtenBefore: 3 },
         },
       ]);
+    });
+
+    it('counts what the run it retries wrote of an object read through a filter through that filter, leaving out the parents it read by id outside it', async () => {
+      const { schema, graph } = selfLookups();
+      const accounts = schema['Account'];
+      if (!accounts) throw new Error('no accounts');
+      accounts.fields.push(text('Type'));
+      accounts.rows.forEach((row, n) => {
+        row['Type'] = n < 12 ? 'Customer' : 'Partner';
+      });
+      // The run retried wrote five customers, and two partners its customers
+      // named as their parent, read by id outside the filter.
+      const writtenBefore = Object.fromEntries(
+        [0, 1, 2, 3, 4, 15, 20].map((n) => [
+          sourceId('Account', n),
+          canonicalRecordId(`001T${String(n).padStart(11, '0')}`) ?? '',
+        ]),
+      );
+      const orgs = fakeOrgs(schema);
+      orgs.deps.describeObject = async (_org, object) => ({
+        keyPrefix: KEY_PREFIX[object] ?? null,
+        recordTypes: [],
+      });
+      // The source counts through what the statement asks.
+      orgs.deps.countRecords = async (_org, soql) => {
+        const [, object, where] = /^SELECT COUNT\(\) FROM (\w+)(?: WHERE (.+))?$/.exec(soql) ?? [];
+        if (!object) throw new Error(`not a count: ${soql}`);
+        if (!where) return schema[object]?.rows.length ?? 0;
+        return selectRows(tablesOf(schema), `SELECT Id FROM ${object} WHERE ${where}`).length;
+      };
+      const boundaries: ForgeWriteBoundary[] = [];
+      await orgs.executor
+        .execute(graph, 'src', 'tgt', () => {}, {
+          writtenBefore,
+          objectSoqlFilters: { Account: "Type = 'Customer'" },
+          beforeWrite: async (boundary) => {
+            boundaries.push(boundary);
+            throw new Error('Stopped at the gate.');
+          },
+          stream: { pageSize: 10 },
+        })
+        .catch(() => undefined);
+      expect(boundaries[0]?.objects[0]).toEqual({
+        objectApiName: 'Account',
+        rows: [],
+        counted: { rows: 7 },
+        leftOut: { writtenBefore: 5 },
+      });
     });
 
     it('counts nothing to write of an object held back whole for a record type, and says how many it holds back', async () => {

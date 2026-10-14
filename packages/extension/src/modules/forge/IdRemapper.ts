@@ -185,6 +185,16 @@ export class IdRemapper {
   }
 
   /**
+   * Whether `oldId` maps onto a record the run created, in this part or in an
+   * earlier part this one takes up: a record of the run's, which the files
+   * the run copies hang on, whichever part wrote it.
+   */
+  wasCreated(oldId: string): boolean {
+    if (this.store) return this.store.mapping(oldId)?.kind === 'created';
+    return this.isCreated(oldId);
+  }
+
+  /**
    * Source ids mapped onto records the target already held, in registration
    * order: with a store, those an earlier part of the run wrote too.
    */

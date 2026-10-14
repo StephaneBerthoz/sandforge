@@ -152,11 +152,15 @@ function objectResult(
   };
 }
 
+/** What a removal of a summary's run says it left: the command reads what it took instead. */
+const noneLeft: RunRemovalOutcome['left'] = async function* () {};
+
 /** A removal that took every record it set out to take. */
 const TOOK_ALL: RunRemovalOutcome = {
   objects: [objectResult('Contact', 2), objectResult('Account', 1)],
   cancelled: false,
   gone: [],
+  left: noneLeft,
   stamps: {},
 };
 
@@ -190,6 +194,7 @@ const STOPPED_AFTER_CONTACTS: RunRemovalOutcome = {
   objects: [objectResult('Contact', 2)],
   cancelled: true,
   gone: [TGT('003', 2), TGT('003', 1)],
+  left: noneLeft,
   stamps: FIRST_STAMPS,
   span: FIRST_SPAN,
 };
@@ -517,6 +522,7 @@ describe('sandforge-clone --remove', () => {
         ],
         cancelled: false,
         gone: [],
+        left: noneLeft,
         stamps: {},
       });
 
@@ -734,6 +740,7 @@ describe('sandforge-clone --remove', () => {
           objects: [objectResult('Account', 1)],
           cancelled: false,
           gone: [TGT('001', 1)],
+          left: noneLeft,
           stamps: {},
           span: SECOND_SPAN,
         });

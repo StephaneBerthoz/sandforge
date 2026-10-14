@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { appendFile, mkdir, readdir, rm } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { createInterface } from 'node:readline';
 import { z } from 'zod';
@@ -9,8 +9,11 @@ import {
   forgeGraphSchema,
   forgeRunCreatedRecords,
   type ForgeRemovalPlan,
+  type IdMapRow,
 } from '@sandforge/shared';
 import { ForgeRunStore, nodeRunFile, type RunFile } from './ForgeRunStore.js';
+import type { RunRecords } from './ForgeRunRemoval.js';
+import { HashedKeys, JournalPart } from './journalRecords.js';
 
 /** File-system operations the journal needs, injected so it stays testable. */
 export interface ForgeRunJournalDeps {
@@ -26,6 +29,13 @@ export interface ForgeRunJournalDeps {
   listFiles: (dirPath: string) => Promise<string[]>;
   /** A journal's file, for the store of the run under way to write and read as it goes. */
   openRunFile: (filePath: string) => RunFile;
+  /**
+   * Put a file in the place of another, whole: a file written beside the
+   * journal — what removals left, what they stamped — is written next to it
+   * and then put in its place, never left half written. Without it, the file
+   * is written in place.
+   */
+  rename?: (from: string, to: string) => Promise<void>;
 }
 
 /**
@@ -41,6 +51,7 @@ export function nodeRunJournal(storagePath: string): ForgeRunJournal {
       await mkdir(dirPath, { recursive: true });
     },
     rm: (filePath) => rm(filePath, { force: true }),
+    rename: (from, to) => rename(from, to),
     listFiles: (dirPath) =>
       readdir(dirPath).catch((err: unknown) => {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -162,6 +173,21 @@ function endPathOf(filePath: string): string {
 function leftPathOf(filePath: string, part: number): string {
   return `${filePath.replace(/\.ndjson$/, '')}.part${part}.left`;
 }
+
+/**
+ * Beside a journal, what the removals of one of its parts left on records
+ * they did not delete: the `LastModifiedDate` the org left on each, one
+ * `id date` per line (`RunRemovalOutcome.stamps`).
+ */
+function stampsPathOf(filePath: string, part: number): string {
+  return `${filePath.replace(/\.ndjson$/, '')}.part${part}.stamps`;
+}
+
+/** A date as the org writes one: what a stamp holds. */
+const stampDateSchema = z
+  .string()
+  .max(40)
+  .refine((value) => Number.isFinite(Date.parse(value)), 'not a date');
 
 /** Ids written to a file of what removals left at a time. */
 const LEFT_IDS_PER_WRITE = 10_000;
@@ -331,10 +357,10 @@ export class ForgeRunJournal {
     const filePath = this.filePath(journalId);
     await this.deps.rm(filePath);
     await this.deps.rm(endPathOf(filePath));
-    // What the removals of its parts left goes with it.
+    // What the removals of its parts left, and stamped, goes with it.
     const prefix = `${path.basename(filePath).replace(/\.ndjson$/, '')}.part`;
     for (const name of await this.deps.listFiles(this.dir)) {
-      if (name.startsWith(prefix) && name.endsWith('.left')) {
+      if (name.startsWith(prefix) && (name.endsWith('.left') || name.endsWith('.stamps'))) {
         await this.deps.rm(path.join(this.dir, name));
       }
     }
@@ -411,6 +437,141 @@ export class ForgeRunJournal {
     }
     // A removal that left none leaves a file that says so.
     if (ids.length === 0) await this.deps.appendFile(filePath, '');
+  }
+
+  /**
+   * The records the part `part` of the journal `journalId` created that its
+   * removals have not taken (`keepLeft`), as a removal takes them, read from
+   * the journal a page at a time (`JournalPart`): what {@link idsOf} and
+   * {@link leftOf} give whole, holding no id. Undefined when the journal is
+   * gone or is not that run's, and for a journal of 1.50, read whole. `close`
+   * lets the journal's file go, once the removal is through.
+   */
+  async recordsOf(
+    journalId: string,
+    part: number,
+  ): Promise<{ records: RunRecords; close: () => void } | undefined> {
+    if (!(await this.head(journalId))) return undefined;
+    const left = await this.leftKeysOf(journalId, part);
+    const file = this.deps.openRunFile(this.filePath(journalId));
+    const read = JournalPart.read(file, part);
+    if (!read) {
+      file.close();
+      return undefined;
+    }
+    return { records: read.runRecords(left), close: () => file.close() };
+  }
+
+  /**
+   * The rows of the Id map of the part `part` of the journal `journalId`,
+   * read from the journal as they are written (`JournalPart.idMapRows`): the
+   * rows {@link idsOf} gives whole. Undefined as for {@link recordsOf}.
+   */
+  async idMapRowsOf(
+    journalId: string,
+    part: number,
+  ): Promise<{ rows: Iterable<IdMapRow>; close: () => void } | undefined> {
+    if (!(await this.head(journalId))) return undefined;
+    const file = this.deps.openRunFile(this.filePath(journalId));
+    const read = JournalPart.read(file, part);
+    if (!read) {
+      file.close();
+      return undefined;
+    }
+    return { rows: read.idMapRows(), close: () => file.close() };
+  }
+
+  /**
+   * The keys of the records the removals of the part `part` left, as
+   * {@link keepLeft} kept them, a few bytes each and no id; undefined when no
+   * removal left any record of it, or the file is gone.
+   */
+  async leftKeysOf(journalId: string, part: number): Promise<HashedKeys | undefined> {
+    const filePath = leftPathOf(this.filePath(journalId), part);
+    const names = await this.deps.listFiles(this.dir);
+    if (!names.includes(path.basename(filePath))) return undefined;
+    const keys = new HashedKeys();
+    for await (const line of this.deps.readLines(filePath)) {
+      const id = line.trim();
+      if (idSchema.safeParse(id).success) keys.add(id.slice(0, 15));
+    }
+    return keys;
+  }
+
+  /**
+   * Keep, beside the journal, the records a removal of its part `part` left,
+   * as a removal hands them over a page at a time (`RunRemovalOutcome.left`):
+   * written beside the file it replaces, then put in its place. Says how many
+   * it left of each object.
+   */
+  async keepLeftPages(
+    journalId: string,
+    part: number,
+    pages: AsyncIterable<{ objectApiName: string; ids: readonly string[] }>,
+  ): Promise<Array<{ objectApiName: string; count: number }>> {
+    const filePath = leftPathOf(this.filePath(journalId), part);
+    const rename = this.deps.rename;
+    const written = rename ? `${filePath}.next` : filePath;
+    await this.deps.rm(written);
+    // A removal that left none leaves a file that says so.
+    await this.deps.appendFile(written, '');
+    const counts = new Map<string, number>();
+    for await (const { objectApiName, ids } of pages) {
+      if (ids.length === 0) continue;
+      counts.set(objectApiName, (counts.get(objectApiName) ?? 0) + ids.length);
+      for (let at = 0; at < ids.length; at += LEFT_IDS_PER_WRITE) {
+        await this.deps.appendFile(
+          written,
+          `${ids.slice(at, at + LEFT_IDS_PER_WRITE).join('\n')}\n`,
+        );
+      }
+    }
+    if (rename) await rename(written, filePath);
+    return [...counts].map(([objectApiName, count]) => ({ objectApiName, count }));
+  }
+
+  /**
+   * What the removals of the part `part` left on records they did not delete
+   * (`RunRemovalOutcome.stamps`), kept beside the journal by
+   * {@link keepStamps}: none when there is no file. A line that is not an id
+   * and a date is left out.
+   */
+  async stampsOf(journalId: string, part: number): Promise<Record<string, string>> {
+    const filePath = stampsPathOf(this.filePath(journalId), part);
+    const names = await this.deps.listFiles(this.dir);
+    if (!names.includes(path.basename(filePath))) return {};
+    const stamps: Record<string, string> = {};
+    for await (const line of this.deps.readLines(filePath)) {
+      const [id, date] = line.trim().split(' ');
+      if (idSchema.safeParse(id).success && stampDateSchema.safeParse(date).success) {
+        stamps[id] = date;
+      }
+    }
+    return stamps;
+  }
+
+  /**
+   * Keep, beside the journal, what a removal of its part `part` left on the
+   * records it did not delete, over what earlier removals left: a run past
+   * the bound keeps none of it in its history entry, which would hold an id
+   * for each record a removal left stamped.
+   */
+  async keepStamps(
+    journalId: string,
+    part: number,
+    stamps: Readonly<Record<string, string>>,
+  ): Promise<void> {
+    if (Object.keys(stamps).length === 0) return;
+    const filePath = stampsPathOf(this.filePath(journalId), part);
+    const all = Object.entries({ ...(await this.stampsOf(journalId, part)), ...stamps });
+    const rename = this.deps.rename;
+    const written = rename ? `${filePath}.next` : filePath;
+    await this.deps.rm(written);
+    for (let at = 0; at < all.length; at += LEFT_IDS_PER_WRITE) {
+      const lines = all.slice(at, at + LEFT_IDS_PER_WRITE).map(([id, date]) => `${id} ${date}`);
+      await this.deps.appendFile(written, `${lines.join('\n')}\n`);
+    }
+    if (rename) await rename(written, filePath);
   }
 
   /**

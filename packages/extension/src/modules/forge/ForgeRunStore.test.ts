@@ -245,6 +245,53 @@ describe('ForgeRunStore', () => {
     });
   });
 
+  describe('what was done once', () => {
+    it('knows each lookup filled in and each status given back, in this part and in the parts before it', () => {
+      const { store, file } = freshStore();
+      for (let n = 0; n < 3_000; n++) store.patched(tgt('001', n), 'ParentId');
+      store.patched(tgt('001', 0), 'Key_Contact__c');
+      store.oweStatus('Order', tgt('801', 1), 'Activated');
+      store.oweStatus('Order', tgt('801', 2), 'Activated');
+      store.gaveStatus('Order', tgt('801', 1));
+      expect(store.wasPatched(tgt('001', 2_999), 'ParentId')).toBe(true);
+      expect(store.wasPatched(tgt('001', 3_000), 'ParentId')).toBe(false);
+      expect(store.wasPatched(tgt('001', 1), 'Key_Contact__c')).toBe(false);
+      expect(store.statusGiven(tgt('801', 1))).toBe(true);
+      expect(store.statusGiven(tgt('801', 2))).toBe(false);
+      store.close();
+
+      const again = ForgeRunStore.open(memoryRunFile(file.text()));
+      again.beginPart(at);
+      expect(again.wasPatched(tgt('001', 0), 'ParentId')).toBe(true);
+      expect(again.wasPatched(tgt('001', 0), 'Key_Contact__c')).toBe(true);
+      expect(again.wasPatched(tgt('001', 1), 'Key_Contact__c')).toBe(false);
+      expect(again.statusGiven(tgt('801', 1))).toBe(true);
+      // Only the status not given back is still owed.
+      expect(again.statusesOwed()).toEqual(
+        new Map([
+          [
+            'Order',
+            {
+              count: 1,
+              samples: [{ objectApiName: 'Order', id: tgt('801', 2), status: 'Activated' }],
+            },
+          ],
+        ]),
+      );
+      again.gaveStatus('Order', tgt('801', 2));
+      expect(again.statusesOwed()).toEqual(new Map());
+    });
+
+    it('counts a status given back twice once', () => {
+      const { store } = freshStore();
+      store.oweStatus('Order', tgt('801', 1), 'Activated');
+      store.oweStatus('Order', tgt('801', 2), 'Activated');
+      store.gaveStatus('Order', tgt('801', 1));
+      store.gaveStatus('Order', tgt('801', 1));
+      expect(store.statusesOwed().get('Order')?.count).toBe(1);
+    });
+  });
+
   describe('the file', () => {
     it('holds its lines until the calls under way are through, and every line once flushed', async () => {
       const { store, file } = freshStore();

@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
-import { forgeRunFingerprint } from './runFingerprint.js';
+import { forgeRunFingerprint, sameRunSetup } from './runFingerprint.js';
 
 function node(objectApiName: string, overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -85,5 +86,89 @@ describe('forgeRunFingerprint', () => {
         targetOrgId: 'other',
       }),
     ).not.toBe(base);
+  });
+
+  it('is the same whether discovery counted a table empty and left it out, or found rows in it', () => {
+    // The opportunities' table held rows another check put in the source,
+    // none under the record cloned, when the dry run counted it; the real
+    // run found it empty again.
+    const holding = graph([node('Account'), node('Contact'), node('Opportunity')]);
+    const empty = graph([
+      node('Account'),
+      node('Contact'),
+      node('Opportunity', { recordCount: 0, included: false, level: 1 }),
+    ]);
+    expect(forgeRunFingerprint(empty, setup)).toBe(forgeRunFingerprint(holding, setup));
+  });
+
+  it('still changes with a table left out by the user, or one the source would not count', () => {
+    const base = forgeRunFingerprint(graph([node('Account'), node('Contact')]), setup);
+    expect(
+      forgeRunFingerprint(
+        graph([
+          node('Account'),
+          node('Contact', { recordCount: 0, included: false, leftOutByUser: true }),
+        ]),
+        setup,
+      ),
+    ).not.toBe(base);
+    expect(
+      forgeRunFingerprint(
+        graph([
+          node('Account'),
+          node('Contact', {
+            recordCount: 0,
+            included: false,
+            status: 'error',
+            errors: ['Record count unavailable: INVALID_TYPE'],
+          }),
+        ]),
+        setup,
+      ),
+    ).not.toBe(base);
+  });
+});
+
+describe('sameRunSetup', () => {
+  const empty = graph([
+    node('Account'),
+    node('Contact', { recordCount: 0, included: false, level: 1 }),
+  ]);
+
+  it('takes the fingerprint of the run it is asked of', () => {
+    expect(sameRunSetup(forgeRunFingerprint(empty, setup), empty, setup)).toBe(true);
+    expect(sameRunSetup(forgeRunFingerprint(empty, setup), empty, { ...setup, x: 1 })).toBe(false);
+  });
+
+  it('takes the fingerprint a journal kept before an empty table counted as one the run takes', () => {
+    // The fingerprint of 1.52, which took the graph's own `included`.
+    const before = createHash('sha256')
+      .update(
+        JSON.stringify({
+          edges: [
+            {
+              relationshipName: 'Contacts',
+              required: false,
+              sourceObject: 'Account',
+              targetObject: 'Contact',
+            },
+          ],
+          nodes: [
+            { anonymizeFields: [], included: true, objectApiName: 'Account' },
+            { anonymizeFields: [], included: false, objectApiName: 'Contact' },
+          ],
+          setup: {
+            config: { depth: 'direct', filters: { Account: "Name != 'x'" } },
+            sourceOrgId: 'src',
+            targetOrgId: 'tgt',
+          },
+        }),
+      )
+      .digest('hex');
+    expect(before).not.toBe(forgeRunFingerprint(empty, setup));
+    expect(sameRunSetup(before, empty, setup)).toBe(true);
+    // Of that kind, a table that holds rows now is a table left in: not alike.
+    const holding = graph([node('Account'), node('Contact')]);
+    expect(sameRunSetup(before, holding, setup)).toBe(false);
   });
 });

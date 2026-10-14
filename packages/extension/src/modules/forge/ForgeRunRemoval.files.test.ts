@@ -266,9 +266,13 @@ const SOURCE: Record<string, FakeRow[]> = {
   ],
 };
 
-/** Clone the case with its files into `target`, and hand back the run's summary. */
-async function cloneInto(target: TargetOrg) {
-  return { summary: await clone(target) };
+/**
+ * Clone the case with its files into `target`, and hand back the run's
+ * summary; with `documentUnread`, the target does not answer the read of a
+ * version's document, as for a run stopped before it read it back.
+ */
+async function cloneInto(target: TargetOrg, documentUnread = false) {
+  return { summary: await clone(target, documentUnread) };
 }
 
 /** Remove what the run created, over the span the target dated it by, as the extension does. */
@@ -287,13 +291,16 @@ async function removeRun(target: TargetOrg, run: Awaited<ReturnType<typeof clone
   });
 }
 
-async function clone(target: TargetOrg) {
+async function clone(target: TargetOrg, documentUnread = false) {
   const deps: ForgeExecutorDeps = {
     describeFields: async (_org, object) =>
       object === 'Case'
         ? [idField, { name: 'Subject', queryable: true, createable: true, isReference: false }]
         : [idField],
     queryRecords: async (org, soql) => {
+      if (documentUnread && org === 'tgt' && /FROM ContentVersion WHERE Id = '/.test(soql)) {
+        throw new Error('The target did not answer.');
+      }
       if (org === 'tgt') return (await target.query(soql)).records as Record<string, unknown>[];
       return selectRows(SOURCE, soql).map((row) => ({
         ...row,
@@ -337,6 +344,28 @@ describe('removing the records a run created, when the run copied files', () => 
         ['ContentDocument', 1, 0, 0],
         ['Case', 1, 0, 0],
       ]);
+      for (const object of Object.keys(PREFIX)) {
+        expect({ object, left: target.all(object) }).toEqual({ object, left: [] });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('removes a file the run kept as its version alone through its document, which the org deletes it with', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const target = new TargetOrg();
+      const run = await cloneInto(target, true);
+      expect(run.summary.createdByObject.map((o) => o.objectApiName)).toContain('ContentVersion');
+      vi.setSystemTime(Date.now() + 60_000);
+
+      const outcome = await removeRun(target, run);
+
+      expect(outcome.objects.find((o) => o.objectApiName === 'ContentVersion')).toMatchObject({
+        deleted: 1,
+        refused: 0,
+      });
       for (const object of Object.keys(PREFIX)) {
         expect({ object, left: target.all(object) }).toEqual({ object, left: [] });
       }

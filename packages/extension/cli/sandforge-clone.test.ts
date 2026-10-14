@@ -20,6 +20,7 @@ import {
   describeOnce,
   executeOptions,
   failedOutright,
+  graphCounts,
   graphLine,
   jsonResult,
   listedObjects,
@@ -2143,6 +2144,34 @@ describe('sandforge-clone graph line', () => {
       'graph: 4 objects at a cap of 2 (2 empty, taking no place under it), 2 included; ' +
         '1 lookups, 1 between these objects; 2 waves, 0 cycles',
     );
+  });
+
+  it('says the objects the source would not count, so that every object of the graph is accounted for', () => {
+    // 78 objects, 69 empty and 6 included: the three left were the tables
+    // the source would not count, and nothing said so.
+    const unread: ForgeGraphNode = {
+      ...node('OutgoingEmail', false),
+      level: 1,
+      status: 'error',
+      errors: ['Record count unavailable: EXTERNAL_OBJECT_UNSUPPORTED_EXCEPTION'],
+    };
+    const graph: ForgeGraph = {
+      nodes: [node('Account'), node('Contact'), { ...node('Lead', false), level: 1 }, unread],
+      edges: [lookup('Account', 'Contact')],
+      totalRecords: 2,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+
+    expect(graphLine(graph, plan, 50)).toBe(
+      'graph: 4 objects at a cap of 50 (1 empty, taking no place under it), 2 included, ' +
+        '1 not counted; 1 lookups, 1 between these objects; 2 waves, 0 cycles',
+    );
+    expect(graphCounts(graph)).toEqual({ included: 2, emptyTables: 1, notCounted: 1, leftOut: 0 });
+    // An object left out by name is none of them.
+    expect(
+      graphCounts({ nodes: [...graph.nodes, { ...node('Case', false), recordCount: 4 }] }),
+    ).toEqual({ included: 2, emptyTables: 1, notCounted: 1, leftOut: 1 });
   });
 
   it('lists the objects by name, each with its record count, depth and whether it is included', () => {

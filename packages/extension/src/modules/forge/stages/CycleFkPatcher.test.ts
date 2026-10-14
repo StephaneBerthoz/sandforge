@@ -138,6 +138,52 @@ describe('patchCycleFkUpdates', () => {
     expect(new Set(sent).size).toBe(450);
   });
 
+  it('tells what each call filled in, and that the call was answered, before it sends the next', async () => {
+    const remapper = new IdRemapper();
+    const pending: PendingFkUpdate[] = [];
+    for (let i = 0; i < 450; i++) {
+      remapper.add(`003OLD${i}`, `003NEW${i}`);
+      pending.push(
+        makePending({
+          objectApiName: 'Contact',
+          newId: `003NEW${i}`,
+          sourceId: `003OLD${i}`,
+          fieldName: 'ReportsToId',
+          sourceRefId: `003OLD${i}`,
+        }),
+      );
+    }
+    const told: string[] = [];
+    const updateRecords = vi.fn<UpdateRecordsFn>().mockImplementation((_org, _obj, records) => {
+      told.push(`call of ${records.length}`);
+      return Promise.resolve(
+        records.map((r, i) => ({ id: String(r['Id']), success: i !== 0, errors: [] })),
+      );
+    });
+    let patched = 0;
+    await patchCycleFkUpdates(
+      makeInput({
+        pendingFkUpdates: pending,
+        remapper,
+        updateRecords,
+        onPatched: () => patched++,
+        onAnswered: () => {
+          told.push(`answered, ${patched} filled in so far`);
+        },
+      }),
+    );
+    // What a journal marks of a call is on disk before the next call goes:
+    // the first record of each call is refused, and not counted filled in.
+    expect(told).toEqual([
+      'call of 200',
+      'answered, 199 filled in so far',
+      'call of 200',
+      'answered, 398 filled in so far',
+      'call of 50',
+      'answered, 447 filled in so far',
+    ]);
+  });
+
   it('keeps patching the remaining batches when one rejected batch throws', async () => {
     const remapper = new IdRemapper();
     const pending: PendingFkUpdate[] = [];

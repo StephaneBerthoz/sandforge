@@ -385,6 +385,7 @@ describe('sandforge-clone --audit', () => {
       ],
       cancelled: false,
       gone: ['003000000000900AAA'],
+      left: async function* () {},
       stamps: {},
     });
     verifierAnswer = {

@@ -186,7 +186,7 @@ import {
 } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunPartEnd } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../src/modules/forge/ForgeRunStore.js';
-import { forgeRunFingerprint } from '../src/modules/forge/runFingerprint.js';
+import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
@@ -1151,7 +1151,7 @@ export function cliRunSetup(args: CliArgs, targetOrgId: string): Record<string, 
 export async function resumeRefusal(
   journals: ForgeRunJournal,
   journalPath: string,
-  run: { target: string; targetOrgId: string; fingerprint: string },
+  run: { target: string; targetOrgId: string; graph: ForgeGraph; setup: unknown },
 ): Promise<{ code: string; message: string } | undefined> {
   const head = await journals.headAt(journalPath);
   if (!head) {
@@ -1181,7 +1181,7 @@ export async function resumeRefusal(
         'taken up there only. Nothing was written.',
     };
   }
-  if (head.resume.fingerprint !== run.fingerprint) {
+  if (!sameRunSetup(head.resume.fingerprint, run.graph, run.setup)) {
     return {
       code: 'RESUME_CHANGED',
       message:
@@ -2014,9 +2014,13 @@ export function graphLine(
     graph.nodes.length - empty > maxNodes
       ? ' (raised for the parents their records cannot be written without)'
       : '';
+  // Said, the objects add up: 78 objects, 69 empty and 6 included left three
+  // unaccounted for, the tables the source would not count.
+  const { notCounted } = graphCounts(graph);
+  const notCountedNote = notCounted > 0 ? `, ${notCounted} not counted` : '';
   return (
     `graph: ${graph.nodes.length} objects at a cap of ${maxNodes}${emptyNote}${raised}, ` +
-    `${included} included; ` +
+    `${included} included${notCountedNote}; ` +
     `${graph.edges.length} lookups, ${between} between these objects; ` +
     `${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles` +
     (graph.truncated ? ' (TRUNCATED)' : '')
@@ -2024,14 +2028,50 @@ export function graphLine(
 }
 
 /**
- * The `graph` of the `--json` summary, and of `--list-objects --json`: the
- * objects discovery described, the lookups it met, the plan's waves and
- * cycles, and whether discovery stopped at its cap before it had walked
- * everything.
+ * The objects of a graph, each counted once: those the run reads, the empty
+ * tables discovery left out (`leftOutAsEmptyTable`), those whose describe or
+ * count failed, and those left out by name. They add up to the graph's
+ * objects. Exported so it can be tested.
+ *
+ * Whether a table is empty is the source's, read whole as discovery counts
+ * it, and changes with the source: a dry run counted 68 empty tables and 7
+ * included, and the real runs after it 69 and 6 — another check had put three
+ * opportunities in the source, none under the record cloned, and taken them
+ * out again in between. The record cloned reached the same 39 rows each time.
+ * Said with the graph, a dry run and a real run of the same clone can be
+ * told apart from a source that changed under them.
+ */
+export function graphCounts(graph: Pick<ForgeGraph, 'nodes'>): {
+  included: number;
+  emptyTables: number;
+  notCounted: number;
+  leftOut: number;
+} {
+  let included = 0;
+  let emptyTables = 0;
+  let notCounted = 0;
+  let leftOut = 0;
+  for (const node of graph.nodes) {
+    if (node.included) included++;
+    else if (leftOutAsEmptyTable(node)) emptyTables++;
+    else if (node.status === 'error' || node.errors.length > 0) notCounted++;
+    else leftOut++;
+  }
+  return { included, emptyTables, notCounted, leftOut };
+}
+
+/**
+ * The `graph` of the `--json` summary, and of `--list-objects --json`, the
+ * same on a dry run and a real one: the objects discovery described — how
+ * many it reads, how many it left out for an empty table or a count that
+ * failed, and how many were left out by name — the lookups it met, the plan's
+ * waves and cycles, and whether discovery stopped at its cap before it had
+ * walked everything.
  */
 function graphJson(graph: ForgeGraph, plan: Pick<ForgePlan, 'waves' | 'cycleResolutions'>) {
   return {
     nodes: graph.nodes.length,
+    ...graphCounts(graph),
     edges: graph.edges.length,
     waves: plan.waves.length,
     cycles: plan.cycleResolutions.length,
@@ -3799,7 +3839,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const refusal = await resumeRefusal(journals, journalPath, {
       target: args.target,
       targetOrgId,
-      fingerprint,
+      graph,
+      setup: cliRunSetup(args, targetOrgId),
     });
     if (refusal) {
       recordClone({ outcome: 'stopped', code: refusal.code, context: runAudit().context() });

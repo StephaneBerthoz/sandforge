@@ -32,6 +32,11 @@ export class WrittenBefore implements Iterable<[string, string]> {
     return this.given.has(sourceId) || this.store?.mapping(sourceId)?.earlier === true;
   }
 
+  /** Whether the run this one retries wrote `sourceId`, as handed over: not an earlier part of this run. */
+  retried(sourceId: string): boolean {
+    return this.given.has(sourceId);
+  }
+
   get(sourceId: string): string | undefined {
     const given = this.given.get(sourceId);
     if (given !== undefined) return given;

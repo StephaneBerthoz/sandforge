@@ -7,6 +7,7 @@ import {
   selectFiles,
   storageShortfall,
   remainingStorageBytes,
+  takeUpFilesCopiedBefore,
   type FileCopyDeps,
   type FileToCopy,
 } from './FileCopier.js';
@@ -396,6 +397,27 @@ describe('copyFiles', () => {
     return { failures, remapper, report, errors };
   }
 
+  it('keeps the version the target created before it asks for its document, and keeps it when the document cannot be read back', async () => {
+    const asked: string[] = [];
+    const remapper = createdCases();
+    const deps = targetDeps({
+      queryRecords: vi.fn(async () => {
+        asked.push(`version kept as ${String(remapper.get(DOC_A))}`);
+        throw new Error('The target did not answer.');
+      }),
+    });
+
+    const { errors } = await run([file()], deps, remapper);
+
+    expect(asked).toEqual(['version kept as 068NEW001']);
+    expect(remapper.createdByObject()).toEqual(
+      expect.arrayContaining([{ objectApiName: 'ContentVersion', sourceIds: [DOC_A] }]),
+    );
+    expect(errors[0]?.samples[0]?.messages[0]).toContain(
+      'the run keeps the version, which a removal of the run takes with its document',
+    );
+  });
+
   it('publishes a file on the record the run created and links it to the other records in scope', async () => {
     const deps = targetDeps();
 
@@ -634,5 +656,73 @@ describe('copyFiles', () => {
     expect(deps.insertFile).toHaveBeenCalledTimes(1);
     expect(remapper.get(DOC_A)).toBe('069NEW001');
     expect(report.objects[0].copied).toBe(1);
+  });
+});
+
+describe('takeUpFilesCopiedBefore', () => {
+  const VERSION = id('068', 7);
+  const DOCUMENT = id('069', 7);
+
+  function file(sourceId: string, objectApiName: 'ContentDocument' | 'Attachment'): FileToCopy {
+    return {
+      objectApiName,
+      sourceId,
+      body:
+        objectApiName === 'Attachment'
+          ? { objectApiName: 'Attachment', id: sourceId }
+          : { objectApiName: 'ContentVersion', id: id('068', 1) },
+      name: sourceId,
+      bytes: 4,
+      hosts: [{ id: CASE_1 }, { id: CASE_2 }],
+      fields: {},
+    };
+  }
+
+  it('reads back the document of a version kept alone, links each copy to what it lacks, and copies the rest', async () => {
+    const queryRecords = vi.fn(async (_org: string, soql: string) => {
+      if (soql.startsWith('SELECT Id, ContentDocumentId FROM ContentVersion')) {
+        return [{ Id: VERSION, ContentDocumentId: DOCUMENT }];
+      }
+      return [{ ContentDocumentId: DOCUMENT, LinkedEntityId: '500NEW1' }];
+    });
+    const attachment = id('00P', 1);
+    const taken = await takeUpFilesCopiedBefore({
+      files: [
+        file(DOC_A, 'ContentDocument'),
+        file(DOC_B, 'ContentDocument'),
+        file(attachment, 'Attachment'),
+      ],
+      targetOrgId: 'tgt',
+      copiedBefore: (sourceId) =>
+        sourceId === DOC_A
+          ? { objectApiName: 'ContentVersion', targetId: VERSION }
+          : sourceId === attachment
+            ? { objectApiName: 'Attachment', targetId: id('00P', 9) }
+            : undefined,
+      queryRecords,
+    });
+
+    expect(taken.errors).toEqual([]);
+    expect(taken.files.map((f) => [f.sourceId, f.into])).toEqual([
+      [DOC_A, { documentId: DOCUMENT, linked: ['500NEW1'], unchanged: true }],
+      [DOC_B, undefined],
+    ]);
+  });
+
+  it('neither copies again nor links a version whose document still cannot be read back', async () => {
+    const taken = await takeUpFilesCopiedBefore({
+      files: [file(DOC_A, 'ContentDocument')],
+      targetOrgId: 'tgt',
+      copiedBefore: () => ({ objectApiName: 'ContentVersion', targetId: VERSION }),
+      queryRecords: vi.fn(async () => {
+        throw new Error('The target did not answer.');
+      }),
+    });
+
+    expect(taken.files).toEqual([]);
+    expect(taken.errors[0]?.samples[0]?.messages[0]).toContain(
+      `Copied as ContentVersion ${VERSION} by the run this one takes up, and its document ` +
+        'still cannot be read back (The target did not answer.)',
+    );
   });
 });

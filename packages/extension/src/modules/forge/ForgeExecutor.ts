@@ -158,6 +158,7 @@ import {
   remainingStorageBytes,
   selectFiles,
   storageShortfall,
+  takeUpFilesCopiedBefore,
   type FileCopyDeps,
   type FileToCopy,
 } from './stages/FileCopier.js';
@@ -2617,6 +2618,19 @@ const ACTIVE_CURRENCIES_SOQL = 'SELECT IsoCode FROM CurrencyType WHERE IsActive 
 /** The master record type's id, 15 or 18 characters: the same in every org, and in no mapping. */
 const MASTER_RECORD_TYPE = /^012000000000000(AAA)?$/;
 
+/**
+ * What tells the journal of each update the second pass sent that the target
+ * took: every lookup it filled in, by its record and field
+ * (`ForgeRunStore.patched`).
+ */
+function marksIn(store: ForgeRunStore): NonNullable<CycleFkPatchInput['onPatched']> {
+  return (_objectApiName, update) => {
+    for (const field of Object.keys(update)) {
+      if (field !== 'Id') store.patched(String(update['Id']), field);
+    }
+  };
+}
+
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
 function statusesByObject(
   owed: ExecutionState['deferredStatuses'],
@@ -3674,6 +3688,7 @@ export class ForgeExecutor {
             stillPending,
             stopped: () => this.isAborted,
             onPatched: this.patchedInTheJournal(state),
+            onAnswered: () => state.store?.flush(),
           });
           if (settled) state.errors.push(settled);
           state.pendingFkUpdates.push(...stillPending);
@@ -3701,6 +3716,7 @@ export class ForgeExecutor {
           onProgress,
           stopped: () => this.isAborted,
           onPatched: this.patchedInTheJournal(state),
+          onAnswered: () => state.store?.flush(),
         });
     if (pass2Error) {
       state.errors.push(pass2Error);
@@ -3890,6 +3906,16 @@ export class ForgeExecutor {
    * links to, told from the object's key prefix in the source. None for an
    * object read after the checkpoint of a run it resumes, whose count leaves
    * out what that run wrote before it.
+   *
+   * Of an object read through a filter, the ids handed over — the table of
+   * the run retried, which the history keeps under the bound — are counted
+   * through that filter in the source: what the run retried wrote of the
+   * object is not all under it. A parent it read by id for the rows that
+   * named it, outside the filter, carries the object's key prefix all the
+   * same: counted as one of the filter's rows, it would make the rows left to
+   * write fewer than the run then writes, and the gate holds the target's
+   * storage to that count. Counted by prefix still when the source cannot be
+   * asked.
    */
   private async writtenBeforeOf(
     state: ExecutionState,
@@ -3907,9 +3933,24 @@ export class ForgeExecutor {
       (await this.objectInfoOf(state.sourceOrgId, object))?.keyPrefix ??
       state.sourceKeyPrefixes.get(object);
     if (!prefix) return 0;
-    let written = 0;
-    for (const sourceId of writtenBefore.keys()) if (sourceId.startsWith(prefix)) written++;
-    return written;
+    const ids: string[] = [];
+    for (const sourceId of writtenBefore.keys())
+      if (sourceId.startsWith(prefix)) ids.push(sourceId);
+    const filter = state.config.objectSoqlFilters?.[object];
+    const countRecords = this.deps.countRecords;
+    if (!filter || ids.length === 0 || !countRecords) return ids.length;
+    try {
+      let underTheFilter = 0;
+      for (const list of idLists(ids)) {
+        underTheFilter += await countRecords(
+          state.sourceOrgId,
+          `SELECT COUNT() FROM ${assertSoqlIdentifier(object)} WHERE (${filter}) AND Id IN (${list})`,
+        );
+      }
+      return underTheFilter;
+    } catch {
+      return ids.length;
+    }
   }
 
   /**
@@ -4577,6 +4618,12 @@ export class ForgeExecutor {
    * parts before it — read in the order owed, a call per object every
    * {@link WRITE_API_MAX_BATCH} records, each object's said once at the end
    * as a run that holds them says it.
+   *
+   * Each status the target took back is marked in the journal as its call is
+   * answered (`ForgeRunStore.gaveStatus`), and one an earlier part marked is
+   * not sent again: unmarked, a part taking up a run stopped while it gave
+   * them back sent each one again, and what fires on an order's update in
+   * the target fired twice.
    */
   private async restoreStatusesFromTheJournal(
     state: ExecutionState,
@@ -4613,7 +4660,10 @@ export class ForgeExecutor {
       }
       batch.forEach(({ id, status }, index) => {
         const result = results[index];
-        if (result?.success) return;
+        if (result?.success) {
+          store.gaveStatus(objectApiName, id);
+          return;
+        }
         tally.failed++;
         if (tally.samples.length < 3) {
           tally.samples.push({
@@ -4624,7 +4674,8 @@ export class ForgeExecutor {
       });
     };
     for (const { objectApiName, id, status } of store.statusLines()) {
-      if (state.leftDrafts.has(id)) continue;
+      // Given back already, by a part this one takes up.
+      if (state.leftDrafts.has(id) || store.statusGiven(id)) continue;
       const tally = tallies.get(objectApiName) ?? { entries: 0, failed: 0, samples: [] };
       tally.entries++;
       tallies.set(objectApiName, tally);
@@ -5574,7 +5625,7 @@ export class ForgeExecutor {
     const files = config.files;
     const deps = this.fileCopyDeps();
     if (!files || !deps) return [];
-    const selection = await selectFiles({
+    const selected = await selectFiles({
       scope: state.fileScope,
       sourceOrgId: state.sourceOrgId,
       maxFileBytes: files.maxFileBytes,
@@ -5582,11 +5633,18 @@ export class ForgeExecutor {
     });
     // Written, the records would reach the target without the files a
     // failed lookup hid, and the run would read as complete.
-    const unread = lookupFailure(selection);
+    const unread = lookupFailure(selected);
     if (unread && !config.dryRun) {
       throw new ForgeFilesRefusedError(`${unread} Nothing was written.`);
     }
-    state.errors.push(...selection.errors);
+    state.errors.push(...selected.errors);
+    // Taking up a run that stopped: what it copied is not copied again, only
+    // linked to the records it lacks, and is neither planned nor measured.
+    const takenUp = await this.filesCopiedBefore(state, selected.files, deps);
+    const selection = {
+      ...selected,
+      files: takenUp.filter((file) => file.into?.unchanged !== true),
+    };
 
     let remaining: number | undefined;
     if (selection.files.length > 0) {
@@ -5631,18 +5689,55 @@ export class ForgeExecutor {
       }
       return [];
     }
-    return selection.files;
+    return takenUp;
+  }
+
+  /**
+   * The files to copy, of a run that takes up another where it stopped: those
+   * an earlier part copied set apart, each as a copy to link to the records
+   * it lacks (`takeUpFilesCopiedBefore`). The others, and every file of a run
+   * that takes none up, as they were.
+   */
+  private async filesCopiedBefore(
+    state: ExecutionState,
+    files: FileToCopy[],
+    deps: FileCopyDeps,
+  ): Promise<FileToCopy[]> {
+    const { store } = state;
+    if (!store || state.config.dryRun) return files;
+    const taken = await takeUpFilesCopiedBefore({
+      files,
+      targetOrgId: state.targetOrgId,
+      copiedBefore: (sourceId) => {
+        const mapping = store.mapping(sourceId);
+        return mapping?.earlier && mapping.kind === 'created' && mapping.objectApiName
+          ? { objectApiName: mapping.objectApiName, targetId: mapping.targetId }
+          : undefined;
+      },
+      queryRecords: deps.queryRecords,
+    });
+    state.errors.push(...taken.errors);
+    return taken.files;
   }
 
   /** Write the files chosen before the write pass, after the records they hang on. */
   private async writeFiles(state: ExecutionState, files: FileToCopy[]): Promise<void> {
     const deps = this.fileCopyDeps();
     if (!deps || !state.files) return;
+    const { remapper } = state;
     state.failedCount += await copyFiles({
       files,
       sourceOrgId: state.sourceOrgId,
       targetOrgId: state.targetOrgId,
-      remapper: state.remapper,
+      // A file hangs on the records of the run, whichever part wrote them: a
+      // part that takes up a run stopped before its files copies them onto
+      // the records that run wrote.
+      remapper: {
+        isCreated: (sourceId) => remapper.wasCreated(sourceId),
+        get: (sourceId) => remapper.get(sourceId),
+        add: (sourceId, targetId, objectApiName) => remapper.add(sourceId, targetId, objectApiName),
+        persist: () => remapper.persist(),
+      },
       deps,
       report: state.files,
       errors: state.errors,
@@ -6790,10 +6885,13 @@ export class ForgeExecutor {
       // The records whose files the run copies: the ones it read to clone,
       // never those of an object mapped by name or of the standard book —
       // nor a row the run it retries wrote, whose files came with it or were
-      // reported with it: copied again, they would be there twice.
+      // reported with it: copied again, they would be there twice. A row an
+      // earlier part of this run wrote keeps its files: that part may have
+      // stopped before it copied them, and what it copied its journal says
+      // (`filesCopiedBefore`).
       if (config.files) {
         const ids = records.flatMap((r) =>
-          typeof r['Id'] === 'string' && !wasWrittenBefore(config, r) ? [r['Id']] : [],
+          typeof r['Id'] === 'string' && !config.writtenBefore.retried(r['Id']) ? [r['Id']] : [],
         );
         state.fileScope.set(node.objectApiName, ids);
       }
@@ -8647,11 +8745,7 @@ export class ForgeExecutor {
   private patchedInTheJournal(state: ExecutionState): CycleFkPatchInput['onPatched'] {
     const { store } = state;
     if (!store || state.secondPassInStore) return undefined;
-    return (_objectApiName, update) => {
-      for (const field of Object.keys(update)) {
-        if (field !== 'Id') store.patched(String(update['Id']), field);
-      }
-    };
+    return marksIn(store);
   }
 
   /** Owe a record written as a draft its status: to the journal when the run keeps one. */
@@ -8922,6 +9016,7 @@ export class ForgeExecutor {
    * outside the clone said once at the end, the rest filled in as the pass
    * fills them in from memory. A lookup owed to a row the run retried wrote
    * goes only once its record is written: the run retried said it otherwise.
+   * One an earlier part's pass filled in, as its mark says, is not sent again.
    */
   private async secondPassFromTheJournal(
     state: ExecutionState,
@@ -8935,17 +9030,25 @@ export class ForgeExecutor {
       enabled: !state.config.dryRun,
       onProgress: state.onProgress,
       stopped: () => this.isAborted,
+      // Each lookup the target filled in is marked, on disk before the pass
+      // sends anything else: a part that takes up a run stopped during the
+      // pass sends only those the marks leave.
+      onPatched: marksIn(store),
+      onAnswered: () => store.flush(),
     });
     const leftEmpty: LeftEmptyLookups = new Map();
     const pageSize = state.config.stream?.secondPassPageSize ?? SECOND_PASS_PAGE;
     const inMemory = state.pendingFkUpdates.splice(0, state.pendingFkUpdates.length);
+    /** Filled in already, by an earlier part's pass. */
+    const filled = (update: PendingFkUpdate): boolean =>
+      store.wasPatched(update.newId, update.fieldName);
     // Which records owe lookups in more than one page, read first: what each
     // owes goes in one update, sent once the last page is through.
     const across = new RecordsOwingAcrossParts();
     for (const update of inMemory) across.note(0, update.newId);
     let part = 1;
     for (const page of store.owedPages(pageSize)) {
-      for (const { update } of page) across.note(part, update.newId);
+      for (const { update } of page) if (!filled(update)) across.note(part, update.newId);
       part++;
     }
     const heldBack = (update: PendingFkUpdate): boolean => across.spans(update.newId);
@@ -8954,7 +9057,8 @@ export class ForgeExecutor {
       const owed = page
         .filter(
           ({ update, toRowWrittenBefore }: StoredOwedLookup) =>
-            !toRowWrittenBefore || state.remapper.get(update.sourceRefId) !== undefined,
+            !filled(update) &&
+            (!toRowWrittenBefore || state.remapper.get(update.sourceRefId) !== undefined),
         )
         .map(({ update }) => update);
       await pass.patch(this.keepLookupsInTheClone(state, owed, leftEmpty), heldBack);

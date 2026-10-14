@@ -310,6 +310,70 @@ describe("a run's journal", () => {
     expect([...files.keys()]).toEqual([]);
   });
 
+  it('hands a removal the records of a part a page at a time, keeps what it left the same way, and hands over that alone next', async () => {
+    const { deps } = memoryDisk();
+    const renamed: string[] = [];
+    const journal = new ForgeRunJournal({
+      ...deps,
+      rename: async (from, to) => {
+        renamed.push(path.basename(to));
+        await deps.appendFile(to, '');
+        const text: string[] = [];
+        for await (const line of deps.readLines(from)) if (line) text.push(line);
+        await deps.rm(to);
+        await deps.appendFile(to, text.length > 0 ? `${text.join('\n')}\n` : '');
+        await deps.rm(from);
+      },
+    });
+    await runThatWrote(journal, 'run-pages');
+
+    const opened = await journal.recordsOf('run-pages', 0);
+    if (!opened) throw new Error('not read');
+    expect(opened.records.objects).toEqual([
+      { objectApiName: 'Contact', count: 1 },
+      { objectApiName: 'Account', count: 2 },
+    ]);
+    opened.close();
+
+    const counts = await journal.keepLeftPages(
+      'run-pages',
+      0,
+      (async function* left() {
+        yield { objectApiName: 'Account', ids: [NEW_ACCOUNT_B] };
+      })(),
+    );
+    expect(counts).toEqual([{ objectApiName: 'Account', count: 1 }]);
+    expect(renamed).toEqual(['run-pages.part0.left']);
+    expect(await journal.leftOf('run-pages', 0)).toEqual([NEW_ACCOUNT_B]);
+
+    const next = await journal.recordsOf('run-pages', 0);
+    const ids: string[] = [];
+    for await (const page of next?.records.pages('Account') ?? []) ids.push(...page);
+    expect(next?.records.objects).toEqual([{ objectApiName: 'Account', count: 1 }]);
+    expect(ids).toEqual([NEW_ACCOUNT_B]);
+    next?.close();
+  });
+
+  it('keeps beside the journal what removals of a part stamped, over what earlier ones did, and drops it with the journal', async () => {
+    const { deps, files } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run-stamps');
+    expect(await journal.stampsOf('run-stamps', 0)).toEqual({});
+
+    await journal.keepStamps('run-stamps', 0, {
+      [NEW_ACCOUNT_A]: '2026-10-14T10:00:00.000+0000',
+      [NEW_CONTACT_A]: '2026-10-14T10:00:01.000+0000',
+    });
+    await journal.keepStamps('run-stamps', 0, { [NEW_ACCOUNT_A]: '2026-10-14T11:00:00.000+0000' });
+    expect(await journal.stampsOf('run-stamps', 0)).toEqual({
+      [NEW_ACCOUNT_A]: '2026-10-14T11:00:00.000+0000',
+      [NEW_CONTACT_A]: '2026-10-14T10:00:01.000+0000',
+    });
+
+    await journal.end('run-stamps');
+    expect([...files.keys()]).toEqual([]);
+  });
+
   it('lists the journals that ended, says which are there, and forgets one by its file', async () => {
     const { deps, files } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

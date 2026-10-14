@@ -76,6 +76,14 @@ export interface CycleFkPatchInput {
    * it filled in, for a run that takes it up to owe again only the rest.
    */
   onPatched?: (objectApiName: string, update: Readonly<Record<string, unknown>>) => void;
+  /**
+   * Told once the target has answered a call, and what it took has been told
+   * to `onPatched`, before the pass sends anything else: what a run keeps in
+   * its journal of that call goes to disk then. Held to the next turn, the
+   * marks of the call would be lost to a process killed meanwhile, and the
+   * part taking the run up would send its lookups again.
+   */
+  onAnswered?: () => void;
 }
 
 /** The lookups one update fills in: every field it carries but the record's Id. */
@@ -382,6 +390,7 @@ export class CycleFkPass {
             });
           }
         }
+        input.onAnswered?.();
       }
     }
   }

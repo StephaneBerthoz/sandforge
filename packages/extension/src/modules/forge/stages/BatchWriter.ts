@@ -914,6 +914,10 @@ export class BatchWriter {
     // anything, with the lookups they owe. The describe below, read for a
     // refusal of the call, came first and left them in memory for the length
     // of a request: a process killed meanwhile left them in the target unnamed.
+    // What is left: a process killed while the call is under way, before its
+    // answer, or while this loop registers the answer, before the write
+    // below: the target holds what the call created, and the journal names
+    // none of it.
     rows.forEach((row, i) => {
       const answer = answers[i];
       if (answer?.success) this.settle(write, answer, row);

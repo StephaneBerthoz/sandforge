@@ -174,7 +174,7 @@ const INDEX_LOAD = 0.6;
 const STATUS_SAMPLES = 3;
 
 /** First 32-bit hash of an id (FNV-1a). */
-function hashA(id: string): number {
+export function hashA(id: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < id.length; i++) {
     h ^= id.charCodeAt(i);
@@ -184,7 +184,7 @@ function hashA(id: string): number {
 }
 
 /** Second 32-bit hash of an id, independent of the first. */
-function hashB(id: string): number {
+export function hashB(id: string): number {
   let h = 0x9747b28c;
   for (let i = 0; i < id.length; i++) {
     h = Math.imul(h ^ id.charCodeAt(i), 0x5bd1e995);
@@ -207,7 +207,7 @@ interface CachedRecord {
  * its latest line and the kind of record it holds, under two hashes of the id.
  * No id is kept: one whose hashes match is read back from its line.
  */
-class SourceIdIndex {
+export class SourceIdIndex {
   private capacity = 1024;
   private used = 0;
   private h1 = new Uint32Array(this.capacity);
@@ -221,6 +221,11 @@ class SourceIdIndex {
 
   get size(): number {
     return this.used;
+  }
+
+  /** Slots the index holds: a slot `find` gives is below it, and stays the key's until the index grows. */
+  get slots(): number {
+    return this.capacity;
   }
 
   /** The slot of `id`, or the bitwise complement of the free slot it would take. */
@@ -300,11 +305,62 @@ class SourceIdIndex {
   }
 }
 
+/**
+ * The key a mark line is found by (see `ForgeRunStore.patched` and
+ * `ForgeRunStore.gaveStatus`): a lookup filled in, by its record and field; a
+ * status given back, by its record. Empty for a line that is no mark.
+ */
+function markKeyOf(value: readonly unknown[] | undefined): string {
+  if (!value) return '';
+  if (value[0] === 'p' && value.length >= 3) return filledKey(String(value[1]), String(value[2]));
+  if (value[0] === 'g' && value.length >= 3) return givenKey(String(value[2]));
+  return '';
+}
+
+/** The key of the mark of a lookup filled in. */
+function filledKey(recordId: string, fieldName: string): string {
+  return `p\u0000${recordId}\u0000${fieldName}`;
+}
+
+/** The key of the mark of a status given back. */
+function givenKey(recordId: string): string {
+  return `g\u0000${recordId}`;
+}
+
 /** A line of the journal, with where it starts. */
-interface JournalLine {
+export interface JournalLine {
   offset: number;
   length: number;
   text: string;
+}
+
+/** Every line of a journal file, from its start, read a chunk at a time, each with where it starts. */
+export function* journalLines(file: RunFile): Generator<JournalLine> {
+  const end = file.size();
+  let offset = 0;
+  let rest: Buffer = Buffer.alloc(0);
+  let restAt = 0;
+  while (offset < end) {
+    const chunk = file.read(offset, Math.min(SCAN_BYTES, end - offset));
+    if (chunk.length === 0) break;
+    offset += chunk.length;
+    const bytes: Buffer = rest.length > 0 ? Buffer.concat([rest, chunk]) : chunk;
+    let start = 0;
+    for (;;) {
+      const newline = bytes.indexOf(10, start);
+      if (newline < 0) break;
+      if (newline > start) {
+        yield {
+          offset: restAt + start,
+          length: newline - start,
+          text: bytes.toString('utf8', start, newline),
+        };
+      }
+      start = newline + 1;
+    }
+    rest = bytes.subarray(start);
+    restAt += start;
+  }
 }
 
 /**
@@ -333,10 +389,22 @@ export class ForgeRunStore {
   private readonly checkpointsByObject = new Map<string, StoredCheckpoint>();
   private owedCount = 0;
   private readonly statuses = new Map<string, { count: number; samples: StoredStatus[] }>();
+  /** Per object, the statuses given back, in every part. */
+  private readonly given = new Map<string, number>();
+  /**
+   * The marks of what the run did once and must not do again when a part
+   * takes it up — the lookups filled in, the statuses given back — under two
+   * hashes of their key, each read back from its line when they match: a few
+   * bytes a mark, and no id.
+   */
+  private readonly marks: SourceIdIndex;
   private readsHeld: string[] = [];
 
   private constructor(private readonly file: RunFile) {
     this.index = new SourceIdIndex((offset, length) => this.idOfLine(offset, length));
+    this.marks = new SourceIdIndex((offset, length) =>
+      markKeyOf(parseLine(this.lineAt(offset, length))),
+    );
   }
 
   /** The store of the journal `file`, its lines read once. */
@@ -596,10 +664,30 @@ export class ForgeRunStore {
   /**
    * Keep that the lookup `fieldName` of the record `recordId` was filled in:
    * a run that fills in its lookups node by node, from memory, says so here,
-   * and a run that takes it up owes again only those it had not.
+   * and a run that takes it up owes again only those it had not; so does the
+   * second pass that reads what the journal owes, and a part that takes up a
+   * run stopped during that pass sends none of them again (`wasPatched`).
    */
   patched(recordId: string, fieldName: string): void {
-    this.write(JSON.stringify(['p', recordId, fieldName]));
+    this.mark(JSON.stringify(['p', recordId, fieldName]), filledKey(recordId, fieldName));
+  }
+
+  /** Whether a part of the run, this one or an earlier one, filled in the lookup `fieldName` of `recordId`. */
+  wasPatched(recordId: string, fieldName: string): boolean {
+    return this.hasMark(filledKey(recordId, fieldName));
+  }
+
+  /** Write a mark line and index it under `key`. */
+  private mark(line: string, key: string): void {
+    const a = hashA(key);
+    const b = hashB(key);
+    const found = this.marks.find(key, a, b);
+    const offset = this.write(line);
+    this.marks.put(found, a, b, offset, Buffer.byteLength(line), 0);
+  }
+
+  private hasMark(key: string): boolean {
+    return this.marks.size > 0 && this.marks.find(key, hashA(key), hashB(key)) >= 0;
   }
 
   /**
@@ -652,9 +740,36 @@ export class ForgeRunStore {
     if (tally.samples.length < STATUS_SAMPLES) tally.samples.push(owed);
   }
 
-  /** Per object, the statuses owed in every part, and the first few of them. */
+  /**
+   * Keep that the status owed to `id` was given back: a part that takes up a
+   * run stopped while its statuses went back gives only the others.
+   */
+  gaveStatus(objectApiName: string, id: string): void {
+    if (this.statusGiven(id)) return;
+    this.mark(JSON.stringify(['g', objectApiName, id]), givenKey(id));
+    this.given.set(objectApiName, (this.given.get(objectApiName) ?? 0) + 1);
+  }
+
+  /** Whether a part of the run gave back the status owed to `id`. */
+  statusGiven(id: string): boolean {
+    return this.hasMark(givenKey(id));
+  }
+
+  /**
+   * Per object, the statuses owed in every part and not given back yet, and
+   * the first few of them.
+   */
   statusesOwed(): Map<string, { count: number; samples: StoredStatus[] }> {
-    return new Map([...this.statuses].map(([object, tally]) => [object, { ...tally }]));
+    const owed = new Map<string, { count: number; samples: StoredStatus[] }>();
+    for (const [object, tally] of this.statuses) {
+      const count = tally.count - (this.given.get(object) ?? 0);
+      if (count <= 0) continue;
+      owed.set(object, {
+        count,
+        samples: tally.samples.filter(({ id }) => !this.statusGiven(id)),
+      });
+    }
+    return owed;
   }
 
   /** Every status owed, in every part, in the order owed: the journal read from its start. */
@@ -760,31 +875,7 @@ export class ForgeRunStore {
   /** Every line of the journal, from its start, the lines held written first. */
   private *lines(): Generator<JournalLine> {
     this.flush();
-    const end = this.file.size();
-    let offset = 0;
-    let rest: Buffer = Buffer.alloc(0);
-    let restAt = 0;
-    while (offset < end) {
-      const chunk = this.file.read(offset, Math.min(SCAN_BYTES, end - offset));
-      if (chunk.length === 0) break;
-      offset += chunk.length;
-      const bytes: Buffer = rest.length > 0 ? Buffer.concat([rest, chunk]) : chunk;
-      let start = 0;
-      for (;;) {
-        const newline = bytes.indexOf(10, start);
-        if (newline < 0) break;
-        if (newline > start) {
-          yield {
-            offset: restAt + start,
-            length: newline - start,
-            text: bytes.toString('utf8', start, newline),
-          };
-        }
-        start = newline + 1;
-      }
-      rest = bytes.subarray(start);
-      restAt += start;
-    }
+    yield* journalLines(this.file);
   }
 
   /** Read the lines the journal holds already: the index, the parts, what is owed. */
@@ -831,6 +922,19 @@ export class ForgeRunStore {
           status: String(value[3]),
         });
       }
+      return;
+    }
+    if (tag === 'p' || tag === 'g') {
+      const key = markKeyOf(value);
+      if (!key) return;
+      const a = hashA(key);
+      const b = hashB(key);
+      const found = this.marks.find(key, a, b);
+      if (tag === 'g' && found < 0) {
+        const object = String(value[1]);
+        this.given.set(object, (this.given.get(object) ?? 0) + 1);
+      }
+      this.marks.put(found, a, b, line.offset, line.length, 0);
       return;
     }
     const code = CODE_OF_TAG[tag];

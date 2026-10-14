@@ -332,6 +332,144 @@ export function lookupFailure(selection: FileSelection): string | null {
   );
 }
 
+/** What an earlier part of a run made of a file, as its journal says: see {@link takeUpFilesCopiedBefore}. */
+export interface FileCopiedBefore {
+  /** The object it was registered under: its document, its version alone, or the attachment. */
+  objectApiName: string;
+  targetId: string;
+}
+
+/** The files of a run that takes up another, once what that one copied is set apart. */
+export interface FilesTakenUp {
+  /**
+   * The files, in their order: those to copy as they were, and those an
+   * earlier part copied, as copies to link to the records they lack
+   * (`FileCopyTarget.unchanged`). An attachment it copied is left out: its
+   * parent is its one record.
+   */
+  files: FileToCopy[];
+  /** A version whose document still cannot be read back: neither copied again nor linked. */
+  errors: ExecutionObjectError[];
+}
+
+/**
+ * Of the files a run is to copy, set apart those an earlier part of the run
+ * copied — the run this one takes up where it stopped: none is copied again.
+ * A copy is linked to the records it lacks, read from its links in the target,
+ * and a version the earlier part kept without its document — the process was
+ * killed before the document was read back — has its document read back now,
+ * and is then such a copy. The version stays the earlier part's record, as
+ * its journal names it: a removal of that part takes its document.
+ *
+ * @param copiedBefore - What an earlier part registered for a file's source
+ *   id, when it did; nothing for one this part is to copy.
+ */
+export async function takeUpFilesCopiedBefore(input: {
+  files: readonly FileToCopy[];
+  targetOrgId: string;
+  copiedBefore: (sourceId: string) => FileCopiedBefore | undefined;
+  queryRecords: FileCopyDeps['queryRecords'];
+}): Promise<FilesTakenUp> {
+  const { files, targetOrgId, copiedBefore, queryRecords } = input;
+  const taken: FilesTakenUp = { files: [], errors: [] };
+  const before = new Map<string, FileCopiedBefore>();
+  for (const file of files) {
+    const made = copiedBefore(file.sourceId);
+    if (made) before.set(file.sourceId, made);
+  }
+  if (before.size === 0) return { ...taken, files: [...files] };
+
+  /** The document of each copy, by the file's source id: as registered, or read back now. */
+  const documents = new Map<string, string>();
+  /** Why the versions' documents could not be read back, when they could not. */
+  let versionsUnread: string | undefined;
+  const versions = new Map<string, string>();
+  for (const [sourceId, made] of before) {
+    if (made.objectApiName === 'ContentVersion') versions.set(made.targetId, sourceId);
+    if (made.objectApiName === 'ContentDocument') documents.set(sourceId, made.targetId);
+  }
+  try {
+    for (const list of idLists([...versions.keys()])) {
+      const rows = await queryRecords(
+        targetOrgId,
+        `SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id IN (${list})`,
+      );
+      for (const row of rows) {
+        const version = text(row, 'Id');
+        const document = text(row, 'ContentDocumentId');
+        const sourceId = version ? versions.get(version) : undefined;
+        if (sourceId && document) documents.set(sourceId, document);
+      }
+    }
+  } catch (err) {
+    versionsUnread = extractErrorMessage(err);
+  }
+
+  /** The records each copy is linked to in the target, by its document. */
+  const linkedTo = new Map<string, string[]>();
+  /** Why the links of the copies could not be read, when they could not. */
+  let linksUnread: string | undefined;
+  try {
+    for (const list of idLists([...new Set(documents.values())])) {
+      const links = await queryRecords(
+        targetOrgId,
+        'SELECT ContentDocumentId, LinkedEntityId FROM ContentDocumentLink ' +
+          `WHERE ContentDocumentId IN (${list})`,
+      );
+      for (const link of links) {
+        const document = text(link, 'ContentDocumentId');
+        const record = text(link, 'LinkedEntityId');
+        if (document && record) linkedTo.set(document, [...(linkedTo.get(document) ?? []), record]);
+      }
+    }
+  } catch (err) {
+    linksUnread = extractErrorMessage(err);
+  }
+
+  const notTakenUp = (file: FileToCopy, why: string): void => {
+    taken.errors.push({
+      objectApiName: 'ContentDocument',
+      stage: 'query',
+      failedCount: 0,
+      attemptedCount: 0,
+      samples: [{ recordSummary: `${file.name} (${formatFileSize(file.bytes)})`, messages: [why] }],
+    });
+  };
+  for (const file of files) {
+    const made = before.get(file.sourceId);
+    if (!made) {
+      taken.files.push(file);
+      continue;
+    }
+    // An attachment hangs on its one parent: copied, it is done.
+    if (file.body.objectApiName === 'Attachment') continue;
+    const document = documents.get(file.sourceId);
+    if (!document) {
+      notTakenUp(
+        file,
+        `Copied as ContentVersion ${made.targetId} by the run this one takes up, and its ` +
+          'document still cannot be read back' +
+          (versionsUnread ? ` (${versionsUnread})` : '') +
+          ': the file is not copied again, nor linked to the records it lacks.',
+      );
+      continue;
+    }
+    if (linksUnread) {
+      notTakenUp(
+        file,
+        `Copied by the run this one takes up; its links could not be read (${linksUnread}): ` +
+          'it is not linked to the records it lacks.',
+      );
+      continue;
+    }
+    taken.files.push({
+      ...file,
+      into: { documentId: document, linked: linkedTo.get(document) ?? [], unchanged: true },
+    });
+  }
+  return taken;
+}
+
 /**
  * A report about the run's files as a whole, rather than one object's: named
  * for no object, as the other reports of a pass are, so the audit trail does
@@ -709,6 +847,16 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
       continue;
     }
 
+    // The version the target created, on disk before the run asks it anything
+    // more: its document is read back next, and a process killed in between
+    // left a file in the target that the journal did not name. Kept so, the
+    // part that takes the run up reads the document back instead of copying
+    // the file again (`takeUpFilesCopiedBefore`), and a removal of the run
+    // takes the version's document. What is left is the insert itself: a
+    // process killed while it is under way leaves a file no one names.
+    remapper.add(file.sourceId, written.id, 'ContentVersion');
+    remapper.persist?.();
+
     // The document the version created: what removing the run deletes, which
     // takes the version and every link with it, and what the links name.
     let documentId: string | undefined;
@@ -727,7 +875,8 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
         'query',
         `${file.name} (${formatFileSize(file.bytes)})`,
         `Copied as ContentVersion ${written.id}, but its document could not be read back: ` +
-          'removing this run will not find it.',
+          'the run keeps the version, which a removal of the run takes with its document, and ' +
+          'links it to no other record.',
         true,
       );
       continue;

@@ -82,11 +82,121 @@ const FILE_LINK = 'ContentDocumentLink';
 /** A file, which the org keeps when a record it was attached to goes. */
 const FILE = 'ContentDocument';
 
+/** A file's version, which the org deletes only with its document. */
+const FILE_VERSION = 'ContentVersion';
+
 /** Files named per object: the count says how many there were. */
 const FILE_NAME_LIMIT = 5;
 
+/** Records told by their key, as a set of keys tells them, without holding them. */
+export interface RecordKeys {
+  has(key: string): boolean;
+}
+
+/**
+ * The records a removal takes, read a page at a time each time it goes
+ * through them: per object, in the order the plan gives the objects —
+ * children before their parents, as far as the run knows — and the order it
+ * gives each object's records.
+ *
+ * A run past the summary's bound keeps its ids in its journal, a million of
+ * them for a run of whole tables; read into memory whole, a removal held each
+ * several times over — its plan, its records' keys, their dates: removing a
+ * million records so took some 650 MB more of the extension host than it held
+ * before. Read from the journal a page at a time (`ForgeRunJournal.recordsOf`),
+ * it holds a page of ids, a few bytes a record besides, and the records it
+ * could not take: some 150 MB for the same million.
+ */
+export interface RunRecords {
+  /** The objects, in the plan's order, with how many records of each. */
+  readonly objects: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>;
+  /** The ids of an object's records, a page at a time: the same pages each time it is asked. */
+  pages(objectApiName: string): AsyncIterable<readonly string[]>;
+  /** Whether a record, by its key — the first fifteen characters of its id — is one of them. */
+  has(key: string): boolean;
+}
+
+/** The records of a plan held in memory, as a removal reads them: each object one page. */
+export function runRecordsOf(plan: readonly ForgeRunObjectRecords[]): RunRecords {
+  const keys = new Set(plan.flatMap((object) => object.ids.map(recordKey)));
+  const idsOf = new Map<string, string[]>();
+  for (const { objectApiName, ids } of plan) {
+    idsOf.set(objectApiName, [...(idsOf.get(objectApiName) ?? []), ...ids]);
+  }
+  return {
+    objects: [...idsOf].map(([objectApiName, ids]) => ({ objectApiName, count: ids.length })),
+    pages: async function* (objectApiName) {
+      const ids = idsOf.get(objectApiName);
+      if (ids && ids.length > 0) yield ids;
+    },
+    has: (key) => keys.has(key),
+  };
+}
+
+/** Whether `plan` is records read a page at a time rather than a plan held in memory. */
+export function isRunRecords(
+  plan: readonly ForgeRunObjectRecords[] | RunRecords,
+): plan is RunRecords {
+  return !Array.isArray(plan);
+}
+
+/** How many records a plan holds, in memory or read a page at a time. */
+export function recordsIn(plan: readonly ForgeRunObjectRecords[] | RunRecords): number {
+  return isRunRecords(plan)
+    ? plan.objects.reduce((sum, object) => sum + object.count, 0)
+    : plan.reduce((sum, object) => sum + object.ids.length, 0);
+}
+
+/** The objects of a plan, in its order. */
+export function objectsIn(plan: readonly ForgeRunObjectRecords[] | RunRecords): string[] {
+  return (isRunRecords(plan) ? plan.objects : plan).map((object) => object.objectApiName);
+}
+
+/**
+ * A mark for each of an object's records by its place among them, a bit
+ * each: which a removal took, without holding their ids.
+ */
+class PlaceMarks {
+  private bits = new Uint8Array(0);
+
+  add(place: number): void {
+    const byte = place >> 3;
+    if (byte >= this.bits.length) {
+      const grown = new Uint8Array(Math.max(byte + 1, this.bits.length * 2, 64));
+      grown.set(this.bits);
+      this.bits = grown;
+    }
+    this.bits[byte] |= 1 << (place & 7);
+  }
+
+  has(place: number): boolean {
+    const byte = place >> 3;
+    return byte < this.bits.length && (this.bits[byte] & (1 << (place & 7))) !== 0;
+  }
+}
+
+/** A date for each of an object's records by its place among them; NaN where none was read. */
+class PlaceDates {
+  private dates = new Float64Array(0);
+
+  set(place: number, date: number): void {
+    if (place >= this.dates.length) {
+      const grown = new Float64Array(Math.max(place + 1, this.dates.length * 2, 64)).fill(
+        Number.NaN,
+      );
+      grown.set(this.dates);
+      this.dates = grown;
+    }
+    this.dates[place] = date;
+  }
+
+  at(place: number): number {
+    return place < this.dates.length ? this.dates[place] : Number.NaN;
+  }
+}
+
 /** Whether `value` is the id of one of the run's records. */
-function isRunRecord(value: unknown, runRecords: ReadonlySet<string>): boolean {
+function isRunRecord(value: unknown, runRecords: RecordKeys): boolean {
   return typeof value === 'string' && runRecords.has(recordKey(value));
 }
 
@@ -110,7 +220,7 @@ interface PlatformAdded {
   /** The fields read with the record to tell. */
   ends: readonly string[];
   /** Whether the record came with the run, by those fields. */
-  cameWithRun: (row: Record<string, unknown>, runRecords: ReadonlySet<string>) => boolean;
+  cameWithRun: (row: Record<string, unknown>, runRecords: RecordKeys) => boolean;
 }
 
 /**
@@ -268,9 +378,16 @@ export interface RunRemovalOutcome {
   /**
    * The run's records the removal deleted, or found gone, by their ids as the
    * plan names them: what a caller that keeps the run's records — a Frozen
-   * load's mapping — no longer has in the org.
+   * load's mapping — no longer has in the org. Empty when the records were
+   * handed over a page at a time (`RunRecords`): see `left`.
    */
   gone: string[];
+  /**
+   * The run's records the removal left in the org — kept, refused, not
+   * visible, or not reached — per object a page at a time, read again from
+   * the records it was handed: what the next removal sets out to take.
+   */
+  left(): AsyncIterable<ForgeRunObjectRecords>;
   /**
    * What this removal left on records of the run it did not delete — what it
    * wrote to them, and what the org wrote in answer to its deletes — by record
@@ -336,8 +453,13 @@ function describeError(error: WriteError): string {
 
 /** What the org holds of one object's records now, before anything is deleted. */
 interface ObjectSnapshot {
-  /** Record key -> when the record was last modified, for the records still there. */
-  lastModified: Map<string, number>;
+  /**
+   * When each record was last modified, by its place among the object's
+   * records; NaN for one not found, or whose date could not be read.
+   */
+  modified: PlaceDates;
+  /** Keys of the records the read did not find: every other one is still there. */
+  missing: Set<string>;
   /**
    * The column those dates were read from: `LastModifiedDate`, which the org
    * keeps with who modified the record, or `SystemModstamp`. Absent when the
@@ -356,6 +478,16 @@ interface ObjectSnapshot {
   binned: Set<string>;
   /** Why the recycle bin could not be read, when it could not. */
   binError?: string;
+}
+
+/** A snapshot of an object nothing has been read of yet. */
+function emptySnapshot(): ObjectSnapshot {
+  return {
+    modified: new PlaceDates(),
+    missing: new Set(),
+    firstCreated: Number.NaN,
+    binned: new Set(),
+  };
 }
 
 /** Why the org refused to delete one record. */
@@ -379,14 +511,29 @@ class ObjectRemoval {
   private readonly notes: string[] = [];
   /** Records the org refused, by id. */
   readonly refused = new Map<string, Refusal>();
+  /**
+   * The object's records refused unsent because the object could not be read
+   * at all, and why: every one of them, counted without their ids.
+   */
+  unread?: { reason: string; count: number };
   /** Records kept because records that stay depend on them. */
   held: string[] = [];
-  /** Keys of the records deleted, or found gone, once the removal reached them. */
-  readonly gone = new Set<string>();
-  /** Keys of the records among them that this removal deleted. */
-  readonly deleted = new Set<string>();
+  /**
+   * The records deleted, or found gone, at the object's turn, by their place
+   * among its records: a bit each, whatever the object holds.
+   */
+  readonly goneAt = new PlaceMarks();
+  /**
+   * Keys of the records deleted, or found gone, once their turn was over —
+   * sent again, or taken along by a parent: a few, of those refused or held.
+   */
+  readonly goneLater = new Set<string>();
+  /** Keys of the records among those that this removal deleted. */
+  readonly deletedLater = new Set<string>();
   /** Records found neither in the org nor in its recycle bin: never taken for gone. */
   notVisible = 0;
+  /** What is said of the records not visible, once the object's turn is over. */
+  notVisibleNote?: string;
   /**
    * The records the org had refused that the second try took up, by id: sent
    * again, or kept for a record that stays.
@@ -416,6 +563,11 @@ class ObjectRemoval {
   /** Note why the object as a whole could not be read or checked. */
   note(reason: string): void {
     if (!this.notes.includes(reason)) this.notes.push(reason);
+  }
+
+  /** Whether the removal deleted the record `id`, at `place` among the object's records, or found it gone. */
+  isGone(id: string, place: number): boolean {
+    return this.goneAt.has(place) || this.goneLater.has(recordKey(id));
   }
 
   /**
@@ -449,8 +601,8 @@ class ObjectRemoval {
     let refused = 0;
     for (const id of this.secondTry) {
       const key = recordKey(id);
-      if (this.deleted.has(key)) deleted++;
-      else if (this.gone.has(key)) gone++;
+      if (this.deletedLater.has(key)) deleted++;
+      else if (this.goneLater.has(key)) gone++;
       else if (this.refused.has(id)) refused++;
       else held++;
     }
@@ -466,12 +618,14 @@ class ObjectRemoval {
   /** The object's result, its counts and reasons as they stand. */
   settle(): ForgeUndoObjectResult {
     this.result.keptDependents = this.held.length;
-    this.result.refused = this.refused.size;
+    this.result.refused = this.refused.size + (this.unread?.count ?? 0);
     if (this.notVisible > 0) this.result.notVisible = this.notVisible;
     if (this.held.length === 0) this.result.heldBy = [];
     const reasons = [
+      ...(this.notVisibleNote ? [this.notVisibleNote] : []),
       ...this.notes,
       ...this.secondTryNote(),
+      ...(this.unread ? [this.unread.reason] : []),
       ...[...this.refused.values()].map((r) => r.reason),
     ];
     this.result.reasons = [...new Set(reasons)].slice(0, REASON_LIMIT);
@@ -543,32 +697,59 @@ class ObjectRemoval {
  * deleted, which the run did not create, stay in the org once their record is
  * gone: each object's result names them, and the removal leaves them there.
  *
+ * Handed a page at a time (`RunRecords`), the records are read from where
+ * they are kept each time the removal goes through them — the snapshot, the
+ * records changed since, each object's turn, what it leaves — and it holds a
+ * page of ids at a time, a date and a mark for each record by its place, and
+ * the records it could not take.
+ *
  * @param org - The run's target org.
  * @param plan - The run's records, children before their parents as far as
- *   the run knows — the reverse of the order it wrote them.
+ *   the run knows — the reverse of the order it wrote them: in memory, or
+ *   read a page at a time.
  * @param options - The run's time span, what earlier removals of it wrote,
  *   whether changed records go, the stop signal.
  */
 export async function removeRunRecords(
   org: RemovalOrg,
-  plan: readonly ForgeRunObjectRecords[],
+  plan: readonly ForgeRunObjectRecords[] | RunRecords,
   options: RunRemovalOptions,
 ): Promise<RunRemovalOutcome> {
-  const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
+  const records = isRunRecords(plan) ? plan : runRecordsOf(plan);
+  const total = records.objects.reduce((sum, object) => sum + object.count, 0);
   const stopped = (): boolean => options.signal?.aborted === true;
+  /** Every record handed over, left where it is: a removal stopped before it wrote. */
+  const untouched = (): RunRemovalOutcome => ({
+    objects: [],
+    cancelled: true,
+    gone: [],
+    stamps: {},
+    left: () => everyRecordOf(records),
+  });
 
   const snapshots = new Map<string, ObjectSnapshot>();
-  for (const { objectApiName, ids } of plan) {
-    if (stopped()) return { objects: [], cancelled: true, gone: [], stamps: {} };
-    const snapshot = await snapshotOf(org, objectApiName, ids);
+  /** The object of each key prefix of the records handed over, from the first id of each. */
+  const objectOfPrefix = new Map<string, string>();
+  for (const { objectApiName } of records.objects) {
+    const snapshot = emptySnapshot();
     snapshots.set(objectApiName, snapshot);
-    if (snapshot.error !== undefined) continue;
-    const missing = ids.filter((id) => !snapshot.lastModified.has(recordKey(id)));
-    if (missing.length === 0) continue;
-    if (stopped()) return { objects: [], cancelled: true, gone: [], stamps: {} };
-    const bin = await recycleBinOf(org, objectApiName, missing);
-    if ('error' in bin) snapshot.binError = bin.error;
-    else snapshot.binned = bin.deleted;
+    let at = 0;
+    for await (const page of records.pages(objectApiName)) {
+      if (stopped()) return untouched();
+      const first = page[0];
+      if (first !== undefined && !objectOfPrefix.has(first.slice(0, 3))) {
+        objectOfPrefix.set(first.slice(0, 3), objectApiName);
+      }
+      const place = at;
+      at += page.length;
+      if (snapshot.error !== undefined) continue;
+      const missing = await readSnapshotPage(org, objectApiName, page, place, snapshot);
+      if (snapshot.error !== undefined || missing.length === 0) continue;
+      if (stopped()) return untouched();
+      const bin = await recycleBinOf(org, objectApiName, missing);
+      if ('error' in bin) snapshot.binError = bin.error;
+      else for (const key of bin.deleted) snapshot.binned.add(key);
+    }
   }
 
   // Each object described once: the order and the dependents check read it.
@@ -598,33 +779,44 @@ export async function removeRunRecords(
       return described;
     },
   };
-  const order = await removalOrder(session, plan);
+  const order = await removalOrder(session, records.objects);
   // Read before the removal's first write: what the org creates from then on,
   // as the user the removal runs as, is the removal's doing, dated by the same
   // clock as the run.
   const [clock, removalUser] = await Promise.all([removalClockOf(session), removalUserOf(session)]);
 
-  // Every record of the run, by key; a record in the org is changed when it
-  // was modified after the run ended, both by the org's clock — or after what
-  // an earlier removal of the run wrote to it, which was that removal's doing.
-  const runRecords = new Set(plan.flatMap((object) => object.ids.map(recordKey)));
+  // A record in the org is changed when it was modified after the run ended,
+  // both by the org's clock — or after what an earlier removal of the run
+  // wrote to it, which was that removal's doing.
   const { start: runStart, end: runEnd } = runSpan(options, snapshots.values(), clock.aheadMs);
   const stampedBefore = new Map(
     Object.entries(options.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
   );
   const changed = new Set<string>();
-  for (const snapshot of snapshots.values()) {
-    for (const [key, modified] of snapshot.lastModified) {
-      // A date that cannot be read cannot show the record was left alone.
-      const unchanged = modified <= runEnd || modified <= (stampedBefore.get(key) ?? Number.NaN);
-      if (!unchanged) changed.add(key);
+  for (const { objectApiName } of records.objects) {
+    const snapshot = snapshots.get(objectApiName);
+    if (!snapshot || snapshot.error !== undefined) continue;
+    let place = 0;
+    for await (const page of records.pages(objectApiName)) {
+      for (const id of page) {
+        const modified = snapshot.modified.at(place++);
+        const key = recordKey(id);
+        if (snapshot.missing.has(key)) continue;
+        // A date that cannot be read cannot show the record was left alone.
+        const unchanged = modified <= runEnd || modified <= (stampedBefore.get(key) ?? Number.NaN);
+        if (!unchanged) changed.add(key);
+      }
     }
   }
 
+  /** The objects the removal has been through, or is going through. */
+  const reachedObjects = new Set<string>();
   /** Records of the run whose object the removal has been through. */
-  const reached = new Set<string>();
+  const reached: RecordKeys = {
+    has: (key) => records.has(key) && reachedObjects.has(objectOfPrefix.get(key.slice(0, 3)) ?? ''),
+  };
   const dependents = new DependentsCheck(session, {
-    runRecords,
+    runRecords: records,
     reached,
     stays: (key) => changed.has(key) && !options.includeChanged,
     runStart,
@@ -639,17 +831,19 @@ export async function removeRunRecords(
     includeChanged: options.includeChanged,
   });
 
-  if (stopped()) return { objects: [], cancelled: true, gone: [], stamps: {} };
+  if (stopped()) return untouched();
   const drafting = await backToDraft(
     session,
     dependents,
     order,
+    records,
     (objectApiName, id) => {
       const key = recordKey(id);
       const snapshot = snapshots.get(objectApiName);
       return (
-        snapshot?.error === undefined &&
-        snapshot?.lastModified.has(key) === true &&
+        snapshot !== undefined &&
+        snapshot.error === undefined &&
+        !snapshot.missing.has(key) &&
         !(changed.has(key) && !options.includeChanged)
       );
     },
@@ -657,23 +851,44 @@ export async function removeRunRecords(
   );
 
   const removals: ObjectRemoval[] = [];
+  const removalOf = (objectApiName: string): ObjectRemoval | undefined =>
+    removals.find((removal) => removal.result.objectApiName === objectApiName);
+  /**
+   * Of the records of `objects`, a page at a time, those `keep` keeps, told
+   * each record with whether the removal took it — deleted it, or found it
+   * gone.
+   */
+  async function* recordsWhere(
+    objects: ReadonlyArray<{ objectApiName: string }>,
+    keep: (objectApiName: string, id: string, gone: boolean) => boolean,
+  ): AsyncGenerator<ForgeRunObjectRecords> {
+    for (const { objectApiName } of objects) {
+      const removal = removalOf(objectApiName);
+      let place = 0;
+      for await (const page of records.pages(objectApiName)) {
+        const ids = page.filter((id) =>
+          keep(objectApiName, id, removal?.isGone(id, place++) === true),
+        );
+        if (ids.length > 0) yield { objectApiName, ids };
+      }
+    }
+  }
   /**
    * The run's records the removal may have left in the org, per object: the
    * ones there and unchanged since the run when it began, read by their
    * `LastModifiedDate`, that it has not deleted or found gone since.
    */
-  const leftUnchanged = (): ForgeRunObjectRecords[] => {
-    const gone = new Set(removals.flatMap((removal) => [...removal.gone]));
-    return order.flatMap(({ objectApiName, ids }) => {
+  const leftUnchanged = (): AsyncIterable<ForgeRunObjectRecords> =>
+    recordsWhere(order, (objectApiName, id, gone) => {
       const snapshot = snapshots.get(objectApiName);
-      if (snapshot?.modifiedColumn !== 'LastModifiedDate') return [];
-      const left = ids.filter((id) => {
-        const key = recordKey(id);
-        return snapshot.lastModified.has(key) && !changed.has(key) && !gone.has(key);
-      });
-      return left.length > 0 ? [{ objectApiName, ids: left }] : [];
+      const key = recordKey(id);
+      return (
+        snapshot?.modifiedColumn === 'LastModifiedDate' &&
+        !snapshot.missing.has(key) &&
+        !changed.has(key) &&
+        !gone
+      );
     });
-  };
   // Every way out once a status may have been changed: what the removal leaves
   // in the org gets its status back first; then, once it has written, what it
   // left on the run's records is read, and when it ran is said, for the next
@@ -681,13 +896,13 @@ export async function removeRunRecords(
   const outcome = async (cancelled: boolean): Promise<RunRemovalOutcome> => {
     await putBackStatuses(session, drafting.drafted, {
       note: (objectApiName, reason, failed) => {
-        let removal = removals.find((r) => r.result.objectApiName === objectApiName);
+        let removal = removalOf(objectApiName);
         // An object not reached is named only for a record left in Draft:
         // otherwise it is as the removal found it.
         if (!removal) {
           if (!failed) return;
-          const planned = plan.find((object) => object.objectApiName === objectApiName);
-          removal = new ObjectRemoval(objectApiName, planned?.ids.length ?? 0);
+          const planned = records.objects.find((object) => object.objectApiName === objectApiName);
+          removal = new ObjectRemoval(objectApiName, planned?.count ?? 0);
           removals.push(removal);
         }
         removal.note(reason);
@@ -697,69 +912,85 @@ export async function removeRunRecords(
       ? await stampsLeft(session, leftUnchanged(), { start: clock.start, user: removalUser })
       : {};
     const span = wrote ? removalSpanOf(clock, removalUser) : undefined;
-    const gone = new Set(removals.flatMap((removal) => [...removal.gone]));
+    // Handed over in memory, the records taken are said by their ids; read a
+    // page at a time, they are not gathered — what is left is read instead.
+    const gone: string[] = [];
+    if (!isRunRecords(plan)) {
+      for await (const { ids } of recordsWhere(order, (_object, _id, taken) => taken)) {
+        for (const id of ids) gone.push(id);
+      }
+    }
     return {
       objects: removals.map((removal) => removal.settle()),
       cancelled,
-      gone: order.flatMap(({ ids }) => ids.filter((id) => gone.has(recordKey(id)))),
+      gone,
+      left: () => recordsWhere(records.objects, (_object, _id, taken) => !taken),
       stamps,
       ...(span ? { span } : {}),
     };
   };
   if (drafting.cancelled) return outcome(true);
   let settled = 0;
-  for (const { objectApiName, ids } of order) {
+  for (const { objectApiName, count } of order) {
     if (stopped()) return outcome(true);
-    const removal = new ObjectRemoval(objectApiName, ids.length);
+    const removal = new ObjectRemoval(objectApiName, count);
     removals.push(removal);
+    reachedObjects.add(objectApiName);
     const snapshot = snapshots.get(objectApiName);
 
     if (!snapshot || snapshot.error !== undefined) {
-      const reason = snapshot?.error ?? 'The org gave no reason.';
-      for (const id of ids) removal.refused.set(id, { reason, dependency: false, sent: false });
-      ids.forEach((id) => reached.add(recordKey(id)));
-      settled += ids.length;
+      removal.unread = { reason: snapshot?.error ?? 'The org gave no reason.', count };
+      settled += count;
       options.onProgress?.(settled, total, objectApiName);
       continue;
     }
 
-    const candidates: string[] = [];
-    for (const id of ids) {
-      const key = recordKey(id);
-      reached.add(key);
-      if (!snapshot.lastModified.has(key)) {
-        // Gone only when the recycle bin holds it: a record the session
-        // cannot see comes back from a query no more than a deleted one, and
-        // taken for gone it was counted removed while it stayed in the org.
-        if (snapshot.binned.has(key)) {
-          removal.result.alreadyGone++;
-          removal.gone.add(key);
-        } else removal.notVisible++;
-      } else if (changed.has(key) && !options.includeChanged) removal.result.keptChanged++;
-      else candidates.push(id);
-    }
-    if (removal.notVisible > 0) {
-      removal.note(
-        `Not visible: ${removal.notVisible} record(s) found neither in the org nor in its ` +
+    let at = 0;
+    for await (const page of records.pages(objectApiName)) {
+      if (stopped()) return outcome(true);
+      const candidates: string[] = [];
+      /** The place among the object's records of each candidate, by its key. */
+      const placeOf = new Map<string, number>();
+      for (const id of page) {
+        const key = recordKey(id);
+        const place = at++;
+        if (snapshot.missing.has(key)) {
+          // Gone only when the recycle bin holds it: a record the session
+          // cannot see comes back from a query no more than a deleted one, and
+          // taken for gone it was counted removed while it stayed in the org.
+          if (snapshot.binned.has(key)) {
+            removal.result.alreadyGone++;
+            removal.goneAt.add(place);
+          } else removal.notVisible++;
+        } else if (changed.has(key) && !options.includeChanged) removal.result.keptChanged++;
+        else {
+          candidates.push(id);
+          placeOf.set(key, place);
+        }
+      }
+      if (removal.notVisible > 0) {
+        removal.notVisibleNote =
+          `Not visible: ${removal.notVisible} record(s) found neither in the org nor in its ` +
           "recycle bin, as the user the removal runs as sees them — out of that user's sight, " +
           'or deleted for good — are not counted as removed' +
-          (snapshot.binError ? ` (the recycle bin could not be read: ${snapshot.binError})` : '.'),
-      );
-    }
-    settled += ids.length - candidates.length;
+          (snapshot.binError ? ` (the recycle bin could not be read: ${snapshot.binError})` : '.');
+      }
+      settled += page.length - candidates.length;
 
-    const cancelledPart = await removeCandidates(session, dependents, removal, candidates, {
-      stopped,
-      onDeleted: (count) => {
-        settled += count;
-        options.onProgress?.(settled, total, objectApiName);
-      },
-      onHeld: (count) => {
-        settled += count;
-        options.onProgress?.(settled, total, objectApiName);
-      },
-    });
-    if (cancelledPart) return outcome(true);
+      const cancelledPart = await removeCandidates(session, dependents, removal, candidates, {
+        stopped,
+        placeOf,
+        onDeleted: (deleted) => {
+          settled += deleted;
+          options.onProgress?.(settled, total, objectApiName);
+        },
+        onHeld: (held) => {
+          settled += held;
+          options.onProgress?.(settled, total, objectApiName);
+        },
+      });
+      if (cancelledPart) return outcome(true);
+    }
   }
 
   // The second try. Once the rest of the plan has gone, every record the org
@@ -882,11 +1113,14 @@ async function settleTakenAlong(
   const { gone, unchecked, failure } = await takenAlong(
     removal.refusedSent(),
     (ids) => readRecordsById(org, removal.result.objectApiName, [], ids),
-    (id) => snapshot?.lastModified.has(recordKey(id)) === true,
+    (id) =>
+      snapshot !== undefined &&
+      snapshot.error === undefined &&
+      !snapshot.missing.has(recordKey(id)),
   );
   for (const id of gone) {
     removal.refused.delete(id);
-    removal.gone.add(recordKey(id));
+    removal.goneLater.add(recordKey(id));
     removal.result.alreadyGone++;
   }
   if (unchecked.length > 0) {
@@ -908,10 +1142,10 @@ async function settleTakenAlong(
  * objects hold a lookup to it. An object the org cannot describe keeps its
  * place.
  */
-async function removalOrder(
+async function removalOrder<T extends { readonly objectApiName: string }>(
   org: RemovalOrg,
-  plan: readonly ForgeRunObjectRecords[],
-): Promise<ForgeRunObjectRecords[]> {
+  plan: readonly T[],
+): Promise<T[]> {
   const inPlan = new Set(plan.map((object) => object.objectApiName));
   /** Per object, the objects of the plan it points at. */
   const pointsAt = new Map<string, Set<string>>();
@@ -931,7 +1165,7 @@ async function removalOrder(
     }
   }
   const remaining = [...plan];
-  const ordered: ForgeRunObjectRecords[] = [];
+  const ordered: T[] = [];
   while (remaining.length > 0) {
     const free = remaining.findIndex(
       (object) =>
@@ -1000,48 +1234,54 @@ export function setBackToDraftOf(objects: readonly string[]): string[] {
 async function backToDraft(
   org: RemovalOrg,
   dependents: DependentsCheck,
-  order: readonly ForgeRunObjectRecords[],
+  order: ReadonlyArray<{ readonly objectApiName: string }>,
+  records: RunRecords,
   goes: (objectApiName: string, id: string) => boolean,
   stopped: () => boolean,
 ): Promise<{ drafted: Drafted[]; cancelled: boolean }> {
   const query = queryOf(org);
   const drafted: Drafted[] = [];
-  for (const { objectApiName, ids } of order) {
+  for (const { objectApiName } of order) {
     const lifecycle = STATUS_LIFECYCLES[objectApiName];
     if (!lifecycle || DELETED_PAST_DRAFT.has(objectApiName)) continue;
-    const candidates = ids.filter((id) => goes(objectApiName, id));
-    if (candidates.length === 0) continue;
-    if (stopped()) return { drafted, cancelled: true };
-    const categories = await statusCategories(query, lifecycle);
-    if (!categories?.draft) continue;
-    const draft = categories.draft;
-    const { held } = await dependents.heldAmong(objectApiName, candidates);
-    let rows: Array<Record<string, unknown>>;
-    try {
-      rows = await readRecordsById(org, objectApiName, ['Status'], candidates);
-    } catch {
-      continue;
-    }
-    const pastDraft = rows
-      .filter((row) => typeof row.Id === 'string' && !held.has(recordKey(row.Id)))
-      .filter((row) => {
-        const category = categories.categoryOf.get(String(row.Status));
-        return category !== undefined && category !== 'Draft';
-      })
-      .map((row) => ({ objectApiName, id: String(row.Id), draft, status: String(row.Status) }));
-    for (let at = 0; at < pastDraft.length; at += RECORDS_PER_CALL) {
+    /** The object's statuses, read once its first page holds a record to set back. */
+    let categories: StatusCategories | undefined;
+    for await (const page of records.pages(objectApiName)) {
+      const candidates = page.filter((id) => goes(objectApiName, id));
+      if (candidates.length === 0) continue;
       if (stopped()) return { drafted, cancelled: true };
-      const batch = pastDraft.slice(at, at + RECORDS_PER_CALL);
-      // Kept before the call: an update the org applied without answering is
-      // put back all the same.
-      drafted.push(...batch);
+      categories ??= await statusCategories(query, lifecycle);
+      const known = categories;
+      const draft = known?.draft;
+      if (!known || !draft) break;
+      const { held } = await dependents.heldAmong(objectApiName, candidates);
+      let rows: Array<Record<string, unknown>>;
       try {
-        await org.update(
-          objectApiName,
-          batch.map(({ id }) => ({ Id: id, Status: draft })),
-        );
+        rows = await readRecordsById(org, objectApiName, ['Status'], candidates);
       } catch {
-        // Shown again by the delete.
+        continue;
+      }
+      const pastDraft = rows
+        .filter((row) => typeof row.Id === 'string' && !held.has(recordKey(row.Id)))
+        .filter((row) => {
+          const category = known.categoryOf.get(String(row.Status));
+          return category !== undefined && category !== 'Draft';
+        })
+        .map((row) => ({ objectApiName, id: String(row.Id), draft, status: String(row.Status) }));
+      for (let at = 0; at < pastDraft.length; at += RECORDS_PER_CALL) {
+        if (stopped()) return { drafted, cancelled: true };
+        const batch = pastDraft.slice(at, at + RECORDS_PER_CALL);
+        // Kept before the call: an update the org applied without answering is
+        // put back all the same.
+        drafted.push(...batch);
+        try {
+          await org.update(
+            objectApiName,
+            batch.map(({ id }) => ({ Id: id, Status: draft })),
+          );
+        } catch {
+          // Shown again by the delete.
+        }
       }
     }
   }
@@ -1152,13 +1392,13 @@ async function putBackStatuses(
  */
 async function stampsLeft(
   org: RemovalOrg,
-  records: readonly ForgeRunObjectRecords[],
+  records: AsyncIterable<ForgeRunObjectRecords>,
   removal: { start: number; user: string | undefined },
 ): Promise<Record<string, string>> {
   const stamps: Record<string, string> = {};
   const { start, user } = removal;
   if (user === undefined || !Number.isFinite(start)) return stamps;
-  for (const { objectApiName, ids } of records) {
+  for await (const { objectApiName, ids } of records) {
     let rows: Array<Record<string, unknown>>;
     try {
       rows = await readRecordsById(
@@ -1225,6 +1465,13 @@ interface CandidateHooks {
   onHeld?: (count: number) => void;
   /** The records of one delete, once the org answered it. */
   onSent?: (batch: readonly string[]) => void;
+  /**
+   * At the object's turn, a page of its records: each candidate's place among
+   * them, by its key — where what the removal takes is marked. Without it,
+   * the candidates are records taken up again once their turn is over: those
+   * held before are among them, and are settled afresh.
+   */
+  placeOf?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -1246,14 +1493,21 @@ async function removeCandidates(
   for (const name of verdict.unchecked) {
     if (!removal.result.unchecked.includes(name)) removal.result.unchecked.push(name);
   }
-  // Every record held before is among the candidates: the held ones are
-  // settled afresh, and a record refused before and held now is held.
-  removal.held = candidates.filter((id) => verdict.held.has(recordKey(id)));
-  for (const id of removal.held) removal.refused.delete(id);
-  // The objects are named, never their records: a person reads which kind of
-  // record stays, the org can show which ones.
-  removal.result.heldBy = [...verdict.holders];
-  hooks.onHeld?.(removal.held.length);
+  const heldNow = candidates.filter((id) => verdict.held.has(recordKey(id)));
+  if (hooks.placeOf) {
+    // A page of the object's turn: what the pages before it held stays held.
+    for (const id of heldNow) removal.held.push(id);
+    removal.result.heldBy = [...new Set([...removal.result.heldBy, ...verdict.holders])];
+  } else {
+    // Every record held before is among the candidates: the held ones are
+    // settled afresh, and a record refused before and held now is held.
+    removal.held = heldNow;
+    // The objects are named, never their records: a person reads which kind
+    // of record stays, the org can show which ones.
+    removal.result.heldBy = [...verdict.holders];
+  }
+  for (const id of heldNow) removal.refused.delete(id);
+  hooks.onHeld?.(heldNow.length);
 
   const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
   for (const batch of await deleteRounds(org, objectApiName, toDelete)) {
@@ -1273,11 +1527,14 @@ async function removeCandidates(
         return;
       }
       removal.refused.delete(id);
-      removal.gone.add(recordKey(id));
+      const key = recordKey(id);
+      const place = hooks.placeOf?.get(key);
+      if (place !== undefined) removal.goneAt.add(place);
+      else removal.goneLater.add(key);
       if (result.kind === 'deleted') {
         removal.result.deleted++;
-        removal.deleted.add(recordKey(id));
-        for (const file of files.get(recordKey(id)) ?? []) {
+        if (place === undefined) removal.deletedLater.add(key);
+        for (const file of files.get(key) ?? []) {
           removal.filesLeft.set(file.key, file.name);
         }
       } else removal.result.alreadyGone++;
@@ -1289,34 +1546,66 @@ async function removeCandidates(
 }
 
 /**
- * Which records of one object are still in the org, when each was last
- * modified — by its system stamp when the object keeps no modified date — and
- * when the first of them was created. An email message's relation keeps no
+ * Read one page of an object's records into its snapshot: which are still in
+ * the org, when each was last modified — by its system stamp when the object
+ * keeps no modified date — by its place among the object's records, and when
+ * the first of them was created. An email message's relation keeps no
  * modified date: read by it alone, the object was refused whole, and the
- * removal said so of records its message took along.
+ * removal said so of records its message took along. The object's first page
+ * settles which date it is read by; a page that cannot be read by it leaves
+ * the whole object unread, as one read whole would be.
+ *
+ * @param place - The place of the page's first record among the object's.
+ * @returns The ids of the page's records the read did not find.
  */
-async function snapshotOf(
+async function readSnapshotPage(
   org: RemovalOrg,
   objectApiName: string,
-  ids: readonly string[],
-): Promise<ObjectSnapshot> {
+  page: readonly string[],
+  place: number,
+  snapshot: ObjectSnapshot,
+): Promise<string[]> {
   let error: string | undefined;
-  for (const { created, modified } of SNAPSHOT_DATE_COLUMNS) {
+  const columnsTried = snapshot.modifiedColumn
+    ? SNAPSHOT_DATE_COLUMNS.filter(({ modified }) => modified === snapshot.modifiedColumn)
+    : SNAPSHOT_DATE_COLUMNS;
+  for (const { created, modified } of columnsTried) {
     try {
       const columns = created ? [created, modified] : [modified];
-      const rows = await readRecordsById(org, objectApiName, columns, ids);
-      const lastModified = new Map<string, number>();
-      let firstCreated = Number.NaN;
+      const rows = await readRecordsById(org, objectApiName, columns, page);
+      const dates = new Map<string, number>();
       for (const row of rows) {
-        if (typeof row.Id === 'string') lastModified.set(recordKey(row.Id), epochOf(row[modified]));
-        if (created) firstCreated = earliest(firstCreated, epochOf(row[created]));
+        if (typeof row.Id === 'string') dates.set(recordKey(row.Id), epochOf(row[modified]));
+        if (created) snapshot.firstCreated = earliest(snapshot.firstCreated, epochOf(row[created]));
       }
-      return { lastModified, modifiedColumn: modified, firstCreated, binned: new Set() };
+      snapshot.modifiedColumn = modified;
+      const missing: string[] = [];
+      page.forEach((id, at) => {
+        const key = recordKey(id);
+        const date = dates.get(key);
+        if (date === undefined) {
+          snapshot.missing.add(key);
+          missing.push(id);
+        }
+        snapshot.modified.set(place + at, date ?? Number.NaN);
+      });
+      return missing;
     } catch (err: unknown) {
       error ??= extractErrorMessage(err);
     }
   }
-  return { lastModified: new Map(), firstCreated: Number.NaN, error, binned: new Set() };
+  snapshot.error = error;
+  snapshot.modifiedColumn = undefined;
+  return [];
+}
+
+/** Every record handed over, a page at a time per object: what a removal stopped before it wrote leaves. */
+async function* everyRecordOf(records: RunRecords): AsyncGenerator<ForgeRunObjectRecords> {
+  for (const { objectApiName } of records.objects) {
+    for await (const ids of records.pages(objectApiName)) {
+      if (ids.length > 0) yield { objectApiName, ids: [...ids] };
+    }
+  }
 }
 
 /**
@@ -1474,6 +1763,7 @@ async function deleteBatch(
   objectApiName: string,
   batch: readonly string[],
 ): Promise<DeleteOutcome[]> {
+  if (objectApiName === FILE_VERSION) return deleteVersions(org, batch);
   let answer: unknown;
   try {
     answer = await org.destroy(objectApiName, [...batch]);
@@ -1495,12 +1785,49 @@ async function deleteBatch(
   });
 }
 
+/**
+ * Delete the file versions `batch` names by deleting their documents, and say
+ * what became of each version: the org deletes no version on its own — its
+ * describe says it is not deletable — and a run keeps a version alone when it
+ * was stopped before it read the version's document back (`copyFiles`). A
+ * version the org no longer holds went with its document.
+ */
+async function deleteVersions(org: RemovalOrg, batch: readonly string[]): Promise<DeleteOutcome[]> {
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = await readRecordsById(org, FILE_VERSION, ['ContentDocumentId'], batch);
+  } catch (err: unknown) {
+    const reason = extractErrorMessage(err);
+    return batch.map(() => ({ kind: 'refused', reason, dependency: false }));
+  }
+  const documentOf = new Map<string, string>();
+  for (const row of rows) {
+    if (typeof row.Id === 'string' && typeof row.ContentDocumentId === 'string') {
+      documentOf.set(recordKey(row.Id), row.ContentDocumentId);
+    }
+  }
+  const documents = [...new Set(documentOf.values())];
+  const outcomes = documents.length > 0 ? await deleteBatch(org, FILE, documents) : [];
+  const byDocument = new Map(documents.map((document, at) => [document, outcomes[at]]));
+  return batch.map((id): DeleteOutcome => {
+    const document = documentOf.get(recordKey(id));
+    if (document === undefined) return { kind: 'gone' };
+    return (
+      byDocument.get(document) ?? {
+        kind: 'refused',
+        reason: 'The org gave no answer for its document.',
+        dependency: false,
+      }
+    );
+  });
+}
+
 /** What the dependents check knows of the removal under way. */
 interface DependentsContext {
   /** Keys of every record the run created. */
-  runRecords: ReadonlySet<string>;
+  runRecords: RecordKeys;
   /** Keys of the run's records whose object has been through the removal. */
-  reached: ReadonlySet<string>;
+  reached: RecordKeys;
   /** Whether a run record not reached yet is one the removal will keep. */
   stays: (key: string) => boolean;
   runStart: number;

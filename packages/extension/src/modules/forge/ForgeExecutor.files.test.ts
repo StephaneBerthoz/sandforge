@@ -10,6 +10,7 @@ import type {
   InsertResult,
 } from './ForgeExecutor.js';
 import { ForgeFilesRefusedError } from './stages/FileCopier.js';
+import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
 import { finishedRunStatus } from './runResult.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
@@ -690,5 +691,120 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
 
     expect(writes).toEqual(['insert Contact', 'file Attachment']);
     expect(readable(sent[0].record)).toEqual({ LastName: 'Other', AccountId: id('001', 401) });
+  });
+});
+
+describe('ForgeExecutor, taking up a run that copied files when its process was killed', () => {
+  /**
+   * The orgs above, with what a part taking a run up reads of the files the
+   * run copied: the documents of its versions, and their links — the record
+   * each was published on, and those linked to it since.
+   */
+  function takenUpOrgs() {
+    const orgs = fakeOrgs();
+    const published = new Map<string, unknown>();
+    const query = orgs.deps.queryRecords;
+    const insertFile = orgs.deps.insertFile;
+    const documentOfVersion = async (version: string): Promise<unknown> => {
+      const [row] = await query(
+        'tgt',
+        `SELECT ContentDocumentId FROM ContentVersion WHERE Id = '${version}'`,
+      );
+      return row?.['ContentDocumentId'];
+    };
+    const deps: ForgeExecutorDeps = {
+      ...orgs.deps,
+      insertFile: async (org, object, record) => {
+        const written = await insertFile(org, object, record);
+        published.set(written.id, record['FirstPublishLocationId']);
+        return written;
+      },
+      queryRecords: async (org, soql) => {
+        const versions = /FROM ContentVersion WHERE Id IN \((.+)\)$/.exec(soql)?.[1];
+        if (org === 'tgt' && versions) {
+          const ids = versions.split(', ').map((quoted) => quoted.slice(1, -1));
+          return Promise.all(
+            ids.map(async (version) => ({
+              Id: version,
+              ContentDocumentId: await documentOfVersion(version),
+            })),
+          );
+        }
+        if (org === 'tgt' && /FROM ContentDocumentLink WHERE ContentDocumentId IN/.test(soql)) {
+          const links: Array<Record<string, unknown>> = [];
+          for (const [version, record] of published) {
+            links.push({
+              ContentDocumentId: await documentOfVersion(version),
+              LinkedEntityId: record,
+            });
+          }
+          for (const { object, record } of orgs.sent) {
+            if (object === 'ContentDocumentLink') links.push({ ...record });
+          }
+          return links;
+        }
+        return query(org, soql);
+      },
+    };
+    return { ...orgs, deps };
+  }
+
+  it('reads back the document of the file it copied before its document was read, never copies it again, and copies the rest onto the records that run wrote', async () => {
+    const orgs = takenUpOrgs();
+    const disk = memoryRunFile();
+    let killed = false;
+    const journal: RunFile = {
+      size: () => disk.size(),
+      append: (text) => {
+        if (!killed) disk.append(text);
+      },
+      read: (offset, length) => disk.read(offset, length),
+      close: () => {},
+    };
+    const killedDeps: ForgeExecutorDeps = {
+      ...orgs.deps,
+      // Killed as it asks the target for the document of the version it has
+      // just written: nothing more reaches the journal.
+      queryRecords: async (org, soql) => {
+        if (org === 'tgt' && /FROM ContentVersion WHERE Id = '/.test(soql)) {
+          killed = true;
+          return new Promise<never>(() => {});
+        }
+        return orgs.deps.queryRecords(org, soql);
+      },
+    };
+    void new ForgeExecutor(killedDeps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+      ...SCOPED,
+      files: FILES,
+      stream: { store: ForgeRunStore.open(journal) },
+    });
+    await vi.waitUntil(() => killed);
+    expect(orgs.writes).toEqual(['insert Account', 'insert Contact', 'file ContentVersion']);
+
+    const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+    const resumed = await new ForgeExecutor(orgs.deps).execute(
+      GRAPH,
+      'src',
+      'tgt',
+      () => undefined,
+      { ...SCOPED, files: FILES, stream: { store } },
+    );
+    store.close();
+
+    // The file is linked to the contact it lacked, the attachment copied onto
+    // the contact the killed run wrote, and nothing else written again.
+    expect(orgs.writes.slice(3)).toEqual(['insert ContentDocumentLink', 'file Attachment']);
+    expect(orgs.readable(orgs.sent[orgs.sent.length - 2].record)).toEqual({
+      ContentDocumentId: 'ContentDocument:1',
+      LinkedEntityId: 'Contact:Key',
+      ShareType: 'V',
+      Visibility: 'AllUsers',
+    });
+    expect(resumed.failedCount).toBe(0);
+    expect(resumed.files?.leftOut).toEqual([]);
+    // The file stays the killed run's, as its journal names it: its version,
+    // which a removal of that run takes with its document.
+    expect(resumed.createdByObject.map((created) => created.objectApiName)).toEqual(['Attachment']);
+    expect(orgs.named(resumed.remapTable[DOCUMENT])).toBe('ContentVersion:1');
   });
 });
