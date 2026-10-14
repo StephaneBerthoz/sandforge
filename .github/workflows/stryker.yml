@@ -54,6 +54,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every job here only reads the repository, so the token it is handed can do
+# nothing more.
+permissions:
+  contents: read
+
 jobs:
   mutation:
     name: Stryker (${{ matrix.name }})
