@@ -2271,6 +2271,8 @@
       "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Répéter interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
       "results1430": "Agir depuis les résultats",
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
+      "resumeRun1510": "Reprendre un run Forge arrêté",
+      "resumeRun1510Desc": "Un run Forge sur des tables entières arrêté, planté ou dont la fenêtre s'est fermée reprend là où il s'était arrêté, depuis ses résultats, l'historique ou Live Operations, en reprenant chaque table après ce qu'il a déjà écrit. Tout run que vous arrêtez est désormais enregistré comme annulé, avec ce qu'il a fait.",
       "syncAlone1500": "Sync tourne seul",
       "syncAlone1500Desc": "Une config Sync enregistrée peut tourner en mode delta : elle ne lit que ce qui a changé depuis son dernier run réussi, reporte les suppressions si vous le demandez et copie les fichiers de ses enregistrements. La page Sync lance une config enregistrée maintenant.",
       "approvedPipelines1500": "Des pipelines qui écrivent, après votre approbation",

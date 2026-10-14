@@ -5,6 +5,35 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.51.0] - 2026-10-14
+
+A Forge run that stopped can be resumed, and every stop says what it left.
+
+### Added
+
+- A Forge run of whole tables that stopped, crashed or lost its window can be
+  resumed from its results, the history or Live Operations, or with
+  `--resume` at the command line.
+- A Sync delta run with files copies files newly attached to records that did
+  not change, and replaces changed legacy attachments where Production Guard
+  allows a delete.
+
+### Changed
+
+- What a Forge run keeps goes to disk, and its second pass runs page by page.
+- An object with a record type closed to the user is held back whole before
+  its first page.
+- Every run the user stops is audited as cancelled.
+
+### Fixed
+
+- A Forge clone cancelled while its journal opened no longer starts.
+- The run gate leaves out what the run it retries or resumes already wrote.
+- A pipeline holding a step type no release has is refused with a reason and a
+  history entry, and the scheduler says why it is not scheduled.
+- Run and Simulate wait for a Sync config that copies files to be saved.
+- A backup stopped between two objects names the objects it never reached.
+
 ## [1.50.0] - 2026-10-13
 
 Sync runs on its own, pipelines can write after an approval, and a canary watches.

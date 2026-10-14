@@ -2271,6 +2271,8 @@
       "gaps1430Desc": "Simular hace pasar un clon por su etapa de escritura sin escribir nada; Ensayar pregunta al propio destino, en transacciones revertidas. La pestaña Discrepancias lista lo que encuentran, con una decisión en un clic para cada una, guardada en la plantilla.",
       "results1430": "Actuar desde los resultados",
       "results1430Desc": "Abra un registro creado en la org de destino, guarde los resultados en CSV o JSON, elimine la ejecución en el sitio y vuelva a intentar los objetos omitidos. Las plantillas se exportan e importan como archivos JSON.",
+      "resumeRun1510": "Reanudar una ejecución de Forge detenida",
+      "resumeRun1510Desc": "Una ejecución de Forge de tablas completas que se detuvo, falló o perdió su ventana continúa donde se quedó, desde sus resultados, el historial o Live Operations, leyendo cada tabla después de lo que ya escribió. Cada ejecución que detiene queda ahora registrada como cancelada, con lo que hizo.",
       "syncAlone1500": "Sync funciona solo",
       "syncAlone1500Desc": "Una configuración de Sync guardada puede funcionar en modo delta: solo lee lo que cambió desde su última ejecución correcta, traslada las eliminaciones si lo pide y copia los archivos de sus registros. La página Sync ejecuta ahora una configuración guardada.",
       "approvedPipelines1500": "Pipelines que escriben, tras su aprobación",
