@@ -20,6 +20,10 @@ import { uiLocale } from '../../utils/formatters';
  * can (`pausable`), and no other is offered a Pause. The buttons this panel
  * used to offer on every run reached a handler that only knows pipeline runs,
  * and every click answered "No active operation found to pause."
+ *
+ * A Forge clone of whole tables that stopped part way — cancelled, or failed —
+ * is offered to be taken up where it stopped, while the panel lists it: the
+ * extension says which (`resumeRun`, the run's id in the Forge history).
  */
 export interface LiveOperationsPanelProps {
   /** Array of live operation snapshots. */
@@ -30,6 +34,8 @@ export interface LiveOperationsPanelProps {
   onPause?: (operationId: string) => void;
   /** Let a paused run go on. */
   onResume?: (operationId: string) => void;
+  /** Take up where it stopped the Forge run a stopped clone names. */
+  onResumeRun?: (forgeId: string) => void;
 }
 
 /**
@@ -127,8 +133,9 @@ const OperationRow: React.FC<{
   onCancel?: (id: string) => void;
   onPause?: (id: string) => void;
   onResume?: (id: string) => void;
+  onResumeRun?: (forgeId: string) => void;
   t: TFunction;
-}> = ({ operation, onCancel, onPause, onResume, t }) => {
+}> = ({ operation, onCancel, onPause, onResume, onResumeRun, t }) => {
   const isActive = operation.status === 'running' || operation.status === 'paused';
   const moduleKey = MODULE_LABEL_KEYS[operation.module];
   // A run that counts no record — a Frozen load goes by phases — has none to
@@ -237,6 +244,20 @@ const OperationRow: React.FC<{
           )}
         </div>
       )}
+      {!isActive && operation.resumeRun && onResumeRun && (
+        <div className="flex items-center gap-1.5 mt-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => operation.resumeRun && onResumeRun(operation.resumeRun)}
+            title={t('monitor.liveOps.resumeRunHint')}
+            data-testid={`resume-run-${operation.operationId}`}
+          >
+            <Play className="w-3 h-3 mr-1" />
+            {t('monitor.liveOps.resumeRun')}
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -250,6 +271,7 @@ export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
   onCancel,
   onPause,
   onResume,
+  onResumeRun,
 }) => {
   const { t } = useTranslation();
 
@@ -290,6 +312,7 @@ export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
           onCancel={onCancel}
           onPause={onPause}
           onResume={onResume}
+          onResumeRun={onResumeRun}
           t={t}
         />
       ))}

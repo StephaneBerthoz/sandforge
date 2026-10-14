@@ -131,6 +131,9 @@
       "title": "Live Operations",
       "noOperations": "No operations running",
       "cancel": "Cancel",
+      "resumeRun": "Resume",
+      "resumeRunHint": "Take this clone up where it stopped",
+      "resumeRunRefused": "The clone could not be taken up",
       "recsPerSec": "rec/s",
       "cancelRefused": "Could not cancel the operation",
       "cancelRefusedDetail": "The run is no longer in progress, or it cannot be stopped from here. The list has been read again.",
@@ -2765,6 +2768,8 @@
     "retryFailedHint": "Retry Failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.",
     "retryStopped": "Write the rest",
     "retryStoppedHint": "Write the rest runs the clone again: what this run did not write before it stopped is written, linked to what it did write, which is not written a second time.",
+    "resumeRun": "Resume where it stopped",
+    "resumeRunHint": "Resume takes this run up from the journal SandForge kept of it: each object is read after the last record this run wrote, and the lookups and statuses it still owed are filled in. Nothing it wrote is written a second time.",
     "retrySkipped": "Retry skipped objects",
     "retrySkippedHint": "Retry skipped objects runs the clone again once what skipped them is fixed: the objects this run skipped whole are written, linked to what it did write, which is not written a second time.",
     "retryWithParents": "Fetch the missing parents and retry",
@@ -3159,12 +3164,15 @@
       "olderRecords_one": "{{formatted}} record to remove from {{org}}",
       "olderRecords_other": "{{formatted}} records to remove from {{org}}",
       "reuse": "Reuse configuration",
+      "resume": "Resume",
+      "resumeHint": "Take this run up where it stopped: nothing it wrote is written again",
       "reuseHint": "Refills the form with this run's settings. Orgs are not restored — pick them, then start discovery.",
       "noConfig": "Recorded before run configurations were kept — nothing to refill.",
       "loadError": "Run history could not be loaded.",
       "reused": "Form refilled from the run of {{date}}.",
       "statusSuccess": "Success",
       "statusPartial": "Partial",
+      "statusInterrupted": "Interrupted",
       "statusFailure": "Failed",
       "remove": "Remove the records this run created",
       "removeLeft": "Remove what is left of this run's records",
@@ -3374,6 +3382,18 @@
       "retryUnavailable": {
         "explanation": "The retry could not start: what the run it retries wrote is not known here — that run is no longer in the history, kept no record of what it wrote or wrote to another org, or its records were removed. Nothing was written.",
         "action": "Run the clone again from Review."
+      },
+      "resumeUnavailable": {
+        "explanation": "This run cannot be taken up where it stopped: it was taken up already or its run ended, it kept no journal, or its records were removed. Nothing was written.",
+        "action": "Retry it from its results, or run the clone again from Review."
+      },
+      "resumeTargetChanged": {
+        "explanation": "The org this run wrote to is no longer the one it was — refreshed, replaced, or no longer registered in SandForge — so what the run wrote is not there to go on from. Nothing was written.",
+        "action": "Run the clone again from Review into the org as it is now."
+      },
+      "resumeChanged": {
+        "explanation": "This run would now be set up otherwise than the part it resumes: the clone on the page, or the sandforge.forge.maxRecordsPerObject setting, changed since it stopped. Nothing was written.",
+        "action": "Put the setting back, or retry the run instead: a retry reads the clone again and links what this run wrote."
       },
       "filesNotAccepted": {
         "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",

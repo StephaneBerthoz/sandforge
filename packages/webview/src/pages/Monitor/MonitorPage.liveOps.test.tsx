@@ -55,6 +55,10 @@ let abortReply: { success: boolean; operationId?: string; error?: string } | nul
 
 const mockPauseMutate = vi.fn();
 const mockResumeMutate = vi.fn();
+const mockResumeRunMutate = vi.fn();
+
+/** The code of the extension's refusal of the last `forge:resume-run`, as the page sees it. */
+let resumeRunCode: string | null = null;
 
 /** The extension's answer to the last `sync:pause`, as the page sees it. */
 let pauseReply: { success: boolean; operationId: string; paused: boolean; error?: string } | null =
@@ -82,6 +86,13 @@ const liveOperations = [
   makeOperation({ operationId: 'op-2', module: 'seed', status: 'paused' }),
   makeOperation({ operationId: 'op-3', status: 'paused', pausable: true }),
   makeOperation({ operationId: 'op-4', description: 'Simulation of a sync', status: 'running' }),
+  makeOperation({
+    operationId: 'op-5',
+    module: 'forge',
+    description: 'Executing forge operation',
+    status: 'cancelled',
+    resumeRun: 'forge-77',
+  }),
 ];
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
@@ -127,6 +138,16 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     if (type === 'sync:resume') {
       return { mutate: mockResumeMutate, data: null, loading: false, error: null, reset: vi.fn() };
     }
+    if (type === 'forge:resume-run') {
+      return {
+        mutate: mockResumeRunMutate,
+        data: null,
+        loading: false,
+        error: resumeRunCode ? 'refused' : null,
+        errorCode: resumeRunCode,
+        reset: vi.fn(),
+      };
+    }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
@@ -153,6 +174,8 @@ describe('MonitorPage live-operation controls', () => {
     mockAbortMutate.mockClear();
     mockPauseMutate.mockClear();
     mockResumeMutate.mockClear();
+    mockResumeRunMutate.mockClear();
+    resumeRunCode = null;
     abortReply = null;
     pauseReply = null;
     monitorPayload = { ...monitorPayload, lastUpdated: '2026-09-15T10:00:00.000Z' };
@@ -188,6 +211,26 @@ describe('MonitorPage live-operation controls', () => {
     expect(screen.queryByTestId('pause-op-2')).toBeNull();
     expect(screen.getByTestId('cancel-op-4')).toBeTruthy();
     expect(screen.queryByTestId('pause-op-4')).toBeNull();
+  });
+
+  it('takes a stopped clone up on forge:resume-run, by the run it names, and reads the list again', () => {
+    render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('resume-run-op-5'));
+    expect(mockResumeRunMutate).toHaveBeenCalledWith({ forgeId: 'forge-77' });
+    expect(mockLiveOpsRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('says why the extension refused to take the clone up', () => {
+    const { rerender } = render(<MonitorPage />);
+    fireEvent.click(screen.getByTestId('resume-run-op-5'));
+
+    resumeRunCode = 'RESUME_TARGET_CHANGED';
+    rerender(<MonitorPage />);
+
+    const [notification] = useNotificationStore.getState().notifications;
+    expect(notification?.level).toBe('warning');
+    expect(notification?.title).toBe('The clone could not be taken up');
+    expect(notification?.message).toMatch(/^The org this run wrote to is no longer the one it was/);
   });
 
   it('warns when the extension refuses the pause, and reads the list again', () => {

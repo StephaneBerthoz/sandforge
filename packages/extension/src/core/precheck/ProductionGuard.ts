@@ -210,6 +210,21 @@ export interface WriteConfirmation {
   largeVolume?: number;
   storage: WriteConfirmationStorage;
   /**
+   * What the run read or counted and will not write, left out of the rows
+   * above: the rows the run it retries or resumes wrote, which it links to,
+   * and the objects held back whole for a record type closed to the user it
+   * writes as. Absent when nothing is.
+   */
+  leftOut?: {
+    writtenBefore: number;
+    heldBack: Array<{ objectApiName: string; rows: number }>;
+  };
+  /**
+   * Set when the rows were counted rather than read: a run of whole tables
+   * read page by page asks before it reads anything.
+   */
+  counted?: true;
+  /**
    * The daily email limits the records go past as the target's flows send
    * for them, each with the emails sent and what is left; absent when none.
    */

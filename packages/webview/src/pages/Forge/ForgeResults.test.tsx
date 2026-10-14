@@ -1149,6 +1149,45 @@ describe('ForgeResults', () => {
       expect(mockSetGraph).not.toHaveBeenCalled();
     });
 
+    it('offers to take a run that stopped up where it stopped, sending the run as the page holds it', () => {
+      mockResult = {
+        ...makeMockResult(),
+        forgeId: 'forge-stopped',
+        cancelled: true,
+        resumable: true,
+      } as typeof mockResult;
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-resume').getAttribute('aria-describedby')).toBe(
+        'forge-resume-hint',
+      );
+      expect(screen.getByTestId('forge-resume-hint').textContent).toBe(
+        'Resume takes this run up from the journal SandForge kept of it: each object is read after the last record this run wrote, and the lookups and statuses it still owed are filled in. Nothing it wrote is written a second time.',
+      );
+      fireEvent.click(screen.getByTestId('forge-resume'));
+
+      const [request] = sent<Record<string, unknown>>('forge:resume-run');
+      expect(request).toMatchObject({ forgeId: 'forge-stopped', config: RUN_CONFIG });
+      expect((request.graph as ForgeGraph).nodes).toHaveLength(mockGraph?.nodes.length ?? -1);
+      expect(sent('forge:execute')).toEqual([]);
+      const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage };
+      expect(mockSetExecutionRequestId).toHaveBeenCalledWith(envelope.payload.id);
+      expect(mockResetNodeStatuses).toHaveBeenCalledTimes(1);
+      expect(mockMarkRetry).toHaveBeenCalledTimes(1);
+      expect(mockSetPhase).toHaveBeenCalledWith('execution');
+    });
+
+    it('offers no resume for a run the extension does not say can be taken up, nor for a simulation', () => {
+      mockResult = { ...makeMockResult(), cancelled: true } as typeof mockResult;
+      const { unmount } = render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-resume')).toBeNull();
+      unmount();
+
+      mockResult = { ...makeMockResult(), resumable: true, dryRun: true } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-resume')).toBeNull();
+    });
+
     it('marks the run a retry of these results as they stand, and forgets why the last run stopped at its gate', () => {
       failedRun();
       const shown = mockGraph;

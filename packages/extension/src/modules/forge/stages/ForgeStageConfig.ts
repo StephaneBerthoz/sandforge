@@ -12,7 +12,47 @@ import type { ForgeRecordTypeMapping } from '@sandforge/shared';
 import type { ExecuteOptions, ForgeStreamCheckpoint, ForgeStreamPage } from '../ForgeExecutor.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { ForgeRunAnonymization } from '../ForgeAnonymizer.js';
+import type { ForgeRunStore } from '../ForgeRunStore.js';
 import { RunDecisions } from './RunDecisions.js';
+
+/**
+ * What the runs this one retries or resumes wrote: the mappings the run
+ * retried handed over, and what an earlier part of the journal the run goes
+ * on in registered. A row found here is linked to and never written again.
+ * Iterated, it gives the mappings handed over alone: an earlier part's are
+ * in the journal the run writes to already.
+ */
+export class WrittenBefore implements Iterable<[string, string]> {
+  constructor(
+    private readonly given: ReadonlyMap<string, string>,
+    private readonly store?: ForgeRunStore,
+  ) {}
+
+  has(sourceId: string): boolean {
+    return this.given.has(sourceId) || this.store?.mapping(sourceId)?.earlier === true;
+  }
+
+  get(sourceId: string): string | undefined {
+    const given = this.given.get(sourceId);
+    if (given !== undefined) return given;
+    const stored = this.store?.mapping(sourceId);
+    return stored?.earlier ? stored.targetId : undefined;
+  }
+
+  /** Records written before: those handed over, and those earlier parts of the journal mapped. */
+  get size(): number {
+    return this.given.size + (this.store?.earlierMapped ?? 0);
+  }
+
+  /** The source ids handed over by the run retried. */
+  keys(): IterableIterator<string> {
+    return this.given.keys();
+  }
+
+  [Symbol.iterator](): IterableIterator<[string, string]> {
+    return this.given.entries();
+  }
+}
 
 /** Normalized configuration consumed by the execution stages. */
 export interface ForgeStageConfig {
@@ -68,7 +108,7 @@ export interface ForgeStageConfig {
    * Source id to target id of every record the run this one retries left in
    * the target; empty for a run that retries none.
    */
-  readonly writtenBefore: ReadonlyMap<string, string>;
+  readonly writtenBefore: WrittenBefore;
   /** Handed every row before the first is written; absent, nothing looks at them first. */
   readonly beforeWrite?: ExecuteOptions['beforeWrite'];
   /**
@@ -80,8 +120,16 @@ export interface ForgeStageConfig {
   readonly stream?: {
     readonly pageSize?: number;
     readonly ceiling?: number;
-    readonly resumeAfter: ReadonlyMap<string, ForgeStreamCheckpoint>;
+    /**
+     * Per object, where the run this one resumes stopped: given, or, for a run
+     * that goes on in the journal of the one it resumes, read from it.
+     */
+    readonly resumeAfter: ReadonlyMap<string, ForgeStreamCheckpoint & { done?: true }>;
     readonly onPage?: (page: ForgeStreamPage) => void | Promise<void>;
+    /** The store of the run's journal: see `ExecuteOptions.stream.store`. */
+    readonly store?: ForgeRunStore;
+    /** Mappings past which the summary leaves the ids in the journal. */
+    readonly summaryBound?: number;
   };
   /** The user's decisions about the rows, applied before they are written. */
   readonly decisions: RunDecisions;
@@ -139,14 +187,23 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
           acceptedAsIs: options.files.acceptedAsIs === true,
         }
       : undefined,
-    writtenBefore: new Map(Object.entries(options?.writtenBefore ?? {})),
+    writtenBefore: new WrittenBefore(
+      new Map(Object.entries(options?.writtenBefore ?? {})),
+      options?.stream?.store,
+    ),
     beforeWrite: options?.beforeWrite,
     stream: options?.stream
       ? {
           pageSize: positiveWhole(options.stream.pageSize),
           ceiling: positiveWhole(options.stream.ceiling),
-          resumeAfter: new Map(Object.entries(options.stream.resumeAfter ?? {})),
+          resumeAfter: options.stream.resumeAfter
+            ? new Map(Object.entries(options.stream.resumeAfter))
+            : (options.stream.store?.checkpoints() ?? new Map()),
           onPage: options.stream.onPage,
+          ...(options.stream.store ? { store: options.stream.store } : {}),
+          ...(options.stream.summaryBound !== undefined
+            ? { summaryBound: Math.max(0, Math.floor(options.stream.summaryBound)) }
+            : {}),
         }
       : undefined,
     decisions: new RunDecisions(options?.decisions),

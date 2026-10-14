@@ -339,6 +339,24 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
+  const { leftOut } = question;
+  if (leftOut && leftOut.writtenBefore > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0} records the run it retries or resumes wrote, which it links to and does not write again.',
+        leftOut.writtenBefore,
+      ),
+    );
+  }
+  for (const { objectApiName, rows } of leftOut?.heldBack ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0}, {1} records, held back whole for a record type closed to the user the run writes as.',
+        objectApiName,
+        rows,
+      ),
+    );
+  }
   if (question.aboveRecords !== undefined) {
     lines.push(
       vscode.l10n.t(
@@ -406,7 +424,11 @@ function writeQuestion(question: WriteConfirmation): string[] {
           ),
     );
   }
-  lines.push(vscode.l10n.t('The records have been read, and nothing has been written yet.'));
+  lines.push(
+    question.counted
+      ? vscode.l10n.t('The records have been counted, and nothing has been read or written yet.')
+      : vscode.l10n.t('The records have been read, and nothing has been written yet.'),
+  );
   return lines;
 }
 

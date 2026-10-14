@@ -1308,6 +1308,30 @@ export interface ForgeExecutionResult {
    * started from Review.
    */
   retryOf?: string;
+  /**
+   * Set on a run that took up the one it names in `retryOf` where it
+   * stopped, from its journal: each object read after where that run left
+   * it, the lookups and statuses it owed given with this run's own.
+   */
+  resumed?: true;
+  /**
+   * The journal the extension keeps of the run while it can be taken up
+   * where it stopped: a run stopped by a cancel, a failure or a closed window.
+   * Absent from a run that ended, and from runs recorded before.
+   */
+  journalId?: string;
+  /**
+   * Set, when the history is listed, on the run that can be taken up where
+   * it stopped (`forge:resume-run`): the last part of its journal, its
+   * records still in the target. Never stored.
+   */
+  resumable?: true;
+  /**
+   * Set on a run a closed window stopped — the extension host gone, the
+   * machine asleep for good — found from its journal the next time the runs
+   * were listed: what it created is what its journal says.
+   */
+  interrupted?: true;
   /** Per-object error reports — populated when at least one record or
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];

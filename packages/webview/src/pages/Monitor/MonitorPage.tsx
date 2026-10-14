@@ -56,6 +56,16 @@ import type {
 /* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
 export type { JobDisplayInfo } from './monitorUtils';
 
+/** How long a Forge run taken up from Live Operations is waited on: its answer comes once it ends. */
+const RESUMED_RUN_WAIT_MS = 24 * 60 * 60 * 1000;
+
+/** What a refusal to take a Forge run up says, by the code the extension sent. */
+const RESUME_REFUSAL_KEYS: Readonly<Record<string, string>> = {
+  RESUME_UNAVAILABLE: 'forge.error.resumeUnavailable.explanation',
+  RESUME_TARGET_CHANGED: 'forge.error.resumeTargetChanged.explanation',
+  RESUME_CHANGED: 'forge.error.resumeChanged.explanation',
+};
+
 /** Org card for the empty state — click to select. */
 const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => void }> = ({
   org,
@@ -225,6 +235,30 @@ export const MonitorPage: React.FC = () => {
   }, [controlReply, controlError, addNotification, refetchLiveOps, t]);
   const pauseRun = pauseMutation.mutate;
   const resumeRun = resumeMutation.mutate;
+
+  /*
+   * A Forge clone that stopped part way is taken up from here as from the
+   * Forge page: `forge:resume-run`, answered as a clone is, once it ends. The
+   * run is listed again as it goes; a refusal before it starts — its org or
+   * its setup no longer what it was — is said in a notification.
+   */
+  const resumeRunMutation = useBridgeMutation<unknown>('forge:resume-run', {
+    responseType: 'forge:execute:response',
+    errorType: 'forge:execute:error',
+    timeoutMs: RESUMED_RUN_WAIT_MS,
+  });
+  const resumeRunCode = resumeRunMutation.errorCode;
+  useEffect(() => {
+    const key = resumeRunCode ? RESUME_REFUSAL_KEYS[resumeRunCode] : undefined;
+    if (!key) return;
+    addNotification({
+      level: 'warning',
+      category: 'monitor',
+      title: t('monitor.liveOps.resumeRunRefused'),
+      message: t(key),
+    });
+  }, [resumeRunCode, addNotification, t]);
+  const resumeForgeRun = resumeRunMutation.mutate;
   const resetPause = pauseMutation.reset;
   const resetResume = resumeMutation.reset;
 
@@ -604,6 +638,10 @@ export const MonitorPage: React.FC = () => {
                 onResume={(opId) => {
                   resetPause();
                   resumeRun({ operationId: opId });
+                }}
+                onResumeRun={(forgeId) => {
+                  resumeForgeRun({ forgeId });
+                  refetchLiveOps();
                 }}
               />
             </div>

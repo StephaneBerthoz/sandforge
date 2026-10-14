@@ -210,6 +210,19 @@ export interface WritePlan {
   objects: WritePlanObject[];
   totalRows: number;
   storageBytes: number;
+  /**
+   * What the run will not write of what it read or counted, left out of the
+   * rows above: see `ForgeWriteBoundary.objects`. Absent when nothing is.
+   */
+  leftOut?: WritePlanLeftOut;
+}
+
+/** What a run will not write of what it read or counted. */
+export interface WritePlanLeftOut {
+  /** Rows the run it retries or resumes wrote, which it links to. */
+  writtenBefore: number;
+  /** Per object held back whole for a record type closed to the user the run writes as, its rows. */
+  heldBack: Array<{ objectApiName: string; rows: number }>;
 }
 
 /**
@@ -252,10 +265,18 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
     )
     .filter(({ rows }) => rows > 0)
     .sort((a, b) => b.rows - a.rows || a.objectApiName.localeCompare(b.objectApiName));
+  const writtenBefore = objects.reduce(
+    (sum, object) => sum + (object.leftOut?.writtenBefore ?? 0),
+    0,
+  );
+  const heldBack = objects
+    .filter((object) => (object.leftOut?.heldBack ?? 0) > 0)
+    .map(({ objectApiName, leftOut }) => ({ objectApiName, rows: leftOut?.heldBack ?? 0 }));
   return {
     objects: measured,
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
+    ...(writtenBefore > 0 || heldBack.length > 0 ? { leftOut: { writtenBefore, heldBack } } : {}),
   };
 }
 
@@ -785,6 +806,7 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
     const rows = rest.reduce((sum, object) => sum + object.rows, 0);
     lines.push(`  and ${rest.length} more object(s), ${rows} record(s)`);
   }
+  lines.push(...leftOutLines(plan.leftOut));
   if (check.verdict === 'unread') {
     lines.push(
       `  the data storage ${target} has left could not be read (${check.unread}): ` +
@@ -797,6 +819,29 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
     lines.push(
       `  that is more than ${Math.round(STORAGE_NEAR_SHARE * 100)} % of what ${target} has left: ` +
         'Salesforce counts storage a while after a load, so less may be left than it says',
+    );
+  }
+  return lines;
+}
+
+/**
+ * What the command line says of the rows a run read or counted and will not
+ * write, left out of the records to write: those the run it retries or
+ * resumes wrote, and an object held back whole for a record type.
+ */
+export function leftOutLines(leftOut: WritePlanLeftOut | undefined): string[] {
+  if (!leftOut) return [];
+  const lines: string[] = [];
+  if (leftOut.writtenBefore > 0) {
+    lines.push(
+      `  not counted: ${leftOut.writtenBefore} record(s) the run it retries or resumes wrote, ` +
+        'which it links to and does not write again',
+    );
+  }
+  for (const { objectApiName, rows } of leftOut.heldBack) {
+    lines.push(
+      `  not counted: ${objectApiName}, ${rows} record(s), held back whole for a record type ` +
+        'closed to the user the run writes as',
     );
   }
   return lines;

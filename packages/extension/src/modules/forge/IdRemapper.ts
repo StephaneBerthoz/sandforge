@@ -1,11 +1,22 @@
+import type { ForgeRunStore } from './ForgeRunStore.js';
+
 /**
  * Manages ID remapping for cloned records during Forge operations.
  *
  * Tracks old Salesforce ID to new Salesforce ID mappings so that
  * lookup fields in child records can be updated to point to the
  * newly created parent records in the target org.
+ *
+ * Given the store of a run's journal, it keeps them there instead of in
+ * memory (see `ForgeRunStore`): every mapping goes to the journal as it is
+ * registered, and a lookup reads it back. What an earlier part of the run
+ * registered — a run this one resumes — is found and linked to, as a record
+ * the target already held is, and counted as none of this part's own.
  */
 export class IdRemapper {
+  /** @param store - The store of the run's journal; absent, every mapping is held in memory. */
+  constructor(private readonly store?: ForgeRunStore) {}
+
   private readonly map = new Map<string, string>();
   /**
    * Source ids whose target is a record the target org already held, not one
@@ -35,6 +46,10 @@ export class IdRemapper {
    *   registered without one is counted in no object.
    */
   add(oldId: string, newId: string, objectApiName?: string): void {
+    if (this.store) {
+      this.store.setMapping('created', oldId, newId, objectApiName);
+      return;
+    }
     this.map.set(oldId, newId);
     this.existing.delete(oldId);
     this.updated.delete(oldId);
@@ -49,6 +64,10 @@ export class IdRemapper {
    * @param objectApiName - The object both records belong to.
    */
   addUpdated(oldId: string, targetId: string, objectApiName: string): void {
+    if (this.store) {
+      this.store.setMapping('updated', oldId, targetId, objectApiName);
+      return;
+    }
     this.map.set(oldId, targetId);
     this.existing.delete(oldId);
     this.updated.add(oldId);
@@ -65,6 +84,10 @@ export class IdRemapper {
    *   data matched by name or the standard price book.
    */
   addExisting(oldId: string, existingId: string, objectApiName?: string): void {
+    if (this.store) {
+      this.store.setMapping('existing', oldId, existingId, objectApiName);
+      return;
+    }
     this.map.set(oldId, existingId);
     this.existing.add(oldId);
     this.updated.delete(oldId);
@@ -83,6 +106,7 @@ export class IdRemapper {
     linked: number;
     updated?: number;
   }> {
+    if (this.store) return this.store.countsByObject();
     const counts = new Map<
       string,
       { objectApiName: string; created: number; linked: number; updated: number }
@@ -115,6 +139,15 @@ export class IdRemapper {
    */
   createdByObject(): Array<{ objectApiName: string; sourceIds: string[] }> {
     const byObject = new Map<string, string[]>();
+    if (this.store) {
+      for (const { kind, sourceId, objectApiName, earlier } of this.store.mappings()) {
+        if (kind !== 'created' || earlier || !objectApiName) continue;
+        const sourceIds = byObject.get(objectApiName) ?? [];
+        sourceIds.push(sourceId);
+        byObject.set(objectApiName, sourceIds);
+      }
+      return [...byObject].map(([objectApiName, sourceIds]) => ({ objectApiName, sourceIds }));
+    }
     for (const [oldId, objectApiName] of this.objectOf) {
       if (this.existing.has(oldId) || this.updated.has(oldId)) continue;
       const sourceIds = byObject.get(objectApiName) ?? [];
@@ -132,6 +165,10 @@ export class IdRemapper {
 
   /** Whether `oldId` maps onto a record the target already held. */
   isExisting(oldId: string): boolean {
+    if (this.store) {
+      const mapping = this.store.mapping(oldId);
+      return mapping !== undefined && (mapping.kind === 'existing' || mapping.earlier);
+    }
     return this.existing.has(oldId);
   }
 
@@ -140,21 +177,39 @@ export class IdRemapper {
    * target already held nor one an upsert matched and wrote over.
    */
   isCreated(oldId: string): boolean {
+    if (this.store) {
+      const mapping = this.store.mapping(oldId);
+      return mapping !== undefined && mapping.kind === 'created' && !mapping.earlier;
+    }
     return this.map.has(oldId) && !this.existing.has(oldId) && !this.updated.has(oldId);
   }
 
-  /** Source ids mapped onto records the target already held, in registration order. */
+  /**
+   * Source ids mapped onto records the target already held, in registration
+   * order: with a store, those an earlier part of the run wrote too.
+   */
   existingSourceIds(): string[] {
+    if (this.store) {
+      return [...this.store.mappings()]
+        .filter(({ kind, earlier }) => kind === 'existing' || earlier)
+        .map(({ sourceId }) => sourceId);
+    }
     return [...this.existing];
   }
 
   /** Source ids an upsert matched by their external id and wrote over, in registration order. */
   updatedSourceIds(): string[] {
+    if (this.store) {
+      return [...this.store.mappings()]
+        .filter(({ kind, earlier }) => kind === 'updated' && !earlier)
+        .map(({ sourceId }) => sourceId);
+    }
     return [...this.updated];
   }
 
   /** Get the new ID for an old ID. Returns undefined if not mapped. */
   get(oldId: string): string | undefined {
+    if (this.store) return this.store.targetOf(oldId);
     return this.map.get(oldId);
   }
 
@@ -171,7 +226,7 @@ export class IdRemapper {
       // Single-lookup pattern (was has() + get(), 2× the cost on
       // hot path of 50K records × 30 lookup fields = 3M lookups).
       if (typeof value === 'string') {
-        const newId = this.map.get(value);
+        const newId = this.store ? this.store.targetOf(value) : this.map.get(value);
         if (newId !== undefined) remapped[field] = newId;
       }
     }
@@ -180,10 +235,10 @@ export class IdRemapper {
 
   /** Get total number of remapped IDs. */
   get count(): number {
-    return this.map.size;
+    return this.store ? this.store.mappedSize : this.map.size;
   }
 
-  /** Clear all mappings. */
+  /** Clear all mappings held in memory; a journal's are kept. */
   clear(): void {
     this.map.clear();
     this.existing.clear();
@@ -194,6 +249,10 @@ export class IdRemapper {
   /** Serialize all mappings to a plain object for checkpoint persistence. */
   toJSON(): Record<string, string> {
     const result: Record<string, string> = {};
+    if (this.store) {
+      for (const { sourceId, targetId } of this.store.mappings()) result[sourceId] = targetId;
+      return result;
+    }
     for (const [key, value] of this.map) {
       result[key] = value;
     }

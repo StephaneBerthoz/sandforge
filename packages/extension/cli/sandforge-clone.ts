@@ -33,7 +33,9 @@
  *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join as joinPath, resolve as resolvePath } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn } from './sfSession.js';
@@ -177,6 +179,10 @@ import {
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { partialSummaryOf } from '../src/modules/forge/interruptedRun.js';
+import { ForgeRunJournal, nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
+import type { ForgeRunPartEnd } from '../src/modules/forge/ForgeRunJournal.js';
+import type { ForgeRunStore } from '../src/modules/forge/ForgeRunStore.js';
+import { forgeRunFingerprint } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
@@ -286,6 +292,11 @@ export interface CliArgs {
    * store the panel keeps its trail in; undefined = no entry.
    */
   audit: string | undefined;
+  /**
+   * The run to take up where it stopped (`--resume`): its journal's file, or
+   * its run id in the journal directory. undefined = a run of its own.
+   */
+  resume: string | undefined;
 }
 
 /** The flags that read a run's choices from a file. */
@@ -435,6 +446,17 @@ Options:
                          prints it: --remove takes the run back from either.
                          A file already there is not overwritten. Not with
                          --list-objects or --rehearse.
+  --resume <journal|id>  take up where it stopped a run that did not end — a
+                         Ctrl-C, a failure, a process killed — from its journal:
+                         its file, or its run id in the journal directory. Each
+                         record that run wrote is linked to and never written
+                         again, the lookups and statuses it still owed are
+                         given, and the rest is written. The same record, orgs,
+                         depth, choices and flags as the run it takes up, or it
+                         is refused; a run that ended is refused too. Every run
+                         that writes keeps its journal there (see
+                         SANDFORGE_JOURNAL_DIR), and says where as it starts.
+                         Not with --dry-run, --rehearse or --list-objects.
   --exclude <obj.field>  skip a field on an object during clone (repeatable)
                          e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
   --exclude-object <obj> leave an object out of the clone (repeatable)
@@ -503,7 +525,9 @@ Options:
   -h, --help             show this help and exit
 
 Remove what a run created:
-  --remove <file>        the summary a run printed with --json, saved to a file
+  --remove <file>        the summary a run printed with --json, saved to a file,
+                         or the journal of a run: every part of it, the run it
+                         took up and each time it was taken up
                          Deletes from --target the records that run created,
                          as the wizard removes a run from Recent runs: children
                          first, never a record the target already held, and a
@@ -515,6 +539,8 @@ Remove what a run created:
                          clone-summary.json, and the next --remove of that
                          summary reads it: what a removal wrote is no change
                          since the run. Keep that file with the summary.
+                         A summary of a run past 50 000 records keeps their ids
+                         in its journal, which the removal reads them from.
   --include-changed      remove also the records changed since the run, and
                          what was added to them since           (default: kept)
   --accept-automation    delete although the target runs flows, Apex triggers,
@@ -527,7 +553,8 @@ Remove what a run created:
   --audit <file>         record the removal in the audit trail kept in <file>
 
 Verify what a run created:
-  --verify <file>        the summary a run printed with --json, saved to a file
+  --verify <file>        the summary a run printed with --json, saved to a file,
+                         or the journal of a run, every part of it
                          Reads back from --target every record the run created,
                          after a pause and again until two readings agree (three
                          at most, two seconds apart): those there, those in the
@@ -556,6 +583,13 @@ Environment:
                          whole tables reads, to see a clone's paged read against
                          a real org. Not a setting: an org answers in pages of
                          200 to 2000 rows, and a page of <n> is cut from them.
+  SANDFORGE_JOURNAL_DIR=<dir>
+                         where every run that writes keeps its journal, in
+                         <dir>/forge-runs/        (default: ~/.sandforge)
+                         What the run wrote, read and still owes, line by line
+                         as it goes, ids only: what --resume takes a run up
+                         from, and what --remove takes it back from however it
+                         ended.
 
 Exit codes:
   0  the clone ran; the rehearsal ran, whatever it found refused; the removal
@@ -1021,7 +1055,140 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     anonymizeFields: template?.anonymization?.fields,
     choicesFrom: choicesFlag && choicesPath ? { flag: choicesFlag, path: choicesPath } : undefined,
     audit: auditArg(args),
+    resume: resumeArg(args),
   };
+}
+
+/**
+ * What `--resume` names, read and checked; exits 2 on a flag given nothing,
+ * and with a flag of a run that writes nothing to take up.
+ */
+function resumeArg(args: readonly string[]): string | undefined {
+  const at = args.indexOf('--resume');
+  if (at < 0) return undefined;
+  const value = args[at + 1];
+  if (value === undefined || value.startsWith('--')) {
+    process.stderr.write('--resume takes the journal of the run to take up, or its run id.\n');
+    process.exit(2);
+  }
+  const without = ['--dry-run', '--rehearse', '--list-objects'].filter((flag) =>
+    args.includes(flag),
+  );
+  if (without.length > 0) {
+    process.stderr.write(
+      `--resume takes a run up and writes: it does not go with ${without.join(', ')}.\n`,
+    );
+    process.exit(2);
+  }
+  return value;
+}
+
+/** Records mapped past which a summary keeps the ids in the run's journal, and counts them. */
+const SUMMARY_IDS_BOUND = 50_000;
+
+/**
+ * Where the command keeps the journals of the runs that write:
+ * `SANDFORGE_JOURNAL_DIR`, or `.sandforge` in the home directory. Exported so
+ * it can be tested.
+ */
+export function journalDirOf(env: NodeJS.ProcessEnv = process.env): string {
+  const dir = env['SANDFORGE_JOURNAL_DIR'];
+  return dir !== undefined && dir.trim() !== ''
+    ? resolvePath(dir)
+    : joinPath(homedir(), '.sandforge');
+}
+
+/**
+ * The journal file `--resume` names: the file it gives, or the journal of the
+ * run id it gives. Exported so it can be tested.
+ */
+export function resumedJournalPath(value: string, journals: ForgeRunJournal): string {
+  return value.endsWith('.ndjson') || /[\\/]/.test(value)
+    ? resolvePath(value)
+    : journals.pathOf(value);
+}
+
+/**
+ * What a run of the command is fingerprinted by (`forgeRunFingerprint`): the
+ * orgs, the record, and every flag and choice that changes what it reads,
+ * decides or writes — not the diagnostic's pages, which change none of it.
+ * Exported so it can be tested.
+ */
+export function cliRunSetup(args: CliArgs, targetOrgId: string): Record<string, unknown> {
+  return {
+    source: args.source,
+    targetOrgId: targetOrgId.slice(0, 15),
+    record: args.record,
+    depth: args.depth,
+    customDepth: args.depth === 'custom' ? args.customDepth : null,
+    maxNodes: args.maxNodes ?? null,
+    maxRecordsPerObject: args.maxRecordsPerObject ?? null,
+    anonymize: args.anonymize,
+    keepContactPoints: args.keepContactPoints,
+    upsert: args.upsert,
+    expandOrphans: args.expandOrphans,
+    applyAssignmentRules: args.applyAssignmentRules,
+    fieldExclusions: args.fieldExclusions,
+    excludedObjects: args.excludedObjects,
+    ownerMappings: args.ownerMappings,
+    objectSoqlFilters: args.objectSoqlFilters,
+    fieldMappings: args.fieldMappings,
+    decisions: args.decisions ?? null,
+    anonymizationRules: args.anonymizationRules,
+    anonymizeFields: args.anonymizeFields ?? null,
+    files: args.files ?? null,
+    readCeiling: args.readCeiling,
+  };
+}
+
+/**
+ * Why the run the journal at `journalPath` keeps cannot be taken up by this
+ * one, or nothing when it can: no journal there, one that does not say how
+ * its run was set up, a run that ended, another target, another setup.
+ * Exported so it can be tested.
+ */
+export async function resumeRefusal(
+  journals: ForgeRunJournal,
+  journalPath: string,
+  run: { target: string; targetOrgId: string; fingerprint: string },
+): Promise<{ code: string; message: string } | undefined> {
+  const head = await journals.headAt(journalPath);
+  if (!head) {
+    return {
+      code: 'RESUME_UNAVAILABLE',
+      message: `--resume ${journalPath}: there is no journal of a run there.`,
+    };
+  }
+  if (!head.resume) {
+    return {
+      code: 'RESUME_UNAVAILABLE',
+      message: `--resume ${journalPath}: the journal does not say how its run was set up, and the run cannot be taken up.`,
+    };
+  }
+  const end = await journals.lastEndAt(journalPath);
+  if (end?.status === 'success') {
+    return {
+      code: 'RESUME_UNAVAILABLE',
+      message: `--resume ${journalPath}: the run ended, and there is nothing of it to take up.`,
+    };
+  }
+  if (head.targetOrgId.slice(0, 15) !== run.targetOrgId.slice(0, 15)) {
+    return {
+      code: 'RESUME_TARGET_CHANGED',
+      message:
+        `${run.target} is not the org the run to take up wrote to (${head.targetOrgId}): it is ` +
+        'taken up there only. Nothing was written.',
+    };
+  }
+  if (head.resume.fingerprint !== run.fingerprint) {
+    return {
+      code: 'RESUME_CHANGED',
+      message:
+        'The clone is set up otherwise than the run to take up: give the same record, orgs, ' +
+        'depth, choices and flags it ran with. Nothing was written.',
+    };
+  }
+  return undefined;
 }
 
 /**
@@ -1750,6 +1917,9 @@ export function jsonResult(summary: ExecutionSummary) {
     // in the target under ids the run never learned, and --remove cannot
     // reach them.
     ...(summary.mayHaveBeenWritten ? { mayHaveBeenWritten: summary.mayHaveBeenWritten } : {}),
+    // Past the bound, the ids are in the run's journal, which the document
+    // names: --remove and --verify read them from there.
+    ...(summary.remapInJournal ? { remapInJournal: true as const } : {}),
   };
 }
 
@@ -1955,6 +2125,19 @@ export function executeOptions(
       ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
     },
   };
+}
+
+/**
+ * The options of a run that keeps its journal: what it wrote, read and owes
+ * goes there as it goes, and past the bound the summary keeps the ids there.
+ * Unchanged without one. Exported so it can be tested.
+ */
+export function withTheJournal(
+  options: ExecuteOptions,
+  store: ForgeRunStore | undefined,
+): ExecuteOptions {
+  if (!store) return options;
+  return { ...options, stream: { ...options.stream, store, summaryBound: SUMMARY_IDS_BOUND } };
 }
 
 /**
@@ -2325,7 +2508,12 @@ const runSummarySchema = z.object({
   dryRun: z.literal(false),
   elapsedMs: z.number().nonnegative(),
   finishedAt: summaryDateSchema.optional(),
+  // The journal of the run, and which part of it this summary is of: where a
+  // summary past the bound keeps the ids.
+  journal: z.string().min(1).max(4096).optional(),
+  part: z.number().int().nonnegative().optional(),
   result: z.object({
+    remapInJournal: z.literal(true).optional(),
     remapTable: z.record(summaryIdSchema, summaryIdSchema),
     existingSourceIds: z.array(summaryIdSchema),
     updatedSourceIds: z.array(summaryIdSchema),
@@ -2350,6 +2538,89 @@ const runSummarySchema = z.object({
 
 /** A summary a removal can take its run back from. */
 export type RunSummary = z.infer<typeof runSummarySchema>;
+
+/**
+ * The summary `--remove` and `--verify` take a run back from, read from the
+ * file they are given: a summary as `parseRunSummary` reads it, its ids read
+ * from the part of the journal it names when it keeps them there; or the
+ * journal of a run itself, every part of it, as one run. Exported so it can
+ * be tested.
+ *
+ * @param target - The org the command was told to reach: what a journal,
+ *   which names its org by id, is reached by.
+ */
+export async function runSummaryOfFile(
+  filePath: string,
+  text: string,
+  target: string,
+  journals: ForgeRunJournal = nodeRunJournal(journalDirOf()),
+): Promise<{ summary: RunSummary } | { refusal: string }> {
+  const newline = text.indexOf('\n');
+  const first = newline >= 0 ? text.slice(0, newline) : text;
+  if (/^\{"run":/.test(first)) return runSummaryOfJournal(filePath, target, journals);
+  const read = parseRunSummary(text);
+  if ('refusal' in read || !read.summary.result.remapInJournal) return read;
+  const { journal, part } = read.summary;
+  if (journal === undefined || part === undefined) {
+    return { refusal: 'keeps the ids of its records in a journal it does not name.' };
+  }
+  const kept = await journals.readAt(journal, part);
+  if (!kept)
+    return { refusal: `keeps the ids of its records in ${journal}, which cannot be read.` };
+  return {
+    summary: {
+      ...read.summary,
+      result: {
+        ...read.summary.result,
+        remapTable: kept.remap.table,
+        existingSourceIds: kept.remap.linked,
+        updatedSourceIds: [],
+        createdByObject: kept.remap.createdByObject,
+      },
+    },
+  };
+}
+
+/** The summary of every part of the run the journal at `filePath` keeps: see `runSummaryOfFile`. */
+async function runSummaryOfJournal(
+  filePath: string,
+  target: string,
+  journals: ForgeRunJournal,
+): Promise<{ summary: RunSummary } | { refusal: string }> {
+  const read = await journals.readAt(filePath, 'all');
+  if (!read) return { refusal: 'is not the journal of a run.' };
+  const end = await journals.lastEndAt(filePath);
+  // A run a killed process left has no end: its journal's last write is when it stopped.
+  const recordedAt = end?.at ?? statSync(filePath).mtime.toISOString();
+  const elapsed = Date.parse(recordedAt) - Date.parse(read.startedAt);
+  const parsed = runSummarySchema.safeParse({
+    tool: 'sandforge-clone',
+    version: 1,
+    source: read.resume?.sourceOrgId ?? '',
+    target,
+    targetOrgId: read.targetOrgId,
+    record: read.resume?.recordId ?? read.resume?.startedWith?.config.recordId ?? '',
+    dryRun: false,
+    elapsedMs: Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0,
+    finishedAt: recordedAt,
+    journal: filePath,
+    result: {
+      remapTable: read.remap.table,
+      existingSourceIds: read.remap.linked,
+      updatedSourceIds: [],
+      createdByObject: read.remap.createdByObject,
+    },
+  });
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.map(String).join('.') || 'the journal'}: ${issue.message}`);
+    return {
+      refusal: `is a journal the command cannot take a run back from: ${issues.join('; ')}.`,
+    };
+  }
+  return { summary: parsed.data };
+}
 
 /**
  * The summary a `--json` run printed, read for a removal, or why it cannot be
@@ -2710,7 +2981,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(2);
   }
-  const read = parseRunSummary(text);
+  const read = await runSummaryOfFile(args.summaryPath, text, args.target);
   if ('refusal' in read) {
     process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
     process.exit(2);
@@ -3166,7 +3437,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(2);
   }
-  const read = parseRunSummary(text);
+  const read = await runSummaryOfFile(args.summaryPath, text, args.target);
   if ('refusal' in read) {
     process.stderr.write(`--verify ${args.summaryPath} ${read.refusal}\n`);
     process.exit(2);
@@ -3511,6 +3782,31 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       );
     }
     return;
+  }
+
+  // The journal of a run that writes, which says how it was set up: a run
+  // taken up from one is refused before anything more is read when its org or
+  // its setup is not the run's it takes up.
+  const journals = !args.dryRun && !args.rehearse ? nodeRunJournal(journalDirOf()) : undefined;
+  const fingerprint =
+    targetOrgId !== undefined ? forgeRunFingerprint(graph, cliRunSetup(args, targetOrgId)) : '';
+  let journalPath: string | undefined;
+  /** How the part the run takes up ended: said again of this part when it writes nothing. */
+  let resumedEnd: { status: ForgeRunPartEnd; forgeId: string } | undefined;
+  if (journals && targetOrgId !== undefined && args.resume) {
+    journalPath = resumedJournalPath(args.resume, journals);
+    const refusal = await resumeRefusal(journals, journalPath, {
+      target: args.target,
+      targetOrgId,
+      fingerprint,
+    });
+    if (refusal) {
+      recordClone({ outcome: 'stopped', code: refusal.code, context: runAudit().context() });
+      process.stderr.write(`${refusal.message}\n`);
+      process.exit(2);
+    }
+    resumedEnd = await journals.lastEndAt(journalPath);
+    say(`taking up the run of ${journalPath}`);
   }
 
   // What the target runs on the objects the run writes, said before anything
@@ -4018,8 +4314,60 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     result: jsonResult(counted),
     elapsedMs: at.getTime() - t0,
     finishedAt: at.toISOString(),
+    // The journal the run wrote as it went, and its part: where the ids are
+    // past the bound, and what --resume takes the run up from.
+    ...(journalPath && journalStore ? { journal: journalPath } : {}),
+    ...(journalPart() !== undefined ? { part: journalPart() } : {}),
     ...state,
   });
+
+  // The journal the run writes as it goes: begun with how the run was set up,
+  // or the journal of the run it takes up, gone on in as a part of its own.
+  let journalStore: ForgeRunStore | undefined;
+  let journalId: string | undefined;
+  if (journals && targetOrgId !== undefined) {
+    if (journalPath && args.resume) {
+      await journals.resumingAt(journalPath);
+      journalId = (await journals.headAt(journalPath))?.journalId;
+    } else {
+      journalId = `sandforge-clone-${new Date(t0).toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+      journalPath = journals.pathOf(journalId);
+      await journals.begin(journalId, targetOrgId, new Date(), {
+        sourceOrgId: args.source,
+        fingerprint,
+        targetSalesforceOrgId: targetOrgId,
+        recordId: args.record,
+        // The command's own choices are in the fingerprint: `cliRunSetup`.
+        startedWith: { graph, config },
+      });
+    }
+    journalStore = journals.openAt(journalPath);
+    say(`journal: ${journalPath} (--resume ${journalPath} takes the run up if it stops)`);
+  }
+  /** The part of the journal this run writes, once it began it. */
+  const journalPart = (): number | undefined =>
+    journalStore && journalStore.partCount > 0 ? journalStore.partCount - 1 : undefined;
+  /**
+   * Say in the journal how the part ended, once the run is over: a part that
+   * wrote nothing — stopped at its gate — taken up from another leaves that
+   * one's end, and a run of its own that wrote nothing leaves no journal.
+   */
+  const endJournal = async (status: ForgeRunPartEnd, wrote: boolean): Promise<void> => {
+    if (!journals || !journalPath || !journalStore) return;
+    journalStore.close();
+    const path = journalPath;
+    try {
+      if (!wrote && resumedEnd) await journals.stopAt(path, resumedEnd.status, resumedEnd.forgeId);
+      else if (!wrote && !args.resume) {
+        rmSync(path, { force: true });
+        rmSync(path.replace(/\.ndjson$/, '.end.json'), { force: true });
+      } else await journals.stopAt(path, status, `${journalId ?? 'run'}#${journalPart() ?? 0}`);
+    } catch (err: unknown) {
+      process.stderr.write(
+        `The journal ${path} could not be ended (${extractErrorMessage(err)}).\n`,
+      );
+    }
+  };
 
   let summary: ExecutionSummary;
   const outcomeLine = objectOutcomePrinter(graph);
@@ -4069,12 +4417,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         if (line) say(line);
         if (args.summary && OBJECT_ENDS.has(event.status)) keepSoFar();
       },
-      {
-        ...executeOptions(args, graph, recordTypeMappings, (fields) =>
-          discovery.personalFields(fields),
-        ),
-        beforeWrite,
-      },
+      withTheJournal(
+        {
+          ...executeOptions(args, graph, recordTypeMappings, (fields) =>
+            discovery.personalFields(fields),
+          ),
+          beforeWrite,
+        },
+        journalStore,
+      ),
     );
     summary = withRecordTypeCalls(executed);
     // The diagnostic says what went through the cursor, as the paged read it shows.
@@ -4116,6 +4467,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // looked up in the source; the records are more than --max-total, or
     // more than the target's data storage has left: said as it is, not as a
     // crash.
+    const wrote =
+      stoppedPartial !== undefined &&
+      stoppedPartial.successCount + stoppedPartial.updatedCount + stoppedPartial.linkedCount > 0;
+    await endJournal(cancelled ? 'cancelled' : 'failure', wrote);
     if (err instanceof ForgeFilesRefusedError || err instanceof ForgeRunGateError) {
       process.stderr.write(`${err.message}\n`);
       process.exit(1);
@@ -4146,6 +4501,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   } finally {
     process.off('SIGINT', interrupt);
   }
+
+  await endJournal('success', true);
 
   // The run's entry, as the panel records a run that ended: per object what it
   // created, updated and lost, what it carried from the source, the contact

@@ -162,6 +162,27 @@ const REFUSALS: ReadonlyArray<{
     hint: 'abortedBeforeStart',
     severity: 'info',
   },
+  {
+    message:
+      'This run was taken up already, or its run ended: only the last part of a run that stopped can be resumed.',
+    code: 'RESUME_UNAVAILABLE',
+    hint: 'resumeUnavailable',
+    severity: 'warning',
+  },
+  {
+    message:
+      'DEV is no longer the org this run wrote to — refreshed or replaced since: what the run wrote is not there.',
+    code: 'RESUME_TARGET_CHANGED',
+    hint: 'resumeTargetChanged',
+    severity: 'warning',
+  },
+  {
+    message:
+      'The clone on this page is set up otherwise than the run to resume: its objects, filters or decisions changed since.',
+    code: 'RESUME_CHANGED',
+    hint: 'resumeChanged',
+    severity: 'warning',
+  },
 ];
 
 /** One message per code of the guide's table the translator mapped before the ten. */

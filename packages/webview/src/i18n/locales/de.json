@@ -131,6 +131,9 @@
       "title": "Live-Operationen",
       "noOperations": "Keine laufenden Operationen",
       "cancel": "Abbrechen",
+      "resumeRun": "Fortsetzen",
+      "resumeRunHint": "Diesen Klon dort fortsetzen, wo er stoppte",
+      "resumeRunRefused": "Der Klon konnte nicht fortgesetzt werden",
       "recsPerSec": "DS/s",
       "cancelRefused": "Vorgang konnte nicht abgebrochen werden",
       "cancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder kann von hier aus nicht gestoppt werden. Die Liste wurde neu eingelesen.",
@@ -2765,6 +2768,8 @@
     "retryFailedHint": "„Fehlgeschlagene wiederholen“ führt den Klon erneut aus: Was dieser Lauf nicht schreiben konnte, wird geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
     "retryStopped": "Rest schreiben",
     "retryStoppedHint": "„Rest schreiben“ führt den Klon erneut aus: Was dieser Lauf vor dem Anhalten nicht geschrieben hat, wird geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
+    "resumeRun": "Dort fortsetzen, wo er stoppte",
+    "resumeRunHint": "Fortsetzen nimmt diesen Lauf aus dem Journal wieder auf, das SandForge von ihm geführt hat: Jedes Objekt wird nach dem letzten Datensatz gelesen, den dieser Lauf geschrieben hat, und die Lookups und Status, die er noch schuldete, werden gesetzt. Nichts, was er geschrieben hat, wird ein zweites Mal geschrieben.",
     "retrySkipped": "Übersprungene Objekte wiederholen",
     "retrySkippedHint": "„Übersprungene Objekte wiederholen“ führt den Klon erneut aus, sobald behoben ist, was sie übersprungen hat: Die Objekte, die dieser Lauf ganz übersprungen hat, werden geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
     "retryWithParents": "Fehlende übergeordnete abrufen und wiederholen",
@@ -3159,12 +3164,15 @@
       "olderRecords_one": "{{formatted}} Datensatz aus {{org}} zu entfernen",
       "olderRecords_other": "{{formatted}} Datensätze aus {{org}} zu entfernen",
       "reuse": "Konfiguration wiederverwenden",
+      "resume": "Fortsetzen",
+      "resumeHint": "Diesen Lauf dort fortsetzen, wo er stoppte: Nichts, was er geschrieben hat, wird erneut geschrieben",
       "reuseHint": "Füllt das Formular mit den Einstellungen dieses Durchlaufs. Orgs werden nicht wiederhergestellt — wählen Sie sie aus und starten Sie dann die Erkennung.",
       "noConfig": "Vor der Speicherung von Konfigurationen aufgezeichnet — es gibt nichts zu übernehmen.",
       "loadError": "Der Verlauf der Durchläufe konnte nicht geladen werden.",
       "reused": "Formular aus dem Durchlauf vom {{date}} übernommen.",
       "statusSuccess": "Erfolgreich",
       "statusPartial": "Teilweise",
+      "statusInterrupted": "Unterbrochen",
       "statusFailure": "Fehlgeschlagen",
       "remove": "Die von diesem Durchlauf erstellten Datensätze entfernen",
       "removeLeft": "Die verbliebenen Datensätze dieses Durchlaufs entfernen",
@@ -3374,6 +3382,18 @@
       "retryUnavailable": {
         "explanation": "Die Wiederholung konnte nicht starten: Was der wiederholte Lauf geschrieben hat, ist hier nicht bekannt — er ist nicht mehr im Verlauf, hat keine Aufzeichnung dessen behalten, was er geschrieben hat, oder hat in eine andere Org geschrieben, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
         "action": "Starten Sie das Klonen erneut aus der Überprüfung."
+      },
+      "resumeUnavailable": {
+        "explanation": "Dieser Lauf kann nicht dort fortgesetzt werden, wo er stoppte: Er wurde bereits fortgesetzt oder sein Lauf ist beendet, er hat kein Journal geführt, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
+        "action": "Wiederholen Sie ihn über seine Ergebnisse, oder führen Sie den Klon erneut über die Überprüfung aus."
+      },
+      "resumeTargetChanged": {
+        "explanation": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr dieselbe — aktualisiert, ersetzt oder nicht mehr in SandForge registriert —, daher ist das, was der Lauf geschrieben hat, nicht da, um daran anzuknüpfen. Es wurde nichts geschrieben.",
+        "action": "Führen Sie den Klon erneut über die Überprüfung in die Org aus, wie sie jetzt ist."
+      },
+      "resumeChanged": {
+        "explanation": "Dieser Lauf wäre jetzt anders eingerichtet als der Teil, den er fortsetzt: Der Klon auf der Seite oder die Einstellung sandforge.forge.maxRecordsPerObject hat sich geändert, seit er stoppte. Es wurde nichts geschrieben.",
+        "action": "Setzen Sie die Einstellung zurück, oder wiederholen Sie den Lauf stattdessen: Eine Wiederholung liest den Klon erneut und verknüpft, was dieser Lauf geschrieben hat."
       },
       "filesNotAccepted": {
         "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",

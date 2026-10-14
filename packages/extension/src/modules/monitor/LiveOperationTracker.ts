@@ -39,6 +39,11 @@ export interface LiveOperation {
    * sync's simulation, which has no pause.
    */
   pausable?: boolean;
+  /**
+   * The run a Forge clone that stopped part way can be taken up from, by its
+   * `forgeId` in the history: see {@link LiveOperationTracker.offerResume}.
+   */
+  resumeRun?: string;
 }
 
 /** Callback invoked when the operation list changes. */
@@ -189,6 +194,20 @@ export class LiveOperationTracker {
     this.notifyChange();
 
     this.scheduleRemoval(operationId, 30_000);
+  }
+
+  /**
+   * Offer to take up, where it stopped, a run that ended part way: its entry
+   * names the run (`forgeId`), which Resume takes up while the entry is
+   * listed.
+   * @param operationId - ID of the operation, cancelled or failed.
+   * @param forgeId - The run's id in the Forge history.
+   */
+  offerResume(operationId: string, forgeId: string): void {
+    const op = this.operations.get(operationId);
+    if (!op || (op.status !== 'cancelled' && op.status !== 'failed')) return;
+    op.resumeRun = forgeId;
+    this.notifyChange();
   }
 
   /**

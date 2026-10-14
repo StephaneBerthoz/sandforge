@@ -480,6 +480,31 @@ const REFUSALS: ReadonlyMap<string, { keys: HintKeys; severity: 'info' | 'warnin
         severity: 'warning',
       },
     ],
+    // A run that could not be taken up where it stopped: nothing was written.
+    [
+      'RESUME_UNAVAILABLE',
+      {
+        keys: ['forge.error.resumeUnavailable.explanation', 'forge.error.resumeUnavailable.action'],
+        severity: 'warning',
+      },
+    ],
+    [
+      'RESUME_TARGET_CHANGED',
+      {
+        keys: [
+          'forge.error.resumeTargetChanged.explanation',
+          'forge.error.resumeTargetChanged.action',
+        ],
+        severity: 'warning',
+      },
+    ],
+    [
+      'RESUME_CHANGED',
+      {
+        keys: ['forge.error.resumeChanged.explanation', 'forge.error.resumeChanged.action'],
+        severity: 'warning',
+      },
+    ],
     [
       'FILES_NOT_ACCEPTED',
       {

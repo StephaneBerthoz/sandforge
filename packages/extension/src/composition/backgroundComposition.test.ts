@@ -506,6 +506,28 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says what it does not count, and that rows only counted have not been read yet', () => {
+    expect(
+      runQuestionDetail({
+        ...write,
+        leftOut: {
+          writtenBefore: 900,
+          heldBack: [{ objectApiName: 'Opportunity', rows: 75 }],
+        },
+        counted: true,
+      }).split('\n'),
+    ).toEqual([
+      'This clone is about to write 2401 records to DEV:',
+      '• Contact: 2400',
+      '• Account: 1',
+      'Not counted: 900 records the run it retries or resumes wrote, which it links to and does not write again.',
+      'Not counted: Opportunity, 75 records, held back whole for a record type closed to the user the run writes as.',
+      'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+  });
+
   it('says the daily email limits the records take the target past, before the closing line', () => {
     const lines = runQuestionDetail({
       ...write,

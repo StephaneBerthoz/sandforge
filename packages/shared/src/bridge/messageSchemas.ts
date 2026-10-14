@@ -334,6 +334,8 @@ const AutomationMessages = [
   msg('forge:history:list'),
   // Removes from its target org the records a past run created.
   msg('forge:undo'),
+  // Takes up a run that stopped part way where it stopped, from its journal.
+  msg('forge:resume-run'),
   // Opens in the browser a record a past run created, in the org it wrote to.
   msg('forge:open-record'),
   // Verifies what a past run created, once the target has settled.

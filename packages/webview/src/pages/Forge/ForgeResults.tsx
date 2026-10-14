@@ -15,6 +15,7 @@ import {
   ExternalLink,
   AlertTriangle,
   Info,
+  Play,
 } from 'lucide-react';
 import type {
   ForgeConfig,
@@ -25,6 +26,7 @@ import type {
   ForgeGraphNode,
   ForgeNodeStatus,
   ForgeOpenRecordResponse,
+  ForgeResumeRunRequest,
 } from '@sandforge/shared';
 import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
@@ -410,6 +412,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
    */
   const retryOffered = !simulated && !removed && (retryable || failures.length > 0);
 
+  /**
+   * A run of whole tables that stopped part way can be taken up where it
+   * stopped, from the journal the extension kept of it: each object read after
+   * the last record it wrote, nothing it wrote written again. Offered while
+   * the run is the last part of its journal and its records are in the target.
+   */
+  const resumeOffered = !simulated && !removed && result?.resumable === true;
+
   /** Whether the run's only casualties are the objects it skipped whole. */
   const onlySkippedWhole =
     !failedObjects && failures.length > 0 && failures.every((report) => report.skipped === true);
@@ -637,6 +647,36 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     },
     [graph, config, result, setPhase],
   );
+
+  /*
+   * Take the run up where it stopped. The extension runs it as its journal
+   * says it was set up, and refuses it when the clone on this page was set up
+   * otherwise since, or when the org it wrote to is no longer that org.
+   */
+  const handleResume = useCallback(() => {
+    if (!graph || !config || !result) return;
+    const shown = useForgeStore.getState();
+    const from = {
+      graph: shown.graph,
+      statusesBeyondGraph: shown.statusesBeyondGraph,
+      runError: shown.runError,
+      stoppedAt: shown.stoppedAt,
+      logs: shown.logs,
+      runClock: shown.runClock,
+    };
+    useForgeStore.getState().resetNodeStatuses();
+    useForgeRunGateStore.getState().clear();
+    const resumed = useForgeStore.getState().graph;
+    if (!resumed) return;
+    const requestId = sendBridgeMessage<ForgeResumeRunRequest['payload']>('forge:resume-run', {
+      forgeId: result.forgeId,
+      graph: resumed,
+      config,
+    });
+    useForgeStore.getState().setExecutionRequestId(requestId);
+    useForgeStore.getState().markRetry(from);
+    setPhase('execution');
+  }, [graph, config, result, setPhase]);
 
   /* ---- Export to a file ---- */
   /** The Id map's rows, each with its object and what became of it. */
@@ -1253,6 +1293,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         >
           {t('forge.saveResultJson')}
         </Button>
+        {resumeOffered && (
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<Play size={14} />}
+            onClick={handleResume}
+            aria-describedby="forge-resume-hint"
+            data-testid="forge-resume"
+          >
+            {t('forge.resumeRun')}
+          </Button>
+        )}
         {retryOffered && result && (
           <Button
             variant="secondary"
@@ -1294,6 +1346,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         size="md"
         recordCount={plannedRecords}
       />
+      {/* What taking the run up reads, and what it does not write twice. */}
+      {resumeOffered && (
+        <p
+          id="forge-resume-hint"
+          className="text-xs text-text-secondary"
+          data-testid="forge-resume-hint"
+        >
+          {t('forge.resumeRunHint')}
+        </p>
+      )}
       {/* What the retry writes, and what it does not write twice: a clone run
           again would otherwise be read as writing everything a second time. */}
       {retryOffered && result && (

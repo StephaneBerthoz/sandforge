@@ -155,6 +155,12 @@ export interface LiveOperationSnapshot {
    * other run, and for a sync's simulation.
    */
   pausable?: boolean;
+  /**
+   * The run a Forge clone that stopped part way can be taken up from, by its
+   * `forgeId` in the history (`forge:resume-run`): set once it stopped, while
+   * Live Operations lists it.
+   */
+  resumeRun?: string;
 }
 
 /** Response containing the list of live operations. */

@@ -17,7 +17,20 @@ vi.mock('./sfSession.js', async (importOriginal) => {
 
 import { loadOrg, makeConn } from './sfSession.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
-import { interruptedLine, main, parseArgs, parseRunSummary, removalPlan } from './sandforge-clone';
+import { homedir } from 'node:os';
+import {
+  interruptedLine,
+  journalDirOf,
+  main,
+  parseArgs,
+  parseRunSummary,
+  removalPlan,
+  resumedJournalPath,
+  runSummaryOfFile,
+  withTheJournal,
+} from './sandforge-clone';
+import { ForgeRunStore, memoryRunFile } from '../src/modules/forge/ForgeRunStore.js';
+import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -99,7 +112,11 @@ const ACCOUNT_GUARD = {
  * insert; `flows` are its record-triggered flows. `onCreate` is told of each
  * object written, before its rows are created.
  */
-function fakeOrg(flows: unknown[] = [], onCreate: (name: string) => void = () => {}) {
+function fakeOrg(
+  flows: unknown[] = [],
+  onCreate: (name: string) => void = () => {},
+  orgId: string = TARGET_ORG,
+) {
   const written: string[] = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const conn = {
@@ -120,7 +137,7 @@ function fakeOrg(flows: unknown[] = [], onCreate: (name: string) => void = () =>
     }),
     query: async (soql: string) => {
       if (soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1') {
-        return page([{ Id: TARGET_ORG, IsSandbox: true }]);
+        return page([{ Id: orgId, IsSandbox: true }]);
       }
       if (soql.includes(" ProcessType = 'Workflow'")) return page([]);
       if (soql.includes(' FROM FlowDefinitionView ')) return page(flows);
@@ -334,5 +351,193 @@ describe('sandforge-clone --summary', () => {
     expect((JSON.parse(stdout) as { removalRisks: unknown }).removalRisks).toEqual([
       { objectApiName: 'Account', kind: 'flow', name: 'Account guard' },
     ]);
+  });
+
+  describe('the journal, and taking a run up from it (--resume)', () => {
+    /** The document a summary file holds. */
+    const documentOf = (path: string): Record<string, unknown> =>
+      JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+
+    it('keeps the journal of a run that writes, says where, and names it and its part in the summary', async () => {
+      withOrgs();
+      const path = join(dir, 'clone-summary.json');
+
+      expect(await run(argv('--summary', path))).toBeUndefined();
+
+      const document = documentOf(path);
+      const journal = String(document.journal);
+      expect(
+        journal.startsWith(join(String(process.env['SANDFORGE_JOURNAL_DIR']), 'forge-runs')),
+      ).toBe(true);
+      expect(document.part).toBe(0);
+      expect(printed).toContain(
+        `journal: ${journal} (--resume ${journal} takes the run up if it stops)`,
+      );
+      const journals = nodeRunJournal(String(process.env['SANDFORGE_JOURNAL_DIR']));
+      expect(await journals.lastEndAt(journal)).toMatchObject({ status: 'success' });
+      // A dry run keeps none.
+      expect(await run(argv('--dry-run', '--summary', join(dir, 'dry.json')))).toBeUndefined();
+      expect(documentOf(join(dir, 'dry.json')).journal).toBeUndefined();
+    });
+
+    it('takes a run Ctrl-C stopped up where it stopped: what it wrote linked to, the rest written, both removed from the journal', async () => {
+      const once = vi.spyOn(process, 'once');
+      let stopOnAccount = true;
+      withOrgs(
+        fakeOrg([], (name) => {
+          if (name !== 'Account' || !stopOnAccount) return;
+          (once.mock.calls.find(([event]) => event === 'SIGINT')?.[1] as () => void)();
+        }),
+      );
+      const first = join(dir, 'first.json');
+      expect(await run(argv('--summary', first))).toBe(130);
+      expect(orgs.TGT.written).toEqual(['Account']);
+      const journal = String(documentOf(first).journal);
+
+      stopOnAccount = false;
+      const second = join(dir, 'second.json');
+      expect(await run(argv('--summary', second, '--resume', journal))).toBeUndefined();
+
+      // The account was not written again: the contact alone, under it.
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+      const resumed = documentOf(second);
+      expect(resumed.journal).toBe(journal);
+      expect(resumed.part).toBe(1);
+      expect(createdIn(resumed)).toEqual(['Contact']);
+      expect((resumed.result as { linkedCount: number }).linkedCount).toBe(1);
+      expect(printed).toContain(`taking up the run of ${journal}`);
+      // The journal says every part: what both created, as one run.
+      const whole = await runSummaryOfFile(journal, readFileSync(journal, 'utf8'), 'TGT');
+      expect('summary' in whole && removalPlan(whole.summary)).toEqual([
+        { objectApiName: 'Contact', ids: ['003000000000900AAA'] },
+        { objectApiName: 'Account', ids: ['001000000000900AAA'] },
+      ]);
+    });
+
+    it('takes up by its run id a run whose process was killed, its journal left with no end', async () => {
+      withOrgs();
+      const path = join(dir, 'clone-summary.json');
+      expect(await run(argv('--summary', path))).toBeUndefined();
+      const journal = String(documentOf(path).journal);
+      // The end the run wrote, taken off as a killed process never wrote it.
+      writeFileSync(
+        journal,
+        readFileSync(journal, 'utf8')
+          .split('\n')
+          .filter((line) => !line.startsWith('{"end"'))
+          .join('\n'),
+      );
+      rmSync(journal.replace(/\.ndjson$/, '.end.json'));
+      const runId =
+        journal
+          .split(/[\\/]/)
+          .pop()
+          ?.replace(/\.ndjson$/, '') ?? '';
+
+      expect(
+        await run(argv('--summary', join(dir, 'again.json'), '--resume', runId)),
+      ).toBeUndefined();
+
+      // Everything was written by the first part: linked to, nothing written again.
+      expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+      expect(
+        (documentOf(join(dir, 'again.json')).result as { linkedCount: number }).linkedCount,
+      ).toBe(2);
+    });
+
+    it('refuses to take up a run that ended, one of another org, and one set up otherwise', async () => {
+      withOrgs();
+      const path = join(dir, 'clone-summary.json');
+      expect(await run(argv('--summary', path))).toBeUndefined();
+      const journal = String(documentOf(path).journal);
+
+      expect(await run(argv('--resume', journal))).toBe(2);
+      expect(stderr).toContain('the run ended, and there is nothing of it to take up.');
+
+      // Its end taken off: as a run that stopped.
+      rmSync(journal.replace(/\.ndjson$/, '.end.json'));
+      writeFileSync(
+        journal,
+        readFileSync(journal, 'utf8')
+          .split('\n')
+          .filter((line) => !line.startsWith('{"end"'))
+          .join('\n'),
+      );
+      stderr = '';
+      expect(await run(argv('--resume', journal, '--exclude', 'Contact.LastName'))).toBe(2);
+      expect(stderr).toContain('The clone is set up otherwise than the run to take up');
+
+      stderr = '';
+      withOrgs(fakeOrg([], () => {}, '00D000000000003AAA'));
+      expect(await run(argv('--resume', journal))).toBe(2);
+      expect(stderr).toContain('TGT is not the org the run to take up wrote to');
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('keeps its journals in SANDFORGE_JOURNAL_DIR, or in the home directory, and reads a run id in them', () => {
+      expect(journalDirOf({ SANDFORGE_JOURNAL_DIR: dir })).toBe(dir);
+      expect(journalDirOf({})).toBe(join(homedir(), '.sandforge'));
+      const journals = nodeRunJournal(dir);
+      expect(resumedJournalPath('sandforge-clone-run', journals)).toBe(
+        join(dir, 'forge-runs', 'sandforge-clone-run.ndjson'),
+      );
+      expect(resumedJournalPath(join(dir, 'kept.ndjson'), journals)).toBe(join(dir, 'kept.ndjson'));
+    });
+
+    it('hands the run its journal, and keeps the ids there past 50 000 records', () => {
+      const store = ForgeRunStore.open(memoryRunFile());
+      expect(withTheJournal({ stream: { ceiling: 10 } }, store).stream).toEqual({
+        ceiling: 10,
+        store,
+        summaryBound: 50_000,
+      });
+      expect(withTheJournal({ stream: { ceiling: 10 } }, undefined)).toEqual({
+        stream: { ceiling: 10 },
+      });
+    });
+
+    it('refuses --resume with nothing to take up, and with a run that writes nothing', () => {
+      expect(() => parseArgs(argv('--resume'))).toThrow(ExitCalled);
+      expect(stderr).toContain('--resume takes the journal of the run to take up, or its run id.');
+      for (const flag of ['--dry-run', '--rehearse', '--list-objects']) {
+        stderr = '';
+        expect(() => parseArgs(argv('--resume', 'run-1', flag))).toThrow(ExitCalled);
+        expect(stderr).toBe(`--resume takes a run up and writes: it does not go with ${flag}.\n`);
+      }
+      expect(parseArgs(argv('--resume', 'run-1')).resume).toBe('run-1');
+    });
+
+    it('reads from the journal the ids a summary past its bound leaves there', async () => {
+      withOrgs();
+      const path = join(dir, 'clone-summary.json');
+      expect(await run(argv('--summary', path))).toBeUndefined();
+      const document = documentOf(path);
+      const result = document.result as Record<string, unknown>;
+      // As a run past the bound writes it: the counts, and no id.
+      const bounded = {
+        ...document,
+        result: {
+          ...result,
+          remapInJournal: true,
+          remapTable: {},
+          existingSourceIds: [],
+          updatedSourceIds: [],
+          createdByObject: [],
+        },
+      };
+      const read = await runSummaryOfFile(path, JSON.stringify(bounded), 'TGT');
+      expect('summary' in read && removalPlan(read.summary)).toEqual([
+        { objectApiName: 'Contact', ids: ['003000000000900AAA'] },
+        { objectApiName: 'Account', ids: ['001000000000900AAA'] },
+      ]);
+      const unnamed = await runSummaryOfFile(
+        path,
+        JSON.stringify({ ...bounded, journal: undefined }),
+        'TGT',
+      );
+      expect(unnamed).toEqual({
+        refusal: 'keeps the ids of its records in a journal it does not name.',
+      });
+    });
   });
 });

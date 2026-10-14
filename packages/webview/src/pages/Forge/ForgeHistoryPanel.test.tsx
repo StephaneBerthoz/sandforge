@@ -26,6 +26,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 import { ForgeHistoryPanel } from './ForgeHistoryPanel';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useForgeStore } from '../../stores/useForgeStore';
 
 /**
  * The re-use affordance over the runs the extension persisted.
@@ -823,5 +824,73 @@ describe('ForgeHistoryPanel — older runs', () => {
     render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
 
     expect(screen.queryByTestId('forge-history-older')).toBeNull();
+  });
+});
+
+describe('ForgeHistoryPanel — taking a run up where it stopped', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useForgeStore.getState().reset();
+  });
+
+  /** A run of whole tables a cancel stopped, the extension says it can be taken up. */
+  const STOPPED: ForgeExecutionResult = {
+    ...SOQL_RUN,
+    forgeId: 'forge-stopped',
+    status: 'partial',
+    cancelled: true,
+    resumable: true,
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    journalId: 'forge-run-1',
+  };
+
+  it('takes it up on the execution screen, as the run was set up, by its id alone', () => {
+    render(<ForgeHistoryPanel entries={[STOPPED]} error={null} onReuseConfig={vi.fn()} />);
+
+    const button = screen.getByTestId('forge-history-resume-forge-stopped');
+    expect(button.textContent).toBe('Resume');
+    expect(button.getAttribute('title')).toBe(
+      'Take this run up where it stopped: nothing it wrote is written again',
+    );
+    fireEvent.click(button);
+
+    const request = sent('forge:resume-run');
+    expect(request?.payload).toEqual({ forgeId: 'forge-stopped' });
+    const forge = useForgeStore.getState();
+    expect(forge.phase).toBe('execution');
+    expect(forge.executionRequestId).toBe(request?.id);
+    expect(forge.config).toMatchObject({
+      soqlQuery: 'SELECT Id, Name FROM Account',
+      sourceOrgId: 'src-org',
+      targetOrgId: 'tgt-org',
+    });
+    // A run from its first status: the graph's nodes back to idle.
+    expect(forge.graph?.nodes.map((node) => node.status)).toEqual(['idle', 'idle']);
+  });
+
+  it('offers it only for a run the extension says can be taken up', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[{ ...STOPPED, resumable: undefined }, SOQL_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('forge-history-resume-forge-stopped')).toBeNull();
+    expect(screen.queryByTestId('forge-history-resume-forge-soql')).toBeNull();
+  });
+
+  it('says a run a closed window stopped was interrupted', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[{ ...STOPPED, cancelled: undefined, interrupted: true }]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+    expect(
+      within(screen.getByTestId('forge-history-entry-forge-stopped')).getByText('Interrupted'),
+    ).toBeTruthy();
   });
 });

@@ -131,6 +131,9 @@
       "title": "Operações ao vivo",
       "noOperations": "Nenhuma operação em execução",
       "cancel": "Cancelar",
+      "resumeRun": "Retomar",
+      "resumeRunHint": "Retomar esta clonagem de onde parou",
+      "resumeRunRefused": "Não foi possível retomar a clonagem",
       "recsPerSec": "reg/s",
       "cancelRefused": "Não foi possível cancelar a operação",
       "cancelRefusedDetail": "A execução não está mais em andamento ou não pode ser interrompida daqui. A lista foi lida novamente.",
@@ -2765,6 +2768,8 @@
     "retryFailedHint": "Repetir falhos executa o clone de novo: o que esta execução não conseguiu gravar é gravado, vinculado ao que ela gravou, que não é gravado uma segunda vez.",
     "retryStopped": "Gravar o restante",
     "retryStoppedHint": "Gravar o restante executa o clone de novo: o que esta execução não gravou antes de ser interrompida é gravado, vinculado ao que ela gravou, que não é gravado uma segunda vez.",
+    "resumeRun": "Retomar de onde parou",
+    "resumeRunHint": "Retomar continua esta execução a partir do diário que o SandForge guardou dela: cada objeto é lido após o último registro que ela gravou, e as pesquisas e os status que ela ainda devia são preenchidos. Nada do que ela gravou é gravado uma segunda vez.",
     "retrySkipped": "Repetir objetos ignorados",
     "retrySkippedHint": "Repetir objetos ignorados executa o clone de novo depois de corrigido o que os fez ser ignorados: os objetos que esta execução ignorou por inteiro são gravados, vinculados ao que ela gravou, que não é gravado uma segunda vez.",
     "retryWithParents": "Buscar os pais que faltam e repetir",
@@ -3159,12 +3164,15 @@
       "olderRecords_one": "{{formatted}} registro a remover de {{org}}",
       "olderRecords_other": "{{formatted}} registros a remover de {{org}}",
       "reuse": "Reutilizar a configuração",
+      "resume": "Retomar",
+      "resumeHint": "Retomar esta execução de onde parou: nada do que ela gravou é gravado de novo",
       "reuseHint": "Preenche o formulário com os ajustes desta execução. As orgs não são restauradas — escolha-as e inicie a descoberta.",
       "noConfig": "Registrada antes de as configurações serem guardadas — não há nada a preencher.",
       "loadError": "Não foi possível carregar o histórico de execuções.",
       "reused": "Formulário preenchido a partir da execução de {{date}}.",
       "statusSuccess": "Bem-sucedida",
       "statusPartial": "Parcial",
+      "statusInterrupted": "Interrompida",
       "statusFailure": "Falhou",
       "remove": "Remover os registros que esta execução criou",
       "removeLeft": "Remover o que resta dos registros desta execução",
@@ -3374,6 +3382,18 @@
       "retryUnavailable": {
         "explanation": "A nova tentativa não pôde começar: o que a execução que ela retoma gravou não é conhecido aqui — ela não está mais no histórico, não guardou registro do que gravou ou gravou em outra org, ou seus registros foram removidos. Nada foi gravado.",
         "action": "Execute a clonagem de novo a partir da revisão."
+      },
+      "resumeUnavailable": {
+        "explanation": "Esta execução não pode ser retomada de onde parou: já foi retomada ou sua execução terminou, não guardou nenhum diário, ou seus registros foram removidos. Nada foi gravado.",
+        "action": "Repita-a a partir dos resultados, ou execute a clonagem de novo a partir da revisão."
+      },
+      "resumeTargetChanged": {
+        "explanation": "A org em que esta execução gravou não é mais a que era — atualizada, substituída ou não mais registrada no SandForge —, então o que a execução gravou não está lá para continuar. Nada foi gravado.",
+        "action": "Execute a clonagem de novo a partir da revisão na org como ela está agora."
+      },
+      "resumeChanged": {
+        "explanation": "Esta execução ficaria agora configurada de outra forma que a parte que ela retoma: a clonagem da página, ou a configuração sandforge.forge.maxRecordsPerObject, mudou desde que ela parou. Nada foi gravado.",
+        "action": "Restaure a configuração, ou repita a execução: uma repetição lê a clonagem de novo e vincula o que esta execução gravou."
       },
       "filesNotAccepted": {
         "explanation": "Esta execução anonimiza seus registros e copia os arquivos deles, cujo conteúdo não pode ser anonimizado: os arquivos só são copiados quando você aceita que sejam copiados como estão. Nada foi lido nem gravado.",

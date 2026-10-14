@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeEach, vi } from 'vitest';
 
 /**
  * Global test-isolation guard.
@@ -51,4 +54,19 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+/**
+ * Journal guard.
+ *
+ * Every clone the command runs keeps its journal under the home directory
+ * (`SANDFORGE_JOURNAL_DIR`, by default `~/.sandforge`). The suites that run
+ * the command end to end would leave their journals in the developer's home:
+ * each test file gets a directory of its own, removed once it is through.
+ */
+const journals = mkdtempSync(join(tmpdir(), 'sandforge-journals-'));
+process.env['SANDFORGE_JOURNAL_DIR'] = journals;
+
+afterAll(() => {
+  rmSync(journals, { recursive: true, force: true });
 });

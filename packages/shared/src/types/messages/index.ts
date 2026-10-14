@@ -295,6 +295,7 @@ import type {
   ForgeTemplatesDeleteRequest,
   ForgeHistoryListRequest,
   ForgeUndoRequest,
+  ForgeResumeRunRequest,
   ForgeOpenRecordRequest,
   ForgeVerifyRequest,
   ForgePlanRequest,
@@ -608,6 +609,7 @@ export type WebViewToExtensionMessage =
   | ForgeTemplatesDeleteRequest
   | ForgeHistoryListRequest
   | ForgeUndoRequest
+  | ForgeResumeRunRequest
   | ForgeOpenRecordRequest
   | ForgeVerifyRequest
   | ForgePlanRequest

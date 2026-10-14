@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
+import { forgeRunCreatedRecords } from '@sandforge/shared';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
 import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 import { ForgeAnonymizer } from './ForgeAnonymizer.js';
 import { ForgeAbortedError, ForgeExecutor } from './ForgeExecutor.js';
+import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import { partialSummaryOf } from './interruptedRun.js';
+import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
 import type {
   ExecuteOptions,
   ExecutionSummary,
@@ -121,6 +125,26 @@ interface FakeOrgOptions {
   abortAfterInserts?: number;
   /** Deps that give no cursor: every statement read whole. */
   noCursor?: boolean;
+  /** The target's record types per object, as the running user sees them. */
+  recordTypes?: Record<string, RecordTypeAvailability[]>;
+}
+
+/** The rows of `object` per record type, as `SELECT RecordTypeId, COUNT(Id) n … GROUP BY RecordTypeId` answers. */
+function recordTypeCounts(schema: Schema, soql: string): Row[] | undefined {
+  const match =
+    /^SELECT RecordTypeId, COUNT\(Id\) n FROM (\w+)(?: WHERE (.+))? GROUP BY RecordTypeId$/.exec(
+      soql,
+    );
+  if (!match) return undefined;
+  const [, object, where] = match;
+  const after = where ? /Id > '(\w+)'/.exec(where)?.[1] : undefined;
+  const counts = new Map<string | null, number>();
+  for (const row of schema[object]?.rows ?? []) {
+    if (after !== undefined && String(row['Id']) <= after) continue;
+    const type = typeof row['RecordTypeId'] === 'string' ? row['RecordTypeId'] : null;
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+  }
+  return [...counts].map(([RecordTypeId, n]) => ({ RecordTypeId, n }));
 }
 
 /**
@@ -134,6 +158,8 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
   const created: Record<string, number> = {};
   let inserted = 0;
   const insertCalls: Array<{ object: string; rows: number }> = [];
+  /** The record types counted per object, by the statement that counted them. */
+  const recordTypeScans: string[] = [];
   /** Rows the source has handed out, and rows the target has been sent or left, as the run went. */
   const flow = { handedOut: 0, written: 0, mostAhead: 0 };
   const holder: { executor?: ForgeExecutor } = {};
@@ -175,8 +201,21 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
         }
         return [];
       }
+      const counted = recordTypeCounts(schema, soql);
+      if (counted) {
+        recordTypeScans.push(soql);
+        return counted;
+      }
       return handOut(select(soql));
     }),
+    ...(options.recordTypes
+      ? {
+          describeObject: async (_org: string, object: string) => ({
+            keyPrefix: KEY_PREFIX[object] ?? null,
+            recordTypes: options.recordTypes?.[object] ?? [],
+          }),
+        }
+      : {}),
     ...(options.noCursor
       ? {}
       : {
@@ -242,7 +281,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
         ),
       ]),
     );
-  return { executor, deps, written, insertCalls, flow };
+  return { executor, deps, written, insertCalls, flow, recordTypeScans };
 }
 
 /** Run `graph` over a fresh pair of orgs holding `schema`. */
@@ -349,6 +388,58 @@ function statuses(): { schema: Schema; graph: ForgeGraph } {
       },
     },
     graph: graphOf([node('Account', 4), node('Contract', 12)], [edge('Account', 'Contract', true)]),
+  };
+}
+
+/** A record type of the target, open to the user the run writes as or closed to them. */
+function recordType(n: number, available: boolean): RecordTypeAvailability {
+  const recordTypeId = canonicalRecordId(`012S${String(n).padStart(11, '0')}`);
+  if (!recordTypeId) throw new Error('no id');
+  return {
+    recordTypeId,
+    developerName: available ? 'Open_Type' : 'Closed_Type',
+    name: available ? 'Open type' : 'Closed type',
+    available,
+    active: true,
+    master: false,
+    defaultRecordTypeMapping: available,
+  };
+}
+
+/**
+ * Accounts of a record type the user may use, then, in the table's last
+ * page, of one closed to them; contacts under every account.
+ */
+function closedRecordType(): {
+  schema: Schema;
+  graph: ForgeGraph;
+  recordTypes: Record<string, RecordTypeAvailability[]>;
+} {
+  const open = recordType(1, true);
+  const closed = recordType(2, false);
+  const accounts = Array.from({ length: 12 }, (_, n) => ({
+    Id: sourceId('Account', n),
+    Name: `Account ${n}`,
+    RecordTypeId: n < 9 ? open.recordTypeId : closed.recordTypeId,
+  }));
+  const contacts = Array.from({ length: 10 }, (_, n) => ({
+    Id: sourceId('Contact', n),
+    LastName: `Contact ${n}`,
+    AccountId: sourceId('Account', n),
+  }));
+  return {
+    schema: {
+      Account: {
+        fields: [text('Name'), lookup('RecordTypeId', 'RecordType', true)],
+        rows: accounts,
+      },
+      Contact: {
+        fields: [text('LastName'), lookup('AccountId', 'Account', false)],
+        rows: contacts,
+      },
+    },
+    graph: graphOf([node('Account', 12), node('Contact', 10)], [edge('Account', 'Contact', true)]),
+    recordTypes: { Account: [open, closed] },
   };
 }
 
@@ -598,6 +689,184 @@ describe('a run of whole tables read page by page', () => {
     expect(failed.insertCalls.some((call) => call.object === 'Contact')).toBe(false);
   });
 
+  describe('a run that keeps its journal, stopped part way and resumed from it', () => {
+    /** The records a summary says the run created, as removals take them: object → target ids. */
+    function removalOf(summary: ExecutionSummary): Map<string, string[]> {
+      const plan = forgeRunCreatedRecords({
+        idRemapTable: summary.remapTable,
+        idRemapExisting: [...summary.existingSourceIds, ...summary.updatedSourceIds],
+        idRemapCreated: summary.createdByObject,
+      });
+      return new Map(plan.map(({ objectApiName, ids }) => [objectApiName, [...ids].sort()]));
+    }
+
+    /** Two removal plans as one, each object's ids together. */
+    function together(...plans: Array<Map<string, string[]>>): Map<string, string[]> {
+      const all = new Map<string, string[]>();
+      for (const plan of plans) {
+        for (const [object, ids] of plan)
+          all.set(object, [...(all.get(object) ?? []), ...ids].sort());
+      }
+      return all;
+    }
+
+    /**
+     * The run stopped once the target has taken `stopAfter` rows, then the
+     * same run resumed over the same orgs from the journal the first part
+     * left; `cutJournal` changes that journal first, as a closed window would.
+     */
+    async function stopAndResume(
+      schema: Schema,
+      graph: ForgeGraph,
+      pageSize: number,
+      stopAfter: number,
+      cutJournal: (text: string) => string = (text) => text,
+    ) {
+      const orgOptions: FakeOrgOptions = { abortAfterInserts: stopAfter };
+      const orgs = fakeOrgs(schema, orgOptions);
+      const firstFile = memoryRunFile();
+      const firstStore = ForgeRunStore.open(firstFile);
+      const stopped = await orgs.executor
+        .execute(graph, 'src', 'tgt', () => {}, { stream: { pageSize, store: firstStore } })
+        .then(
+          () => undefined,
+          (err: unknown) => err,
+        );
+      firstStore.close();
+      const first = partialSummaryOf(stopped);
+      const insertsBefore = orgs.insertCalls.reduce((sum, call) => sum + call.rows, 0);
+      // The second part: nothing stops it.
+      orgOptions.abortAfterInserts = undefined;
+      const read = vi.spyOn(orgs.deps, 'queryPages');
+      const store = ForgeRunStore.open(memoryRunFile(cutJournal(firstFile.text())));
+      const second = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        stream: { pageSize, store },
+      });
+      store.close();
+      const secondReads = read.mock.calls.map(([, soql]) => soql);
+      return { orgs, stopped, first, second, insertsBefore, secondReads };
+    }
+
+    describe.each([
+      ['self-lookups', selfLookups, [1, 9, 30]],
+      ['a cycle', cycle, [1, 8, 17]],
+      ['statuses given back', statuses, [2, 9]],
+    ] as const)('over %s', (_name, build, stops) => {
+      it.each(
+        [2, 3, 7].flatMap((pageSize) => stops.map((stopAfter) => [pageSize, stopAfter] as const)),
+      )(
+        'writes, links and leaves to remove in its two parts what one run does, in pages of %i stopped after %i rows',
+        async (pageSize, stopAfter) => {
+          const { schema, graph } = build();
+          const whole = await runOver(schema, graph);
+          const { orgs, stopped, first, second, insertsBefore } = await stopAndResume(
+            schema,
+            graph,
+            pageSize,
+            stopAfter,
+          );
+
+          expect(stopped).toBeInstanceOf(ForgeAbortedError);
+          expect(first).toBeDefined();
+          // The target holds what one run leaves: every row once, every lookup
+          // the second pass fills in, every status given back.
+          expect(orgs.written()).toEqual(whole.written());
+          // No row written twice.
+          const inserted = orgs.insertCalls.reduce((sum, call) => sum + call.rows, 0);
+          expect(inserted).toBe(whole.summary.successCount);
+          expect(insertsBefore).toBeGreaterThanOrEqual(stopAfter);
+          expect((first?.successCount ?? 0) + second.successCount).toBe(whole.summary.successCount);
+          expect(second.failedCount).toBe(0);
+          // The remap of the second part holds the first's: the run's whole.
+          expect(second.remapTable).toEqual(whole.summary.remapTable);
+          // What each part created, removed together, is what one run created.
+          const firstPlan = first ? removalOf(first) : new Map<string, string[]>();
+          expect(together(firstPlan, removalOf(second))).toEqual(removalOf(whole.summary));
+          for (const [object, ids] of firstPlan) {
+            const again = removalOf(second).get(object) ?? [];
+            expect(ids.filter((id) => again.includes(id))).toEqual([]);
+          }
+        },
+      );
+    });
+
+    it('writes no row twice when the window closed after a page went in and before its checkpoint', async () => {
+      const { schema, graph } = selfLookups();
+      const whole = await runOver(schema, graph);
+      // The last checkpoint of the first part never reached the journal.
+      const withoutLastCheckpoint = (text: string): string => {
+        const lines = text.split('\n');
+        const last = lines.map((line) => line.startsWith('{"at"')).lastIndexOf(true);
+        return lines.filter((_, index) => index !== last).join('\n');
+      };
+      const { orgs, first, second } = await stopAndResume(
+        schema,
+        graph,
+        5,
+        10,
+        withoutLastCheckpoint,
+      );
+
+      expect(orgs.written()).toEqual(whole.written());
+      expect(orgs.insertCalls.reduce((sum, call) => sum + call.rows, 0)).toBe(
+        whole.summary.successCount,
+      );
+      // The page read again links to what the first part wrote of it.
+      expect(second.linkedCount).toBe(5);
+      expect((first?.successCount ?? 0) + second.successCount).toBe(whole.summary.successCount);
+    });
+
+    it('reads each object after the checkpoint the first part left, and nothing of an object it read to its end', async () => {
+      const { schema, graph } = selfLookups();
+      // Stopped in the accounts: they are read again after the last one written.
+      const inAccounts = await stopAndResume(schema, graph, 10, 10);
+      expect(inAccounts.secondReads).toEqual([
+        `SELECT Id, Name, ParentId FROM Account WHERE Id > '${sourceId('Account', 9)}' ORDER BY Id`,
+        'SELECT Id, LastName, AccountId FROM Contact ORDER BY Id',
+      ]);
+      // Stopped in the contacts: the accounts, read to their end, are not read again.
+      const inContacts = await stopAndResume(schema, graph, 10, 30);
+      expect(inContacts.secondReads).toEqual([
+        `SELECT Id, LastName, AccountId FROM Contact WHERE Id > '${sourceId('Contact', 9)}' ORDER BY Id`,
+      ]);
+    });
+
+    it('fills in the lookups and gives back the statuses the first part owed, at the end of the second', async () => {
+      const { schema, graph } = statuses();
+      const { second } = await stopAndResume(schema, graph, 3, 6);
+      expect(second.errors).toEqual([]);
+    });
+
+    it('writes, links and leaves to remove what a run that holds them in memory does, in one go', async () => {
+      for (const build of [selfLookups, cycle, statuses]) {
+        const { schema, graph } = build();
+        const whole = await runOver(schema, graph);
+        const store = ForgeRunStore.open(memoryRunFile());
+        const paged = await runOver(schema, graph, { stream: { pageSize: 3, store } });
+        expect(paged.written()).toEqual(whole.written());
+        expect(outcomeOf(paged.summary)).toEqual(outcomeOf(whole.summary));
+        expect(paged.summary.errors).toEqual(whole.summary.errors);
+      }
+    });
+
+    it('counts the records past its bound and leaves their ids in the journal', async () => {
+      const { schema, graph } = selfLookups();
+      const store = ForgeRunStore.open(memoryRunFile());
+      const paged = await runOver(schema, graph, {
+        stream: { pageSize: 5, store, summaryBound: 10 },
+      });
+      expect(paged.summary.remapInJournal).toBe(true);
+      expect(paged.summary.remapTable).toEqual({});
+      expect(paged.summary.createdByObject).toEqual([]);
+      expect(paged.summary.remapCount).toBe(63);
+      expect(paged.summary.remapByObject).toEqual([
+        { objectApiName: 'Account', created: 23, linked: 0 },
+        { objectApiName: 'Contact', created: 40, linked: 0 },
+      ]);
+      expect(paged.summary.successCount).toBe(63);
+    });
+  });
+
   it('stops between two pages once cancelled, and writes no page after', async () => {
     const { schema, graph } = selfLookups();
     const stopped = runOver(schema, graph, { stream: { pageSize: 5 } }, { abortAfterInserts: 5 });
@@ -645,6 +914,151 @@ describe('a run of whole tables read page by page', () => {
     ).rejects.toThrow('too many records');
     expect(orgs.deps.insertRecords).not.toHaveBeenCalled();
     expect(orgs.flow.handedOut).toBe(0);
+  });
+
+  describe('the gate of a run that links to what an earlier run wrote, or holds an object back', () => {
+    it('takes the rows the run it retries wrote off the counts, and says so', async () => {
+      const { schema, graph } = selfLookups();
+      const first = await runOver(schema, graph, { stream: { pageSize: 10 } });
+      // The run retried wrote seven accounts and three contacts.
+      const writtenBefore = Object.fromEntries(
+        [
+          ...Array.from({ length: 7 }, (_, n) => sourceId('Account', n)),
+          ...Array.from({ length: 3 }, (_, n) => sourceId('Contact', n)),
+        ].map((id) => [id, first.summary.remapTable[id]]),
+      );
+      const orgs = fakeOrgs(schema);
+      orgs.deps.describeObject = async (_org, object) => ({
+        keyPrefix: KEY_PREFIX[object] ?? null,
+        recordTypes: [],
+      });
+      const boundaries: ForgeWriteBoundary[] = [];
+      await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        writtenBefore,
+        beforeWrite: async (boundary) => void boundaries.push(boundary),
+        stream: { pageSize: 10 },
+      });
+      expect(boundaries[0]?.objects).toEqual([
+        {
+          objectApiName: 'Account',
+          rows: [],
+          counted: { rows: 16 },
+          leftOut: { writtenBefore: 7 },
+        },
+        {
+          objectApiName: 'Contact',
+          rows: [],
+          counted: { rows: 37 },
+          leftOut: { writtenBefore: 3 },
+        },
+      ]);
+    });
+
+    it('counts nothing to write of an object held back whole for a record type, and says how many it holds back', async () => {
+      const { schema, graph, recordTypes } = closedRecordType();
+      const boundaries: ForgeWriteBoundary[] = [];
+      await runOver(
+        schema,
+        graph,
+        {
+          beforeWrite: async (boundary) => void boundaries.push(boundary),
+          stream: { pageSize: 4 },
+        },
+        { recordTypes },
+      );
+      expect(boundaries[0]?.objects[0]).toEqual({
+        objectApiName: 'Account',
+        rows: [],
+        counted: { rows: 0 },
+        leftOut: { heldBack: 12 },
+      });
+    });
+
+    it('leaves out of a run read whole the rows the run it retries wrote and an object its write holds back', async () => {
+      const { schema, graph, recordTypes } = closedRecordType();
+      const writtenBefore = {
+        [sourceId('Contact', 0)]: canonicalRecordId('003T00000000099') ?? '',
+      };
+      const boundaries: ForgeWriteBoundary[] = [];
+      // Read whole, every row is in hand at the gate.
+      await runOver(
+        schema,
+        graph,
+        { writtenBefore, beforeWrite: async (boundary) => void boundaries.push(boundary) },
+        { recordTypes },
+      );
+      const byObject = Object.fromEntries(
+        (boundaries[0]?.objects ?? []).map((object) => [object.objectApiName, object]),
+      );
+      expect(byObject['Account']?.rows).toEqual([]);
+      expect(byObject['Account']?.leftOut).toEqual({ heldBack: 12 });
+      expect(byObject['Contact']?.rows).toHaveLength(9);
+      expect(byObject['Contact']?.leftOut).toEqual({ writtenBefore: 1 });
+    });
+  });
+
+  describe('a record type closed to the user the run writes as', () => {
+    it.each(PAGE_SIZES)(
+      'holds the object back whole before its first page, as a run read whole does, in pages of %i',
+      async (pageSize) => {
+        const { schema, graph, recordTypes } = closedRecordType();
+        const whole = await runOver(schema, graph, {}, { recordTypes });
+        const paged = await runOver(schema, graph, { stream: { pageSize } }, { recordTypes });
+
+        expect(whole.written()).toEqual({});
+        expect(paged.written()).toEqual(whole.written());
+        expect(paged.insertCalls).toEqual([]);
+        expect(paged.summary.failedCount).toBe(whole.summary.failedCount);
+        expect(paged.summary.errors).toEqual(whole.summary.errors);
+        expect(
+          paged.events.filter((e) => e.objectName === 'Account' && e.status === 'error'),
+        ).toEqual(whole.events.filter((e) => e.objectName === 'Account' && e.status === 'error'));
+        // Judged from the record types the table holds, counted before a row of it is read.
+        expect(paged.recordTypeScans).toEqual([
+          'SELECT RecordTypeId, COUNT(Id) n FROM Account GROUP BY RecordTypeId',
+        ]);
+        expect(paged.summary.readByObject).not.toContainEqual(
+          expect.objectContaining({ objectApiName: 'Account' }),
+        );
+      },
+    );
+
+    it('writes every page of an object whose record types are all open, counting them once', async () => {
+      const { schema, graph, recordTypes } = closedRecordType();
+      const openOnly = {
+        Account: recordTypes.Account.map((type) => ({ ...type, available: true })),
+      };
+      const whole = await runOver(schema, graph, {}, { recordTypes: openOnly });
+      const paged = await runOver(
+        schema,
+        graph,
+        { stream: { pageSize: 4 } },
+        { recordTypes: openOnly },
+      );
+      expect(paged.written()).toEqual(whole.written());
+      expect(paged.summary.successCount).toBe(22);
+      expect(paged.recordTypeScans).toEqual([]);
+    });
+
+    it('counts the record types under the run filter and after the checkpoint of the run it resumes', async () => {
+      const { schema, graph, recordTypes } = closedRecordType();
+      const paged = await runOver(
+        schema,
+        graph,
+        {
+          objectSoqlFilters: { Account: "Name != 'none'" },
+          stream: {
+            pageSize: 4,
+            resumeAfter: { Account: { lastId: sourceId('Account', 3), read: 4 } },
+          },
+        },
+        { recordTypes },
+      );
+      expect(paged.recordTypeScans).toEqual([
+        `SELECT RecordTypeId, COUNT(Id) n FROM Account WHERE (Name != 'none') AND Id > '${sourceId('Account', 3)}' GROUP BY RecordTypeId`,
+      ]);
+      expect(paged.insertCalls.filter((call) => call.object === 'Account')).toEqual([]);
+    });
   });
 
   it('reads a run from a record whole, writing once it has read, its reads through the cursor only when given pages', async () => {

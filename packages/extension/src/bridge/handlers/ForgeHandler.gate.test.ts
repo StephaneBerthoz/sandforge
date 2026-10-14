@@ -21,7 +21,7 @@ import type {
 } from '../../modules/forge/ForgeExecutor.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
-import type { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
+import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { RunConfirmation } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -1222,19 +1222,34 @@ describe('forge:execute, the gate before the first write', () => {
   });
 
   describe('the journal of a run of whole tables', () => {
-    const PAGE = {
-      objectApiName: 'Contact',
-      created: [{ sourceId: '003000000000001AAA', targetId: '003000000000901AAA' }],
-    };
-
-    function journalOf(leftOver: ForgeRemovalPlan[] = []) {
-      return {
-        begin: vi.fn(async () => {}),
-        page: vi.fn(async () => {}),
-        end: vi.fn(async () => {}),
-        leftOver: vi.fn(async () => leftOver),
-        forget: vi.fn(async () => {}),
-      };
+    /** A disk in memory under a real journal: each file's text, by its path. */
+    function journalOnMemory(options: { unwritable?: boolean } = {}) {
+      const files = new Map<string, string>();
+      const journal = new ForgeRunJournal({
+        storagePath: '/storage',
+        appendFile: async (filePath, content) => {
+          if (options.unwritable) throw new Error('ENOSPC: no space left on device');
+          files.set(filePath, (files.get(filePath) ?? '') + content);
+        },
+        readLines: (filePath) =>
+          (async function* lines(): AsyncGenerator<string> {
+            for (const line of (files.get(filePath) ?? '').split('\n')) yield line;
+          })(),
+        mkdir: async () => {},
+        rm: async (filePath) => void files.delete(filePath),
+        listFiles: async (dirPath) =>
+          [...files.keys()]
+            .filter((filePath) => filePath.startsWith(`${dirPath}/`))
+            .map((filePath) => filePath.slice(dirPath.length + 1)),
+        openRunFile: (filePath) => ({
+          size: () => Buffer.byteLength(files.get(filePath) ?? ''),
+          append: (text) => void files.set(filePath, (files.get(filePath) ?? '') + text),
+          read: (offset, length) =>
+            Buffer.from(files.get(filePath) ?? '').subarray(offset, offset + length),
+          close: () => {},
+        }),
+      });
+      return { journal, files };
     }
 
     function runOfWholeTables(): Promise<boolean> {
@@ -1256,42 +1271,55 @@ describe('forge:execute, the gate before the first write', () => {
       );
     }
 
-    it('keeps what each page created while the run goes, and drops it once the run is in the history', async () => {
-      const journal = journalOf();
+    it('writes its journal through the store it hands the run, and drops it once the run is in the history', async () => {
+      const { journal, files } = journalOnMemory();
       const orchestrator = orchestratorHanding();
+      let during: string[] = [];
       orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
-        await options?.stream?.onPage?.(PAGE);
+        const runStore = options?.stream?.store;
+        runStore?.beginPart(new Date());
+        runStore?.setMapping('created', '003000000000001AAA', '003000000000901AAA', 'Contact');
+        runStore?.flush();
+        during = [...files.values()];
         return RESULT;
       });
       handler.setForgeOrchestrator(orchestrator, {
         targetAutomation: readerOf(QUIET),
-        runJournal: journal as unknown as ForgeRunJournal,
+        runJournal: journal,
       });
 
       await runOfWholeTables();
 
-      const [id] = journal.begin.mock.calls[0] as unknown as [string, string, Date];
-      expect(journal.begin).toHaveBeenCalledWith(id, 'tgt-org', expect.any(Date));
-      expect(journal.page).toHaveBeenCalledWith(id, PAGE);
-      expect(journal.end).toHaveBeenCalledWith(id);
+      expect(during).toHaveLength(1);
+      const [head, part, created] = during[0].trim().split('\n');
+      // The head says what the run was started with: what resuming it needs.
+      expect(JSON.parse(head)).toMatchObject({
+        run: {
+          targetOrgId: 'tgt-org',
+          resume: {
+            sourceOrgId: 'src-org',
+            fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+            startedWith: { config: { soqlQuery: 'SELECT Id FROM Contact' } },
+          },
+        },
+      });
+      expect(part).toMatch(/^\{"part":\{"n":0,/);
+      expect(created).toBe('["c","003000000000001AAA","003000000000901AAA","Contact"]');
+      expect(files.size).toBe(0);
+      expect(posted('forge:execute:response')).toHaveLength(1);
     });
 
     it('runs on when its journal cannot be written: the history records what it created', async () => {
-      const journal = journalOf();
-      journal.page.mockRejectedValue(new Error('ENOSPC'));
+      const { journal } = journalOnMemory({ unwritable: true });
       const orchestrator = orchestratorHanding();
-      orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
-        await options?.stream?.onPage?.(PAGE);
-        await options?.stream?.onPage?.(PAGE);
-        return RESULT;
-      });
       handler.setForgeOrchestrator(orchestrator, {
         targetAutomation: readerOf(QUIET),
-        runJournal: journal as unknown as ForgeRunJournal,
+        runJournal: journal,
       });
 
       await runOfWholeTables();
 
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]?.stream?.store).toBeUndefined();
       expect(posted('forge:execute:response')).toHaveLength(1);
       expect(posted('forge:execute:error')).toEqual([]);
     });
@@ -1301,22 +1329,23 @@ describe('forge:execute, the gate before the first write', () => {
       // before the executor has it; the executor clears an abort on entry.
       // A Cancel landing there was taken, Live Operations listed the run as
       // stopped, and the run wrote all the same.
-      const journal = journalOf();
+      const { journal } = journalOnMemory();
       let opened: () => void = () => {};
-      journal.begin.mockImplementation(
+      const begin = vi.spyOn(journal, 'begin').mockImplementation(
         () =>
           new Promise<void>((resolve) => {
             opened = resolve;
           }),
       );
+      const end = vi.spyOn(journal, 'end');
       const orchestrator = orchestratorHanding();
       handler.setForgeOrchestrator(orchestrator, {
         targetAutomation: readerOf(QUIET),
-        runJournal: journal as unknown as ForgeRunJournal,
+        runJournal: journal,
       });
 
       const run = runOfWholeTables();
-      await vi.waitFor(() => expect(journal.begin).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(begin).toHaveBeenCalledTimes(1));
       await handler.handle(
         inboundRequest({
           id: 'wv-abort',
@@ -1334,23 +1363,31 @@ describe('forge:execute, the gate before the first write', () => {
           payload: expect.objectContaining({ code: 'ABORTED_BEFORE_START' }),
         }),
       ]);
-      const [id] = journal.begin.mock.calls[0] as unknown as [string];
-      expect(journal.end).toHaveBeenCalledWith(id);
+      const [id] = begin.mock.calls[0] as unknown as [string];
+      expect(end).toHaveBeenCalledWith(id);
     });
 
     it('keeps no journal of a run from a record, which writes once it has read', async () => {
-      const journal = journalOf();
-      handler.setForgeOrchestrator(orchestratorHanding(), {
+      const { journal, files } = journalOnMemory();
+      const orchestrator = orchestratorHanding();
+      handler.setForgeOrchestrator(orchestrator, {
         targetAutomation: readerOf(QUIET),
-        runJournal: journal as unknown as ForgeRunJournal,
+        runJournal: journal,
       });
 
       await execute();
 
-      expect(journal.begin).not.toHaveBeenCalled();
+      expect(files.size).toBe(0);
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]?.stream?.store).toBeUndefined();
     });
 
-    it('offers what a run a closed window never ended created, among the runs the history dropped', async () => {
+    it('offers what a run of 1.50 a closed window never ended created, among the runs the history dropped', async () => {
+      const { journal, files } = journalOnMemory();
+      files.set(
+        '/storage/forge-runs/forge-run-1.ndjson',
+        '{"run":{"journalId":"forge-run-1","targetOrgId":"tgt-org","startedAt":"2026-10-13T10:00:00.000Z"}}\n' +
+          '{"object":"Contact","created":[["003000000000001AAA","003000000000901AAA"]]}\n',
+      );
       const left: ForgeRemovalPlan = {
         forgeId: 'forge-run-1',
         targetOrgId: 'tgt-org',
@@ -1360,14 +1397,13 @@ describe('forge:execute, the gate before the first write', () => {
         objects: [{ objectApiName: 'Contact', ids: ['003000000000901AAA'] }],
         linked: 0,
       };
-      const journal = journalOf([left]);
       const plans: ForgeRemovalPlan[] = [];
       const removalPlans = {
         list: vi.fn(async () => plans),
         putIfAbsent: vi.fn(async (plan: ForgeRemovalPlan) => void plans.push(plan)),
       };
       handler.setForgeOrchestrator(orchestratorHanding(), {
-        runJournal: journal as unknown as ForgeRunJournal,
+        runJournal: journal,
         removalPlans: removalPlans as unknown as ForgeRemovalPlanStore,
       });
 
@@ -1381,7 +1417,7 @@ describe('forge:execute, the gate before the first write', () => {
       );
 
       expect(removalPlans.putIfAbsent).toHaveBeenCalledWith(left);
-      expect(journal.forget).toHaveBeenCalledWith('forge-run-1');
+      expect(files.size).toBe(0);
       expect(posted('forge:history:list:response')[0].payload).toMatchObject({
         olderRuns: [left],
       });
@@ -1417,6 +1453,40 @@ describe('forge:execute, the gate before the first write', () => {
       ]);
       expect(calls.indexOf('asked write')).toBeLessThan(calls.indexOf('written'));
       expect(runs()).toEqual([expect.objectContaining({ outcome: 'success', guard: 'confirmed' })]);
+    });
+
+    it('says in the question what it does not count, and that counted rows were not read yet', async () => {
+      handler.setForgeOrchestrator(
+        orchestratorHanding({
+          objects: [
+            {
+              objectApiName: 'Contact',
+              rows: [],
+              counted: { rows: 2_400 },
+              leftOut: { writtenBefore: 600 },
+            },
+            {
+              objectApiName: 'Opportunity',
+              rows: [],
+              counted: { rows: 0 },
+              leftOut: { heldBack: 30 },
+            },
+          ],
+          dryRun: false,
+        }),
+        { targetAutomation: readerOf(QUIET) },
+      );
+
+      await execute();
+
+      expect(questions).toEqual([
+        expect.objectContaining({
+          stage: 'write',
+          total: 2_400,
+          leftOut: { writtenBefore: 600, heldBack: [{ objectApiName: 'Opportunity', rows: 30 }] },
+          counted: true,
+        }),
+      ]);
     });
 
     it('asks nothing below it while the rows fit, and the run goes on', async () => {

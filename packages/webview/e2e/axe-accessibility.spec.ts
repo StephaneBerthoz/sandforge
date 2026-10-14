@@ -1779,6 +1779,46 @@ for (const theme of SCANNED_THEMES) {
       });
     }
 
+    test('Forge results of a stopped run, offering to take it up where it stopped', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: FORGE_RUN_GRAPH,
+      });
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('execute-button').click();
+      await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          forgeId: 'forge-run-stopped',
+          status: 'partial',
+          cancelled: true,
+          resumable: true,
+          graph: FORGE_RUN_GRAPH,
+          duration: 2_000,
+          timestamp: '2026-09-01T08:00:00.000Z',
+          idRemapCount: 1,
+          createdCount: 1,
+          readByObject: [{ objectApiName: 'Account', read: 1 }],
+          errors: [],
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-resume"]', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-resume-hint')).toBeVisible();
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-resume-hint"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge results naming the objects the run could not read', async ({ page }) => {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       await page.getByTestId('forge-tab-soql').click();
@@ -4415,6 +4455,11 @@ for (const theme of SCANNED_THEMES) {
           run('op-clone', 'clone', 'completed', { percentage: 100 }),
           run('op-csv', 'csv', 'failed', { error: 'REQUIRED_FIELD_MISSING: Name' }),
           run('op-frozen', 'frozen', 'cancelled', { processedRecords: 0, recordsPerSecond: 0 }),
+          // A clone that stopped part way, offered to be taken up where it stopped.
+          run('op-forge-stopped', 'forge', 'failed', {
+            error: 'Forge execution finished with a failure status.',
+            resumeRun: 'forge-run-stopped',
+          }),
           // A sync running and one paused: the runs Live Operations can pause.
           run('op-sync', 'sync', 'running', { pausable: true }),
           run('op-sync-paused', 'sync', 'paused', { pausable: true }),
@@ -4425,6 +4470,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('pause-op-sync')).toBeVisible();
       await expect(page.getByTestId('resume-op-sync-paused')).toBeVisible();
       await expect(page.getByTestId('pause-op-forge')).toHaveCount(0);
+      await expect(page.getByTestId('resume-run-op-forge-stopped')).toBeVisible();
       await expect(page.getByRole('img', { name: 'Cancelled' })).toBeVisible();
       await page.getByTestId('live-op-op-csv').scrollIntoViewIfNeeded();
 
@@ -5102,6 +5148,22 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Forge recent runs offering to take a stopped run up where it stopped', async ({
+      page,
+    }) => {
+      const stopped = {
+        ...FORGE_REMOVABLE_RUN,
+        forgeId: 'forge-run-stopped',
+        cancelled: true,
+        resumable: true,
+        sourceOrgId: DEV_SANDBOX.id,
+      };
+      await openForgeHistory(bridge, page, theme, stopped);
+      await expect(page.getByTestId('forge-history-resume-forge-run-stopped')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Forge run removal confirmation open over the history', async ({ page }) => {

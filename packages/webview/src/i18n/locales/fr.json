@@ -131,6 +131,9 @@
       "title": "Opérations en cours",
       "noOperations": "Aucune opération en cours",
       "cancel": "Annuler",
+      "resumeRun": "Reprendre",
+      "resumeRunHint": "Reprendre ce clonage là où il s'est arrêté",
+      "resumeRunRefused": "Le clonage n'a pas pu être repris",
       "recsPerSec": "enr/s",
       "cancelRefused": "Impossible d'annuler l'opération",
       "cancelRefusedDetail": "L'exécution n'est plus en cours, ou elle ne peut pas être arrêtée d'ici. La liste a été relue.",
@@ -2765,6 +2768,8 @@
     "retryFailedHint": "Retenter les échecs relance le clone : ce que cette exécution n'a pas pu écrire est écrit, rattaché à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
     "retryStopped": "Écrire le reste",
     "retryStoppedHint": "Écrire le reste relance le clone : ce que cette exécution n'a pas écrit avant de s'arrêter est écrit, rattaché à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
+    "resumeRun": "Reprendre où il s'est arrêté",
+    "resumeRunHint": "Reprendre poursuit cette exécution à partir du journal que SandForge en a gardé : chaque objet est lu après le dernier enregistrement qu'elle a écrit, et les recherches et statuts qu'elle devait encore sont renseignés. Rien de ce qu'elle a écrit n'est écrit une seconde fois.",
     "retrySkipped": "Retenter les objets ignorés",
     "retrySkippedHint": "Retenter les objets ignorés relance le clone une fois corrigé ce qui les a fait ignorer : les objets que cette exécution a ignorés en entier sont écrits, rattachés à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
     "retryWithParents": "Récupérer les parents manquants et retenter",
@@ -3159,12 +3164,15 @@
       "olderRecords_one": "{{formatted}} enregistrement à supprimer de {{org}}",
       "olderRecords_other": "{{formatted}} enregistrements à supprimer de {{org}}",
       "reuse": "Réutiliser la configuration",
+      "resume": "Reprendre",
+      "resumeHint": "Reprendre cette exécution là où elle s'est arrêtée : rien de ce qu'elle a écrit n'est réécrit",
       "reuseHint": "Réinjecte les réglages de cette exécution dans le formulaire. Les orgs ne sont pas restaurées — choisissez-les, puis lancez la découverte.",
       "noConfig": "Exécution enregistrée avant la conservation des configurations — rien à réinjecter.",
       "loadError": "Impossible de charger l'historique des exécutions.",
       "reused": "Formulaire réinjecté depuis l'exécution du {{date}}.",
       "statusSuccess": "Réussie",
       "statusPartial": "Partielle",
+      "statusInterrupted": "Interrompue",
       "statusFailure": "Échec",
       "remove": "Supprimer les enregistrements créés par cette exécution",
       "removeLeft": "Supprimer ce qui reste des enregistrements de cette exécution",
@@ -3374,6 +3382,18 @@
       "retryUnavailable": {
         "explanation": "Le nouvel essai n'a pas pu démarrer : ce qu'a écrit l'exécution qu'il reprend n'est pas connu ici — elle n'est plus dans l'historique, n'a gardé aucune trace de ce qu'elle a écrit ou a écrit dans une autre org, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
         "action": "Relancez le clonage depuis la revue."
+      },
+      "resumeUnavailable": {
+        "explanation": "Cette exécution ne peut pas être reprise là où elle s'est arrêtée : elle a déjà été reprise ou son exécution s'est terminée, elle n'a gardé aucun journal, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
+        "action": "Relancez-la depuis ses résultats, ou relancez le clonage depuis la revue."
+      },
+      "resumeTargetChanged": {
+        "explanation": "L'org dans laquelle cette exécution a écrit n'est plus celle qu'elle était — actualisée, remplacée, ou plus enregistrée dans SandForge — : ce que l'exécution a écrit n'y est pas pour la poursuivre. Rien n'a été écrit.",
+        "action": "Relancez le clonage depuis la revue dans l'org telle qu'elle est aujourd'hui."
+      },
+      "resumeChanged": {
+        "explanation": "Cette exécution serait maintenant configurée autrement que la partie qu'elle reprend : le clonage affiché sur la page, ou le paramètre sandforge.forge.maxRecordsPerObject, a changé depuis son arrêt. Rien n'a été écrit.",
+        "action": "Remettez le paramètre, ou relancez plutôt l'exécution : un nouvel essai relit le clonage et rattache ce que cette exécution a écrit."
       },
       "filesNotAccepted": {
         "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",

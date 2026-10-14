@@ -1,11 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RotateCcw, Trash2 } from 'lucide-react';
+import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { forgeRemovalPlanLeft, forgeRunRecordsLeft } from '@sandforge/shared';
-import type { ForgeRemovalPlan, ForgeUndoResult } from '@sandforge/shared';
+import type {
+  ForgeConfig,
+  ForgeRemovalPlan,
+  ForgeResumeRunRequest,
+  ForgeUndoResult,
+} from '@sandforge/shared';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
-import type { ForgeExecutionResult } from '../../stores/useForgeStore';
+import { useForgeStore, type ForgeExecutionResult } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
@@ -90,6 +96,11 @@ export interface ForgeHistoryPanelProps {
  * The history keeps twenty runs; a run it dropped whose records are still in
  * the org is listed under the older runs, from the removal plan the extension
  * kept of it, with the same removal.
+ *
+ * A run of whole tables that stopped part way — a cancel, a failure, a window
+ * closed under it — is offered to be taken up where it stopped (`resumable`):
+ * the extension runs it again as its journal says it was set up, each object
+ * read after the last record it wrote, and the execution screen follows it.
  */
 export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   entries,
@@ -142,6 +153,25 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
       </p>
     ) : null;
   }
+
+  /** Take a run up where it stopped, on the execution screen, as it was set up. */
+  const resume = (entry: ForgeExecutionResult): void => {
+    if (!entry.config || !entry.sourceOrgId || !entry.targetOrgId) return;
+    const forge = useForgeStore.getState();
+    const config: ForgeConfig = {
+      ...entry.config,
+      sourceOrgId: entry.sourceOrgId,
+      targetOrgId: entry.targetOrgId,
+    };
+    forge.setConfig(config);
+    forge.setGraph(entry.graph);
+    forge.resetNodeStatuses();
+    const requestId = sendBridgeMessage<ForgeResumeRunRequest['payload']>('forge:resume-run', {
+      forgeId: entry.forgeId,
+    });
+    forge.setExecutionRequestId(requestId);
+    forge.setPhase('execution');
+  };
 
   const confirmRemoval = (): void => {
     if (!confirming) return;
@@ -252,7 +282,11 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                   <span className="font-mono text-[11px] text-text-secondary">{when}</span>
                   {/* A run a cancel stopped reads as cancelled, in the neutral
                       colour, not as the partial status its objects came to. */}
-                  {entry.cancelled ? (
+                  {entry.interrupted ? (
+                    <span className="text-[10px] font-semibold text-text-secondary">
+                      {t('forge.history.statusInterrupted')}
+                    </span>
+                  ) : entry.cancelled ? (
                     <span className="text-[10px] font-semibold text-text-secondary">
                       {t('home.opStatus.cancelled')}
                     </span>
@@ -271,6 +305,22 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                 )}
               </div>
 
+              {entry.resumable && entry.config && (
+                <button
+                  type="button"
+                  data-testid={`forge-history-resume-${entry.forgeId}`}
+                  onClick={() => resume(entry)}
+                  title={t('forge.history.resumeHint')}
+                  className={cn(
+                    'shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium',
+                    'border border-forge/30 bg-forge/5 text-hue-forge',
+                    'hover:bg-forge/10 hover:border-forge/50 transition-colors',
+                  )}
+                >
+                  <Play size={11} />
+                  {t('forge.history.resume')}
+                </button>
+              )}
               <button
                 type="button"
                 data-testid={`forge-history-rerun-${entry.forgeId}`}

@@ -141,7 +141,7 @@ import {
   splitStandardPricebookEntries,
   dedupePricebookEntries,
 } from '@sandforge/shared';
-import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
+import { CycleFkPass, patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
 import {
   bytesOf,
   copyFiles,
@@ -162,11 +162,14 @@ import {
   type ForgeRunAnonymization,
 } from './ForgeAnonymizer.js';
 import { keepPartialSummary } from './interruptedRun.js';
+import type { ForgeRunStore, StoredOwedLookup } from './ForgeRunStore.js';
 import type { FieldBounds } from './describeBounds.js';
 import {
   findUnavailableRecordTypes,
+  parseRecordTypeCounts,
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
+  unavailableRecordTypeUses,
   type RecordTypeAvailability,
   type UnavailableRecordTypeUse,
 } from '../../core/metadata/recordTypeAvailability.js';
@@ -576,6 +579,24 @@ export interface ForgeStreamOptions {
    * and to resume from; what it throws stops the run there, as a failure.
    */
   onPage?: (page: ForgeStreamPage) => void | Promise<void>;
+  /**
+   * The store of the run's journal (`ForgeRunStore`): what the run wrote,
+   * read and owes goes there as it goes, instead of into memory, and the
+   * run starts a part of its own in it. Opened on the journal of a run that
+   * stopped, it resumes that run: each object read after the checkpoint that
+   * run left, a row it wrote linked to and never written again, the lookups
+   * and statuses it still owed given with this run's own. The second pass
+   * of a run read in one pass goes through what the journal owes, a page at
+   * a time. Absent, every one of them is held in memory, as before.
+   */
+  store?: ForgeRunStore;
+  /**
+   * Source ids mapped, past which the summary carries their counts and none
+   * of the ids — `remapTable`, `createdByObject` and the ids beside them are
+   * left empty and `remapInJournal` set — the journal holding them: a summary
+   * of a million records went into the history whole. Only with a `store`.
+   */
+  summaryBound?: number;
 }
 
 /** Where a run read page by page stands with one object: see {@link ForgeStreamOptions.resumeAfter}. */
@@ -605,12 +626,19 @@ export interface ForgeWriteBoundary {
    * object comes with no rows and what its count says instead (`counted`) —
    * the rows its table holds under the run's filter, no more than the run
    * reads of it, and how many of them are person accounts or their contacts,
-   * whose storage differs. A row the retried run wrote is counted in.
+   * whose storage differs.
+   *
+   * What the run will not write of them is left out either way and said
+   * (`leftOut`): the rows the run it retries or resumes wrote, which it links
+   * to, and an object held back whole for a record type closed to the user
+   * it writes as. Counted in, a retry of a run that stopped near its end was
+   * asked about every row the first run had written.
    */
   objects: ReadonlyArray<{
     objectApiName: string;
     rows: readonly Record<string, unknown>[];
     counted?: ForgeCountedObject;
+    leftOut?: ForgeRowsLeftOut;
   }>;
   /** Whether the run is a dry run, which writes none of them. */
   dryRun: boolean;
@@ -621,6 +649,14 @@ export interface ForgeCountedObject {
   rows: number;
   /** Of them, person accounts (`Account`) or the contacts of person accounts (`Contact`). */
   personAccounts?: number;
+}
+
+/** What a run will not write of an object it read or counted: see {@link ForgeWriteBoundary.objects}. */
+export interface ForgeRowsLeftOut {
+  /** Rows the run it retries or resumes wrote: linked to, never written again. */
+  writtenBefore?: number;
+  /** Rows held back with the object, whole, for a record type closed to the user the run writes as. */
+  heldBack?: number;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -1019,6 +1055,13 @@ export interface ExecutionSummary {
    * call was answered.
    */
   mayHaveBeenWritten?: Array<{ objectApiName: string; sourceIds: string[] }>;
+  /**
+   * Set when the run mapped more source ids than `stream.summaryBound`: the
+   * ids are in its journal, and `remapTable`, `createdByObject`,
+   * `existingSourceIds`, `updatedSourceIds` and `withTheirRecordSourceIds`
+   * are left empty — the counts beside them stand.
+   */
+  remapInJournal?: true;
 }
 
 /** A node the run adds for the status of its parent's records, and how its rows name them. */
@@ -1126,6 +1169,22 @@ interface NodeCursor {
   readonly carry: PageCarry;
 }
 
+/** A Salesforce id, 15 or 18 characters: what a checkpoint's id must be to go into a statement. */
+const SALESFORCE_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * What the record types of a table read page by page say before its first
+ * page is read: see `recordTypesOfTable`.
+ */
+interface TableRecordTypes {
+  /** The record types closed to the user the run writes as, each with its rows. */
+  readonly closed: UnavailableRecordTypeUse[];
+  /** The rows the count found, of every record type: what holding the table back holds. */
+  readonly rows: number;
+  /** The target's describe of the object: the record types a gap may map to. */
+  readonly target: TargetObjectInfo | null;
+}
+
 /**
  * What the pages of an object read page by page came to, written so far: the
  * line that ends the object says it, and its failure is judged on it, as a
@@ -1219,6 +1278,21 @@ interface NodeReadOnce {
   readonly fieldInfos: readonly FieldInfo[];
   /** Whether it was read while the object it is read again under waited for its turn. */
   readonly whileWaiting: boolean;
+}
+
+/** Per object, the lookups written empty for a record outside the clone, by field and object pointed at. */
+type LeftEmptyLookups = Map<
+  string,
+  Map<string, { field: string; parent: string | undefined; count: number }>
+>;
+
+/** Lookups the second pass of a run with a journal takes from it at a time. */
+const SECOND_PASS_PAGE = 2_000;
+
+/** The source ids a run read: held in memory, or kept in its journal. See `ExecutionState.idsRead`. */
+interface ReadIds {
+  add(sourceId: string): unknown;
+  has(sourceId: string): boolean;
 }
 
 /**
@@ -1316,7 +1390,7 @@ interface ExecutionState {
    * one at a record the run read and could not write. See
    * `sayLookupsOutsideTheClone`.
    */
-  readonly idsRead: Set<string>;
+  readonly idsRead: ReadIds;
   /**
    * Catalog nodes read once the rest of the graph has been read, so their
    * scope is what the records read point at: those put off, and those read
@@ -1347,6 +1421,13 @@ interface ExecutionState {
   readonly cursors: Map<string, NodeCursor>;
   /** Per object, the rows its count said the run would write, once shown to the gate. */
   readonly counted: Map<string, number>;
+  /**
+   * Per object read page by page, the record types its table holds that the
+   * user the run writes as cannot use, counted before its first page: see
+   * `recordTypesOfTable`. Undefined in the promise when they could not be
+   * counted, and the pages are judged one by one.
+   */
+  readonly tableRecordTypes: Map<string, Promise<TableRecordTypes | undefined>>;
   /**
    * The objects whose key prefix a read has asked for, told or not: an object
    * whose describe fails is not asked again for each read after. See
@@ -1385,6 +1466,27 @@ interface ExecutionState {
    * at the end of the run, or reported when the run stops before it.
    */
   readonly deferredStatuses: Array<{ objectApiName: string; id: string; status: string }>;
+  /**
+   * The store of the run's journal, when the run keeps one: what it wrote,
+   * read and owes is there instead of in the collections above. See
+   * `ExecuteOptions.stream.store`.
+   */
+  readonly store?: ForgeRunStore;
+  /**
+   * Whether the lookups owed to the second pass go to the journal, and the
+   * pass goes through them a page at a time: a run with a journal read in
+   * one pass. A run that reads every node before it writes settles them
+   * after each node, from memory.
+   */
+  secondPassInStore: boolean;
+  /** Whether the statuses owed have been taken off for the run to give back: see `restoreStatuses`. */
+  statusesGiven: boolean;
+  /**
+   * The target ids of records left drafts because the user excluded what
+   * their status needs: no status is given back to them. See
+   * `reportDraftsExclusionsLeave`.
+   */
+  readonly leftDrafts: Set<string>;
   /**
    * The nodes the run adds for the status of their parent's records, by
    * object: of their rows, only those under a record past Draft are cloned.
@@ -2822,13 +2924,16 @@ export class ForgeExecutor {
       leftOut,
     );
     const readRecordType = this.deps.recordTypePicklists;
+    // A simulation writes nothing to keep, and its ids are its own.
+    const store = config.dryRun ? undefined : config.stream?.store;
+    store?.beginPart(new Date());
     const state: ExecutionState = {
       config,
       sourceOrgId,
       targetOrgId,
       graph: runGraph,
       onProgress,
-      remapper: new IdRemapper(),
+      remapper: new IdRemapper(store),
       scopeCache: config.isScoped ? new RecordScopeCache() : null,
       scopedBuilder: config.isScoped ? new ScopedSoqlBuilder() : null,
       // An empty mapping list still means "translate": the target org shares
@@ -2866,7 +2971,9 @@ export class ForgeExecutor {
       askedForRowsThatNeedThem: new Map<string, Set<string>>(),
       parentsOutside: new Map<string, ForgeGraphNode>(),
       readAsParents: new Map<string, { count: number; neededBy: Set<string> }>(),
-      idsRead: new Set<string>(),
+      idsRead: store
+        ? { add: (id: string) => store.noteRead(id), has: (id: string) => store.wasRead(id) }
+        : new Set<string>(),
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readByObject: new Map<string, number>(),
@@ -2875,6 +2982,7 @@ export class ForgeExecutor {
       sourceKeyPrefixes: new Map<string, string>(),
       cursors: new Map<string, NodeCursor>(),
       counted: new Map<string, number>(),
+      tableRecordTypes: new Map<string, Promise<TableRecordTypes | undefined>>(),
       keyPrefixesAsked: new Set<string>(),
       readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       writtenObjects: new Set<string>(),
@@ -2885,6 +2993,10 @@ export class ForgeExecutor {
       existingRecords: [],
       lifecycles: new Map(),
       deferredStatuses: [],
+      ...(store ? { store } : {}),
+      secondPassInStore: false,
+      statusesGiven: false,
+      leftDrafts: new Set<string>(),
       statusChildren: forStatuses.added,
       pastDraft: new Map<string, Map<string, string>>(),
       heldForExclusions: new Map<string, Map<string, HeldForExclusion>>(),
@@ -2969,10 +3081,14 @@ export class ForgeExecutor {
       // Dated by the target first: removing what it created goes by those dates.
       await this.readWrittenBetween(state);
       this.reportDraftsLeft(state);
+      store?.settleReads();
       keepPartialSummary(err, this.summaryOf(state));
       throw err;
     } finally {
       if (this.running === state) this.running = null;
+      // Whatever ended the run, the journal holds every line it was given.
+      store?.settleReads();
+      store?.flush();
     }
   }
 
@@ -3180,6 +3296,10 @@ export class ForgeExecutor {
     // whole tables always could: its gate is shown counts, not rows.
     const streamed = this.streamsTheRun(state);
     const twoPhase = !streamed && readsBeforeWriting(config);
+    // A run that writes each object as it reads it owes its second pass to
+    // the journal, when it keeps one; one that reads every node first settles
+    // the pass after each node it writes, from memory.
+    state.secondPassInStore = state.store !== undefined && !twoPhase;
     const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state);
     // A scoped read takes its turns in this order, save a node that waits for
     // a parent still to come: see `readInTurn`.
@@ -3476,10 +3596,11 @@ export class ForgeExecutor {
         );
       }
       await config.beforeWrite({
-        objects: [...state.preread].map(([objectApiName, read]) => ({
-          objectApiName,
-          rows: read.records.filter((row) => !wasWrittenBefore(config, row)),
-        })),
+        objects: await Promise.all(
+          [...state.preread].map(([objectApiName, read]) =>
+            this.toWriteAtTheGate(state, objectApiName, read),
+          ),
+        ),
         dryRun: config.dryRun,
       });
     }
@@ -3543,15 +3664,17 @@ export class ForgeExecutor {
     // at a record outside the clone are said, never owed: see
     // `sayLookupsOutsideTheClone`.
     state.pendingFkUpdates.push(...this.owedNowWritten(state));
-    const pass2Error = await patchCycleFkUpdates({
-      pendingFkUpdates: this.sayLookupsOutsideTheClone(state, state.pendingFkUpdates),
-      remapper: state.remapper,
-      updateRecords: this.deps.updateRecords,
-      targetOrgId,
-      enabled: !config.dryRun,
-      onProgress,
-      stopped: () => this.isAborted,
-    });
+    const pass2Error = state.secondPassInStore
+      ? await this.secondPassFromTheJournal(state)
+      : await patchCycleFkUpdates({
+          pendingFkUpdates: this.sayLookupsOutsideTheClone(state, state.pendingFkUpdates),
+          remapper: state.remapper,
+          updateRecords: this.deps.updateRecords,
+          targetOrgId,
+          enabled: !config.dryRun,
+          onProgress,
+          stopped: () => this.isAborted,
+        });
     if (pass2Error) {
       state.errors.push(pass2Error);
     }
@@ -3652,6 +3775,7 @@ export class ForgeExecutor {
       objectApiName: string;
       rows: Record<string, unknown>[];
       counted: ForgeCountedObject;
+      leftOut?: ForgeRowsLeftOut;
     }> = [];
     for (const node of runOrder) {
       if (this.isAborted) {
@@ -3662,9 +3786,9 @@ export class ForgeExecutor {
       const object = node.objectApiName;
       if (!node.included || !state.writtenObjects.has(object)) continue;
       if (config.referenceDataObjects.has(object)) continue;
-      const counted = await this.countToWrite(state, node);
-      state.counted.set(object, counted.rows);
-      objects.push({ objectApiName: object, rows: [], counted });
+      const { read, counted, leftOut } = await this.countToWrite(state, node);
+      state.counted.set(object, read);
+      objects.push({ objectApiName: object, rows: [], counted, ...(leftOut ? { leftOut } : {}) });
     }
     if (this.isAborted) {
       throw new ForgeAbortedError(
@@ -3674,15 +3798,19 @@ export class ForgeExecutor {
     await beforeWrite({ objects, dryRun: config.dryRun });
   }
 
-  /** What a count says the run will write of `node`: see `countBeforeWrite`. */
+  /**
+   * What a count says the run will write of `node`, and what it reads of it:
+   * see `countBeforeWrite`. The rows the run it retries wrote are taken off
+   * what it writes, as are those of an object held back whole for a record
+   * type closed to the user the run writes as; it reads them all the same.
+   */
   private async countToWrite(
     state: ExecutionState,
     node: ForgeGraphNode,
-  ): Promise<ForgeCountedObject> {
+  ): Promise<{ read: number; counted: ForgeCountedObject; leftOut?: ForgeRowsLeftOut }> {
     const object = node.objectApiName;
-    const resumed = this.streamsNode(node, state)
-      ? state.config.stream?.resumeAfter.get(object)
-      : undefined;
+    const streamed = this.streamsNode(node, state);
+    const resumed = streamed ? state.config.stream?.resumeAfter.get(object) : undefined;
     const filter = state.config.objectSoqlFilters?.[object];
     const countRecords = this.deps.countRecords;
     const count = async (extra?: string): Promise<number | undefined> => {
@@ -3690,9 +3818,7 @@ export class ForgeExecutor {
       const terms = [
         ...(filter ? [`(${filter})`] : []),
         ...(extra ? [extra] : []),
-        ...(resumed && /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(resumed.lastId)
-          ? [`Id > '${resumed.lastId}'`]
-          : []),
+        ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
       ];
       const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
       try {
@@ -3707,14 +3833,56 @@ export class ForgeExecutor {
     const bound = this.readBound(state, node);
     const left = bound === undefined ? undefined : Math.max(0, bound - (resumed?.read ?? 0));
     const total = (await count()) ?? node.recordCount;
-    const rows = left === undefined ? total : Math.min(total, left);
-    if (object !== ACCOUNT && object !== CONTACT) return { rows };
+    const read = left === undefined ? total : Math.min(total, left);
+    // Held back whole before its first page: nothing of it is written.
+    const types = streamed ? await this.recordTypesOfTable(state, node) : undefined;
+    if (types && types.closed.length > 0) {
+      return { read, counted: { rows: 0 }, ...(read > 0 ? { leftOut: { heldBack: read } } : {}) };
+    }
+    const writtenBefore = Math.min(read, await this.writtenBeforeOf(state, node, resumed));
+    const rows = read - writtenBefore;
+    const leftOut = writtenBefore > 0 ? { writtenBefore } : undefined;
+    const counted = (personAccounts?: number): ForgeCountedObject =>
+      personAccounts === undefined ? { rows } : { rows, personAccounts };
+    const answer = (personAccounts?: number) => ({
+      read,
+      counted: counted(personAccounts),
+      ...(leftOut ? { leftOut } : {}),
+    });
+    if (object !== ACCOUNT && object !== CONTACT) return answer();
     const fields = await this.deps
       .describeFields(state.sourceOrgId, object)
       .catch((): FieldInfo[] => []);
-    if (!fields.some((field) => field.name === 'IsPersonAccount')) return { rows };
+    if (!fields.some((field) => field.name === 'IsPersonAccount')) return answer();
     const persons = await count('IsPersonAccount = true');
-    return persons === undefined ? { rows } : { rows, personAccounts: Math.min(persons, rows) };
+    return answer(persons === undefined ? undefined : Math.min(persons, rows));
+  }
+
+  /**
+   * The rows of `node`'s count the run this one retries wrote: the ids it
+   * links to, told from the object's key prefix in the source. None for an
+   * object read after the checkpoint of a run it resumes, whose count leaves
+   * out what that run wrote before it.
+   */
+  private async writtenBeforeOf(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    resumed: ForgeStreamCheckpoint | undefined,
+  ): Promise<number> {
+    const { writtenBefore } = state.config;
+    const object = node.objectApiName;
+    // Resumed in the journal of the run it resumes: what that run wrote of the
+    // object is there, by object — after its checkpoint, of a count taken after it.
+    const fromTheJournal = state.store?.earlierRecordsOf(object, resumed !== undefined) ?? 0;
+    if (state.store && fromTheJournal > 0) return fromTheJournal;
+    if (writtenBefore.size === 0 || resumed) return 0;
+    const prefix =
+      (await this.objectInfoOf(state.sourceOrgId, object))?.keyPrefix ??
+      state.sourceKeyPrefixes.get(object);
+    if (!prefix) return 0;
+    let written = 0;
+    for (const sourceId of writtenBefore.keys()) if (sourceId.startsWith(prefix)) written++;
+    return written;
   }
 
   /**
@@ -3739,7 +3907,18 @@ export class ForgeExecutor {
     };
     const bound = this.readBound(state, node);
     // Read whole by the run it resumes: nothing left to read of it.
-    if (bound !== undefined && cursor.read >= bound) return;
+    if (resumed?.done || (bound !== undefined && cursor.read >= bound)) return;
+    // A record type closed to the user the run writes as holds the object
+    // back whole, as a run that reads it whole holds it once every row is in.
+    // Judged page by page, the pages before the one that carried it were
+    // written and the rest held back: judged before the first page instead,
+    // from the record types the table holds.
+    const types = await this.recordTypesOfTable(state, node);
+    if (types && types.closed.length > 0) {
+      const rows = bound === undefined ? types.rows : Math.min(types.rows, bound - cursor.read);
+      this.holdBackTableForRecordTypes(node, state, types, rows);
+      return;
+    }
     const expected = state.counted.get(object) ?? tableRowsToRead(node, bound);
     cursor.carry.rowsLeft = () => Math.max(0, expected - (cursor.read - (resumed?.read ?? 0)));
     state.cursors.set(object, cursor);
@@ -3769,7 +3948,147 @@ export class ForgeExecutor {
       state.cursors.delete(object);
       await cursor.pages?.return(undefined);
     }
+    // Read to its end: a run that resumes this one reads nothing more of it.
+    if (state.store && cursor.ended && !cursor.failed && cursor.lastId !== undefined) {
+      state.store.checkpoint(object, { lastId: cursor.lastId, read: cursor.read, done: true });
+    }
     if (cursor.carry.pages > 0 && !cursor.failed) this.endStreamedNode(node, state, cursor.carry);
+  }
+
+  /**
+   * The record types the table of a node read page by page holds that the
+   * user the run writes as cannot use, with the rows of each, counted once a
+   * run under the run's filter and after the checkpoint of the run it
+   * resumes (`SELECT RecordTypeId, COUNT(Id) … GROUP BY RecordTypeId`), as
+   * the rows will be sent: a decision that sends a type to the object's
+   * default leaves it out, the record type mapping translates it.
+   *
+   * Counted only when the target has a record type closed to the user and
+   * `RecordTypeId` is written at all; none then. Undefined when the count
+   * could not be read: the pages are judged one by one, as before. The count
+   * covers the table under the filter, past the most rows the run reads too:
+   * a closed record type only past it holds the object back all the same.
+   */
+  private recordTypesOfTable(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+  ): Promise<TableRecordTypes | undefined> {
+    const object = node.objectApiName;
+    let counted = state.tableRecordTypes.get(object);
+    if (!counted) {
+      counted = this.countRecordTypesOfTable(state, node);
+      state.tableRecordTypes.set(object, counted);
+    }
+    return counted;
+  }
+
+  /** See `recordTypesOfTable`. */
+  private async countRecordTypesOfTable(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+  ): Promise<TableRecordTypes | undefined> {
+    const { config, sourceOrgId, targetOrgId } = state;
+    const object = node.objectApiName;
+    const target = await this.objectInfoOf(targetOrgId, object);
+    const none: TableRecordTypes = { closed: [], rows: 0, target };
+    if (!target || !target.recordTypes.some((type) => !type.available && !type.master)) {
+      return none;
+    }
+    if ((config.fieldExclusions[object] ?? []).includes('RecordTypeId')) return none;
+    if (config.fieldMappings[object]?.['RecordTypeId']) return none;
+    try {
+      const [sourceFields, targetSets] = await Promise.all([
+        this.deps.describeFields(sourceOrgId, object),
+        describeTargetFieldSets(this.deps.describeFields, targetOrgId, object).catch(
+          () => undefined,
+        ),
+      ]);
+      const sent = sourceFields.some((field) => field.name === 'RecordTypeId' && field.createable);
+      if (!sent || (targetSets && !targetSets.creatable.has('RecordTypeId'))) return none;
+      const resumed = config.stream?.resumeAfter.get(object);
+      const filter = config.objectSoqlFilters?.[object];
+      const terms = [
+        ...(filter ? [`(${filter})`] : []),
+        ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
+      ];
+      const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
+      const answered = await this.deps.queryRecords(
+        sourceOrgId,
+        `SELECT RecordTypeId, COUNT(Id) n FROM ${assertSoqlIdentifier(object)}${where} GROUP BY RecordTypeId`,
+      );
+      const rows = answered.reduce(
+        (sum, row) => sum + (typeof row['n'] === 'number' && row['n'] > 0 ? row['n'] : 0),
+        0,
+      );
+      // Each record type as the rows of it will be sent.
+      const asSent = new Map<string, number>();
+      for (const [sourceType, count] of parseRecordTypeCounts(answered)) {
+        if (config.recordTypeDecisions.get(sourceType)?.to === null) continue;
+        let sentType: unknown = sourceType;
+        if (state.recordTypeMapper && config.recordTypeMappings) {
+          sentType = state.recordTypeMapper.apply(
+            [{ RecordTypeId: sourceType }],
+            config.recordTypeMappings,
+          )[0]?.['RecordTypeId'];
+        }
+        if (typeof sentType !== 'string') continue;
+        asSent.set(sentType, (asSent.get(sentType) ?? 0) + count);
+      }
+      return {
+        closed: unavailableRecordTypeUses(object, asSent, target.recordTypes),
+        rows,
+        target,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Hold back whole, before its first page, an object read page by page whose
+   * table holds a record type closed to the user the run writes as: failed,
+   * every row of it counted, each record type with its rows and the change to
+   * make in the target, as a run that reads the object whole holds it back.
+   */
+  private holdBackTableForRecordTypes(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    types: TableRecordTypes,
+    rows: number,
+  ): void {
+    const object = node.objectApiName;
+    for (const use of types.closed) {
+      state.gaps?.add(
+        recordTypeGapOf(
+          'record_type_unavailable',
+          object,
+          use.developerName,
+          use.recordCount,
+          recordTypesToMapTo(types.target),
+        ),
+      );
+    }
+    state.failedObjects.add(object);
+    state.failedCount += rows;
+    state.errors.push({
+      objectApiName: object,
+      stage: 'scope',
+      failedCount: rows,
+      attemptedCount: 0,
+      samples: types.closed.map((use) => ({
+        recordSummary: `RecordType=${use.developerName} (${use.recordCount} record${use.recordCount === 1 ? '' : 's'})`,
+        messages: [recordTypeBlockedMessage(use)],
+      })),
+    });
+    state.onProgress({
+      objectName: object,
+      status: 'error',
+      progress: 100,
+      message:
+        `${heldBackWhole(object, rows, heldForExclusionsOf(state, object))}: ` +
+        types.closed.map(recordTypeBlockedReason).join(' ') +
+        ' Objects that cannot be written without it will be skipped.',
+    });
   }
 
   /**
@@ -3870,6 +4189,9 @@ export class ForgeExecutor {
     node: ForgeGraphNode,
     cursor: NodeCursor,
   ): Promise<void> {
+    if (state.store && cursor.lastId !== undefined) {
+      state.store.checkpoint(node.objectApiName, { lastId: cursor.lastId, read: cursor.read });
+    }
     const onPage = state.config.stream?.onPage;
     if (!onPage) return;
     const rows = state.preread.get(node.objectApiName)?.records ?? [];
@@ -4165,6 +4487,10 @@ export class ForgeExecutor {
    */
   private async restoreStatuses(state: ExecutionState): Promise<void> {
     const update = this.deps.updateRecords;
+    if (update && state.store) {
+      await this.restoreStatusesFromTheJournal(state, update);
+      return;
+    }
     if (!update || state.deferredStatuses.length === 0) return;
     // Taken off the list: a run that stops from here on owes none of them.
     const owed = state.deferredStatuses.splice(0, state.deferredStatuses.length);
@@ -4213,6 +4539,89 @@ export class ForgeExecutor {
           stage: 'insert',
           failedCount: failed,
           attemptedCount: entries.length,
+          samples,
+        });
+      }
+    }
+  }
+
+  /**
+   * Give back the statuses the journal owes — this part's, and those of the
+   * parts before it — read in the order owed, a call per object every
+   * {@link WRITE_API_MAX_BATCH} records, each object's said once at the end
+   * as a run that holds them says it.
+   */
+  private async restoreStatusesFromTheJournal(
+    state: ExecutionState,
+    update: NonNullable<ForgeExecutorDeps['updateRecords']>,
+  ): Promise<void> {
+    const { store } = state;
+    if (!store || state.statusesGiven || store.statusesOwed().size === 0) return;
+    // Taken off: a run that stops from here on owes none of them.
+    state.statusesGiven = true;
+    const tallies = new Map<
+      string,
+      { entries: number; failed: number; samples: ExecutionErrorSample[] }
+    >();
+    const batches = new Map<string, Array<{ id: string; status: string }>>();
+    const send = async (objectApiName: string): Promise<void> => {
+      const batch = batches.get(objectApiName) ?? [];
+      batches.set(objectApiName, []);
+      if (batch.length === 0) return;
+      const tally = tallies.get(objectApiName);
+      if (!tally) return;
+      let results: UpdateResult[];
+      try {
+        results = await update(
+          state.targetOrgId,
+          objectApiName,
+          batch.map(({ id, status }) => ({ Id: id, Status: status })),
+        );
+      } catch (err) {
+        results = batch.map(({ id }) => ({
+          id,
+          success: false,
+          errors: [extractErrorMessage(err)],
+        }));
+      }
+      batch.forEach(({ id, status }, index) => {
+        const result = results[index];
+        if (result?.success) return;
+        tally.failed++;
+        if (tally.samples.length < 3) {
+          tally.samples.push({
+            recordSummary: `${objectApiName} ${id} Status=${status}`,
+            messages: result?.errors ?? ['No result returned for the status update'],
+          });
+        }
+      });
+    };
+    for (const { objectApiName, id, status } of store.statusLines()) {
+      if (state.leftDrafts.has(id)) continue;
+      const tally = tallies.get(objectApiName) ?? { entries: 0, failed: 0, samples: [] };
+      tally.entries++;
+      tallies.set(objectApiName, tally);
+      const batch = batches.get(objectApiName) ?? [];
+      batch.push({ id, status });
+      batches.set(objectApiName, batch);
+      if (batch.length >= WRITE_API_MAX_BATCH.rest) await send(objectApiName);
+    }
+    for (const [objectApiName, { entries, failed, samples }] of tallies) {
+      await send(objectApiName);
+      state.onProgress({
+        objectName: objectApiName,
+        status: failed > 0 ? 'error' : 'done',
+        progress: 100,
+        message:
+          `Restored the status of ${entries - failed}/${entries} ` +
+          `${objectApiName} records written as drafts`,
+      });
+      if (failed > 0) {
+        state.errors.push({
+          objectApiName,
+          stage: 'insert',
+          failedCount: failed,
+          attemptedCount: entries,
           samples,
         });
       }
@@ -4280,6 +4689,7 @@ export class ForgeExecutor {
       });
     }
     if (leftDrafts.size === 0) return;
+    for (const id of leftDrafts) state.leftDrafts.add(id);
     const owed = state.deferredStatuses.splice(0, state.deferredStatuses.length);
     state.deferredStatuses.push(...owed.filter(({ id }) => !leftDrafts.has(id)));
   }
@@ -4296,6 +4706,25 @@ export class ForgeExecutor {
    * kept nowhere else.
    */
   private reportDraftsLeft(state: ExecutionState): void {
+    if (state.store) {
+      if (state.statusesGiven) return;
+      state.statusesGiven = true;
+      for (const [objectApiName, { count, samples }] of state.store.statusesOwed()) {
+        state.errors.push({
+          objectApiName,
+          stage: 'insert',
+          failedCount: count,
+          attemptedCount: count,
+          samples: samples.map(({ id, status }) => ({
+            recordSummary: `${objectApiName} ${id} Status=${status}`,
+            messages: [
+              'Written as a draft, and the run stopped before giving it this status back: it stays a draft.',
+            ],
+          })),
+        });
+      }
+      return;
+    }
     const owed = state.deferredStatuses.splice(0, state.deferredStatuses.length);
     for (const [objectApiName, entries] of statusesByObject(owed)) {
       state.errors.push({
@@ -4975,6 +5404,11 @@ export class ForgeExecutor {
     // what it found in the target — reference data matched by name, the
     // standard price book — and none of what it would have written.
     const { simulated } = state;
+    // Past the bound, the ids stay in the journal and the summary counts them.
+    const bound = state.config.stream?.summaryBound;
+    if (state.store && bound !== undefined && state.remapper.count > bound) {
+      return this.summaryOfTheJournal(state, requestsNow);
+    }
     const remapTable = state.remapper.toJSON();
     if (simulated) {
       for (const [sourceId, targetId] of Object.entries(remapTable)) {
@@ -5064,6 +5498,35 @@ export class ForgeExecutor {
         ? { decisionsApplied: state.decisionsApplied.list() }
         : {}),
       ...(mayHaveBeenWritten.length > 0 ? { mayHaveBeenWritten } : {}),
+    };
+  }
+
+  /**
+   * The summary of a run whose ids are in its journal: every count of
+   * `summaryOf`, and none of the ids — the table, the records created, linked
+   * and written over — which the journal holds. See `stream.summaryBound`.
+   */
+  private summaryOfTheJournal(
+    state: ExecutionState,
+    requestsNow: number | undefined,
+  ): ExecutionSummary {
+    const summary = this.summaryOf({
+      ...state,
+      config: {
+        ...state.config,
+        stream: state.config.stream && { ...state.config.stream, summaryBound: undefined },
+      },
+      remapper: new IdRemapper(),
+      withTheirRecord: new Set<string>(),
+    });
+    return {
+      ...summary,
+      remapCount: state.remapper.count,
+      remapByObject: state.remapper.countsByObject(),
+      ...(state.requestsBefore !== undefined && requestsNow !== undefined
+        ? { apiCalls: requestsNow - state.requestsBefore }
+        : {}),
+      remapInJournal: true,
     };
   }
 
@@ -8042,6 +8505,63 @@ export class ForgeExecutor {
   }
 
   /**
+   * What a run that read every row before writing one shows its gate of an
+   * object: the rows it writes, less those the run it retries wrote — linked
+   * to, never written again — and none of an object held back whole for a
+   * record type closed to the user it writes as, which the write would hold
+   * back; what was left out, said beside them.
+   */
+  private async toWriteAtTheGate(
+    state: ExecutionState,
+    objectApiName: string,
+    read: PrereadNode,
+  ): Promise<{
+    objectApiName: string;
+    rows: readonly Record<string, unknown>[];
+    leftOut?: ForgeRowsLeftOut;
+  }> {
+    const rows = read.records.filter((row) => !wasWrittenBefore(state.config, row));
+    const writtenBefore = read.records.length - rows.length;
+    const heldBack =
+      rows.length > 0 && (await this.heldBackAtTheGate(state, objectApiName, read, rows));
+    const leftOut: ForgeRowsLeftOut = {
+      ...(writtenBefore > 0 ? { writtenBefore } : {}),
+      ...(heldBack ? { heldBack: rows.length } : {}),
+    };
+    return {
+      objectApiName,
+      rows: heldBack ? [] : rows,
+      ...(leftOut.writtenBefore !== undefined || leftOut.heldBack !== undefined ? { leftOut } : {}),
+    };
+  }
+
+  /**
+   * Whether the write will hold `rows` of an object back whole for a record
+   * type closed to the user the run writes as: asked of the target only when
+   * it has such a record type, as the write asks it.
+   */
+  private async heldBackAtTheGate(
+    state: ExecutionState,
+    objectApiName: string,
+    read: PrereadNode,
+    rows: Record<string, unknown>[],
+  ): Promise<boolean> {
+    const node = state.graph.nodes.find((n) => n.objectApiName === objectApiName);
+    if (!node) return false;
+    const target = await this.objectInfoOf(state.targetOrgId, objectApiName);
+    if (!target?.recordTypes.some((type) => !type.available && !type.master)) return false;
+    const sets = await (read.targetSetsPending ??
+      describeTargetFieldSets(this.deps.describeFields, state.targetOrgId, objectApiName).then(
+        (described) => ({ ok: true as const, sets: described }),
+        (error: unknown) => ({ ok: false as const, error }),
+      ));
+    const creatable = sets.ok
+      ? intersect(read.createableSet, sets.sets.creatable)
+      : read.createableSet;
+    return this.recordTypesHeldBack(node, rows, target, creatable, state).length > 0;
+  }
+
+  /**
    * The record types among those the node's records will be sent with that
    * the running user may not use in the target org.
    *
@@ -8076,6 +8596,26 @@ export class ForgeExecutor {
     return findUnavailableRecordTypes(node.objectApiName, sent, target.recordTypes);
   }
 
+  /** Owe `updates` to the second pass: to the journal when the run keeps it there. */
+  private oweToTheSecondPass(state: ExecutionState, updates: readonly PendingFkUpdate[]): void {
+    if (state.secondPassInStore && state.store) {
+      for (const update of updates) state.store.owe(update);
+      return;
+    }
+    state.pendingFkUpdates.push(...updates);
+  }
+
+  /** Owe a record written as a draft its status: to the journal when the run keeps one. */
+  private oweStatus(
+    state: ExecutionState,
+    objectApiName: string,
+    id: string,
+    status: string,
+  ): void {
+    if (state.store) state.store.oweStatus(objectApiName, id, status);
+    else state.deferredStatuses.push({ objectApiName, id, status });
+  }
+
   /**
    * Add to the run what the calls of one node did: the rows created, updated,
    * linked and refused, the lookups owed to the second pass, the rows the
@@ -8099,7 +8639,7 @@ export class ForgeExecutor {
     }
     state.linkedCount += written.linkedExistingCount;
     state.failedCount += written.failureCount;
-    state.pendingFkUpdates.push(...written.pendingFkUpdates);
+    this.oweToTheSecondPass(state, written.pendingFkUpdates);
     if (written.writtenWithoutFields) {
       this.countWrittenWithoutFields(state, objectApiName, written.writtenWithoutFields);
     }
@@ -8209,13 +8749,15 @@ export class ForgeExecutor {
       for (const field of lookups) {
         const value = row[field.name];
         if (typeof value !== 'string' || !value || config.writtenBefore.has(value)) continue;
-        state.owedToRowsWrittenBefore.push({
+        const owed: PendingFkUpdate = {
           objectApiName: node.objectApiName,
           newId,
           sourceId,
           fieldName: rename[field.name] ?? field.name,
           sourceRefId: value,
-        });
+        };
+        if (state.secondPassInStore && state.store) state.store.owe(owed, true);
+        else state.owedToRowsWrittenBefore.push(owed);
       }
     }
   }
@@ -8258,12 +8800,23 @@ export class ForgeExecutor {
     state: ExecutionState,
     updates: readonly PendingFkUpdate[],
   ): PendingFkUpdate[] {
+    const leftEmpty: LeftEmptyLookups = new Map();
+    const owed = this.keepLookupsInTheClone(state, updates, leftEmpty);
+    this.sayLeftEmpty(state, leftEmpty);
+    return owed;
+  }
+
+  /**
+   * Of `updates`, the lookups the second pass fills in or reports: see
+   * `sayLookupsOutsideTheClone`. Those at a record outside the clone are
+   * counted into `leftEmpty` instead, to be said once every page is through.
+   */
+  private keepLookupsInTheClone(
+    state: ExecutionState,
+    updates: readonly PendingFkUpdate[],
+    leftEmpty: LeftEmptyLookups,
+  ): PendingFkUpdate[] {
     const owed: PendingFkUpdate[] = [];
-    /** Per object, the lookups left empty by field and object pointed at. */
-    const leftEmpty = new Map<
-      string,
-      Map<string, { field: string; parent: string | undefined; count: number }>
-    >();
     for (const update of updates) {
       if (state.remapper.get(update.sourceRefId) || state.idsRead.has(update.sourceRefId)) {
         owed.push(update);
@@ -8286,6 +8839,11 @@ export class ForgeExecutor {
       groups.set(key, group);
       leftEmpty.set(update.objectApiName, groups);
     }
+    return owed;
+  }
+
+  /** Say, once per object, the lookups written empty for a record outside the clone. */
+  private sayLeftEmpty(state: ExecutionState, leftEmpty: LeftEmptyLookups): void {
     for (const [objectApiName, groups] of leftEmpty) {
       state.errors.push({
         objectApiName,
@@ -8306,7 +8864,43 @@ export class ForgeExecutor {
           })),
       });
     }
-    return owed;
+  }
+
+  /**
+   * The second pass of a run that owes it to its journal: every lookup the
+   * journal owes — this part's, and those of the parts before it, which
+   * stopped before their own pass — read a page at a time, those at a record
+   * outside the clone said once at the end, the rest filled in as the pass
+   * fills them in from memory. A lookup owed to a row the run retried wrote
+   * goes only once its record is written: the run retried said it otherwise.
+   */
+  private async secondPassFromTheJournal(
+    state: ExecutionState,
+  ): Promise<ExecutionObjectError | null> {
+    const { store } = state;
+    if (!store) return null;
+    const pass = new CycleFkPass({
+      remapper: state.remapper,
+      updateRecords: this.deps.updateRecords,
+      targetOrgId: state.targetOrgId,
+      enabled: !state.config.dryRun,
+      onProgress: state.onProgress,
+      stopped: () => this.isAborted,
+    });
+    const leftEmpty: LeftEmptyLookups = new Map();
+    const inMemory = state.pendingFkUpdates.splice(0, state.pendingFkUpdates.length);
+    await pass.patch(this.keepLookupsInTheClone(state, inMemory, leftEmpty));
+    for (const page of store.owedPages(SECOND_PASS_PAGE)) {
+      const owed = page
+        .filter(
+          ({ update, toRowWrittenBefore }: StoredOwedLookup) =>
+            !toRowWrittenBefore || state.remapper.get(update.sourceRefId) !== undefined,
+        )
+        .map(({ update }) => update);
+      await pass.patch(this.keepLookupsInTheClone(state, owed, leftEmpty));
+    }
+    this.sayLeftEmpty(state, leftEmpty);
+    return pass.finish();
   }
 
   /**
@@ -9013,8 +9607,7 @@ export class ForgeExecutor {
         // with theirs.
         startAsDraft: async (objectApiName, payload) =>
           (await this.startAsDrafts(state, objectApiName, [payload])).get(0),
-        oweStatus: (objectApiName, id, status) =>
-          state.deferredStatuses.push({ objectApiName, id, status }),
+        oweStatus: (objectApiName, id, status) => this.oweStatus(state, objectApiName, id, status),
         objectOf: (id, candidates) => this.objectOfSourceId(state, id, candidates),
         leftToThePlatform: state.leftToThePlatform,
         // A parent goes in on the rules the node's rows go in on: its
@@ -9268,7 +9861,7 @@ export class ForgeExecutor {
           if (typeof sourceId !== 'string') continue;
           const targetId = remapper.get(sourceId);
           if (!targetId || remapper.isExisting(sourceId)) continue;
-          state.deferredStatuses.push({ objectApiName: node.objectApiName, id: targetId, status });
+          this.oweStatus(state, node.objectApiName, targetId, status);
         }
         // Counted however the node ends, for the same reason. Counted only
         // once it was through, a node a cancel stopped between two calls left

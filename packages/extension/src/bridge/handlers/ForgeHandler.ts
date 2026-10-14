@@ -154,10 +154,15 @@ import {
 import type {
   ExecutionSummary,
   ForgeProgressEvent,
-  ForgeStreamPage,
   ForgeWriteBoundary,
 } from '../../modules/forge/ForgeExecutor.js';
-import type { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
+import {
+  ForgeRunJournal,
+  type ForgeRunJournalRead,
+  type ForgeRunResumeHead,
+} from '../../modules/forge/ForgeRunJournal.js';
+import type { ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
+import { forgeRunFingerprint } from '../../modules/forge/runFingerprint.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Strict Salesforce record/org ID format. */
@@ -205,6 +210,54 @@ const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
 
 /** Why a retry was stopped before it started: what the run it retries wrote is not known. */
 const RETRY_UNAVAILABLE = 'RETRY_UNAVAILABLE';
+
+/** Why a resume was refused: the run cannot be taken up where it stopped. */
+const RESUME_UNAVAILABLE = 'RESUME_UNAVAILABLE';
+/** Why a resume was refused: the org the run wrote to is not the one it was. */
+const RESUME_TARGET_CHANGED = 'RESUME_TARGET_CHANGED';
+/** Why a resume was refused: the run would be set up otherwise than the part it resumes. */
+const RESUME_CHANGED = 'RESUME_CHANGED';
+
+// The run, by its entry in the history; what it was started with is in its
+// journal. A page that shows the run sends what it holds of it, which must be
+// the same.
+const resumeRunPayloadSchema = z
+  .object({
+    forgeId: z.string().min(1).max(200),
+    graph: forgeGraphSchema.optional(),
+    config: forgeConfigSchema.optional(),
+  })
+  .strict();
+
+/** The method a run holds per PII category, as Review sends it. */
+type ForgeAnonymizationRules = z.infer<typeof forgeAnonymizationRulesSchema>;
+
+/** The head of a journal that says what its run was started with, which the extension runs again. */
+type ResumableHead = ForgeRunResumeHead & {
+  startedWith: NonNullable<ForgeRunResumeHead['startedWith']>;
+};
+
+/** A run taken up where it stopped: the part it resumes, its journal, what it was started with. */
+interface ForgeResumeOf {
+  /** The entry of the part it resumes, in the history. */
+  forgeId: string;
+  journalId: string;
+  head: ResumableHead;
+  /** How the part it resumes ended: what the journal says again of a part that wrote nothing. */
+  end: { status: ForgeRunPartEndStatus; forgeId: string };
+  /** What the run was started with, as the journal keeps it: what `forge:execute` would carry. */
+  startedWith: z.infer<typeof executePayloadSchema>;
+}
+
+/** How a part of a run ended, as its journal says it. */
+type ForgeRunPartEndStatus = NonNullable<ForgeRunJournalRead['lastEnd']>['status'];
+
+/** The ends of a part after which the run can be taken up where it stopped. */
+const RESUMABLE_ENDS: ReadonlySet<ForgeRunPartEndStatus> = new Set([
+  'cancelled',
+  'failure',
+  'interrupted',
+]);
 
 /** What the page is told of a run aborted before the executor had it. */
 const ABORTED_BEFORE_START_MESSAGE =
@@ -409,6 +462,54 @@ export interface ForgeServices {
   requestsSent?: () => number;
 }
 
+/**
+ * The entry of `history` in the line of runs `entry` was built on — itself,
+ * the run it retries or resumes, and so on — whose records a removal took,
+ * or undefined when none was removed.
+ */
+function removedInItsLine(
+  entry: ForgeExecutionResult,
+  history: readonly ForgeExecutionResult[],
+): ForgeExecutionResult | undefined {
+  const seen = new Set<string>();
+  let run: ForgeExecutionResult | undefined = entry;
+  while (run && !seen.has(run.forgeId)) {
+    seen.add(run.forgeId);
+    if (run.undo) return run;
+    const previous: string | undefined = run.retryOf;
+    run = previous === undefined ? undefined : history.find((e) => e.forgeId === previous);
+  }
+  return undefined;
+}
+
+/**
+ * The history entry of the last part of a run a closed window stopped, from
+ * its journal: what that part created and linked to, interrupted, set up as
+ * the journal says — the part it resumed, when it resumed one, named.
+ */
+function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeExecutionResult {
+  const created = read.remap.createdByObject.reduce(
+    (sum, object) => sum + object.sourceIds.length,
+    0,
+  );
+  return {
+    forgeId: read.parts > 1 ? `${read.journalId}-${read.parts - 1}` : read.journalId,
+    status: 'partial',
+    interrupted: true,
+    graph,
+    duration: 0,
+    timestamp: read.partStartedAt,
+    idRemapCount: Object.keys(read.remap.table).length,
+    idRemapTable: read.remap.table,
+    idRemapExisting: read.remap.linked,
+    createdCount: created,
+    linkedExistingCount: read.remap.linked.length,
+    idRemapCreated: read.remap.createdByObject,
+    journalId: read.journalId,
+    ...(read.endBefore ? { retryOf: read.endBefore.forgeId, resumed: true as const } : {}),
+  };
+}
+
 /** Message types handled by ForgeHandler. */
 const FORGE_TYPES = new Set([
   'forge:preview',
@@ -422,6 +523,7 @@ const FORGE_TYPES = new Set([
   'forge:templates:delete',
   'forge:history:list',
   'forge:undo',
+  'forge:resume-run',
   'forge:open-record',
   'forge:verify:request',
   'forge:plan:request',
@@ -992,6 +1094,9 @@ export class ForgeHandler implements DomainHandler {
       case 'forge:undo':
         await this.handleUndo(msg);
         return true;
+      case 'forge:resume-run':
+        await this.handleResumeRun(msg);
+        return true;
       case 'forge:open-record':
         await this.handleOpenRecord(msg);
         return true;
@@ -1334,7 +1439,11 @@ export class ForgeHandler implements DomainHandler {
     }
   }
 
-  private async handleExecute(msg: InboundRequest): Promise<void> {
+  /**
+   * Run a clone: the one the page sends, or, `resume` given, the run a part
+   * of it stopped part way, taken up where it stopped (see `handleResumeRun`).
+   */
+  private async handleExecute(msg: InboundRequest, resume?: ForgeResumeOf): Promise<void> {
     if (!this.orchestrator) {
       sendHandlerError(
         this.deps,
@@ -1347,9 +1456,14 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
 
-    const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
+    const parsed = resume
+      ? resume.startedWith
+      : parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
-    const { graph, config, anonymizationRules, files, retryOf, reviewSkipped } = parsed;
+    const { graph, config, anonymizationRules, files, reviewSkipped } = parsed;
+    // A run taken up where it stopped names the part it resumes, as a retry
+    // names the run it retries: the history walks back through both.
+    const retryOf = resume ? resume.forgeId : parsed.retryOf;
     // A simulation reads what the run reads and writes nothing: no question of
     // the run's gate is put for it, nor of Production Guard, and it is neither
     // a write in the audit trail nor a run of the history. A production target
@@ -1393,7 +1507,8 @@ export class ForgeHandler implements DomainHandler {
     // that run wrote would be written a second time. Refused before the guard
     // is asked, as a file copy not accepted is.
     let writtenBefore: Record<string, string> | undefined;
-    if (retryOf !== undefined) {
+    // What a resumed part goes on from is in the journal it goes on in.
+    if (retryOf !== undefined && !resume) {
       const base = this.runToRetry(retryOf, config.targetOrgId);
       if ('refused' in base) {
         recordWriteRun(this.deps, {
@@ -1574,7 +1689,7 @@ export class ForgeHandler implements DomainHandler {
     const objectKeys = graph.nodes?.map((n) => n.objectApiName).join(',') ?? '';
     const forgeOpId =
       `forge:${configKey}:${objectKeys}:${graph.totalRecords ?? 0}` +
-      (retryOf !== undefined ? `:retry:${retryOf}` : '');
+      (retryOf !== undefined ? `:${resume ? 'resume' : 'retry'}:${retryOf}` : '');
 
     // Refuse the payload only while an identical run is still in flight, or
     // during a short cooldown after one that actually wrote records. Anything
@@ -1650,8 +1765,19 @@ export class ForgeHandler implements DomainHandler {
     this.executeOperationId = operationId;
     /** When the executor was handed the run: a run it stopped is recorded from then. */
     let startedAt = Date.now();
-    /** The journal of what the run creates, page by page, while it runs; see `ForgeRunJournal`. */
+    /** The journal of what the run writes, reads and owes, while it runs; see `ForgeRunJournal`. */
     let journalId: string | undefined;
+    /** The store the run writes its journal through; see `ForgeRunStore`. */
+    let store: ForgeRunStore | undefined;
+    /**
+     * What becomes of the journal once the run is over: dropped, the history
+     * holding what the run created — or kept, with how the part ended, for the
+     * run to be taken up where it stopped.
+     */
+    let journalAfter:
+      { keep: false } | { keep: true; status: ForgeRunPartEndStatus; forgeId: string } = {
+      keep: false,
+    };
     /** The requests sent for the run before the executor had it: both orgs' record types. */
     const lookup = { requests: 0 };
     /** What the executor's deps had sent when it was handed the run; unknown before, or uncounted. */
@@ -1817,58 +1943,66 @@ export class ForgeHandler implements DomainHandler {
       // records removable. A run that ends records them in the history.
       const journal = !dryRun && config.inputMode !== 'record' ? this.runJournal : undefined;
       if (journal) {
-        journalId = `forge-run-${startedAt}`;
-        const id = journalId;
+        const id = resume?.journalId ?? `forge-run-${startedAt}`;
+        journalId = id;
         this.journalsRunning.add(id);
-        await journal.begin(id, config.targetOrgId, new Date(startedAt)).catch((err: unknown) => {
-          logger.warn(`Forge run journal not started: ${extractErrorMessage(err)}`);
-        });
-        // A Cancel taken while the journal was opened reaches an executor
-        // that has not started, which clears it on entry: the run wrote.
-        if (runController.signal.aborted) {
-          stoppedBeforeStart = true;
-          throw new Error(ABORTED_BEFORE_START_MESSAGE);
-        }
-      }
-      const keptId = journalId;
-      let journalUnwritable = false;
-      const executed = await this.orchestrator.execute(graph, config, {
-        recordTypeMappings,
-        anonymizationRules,
-        files,
-        writtenBefore,
-        stream: {
-          ceiling: readCeiling,
-          // A journal that cannot be written costs the run nothing: the
-          // history records what it created once it ends. Said once.
-          ...(journal && keptId
-            ? {
-                onPage: (page: ForgeStreamPage) =>
-                  journal.page(keptId, page).catch((err: unknown) => {
-                    if (journalUnwritable) return;
-                    journalUnwritable = true;
-                    logger.warn(`Forge run journal not written: ${extractErrorMessage(err)}`);
-                  }),
-              }
-            : {}),
-        },
-        beforeWrite: this.writeGate({
-          guard,
-          targetOrgId: config.targetOrgId,
-          org: targetName,
-          orgTier,
-          lookup,
-          emailsPerInsert,
-          onConfirmed: () => {
-            guardDecision = strongerDecision(guardDecision, 'confirmed');
-            audit.confirm('volume');
+        // A part resuming the run goes on in its journal; a run begins its own,
+        // with what it was started with, to be taken up where it stops.
+        const begun = resume
+          ? journal.resuming(id)
+          : journal.begin(
+              id,
+              config.targetOrgId,
+              new Date(startedAt),
+              this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
+            );
+        store = await begun.then(
+          () => journal.open(id),
+          (err: unknown) => {
+            // A journal that cannot be written costs the run nothing: the
+            // history records what it created once it ends.
+            logger.warn(`Forge run journal not started: ${extractErrorMessage(err)}`);
+            return undefined;
           },
-        }),
-      });
+        );
+        if (resume && !store)
+          throw new Error('The journal of the run to resume could not be opened.');
+      }
+      // A Cancel taken while the journal was opened reaches an executor that
+      // has not started, which clears it on entry: the run wrote.
+      if (runController.signal.aborted) {
+        stoppedBeforeStart = true;
+        throw new Error(ABORTED_BEFORE_START_MESSAGE);
+      }
+      const executed = await this.orchestrator
+        .execute(graph, config, {
+          recordTypeMappings,
+          anonymizationRules,
+          files,
+          writtenBefore,
+          stream: { ceiling: readCeiling, ...(store ? { store } : {}) },
+          beforeWrite: this.writeGate({
+            guard,
+            targetOrgId: config.targetOrgId,
+            org: targetName,
+            orgTier,
+            lookup,
+            emailsPerInsert,
+            onConfirmed: () => {
+              guardDecision = strongerDecision(guardDecision, 'confirmed');
+              audit.confirm('volume');
+            },
+          }),
+        })
+        // Every line of the journal written before the run's end is said.
+        .finally(() => store?.close());
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
       const counted = withCallsBefore(executed, lookup.requests);
-      const result = retryOf !== undefined ? { ...counted, retryOf } : counted;
+      const result =
+        retryOf !== undefined
+          ? { ...counted, retryOf, ...(resume ? { resumed: true as const } : {}) }
+          : counted;
 
       // Arm the duplicate cooldown only when the run created something: a
       // failure, or a run that created no record, leaves the recipe
@@ -1990,9 +2124,22 @@ export class ForgeHandler implements DomainHandler {
               startedAt,
               cancelled,
               retryOf,
+              resumed: resume !== undefined,
               callsBefore: lookup.requests,
+              ...(store && journalId ? { journalId } : {}),
             })
           : undefined;
+      // Kept with its journal, the run can be taken up where it stopped. A
+      // part that wrote nothing leaves the part it resumed the one to take up.
+      if (store && journalId && stoppedRun) {
+        journalAfter = {
+          keep: true,
+          status: cancelled ? 'cancelled' : 'failure',
+          forgeId: stoppedRun.forgeId,
+        };
+      } else if (resume) {
+        journalAfter = { keep: true, ...resume.end };
+      }
       if (!dryRun)
         recordWriteRun(this.deps, {
           action: 'forge_execute',
@@ -2030,7 +2177,13 @@ export class ForgeHandler implements DomainHandler {
         code: code ?? 'EXECUTE_ERROR',
         retryable: true,
         ...(stoppedRun
-          ? { extraPayload: { result: stoppedRun } }
+          ? {
+              extraPayload: {
+                result: journalAfter.keep
+                  ? { ...stoppedRun, resumable: true as const }
+                  : stoppedRun,
+              },
+            }
           : gate?.stop
             ? { extraPayload: { gate: gate.stop } }
             : {}),
@@ -2045,13 +2198,25 @@ export class ForgeHandler implements DomainHandler {
         sendOperationFailed(this.deps, operationId, extractErrorMessage(error), true);
         this.liveTracker?.fail(operationId, extractErrorMessage(error));
       }
+      // Listed stopped, the run is offered to be taken up where it stopped.
+      if (journalAfter.keep) this.liveTracker?.offerResume(operationId, journalAfter.forgeId);
     } finally {
-      // Ended, the run is in the history, or created nothing worth keeping.
+      // Ended, the run is in the history, or created nothing worth keeping;
+      // stopped part way, its journal says how, for it to be taken up.
       if (journalId) {
-        await this.runJournal?.end(journalId).catch((err: unknown) => {
-          logger.warn(`Forge run journal not dropped: ${extractErrorMessage(err)}`);
+        const id = journalId;
+        const after = journalAfter;
+        store?.close();
+        await (
+          after.keep
+            ? this.runJournal?.stop(id, after.status, after.forgeId)
+            : this.runJournal?.end(id)
+        )?.catch((err: unknown) => {
+          logger.warn(
+            `Forge run journal not ${after.keep ? 'kept' : 'dropped'}: ${extractErrorMessage(err)}`,
+          );
         });
-        this.journalsRunning.delete(journalId);
+        this.journalsRunning.delete(id);
       }
       releaseRun(runError);
       if (this.executeOperationId === operationId) this.executeOperationId = null;
@@ -2105,7 +2270,16 @@ export class ForgeHandler implements DomainHandler {
     summary: ExecutionSummary,
     graph: ForgeGraph,
     config: ForgeConfig,
-    run: { startedAt: number; cancelled: boolean; retryOf?: string; callsBefore: number },
+    run: {
+      startedAt: number;
+      cancelled: boolean;
+      retryOf?: string;
+      /** Whether it took up, where it stopped, the run it names in `retryOf`. */
+      resumed?: boolean;
+      callsBefore: number;
+      /** The journal it was written through, kept for it to be taken up where it stopped. */
+      journalId?: string;
+    },
   ): ForgeExecutionResult | undefined {
     if (!summary.createdByObject.some((object) => object.sourceIds.length > 0)) return undefined;
     const result = withCallsBefore(
@@ -2119,6 +2293,8 @@ export class ForgeHandler implements DomainHandler {
       ...result,
       ...(run.cancelled ? { cancelled: true } : {}),
       ...(run.retryOf !== undefined ? { retryOf: run.retryOf } : {}),
+      ...(run.retryOf !== undefined && run.resumed ? { resumed: true as const } : {}),
+      ...(run.journalId ? { journalId: run.journalId } : {}),
     };
     this.addToHistory(stopped, config);
     return stopped;
@@ -2656,6 +2832,8 @@ export class ForgeHandler implements DomainHandler {
         ...(aboveRecords !== undefined ? { aboveRecords } : {}),
         ...(largeVolume !== undefined ? { largeVolume } : {}),
         storage: confirmationStorageOf(storage),
+        ...(plan.leftOut ? { leftOut: plan.leftOut } : {}),
+        ...(boundary.objects.some((object) => object.counted) ? { counted: true as const } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
       });
       if (answer === 'confirmed') {
@@ -2820,7 +2998,12 @@ export class ForgeHandler implements DomainHandler {
 
   private async handleHistoryList(msg: InboundRequest): Promise<void> {
     await this.keepRunsLeftOver();
-    const history = this.loadHistory();
+    const kept = this.loadHistory();
+    // The runs that can be taken up where they stopped say so.
+    const resumable = await this.resumableRuns(kept);
+    const history = kept.map((entry) =>
+      resumable.has(entry.forgeId) ? { ...entry, resumable: true as const } : entry,
+    );
     // The runs the history dropped whose records are still to remove: listed
     // apart, as older runs, from the plans kept of them.
     const listed = new Set(history.map((entry) => entry.forgeId));
@@ -2929,23 +3112,269 @@ export class ForgeHandler implements DomainHandler {
 
   /**
    * Keep, as runs stopped part way, what the runs a closed window never ended
-   * had created, from their journals: listed with the runs the history
-   * dropped, and removable from there. A journal is dropped once its run is
-   * kept; one that cannot be read is left for the next listing.
+   * had created, from their journals.
+   *
+   * A journal that says what its run was started with keeps its run in the
+   * history, as interrupted, with what its last part created — removable from
+   * there, and to be taken up where it stopped; the journal stays, saying how
+   * that part ended. A last part that created nothing leaves the part before
+   * it the one to take up, or, the run's only part, nothing to keep. A
+   * journal of 1.50, which says nothing of the run's setup, is listed with
+   * the runs the history dropped, removable from there, and dropped. One that
+   * cannot be read is left for the next listing.
    */
   private async keepRunsLeftOver(): Promise<void> {
     const journal = this.runJournal;
-    const store = this.removalPlans;
-    if (!journal || !store) return;
+    if (!journal) return;
     try {
       const running = new Set(this.journalsRunning);
-      for (const plan of await journal.leftOver(running)) {
-        await store.putIfAbsent(plan);
-        await journal.forget(plan.forgeId);
+      for (const read of await journal.leftOver(running)) {
+        const startedWith = read.resume?.startedWith;
+        if (!startedWith) {
+          const plan = ForgeRunJournal.planOf(read);
+          const store = this.removalPlans;
+          if (plan && store) await store.putIfAbsent(plan);
+          if (!plan || store) await journal.forget(read.journalId);
+          continue;
+        }
+        if (read.created.length > 0) {
+          const entry = interruptedRunOf(read, startedWith.graph);
+          this.addToHistory(entry, startedWith.config);
+          await journal.stop(read.journalId, 'interrupted', entry.forgeId);
+        } else if (read.endBefore) {
+          await journal.stop(read.journalId, read.endBefore.status, read.endBefore.forgeId);
+        } else {
+          await journal.forget(read.journalId);
+        }
       }
     } catch (err: unknown) {
       logger.warn(`Forge run journals could not be read: ${extractErrorMessage(err)}`);
     }
+  }
+
+  /**
+   * The runs of `history` that can be taken up where they stopped, by
+   * `forgeId`: each the last part of a journal that ended on a cancel, a
+   * failure or a closed window, none of whose parts had its records removed.
+   */
+  private async resumableRuns(history: readonly ForgeExecutionResult[]): Promise<Set<string>> {
+    const resumable = new Set<string>();
+    const journal = this.runJournal;
+    if (!journal) return resumable;
+    for (const entry of history) {
+      if (!entry.journalId || this.journalsRunning.has(entry.journalId)) continue;
+      try {
+        const end = await journal.lastEnd(entry.journalId);
+        if (end?.forgeId !== entry.forgeId || !RESUMABLE_ENDS.has(end.status)) continue;
+      } catch {
+        continue;
+      }
+      if (removedInItsLine(entry, history) === undefined) resumable.add(entry.forgeId);
+    }
+    return resumable;
+  }
+
+  /**
+   * The run `forgeId` names, to take up where it stopped, with its journal
+   * and how its last part ended — or why it cannot be.
+   */
+  private async runToResume(forgeId: string): Promise<
+    | {
+        entry: ForgeExecutionResult;
+        journalId: string;
+        head: ResumableHead;
+        targetOrgId: string;
+        end: { status: ForgeRunPartEndStatus; forgeId: string };
+      }
+    | { refused: string; targetOrgId?: string }
+  > {
+    const history = this.loadHistory();
+    const entry = history.find((e) => e.forgeId === forgeId);
+    if (!entry) {
+      return {
+        refused:
+          'The run to resume is no longer in the history: what it wrote and where it stopped are not known.',
+      };
+    }
+    const targetOrgId = entry.targetOrgId;
+    const journal = this.runJournal;
+    if (!entry.journalId || !journal) {
+      return {
+        refused: 'This run kept no journal to take it up from. Retry it from its results instead.',
+        targetOrgId,
+      };
+    }
+    if (this.journalsRunning.has(entry.journalId)) {
+      return { refused: 'This run is being taken up already.', targetOrgId };
+    }
+    const end = await journal.lastEnd(entry.journalId);
+    if (!end || end.forgeId !== entry.forgeId || !RESUMABLE_ENDS.has(end.status)) {
+      return {
+        refused:
+          'This run was taken up already, or its run ended: only the last part of a run that stopped can be resumed.',
+        targetOrgId,
+      };
+    }
+    const removed = removedInItsLine(entry, history);
+    if (removed !== undefined) {
+      return {
+        refused: `The records ${removed === entry ? 'this run created' : 'a part of this run created'} were removed on ${removed.undo?.removedAt}: there is nothing to resume against.`,
+        targetOrgId,
+      };
+    }
+    const head = await journal.head(entry.journalId);
+    const startedWith = head?.resume?.startedWith;
+    if (!head?.resume || !startedWith || head.targetOrgId !== targetOrgId) {
+      return {
+        refused:
+          'The journal of this run does not say how it was set up. Retry it from its results instead.',
+        targetOrgId,
+      };
+    }
+    return {
+      entry,
+      journalId: entry.journalId,
+      head: { ...head.resume, startedWith },
+      targetOrgId: head.targetOrgId,
+      end,
+    };
+  }
+
+  /**
+   * Take up a run that stopped part way where it stopped: the run its history
+   * entry names, set up as its journal says, refused when the org it wrote to
+   * is no longer the one it was, or when the run would be set up otherwise —
+   * another read ceiling, or, from a page that shows it, another graph or
+   * configuration. Then run as `forge:execute` runs it, Production Guard and
+   * the run's gate asked as for any run.
+   */
+  private async handleResumeRun(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(resumeRunPayloadSchema, msg, 'forge:execute:error', this.deps);
+    if (!parsed) return;
+    const refuse = (code: string, message: string, targetOrgId?: string): void => {
+      if (targetOrgId) {
+        recordWriteRun(this.deps, {
+          action: 'forge_execute',
+          module: 'forge',
+          operationId: msg.id,
+          orgId: targetOrgId,
+          outcome: 'stopped',
+          code,
+        });
+      }
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, new Error(message), {
+        code,
+      });
+    };
+    const found = await this.runToResume(parsed.forgeId);
+    if ('refused' in found) {
+      refuse(RESUME_UNAVAILABLE, found.refused, found.targetOrgId);
+      return;
+    }
+    const { entry, journalId, head, targetOrgId, end } = found;
+    // The org it wrote to: in the registry still, and the same org — a
+    // sandbox refreshed under its alias holds none of what the run wrote.
+    const target = this.deps.orgManager.getOrg(targetOrgId);
+    if (!target) {
+      refuse(
+        RESUME_TARGET_CHANGED,
+        'The org this run wrote to is no longer registered in SandForge: the run cannot be taken up there.',
+        targetOrgId,
+      );
+      return;
+    }
+    if (
+      head.targetSalesforceOrgId !== undefined &&
+      target.orgId &&
+      target.orgId.slice(0, 15) !== head.targetSalesforceOrgId.slice(0, 15)
+    ) {
+      refuse(
+        RESUME_TARGET_CHANGED,
+        `${target.alias || targetOrgId} is no longer the org this run wrote to — refreshed or replaced since: what the run wrote is not there.`,
+        targetOrgId,
+      );
+      return;
+    }
+    const { graph, config, anonymizationRules } = head.startedWith;
+    const ceiling = this.maxRecordsPerObject();
+    const setUp = (asked: { graph: ForgeGraph; config: ForgeConfig }): string =>
+      this.fingerprintOf(
+        asked.graph,
+        asked.config,
+        anonymizationRules,
+        ceiling,
+        head.targetSalesforceOrgId,
+      );
+    if (setUp({ graph, config }) !== head.fingerprint) {
+      refuse(
+        RESUME_CHANGED,
+        'This run would now be set up otherwise than the part it resumes (sandforge.forge.maxRecordsPerObject changed since): put the setting back to take it up, or retry it.',
+        targetOrgId,
+      );
+      return;
+    }
+    if (
+      parsed.graph &&
+      parsed.config &&
+      setUp({ graph: parsed.graph, config: parsed.config }) !== head.fingerprint
+    ) {
+      refuse(
+        RESUME_CHANGED,
+        'The clone on this page is set up otherwise than the run to resume: its objects, filters or decisions changed since.',
+        targetOrgId,
+      );
+      return;
+    }
+    await this.handleExecute(msg, {
+      forgeId: entry.forgeId,
+      journalId,
+      head,
+      end,
+      startedWith: { graph, config, ...(anonymizationRules ? { anonymizationRules } : {}) },
+    });
+  }
+
+  /**
+   * What a run's journal keeps of how it was set up, for the run to be taken
+   * up where it stops: the orgs, what it was started with, and the
+   * fingerprint of it all.
+   */
+  private resumeHeadOf(
+    graph: ForgeGraph,
+    config: ForgeConfig,
+    anonymizationRules: ForgeAnonymizationRules | undefined,
+    ceiling: number,
+  ): ForgeRunResumeHead {
+    const orgId = this.deps.orgManager.getOrg(config.targetOrgId)?.orgId;
+    const targetSalesforceOrgId = orgId && SF_ID_RE.test(orgId) ? orgId : undefined;
+    return {
+      sourceOrgId: config.sourceOrgId,
+      fingerprint: this.fingerprintOf(
+        graph,
+        config,
+        anonymizationRules,
+        ceiling,
+        targetSalesforceOrgId,
+      ),
+      ...(targetSalesforceOrgId ? { targetSalesforceOrgId } : {}),
+      startedWith: { graph, config, ...(anonymizationRules ? { anonymizationRules } : {}) },
+    };
+  }
+
+  /** See `forgeRunFingerprint`: a run's setup, whether it simulates or not left aside. */
+  private fingerprintOf(
+    graph: ForgeGraph,
+    config: ForgeConfig,
+    anonymizationRules: ForgeAnonymizationRules | undefined,
+    ceiling: number,
+    targetSalesforceOrgId: string | undefined,
+  ): string {
+    return forgeRunFingerprint(graph, {
+      config: { ...config, dryRun: undefined },
+      anonymizationRules: anonymizationRules ?? {},
+      ceiling,
+      targetSalesforceOrgId: targetSalesforceOrgId?.slice(0, 15) ?? null,
+    });
   }
 
   /**

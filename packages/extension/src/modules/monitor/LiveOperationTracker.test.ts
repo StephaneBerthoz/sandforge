@@ -92,6 +92,22 @@ describe('LiveOperationTracker', () => {
     expect(tracker.get('op-1')?.status).toBe('cancelled');
   });
 
+  it('offers to take up a clone that stopped, and none that is still running or completed', () => {
+    const changed = vi.fn();
+    tracker.onChange(changed);
+    tracker.register('op-1', 'forge', 'Executing forge operation');
+    tracker.offerResume('op-1', 'forge-1');
+    expect(tracker.get('op-1')?.resumeRun).toBeUndefined();
+    tracker.cancel('op-1');
+    tracker.offerResume('op-1', 'forge-1');
+    expect(tracker.get('op-1')?.resumeRun).toBe('forge-1');
+    expect(changed).toHaveBeenCalledTimes(3);
+    tracker.register('op-2', 'forge', 'Executing forge operation');
+    tracker.complete('op-2');
+    tracker.offerResume('op-2', 'forge-2');
+    expect(tracker.get('op-2')?.resumeRun).toBeUndefined();
+  });
+
   it('getActive returns only running or paused', () => {
     tracker.register('op-1', 'sync', 'Syncing', 100);
     tracker.register('op-2', 'seed', 'Seeding', 200);

@@ -122,6 +122,27 @@ export interface ForgeUndoRequest extends BaseMessage {
 }
 
 /**
+ * `forge:resume-run`. WebView -> Extension. Take up a run that stopped part
+ * way — a cancel, a failure, a window closed under it — where it stopped:
+ * the same clone, from its journal, each object read after where that run
+ * left it, none of what it wrote written again. Answered as `forge:execute`
+ * is, its progress and its result under the request's id.
+ *
+ * The request names the run; what it was started with is the extension's,
+ * in the run's journal. A page that shows the run sends the graph and the
+ * configuration it holds too: a run set up otherwise since is refused.
+ */
+export interface ForgeResumeRunRequest extends BaseMessage {
+  type: 'forge:resume-run';
+  payload: {
+    /** `forgeId` of the run's entry in the history. */
+    forgeId: string;
+    graph?: ForgeGraph;
+    config?: ForgeConfig;
+  };
+}
+
+/**
  * `forge:open-record`. WebView -> Extension. Open in the browser the page of a
  * record a past run created, in the org it wrote to.
  *

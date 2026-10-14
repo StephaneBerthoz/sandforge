@@ -234,4 +234,33 @@ describe('LiveOperationsPanel progress bars', () => {
     );
     expect(screen.getByRole('progressbar', { name: 'Seeding Contact' })).toBeDefined();
   });
+
+  it('offers to take up a Forge clone that stopped, by the run it names, and no run still going', () => {
+    const onResumeRun = vi.fn();
+    render(
+      <LiveOperationsPanel
+        operations={[
+          makeOperation({
+            operationId: 'op-forge',
+            module: 'forge',
+            description: 'Executing forge operation',
+            status: 'cancelled',
+            resumeRun: 'forge-123',
+          }),
+          makeOperation({ operationId: 'op-running', module: 'forge', resumeRun: 'forge-456' }),
+          makeOperation({ operationId: 'op-failed', module: 'forge', status: 'failed' }),
+        ]}
+        onCancel={vi.fn()}
+        onResumeRun={onResumeRun}
+      />,
+    );
+
+    const button = screen.getByTestId('resume-run-op-forge');
+    expect(button.textContent).toBe('Resume');
+    expect(button.getAttribute('title')).toBe('Take this clone up where it stopped');
+    fireEvent.click(button);
+    expect(onResumeRun).toHaveBeenCalledWith('forge-123');
+    expect(screen.queryByTestId('resume-run-op-running')).toBeNull();
+    expect(screen.queryByTestId('resume-run-op-failed')).toBeNull();
+  });
 });

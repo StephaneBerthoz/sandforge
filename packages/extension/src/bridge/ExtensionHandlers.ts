@@ -794,6 +794,7 @@ export class ExtensionHandlers {
         'forge:templates:delete',
         'forge:history:list',
         'forge:undo',
+        'forge:resume-run',
         'forge:open-record',
         'forge:verify:request',
         'forge:plan:request',

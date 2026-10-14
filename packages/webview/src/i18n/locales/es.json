@@ -131,6 +131,9 @@
       "title": "Operaciones en vivo",
       "noOperations": "Sin operaciones en ejecución",
       "cancel": "Cancelar",
+      "resumeRun": "Reanudar",
+      "resumeRunHint": "Retomar esta clonación donde se detuvo",
+      "resumeRunRefused": "No se pudo retomar la clonación",
       "recsPerSec": "reg/s",
       "cancelRefused": "No se pudo cancelar la operación",
       "cancelRefusedDetail": "La ejecución ya no está en curso o no se puede detener desde aquí. La lista se ha vuelto a leer.",
@@ -2765,6 +2768,8 @@
     "retryFailedHint": "Reintentar fallidos vuelve a ejecutar el clon: lo que esta ejecución no pudo escribir se escribe, vinculado a lo que sí escribió, que no se escribe una segunda vez.",
     "retryStopped": "Escribir el resto",
     "retryStoppedHint": "Escribir el resto vuelve a ejecutar el clon: lo que esta ejecución no escribió antes de detenerse se escribe, vinculado a lo que sí escribió, que no se escribe una segunda vez.",
+    "resumeRun": "Reanudar donde se detuvo",
+    "resumeRunHint": "Reanudar retoma esta ejecución desde el diario que SandForge guardó de ella: cada objeto se lee después del último registro que escribió, y se completan las búsquedas y los estados que aún debía. Nada de lo que escribió se escribe por segunda vez.",
     "retrySkipped": "Reintentar objetos omitidos",
     "retrySkippedHint": "Reintentar objetos omitidos vuelve a ejecutar el clon una vez corregido lo que los hizo omitir: los objetos que esta ejecución omitió por completo se escriben, vinculados a lo que sí escribió, que no se escribe una segunda vez.",
     "retryWithParents": "Obtener los padres que faltan y reintentar",
@@ -3159,12 +3164,15 @@
       "olderRecords_one": "{{formatted}} registro por eliminar de {{org}}",
       "olderRecords_other": "{{formatted}} registros por eliminar de {{org}}",
       "reuse": "Reutilizar la configuración",
+      "resume": "Reanudar",
+      "resumeHint": "Retomar esta ejecución donde se detuvo: nada de lo que escribió se vuelve a escribir",
       "reuseHint": "Rellena el formulario con los ajustes de esta ejecución. Las orgs no se restauran: elígelas y luego inicia el descubrimiento.",
       "noConfig": "Registrada antes de que se guardaran las configuraciones: no hay nada que rellenar.",
       "loadError": "No se pudo cargar el historial de ejecuciones.",
       "reused": "Formulario rellenado a partir de la ejecución del {{date}}.",
       "statusSuccess": "Correcta",
       "statusPartial": "Parcial",
+      "statusInterrupted": "Interrumpida",
       "statusFailure": "Fallida",
       "remove": "Eliminar los registros que creó esta ejecución",
       "removeLeft": "Eliminar lo que queda de los registros de esta ejecución",
@@ -3374,6 +3382,18 @@
       "retryUnavailable": {
         "explanation": "El reintento no pudo empezar: lo que escribió la ejecución que reintenta no se conoce aquí — ya no está en el historial, no guardó registro de lo que escribió o escribió en otra org, o sus registros se eliminaron. No se escribió nada.",
         "action": "Vuelva a ejecutar la clonación desde la revisión."
+      },
+      "resumeUnavailable": {
+        "explanation": "Esta ejecución no puede retomarse donde se detuvo: ya se retomó o su ejecución terminó, no guardó ningún diario, o se eliminaron sus registros. No se escribió nada.",
+        "action": "Reinténtela desde sus resultados, o vuelva a ejecutar la clonación desde la revisión."
+      },
+      "resumeTargetChanged": {
+        "explanation": "La org en la que escribió esta ejecución ya no es la que era — actualizada, sustituida o ya no registrada en SandForge —, así que lo que escribió la ejecución no está allí para continuar. No se escribió nada.",
+        "action": "Vuelva a ejecutar la clonación desde la revisión en la org tal como está ahora."
+      },
+      "resumeChanged": {
+        "explanation": "Esta ejecución quedaría ahora configurada de otro modo que la parte que retoma: la clonación de la página, o el ajuste sandforge.forge.maxRecordsPerObject, cambió desde que se detuvo. No se escribió nada.",
+        "action": "Restablezca el ajuste, o reintente la ejecución en su lugar: un reintento vuelve a leer la clonación y vincula lo que escribió esta ejecución."
       },
       "filesNotAccepted": {
         "explanation": "Esta ejecución anonimiza sus registros y copia sus archivos, cuyo contenido no se puede anonimizar: los archivos solo se copian cuando acepta que se copien tal como están. No se leyó ni escribió nada.",

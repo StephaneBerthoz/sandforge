@@ -344,17 +344,42 @@ already gone; nowhere, it is not visible to the user the removal runs as.
 cursor, in the order of its ids, each page written before the next is read,
 so the run holds a page of rows whatever a table holds. Its gate is shown a
 count of each table before anything is read (`ForgeWriteBoundary.counted`),
-each object ends on one line and its failure is judged on all its pages, and
-`onPage` is told, as each page is written, what it created and the last id it
-read — what a run stopped part way leaves to remove, kept by the extension in
-a journal that a closed window leaves listed with the older runs, and to resume
-from (`resumeAfter`). `ceiling` is the most rows of one object it reads
+less the rows the run it retries or resumes wrote and an object held back
+whole for a record type, each said apart (`leftOut`); each object ends on one
+line and its failure is judged on all its pages. A record type closed to the
+user the run writes as holds an object back whole before its first page, as a
+run that reads it whole holds it: `SELECT RecordTypeId, COUNT(Id) … GROUP BY
+RecordTypeId` under the run's filter, asked when the target has such a record
+type. `onPage` is told, as each page is written, what it created and the last
+id it read. `ceiling` is the most rows of one object it reads
 (`sandforge.forge.maxRecordsPerObject`). A record-scoped run, one that copies
 files or upserts, and one whose graph holds emails, read every node whole as
 before; so do the catalog, the tasks and the objects mapped by name within a
 streamed run. `pageSize` cuts the pages to a size of its own: a test seam, and
 the clone command's `SANDFORGE_FORGE_PAGE_SIZE` diagnostic, under which a
 record-scoped run reads its statements through the cursor too.
+
+`stream.store` is the run's journal (`ForgeRunStore`, one `.ndjson` file a
+run): every mapping the run registers — created, linked to, written over —
+each object's checkpoint as a page is written, the ids it read and did not
+write, the lookups owed to the second pass and the statuses owed to the end
+go to it as they happen, one line each, instead of into memory, and the run
+looks them up through an index of a few bytes a record, which holds no id,
+and a cache of the records asked for last. The second pass and the statuses
+of a run read in one pass go through what the journal owes a page at a time.
+Past `stream.summaryBound` mappings the summary carries the counts and none of
+the ids (`remapInJournal`). Opened on the journal of a run that stopped — a
+cancel, a failure, a process or a window gone — the executor goes on in it as
+a part of its own: each object read after its checkpoint (`resumeAfter`), a
+row an earlier part registered linked to and never written again, the lookups
+and statuses the earlier parts still owed given with this part's own, and
+none of what they wrote counted as this part's. The extension keeps the
+journal of a run of whole tables that stopped, and offers it to be taken up
+where it stopped from the run's results, **Recent runs** and Live Operations
+(`forge:resume-run`): refused when the org it wrote to is no longer that org,
+or when the run would be set up otherwise; a journal a closed window left is
+listed among the recent runs, interrupted. The clone command keeps the journal
+of every run that writes (`--resume`).
 
 `'keep'` holds for the records the run does not write, whose ids a sandbox
 refreshed from the same production can share with the source. A lookup at the

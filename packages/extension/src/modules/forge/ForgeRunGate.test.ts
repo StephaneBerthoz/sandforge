@@ -132,6 +132,20 @@ describe('writePlanOf', () => {
     // Six business accounts, four person accounts at 4 KB, eight contacts of
     // their own and none for the person accounts', one campaign.
     expect(plan.storageBytes).toBe(6 * 2 * KB + 4 * 4 * KB + 8 * 2 * KB + 8 * KB);
+    expect(plan.leftOut).toBeUndefined();
+  });
+
+  it('adds up what the run will not write: what the run it retries wrote, and the objects held back', () => {
+    const plan = writePlanOf([
+      { objectApiName: 'Account', rows: [], counted: { rows: 0 }, leftOut: { heldBack: 40 } },
+      { objectApiName: 'Contact', rows: [], counted: { rows: 12 }, leftOut: { writtenBefore: 8 } },
+      { objectApiName: 'Case', rows: rows(3), leftOut: { writtenBefore: 2 } },
+    ]);
+    expect(plan.totalRows).toBe(15);
+    expect(plan.leftOut).toEqual({
+      writtenBefore: 10,
+      heldBack: [{ objectApiName: 'Account', rows: 40 }],
+    });
   });
 });
 
@@ -913,6 +927,24 @@ describe('what the gate says', () => {
       'write gate: 34 record(s) to write to TGT, about 0.07 MB of data storage',
       `  ${'Contact'.padEnd(42)}${'30'.padStart(8)}`,
       `  ${'Account'.padEnd(42)}${'4'.padStart(8)}`,
+      '  data storage of TGT: 12 MB left of 200 MB',
+    ]);
+  });
+
+  it('says on the command line what it does not count: what the run retried wrote, and the objects held back', () => {
+    const leftOut = writePlanOf([
+      { objectApiName: 'Contact', rows: rows(30), leftOut: { writtenBefore: 6 } },
+      { objectApiName: 'Account', rows: [], leftOut: { heldBack: 4 } },
+    ]);
+    expect(
+      writePlanLines(leftOut, storageCheckOf(leftOut, { maxMB: 200, remainingMB: 12 }), 'TGT'),
+    ).toEqual([
+      'write gate: 30 record(s) to write to TGT, about 0.06 MB of data storage',
+      `  ${'Contact'.padEnd(42)}${'30'.padStart(8)}`,
+      '  not counted: 6 record(s) the run it retries or resumes wrote, which it links to and ' +
+        'does not write again',
+      '  not counted: Account, 4 record(s), held back whole for a record type closed to the ' +
+        'user the run writes as',
       '  data storage of TGT: 12 MB left of 200 MB',
     ]);
   });
