@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SyncOpsHandler } from './SyncOpsHandler.js';
 import { ExecutionHandler } from './ExecutionHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -58,6 +61,11 @@ import { clearDescribeCache } from '../../core/connection/describeCache.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
+import {
+  nodeSyncRunCreations,
+  type SyncCreationRecorder,
+  type SyncRunCreations,
+} from '../../modules/sync/SyncRunCreations.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -1737,6 +1745,102 @@ describe('SyncOpsHandler', () => {
       expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
         expect.objectContaining({ action: 'sync_execute', outcome: 'failure', objects: [] }),
       ]);
+    });
+  });
+
+  describe('what a run creates, kept for its removal', () => {
+    const CREATED = '001000000000101AAA';
+    let dir: string;
+    let creations: SyncRunCreations;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'sandforge-sync-creations-'));
+      creations = nodeSyncRunCreations(dir);
+      (deps.orgManager.getOrg as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Sandbox',
+      });
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn(),
+        limitInfo: undefined,
+      } as never);
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    /** An orchestrator that creates one account, and says whether its run was under way meanwhile. */
+    function creatingOrchestrator(seen: { running?: boolean; runId?: string }): void {
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: { creations?: SyncCreationRecorder }) {
+          return {
+            execute: vi.fn(async () => {
+              seen.runId = d.creations?.runId;
+              seen.running = seen.runId !== undefined && handler.isRunning(seen.runId);
+              d.creations?.note('Account', [CREATED]);
+              await d.creations?.flush();
+              return { status: 'success', objectResults: [] };
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+    }
+
+    it('keeps what a run from the page created under its id, and when it ended', async () => {
+      handler.setRunCreations(creations);
+      const seen: { running?: boolean; runId?: string } = {};
+      creatingOrchestrator(seen);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-creates-1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      expect(seen).toEqual({ runId: 'sync-creates-1', running: true });
+      expect(handler.isRunning('sync-creates-1')).toBe(false);
+      expect(await creations.get('sync-creates-1')).toMatchObject({
+        configId: 'cfg-1',
+        configName: 'sync-from-ui',
+        targetOrgId: 'tgt-org',
+        end: { status: 'success' },
+        created: [{ objectApiName: 'Account', ids: [CREATED] }],
+      });
+    });
+
+    it('keeps what a scheduled run and a pipeline run created too', async () => {
+      handler.setRunCreations(creations);
+      creatingOrchestrator({});
+      const config = validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig;
+
+      await handler.executeScheduled(config);
+      await handler.executeScheduled(config, 'pipeline');
+
+      const kept = await creations.list();
+      expect(kept).toHaveLength(2);
+      for (const run of kept) {
+        expect(run).toMatchObject({ created: [{ objectApiName: 'Account', ids: [CREATED] }] });
+      }
+    });
+
+    it('keeps nothing without a place to keep it', async () => {
+      const seen: { running?: boolean; runId?: string } = {};
+      creatingOrchestrator(seen);
+
+      await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+
+      expect(seen.runId).toBeUndefined();
+      expect(await creations.list()).toEqual([]);
     });
   });
 

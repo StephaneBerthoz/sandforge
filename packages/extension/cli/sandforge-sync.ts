@@ -15,18 +15,51 @@
  * offline queue, grappe partitioning. A failure here is a failure of the sync
  * itself and not of the plumbing around it.
  *
+ * A run printed with `--json` and saved to a file can be taken back:
+ * `--remove` deletes from its target what the run created — the records it
+ * inserted, or upserted where the target held none — with the removal the
+ * panel runs, from the summary alone.
+ *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --source SRC --target TGT --object Account --object Contact
+ *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
+ *     --remove <summary.json> --target TGT [--include-changed] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
  */
 
+import { randomUUID } from 'node:crypto';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
-import type { SyncConfig, SyncObjectConfig, SyncSimulationResult } from '@sandforge/shared';
+import { z } from 'zod';
+import type {
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
+  SyncConfig,
+  SyncObjectConfig,
+  SyncSimulationResult,
+} from '@sandforge/shared';
+import { recordWriteHeaders } from '@sandforge/shared';
+import {
+  orgFileCopyDeps,
+  type FileCopyOrg,
+  type SyncCopiedFile,
+  type SyncFileDeps,
+} from '../src/modules/sync/SyncFiles.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
+import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { isDeveloperEdition } from '../src/modules/forge/ForgeRunGate.js';
+import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
+import {
+  readRemovalState,
+  syncRemovalPlan,
+  type SyncCreationRecorder,
+  type SyncRunKept,
+  type SyncRunRemovalState,
+} from '../src/modules/sync/SyncRunCreations.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
@@ -67,11 +100,39 @@ Options:
   --dry-run              simulate: read both orgs and say what the run
                          would insert, update, skip or refuse, writing
                          nothing                           (default: off)
+  --files                copy the files of the records each object writes:
+                         Salesforce Files and legacy attachments, 10 MB each
+                         and 100 MB a run at most, as a configuration that
+                         copies files does. The command keeps no record of
+                         the files it copied: run again, it copies them
+                         again                             (default: off)
   --json                 emit the run summary as JSON      (default: off)
+                         Saved to a file, it is what --remove takes the
+                         run back from: it names what the run created.
   --help                 this text
 
-Exit codes: 0 the run finished (read the summary for per-object failures),
-1 the run could not be started, 2 a bad command line.
+Remove what a run created:
+  pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
+    --remove <summary.json> --target <alias> [--include-changed] [--json]
+
+  --remove <file>        the summary a run printed with --json, saved to a
+                         file. Deletes from the target what the run created:
+                         the records it inserted, or upserted where the target
+                         held none — never one it updated — the last object
+                         written first, into the target's recycle bin.
+  --target <alias>       the org the run wrote to, and no other. It must be a
+                         sandbox or a Developer Edition org.
+  --include-changed      remove also the records changed since the run, which
+                         are kept otherwise
+  --json                 print the removal as JSON
+
+  What the removal left on the run's records is kept beside the summary, in
+  <summary>.removals.json, and the next --remove of that summary reads it.
+
+Exit codes: 0 the run finished (read the summary for per-object failures), or
+the removal took every record it set out to; 1 the run or the removal could
+not be started; 2 a bad command line, or a summary --remove cannot take a run
+back from; 3 the removal left records of the run in the target.
 `;
 
 /** One object to sync, as the command line describes it. */
@@ -89,6 +150,8 @@ interface CliArgs {
   where: Record<string, string>;
   batchSize: number;
   dryRun: boolean;
+  /** Copy the files of the records each object writes. */
+  files: boolean;
   json: boolean;
 }
 
@@ -176,6 +239,7 @@ export function parseArgs(argv: string[]): CliArgs {
     where,
     batchSize,
     dryRun: has('--dry-run'),
+    files: has('--files'),
     json: has('--json'),
   };
 }
@@ -211,6 +275,60 @@ export function buildConfig(args: CliArgs): SyncConfig {
     enableRollback: false,
     createdAt: now,
     updatedAt: now,
+    // The panel's defaults for a configuration that copies files.
+    ...(args.files ? { files: { maxFileSizeMB: 10, maxRunMB: 100 } } : {}),
+  };
+}
+
+/**
+ * What a run that copies files reads and writes beside its records, over the
+ * two connections: the requests the panel's run sends. A configuration the
+ * panel saved keeps which file it copied where; the command keeps it for the
+ * run alone, so a file is never copied twice within it, and copied again by
+ * the next run. Exported so it can be tested.
+ */
+export function cliFileDeps(
+  config: Pick<SyncConfig, 'sourceOrgId' | 'targetOrgId'>,
+  sourceConn: Connection,
+  targetConn: Connection,
+): SyncFileDeps {
+  const pagesOf = (conn: Connection) => ({
+    query: async (q: string) => conn.query<Record<string, unknown>>(q),
+    queryMore: async (url: string) => conn.queryMore<Record<string, unknown>>(url),
+  });
+  const fileOrg = (conn: Connection): FileCopyOrg => ({
+    pages: pagesOf(conn),
+    transport: conn,
+    // The links of a copied file, written as every record write is.
+    create: async (objectApiName, records) =>
+      conn.sobject(objectApiName).create(records, { headers: recordWriteHeaders() }),
+  });
+  const copied = new Map<string, SyncCopiedFile>();
+  return {
+    copy: orgFileCopyDeps({
+      [config.sourceOrgId]: fileOrg(sourceConn),
+      [config.targetOrgId]: fileOrg(targetConn),
+    }),
+    // The ids the object's read returns, asked for alone, with its filter.
+    sourceIds: async (objectConfig, changedSince) => {
+      const object = objectConfig.objectApiName;
+      if (!API_NAME_RE.test(object)) throw new Error(`Not an SObject API name: ${object}`);
+      const clause = sourceReadWhere(objectConfig.where, changedSince);
+      const { records } = await queryAllPages(
+        pagesOf(sourceConn),
+        `SELECT Id FROM ${object}${clause ? ` WHERE ${clause}` : ''}`,
+      );
+      return records.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
+    },
+    store: {
+      load: () =>
+        copied.size === 0
+          ? { kind: 'none' }
+          : { kind: 'stored', map: { version: 1, entries: [...copied.values()] } },
+      record: (_configId, entry) => {
+        copied.set(`${entry.sourceOrgId}|${entry.targetOrgId}|${entry.sourceId}`, entry);
+      },
+    },
   };
 }
 
@@ -269,6 +387,12 @@ export function simulationLines(simulation: SyncSimulationResult): string[] {
         (simulation.direction === 'bidirectional' ? `, ${o.conflicts} in conflict` : ''),
     );
     if (o.conflictFields.length > 0) lines.push(`      differ on: ${o.conflictFields.join(', ')}`);
+    if (o.files) {
+      lines.push(
+        `      files: would copy ${o.files.copied}, add ${o.files.versions} version(s), ` +
+          `${o.files.unchanged} unchanged, ${o.files.tooLarge + o.files.pastRunCap} skipped past the caps`,
+      );
+    }
     for (const note of o.notes) lines.push(`      ${note}`);
   }
   if (simulation.cancelled) lines.push('  stopped by a cancel before its last object');
@@ -278,8 +402,42 @@ export function simulationLines(simulation: SyncSimulationResult): string[] {
   return lines;
 }
 
+/** What a run created, kept in memory as it writes it, for its summary. */
+export function memoryCreations(runId: string): SyncCreationRecorder & {
+  /** Per object in the order first written, each id once. */
+  created(): Array<{ objectApiName: string; ids: string[] }>;
+  /** When the run last wrote something it created. */
+  lastWrittenAt(): string | undefined;
+} {
+  const byObject = new Map<string, string[]>();
+  let last: string | undefined;
+  return {
+    runId,
+    note: (objectApiName, ids) => {
+      if (ids.length === 0) return;
+      byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), ...ids]);
+      last = new Date().toISOString();
+    },
+    flush: async () => undefined,
+    created: () => [...byObject].map(([objectApiName, ids]) => ({ objectApiName, ids: [...ids] })),
+    lastWrittenAt: () => last,
+  };
+}
+
+/** The org's own id, or undefined when it does not say. */
+async function organizationIdOf(conn: Connection): Promise<string | undefined> {
+  try {
+    const answer = await conn.query<{ Id?: string }>('SELECT Id FROM Organization LIMIT 1');
+    const id = answer.records[0]?.Id;
+    return typeof id === 'string' ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Run one sync from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
+  if (argv.slice(2).includes('--remove')) return removeMain(argv);
   const t0 = Date.now();
   const args = parseArgs(argv);
   const log = (line: string): void => {
@@ -342,7 +500,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return answer;
   };
 
+  // What a real run creates, for its summary to name and --remove to take back.
+  const kept = memoryCreations(`sandforge-sync-${randomUUID()}`);
+  const startedAt = new Date().toISOString();
+
   const orchestrator = new SyncOrchestrator({
+    ...(args.dryRun ? {} : { creations: kept }),
+    ...(args.files ? { files: cliFileDeps(config, sourceConn, targetConn) } : {}),
     dataSync: new DataSync({
       insert: (objectName, records) => write('insert', objectName, records),
       update: (objectName, records) => write('update', objectName, records),
@@ -381,10 +545,34 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log('\nexecuting… (REAL)');
   const result = await orchestrator.execute(config);
   const elapsedMs = Date.now() - t0;
+  const created = kept.created();
+  const lastWrittenAt = kept.lastWrittenAt();
+  // The org's own id, so --remove takes the run back from it and no other,
+  // whatever alias names it then.
+  const targetOrgId = created.length > 0 ? await organizationIdOf(targetConn) : undefined;
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: args.dryRun, result, elapsedMs }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          tool: 'sandforge-sync',
+          source: args.source,
+          target: args.target,
+          ...(targetOrgId ? { targetOrgId } : {}),
+          dryRun: args.dryRun,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          result,
+          created: {
+            runId: kept.runId,
+            ...(lastWrittenAt ? { lastWrittenAt } : {}),
+            objects: created,
+          },
+          elapsedMs,
+        },
+        null,
+        2,
+      )}\n`,
     );
     return;
   }
@@ -401,8 +589,412 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // `errors` is a list of strings on SyncObjectResult, not of objects.
     const errors = (entry.errors as string[] | undefined) ?? [];
     for (const error of errors.slice(0, 3)) log(`      ${error}`);
+    const files = entry.files as
+      { copied?: number; versions?: number; failed?: number } | undefined;
+    if (files) {
+      log(
+        `      files: ${files.copied ?? 0} copied, ${files.versions ?? 0} version(s) added, ` +
+          `${files.failed ?? 0} failed`,
+      );
+    }
+  }
+  const count = created.reduce((sum, object) => sum + object.ids.length, 0);
+  if (count > 0) {
+    log(
+      `\ncreated ${count} record(s) and file(s) in ${args.target}: run with --json and save the ` +
+        'summary to a file, and --remove takes them back from it',
+    );
   }
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+// ─── --remove ────────────────────────────────────────────────────────────────
+
+/** What `--remove` was given. */
+export interface RemoveArgs {
+  /** The summary a run printed with `--json`, saved to a file. */
+  summaryPath: string;
+  /** sf CLI alias of the org the run wrote to. */
+  target: string;
+  /** Remove also the records changed since the run. */
+  includeChanged: boolean;
+  /** Print the removal as JSON on stdout, every other line on stderr. */
+  json: boolean;
+}
+
+/** The flags a removal reads. */
+const REMOVE_FLAGS: ReadonlySet<string> = new Set([
+  '--remove',
+  '--target',
+  '--include-changed',
+  '--json',
+]);
+const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target']);
+
+/** Read the command line of a removal, or explain why it cannot be read. */
+export function parseRemoveArgs(argv: string[]): RemoveArgs {
+  const args = argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (REMOVE_VALUE_FLAGS.has(arg)) {
+      i++;
+      continue;
+    }
+    if (!REMOVE_FLAGS.has(arg)) {
+      process.stderr.write(
+        `--remove takes --target, --include-changed and --json, not "${arg}". Run with --help.\n`,
+      );
+      process.exit(2);
+    }
+  }
+  const get = (flag: string): string | undefined => {
+    const at = args.indexOf(flag);
+    return at >= 0 && at + 1 < args.length ? args[at + 1] : undefined;
+  };
+  const summaryPath = get('--remove');
+  const target = get('--target');
+  if (!summaryPath || !target || REMOVE_FLAGS.has(summaryPath) || REMOVE_FLAGS.has(target)) {
+    process.stderr.write(
+      '--remove takes the file a run printed its --json summary to, and --target the org the ' +
+        'run wrote to. Run with --help.\n',
+    );
+    process.exit(2);
+  }
+  return {
+    summaryPath,
+    target,
+    includeChanged: args.includes('--include-changed'),
+    json: args.includes('--json'),
+  };
+}
+
+/** A Salesforce id, as every id a summary names is: they end up in deletes. */
+const ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/** The summary a run printed with `--json`, as `--remove` reads it: external input. */
+const runSummarySchema = z
+  .object({
+    tool: z.literal('sandforge-sync'),
+    source: z.string().min(1),
+    target: z.string().min(1),
+    targetOrgId: z.string().regex(ID).optional(),
+    dryRun: z.boolean().optional(),
+    startedAt: z.string().min(1).max(40).optional(),
+    finishedAt: z.string().min(1).max(40).optional(),
+    result: z.object({ status: z.enum(['success', 'partial', 'failure']) }).loose(),
+    created: z
+      .object({
+        runId: z.string().min(1).max(200),
+        lastWrittenAt: z.string().min(1).max(40).optional(),
+        objects: z.array(
+          z.object({
+            objectApiName: z.string().regex(API_NAME_RE),
+            ids: z.array(z.string().regex(ID)),
+          }),
+        ),
+      })
+      .optional(),
+  })
+  .loose();
+
+/** A run summary, as `--remove` reads it. */
+export type RunSummary = z.infer<typeof runSummarySchema>;
+
+/** The summary in `text`, or why `--remove` cannot take a run back from it. */
+export function readRunSummary(text: string): { summary: RunSummary } | { refusal: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { refusal: 'is not JSON: save the output of a run printed with --json.' };
+  }
+  const parsed = runSummarySchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      refusal:
+        `is not the summary of a sandforge-sync run (${issue.path.join('.') || 'summary'}: ` +
+        `${issue.message}).`,
+    };
+  }
+  if (parsed.data.dryRun === true) {
+    return {
+      refusal: 'is the summary of a dry run, which wrote nothing: there is nothing to remove.',
+    };
+  }
+  if (!parsed.data.created) {
+    return {
+      refusal:
+        'names nothing the run created: it was printed before runs named what they created, so ' +
+        'its records cannot be told from the ones it updated.',
+    };
+  }
+  return { summary: parsed.data };
+}
+
+/**
+ * Where a removal keeps what it left on the run's records, beside the summary
+ * — `run.removals.json` for `run.json` — never the summary itself.
+ */
+export function removalsPathOf(summaryPath: string): string {
+  return /\.json$/i.test(summaryPath)
+    ? summaryPath.replace(/\.json$/i, '.removals.json')
+    : `${summaryPath}.removals.json`;
+}
+
+/** The run a summary names, as the removal reads it. */
+export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState): SyncRunKept {
+  const created = summary.created;
+  const finishedAt = summary.finishedAt ?? created?.lastWrittenAt ?? new Date().toISOString();
+  return {
+    runId: created?.runId ?? 'sandforge-sync',
+    configId: 'sandforge-sync',
+    configName: 'sandforge-sync',
+    sourceOrgId: summary.source,
+    targetOrgId: summary.target,
+    startedAt: summary.startedAt ?? finishedAt,
+    end: { at: finishedAt, status: summary.result.status },
+    ...(created?.lastWrittenAt ? { lastWrittenAt: created.lastWrittenAt } : {}),
+    created: (created?.objects ?? []).filter((object) => object.ids.length > 0),
+    ...(removal ? { removal } : {}),
+  };
+}
+
+/** An org as the removal types it: a sandbox, or not and its edition. */
+export interface TypedTarget {
+  id: string;
+  sandbox: boolean;
+  edition?: string;
+}
+
+/** What the org says it is. `IsSandbox` false and no edition is a production org's. */
+export async function typeTarget(conn: Connection): Promise<TypedTarget> {
+  const answer = await conn.query<{ Id?: string; IsSandbox?: boolean }>(
+    'SELECT Id, IsSandbox FROM Organization LIMIT 1',
+  );
+  const row = answer.records[0];
+  if (typeof row?.Id !== 'string') {
+    throw new Error('The org gave no Organization record: whether it is a sandbox cannot be told.');
+  }
+  if (row.IsSandbox === true) return { id: row.Id, sandbox: true };
+  try {
+    const typed = await conn.query<{ OrganizationType?: string }>(
+      'SELECT OrganizationType FROM Organization LIMIT 1',
+    );
+    const edition = typed.records[0]?.OrganizationType;
+    return typeof edition === 'string' && edition !== ''
+      ? { id: row.Id, sandbox: false, edition }
+      : { id: row.Id, sandbox: false };
+  } catch {
+    return { id: row.Id, sandbox: false };
+  }
+}
+
+/**
+ * Why the command will not delete from an org: it is a production org. A
+ * sandbox, or a Developer Edition org — which says IsSandbox false and holds
+ * nobody's business — is not refused, as the clone command removes from both
+ * and the panel's removal takes one for a development org. The command has
+ * no guard to ask, and takes the org's own word for what it is.
+ */
+export function removalRefusal(alias: string, org: TypedTarget): string | undefined {
+  if (org.sandbox || isDeveloperEdition(org.edition)) return undefined;
+  const said = org.edition
+    ? `IsSandbox false, edition ${org.edition}`
+    : 'IsSandbox false, and no edition';
+  return (
+    `${alias} is a production org (its Organization record says ${said}): sandforge-sync ` +
+    'removes records from sandboxes and Developer Edition orgs only. Nothing was deleted.'
+  );
+}
+
+/** What a removal did, as the lines the command prints. */
+export function removalSummaryLines(
+  status: ForgeUndoStatus,
+  objects: readonly ForgeUndoObjectResult[],
+): string[] {
+  const counts = (o: ForgeUndoObjectResult): string =>
+    [
+      o.deleted > 0 ? `${o.deleted} deleted` : '',
+      o.alreadyGone > 0 ? `${o.alreadyGone} already gone` : '',
+      (o.notVisible ?? 0) > 0 ? `${o.notVisible} not visible` : '',
+      o.keptChanged > 0 ? `${o.keptChanged} kept, changed since the run` : '',
+      o.keptDependents > 0 ? `${o.keptDependents} kept, records that stay depend on them` : '',
+      o.refused > 0 ? `${o.refused} refused` : '',
+    ]
+      .filter(Boolean)
+      .join(', ');
+  return [
+    `removal: ${status.toUpperCase()}`,
+    ...objects.flatMap((o) => [
+      `  ${o.objectApiName}: ${counts(o) || 'nothing'} of ${o.planned}`,
+      ...o.reasons.map((reason) => `      ${reason}`),
+    ]),
+  ];
+}
+
+/** The exit code of a removal that left records of the run in the org. */
+const RECORDS_LEFT_EXIT = 3;
+
+/**
+ * Remove from its target what a run created, from the summary the run printed
+ * with `--json`: the removal the panel runs (`removeSyncRun`). The summary and
+ * what earlier removals of it kept beside it are read and checked before any
+ * org is contacted; then the target is typed, and refused unless it is a
+ * sandbox or a Developer Edition org, and the org the run wrote to.
+ */
+export async function removeMain(argv: string[] = process.argv): Promise<void> {
+  const t0 = Date.now();
+  const args = parseRemoveArgs(argv);
+  // In --json mode stdout carries the outcome alone, for a parser to read.
+  const say = (line: string): void => {
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
+  };
+
+  let text: string;
+  try {
+    text = readFileSync(args.summaryPath, 'utf8');
+  } catch (err: unknown) {
+    process.stderr.write(
+      `--remove ${args.summaryPath} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(2);
+  }
+  const read = readRunSummary(text);
+  if ('refusal' in read) {
+    process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
+    process.exit(2);
+  }
+  const { summary } = read;
+  if (summary.targetOrgId === undefined && summary.target !== args.target) {
+    process.stderr.write(
+      `The run wrote to ${summary.target}, and what it created is removed from that org only: ` +
+        `give --target ${summary.target}.\n`,
+    );
+    process.exit(2);
+  }
+
+  // What earlier removals of this summary left on the run's records: unread,
+  // a second removal would take what the first wrote to a record it left for
+  // a change since the run, and keep the record.
+  const removalsFile = removalsPathOf(args.summaryPath);
+  let earlier: SyncRunRemovalState | undefined;
+  let removalsText: string | undefined;
+  try {
+    removalsText = readFileSync(removalsFile, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+      process.stderr.write(
+        `${removalsFile} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(2);
+    }
+  }
+  if (removalsText !== undefined) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(removalsText);
+    } catch {
+      raw = undefined;
+    }
+    const ofRun = (raw as { runId?: unknown } | undefined)?.runId;
+    earlier = ofRun === summary.created?.runId ? readRemovalState(raw) : undefined;
+    if (ofRun !== summary.created?.runId) {
+      say(`${removalsFile} is of another run: it is not read, and this removal's takes its place`);
+    } else if (!earlier) {
+      process.stderr.write(`${removalsFile} does not read as what earlier removals did.\n`);
+      process.exit(2);
+    }
+  }
+  const run = runOfSummary(summary, earlier);
+
+  const output = (status: ForgeUndoStatus, objects: ForgeUndoObjectResult[], planned: number) => {
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            tool: 'sandforge-sync',
+            action: 'remove',
+            summary: args.summaryPath,
+            target: args.target,
+            includeChanged: args.includeChanged,
+            result: { status, planned, objects },
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return;
+    }
+    for (const line of removalSummaryLines(status, objects)) say(line);
+    say(`\ndone in ${Date.now() - t0}ms`);
+  };
+
+  const plan = syncRemovalPlan(run);
+  if (plan.length === 0) {
+    say(
+      earlier?.undo
+        ? `what the run created was removed already, on ${earlier.undo.removedAt}`
+        : 'The run created nothing: there is nothing of it to remove.',
+    );
+    output('success', [], 0);
+    return;
+  }
+
+  const conn = makeConn(await loadOrg(args.target));
+  const org = await typeTarget(conn);
+  const refusal = removalRefusal(args.target, org);
+  if (refusal) {
+    process.stderr.write(`${refusal}\n`);
+    process.exit(1);
+  }
+  if (
+    summary.targetOrgId !== undefined &&
+    summary.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
+  ) {
+    process.stderr.write(
+      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and what it ` +
+        'created is removed from that org only. Nothing was deleted.\n',
+    );
+    process.exit(1);
+  }
+  say(`sandforge-sync --remove  ${args.summaryPath}  from ${args.target}`);
+  for (const { objectApiName, ids } of plan) say(`  ${objectApiName}: ${ids.length} to remove`);
+
+  // Ctrl-C stops the removal before its next call to the org, as Cancel does
+  // in the panel.
+  const stop = new AbortController();
+  const interrupt = (): void => stop.abort();
+  process.once('SIGINT', interrupt);
+  let state: SyncRunRemovalState = earlier ?? {};
+  let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
+  try {
+    outcome = await removeSyncRun({
+      run,
+      org: removalOrg(conn, 'sandforge-sync --remove'),
+      includeChanged: args.includeChanged,
+      signal: stop.signal,
+      store: {
+        // Kept beside the summary whatever the removal ended on, written
+        // whole through a file renamed over it.
+        updateRemoval: async (_runId, change) => {
+          state = change(state);
+          const written = `${removalsFile}.${process.pid}.tmp`;
+          writeFileSync(
+            written,
+            `${JSON.stringify({ version: 1, runId: run.runId, ...state }, null, 2)}\n`,
+          );
+          renameSync(written, removalsFile);
+        },
+      },
+    });
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
+  for (const note of outcome.notes) process.stderr.write(`${note}\n`);
+  output(outcome.result.status, outcome.result.objects, outcome.planned);
+  if (outcome.result.status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
 // `tsx` runs this file directly; the import check keeps it silent under test.

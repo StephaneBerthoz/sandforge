@@ -97,14 +97,19 @@ class FileTables {
         return this.versions as unknown as Row[];
       case 'ContentDocumentLink':
         // With the stamp of its document's latest version, which a filter
-        // reaches through the document.
-        return this.links.map((link) => ({
-          ...link,
-          SystemModstamp: link.SystemModstamp ?? SEEDED_AT,
-          'ContentDocument.LatestPublishedVersion.SystemModstamp': this.versions.find(
+        // reaches through the document — by its path for the filter, and
+        // nested as the org answers it.
+        return this.links.map((link) => {
+          const latest = this.versions.find(
             (v) => v.ContentDocumentId === link.ContentDocumentId && v.IsLatest,
-          )?.SystemModstamp,
-        }));
+          )?.SystemModstamp;
+          return {
+            ...link,
+            SystemModstamp: link.SystemModstamp ?? SEEDED_AT,
+            'ContentDocument.LatestPublishedVersion.SystemModstamp': latest,
+            ContentDocument: { LatestPublishedVersion: { SystemModstamp: latest } },
+          };
+        });
       case 'ContentDocument':
         return this.documents();
       case 'Attachment':
@@ -609,6 +614,41 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
     expect(result.files).toEqual({ remainingBytes: 20 * MB, plannedBytes: 52 });
   });
 
+  it('keeps the files it created for its removal, and not a version it added to an earlier copy', async () => {
+    const noted: Array<{ objectApiName: string; ids: string[] }> = [];
+    const recorder = {
+      runId: 'run-1',
+      note: (objectApiName: string, ids: readonly string[]) => {
+        noted.push({ objectApiName, ids: [...ids] });
+      },
+      flush: async () => undefined,
+    };
+    store.save(config({ mode: 'delta' }));
+
+    const first = await orchestrator({ creations: recorder }).execute(config({ mode: 'delta' }));
+
+    const [document] = orgs.targetDocuments();
+    expect(noted).toEqual([
+      { objectApiName: 'Account', ids: [orgs.targetIdOf('K-1'), orgs.targetIdOf('K-2')] },
+      { objectApiName: 'ContentDocument', ids: [document.id] },
+      { objectApiName: 'Attachment', ids: [orgs.targetFiles.attachments[0].Id] },
+    ]);
+    expect(first.created).toEqual({
+      runId: 'run-1',
+      objects: [{ objectApiName: 'Account', count: 2 }],
+      files: 2,
+    });
+
+    // A new version of the report: added to its copy, which was the target's.
+    orgs.newVersion(DOC_1, 55, '2026-10-13T10:00:00.000Z');
+    noted.length = 0;
+    const second = await orchestrator({ creations: recorder }).execute(config({ mode: 'delta' }));
+
+    expect(second.objectResults[0].files).toMatchObject({ versions: 1 });
+    expect(noted).toEqual([]);
+    expect(second.created).toBeUndefined();
+  });
+
   it('copies no file of a record the target refused, and counts it', async () => {
     orgs.refuseUpsert.add('K-2');
 
@@ -821,6 +861,47 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
       expect(result.status).toBe('success');
     });
 
+    it('looks for the files gained since past the newest stamp the last run looked at, finding none again', async () => {
+      await orchestrator().execute(delta());
+      const doc = fakeId('069', 7);
+      orgs.sourceFiles.versions.push({
+        Id: fakeId('068', 7),
+        ContentDocumentId: doc,
+        Title: 'Contract',
+        PathOnClient: 'Contract.pdf',
+        ContentSize: 20,
+        ContentLocation: 'S',
+        SharingPrivacy: 'N',
+        IsLatest: true,
+        SystemModstamp: '2026-10-13T10:00:00.000Z',
+        content: contentOf(20),
+      });
+      orgs.sourceFiles.links.push({
+        ContentDocumentId: doc,
+        LinkedEntityId: A1,
+        ShareType: 'V',
+        Visibility: 'AllUsers',
+        SystemModstamp: '2026-10-13T10:00:00.000Z',
+      });
+      const second = await orchestrator().execute(delta());
+      expect(second.objectResults[0].files).toMatchObject({ copied: 1 });
+      const delta2 = store.loadDelta('cfg-files');
+      expect(delta2.kind === 'stored' && delta2.state.entries[0].filesSeen).toBe(
+        '2026-10-13T10:00:00.000Z',
+      );
+      orgs.fileQueries.length = 0;
+
+      // Neither the records nor their files changed: the watermark stays put.
+      const third = await orchestrator().execute(delta());
+
+      const lookup = orgs.fileQueries.find((q) => q.includes('FROM ContentDocumentLink WHERE'));
+      expect(lookup).toContain('> 2026-10-13T10:00:00Z');
+      expect(lookup).not.toContain('2026-10-13T08:55:00Z');
+      // The file found last time is not found, and counted, again.
+      expect(third.objectResults[0].files).toMatchObject({ copied: 0, unchanged: 0 });
+      expect(orgs.targetDocuments()).toHaveLength(2);
+    });
+
     it('copies an attachment added since the last run under a record nothing else of which changed', async () => {
       await orchestrator().execute(delta());
       orgs.sourceFiles.attachments.push({
@@ -941,10 +1022,10 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
 
       const third = await orchestrator().execute(delta());
 
-      // The report, found from the first account, and from the second, to
-      // which it is linked and whose version is stamped within the read; the
-      // note of the second, as copied.
-      expect(third.objectResults[0].files).toMatchObject({ versions: 0, unchanged: 2 });
+      // The report, found from the first account, which changed, as copied.
+      // The second account, to which it is linked, is not looked up again:
+      // the last run looked at its version's stamp already.
+      expect(third.objectResults[0].files).toMatchObject({ versions: 0, unchanged: 1 });
       expect(orgs.targetDocuments()[0].versions).toBe(2);
     });
   });

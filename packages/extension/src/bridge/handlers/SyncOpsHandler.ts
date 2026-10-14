@@ -108,6 +108,7 @@ import {
   type SyncFileDeps,
   type SyncFileStore,
 } from '../../modules/sync/SyncFiles.js';
+import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
 export type UnattendedSyncOrigin = Extract<
@@ -356,6 +357,9 @@ export class SyncOpsHandler implements DomainHandler {
   /** The pause of each run under way, by its operation id: what `sync:pause` sets. */
   private readonly pauseGates = new Map<string, PauseGate>();
 
+  /** Where every run keeps what it creates, for its removal. */
+  private runCreations?: SyncRunCreations;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.syncConfigStore = new SyncConfigStore(deps.configStore);
@@ -388,6 +392,27 @@ export class SyncOpsHandler implements DomainHandler {
    */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /**
+   * Inject where every run keeps what it creates in its target, as it writes
+   * it: a run from the page, a re-run, a schedule's and a pipeline's alike.
+   * Without it a run keeps nothing, and cannot be taken back.
+   *
+   * @param store - The file-backed store of each run's creations.
+   */
+  setRunCreations(store: SyncRunCreations): void {
+    this.runCreations = store;
+  }
+
+  /**
+   * Whether a run is still under way in this window: its creations are still
+   * being written, and no removal may take them meanwhile.
+   *
+   * @param operationId - The run's id, which its creations are kept under.
+   */
+  isRunning(operationId: string): boolean {
+    return this.activeOperationIds.has(operationId);
   }
 
   /**
@@ -1682,6 +1707,15 @@ export class SyncOpsHandler implements DomainHandler {
     // The run's pause, found by `sync:pause` and `sync:resume` while it runs.
     const pauseGate = new PauseGate();
     this.pauseGates.set(operationId, pauseGate);
+    // What the run creates, kept under its id as it writes it, whoever started
+    // it: its removal takes that back, from the history or the results.
+    const creations = this.runCreations?.recorder({
+      runId: operationId,
+      configId: config.id,
+      configName: config.name ?? '',
+      sourceOrgId: config.sourceOrgId,
+      targetOrgId: config.targetOrgId,
+    });
 
     try {
       const readers = await this.readersFor(config, abortController.signal);
@@ -1760,6 +1794,7 @@ export class SyncOpsHandler implements DomainHandler {
             this.liveTracker?.updateProgress(operationId, percent, 0, 0, label);
           },
         },
+        ...(creations ? { creations } : {}),
       };
       if (!this.deps.services) {
         throw new Error(
@@ -1777,6 +1812,7 @@ export class SyncOpsHandler implements DomainHandler {
 
       sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Initializing sync');
       const result = await orchestrator.execute(config);
+      await creations?.end({ status: result.status, cancelled: result.cancelled === true });
       if (result.cancelled) {
         this.endCancelled(operationId);
       } else {
@@ -1813,6 +1849,8 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
       return result;
     } catch (err: unknown) {
+      // What it created before it failed stays removable, the run ended.
+      await creations?.end({ status: 'failure' });
       this.dmlTracker.markFailed(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
       // Transport-level failure: the org was unreachable — queue the config so

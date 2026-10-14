@@ -137,6 +137,14 @@ const SyncMessages = [
   msg('sync:history:export:response'),
   // Error channel consumed by useSyncHistoryStore (payload.message).
   msg('sync:history:error'),
+  // What a run created, read from what it kept, and its removal.
+  msg('sync:removal:info'),
+  msg('sync:removal:info:response'),
+  msg('sync:removal:list'),
+  msg('sync:removal:list:response'),
+  msg('sync:remove'),
+  msg('sync:remove:response'),
+  msg('sync:remove:error'),
   msg('sync:schedule:list'),
   msg('sync:schedule:list:response'),
   msg('sync:schedule:upsert'),

@@ -14,6 +14,7 @@ import { postGrappeEvent, readGrappeConfig } from './bridge/handlers/HandlerType
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
 import { BackupRecordStore, nodeBackupFiles } from './modules/dataops/BackupRecordStore';
+import { nodeSyncRunCreations } from './modules/sync/SyncRunCreations';
 import { createServices } from './services.js';
 import type { Services } from './services.js';
 import { logger } from './logger.js';
@@ -222,6 +223,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // every write — a single backup could put megabytes behind every unrelated
   // settings save and behind activation itself.
   const backupRecordStore = new BackupRecordStore(nodeBackupFiles(context.globalStorageUri.fsPath));
+  // What each Sync run creates, kept beside them as the run writes it.
+  const syncRunCreations = nodeSyncRunCreations(context.globalStorageUri.fsPath);
 
   applyLateServices(handlers, {
     onboardingService,
@@ -239,6 +242,7 @@ export function activate(context: vscode.ExtensionContext): void {
     pipelineMarketplace,
     liveOperationTracker,
     backupRecordStore,
+    syncRunCreations,
   });
   // Replays operations queued on transport failure once connectivity returns
   // (the queue drains on the offline→online probe transition).

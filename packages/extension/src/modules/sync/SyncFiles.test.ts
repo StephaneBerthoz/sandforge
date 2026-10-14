@@ -191,10 +191,115 @@ describe('planRunFiles — refusals before anything is written', () => {
     // attachment's last change: a record nothing else of which changed is
     // returned by no delta read.
     expect(asked.slice(0, 2)).toEqual([
-      "SELECT LinkedEntityId FROM ContentDocumentLink WHERE LinkedEntityId IN (SELECT Id FROM Account WHERE (Type = 'Customer')) AND " +
+      'SELECT LinkedEntityId, SystemModstamp, ContentDocument.LatestPublishedVersion.SystemModstamp ' +
+        "FROM ContentDocumentLink WHERE LinkedEntityId IN (SELECT Id FROM Account WHERE (Type = 'Customer')) AND " +
         '(SystemModstamp > 2026-10-13T08:55:00Z OR ContentDocument.LatestPublishedVersion.SystemModstamp > 2026-10-13T08:55:00Z)',
-      "SELECT ParentId FROM Attachment WHERE ParentId IN (SELECT Id FROM Account WHERE (Type = 'Customer')) AND LastModifiedDate > 2026-10-13T08:55:00Z",
+      'SELECT ParentId, LastModifiedDate FROM Attachment WHERE ParentId IN ' +
+        "(SELECT Id FROM Account WHERE (Type = 'Customer')) AND LastModifiedDate > 2026-10-13T08:55:00Z",
     ]);
+  });
+
+  describe('the newest file stamp a delta read looked at', () => {
+    /** A link and an attachment found since, stamped as the org writes its dates. */
+    function stampedDeps(asked: string[]): SyncFileDeps {
+      return deps(
+        { kind: 'none' },
+        {
+          queryRecords: vi.fn(async (_org: string, soql: string) => {
+            asked.push(soql);
+            if (soql.startsWith('SELECT LinkedEntityId')) {
+              return [
+                {
+                  LinkedEntityId: fakeId('001', 1),
+                  SystemModstamp: '2026-10-13T09:10:00.000+0000',
+                  ContentDocument: {
+                    LatestPublishedVersion: { SystemModstamp: '2026-10-13T09:20:00.000+0000' },
+                  },
+                },
+              ];
+            }
+            if (soql.startsWith('SELECT ParentId')) {
+              return [
+                { ParentId: fakeId('001', 2), LastModifiedDate: '2026-10-13T09:15:00.000+0000' },
+              ];
+            }
+            return [];
+          }),
+        },
+      );
+    }
+
+    it('says the newest stamp its lookups found, for the next run to look past', async () => {
+      const plan = await planRunFiles({
+        config,
+        option,
+        objects: [{ objectConfig: account, changedSince: '2026-10-13T08:55:00Z' }],
+        deps: stampedDeps([]),
+      });
+
+      // The version stamp a link carries through its document is the newest.
+      expect(plan.objects.get('Account')?.filesSeen).toBe('2026-10-13T09:20:00.000Z');
+    });
+
+    it('looks only past the newest stamp an earlier run looked at, not again from the watermark', async () => {
+      const asked: string[] = [];
+
+      const plan = await planRunFiles({
+        config,
+        option,
+        objects: [
+          {
+            objectConfig: account,
+            changedSince: '2026-10-13T08:55:00Z',
+            filesSeen: '2026-10-13T09:20:00.000Z',
+          },
+        ],
+        deps: stampedDeps(asked),
+      });
+
+      const lookups = asked.filter(
+        (soql) => soql.startsWith('SELECT LinkedEntityId') || soql.startsWith('SELECT ParentId'),
+      );
+      expect(lookups).toHaveLength(2);
+      for (const soql of lookups) {
+        expect(soql).toContain('> 2026-10-13T09:20:00Z');
+        expect(soql).not.toContain('2026-10-13T08:55:00Z');
+      }
+      // Nothing found past it is newer: the stamp stays where it was.
+      expect(plan.objects.get('Account')?.filesSeen).toBe('2026-10-13T09:20:00.000Z');
+    });
+
+    it('looks from the watermark when it is later than the stamp an earlier run looked at', async () => {
+      const asked: string[] = [];
+
+      await planRunFiles({
+        config,
+        option,
+        objects: [
+          {
+            objectConfig: account,
+            changedSince: '2026-10-13T10:00:00Z',
+            filesSeen: '2026-10-13T09:20:00.000Z',
+          },
+        ],
+        deps: stampedDeps(asked),
+      });
+
+      expect(asked.find((soql) => soql.startsWith('SELECT LinkedEntityId'))).toContain(
+        '> 2026-10-13T10:00:00Z',
+      );
+    });
+
+    it('keeps no stamp on a full read, which looks nothing up by date', async () => {
+      const plan = await planRunFiles({
+        config,
+        option,
+        objects: [{ objectConfig: account, filesSeen: '2026-10-13T09:20:00.000Z' }],
+        deps: stampedDeps([]),
+      });
+
+      expect(plan.objects.get('Account')?.filesSeen).toBeUndefined();
+    });
   });
 
   it('copies no new file past the record a configuration keeps, and says why', async () => {

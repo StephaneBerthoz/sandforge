@@ -5,6 +5,7 @@ import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOpera
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace';
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker';
 import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
+import type { SyncRunCreations } from '../modules/sync/SyncRunCreations.js';
 
 /**
  * LateServices — the dependencies injected into `ExtensionHandlers` through
@@ -55,6 +56,11 @@ export interface LateServices {
    * every write.
    */
   backupRecordStore: BackupRecordStore;
+  /**
+   * File-backed store of what each Sync run creates, kept as it writes it so
+   * the run can be taken back: out of globalState for the same reason.
+   */
+  syncRunCreations?: SyncRunCreations;
 }
 
 /**
@@ -72,4 +78,5 @@ export function applyLateServices(handlers: ExtensionHandlers, late: LateService
   handlers.setPipelineMarketplace(late.pipelineMarketplace);
   handlers.setLiveOperationTracker(late.liveOperationTracker);
   handlers.setBackupRecordStore(late.backupRecordStore);
+  if (late.syncRunCreations) handlers.setSyncRunCreations(late.syncRunCreations);
 }

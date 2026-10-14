@@ -48,6 +48,9 @@ const SYNC_PAGE_DATA = source('packages/webview/src/pages/Sync/useSyncPageData.t
 const SYNC_DELTA = source('packages/extension/src/modules/sync/SyncDelta.ts');
 const SYNC_FILES = source('packages/extension/src/modules/sync/SyncFiles.ts');
 const SYNC_CONFIG_STORE = source('packages/extension/src/modules/sync/SyncConfigStore.ts');
+const SYNC_REMOVAL_HANDLER = source('packages/extension/src/bridge/handlers/SyncRemovalHandler.ts');
+const SYNC_RUN_CREATIONS = source('packages/extension/src/modules/sync/SyncRunCreations.ts');
+const SYNC_CLI = source('packages/extension/cli/sandforge-sync.ts');
 
 /** The tabs the page offers, as the array it renders them from. */
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
@@ -247,7 +250,7 @@ describe('docs/modules/sync.md', () => {
     );
   });
 
-  it('says files travel with their records, are never copied twice, and stay when nothing removes them', () => {
+  it('says files travel with their records, are never copied twice, and go with a removal of the run', () => {
     // Positive control: the run copies them with Forge's stage, keeps where
     // each went beside the watermarks, measures them against the target's
     // storage first, and a reset of the watermarks leaves that record alone.
@@ -262,10 +265,60 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain('which keeps which file it copied where (5 000 at most)');
     expect(DOC).toContain('added as a version of the copy in the target, never as a second file');
     expect(DOC).toContain("the target's file storage is read (`/limits`)");
-    expect(DOC).toContain(
-      'Sync has no undo: what a run writes, records and files alike, stays in the target',
-    );
+    // The files a run created are kept with its records, for its removal.
+    expect(SYNC_FILES).toContain('onCreated?: (objectApiName:');
+    expect(DOC).toContain('removing a run takes back the files it created with its records');
+    expect(DOC).not.toContain('Sync has no undo');
     expect(DOC).not.toContain('Files do not travel');
+  });
+
+  it('says what a run keeps of what it created, how its removal goes, and what the configuration forgets', () => {
+    // Positive control: every run is given a place to keep what it creates,
+    // the store writes it as the run goes, outside globalState and bounded;
+    // the removal is judged as a delete, at the tier Sync's writes take, and
+    // recorded; the delta state reads a removed object whole.
+    expect(SYNC_ORCHESTRATOR).toContain('creations?: SyncCreationRecorder;');
+    expect(SYNC_HANDLER).toContain('this.runCreations?.recorder({');
+    expect(SYNC_RUN_CREATIONS).toContain("export const SYNC_RUNS_DIR = 'sync-runs';");
+    expect(SYNC_RUN_CREATIONS).toContain('export const SYNC_RUNS_MAX_BYTES = 4 * 1024 * 1024;');
+    expect(SYNC_RUN_CREATIONS).toContain(
+      'export const SYNC_RUNS_HARD_MAX_BYTES = 64 * 1024 * 1024;',
+    );
+    expect(SYNC_REMOVAL_HANDLER).toContain("case 'sync:remove':");
+    expect(SYNC_REMOVAL_HANDLER).toContain("operation: 'delete',");
+    expect(SYNC_REMOVAL_HANDLER).toContain(
+      "return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);",
+    );
+    expect(SYNC_REMOVAL_HANDLER).toContain("action: 'cleanup_delete',");
+    expect(SYNC_DELTA).toContain(
+      "if (entry.removedAt !== undefined) return { read: 'full', reason: 'removed', fingerprint };",
+    );
+    expect(SYNC_CLI).toContain(
+      'if (org.sandbox || isDeveloperEdition(org.edition)) return undefined;',
+    );
+
+    expect(DOC).toContain('### Removing what a run created');
+    expect(DOC).toContain('the records it inserted, or upserted where the target held none');
+    expect(DOC).toContain('Past 4 MB the runs whose creations were all removed go first');
+    expect(DOC).toContain(
+      'while a Developer Edition -- which Sync writes to once you confirm -- is not taken for one',
+    );
+    expect(DOC).toContain('as `cleanup_delete` from Sync');
+    expect(DOC).toContain('a later delta run never takes a removed copy for still there');
+    expect(DOC).toContain(
+      'it removes from a sandbox or a Developer Edition org, and refuses any other',
+    );
+  });
+
+  it('says a delta run looks for files gained since past the newest stamp the last one looked at', () => {
+    // Positive control: the lookups start past the stamp kept with the
+    // watermark when it is the later of the two, and the run records it.
+    expect(SYNC_FILES).toContain('? soqlDateTimeOf(seenBefore)');
+    expect(SYNC_ORCHESTRATOR).toContain('...(filesSeen !== undefined ? { filesSeen } : {}),');
+
+    expect(DOC).toContain(
+      'Its watermark keeps the newest stamp of a link, a file version or an attachment those lookups looked at',
+    );
   });
 
   it('says the Grappe count costs one API request per object', () => {

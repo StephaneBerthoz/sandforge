@@ -433,6 +433,14 @@ export const realtimeResolveConflictPayloadSchema = z.object({
 // Mirror what `useSyncHistoryStore` posts (fetchDetail/rerun/exportHistory).
 
 export const syncHistoryEntryIdPayloadSchema = z.object({ entryId: opaqueIdSchema });
+
+// ── sync:removal:* / sync:remove payload schemas ────────────────────────────
+// The run is named, never its records: what is removed is what the run kept.
+export const syncRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });
+export const syncRemovePayloadSchema = z.object({
+  runId: opaqueIdSchema,
+  includeChanged: z.boolean().optional(),
+});
 export const syncHistoryExportPayloadSchema = z.object({
   format: z.enum(['csv', 'json']),
   entryIds: z.array(opaqueIdSchema).max(500).optional(),

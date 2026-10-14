@@ -40,6 +40,8 @@ import { SeedCloneHandler } from './handlers/SeedCloneHandler.js';
 import { SeedCsvHandler } from './handlers/SeedCsvHandler.js';
 import { SyncOpsHandler, syncGuardRequest } from './handlers/SyncOpsHandler.js';
 import { SyncHistoryHandler } from './handlers/SyncHistoryHandler.js';
+import { SyncRemovalHandler } from './handlers/SyncRemovalHandler.js';
+import type { SyncRunCreations } from '../modules/sync/SyncRunCreations.js';
 import { SyncHistoryStore } from '../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../modules/sync/SyncExecutionLogger.js';
 import { CompareHandler } from './handlers/CompareHandler.js';
@@ -142,6 +144,7 @@ export class ExtensionHandlers {
   private readonly seedCsvHandler: SeedCsvHandler;
   private readonly syncHandler: SyncOpsHandler;
   private readonly syncHistoryHandler: SyncHistoryHandler;
+  private readonly syncRemovalHandler: SyncRemovalHandler;
   private readonly compareHandler: CompareHandler;
   private readonly dataOpsHandler: DataOpsHandler;
   private readonly complianceHandler: DataOpsComplianceHandler;
@@ -213,6 +216,12 @@ export class ExtensionHandlers {
       this.handlerDeps,
       this.syncHistoryStore,
       this.syncHandler,
+    );
+    // What a run created, read from what it kept, and its removal.
+    this.syncRemovalHandler = new SyncRemovalHandler(
+      this.handlerDeps,
+      this.syncHistoryStore,
+      (runId) => this.syncHandler.isRunning(runId),
     );
     this.compareHandler = new CompareHandler(this.handlerDeps);
     this.dataOpsHandler = new DataOpsHandler(this.handlerDeps);
@@ -336,6 +345,7 @@ export class ExtensionHandlers {
     // with a Cancel that reaches it through the registry.
     this.seedHandler.setLiveOperationTracker(tracker);
     this.syncHandler.setLiveOperationTracker(tracker);
+    this.syncRemovalHandler.setLiveOperationTracker(tracker);
     this.forgeHandler.setLiveOperationTracker(tracker);
     this.seedCloneHandler.setLiveOperationTracker(tracker);
     this.seedCsvHandler.setLiveOperationTracker(tracker);
@@ -346,6 +356,15 @@ export class ExtensionHandlers {
   /** Inject the file-backed store that holds backup record payloads. */
   setBackupRecordStore(store: BackupRecordStore): void {
     this.dataOpsHandler.setBackupRecordStore(store);
+  }
+
+  /**
+   * Inject the file-backed store of what each Sync run creates: every run
+   * keeps its creations there as it writes them, and their removal reads them.
+   */
+  setSyncRunCreations(store: SyncRunCreations): void {
+    this.syncHandler.setRunCreations(store);
+    this.syncRemovalHandler.setRunCreations(store);
   }
 
   /** Inject the AI assistant service, or `undefined` to take it away. */
@@ -381,6 +400,7 @@ export class ExtensionHandlers {
   setBackgroundRegistry(registry: BackgroundOperationRegistry): void {
     this.backgroundRegistry = registry;
     this.syncHandler.setRegistry(registry);
+    this.syncRemovalHandler.setRegistry(registry);
     this.seedHandler.setRegistry(registry);
     // Clone, CSV import and frozen-dataset loads run through BulkDataWriter
     // too. Without the registry they passed a throwaway AbortController, so
@@ -624,6 +644,9 @@ export class ExtensionHandlers {
       ['sync:history:list', 'sync:history:detail', 'sync:history:rerun', 'sync:history:export'],
       this.syncHistoryHandler,
     );
+
+    // What a Sync run created, and its removal
+    route(['sync:removal:info', 'sync:removal:list', 'sync:remove'], this.syncRemovalHandler);
 
     // Sync schedules (CRUD backed by SyncScheduleExecutor + SyncScheduleStore)
     route(

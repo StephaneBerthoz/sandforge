@@ -3,6 +3,8 @@ import type {
   SyncExecutionResult,
   SyncHistoryEntry,
   SyncMode,
+  SyncRemovalResult,
+  SyncRunRemovalInfo,
   SyncScheduleEntry,
   SyncSimulationResult,
 } from '../sync.types.js';
@@ -228,6 +230,69 @@ export interface SyncHistoryExportResponse extends BaseMessage {
 /** Error response for sync history operations (emitted via sendHandlerError). */
 export interface SyncHistoryErrorResponse extends BaseMessage {
   type: 'sync:history:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+// ─── Sync Removal Messages ───────────────────────────────────────────────────
+
+/**
+ * `sync:removal:info`. WebView -> Extension. What a removal of a run's
+ * creations would take, and whether one can run, read from what the run kept
+ * — nothing is asked of the org.
+ */
+export interface SyncRemovalInfoRequest extends BaseMessage {
+  type: 'sync:removal:info';
+  payload: { runId: string };
+}
+
+/** `sync:removal:info:response`. Extension -> WebView. `null` when nothing of the run is kept. */
+export interface SyncRemovalInfoResponse extends BaseMessage {
+  type: 'sync:removal:info:response';
+  payload: { info: SyncRunRemovalInfo | null };
+}
+
+/**
+ * `sync:removal:list`. WebView -> Extension. The runs whose creations are
+ * kept that no entry of the history holds: a run a closed window stopped
+ * before it ended, or one the history no longer lists.
+ */
+export interface SyncRemovalListRequest extends BaseMessage {
+  type: 'sync:removal:list';
+}
+
+/** `sync:removal:list:response`. Extension -> WebView. Newest first. */
+export interface SyncRemovalListResponse extends BaseMessage {
+  type: 'sync:removal:list:response';
+  payload: { runs: SyncRunRemovalInfo[] };
+}
+
+/**
+ * `sync:remove`. WebView -> Extension. Remove from its target what a run
+ * created, as the run kept it — the request names the run, never records.
+ */
+export interface SyncRemoveRequest extends BaseMessage {
+  type: 'sync:remove';
+  payload: {
+    runId: string;
+    /** Remove the records modified since the run too, and what was added to them since. */
+    includeChanged?: boolean;
+  };
+}
+
+/** `sync:remove:response`. Extension -> WebView. Also when the removal was cancelled part way. */
+export interface SyncRemoveResponse extends BaseMessage {
+  type: 'sync:remove:response';
+  payload: { result: SyncRemovalResult; operationId: string };
+}
+
+/**
+ * `sync:remove:error`. Extension -> WebView. A removal refused before it
+ * started (`NOT_KEPT`, `NOTHING_TO_REMOVE`, `ALREADY_REMOVED`, `DUPLICATE`,
+ * `RUNNING`, `ORG_GONE`, the guard's codes), one that failed, or a read of
+ * what a run kept that failed.
+ */
+export interface SyncRemoveErrorResponse extends BaseMessage {
+  type: 'sync:remove:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

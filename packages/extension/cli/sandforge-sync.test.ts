@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Connection } from 'jsforce';
-import { parseArgs, buildConfig, buildQueryFn, simulationLines } from './sandforge-sync.js';
+import {
+  parseArgs,
+  buildConfig,
+  buildQueryFn,
+  cliFileDeps,
+  simulationLines,
+} from './sandforge-sync.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -164,6 +170,78 @@ describe('buildConfig', () => {
     expect(config.targetOrgId).toBe('TGT');
     expect(config.direction).toBe('source_to_target');
   });
+
+  it("copies no file unless asked, and then with the panel's caps", () => {
+    expect(buildConfig(parseArgs(argv(...MINIMAL))).files).toBeUndefined();
+    expect(buildConfig(parseArgs(argv(...MINIMAL, '--files'))).files).toEqual({
+      maxFileSizeMB: 10,
+      maxRunMB: 100,
+    });
+  });
+});
+
+describe('the files a run copies', () => {
+  /** A connection that answers every query with `rows`, and records what it was asked. */
+  function conn(rows: Array<Record<string, unknown>>, asked: string[]): Connection {
+    return {
+      query: vi.fn(async (q: string) => {
+        asked.push(q);
+        return { records: rows, done: true, totalSize: rows.length };
+      }),
+      queryMore: vi.fn(),
+    } as unknown as Connection;
+  }
+
+  it("asks for the ids an object's read returns, with its filter, from the source", async () => {
+    const asked: string[] = [];
+    const deps = cliFileDeps(
+      { sourceOrgId: 'SRC', targetOrgId: 'TGT' },
+      conn([{ Id: '006000000000001AAA' }], asked),
+      conn([], []),
+    );
+
+    const ids = await deps.sourceIds({
+      objectApiName: 'Opportunity',
+      operation: 'insert',
+      fieldMappings: [],
+      transformRules: [],
+      excludedFields: [],
+      addOnFields: [],
+      batchSize: 200,
+      insertOrder: 0,
+      where: "Name LIKE 'SR%'",
+    });
+
+    expect(ids).toEqual(['006000000000001AAA']);
+    expect(asked).toEqual(["SELECT Id FROM Opportunity WHERE Name LIKE 'SR%'"]);
+  });
+
+  it('keeps which file it copied where for the run alone', () => {
+    const deps = cliFileDeps(
+      { sourceOrgId: 'SRC', targetOrgId: 'TGT' },
+      conn([], []),
+      conn([], []),
+    );
+    expect(deps.store.load('cli-1')).toEqual({ kind: 'none' });
+
+    const entry = {
+      sourceOrgId: 'SRC',
+      targetOrgId: 'TGT',
+      objectApiName: 'Opportunity',
+      kind: 'document' as const,
+      sourceId: '069000000000001AAA',
+      targetId: '069000000000009AAA',
+      linked: [],
+      copiedAt: '2026-10-14T08:00:00.000Z',
+    };
+    deps.store.record('cli-1', entry);
+    deps.store.record('cli-1', { ...entry, targetId: '069000000000008AAA' });
+
+    expect(deps.store.load('cli-1')).toEqual({
+      kind: 'stored',
+      map: { version: 1, entries: [{ ...entry, targetId: '069000000000008AAA' }] },
+    });
+  });
 });
 
 describe('the read of an object', () => {
@@ -299,6 +377,48 @@ describe('what a dry run prints', () => {
       '  Account (upsert): 3 read, would insert 1, update 1, delete 0, skip 0, refuse 1',
       '      1 record(s) carry no value in Ext_Id__c: an upsert matches on it.',
     ]);
+  });
+
+  it('says what a run that copies files would copy of them', () => {
+    const lines = simulationLines({
+      configId: 'cli-1',
+      operationId: 'sync-simulation-1',
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      objects: [
+        {
+          objectApiName: 'Opportunity',
+          operation: 'insert',
+          read: 3,
+          insert: 3,
+          update: 0,
+          delete: 0,
+          skipped: 0,
+          refused: 0,
+          conflicts: 0,
+          conflictFields: [],
+          notes: [],
+          files: {
+            copied: 3,
+            versions: 0,
+            bytes: 90,
+            links: 0,
+            unchanged: 0,
+            tooLarge: 1,
+            pastRunCap: 0,
+            external: 0,
+            recordNotWritten: 0,
+            failed: 0,
+          },
+        },
+      ],
+      duration: 5,
+      timestamp: '2026-10-14T00:00:00.000Z',
+    });
+
+    expect(lines).toContain(
+      '      files: would copy 3, add 0 version(s), 0 unchanged, 1 skipped past the caps',
+    );
   });
 
   it('names the conflicts of a bidirectional run, and where a simulation stopped', () => {

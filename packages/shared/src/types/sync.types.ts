@@ -1,4 +1,5 @@
 import type { UUID, ISODateString, ApiName } from './common.types.js';
+import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
 
 /** Sync direction */
 export type SyncDirection = 'source_to_target' | 'target_to_source' | 'bidirectional';
@@ -143,10 +144,12 @@ export interface SyncFilesStorage {
  * - `no_modstamp`: the source would not say the object's latest
  *   `SystemModstamp`, so no watermark can be taken from it;
  * - `not_saved`: the configuration run is not a saved one, and a watermark is
- *   kept for a saved configuration only.
+ *   kept for a saved configuration only;
+ * - `removed`: a removal took back records or files a run of it had created
+ *   for the object, so the copies its watermark counted on are gone.
  */
 export type SyncFullReadReason =
-  'first_run' | 'reset' | 'scope_changed' | 'unreadable' | 'no_modstamp' | 'not_saved';
+  'first_run' | 'reset' | 'scope_changed' | 'unreadable' | 'no_modstamp' | 'not_saved' | 'removed';
 
 /**
  * How an object of a delta configuration was read and what came of it.
@@ -270,6 +273,86 @@ export interface SyncExecutionResult {
    * before the run wrote anything, and what its files were to take of it.
    */
   files?: SyncFilesStorage;
+  /**
+   * What the run created in its target, counted, when it created anything:
+   * the ids are kept apart, where its removal reads them. Absent from a run
+   * recorded before runs kept what they created.
+   */
+  created?: SyncRunCreated;
+}
+
+/**
+ * What a run created in its target, counted: the records it inserted, or
+ * upserted where the target held none — never one it updated, which was the
+ * target's before — and the files it created, a Salesforce File's first copy
+ * or a legacy attachment, never a version added to an earlier copy. The ids
+ * are kept outside the history, as the run writes them, under `runId`.
+ */
+export interface SyncRunCreated {
+  /** The id they are kept under: what a removal of the run names. */
+  runId: string;
+  /** Records created, per object, in the order the run wrote them. */
+  objects: Array<{ objectApiName: ApiName; count: number }>;
+  /** Files created: Salesforce Files and legacy attachments. */
+  files: number;
+}
+
+/**
+ * Why a removal of a run's creations cannot run now:
+ * - `GUARD_BLOCKED`: Production Guard allows no delete in the target — a
+ *   production org; a Developer Edition is not taken for one, as for a Forge
+ *   run's removal;
+ * - `NO_GUARD`: no Production Guard was given, and nothing deletes without it;
+ * - `ORG_GONE`: the target is no longer a registered org;
+ * - `RUNNING`: the run is still writing.
+ */
+export type SyncRemovalRefusalCode = 'GUARD_BLOCKED' | 'NO_GUARD' | 'ORG_GONE' | 'RUNNING';
+
+/** A run whose creations are kept, as its removal reads it before anything is asked of the org. */
+export interface SyncRunRemovalInfo {
+  runId: string;
+  configId: string;
+  /** The configuration's name when the run started. */
+  configName: string;
+  sourceOrgId: string;
+  targetOrgId: string;
+  /** When the run started, by this machine's clock. */
+  startedAt: ISODateString;
+  /** When it ended; absent from a run a closed window stopped part way. */
+  endedAt?: ISODateString;
+  /** Records and files it created, in all. */
+  created: number;
+  /**
+   * What a removal takes now, per object, in the order it hands them to the
+   * removal: files first, then each object the reverse of the order the run
+   * wrote them. Empty once removals took them all.
+   */
+  left: Array<{ objectApiName: string; count: number }>;
+  /** What the removals of it did, once one took some. */
+  removed?: ForgeUndoMark;
+  /** Why no removal can run now; absent when one can. */
+  refusal?: { code: SyncRemovalRefusalCode; message: string };
+}
+
+/** What removing what a Sync run created did, object by object. */
+export interface SyncRemovalResult {
+  runId: string;
+  status: ForgeUndoStatus;
+  /** Whether records modified since the run, and what was added to them since, went too. */
+  includeChanged: boolean;
+  /** Per object, in the order they were removed: files first, children before their parents. */
+  objects: ForgeUndoObjectResult[];
+  /** When the removal ended, ISO 8601. */
+  finishedAt: ISODateString;
+  /** Set on a removal of what an earlier one left: when that one ended, ISO 8601. */
+  leftBy?: ISODateString;
+  /**
+   * The objects the next run of the configuration reads whole, since the
+   * copies its watermark counted on are gone. Absent when there are none.
+   */
+  readWhole?: string[];
+  /** Files dropped from the configuration's record of the files it copied. Absent when none. */
+  filesForgotten?: number;
 }
 
 /** A snapshot of a sync execution for history tracking and re-run support. */

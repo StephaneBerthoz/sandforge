@@ -8,6 +8,7 @@ import { Icon } from '../../components/ui/Icon';
 import { formatStoredDate } from '../../utils/formatters';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
+import { SyncRunRemoval } from './SyncRunRemoval';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -188,6 +189,9 @@ export const SyncHistoryDetail: React.FC = () => {
           </Card>
         ))}
       </div>
+
+      {/* What the run created, and its removal. */}
+      {result.created && <SyncRunRemoval runId={result.created.runId} testId="history-removal" />}
 
       {/* Config snapshot summary */}
       <div className="flex flex-col gap-(--sf-space-1)">

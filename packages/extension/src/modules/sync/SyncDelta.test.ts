@@ -11,6 +11,7 @@ import {
   planObjectRead,
   readDeltaState,
   scopeFingerprint,
+  soqlDateTimeOf,
   sourceReadWhere,
   tallyDeletions,
   type SyncDeltaReads,
@@ -163,6 +164,41 @@ describe('planObjectRead', () => {
     expect(
       planObjectRead({ ...CONFIG, targetOrgId: 'other-org' }, account(), stored([watermark()])),
     ).toMatchObject({ read: 'full', reason: 'first_run' });
+  });
+
+  it('reads whole an object a removal took copies of, since its watermark counted on them', () => {
+    const plan = planObjectRead(CONFIG, account(), {
+      kind: 'stored',
+      state: {
+        version: 1,
+        entries: [{ ...watermark(), removedAt: '2026-10-14T08:00:00.000Z' }],
+      },
+    });
+
+    expect(plan).toMatchObject({ read: 'full', reason: 'removed' });
+  });
+
+  it('carries the newest file stamp the last run looked at, for the lookups to look past', () => {
+    const plan = planObjectRead(CONFIG, account(), {
+      kind: 'stored',
+      state: {
+        version: 1,
+        entries: [{ ...watermark(), filesSeen: '2026-10-13T09:20:00.000Z' }],
+      },
+    });
+
+    expect(plan).toMatchObject({ read: 'delta', filesSeen: '2026-10-13T09:20:00.000Z' });
+  });
+});
+
+describe('soqlDateTimeOf', () => {
+  it('writes a date the org gave as a SOQL literal of the same second', () => {
+    expect(soqlDateTimeOf('2026-10-13T09:20:00.000Z')).toBe('2026-10-13T09:20:00Z');
+    expect(soqlDateTimeOf('2026-10-13T09:20:00.900Z')).toBe('2026-10-13T09:20:00Z');
+  });
+
+  it('refuses what is not a date', () => {
+    expect(() => soqlDateTimeOf('soon')).toThrow(/Not a date/);
   });
 });
 

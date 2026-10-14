@@ -167,6 +167,81 @@ export class SyncConfigStore {
   }
 
   /**
+   * Forget the copies a removal deleted from the target: the entries of the
+   * files copied between these orgs whose copy is one of `targetIds`. Kept,
+   * an entry had the next run take the file as copied and link the records to
+   * a copy that is gone; forgotten, the next run that reads the file's record
+   * copies it again. Nothing is changed when none is kept.
+   *
+   * @param id - The configuration ID.
+   * @param orgs - The orgs the run copied between.
+   * @param targetIds - The copies deleted, by id, whichever length it is written in.
+   * @returns The entries forgotten, with the object each was copied for.
+   */
+  forgetFiles(
+    id: string,
+    orgs: { sourceOrgId: string; targetOrgId: string },
+    targetIds: readonly string[],
+  ): SyncCopiedFile[] {
+    const current = this.loadFiles(id);
+    if (current.kind !== 'stored' || targetIds.length === 0) return [];
+    const gone = new Set(targetIds.map((targetId) => targetId.slice(0, 15)));
+    const forgotten: SyncCopiedFile[] = [];
+    const kept = current.map.entries.filter((entry) => {
+      const goes =
+        entry.sourceOrgId === orgs.sourceOrgId &&
+        entry.targetOrgId === orgs.targetOrgId &&
+        gone.has(entry.targetId.slice(0, 15));
+      if (goes) forgotten.push(entry);
+      return !goes;
+    });
+    if (forgotten.length > 0) {
+      const map: SyncFileMap = { version: 1, entries: kept };
+      this.configStore.set(`${SYNC_FILES_PREFIX}${id}`, map, SYNC_FILES_CATEGORY);
+    }
+    return forgotten;
+  }
+
+  /**
+   * Have the next run read `objects` whole: a removal took back records or
+   * files a run had created for them, and a delta read from their watermark
+   * would take the copies for still there. Only an object with a watermark
+   * between these orgs is marked; one without is read whole anyway.
+   *
+   * @param id - The configuration ID.
+   * @param orgs - The orgs the run copied between.
+   * @param objects - The objects whose copies the removal took.
+   * @param at - When the removal ended.
+   * @returns The objects marked.
+   */
+  markRemoved(
+    id: string,
+    orgs: { sourceOrgId: string; targetOrgId: string },
+    objects: readonly string[],
+    at: string,
+  ): string[] {
+    const current = this.loadDelta(id);
+    if (current.kind !== 'stored' || objects.length === 0) return [];
+    const marked: string[] = [];
+    const entries = current.state.entries.map((entry) => {
+      if (
+        entry.sourceOrgId !== orgs.sourceOrgId ||
+        entry.targetOrgId !== orgs.targetOrgId ||
+        !objects.includes(entry.objectApiName)
+      ) {
+        return entry;
+      }
+      marked.push(entry.objectApiName);
+      return { ...entry, removedAt: at };
+    });
+    if (marked.length > 0) {
+      const state: SyncDeltaState = { ...current.state, entries };
+      this.configStore.set(`${SYNC_DELTA_PREFIX}${id}`, state, SYNC_DELTA_CATEGORY);
+    }
+    return marked;
+  }
+
+  /**
    * "Run full next time": clear every watermark of a configuration, so its
    * next run reads each object whole and says it was asked to. The record of
    * the files it copied stays: a full read copies none of them twice.

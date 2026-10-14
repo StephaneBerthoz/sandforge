@@ -50,6 +50,7 @@ import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
+import { SyncRunRemoval } from './SyncRunRemoval';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -922,6 +923,10 @@ export const SyncPage: React.FC = () => {
                       )}
                       testId="sync-result-files"
                     />
+                  )}
+                  {/* What the run created, and its removal. */}
+                  {result.created && (
+                    <SyncRunRemoval runId={result.created.runId} testId="sync-result-removal" />
                   )}
                   {result.objectResults.map((obj) => (
                     <Card key={obj.objectApiName}>

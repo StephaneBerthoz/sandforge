@@ -56,6 +56,20 @@ export const syncWatermarkSchema = z.object({
   fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   /** When it was recorded, by this machine's clock: said, never read from. */
   recordedAt: z.iso.datetime(),
+  /**
+   * On a configuration that copies files: the newest stamp of a file link, a
+   * file version or an attachment the run's lookups for files gained since
+   * looked at, by the org's clock. The next run looks only past it, so files
+   * already looked at are not found again run after run while the records do
+   * not change and the watermark stays put.
+   */
+  filesSeen: z.iso.datetime().optional(),
+  /**
+   * When a removal took back records or files a run had created for the
+   * object: the next run reads it whole, since the copies the watermark counted
+   * on are gone. A clean run records over it.
+   */
+  removedAt: z.iso.datetime().optional(),
 });
 
 /** Every watermark of one configuration. */
@@ -150,7 +164,7 @@ export function scopeFingerprint(
 
 /** How a run reads one object of a delta configuration. */
 export type ObjectReadPlan =
-  | { read: 'delta'; since: string; fingerprint: string }
+  | { read: 'delta'; since: string; fingerprint: string; filesSeen?: string }
   | { read: 'full'; reason: SyncFullReadReason; fingerprint: string };
 
 /**
@@ -184,7 +198,13 @@ export function planObjectRead(
   if (entry.fingerprint !== fingerprint) {
     return { read: 'full', reason: 'scope_changed', fingerprint };
   }
-  return { read: 'delta', since: entry.watermark, fingerprint };
+  if (entry.removedAt !== undefined) return { read: 'full', reason: 'removed', fingerprint };
+  return {
+    read: 'delta',
+    since: entry.watermark,
+    fingerprint,
+    ...(entry.filesSeen !== undefined ? { filesSeen: entry.filesSeen } : {}),
+  };
 }
 
 /** A SOQL datetime literal, to the second, in UTC. */
@@ -200,6 +220,17 @@ export function changedSinceLiteral(watermark: string, overlapMs = DELTA_OVERLAP
   if (!Number.isFinite(at)) throw new Error(`Not a watermark: "${watermark}".`);
   const from = Math.floor((at - overlapMs) / 1000) * 1000;
   return new Date(from).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * A date the org wrote, as a SOQL literal to the second: the org stamps its
+ * records to the second, so the literal of a stamp is that stamp, and a read
+ * of what is after it leaves the stamp itself out.
+ */
+export function soqlDateTimeOf(iso: string): string {
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) throw new Error(`Not a date: "${iso}".`);
+  return new Date(Math.floor(at / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 /** A SOQL datetime literal as {@link changedSinceLiteral} writes one, or an error. */

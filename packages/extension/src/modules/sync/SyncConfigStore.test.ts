@@ -233,6 +233,71 @@ describe('SyncConfigStore', () => {
       );
     });
   });
+
+  describe('after a removal of what a run created', () => {
+    const orgs = { sourceOrgId: 'src-org', targetOrgId: 'tgt-org' };
+
+    it('forgets the copies the removal deleted, between those orgs, and says which', () => {
+      store.recordFile('cfg-1', copiedFile());
+      store.recordFile(
+        'cfg-1',
+        copiedFile({ sourceId: fakeId('069', 2), targetId: fakeId('069', 8) }),
+      );
+      store.recordFile('cfg-1', copiedFile({ targetOrgId: 'other-org' }));
+
+      // Named by its 15-character id: the same copy.
+      const forgotten = store.forgetFiles('cfg-1', orgs, [fakeId('069', 9).slice(0, 15)]);
+
+      expect(forgotten).toEqual([copiedFile()]);
+      const kept = store.loadFiles('cfg-1');
+      expect(kept.kind === 'stored' ? kept.map.entries : []).toEqual([
+        copiedFile({ sourceId: fakeId('069', 2), targetId: fakeId('069', 8) }),
+        copiedFile({ targetOrgId: 'other-org' }),
+      ]);
+    });
+
+    it('writes nothing when none of the copies deleted is kept', () => {
+      store.recordFile('cfg-1', copiedFile());
+      configStore.set.mockClear();
+
+      expect(store.forgetFiles('cfg-1', orgs, [fakeId('069', 5)])).toEqual([]);
+      expect(configStore.set).not.toHaveBeenCalled();
+    });
+
+    it('has the next run read whole the objects whose copies went, between those orgs only', () => {
+      store.recordWatermark('cfg-1', watermark());
+      store.recordWatermark('cfg-1', watermark({ objectApiName: 'Contact' }));
+      store.recordWatermark('cfg-1', watermark({ targetOrgId: 'other-org' }));
+
+      const marked = store.markRemoved('cfg-1', orgs, ['Account'], '2026-10-14T08:00:00.000Z');
+
+      expect(marked).toEqual(['Account']);
+      const delta = store.loadDelta('cfg-1');
+      expect(delta.kind === 'stored' ? delta.state.entries : []).toEqual([
+        watermark({ removedAt: '2026-10-14T08:00:00.000Z' }),
+        watermark({ objectApiName: 'Contact' }),
+        watermark({ targetOrgId: 'other-org' }),
+      ]);
+    });
+
+    it('marks nothing for an object without a watermark: its next run reads it whole anyway', () => {
+      store.recordWatermark('cfg-1', watermark());
+
+      expect(store.markRemoved('cfg-1', orgs, ['Contact'], '2026-10-14T08:00:00.000Z')).toEqual([]);
+    });
+
+    it('lets the next clean run record over the mark', () => {
+      store.recordWatermark('cfg-1', watermark());
+      store.markRemoved('cfg-1', orgs, ['Account'], '2026-10-14T08:00:00.000Z');
+
+      store.recordWatermark('cfg-1', watermark({ watermark: '2026-10-14T09:00:00.000Z' }));
+
+      const delta = store.loadDelta('cfg-1');
+      expect(delta.kind === 'stored' ? delta.state.entries : []).toEqual([
+        watermark({ watermark: '2026-10-14T09:00:00.000Z' }),
+      ]);
+    });
+  });
 });
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */

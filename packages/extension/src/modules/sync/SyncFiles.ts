@@ -67,7 +67,7 @@ import {
 import { toSaveOutcomes } from '../../core/common/existingRecordMatch.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlWhere } from '../../core/common/soqlValidator.js';
-import { assertSoqlDateTime, orgDateTime } from './SyncDelta.js';
+import { assertSoqlDateTime, orgDateTime, soqlDateTimeOf } from './SyncDelta.js';
 
 /**
  * Most copied files one configuration keeps a record of. Every file a run
@@ -225,6 +225,12 @@ export interface PlannedObjectFiles {
   replacing: ReadonlyMap<string, string>;
   /** When the source last changed each legacy attachment found, as ISO, by id: kept with its copy. */
   attachmentsChangedAt: ReadonlyMap<string, string>;
+  /**
+   * On a delta read: the newest stamp the lookups for files gained since have
+   * looked at, this run's or an earlier one's, as ISO — what the object's next
+   * watermark keeps, so the next run looks only past it.
+   */
+  filesSeen?: string;
 }
 
 /** The files of a run, found and measured before anything is written. */
@@ -240,12 +246,35 @@ export interface FilePlanObject {
   objectConfig: SyncObjectConfig;
   /** On a delta read: the SOQL datetime the read starts from. */
   changedSince?: string;
+  /**
+   * On a delta read: the newest stamp an earlier run's lookups for files
+   * looked at (`SyncWatermark.filesSeen`), as ISO. Those lookups look only
+   * past it when it is later than `changedSince`.
+   */
+  filesSeen?: string;
 }
 
 /** A string field of a row, or undefined. */
 function text(row: Record<string, unknown>, field: string): string | undefined {
   const value = row[field];
   return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/** A date a row holds at `pathOfField` — a dotted path through its relationships — as ISO, or null. */
+function stampAt(row: Record<string, unknown>, pathOfField: string): string | null {
+  let value: unknown = row;
+  for (const step of pathOfField.split('.')) {
+    if (typeof value !== 'object' || value === null) return null;
+    value = (value as Record<string, unknown>)[step];
+  }
+  return orgDateTime(value);
+}
+
+/** The later of two ISO dates, either of which may be absent. */
+function later(a: string | undefined, b: string | null | undefined): string | undefined {
+  if (b === null || b === undefined) return a;
+  if (a === undefined) return b;
+  return Date.parse(b) > Date.parse(a) ? b : a;
 }
 
 /** A number field of a row, 0 when the row gives none. */
@@ -285,44 +314,60 @@ function copiedFilesOf(config: SyncConfig, store: SyncFileStore): Map<string, Sy
   return copied;
 }
 
+/** The version stamp a file link carries through its document. */
+const LINKED_VERSION_STAMP = 'ContentDocument.LatestPublishedVersion.SystemModstamp';
+
 /**
- * The records of an object's scope whose files changed after `changedSince`:
- * a Salesforce File linked to one since — the link's stamp — or whose latest
+ * The records of an object's scope whose files changed after `lookPast`: a
+ * Salesforce File linked to one since — the link's stamp — or whose latest
  * version was published since — its version's stamp — and a legacy attachment
  * created or changed under one since. Nothing else of such a record need have
  * changed, and a delta read, which reads the records stamped since, did not
  * return it: a file attached to it was found only once the record changed, or
  * on a full read.
+ *
+ * With them, the newest of the stamps the lookups found, as ISO: the point
+ * the next run's lookups start from. Started from the watermark alone, they
+ * found the same files on every run whose records did not change — the
+ * watermark stays put then — each found again only to be counted unchanged.
  */
 async function recordsWithFilesSince(
   deps: SyncFileDeps,
   config: SyncConfig,
   objectConfig: SyncObjectConfig,
-  changedSince: string,
-): Promise<string[]> {
+  lookPast: string,
+): Promise<{ ids: string[]; newest?: string }> {
   const object = sanitizeSoqlObjectName(objectConfig.objectApiName);
   const own = objectConfig.where?.trim() ? ` WHERE (${assertSoqlWhere(objectConfig.where)})` : '';
   const scope = `SELECT Id FROM ${object}${own}`;
-  const since = assertSoqlDateTime(changedSince);
+  const since = assertSoqlDateTime(lookPast);
   const found = new Set<string>();
+  let newest: string | undefined;
   const links = await deps.copy.queryRecords(
     config.sourceOrgId,
-    `SELECT LinkedEntityId FROM ContentDocumentLink WHERE LinkedEntityId IN (${scope}) AND ` +
-      `(SystemModstamp > ${since} OR ContentDocument.LatestPublishedVersion.SystemModstamp > ${since})`,
+    `SELECT LinkedEntityId, SystemModstamp, ${LINKED_VERSION_STAMP} FROM ContentDocumentLink ` +
+      `WHERE LinkedEntityId IN (${scope}) AND ` +
+      `(SystemModstamp > ${since} OR ${LINKED_VERSION_STAMP} > ${since})`,
   );
   for (const link of links) {
     const id = text(link, 'LinkedEntityId');
     if (id && isRecordId(id)) found.add(id);
+    newest = later(
+      later(newest, stampAt(link, 'SystemModstamp')),
+      stampAt(link, LINKED_VERSION_STAMP),
+    );
   }
   const attachments = await deps.copy.queryRecords(
     config.sourceOrgId,
-    `SELECT ParentId FROM Attachment WHERE ParentId IN (${scope}) AND LastModifiedDate > ${since}`,
+    `SELECT ParentId, LastModifiedDate FROM Attachment WHERE ParentId IN (${scope}) AND ` +
+      `LastModifiedDate > ${since}`,
   );
   for (const attachment of attachments) {
     const id = text(attachment, 'ParentId');
     if (id && isRecordId(id)) found.add(id);
+    newest = later(newest, stampAt(attachment, 'LastModifiedDate'));
   }
-  return [...found];
+  return { ids: [...found], ...(newest !== undefined ? { newest } : {}) };
 }
 
 /** When the source last changed each legacy attachment of `ids`, as ISO, by id. */
@@ -368,18 +413,18 @@ function attachmentChanged(
 
 /**
  * The latest versions of documents an earlier run copied for `objectApiName`
- * that are stamped after `changedSince`: what a delta read adds to the files
- * of the records it read, so a new version reaches the target though its
- * record did not change.
+ * that are stamped after `lookPast`: what a delta read adds to the files of
+ * the records it read, so a new version reaches the target though its record
+ * did not change. With them, the newest stamp among them, as ISO.
  */
 async function newerVersions(
   deps: SyncFileDeps,
   config: SyncConfig,
   objectApiName: string,
-  changedSince: string,
+  lookPast: string,
   copied: ReadonlyMap<string, SyncCopiedFile>,
   found: ReadonlySet<string>,
-): Promise<FileToCopy[]> {
+): Promise<{ files: FileToCopy[]; newest?: string }> {
   const documents = [...copied.values()]
     .filter(
       (entry) =>
@@ -390,16 +435,18 @@ async function newerVersions(
         !found.has(entry.sourceId),
     )
     .map((entry) => entry.sourceId);
-  const since = assertSoqlDateTime(changedSince);
+  const since = assertSoqlDateTime(lookPast);
   const files: FileToCopy[] = [];
+  let newest: string | undefined;
   for (const list of idLists(documents)) {
     const versions = await deps.copy.queryRecords(
       config.sourceOrgId,
-      'SELECT Id, ContentDocumentId, Title, PathOnClient, ContentSize, ContentLocation ' +
-        `FROM ContentVersion WHERE ContentDocumentId IN (${list}) AND IsLatest = true ` +
-        `AND SystemModstamp > ${since}`,
+      'SELECT Id, ContentDocumentId, Title, PathOnClient, ContentSize, ContentLocation, ' +
+        `SystemModstamp FROM ContentVersion WHERE ContentDocumentId IN (${list}) AND ` +
+        `IsLatest = true AND SystemModstamp > ${since}`,
     );
     for (const version of versions) {
+      newest = later(newest, stampAt(version, 'SystemModstamp'));
       const documentId = text(version, 'ContentDocumentId');
       const versionId = text(version, 'Id');
       if (!documentId || !versionId || (text(version, 'ContentLocation') ?? 'S') !== 'S') continue;
@@ -415,7 +462,7 @@ async function newerVersions(
       });
     }
   }
-  return files;
+  return { files, ...(newest !== undefined ? { newest } : {}) };
 }
 
 /**
@@ -546,21 +593,30 @@ export async function planRunFiles(input: {
     storage: { remainingBytes, plannedBytes: 0 },
   };
 
-  for (const { objectConfig, changedSince } of objects) {
+  for (const { objectConfig, changedSince, filesSeen: seenBefore } of objects) {
     if (objectConfig.operation === 'delete') continue;
     const name = objectConfig.objectApiName;
     const ids = await deps.sourceIds(objectConfig, changedSince);
     const notes: string[] = [];
+    // On a delta read, the lookups for files gained since start from the
+    // watermark, or past the newest stamp an earlier run's looked at.
+    const lookPast =
+      changedSince === undefined
+        ? undefined
+        : seenBefore !== undefined && Date.parse(seenBefore) > Date.parse(changedSince)
+          ? soqlDateTimeOf(seenBefore)
+          : changedSince;
+    let filesSeen = changedSince === undefined ? undefined : seenBefore;
     // On a delta read, the records whose files changed while nothing else of
     // them did: the read does not return them, and their files go to the
     // copy an earlier run made of each, which the object's key finds.
     let held: ReadonlyMap<string, string> = new Map();
-    if (changedSince !== undefined) {
+    if (lookPast !== undefined) {
       try {
         const changed = new Set(ids);
-        const others = (
-          await recordsWithFilesSince(deps, config, objectConfig, changedSince)
-        ).filter((id) => !changed.has(id));
+        const gained = await recordsWithFilesSince(deps, config, objectConfig, lookPast);
+        filesSeen = later(filesSeen, gained.newest);
+        const others = gained.ids.filter((id) => !changed.has(id));
         if (others.length > 0) {
           const tied: TiedRecords = input.tie
             ? await input.tie(objectConfig, others)
@@ -617,10 +673,11 @@ export async function planRunFiles(input: {
     const shared: SyncCopiedFile[] = [];
     let changedAt = new Map<string, string>();
     try {
-      if (changedSince !== undefined) {
+      if (lookPast !== undefined) {
         const found = new Set(candidates.map((f) => f.sourceId));
-        const versions = await newerVersions(deps, config, name, changedSince, copied, found);
-        for (const version of versions) {
+        const newer = await newerVersions(deps, config, name, lookPast, copied, found);
+        filesSeen = later(filesSeen, newer.newest);
+        for (const version of newer.files) {
           if (version.bytes > maxFileBytes) outcome.tooLarge++;
           else candidates = [...candidates, version];
         }
@@ -729,6 +786,7 @@ export async function planRunFiles(input: {
       held,
       replacing,
       attachmentsChangedAt: changedAt,
+      ...(filesSeen !== undefined ? { filesSeen } : {}),
     });
   }
 
@@ -787,6 +845,13 @@ export async function copyPlannedFiles(input: {
   deps: SyncFileDeps;
   signal?: AbortSignal;
   waitIfPaused?: () => Promise<void>;
+  /**
+   * Told of each file the copy created in the target, as soon as it exists:
+   * a Salesforce File's first copy, by its document, or a legacy attachment.
+   * Never a version added to an earlier copy, nor a copy only linked to more
+   * records: those were the target's before. What a removal of the run takes.
+   */
+  onCreated?: (objectApiName: 'ContentDocument' | 'Attachment', id: string) => void;
 }): Promise<CopiedObjectFiles> {
   const { config, option, objectApiName, planned, written, deps, signal } = input;
   const outcome: SyncFilesOutcome = {
@@ -857,6 +922,11 @@ export async function copyPlannedFiles(input: {
     } else if (!file.into?.unchanged) {
       outcome.copied++;
       outcome.bytes += file.bytes;
+    }
+    // A copy written whole is the run's: a first copy, or the new copy of an
+    // attachment replaced, the earlier one deleted by the run.
+    if (!copy.asVersion && !file.into) {
+      input.onCreated?.(document ? 'ContentDocument' : 'Attachment', copy.targetId);
     }
     try {
       deps.store.record(config.id, {

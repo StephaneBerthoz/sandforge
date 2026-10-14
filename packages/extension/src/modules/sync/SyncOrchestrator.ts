@@ -49,6 +49,7 @@ import {
 } from './SyncFiles.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
+import type { SyncCreationRecorder } from './SyncRunCreations.js';
 
 /** How a source read of one object is asked, beyond the object's own filter. */
 export interface SourceRead {
@@ -153,6 +154,14 @@ export interface SyncOrchestratorDeps {
    * Without it, such a configuration is refused before anything is read.
    */
   files?: SyncFileDeps;
+  /**
+   * Where the run keeps what it creates in the target, as it writes it: the
+   * records it inserted, or upserted where the target held none, and the
+   * files it created. What a removal of the run takes back, and nothing else:
+   * a record it updated was the target's before. Without it, nothing is kept
+   * and the run cannot be taken back.
+   */
+  creations?: SyncCreationRecorder;
   /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -261,9 +270,68 @@ export class SyncOrchestrator {
         files: filePlan.storage,
       });
     }
-    /** A result of this run, with what its files took of the target's storage. */
-    const withFiles = (result: SyncExecutionResult): SyncExecutionResult =>
-      filePlan ? { ...result, files: filePlan.storage } : result;
+
+    // What the run creates, kept as it writes it, for its removal to take
+    // back: see `creations`.
+    const recorder = this.deps.creations;
+    /** Records the run created, per object in the order it first wrote each. */
+    const createdByObject = new Map<string, number>();
+    let filesCreated = 0;
+    const noteCreated = (
+      objectConfig: SyncObjectConfig,
+      outcomes: readonly OperationOutcome[],
+    ): void => {
+      if (!recorder) return;
+      const ids = createdIds(objectConfig.operation, outcomes);
+      if (ids.length === 0) return;
+      recorder.note(objectConfig.objectApiName, ids);
+      const name = objectConfig.objectApiName;
+      createdByObject.set(name, (createdByObject.get(name) ?? 0) + ids.length);
+    };
+    const noteFile = (objectApiName: 'ContentDocument' | 'Attachment', id: string): void => {
+      if (!recorder) return;
+      recorder.note(objectApiName, [id]);
+      filesCreated++;
+    };
+    let unkeptSaid = false;
+    /**
+     * An object's result, once what the run created by then is kept; with a
+     * word, the first time, when some of it could not be: the run goes on,
+     * and its removal cannot take what was not kept.
+     */
+    const kept = async (result: SyncObjectResult): Promise<SyncObjectResult> => {
+      const failure = await recorder?.flush();
+      if (failure === undefined || unkeptSaid) return result;
+      unkeptSaid = true;
+      return {
+        ...result,
+        errors: [
+          ...result.errors,
+          `What this run created could not all be kept (${failure}): removing the run may ` +
+            'leave some of it in the target.',
+        ],
+      };
+    };
+    const push = async (result: SyncObjectResult): Promise<void> => {
+      objectResults.push(await kept(result));
+    };
+
+    /**
+     * A result of this run, with what its files took of the target's storage
+     * and what it created, counted.
+     */
+    const finish = (result: SyncExecutionResult): SyncExecutionResult => {
+      const withFiles = filePlan ? { ...result, files: filePlan.storage } : result;
+      if (!recorder || (createdByObject.size === 0 && filesCreated === 0)) return withFiles;
+      return {
+        ...withFiles,
+        created: {
+          runId: recorder.runId,
+          objects: [...createdByObject].map(([objectApiName, count]) => ({ objectApiName, count })),
+          files: filesCreated,
+        },
+      };
+    };
 
     const totalRecords = await this.countForGrappe(config, sortedObjects, deltaLoad);
     const grappeActive = this.isGrappeActive(totalRecords);
@@ -296,12 +364,13 @@ export class SyncOrchestrator {
      * read and written, and the run was reported by its objects' counts as if
      * nobody had stopped it.
      */
-    const stopHere = (
+    const stopHere = async (
       notReached: readonly SyncObjectConfig[],
       reason?: string,
-    ): SyncExecutionResult => {
+    ): Promise<SyncExecutionResult> => {
       endGrappe();
-      return withFiles(
+      await recorder?.flush();
+      return finish(
         stoppedResult(config.id, operationId, objectResults, startTime, notReached, reason),
       );
     };
@@ -338,6 +407,7 @@ export class SyncOrchestrator {
           leftOut,
           plan ? read : undefined,
           written,
+          recorder ? (outcomes) => noteCreated(objectConfig, outcomes) : undefined,
         );
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
@@ -355,7 +425,7 @@ export class SyncOrchestrator {
             ),
             leftOut,
           );
-          if (stopped.processed > 0 || stopped.skipped > 0) objectResults.push(withPlan(stopped));
+          if (stopped.processed > 0 || stopped.skipped > 0) await push(withPlan(stopped));
           return stopHere(sortedObjects.slice(index));
         }
         /*
@@ -367,7 +437,7 @@ export class SyncOrchestrator {
          * "failure, 0 objects, 0 ms", with no way to tell it from a run that
          * never started.
          */
-        objectResults.push(
+        await push(
           withPlan(
             withRowsLeftOut(
               {
@@ -381,14 +451,14 @@ export class SyncOrchestrator {
         );
         throw new SyncRunFailure(
           err instanceof Error ? err.message : String(err),
-          withFiles(buildResult(config.id, operationId, objectResults, startTime, 'failure')),
+          finish(buildResult(config.id, operationId, objectResults, startTime, 'failure')),
           err,
         );
       }
       if (synced === NOT_WRITTEN) {
         // Nothing of it was written; the rows its read left out are said all the same.
         const stopped = withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
-        if (stopped.skipped > 0) objectResults.push(withPlan(stopped));
+        if (stopped.skipped > 0) await push(withPlan(stopped));
         return stopHere(sortedObjects.slice(index));
       }
       let result: SyncObjectResult = synced;
@@ -399,7 +469,7 @@ export class SyncOrchestrator {
       if (plannedFiles && written && config.files) {
         await this.deps.pauseGate?.whilePaused(this.deps.signal);
         if (this.deps.signal?.aborted) {
-          objectResults.push(withPlan(result));
+          await push(withPlan(result));
           return stopHere(sortedObjects.slice(index + 1), filesNotCopied(objectConfig));
         }
         const files = await copyPlannedFiles({
@@ -412,6 +482,7 @@ export class SyncOrchestrator {
           signal: this.deps.signal,
           waitIfPaused: () =>
             this.deps.pauseGate?.whilePaused(this.deps.signal) ?? Promise.resolve(),
+          onCreated: noteFile,
         });
         result = { ...result, files: files.outcome, errors: [...result.errors, ...files.notes] };
         // A file not copied this time is copied by the next run only if that
@@ -419,7 +490,7 @@ export class SyncOrchestrator {
         filesComplete =
           files.outcome.failed === 0 && files.outcome.pastRunCap === 0 && files.unplanned === 0;
         if (files.cancelled) {
-          objectResults.push(withPlan(result));
+          await push(withPlan(result));
           return stopHere(sortedObjects.slice(index + 1), filesNotCopied(objectConfig));
         }
       }
@@ -432,7 +503,7 @@ export class SyncOrchestrator {
       if (plan?.read === 'delta' && config.propagateDeletes === true && read.changedSince) {
         await this.deps.pauseGate?.whilePaused(this.deps.signal);
         if (this.deps.signal?.aborted) {
-          objectResults.push(withPlan(result));
+          await push(withPlan(result));
           return stopHere(sortedObjects.slice(index));
         }
         try {
@@ -442,7 +513,7 @@ export class SyncOrchestrator {
           // Stopped between two batches of deletes: those sent are done, the
           // rest are read again by the next run, from the same watermark.
           const sent = buildObjectResult(objectConfig.objectApiName, 'delete', err.written);
-          objectResults.push(
+          await push(
             withPlan(
               { ...result, errors: [...result.errors, ...sent.errors, ...err.notes] },
               { deleted: sent.success, deleteFailed: sent.failed, notes: [], complete: false },
@@ -464,6 +535,9 @@ export class SyncOrchestrator {
           (deletions.deleteFailed === 0 && deletions.error === undefined && deletions.complete));
       let recorded: string | undefined;
       if (plan && mark !== null && clean) {
+        // With the newest file stamp the run's lookups looked at, which the
+        // next run's look past.
+        const filesSeen = plannedFiles?.filesSeen;
         try {
           this.deps.deltaStore?.record(config.id, {
             sourceOrgId: config.sourceOrgId,
@@ -472,6 +546,7 @@ export class SyncOrchestrator {
             watermark: mark,
             fingerprint: plan.fingerprint,
             recordedAt: new Date().toISOString(),
+            ...(filesSeen !== undefined ? { filesSeen } : {}),
           });
           recorded = mark;
         } catch (err: unknown) {
@@ -488,7 +563,7 @@ export class SyncOrchestrator {
       if (plan) {
         result = { ...result, delta: deltaOutcomeOf(plan, read.rows, deletions, recorded) };
       }
-      objectResults.push(result);
+      await push(result);
 
       if (grappeActive) {
         partitionIndex++;
@@ -507,7 +582,8 @@ export class SyncOrchestrator {
 
     endGrappe();
 
-    return withFiles(buildResult(config.id, operationId, objectResults, startTime, status));
+    await recorder?.flush();
+    return finish(buildResult(config.id, operationId, objectResults, startTime, status));
   }
 
   /**
@@ -824,6 +900,9 @@ export class SyncOrchestrator {
    * @param leftOut - Receives the rows the read leaves to the platform.
    * @param read - On a delta configuration: how the source is read, filled in
    *   with what the read returned.
+   * @param written - Receives the records the write took, source id to target id.
+   * @param onWritten - Told what the write did, record by record, once it
+   *   answers — also the records it wrote before a cancel stopped it.
    */
   private async syncObject(
     config: SyncConfig,
@@ -831,6 +910,7 @@ export class SyncOrchestrator {
     leftOut: RowsLeftToThePlatform,
     read?: ObjectRead,
     written?: Map<string, string>,
+    onWritten?: (outcomes: readonly OperationOutcome[]) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
     const { records, sourceIds } = await this.prepare(config, objectConfig, leftOut, read);
 
@@ -848,14 +928,18 @@ export class SyncOrchestrator {
     // object's own mappings, it mapped every record a second time, by source
     // field name, on records that hold target names: a rename, a constant or a
     // formula found nothing there and wrote its field empty.
-    if (written) {
+    if (written || onWritten) {
       // A run that copies files needs each record the write took, and its id
-      // in the target: the files of a record go to its copy there.
+      // in the target: the files of a record go to its copy there. A run that
+      // keeps what it creates needs each record the write created.
       const note = (outcomes: readonly OperationOutcome[]): void => {
         outcomes.forEach((outcome, at) => {
           const sourceId = sourceIds[at];
-          if (outcome.success && outcome.id && sourceId) written.set(sourceId, outcome.id);
+          if (written && outcome.success && outcome.id && sourceId) {
+            written.set(sourceId, outcome.id);
+          }
         });
+        onWritten?.(outcomes);
       };
       try {
         const { outcomes, notes } = await this.deps.dataSync.write(
@@ -1017,7 +1101,12 @@ export class SyncOrchestrator {
         const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
         return {
           objectConfig,
-          ...(plan?.read === 'delta' ? { changedSince: changedSinceLiteral(plan.since) } : {}),
+          ...(plan?.read === 'delta'
+            ? {
+                changedSince: changedSinceLiteral(plan.since),
+                ...(plan.filesSeen !== undefined ? { filesSeen: plan.filesSeen } : {}),
+              }
+            : {}),
         };
       }),
     });
@@ -1073,6 +1162,27 @@ export class SyncOrchestrator {
     }
     return { held };
   }
+}
+
+/**
+ * The records a write created, by their ids in the target: every record an
+ * insert wrote, and those an upsert wrote that the org said it created. One
+ * the org updated was the target's before; one an upsert wrote without the
+ * org saying which it did is left out, never guessed into the run's.
+ */
+export function createdIds(
+  operation: SyncObjectConfig['operation'],
+  outcomes: readonly OperationOutcome[],
+): string[] {
+  if (operation !== 'insert' && operation !== 'upsert') return [];
+  return outcomes.flatMap((outcome) =>
+    outcome.success &&
+    typeof outcome.id === 'string' &&
+    outcome.id !== '' &&
+    (operation === 'insert' || outcome.created === true)
+      ? [outcome.id]
+      : [],
+  );
 }
 
 /** A record to create, without the lookups the platform fills in itself. */

@@ -13,6 +13,7 @@ import { usePagination } from '../../hooks/usePagination';
 import { formatDuration, formatRelativeTime, formatStoredDate } from '../../utils/formatters';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 import { SyncHistoryDetail } from './SyncHistoryDetail';
+import { SyncUnfinishedRuns } from './SyncUnfinishedRuns';
 
 /** Row type compatible with DataTable's Record<string, unknown> constraint. */
 type HistoryRow = SyncHistoryEntry & Record<string, unknown>;
@@ -126,6 +127,10 @@ export const SyncHistoryPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-history-panel">
+      {/* Runs a closed window stopped: no history entry holds them, and what
+          they created is removable all the same. */}
+      <SyncUnfinishedRuns />
+
       {isLoading && <SkeletonTable rows={5} columns={6} />}
 
       {isEmpty && (
