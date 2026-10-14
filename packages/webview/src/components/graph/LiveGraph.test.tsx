@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { LiveGraph } from './LiveGraph';
 import type { ForgeGraph } from '@sandforge/shared';
 
@@ -175,6 +175,37 @@ describe('LiveGraph', () => {
     expect(fit.padding.right).toMatch(/px$/);
     // The fit button fits it the same way.
     expect(received.controls.fitViewOptions).toBe(received.flow.fitViewOptions);
+  });
+
+  it('hands each node back the size React Flow measured, and the minimap no colour of its own', () => {
+    // The minimap draws a node only at a size the node itself carries, and a
+    // graph rebuilt from props loses what React Flow measured unless it keeps
+    // it: the minimap drew no node at all, only its mask over the pane.
+    render(<LiveGraph graph={makeSampleGraph()} />);
+    const onNodesChange = received.flow.onNodesChange as (changes: unknown[]) => void;
+    act(() => {
+      onNodesChange([
+        { id: 'Account', type: 'dimensions', dimensions: { width: 200, height: 96 } },
+      ]);
+    });
+
+    const nodes = received.flow.nodes as Array<{ id: string; measured?: unknown }>;
+    expect(nodes.map((n) => [n.id, n.measured])).toEqual([
+      ['Account', { width: 200, height: 96 }],
+      ['Contact', undefined],
+    ]);
+    // A colour given as a prop would take precedence over the theme's,
+    // set on React Flow's variables in the stylesheet.
+    for (const prop of [
+      'bgColor',
+      'maskColor',
+      'maskStrokeColor',
+      'nodeColor',
+      'nodeStrokeColor',
+    ]) {
+      expect(received.minimap).not.toHaveProperty(prop);
+    }
+    expect(received.minimap.style).not.toHaveProperty('backgroundColor');
   });
 
   it('should handle empty graph gracefully', () => {

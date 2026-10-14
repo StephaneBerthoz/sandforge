@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import { ReactFlow, Background, MiniMap, ReactFlowProvider } from '@xyflow/react';
-import type { Node, Edge, FitViewOptions } from '@xyflow/react';
+import type { Dimensions, Node, Edge, FitViewOptions } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type {
   AutopilotNode as AutopilotNodeType,
@@ -13,6 +13,7 @@ import type { RelationEdgeData } from './RelationEdge';
 import { GraphLegend, LEGEND_HEIGHT } from './GraphLegend';
 import { GraphControls, CONTROLS_WIDTH } from './GraphControls';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+import { useNodeSizes } from '../../../components/graph/useNodeSizes';
 
 /** The minimap's height in pixels, React Flow's own, said here for the room the fit leaves it. */
 const MINIMAP_HEIGHT = 150;
@@ -61,19 +62,21 @@ const nodeTypes = { objectNode: ObjectNode };
 const edgeTypes = { relationEdge: RelationEdge };
 
 /**
- * The minimap draws each node in the token its card and the legend use. A
- * class, not `nodeColor`: the minimap sets that as a fill attribute, which
- * takes a colour but not a Tailwind token, and a class rule wins over it.
+ * The minimap draws each node in the token its card and the legend use,
+ * through `nodeColor`: React Flow writes it as the node's inline `fill`,
+ * which takes a `var()`. A `fill-*` class did not reach the node: Tailwind's
+ * utilities sit in a cascade layer, and React Flow's own unlayered rule for a
+ * minimap node wins over any of them.
  */
 const MINIMAP_NODE_FILLS: Record<string, string> = {
-  pending: 'fill-text-secondary',
-  queued: 'fill-text-secondary',
-  extracting: 'fill-hue-blue',
-  anonymizing: 'fill-hue-purple',
-  loading: 'fill-hue-green',
-  completed: 'fill-status-success',
-  failed: 'fill-status-error',
-  skipped: 'fill-text-muted',
+  pending: 'var(--color-text-secondary)',
+  queued: 'var(--color-text-secondary)',
+  extracting: 'var(--color-hue-blue)',
+  anonymizing: 'var(--color-hue-purple)',
+  loading: 'var(--color-hue-green)',
+  completed: 'var(--color-status-success)',
+  failed: 'var(--color-status-error)',
+  skipped: 'var(--color-text-muted)',
 };
 
 /**
@@ -84,6 +87,7 @@ function toReactFlowNode(
   node: AutopilotNodeType,
   indexInLevel: number,
   selectedNodeName: string | null,
+  size: Dimensions | undefined,
 ): Node<ObjectNodeData> {
   return {
     id: node.objectApiName,
@@ -92,6 +96,9 @@ function toReactFlowNode(
       x: indexInLevel * NODE_X_SPACING,
       y: node.level * LEVEL_Y_SPACING,
     },
+    // The size React Flow measured, handed back: the minimap draws a node
+    // only at a size the node itself carries (useNodeSizes).
+    ...(size ? { measured: size } : {}),
     data: {
       objectApiName: node.objectApiName,
       recordCount: node.recordCount,
@@ -146,6 +153,7 @@ export const AutopilotGraph: React.FC = () => {
   const selectedNodeName = useAutopilotStore((s) => s.selectedNodeName);
   const selectNode = useAutopilotStore((s) => s.selectNode);
   const [minimapVisible, setMinimapVisible] = useState(true);
+  const { sizes, onNodesChange } = useNodeSizes<Node<ObjectNodeData>>();
 
   /** Convert store nodes to ReactFlow nodes, grouped by level for X positioning. */
   const rfNodes = useMemo<Node<ObjectNodeData>[]>(() => {
@@ -164,11 +172,11 @@ export const AutopilotGraph: React.FC = () => {
     const result: Node<ObjectNodeData>[] = [];
     for (const [, nodesAtLevel] of levelMap) {
       nodesAtLevel.forEach((node, idx) => {
-        result.push(toReactFlowNode(node, idx, selectedNodeName));
+        result.push(toReactFlowNode(node, idx, selectedNodeName, sizes.get(node.objectApiName)));
       });
     }
     return result;
-  }, [graph, selectedNodeName]);
+  }, [graph, selectedNodeName, sizes]);
 
   /** Convert store edges to ReactFlow edges. */
   const rfEdges = useMemo<Edge<RelationEdgeData>[]>(() => {
@@ -197,6 +205,7 @@ export const AutopilotGraph: React.FC = () => {
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={handleNodeClick}
+          onNodesChange={onNodesChange}
           fitView
           fitViewOptions={FIT_CLEAR_OF_OVERLAYS}
           minZoom={0.2}
@@ -205,13 +214,13 @@ export const AutopilotGraph: React.FC = () => {
         >
           <Background color="var(--sf-border)" gap={20} />
           {minimapVisible && (
+            // Its background and the mask over what is out of view are the
+            // theme's, set on React Flow's own variables in styles/globals.css.
             <MiniMap
-              nodeClassName={(node) => {
+              nodeColor={(node) => {
                 const status = (node.data as ObjectNodeData | undefined)?.status ?? 'pending';
                 return MINIMAP_NODE_FILLS[status] ?? MINIMAP_NODE_FILLS.pending;
               }}
-              maskColor="rgba(0,0,0,0.6)"
-              className="bg-(--sf-bg-primary)!"
               style={{ height: MINIMAP_HEIGHT }}
             />
           )}

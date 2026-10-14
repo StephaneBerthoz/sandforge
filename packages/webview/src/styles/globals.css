@@ -88,3 +88,45 @@
     background: var(--vscode-editor-selectionBackground, #264f78);
   }
 }
+
+/*
+ * React Flow's controls and minimap, in the theme's colours. Its stylesheet
+ * paints them for a white canvas whatever the editor's theme — white buttons,
+ * a white minimap of pale grey nodes — and reads every one of those colours
+ * through a variable of its own, set here from the panel's tokens. The
+ * controls are drawn as the Autopilot graph draws its own. The minimap's
+ * nodes are the Forge mark, unless a graph colours them itself (the Autopilot
+ * graph colours each by its status); what lies out of view is tinted with the
+ * editor's foreground, so it reads apart from the rest on a light theme as on
+ * a dark one, and the view itself is outlined.
+ *
+ * A colour handed to `<MiniMap>` or `<Controls>` as a prop takes precedence
+ * over these: the graphs give them none.
+ */
+@layer components {
+  .react-flow {
+    --xy-controls-button-background-color: var(--sf-bg-primary);
+    --xy-controls-button-background-color-hover: var(--sf-bg-hover);
+    --xy-controls-button-color: var(--sf-text-secondary);
+    --xy-controls-button-color-hover: var(--sf-text-primary);
+    --xy-controls-button-border-color: var(--sf-border-subtle);
+    --xy-controls-box-shadow: 0 0 0 1px var(--sf-border-subtle);
+
+    --xy-minimap-background-color: var(--sf-bg-primary);
+    --xy-minimap-mask-background-color: color-mix(in srgb, var(--sf-text-primary) 12%, transparent);
+    --xy-minimap-mask-stroke-color: var(--sf-text-secondary);
+    --xy-minimap-mask-stroke-width: 1;
+    --xy-minimap-node-background-color: var(--color-hue-forge);
+  }
+
+  /* The minimap draws in the graph's own units, scaled down to its size: a
+     stroke one unit wide was a tenth of a pixel. */
+  .react-flow__minimap-mask {
+    vector-effect: non-scaling-stroke;
+  }
+
+  /* Its edge, as the controls have theirs, against a pane of the same colour. */
+  .react-flow__minimap {
+    box-shadow: 0 0 0 1px var(--sf-border-subtle);
+  }
+}

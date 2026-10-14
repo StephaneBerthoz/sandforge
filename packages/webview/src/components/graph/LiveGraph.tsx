@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ReactFlow, MiniMap, Controls, Background, useReactFlow } from '@xyflow/react';
-import type { Node, Edge, FitViewOptions } from '@xyflow/react';
+import type { Dimensions, Node, Edge, FitViewOptions } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { ForgeGraph, ForgeGraphEdge } from '@sandforge/shared';
@@ -10,6 +10,7 @@ import type { ProgressNodeData } from './ProgressNode';
 import { AnimatedEdge } from './AnimatedEdge';
 import type { AnimatedEdgeData } from './AnimatedEdge';
 import { cn } from '../../theme';
+import { useNodeSizes } from './useNodeSizes';
 
 /** Props for the LiveGraph wrapper component. */
 export interface LiveGraphProps {
@@ -111,16 +112,21 @@ function computeLayout(graph: ForgeGraph): Map<string, { x: number; y: number }>
 function buildFlowNodesFromLayout(
   graph: ForgeGraph,
   positions: Map<string, { x: number; y: number }>,
+  sizes: ReadonlyMap<string, Dimensions>,
   onNodeClick?: (objectName: string) => void,
   onIncludeToggle?: (objectName: string) => void,
   highlighted?: ReadonlySet<string>,
 ): Node<ProgressNodeData>[] {
   return graph.nodes.map((n) => {
     const pos = positions.get(n.objectApiName) ?? { x: 0, y: 0 };
+    const size = sizes.get(n.objectApiName);
     return {
       id: n.objectApiName,
       type: 'progressNode',
       position: pos,
+      // The size React Flow measured, handed back: the minimap draws a node
+      // only at a size the node itself carries (useNodeSizes).
+      ...(size ? { measured: size } : {}),
       data: {
         objectApiName: n.objectApiName,
         recordCount: n.recordCount,
@@ -203,9 +209,11 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
   const positions = useMemo(() => computeLayout(graph), [topologyKey]);
 
   // Nodes: recomputes when graph data changes (status, progress) but uses cached positions
+  const { sizes, onNodesChange } = useNodeSizes<Node<ProgressNodeData>>();
   const nodes = useMemo(
-    () => buildFlowNodesFromLayout(graph, positions, onNodeClick, onIncludeToggle, highlighted),
-    [graph, positions, onNodeClick, onIncludeToggle, highlighted],
+    () =>
+      buildFlowNodesFromLayout(graph, positions, sizes, onNodeClick, onIncludeToggle, highlighted),
+    [graph, positions, sizes, onNodeClick, onIncludeToggle, highlighted],
   );
   const edges = useMemo(() => buildFlowEdges(graph), [graph]);
 
@@ -229,6 +237,7 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
+        onNodesChange={onNodesChange}
         // React Flow makes each node's wrapper a focusable "button" around the
         // card, whose own controls then sat inside it: the name and the
         // checkbox are the node's keyboard stops.
@@ -237,17 +246,10 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         fitViewOptions={FIT_CLEAR_OF_MINIMAP}
         proOptions={{ hideAttribution: true }}
       >
-        {/* Nodes in the Forge mark as a class: the minimap sets `nodeColor` as a fill
-            attribute, which takes no token and which a class rule overrides. */}
-        <MiniMap
-          style={{
-            backgroundColor: 'var(--sf-bg-primary)',
-            width: MINIMAP_WIDTH,
-            height: MINIMAP_HEIGHT,
-          }}
-          nodeClassName="fill-hue-forge"
-          maskColor="rgba(0,0,0,0.6)"
-        />
+        {/* Its colours and those of the controls are the theme's, set on React
+            Flow's own variables in styles/globals.css: a colour given here as
+            a prop would take precedence over them. */}
+        <MiniMap style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }} />
         <Controls fitViewOptions={FIT_CLEAR_OF_MINIMAP} />
         {focus ? <FitOnNode id={focus} /> : null}
         <Background color="rgba(255,255,255,0.05)" gap={20} />
