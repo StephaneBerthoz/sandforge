@@ -9,7 +9,11 @@ import type {
   ForgeUndoResult,
   ForgeUndoStatus,
 } from '@sandforge/shared';
-import { forgeRemovalPlanLeft, forgeRunLinkedKept, forgeRunRecordsLeft } from '@sandforge/shared';
+import {
+  forgeRemovalPlanCountsLeft,
+  forgeRunCountsLeft,
+  forgeRunLinkedKeptCount,
+} from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
@@ -164,7 +168,18 @@ type RemovableRun = Pick<
   | 'undo'
   | 'removalLeft'
 > &
-  Partial<Pick<ForgeExecutionResult, 'forgeId' | 'targetOrgId'>>;
+  Partial<
+    Pick<
+      ForgeExecutionResult,
+      | 'forgeId'
+      | 'targetOrgId'
+      | 'remapInJournal'
+      | 'removalLeftByObject'
+      | 'idRemapByObject'
+      | 'linkedExistingCount'
+      | 'journalGone'
+    >
+  >;
 
 /** Whether a run is given by the removal plan kept of it, the history having dropped it. */
 function isKeptPlan(run: RemovableRun | ForgeRemovalPlan): run is ForgeRemovalPlan {
@@ -204,17 +219,13 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   onConfirm,
 }) => {
   const { t } = useTranslation();
+  // Counted, as a run whose ids are in its journal counts them.
   const plan = useMemo(
     () =>
-      (run ? (isKeptPlan(run) ? forgeRemovalPlanLeft(run) : forgeRunRecordsLeft(run)) : []).map(
-        ({ objectApiName, ids }) => ({
-          objectApiName,
-          count: ids.length,
-        }),
-      ),
+      run ? (isKeptPlan(run) ? forgeRemovalPlanCountsLeft(run) : forgeRunCountsLeft(run)) : [],
     [run],
   );
-  const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKept(run).length) : 0;
+  const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKeptCount(run)) : 0;
   return (
     <DangerConfirm
       open={run !== null}

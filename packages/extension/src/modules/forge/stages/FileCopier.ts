@@ -442,8 +442,11 @@ export interface FileCopyInput {
   files: readonly FileToCopy[];
   sourceOrgId: string;
   targetOrgId: string;
-  /** Which records the run created, and their ids in the target; files are added to it. */
-  remapper: Pick<IdRemapper, 'isCreated' | 'get' | 'add'>;
+  /**
+   * Which records the run created, and their ids in the target; files are
+   * added to it, and put on disk as each is (`persist`) when it keeps them there.
+   */
+  remapper: Pick<IdRemapper, 'isCreated' | 'get' | 'add'> & Partial<Pick<IdRemapper, 'persist'>>;
   deps: FileCopyDeps;
   /**
    * The report the run returns, kept up to date file by file: a run stopped
@@ -689,6 +692,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
 
     if (file.body.objectApiName === 'Attachment') {
       remapper.add(file.sourceId, written.id, 'Attachment');
+      remapper.persist?.();
       onCopied?.(file, {
         targetId: written.id,
         linked: publishedOn ? [publishedOn] : [],
@@ -699,6 +703,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
 
     if (into) {
       remapper.add(file.sourceId, into.documentId, 'ContentDocument');
+      remapper.persist?.();
       const linked = await link(file, into.documentId, unlinked);
       onCopied?.(file, { targetId: into.documentId, linked, asVersion: true });
       continue;
@@ -728,6 +733,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
       continue;
     }
     remapper.add(file.sourceId, documentId, 'ContentDocument');
+    remapper.persist?.();
 
     const linked = await link(file, documentId, hosts.slice(1));
     onCopied?.(file, {

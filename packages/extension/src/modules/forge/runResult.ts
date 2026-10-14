@@ -151,5 +151,8 @@ export function forgeRunResult(
     // The rows a call may have written before its answer was lost: in the
     // target maybe, out of reach of the removal.
     ...(summary.mayHaveBeenWritten ? { mayHaveBeenWritten: summary.mayHaveBeenWritten } : {}),
+    // Past the bound, the ids are in the run's journal and the tables above
+    // are empty: whoever records the run names the journal.
+    ...(summary.remapInJournal ? { remapInJournal: true as const } : {}),
   };
 }

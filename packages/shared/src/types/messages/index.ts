@@ -305,6 +305,7 @@ import type {
   ForgeResumeRunRequest,
   ForgeOpenRecordRequest,
   ForgeVerifyRequest,
+  ForgeExportIdsRequest,
   ForgePlanRequest,
   ForgeComplianceRequest,
   ForgeMetadataDiffRequest,
@@ -333,6 +334,8 @@ import type {
   ForgeOpenRecordErrorMessage,
   ForgeVerifyResponse,
   ForgeVerifyErrorMessage,
+  ForgeExportIdsResponse,
+  ForgeExportIdsErrorMessage,
   ForgePlanResponse,
   ForgePlanErrorMessage,
   ForgeComplianceResponse,
@@ -622,6 +625,7 @@ export type WebViewToExtensionMessage =
   | ForgeResumeRunRequest
   | ForgeOpenRecordRequest
   | ForgeVerifyRequest
+  | ForgeExportIdsRequest
   | ForgePlanRequest
   | ForgeComplianceRequest
   | ForgeMetadataDiffRequest
@@ -849,6 +853,8 @@ export type ExtensionToWebViewMessage =
   | ForgeOpenRecordErrorMessage
   | ForgeVerifyResponse
   | ForgeVerifyErrorMessage
+  | ForgeExportIdsResponse
+  | ForgeExportIdsErrorMessage
   | ForgePlanResponse
   | ForgePlanErrorMessage
   | ForgeComplianceResponse

@@ -141,7 +141,12 @@ import {
   splitStandardPricebookEntries,
   dedupePricebookEntries,
 } from '@sandforge/shared';
-import { CycleFkPass, patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
+import {
+  CycleFkPass,
+  RecordsOwingAcrossParts,
+  patchCycleFkUpdates,
+  type CycleFkPatchInput,
+} from './stages/CycleFkPatcher.js';
 import {
   bytesOf,
   copyFiles,
@@ -597,6 +602,11 @@ export interface ForgeStreamOptions {
    * of a million records went into the history whole. Only with a `store`.
    */
   summaryBound?: number;
+  /**
+   * Lookups the second pass takes from the journal at a time (2 000 when
+   * absent): a test seam, as `pageSize` is.
+   */
+  secondPassPageSize?: number;
 }
 
 /** Where a run read page by page stands with one object: see {@link ForgeStreamOptions.resumeAfter}. */
@@ -2333,6 +2343,18 @@ function ownSentNote(count: number): string {
 }
 
 /**
+ * What a node's line says of the rows a run linked to because a run before it
+ * wrote them: the run it retries, or the part of it a stop cut short. A run
+ * taken up where it stopped said they came from "the run retried", which it
+ * never was.
+ */
+function writtenBeforeNote(config: ForgeStageConfig, count: number): string {
+  return config.writtenBefore.from === 'resume'
+    ? `${count} already in the target, written before the run stopped`
+    : `${count} already in the target from the run retried`;
+}
+
+/**
  * Samples an object read page by page keeps of the rows the target refused,
  * across its pages: the three a node written whole keeps.
  */
@@ -2357,9 +2379,7 @@ function pagedCounts(
       ? `, ${carry.withTheirAccount} written by the platform with their person account`
       : '';
   const already =
-    carry.writtenBefore > 0
-      ? `, ${carry.writtenBefore} already in the target from the run retried`
-      : '';
+    carry.writtenBefore > 0 ? `, ${writtenBeforeNote(config, carry.writtenBefore)}` : '';
   const unidentified =
     carry.unidentified > 0
       ? ` (${carry.unidentified} already in the target without Salesforce naming the record — their children lose the link)`
@@ -3300,6 +3320,11 @@ export class ForgeExecutor {
     // the journal, when it keeps one; one that reads every node first settles
     // the pass after each node it writes, from memory.
     state.secondPassInStore = state.store !== undefined && !twoPhase;
+    // Taking up a run that filled in its lookups from memory: what its earlier
+    // parts owed and never filled in is owed again, with this part's own.
+    if (twoPhase && state.store) {
+      state.pendingFkUpdates.push(...state.store.owedLeftByEarlierParts());
+    }
     const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state);
     // A scoped read takes its turns in this order, save a node that waits for
     // a parent still to come: see `readInTurn`.
@@ -3648,6 +3673,7 @@ export class ForgeExecutor {
             deferUnresolved: true,
             stillPending,
             stopped: () => this.isAborted,
+            onPatched: this.patchedInTheJournal(state),
           });
           if (settled) state.errors.push(settled);
           state.pendingFkUpdates.push(...stillPending);
@@ -3674,6 +3700,7 @@ export class ForgeExecutor {
           enabled: !config.dryRun,
           onProgress,
           stopped: () => this.isAborted,
+          onPatched: this.patchedInTheJournal(state),
         });
     if (pass2Error) {
       state.errors.push(pass2Error);
@@ -8596,13 +8623,35 @@ export class ForgeExecutor {
     return findUnavailableRecordTypes(node.objectApiName, sent, target.recordTypes);
   }
 
-  /** Owe `updates` to the second pass: to the journal when the run keeps it there. */
+  /**
+   * Owe `updates` to the second pass: to the journal when the run keeps it
+   * there. A run that keeps a journal and fills in its lookups from memory,
+   * node by node, owes them to the journal as well: stopped before it filled
+   * them all in, its records were linked to by the run that took it up, and
+   * the lookups they owed left empty for good.
+   */
   private oweToTheSecondPass(state: ExecutionState, updates: readonly PendingFkUpdate[]): void {
     if (state.secondPassInStore && state.store) {
       for (const update of updates) state.store.owe(update);
       return;
     }
+    if (state.store) for (const update of updates) state.store.owe(update);
     state.pendingFkUpdates.push(...updates);
+  }
+
+  /**
+   * What a run that fills in its lookups from memory tells its journal of
+   * each update the target took (`CycleFkPatchInput.onPatched`); nothing for
+   * a run without a journal, or one whose second pass reads the journal.
+   */
+  private patchedInTheJournal(state: ExecutionState): CycleFkPatchInput['onPatched'] {
+    const { store } = state;
+    if (!store || state.secondPassInStore) return undefined;
+    return (_objectApiName, update) => {
+      for (const field of Object.keys(update)) {
+        if (field !== 'Id') store.patched(String(update['Id']), field);
+      }
+    };
   }
 
   /** Owe a record written as a draft its status: to the journal when the run keeps one. */
@@ -8888,17 +8937,29 @@ export class ForgeExecutor {
       stopped: () => this.isAborted,
     });
     const leftEmpty: LeftEmptyLookups = new Map();
+    const pageSize = state.config.stream?.secondPassPageSize ?? SECOND_PASS_PAGE;
     const inMemory = state.pendingFkUpdates.splice(0, state.pendingFkUpdates.length);
-    await pass.patch(this.keepLookupsInTheClone(state, inMemory, leftEmpty));
-    for (const page of store.owedPages(SECOND_PASS_PAGE)) {
+    // Which records owe lookups in more than one page, read first: what each
+    // owes goes in one update, sent once the last page is through.
+    const across = new RecordsOwingAcrossParts();
+    for (const update of inMemory) across.note(0, update.newId);
+    let part = 1;
+    for (const page of store.owedPages(pageSize)) {
+      for (const { update } of page) across.note(part, update.newId);
+      part++;
+    }
+    const heldBack = (update: PendingFkUpdate): boolean => across.spans(update.newId);
+    await pass.patch(this.keepLookupsInTheClone(state, inMemory, leftEmpty), heldBack);
+    for (const page of store.owedPages(pageSize)) {
       const owed = page
         .filter(
           ({ update, toRowWrittenBefore }: StoredOwedLookup) =>
             !toRowWrittenBefore || state.remapper.get(update.sourceRefId) !== undefined,
         )
         .map(({ update }) => update);
-      await pass.patch(this.keepLookupsInTheClone(state, owed, leftEmpty));
+      await pass.patch(this.keepLookupsInTheClone(state, owed, leftEmpty), heldBack);
     }
+    await pass.sendHeld();
     this.sayLeftEmpty(state, leftEmpty);
     return pass.finish();
   }
@@ -9414,7 +9475,7 @@ export class ForgeExecutor {
               objectName: node.objectApiName,
               status: 'done',
               progress: 100,
-              message: `${completed}: 0 succeeded, ${writtenBefore.length} already in the target from the run retried, 0 failed`,
+              message: `${completed}: 0 succeeded, ${writtenBeforeNote(config, writtenBefore.length)}, 0 failed`,
             });
           }
           return;
@@ -9774,6 +9835,18 @@ export class ForgeExecutor {
       // An order past Draft goes in as a draft, and gets its status back once
       // every node is written: see `restoreStatuses`.
       const startedAsDrafts = await this.startAsDrafts(state, node.objectApiName, recordsToInsert);
+      /**
+       * The rows written as drafts whose status is not owed yet, by the row
+       * the writer is handed: owed as the target takes each, with its record
+       * (`WriteNodeInput.onWritten`), when the run keeps its journal.
+       */
+      const draftsToOwe = new Map<CleanedRecord, string>();
+      if (state.store) {
+        for (const [index, status] of startedAsDrafts) {
+          const built = cleanedRecords[index];
+          if (built) draftsToOwe.set(built, status);
+        }
+      }
 
       // Step 3: Running — batch and insert into target.
       //
@@ -9839,6 +9912,21 @@ export class ForgeExecutor {
               // keep from the rows after: see `WriteNodeInput.picklistFields`.
               picklistFields: targetPicklistFields,
               remapper,
+              // Owed to the journal with the records that owe them, as each
+              // call is answered: see `WriteNodeInput.oweLookups`.
+              ...(state.store
+                ? { oweLookups: (updates) => this.oweToTheSecondPass(state, updates) }
+                : {}),
+              ...(draftsToOwe.size > 0
+                ? {
+                    onWritten: (built: CleanedRecord, targetId: string) => {
+                      const status = draftsToOwe.get(built);
+                      if (status === undefined) return;
+                      draftsToOwe.delete(built);
+                      this.oweStatus(state, node.objectApiName, targetId, status);
+                    },
+                  }
+                : {}),
               waitIfPaused: () => this.waitIfPaused(),
               stopped: () => this.isAborted,
               onProgress,
@@ -9857,7 +9945,10 @@ export class ForgeExecutor {
         // upsert matched by its external id went over as a draft all the same,
         // and gets back the status the upsert would have written.
         for (const [index, status] of startedAsDrafts) {
-          const sourceId = cleanedRecords[index]?.source['Id'];
+          const built = cleanedRecords[index];
+          // Owed already, as the target took it.
+          if (built && state.store && !draftsToOwe.has(built)) continue;
+          const sourceId = built?.source['Id'];
           if (typeof sourceId !== 'string') continue;
           const targetId = remapper.get(sourceId);
           if (!targetId || remapper.isExisting(sourceId)) continue;
@@ -9983,9 +10074,7 @@ export class ForgeExecutor {
           : '';
       const sentOnTheirOwn = ownNote(sentOwn(handedOver.length));
       const already =
-        writtenBefore.length > 0
-          ? `, ${writtenBefore.length} already in the target from the run retried`
-          : '';
+        writtenBefore.length > 0 ? `, ${writtenBeforeNote(config, writtenBefore.length)}` : '';
       const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
       // A relation linked to without a flag its row carried, or a field of
       // the answer that goes with it: the who the event also invites, and

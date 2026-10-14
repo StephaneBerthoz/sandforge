@@ -176,6 +176,20 @@ export interface ForgeVerifyRequest extends BaseMessage {
   };
 }
 
+/**
+ * `forge:export-ids:request`. WebView -> Extension. Save the Id map of a past
+ * run whose ids are in its journal (`ForgeExecutionResult.remapInJournal`):
+ * the extension reads them there and writes the file where the user picks, a
+ * piece at a time. The request names the run, never records.
+ */
+export interface ForgeExportIdsRequest extends BaseMessage {
+  type: 'forge:export-ids:request';
+  payload: {
+    /** `forgeId` of the history entry. */
+    forgeId: string;
+  };
+}
+
 /** `forge:plan:request`. WebView -> Extension. Generate a wave-based execution plan. */
 export interface ForgePlanRequest extends BaseMessage {
   type: 'forge:plan:request';
@@ -456,6 +470,25 @@ export interface ForgeVerifyResponse extends BaseMessage {
 /** `forge:verify:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeVerifyErrorMessage extends BaseMessage {
   type: 'forge:verify:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:export-ids:response`. Extension -> WebView. Where the Id map was
+ * saved and how many rows it holds, that the user dismissed the dialog, or
+ * why it could not be written.
+ */
+export interface ForgeExportIdsResponse extends BaseMessage {
+  type: 'forge:export-ids:response';
+  payload:
+    | { status: 'saved'; path: string; rows: number }
+    | { status: 'cancelled' }
+    | { status: 'error'; message: string };
+}
+
+/** `forge:export-ids:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeExportIdsErrorMessage extends BaseMessage {
+  type: 'forge:export-ids:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

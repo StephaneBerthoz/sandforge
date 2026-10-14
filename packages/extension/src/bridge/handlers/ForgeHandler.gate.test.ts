@@ -1242,7 +1242,7 @@ describe('forge:execute, the gate before the first write', () => {
     });
   });
 
-  describe('the journal of a run of whole tables', () => {
+  describe('the journal of a run', () => {
     /** A disk in memory under a real journal: each file's text, by its path. */
     function journalOnMemory(options: { unwritable?: boolean } = {}) {
       const files = new PathMap();
@@ -1388,9 +1388,18 @@ describe('forge:execute, the gate before the first write', () => {
       expect(end).toHaveBeenCalledWith(id);
     });
 
-    it('keeps no journal of a run from a record, which writes once it has read', async () => {
+    it('keeps the journal of a run from a record too, and drops it once the run is in the history', async () => {
       const { journal, files } = journalOnMemory();
       const orchestrator = orchestratorHanding();
+      let during: string[] = [];
+      orchestrator.execute.mockImplementation(async (_graph, _config, options) => {
+        const runStore = options?.stream?.store;
+        runStore?.beginPart(new Date());
+        runStore?.setMapping('created', '003000000000001AAA', '003000000000901AAA', 'Contact');
+        runStore?.flush();
+        during = [...files.values()];
+        return RESULT;
+      });
       handler.setForgeOrchestrator(orchestrator, {
         targetAutomation: readerOf(QUIET),
         runJournal: journal,
@@ -1398,8 +1407,13 @@ describe('forge:execute, the gate before the first write', () => {
 
       await execute();
 
+      expect(during).toHaveLength(1);
+      const [head, , created] = during[0].trim().split('\n');
+      expect(JSON.parse(head)).toMatchObject({
+        run: { resume: { startedWith: { config: { inputMode: 'record' } } } },
+      });
+      expect(created).toBe('["c","003000000000001AAA","003000000000901AAA","Contact"]');
       expect(files.size).toBe(0);
-      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]?.stream?.store).toBeUndefined();
     });
 
     it('offers what a run of 1.50 a closed window never ended created, among the runs the history dropped', async () => {

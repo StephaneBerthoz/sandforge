@@ -2798,7 +2798,7 @@
     "retryStopped": "Gravar o restante",
     "retryStoppedHint": "Gravar o restante executa o clone de novo: o que esta execução não gravou antes de ser interrompida é gravado, vinculado ao que ela gravou, que não é gravado uma segunda vez.",
     "resumeRun": "Retomar de onde parou",
-    "resumeRunHint": "Retomar continua esta execução a partir do diário que o SandForge guardou dela: cada objeto é lido após o último registro que ela gravou, e as pesquisas e os status que ela ainda devia são preenchidos. Nada do que ela gravou é gravado uma segunda vez.",
+    "resumeRunHint": "Retomar continua esta execução a partir do diário que o SandForge guardou dela: uma clonagem de tabelas inteiras lê cada objeto após o último registro que ela gravou, uma clonagem de um registro lê seus registros de novo e se vincula aos que ela gravou, e as pesquisas e os status que ela ainda devia são preenchidos. Nada do que ela gravou é gravado uma segunda vez.",
     "retrySkipped": "Repetir objetos ignorados",
     "retrySkippedHint": "Repetir objetos ignorados executa o clone de novo depois de corrigido o que os fez ser ignorados: os objetos que esta execução ignorou por inteiro são gravados, vinculados ao que ela gravou, que não é gravado uma segunda vez.",
     "retryWithParents": "Buscar os pais que faltam e repetir",
@@ -2951,7 +2951,9 @@
       "existingBadge": "existente",
       "openRecord": "Abrir {{object}} {{id}} na org de destino",
       "openNote": "Selecione o Id de um registro que esta execução criou para abri-lo na org de destino.",
-      "openFailed": "Não foi possível abrir o registro: {{message}}"
+      "openFailed": "Não foi possível abrir o registro: {{message}}",
+      "inJournal_one": "O Id do registro que esta execução mapeou fica no seu diário, não nos seus resultados: Salvar mapeamento de Ids o grava em um arquivo.",
+      "inJournal_other": "Os Ids dos {{formatted}} registros que esta execução mapeou ficam no seu diário, não nos seus resultados: Salvar mapeamento de Ids os grava em um arquivo."
     },
     "preview": {
       "title": "O que vai acontecer na execução",
@@ -3207,6 +3209,7 @@
       "removeLeft": "Remover o que resta dos registros desta execução",
       "removeNotRecorded": "Registrada antes de as execuções guardarem o que criam: seus registros não podem ser removidos daqui.",
       "removeOrgGone": "A org em que esta execução gravou não está mais registrada: seus registros não podem ser removidos daqui.",
+      "journalGone": "Os Ids dos registros desta execução ficavam no seu diário, que não existe mais: eles não podem mais ser removidos, verificados, tentados de novo nem salvos daqui.",
       "removeTitle": "Remover de {{org}} os registros desta execução",
       "removeDescription": "Exclui de {{org}} os registros que esta execução criou, os filhos antes dos pais; eles vão para a lixeira dela. Os registros aos quais a execução se vinculou, que {{org}} já tinha, são mantidos, assim como um registro do qual dependem registros que ficam em {{org}}. Um registro alterado desde o fim da execução, ou do qual dependem registros adicionados desde então, é mantido, a menos que você o inclua abaixo.",
       "removeObject_one": "{{object}}: {{formatted}} registro",

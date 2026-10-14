@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
-import { forgeRunCreatedRecords, forgeRunRecordsLeft } from '@sandforge/shared';
+import { forgeRunCountsLeft, forgeRunCreatedSome } from '@sandforge/shared';
 import type { ForgeExecutionResult, ForgeUndoResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -88,7 +88,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
   const entry = reread === undefined ? run : reread;
   /** A removal answered, and what it left is not known yet: nothing more is offered meanwhile. */
   const awaitingEntry = answered !== null && reread === undefined;
-  const left = useMemo(() => (entry ? forgeRunRecordsLeft(entry) : []), [entry]);
+  const left = useMemo(() => (entry ? forgeRunCountsLeft(entry) : []), [entry]);
 
   const took = reread?.undo !== undefined;
   useEffect(() => {
@@ -97,7 +97,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
 
   // A run that created nothing, or one kept before runs said what they
   // created, has nothing to take back from here.
-  const created = useMemo(() => forgeRunCreatedRecords(run).length > 0, [run]);
+  const created = useMemo(() => forgeRunCreatedSome(run), [run]);
   if (!created || !run.idRemapCreated) return null;
 
   const confirmRemoval = (): void => {
@@ -107,7 +107,14 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
   };
 
   let action: React.ReactNode = null;
-  if (entry && !awaitingEntry && left.length > 0) {
+  if (entry?.journalGone) {
+    // Its ids were in its journal, which is gone: nothing can take them back from here.
+    action = (
+      <p data-testid="forge-results-journal-gone" className="text-xs text-text-secondary">
+        {t('forge.history.journalGone')}
+      </p>
+    );
+  } else if (entry && !awaitingEntry && left.length > 0) {
     action = org ? (
       <Button
         variant="secondary"

@@ -2798,7 +2798,7 @@
     "retryStopped": "Écrire le reste",
     "retryStoppedHint": "Écrire le reste relance le clone : ce que cette exécution n'a pas écrit avant de s'arrêter est écrit, rattaché à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
     "resumeRun": "Reprendre où il s'est arrêté",
-    "resumeRunHint": "Reprendre poursuit cette exécution à partir du journal que SandForge en a gardé : chaque objet est lu après le dernier enregistrement qu'elle a écrit, et les recherches et statuts qu'elle devait encore sont renseignés. Rien de ce qu'elle a écrit n'est écrit une seconde fois.",
+    "resumeRunHint": "Reprendre poursuit cette exécution à partir du journal que SandForge en a gardé : un clonage de tables entières lit chaque objet après le dernier enregistrement qu'elle a écrit, un clonage d'un enregistrement relit ses enregistrements et se lie à ceux qu'elle a écrits, et les recherches et statuts qu'elle devait encore sont renseignés. Rien de ce qu'elle a écrit n'est écrit une seconde fois.",
     "retrySkipped": "Retenter les objets ignorés",
     "retrySkippedHint": "Retenter les objets ignorés relance le clone une fois corrigé ce qui les a fait ignorer : les objets que cette exécution a ignorés en entier sont écrits, rattachés à ce qu'elle a écrit, qui n'est pas écrit une seconde fois.",
     "retryWithParents": "Récupérer les parents manquants et retenter",
@@ -2951,7 +2951,9 @@
       "existingBadge": "existant",
       "openRecord": "Ouvrir {{object}} {{id}} dans l’org cible",
       "openNote": "Sélectionnez l’Id d’un enregistrement créé par cette exécution pour l’ouvrir dans l’org cible.",
-      "openFailed": "L’enregistrement n’a pas pu être ouvert : {{message}}"
+      "openFailed": "L’enregistrement n’a pas pu être ouvert : {{message}}",
+      "inJournal_one": "L'Id de l'enregistrement que cette exécution a mis en correspondance est gardé dans son journal, pas dans ses résultats : Enregistrer la correspondance des Ids l'écrit dans un fichier.",
+      "inJournal_other": "Les Ids des {{formatted}} enregistrements que cette exécution a mis en correspondance sont gardés dans son journal, pas dans ses résultats : Enregistrer la correspondance des Ids les écrit dans un fichier."
     },
     "preview": {
       "title": "Ce qui va se passer à l'exécution",
@@ -3207,6 +3209,7 @@
       "removeLeft": "Supprimer ce qui reste des enregistrements de cette exécution",
       "removeNotRecorded": "Enregistrée avant que les exécutions gardent ce qu'elles créent : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "removeOrgGone": "L'org où cette exécution a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
+      "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici.",
       "removeTitle": "Supprimer de {{org}} les enregistrements de cette exécution",
       "removeDescription": "Supprime de {{org}} les enregistrements créés par cette exécution, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels l'exécution s'est liée, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis la fin de l'exécution, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
       "removeObject_one": "{{object}} : {{formatted}} enregistrement",

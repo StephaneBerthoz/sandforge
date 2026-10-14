@@ -233,6 +233,17 @@ export class IdRemapper {
     return remapped;
   }
 
+  /**
+   * Put on disk at once what the run registered and holds back: the records
+   * a call's answer created, before the run awaits anything else. Held to
+   * the next turn, a process killed in between — the window closed, the
+   * machine shut down — left the target holding records its journal never
+   * named, and a resume wrote them again. Nothing to do without a store.
+   */
+  persist(): void {
+    this.store?.flush();
+  }
+
   /** Get total number of remapped IDs. */
   get count(): number {
     return this.store ? this.store.mappedSize : this.map.size;

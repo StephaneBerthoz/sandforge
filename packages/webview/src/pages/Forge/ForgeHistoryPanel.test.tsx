@@ -827,6 +827,150 @@ describe('ForgeHistoryPanel — older runs', () => {
   });
 });
 
+describe('ForgeHistoryPanel — a run whose ids are in its journal', () => {
+  /** A run past the bound: its counts, and none of its ids. */
+  const IN_JOURNAL: ForgeExecutionResult = {
+    ...SOQL_RUN,
+    forgeId: 'forge-journal',
+    idRemapCount: 60_002,
+    idRemapTable: {},
+    idRemapExisting: [],
+    idRemapCreated: [],
+    idRemapByObject: [
+      { objectApiName: 'Account', created: 10_000, linked: 2 },
+      { objectApiName: 'Contact', created: 50_000, linked: 0 },
+    ],
+    createdCount: 60_000,
+    linkedExistingCount: 2,
+    remapInJournal: true,
+    journalId: 'forge-run-1',
+    journalPart: 0,
+    targetOrgId: DEV.id,
+  };
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV] });
+  });
+
+  it('offers its removal, and confirms it with the records it counts per object, children first', () => {
+    render(<ForgeHistoryPanel entries={[IN_JOURNAL]} error={null} onReuseConfig={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-journal'));
+
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Contact: 50,000 records', 'Account: 10,000 records']);
+    expect(screen.getByTestId('forge-removal-linked').textContent).toBe(
+      '2 linked records are kept.',
+    );
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-journal',
+      includeChanged: false,
+    });
+  });
+
+  it('counts what a removal left once one did', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[
+          {
+            ...IN_JOURNAL,
+            undo: {
+              removedAt: '2026-10-14T11:00:00.000Z',
+              deleted: 59_997,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 3,
+            },
+            removalLeftByObject: [{ objectApiName: 'Contact', count: 3 }],
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-journal'));
+
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Contact: 3 records']);
+  });
+
+  it('says its journal is gone, and offers no removal', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[{ ...IN_JOURNAL, journalGone: true }]}
+        olderRuns={[
+          {
+            ...OLDER_RUN,
+            objects: [],
+            inJournal: {
+              journalId: 'forge-run-2',
+              part: 0,
+              left: [{ objectApiName: 'Contact', count: 7 }],
+            },
+            journalGone: true,
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('forge-history-remove-forge-journal')).toBeNull();
+    expect(screen.getByTestId('forge-history-journal-gone-forge-journal').textContent).toBe(
+      "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here.",
+    );
+    expect(screen.queryByTestId('forge-history-remove-forge-older')).toBeNull();
+    expect(screen.getByTestId('forge-history-older-forge-older').textContent).toContain(
+      '7 records to remove from DEV-SANDBOX',
+    );
+    expect(screen.getByTestId('forge-history-journal-gone-forge-older')).toBeTruthy();
+  });
+
+  it('lists an older run whose plan names its journal with what it counts', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[]}
+        olderRuns={[
+          {
+            ...OLDER_RUN,
+            objects: [],
+            inJournal: {
+              journalId: 'forge-run-2',
+              part: 0,
+              left: [
+                { objectApiName: 'Contact', count: 50_000 },
+                { objectApiName: 'Account', count: 1 },
+              ],
+            },
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-history-older-forge-older').textContent).toContain(
+      '50,001 records to remove from DEV-SANDBOX',
+    );
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-older'));
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Contact: 50,000 records', 'Account: 1 record']);
+  });
+});
+
 describe('ForgeHistoryPanel — taking a run up where it stopped', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();

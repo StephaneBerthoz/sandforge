@@ -159,14 +159,27 @@ export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export {
+  forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,
+  forgeRunCountsLeft,
   forgeRunCreatedRecords,
+  forgeRunCreatedSome,
   forgeRunLinkedKept,
+  forgeRunLinkedKeptCount,
   forgeRunRecordsLeft,
   removalTookAll,
+  type ForgeRunCounted,
   type ForgeRunObjectRecords,
 } from './utils/forge-run-records.js';
+export {
+  csvCell,
+  idMapCsv,
+  idMapCsvLines,
+  idMapRows,
+  type IdMapOutcome,
+  type IdMapRow,
+} from './utils/forge-id-map.js';
 export {
   leftOutAsEmptyTable,
   leftOutByTheUser,

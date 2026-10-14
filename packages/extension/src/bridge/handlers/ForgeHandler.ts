@@ -26,11 +26,16 @@ import {
   forgeConfigSchema,
   forgeFileCopyOptionSchema,
   forgeGraphSchema,
+  forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,
+  forgeRunCountsLeft,
   forgeRunCreatedRecords,
   forgeRunRecordsLeft,
   forgeTemplateSchema,
+  idMapCsv,
+  idMapCsvLines,
+  idMapRows,
   leftOutByTheUser,
   removalRisksOf,
 } from '@sandforge/shared';
@@ -78,6 +83,7 @@ import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { ACTIVE_USERS_SOQL, activeUsersOf } from '../../modules/forge/orgUsers.js';
 import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
+import { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { partialSummaryOf } from '../../modules/forge/interruptedRun.js';
 import {
   RECORD_TYPES_SOQL,
@@ -158,6 +164,7 @@ import type {
 } from '../../modules/forge/ForgeExecutor.js';
 import {
   ForgeRunJournal,
+  SUMMARY_IDS_BOUND,
   type ForgeRunJournalRead,
   type ForgeRunResumeHead,
 } from '../../modules/forge/ForgeRunJournal.js';
@@ -210,6 +217,12 @@ const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
 
 /** Why a retry was stopped before it started: what the run it retries wrote is not known. */
 const RETRY_UNAVAILABLE = 'RETRY_UNAVAILABLE';
+
+/** Why a reader of a run's ids was refused: they were kept in its journal, which is gone. */
+const JOURNAL_GONE = 'JOURNAL_GONE';
+const JOURNAL_GONE_MESSAGE =
+  "The ids of this run's records were kept in its journal, which is gone: they can no longer " +
+  'be removed, verified, retried against or exported from here.';
 
 /** Why a resume was refused: the run cannot be taken up where it stopped. */
 const RESUME_UNAVAILABLE = 'RESUME_UNAVAILABLE';
@@ -287,6 +300,11 @@ const openRecordPayloadSchema = z
 // The run, never its records: what is read back is what the run's entry in
 // the history says it created, from the org that entry names.
 const verifyPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) }).strict();
+// The run, never its records: the Id map saved is what its journal holds.
+const exportIdsPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) }).strict();
+
+/** Rows of the Id map written to its file at a time. */
+const ID_MAP_ROWS_PER_WRITE = 5_000;
 const deleteTemplatePayloadSchema = z.object({ templateId: z.string().min(1).max(200) });
 const planRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
 const complianceRequestPayloadSchema = z.object({
@@ -451,7 +469,7 @@ export interface ForgeServices {
    * history lists it.
    */
   removalPlans?: ForgeRemovalPlanStore;
-  /** What runs read page by page have created, kept as they go. */
+  /** What the runs that write have created, read and owe, kept as they go. */
   runJournal?: ForgeRunJournal;
   /**
    * How many requests to Salesforce the executor's deps have sent so far —
@@ -492,6 +510,27 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
     (sum, object) => sum + object.sourceIds.length,
     0,
   );
+  const mapped = Object.keys(read.remap.table).length;
+  // Past the bound, the entry counts what the part created and its journal
+  // keeps the ids, as for a run that ended.
+  const ids =
+    mapped > SUMMARY_IDS_BOUND
+      ? {
+          idRemapTable: {},
+          idRemapExisting: [],
+          idRemapCreated: [],
+          idRemapByObject: read.remap.createdByObject.map(({ objectApiName, sourceIds }) => ({
+            objectApiName,
+            created: sourceIds.length,
+            linked: 0,
+          })),
+          remapInJournal: true as const,
+        }
+      : {
+          idRemapTable: read.remap.table,
+          idRemapExisting: read.remap.linked,
+          idRemapCreated: read.remap.createdByObject,
+        };
   return {
     forgeId: read.parts > 1 ? `${read.journalId}-${read.parts - 1}` : read.journalId,
     status: 'partial',
@@ -499,13 +538,12 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
     graph,
     duration: 0,
     timestamp: read.partStartedAt,
-    idRemapCount: Object.keys(read.remap.table).length,
-    idRemapTable: read.remap.table,
-    idRemapExisting: read.remap.linked,
+    idRemapCount: mapped,
+    ...ids,
     createdCount: created,
     linkedExistingCount: read.remap.linked.length,
-    idRemapCreated: read.remap.createdByObject,
     journalId: read.journalId,
+    journalPart: Math.max(0, read.parts - 1),
     ...(read.endBefore ? { retryOf: read.endBefore.forgeId, resumed: true as const } : {}),
   };
 }
@@ -526,6 +564,7 @@ const FORGE_TYPES = new Set([
   'forge:resume-run',
   'forge:open-record',
   'forge:verify:request',
+  'forge:export-ids:request',
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
@@ -597,6 +636,11 @@ type RunToRemove = Pick<
   RemovalState & {
     /** Rows a call of the run may have written under ids it never learned. */
     unreachable: number;
+    /**
+     * The part of the journal that holds the run's ids, when its entry keeps
+     * none: what a removal leaves is kept beside it, and counted on the entry.
+     */
+    inJournal?: { journalId: string; part: number };
   };
 
 /** The rows of a run a call may have written before its answer was lost. */
@@ -938,15 +982,21 @@ export class ForgeHandler implements DomainHandler {
   /** Opens a record a run created in the system browser (see {@link handleOpenRecord}). */
   private readonly externalBrowser: ExternalBrowserAdapter;
 
+  /** Writes the Id map of a run whose ids are in its journal where the user picks (see {@link handleExportIds}). */
+  private readonly saveDialog: SaveDialogAdapter;
+
   /**
    * @param deps - Injected handler dependencies.
    * @param externalBrowser - Injected for tests; defaults to VS Code's `openExternal`.
+   * @param saveDialog - Injected for tests; defaults to VS Code's save dialog.
    */
   constructor(
     private readonly deps: HandlerDeps,
     externalBrowser?: ExternalBrowserAdapter,
+    saveDialog?: SaveDialogAdapter,
   ) {
     this.externalBrowser = externalBrowser ?? new ExternalBrowserAdapter();
+    this.saveDialog = saveDialog ?? new SaveDialogAdapter();
   }
 
   /**
@@ -1102,6 +1152,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:verify:request':
         await this.handleVerify(msg);
+        return true;
+      case 'forge:export-ids:request':
+        await this.handleExportIds(msg);
         return true;
       case 'forge:plan:request':
         await this.handlePlanRequest(msg);
@@ -1509,7 +1562,7 @@ export class ForgeHandler implements DomainHandler {
     let writtenBefore: Record<string, string> | undefined;
     // What a resumed part goes on from is in the journal it goes on in.
     if (retryOf !== undefined && !resume) {
-      const base = this.runToRetry(retryOf, config.targetOrgId);
+      const base = await this.runToRetry(retryOf, config.targetOrgId);
       if ('refused' in base) {
         recordWriteRun(this.deps, {
           action: 'forge_execute',
@@ -1938,10 +1991,14 @@ export class ForgeHandler implements DomainHandler {
       }
       startedAt = Date.now();
       requestsAtStart = this.requestsSent?.();
-      // A run of whole tables writes page by page: what each page created is
-      // kept on disk as it goes, so a window closed under the run leaves its
-      // records removable. A run that ends records them in the history.
-      const journal = !dryRun && config.inputMode !== 'record' ? this.runJournal : undefined;
+      // What a run writes is kept on disk as it goes, so a window closed under
+      // the run leaves its records removable, and a run that stops can be
+      // taken up where it stopped: a run of whole tables reads each object
+      // after where it stood, a run from a record reads its scope again and
+      // links to what it wrote. A run that ends records them in the history.
+      // A run from a record kept none, and one that stopped could only be
+      // retried from the ids its history entry held.
+      const journal = !dryRun ? this.runJournal : undefined;
       if (journal) {
         const id = resume?.journalId ?? `forge-run-${startedAt}`;
         journalId = id;
@@ -1980,7 +2037,14 @@ export class ForgeHandler implements DomainHandler {
           anonymizationRules,
           files,
           writtenBefore,
-          stream: { ceiling: readCeiling, ...(store ? { store } : {}) },
+          // Past the bound, the summary, the history entry and the removal
+          // plan keep the counts, and the journal the ids: a run of a million
+          // records put them all in the history, which the extension's global
+          // state rewrites whole at every change.
+          stream: {
+            ceiling: readCeiling,
+            ...(store ? { store, summaryBound: SUMMARY_IDS_BOUND } : {}),
+          },
           beforeWrite: this.writeGate({
             guard,
             targetOrgId: config.targetOrgId,
@@ -1999,10 +2063,18 @@ export class ForgeHandler implements DomainHandler {
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
       const counted = withCallsBefore(executed, lookup.requests);
+      // A run whose ids stayed in its journal names it, and keeps it.
+      const inJournal =
+        counted.remapInJournal && store && journalId
+          ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
+          : {};
       const result =
         retryOf !== undefined
-          ? { ...counted, retryOf, ...(resume ? { resumed: true as const } : {}) }
-          : counted;
+          ? { ...counted, ...inJournal, retryOf, ...(resume ? { resumed: true as const } : {}) }
+          : { ...counted, ...inJournal };
+      if ('journalId' in inJournal && !dryRun) {
+        journalAfter = { keep: true, status: 'success', forgeId: result.forgeId };
+      }
 
       // Arm the duplicate cooldown only when the run created something: a
       // failure, or a run that created no record, leaves the recipe
@@ -2126,7 +2198,9 @@ export class ForgeHandler implements DomainHandler {
               retryOf,
               resumed: resume !== undefined,
               callsBefore: lookup.requests,
-              ...(store && journalId ? { journalId } : {}),
+              ...(store && journalId
+                ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
+                : {}),
             })
           : undefined;
       // Kept with its journal, the run can be taken up where it stopped. A
@@ -2279,9 +2353,15 @@ export class ForgeHandler implements DomainHandler {
       callsBefore: number;
       /** The journal it was written through, kept for it to be taken up where it stopped. */
       journalId?: string;
+      /** Which part of that journal it is. */
+      journalPart?: number;
     },
   ): ForgeExecutionResult | undefined {
-    if (!summary.createdByObject.some((object) => object.sourceIds.length > 0)) return undefined;
+    // Past the bound the summary holds no id, and counts what the run created.
+    const createdSome = summary.remapInJournal
+      ? summary.successCount > 0
+      : summary.createdByObject.some((object) => object.sourceIds.length > 0);
+    if (!createdSome) return undefined;
     const result = withCallsBefore(
       forgeRunResult(summary, graph, {
         startedAt: run.startedAt,
@@ -2295,6 +2375,7 @@ export class ForgeHandler implements DomainHandler {
       ...(run.retryOf !== undefined ? { retryOf: run.retryOf } : {}),
       ...(run.retryOf !== undefined && run.resumed ? { resumed: true as const } : {}),
       ...(run.journalId ? { journalId: run.journalId } : {}),
+      ...(run.journalId && run.journalPart !== undefined ? { journalPart: run.journalPart } : {}),
     };
     this.addToHistory(stopped, config);
     return stopped;
@@ -2310,10 +2391,10 @@ export class ForgeHandler implements DomainHandler {
    * rows it failed against records that are gone. A run of another target, or
    * one recorded before runs kept their ids, says nothing of this target.
    */
-  private runToRetry(
+  private async runToRetry(
     forgeId: string,
     targetOrgId: string,
-  ): { written: Record<string, string> } | { refused: string } {
+  ): Promise<{ written: Record<string, string> } | { refused: string }> {
     const history = this.loadHistory();
     const entry = history.find((e) => e.forgeId === forgeId);
     if (!entry) {
@@ -2345,7 +2426,10 @@ export class ForgeHandler implements DomainHandler {
       const previous: string | undefined = run.retryOf;
       run = previous === undefined ? undefined : history.find((e) => e.forgeId === previous);
     }
-    return { written: entry.idRemapTable };
+    // A run past the bound wrote what its journal says, every part of it.
+    const read = await this.withIdsOf(entry);
+    if ('gone' in read) return { refused: read.gone };
+    return { written: read.entry.idRemapTable ?? {} };
   }
 
   /**
@@ -3001,20 +3085,38 @@ export class ForgeHandler implements DomainHandler {
     const kept = this.loadHistory();
     // The runs that can be taken up where they stopped say so.
     const resumable = await this.resumableRuns(kept);
-    const history = kept.map((entry) =>
-      resumable.has(entry.forgeId) ? { ...entry, resumable: true as const } : entry,
-    );
-    // The runs the history dropped whose records are still to remove: listed
-    // apart, as older runs, from the plans kept of them.
-    const listed = new Set(history.map((entry) => entry.forgeId));
-    let olderRuns: ForgeRemovalPlan[] = [];
+    let plans: ForgeRemovalPlan[] = [];
     try {
-      olderRuns = ((await this.removalPlans?.list()) ?? []).filter(
-        (plan) => !listed.has(plan.forgeId) && forgeRemovalPlanLeft(plan).length > 0,
-      );
+      plans = (await this.removalPlans?.list()) ?? [];
     } catch (err: unknown) {
       logger.warn(`Forge removal plans could not be read: ${extractErrorMessage(err)}`);
     }
+    // The runs whose ids are in a journal that is gone say so, and offer
+    // nothing that needs them.
+    const present = await this.journalsPresent([
+      ...kept.flatMap((entry) =>
+        entry.remapInJournal && entry.journalId ? [entry.journalId] : [],
+      ),
+      ...plans.flatMap((plan) => (plan.inJournal ? [plan.inJournal.journalId] : [])),
+    ]);
+    const history = kept.map((entry) => ({
+      ...entry,
+      ...(resumable.has(entry.forgeId) ? { resumable: true as const } : {}),
+      ...(entry.remapInJournal && !(entry.journalId && present.has(entry.journalId))
+        ? { journalGone: true as const }
+        : {}),
+    }));
+    // The runs the history dropped whose records are still to remove: listed
+    // apart, as older runs, from the plans kept of them.
+    const listed = new Set(history.map((entry) => entry.forgeId));
+    const olderRuns = plans
+      .filter((plan) => !listed.has(plan.forgeId) && forgeRemovalPlanCountsLeft(plan).length > 0)
+      .map((plan) =>
+        plan.inJournal && !present.has(plan.inJournal.journalId)
+          ? { ...plan, journalGone: true as const }
+          : plan,
+      );
+    await this.dropJournalsNoLongerNamed(kept, plans);
     const response = buildResponse(this.deps, msg, 'forge:history:list:response', {
       history,
       ...(olderRuns.length > 0 ? { olderRuns } : {}),
@@ -3063,13 +3165,41 @@ export class ForgeHandler implements DomainHandler {
         );
         return;
       }
-      run = { ...entry, targetOrgId: entry.targetOrgId, unreachable: unreachableOf(entry) };
+      // The ids of a run past the bound are read from its journal, unless
+      // its removals took everything already.
+      let withIds = entry;
+      if (entry.remapInJournal && forgeRunCountsLeft(entry).length > 0) {
+        const read = await this.withIdsOf(entry);
+        if ('gone' in read) {
+          refuse(read.gone, JOURNAL_GONE);
+          return;
+        }
+        withIds = read.entry;
+      }
+      run = {
+        ...withIds,
+        targetOrgId: entry.targetOrgId,
+        unreachable: unreachableOf(entry),
+        ...(entry.remapInJournal && entry.journalId && entry.journalPart !== undefined
+          ? { inJournal: { journalId: entry.journalId, part: entry.journalPart } }
+          : {}),
+      };
       // What earlier removals left, when one did: a removal that ended partial
       // marked the run, and the next one was refused as done already.
-      plan = forgeRunRecordsLeft(entry);
+      plan = entry.remapInJournal && withIds === entry ? [] : forgeRunRecordsLeft(withIds);
     } else if (kept) {
       run = { ...kept, unreachable: kept.mayHaveBeenWritten ?? 0 };
-      plan = forgeRemovalPlanLeft(kept);
+      const { inJournal } = kept;
+      if (inJournal && forgeRemovalPlanCountsLeft(kept).length > 0) {
+        const read = await this.planRecordsOf({ ...kept, inJournal });
+        if ('gone' in read) {
+          refuse(read.gone, JOURNAL_GONE);
+          return;
+        }
+        plan = read.records;
+      } else {
+        plan = forgeRemovalPlanLeft(kept);
+      }
     } else {
       refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
       return;
@@ -3097,6 +3227,114 @@ export class ForgeHandler implements DomainHandler {
       await this.removeRun(msg, run, plan, includeChanged);
     } finally {
       this.removing.delete(forgeId);
+    }
+  }
+
+  /** Of the journals `journalIds`, those that are there; all of them when the journals cannot be listed. */
+  private async journalsPresent(journalIds: readonly string[]): Promise<Set<string>> {
+    const journal = this.runJournal;
+    if (journalIds.length === 0) return new Set();
+    if (!journal) return new Set();
+    try {
+      return await journal.present(journalIds);
+    } catch (err: unknown) {
+      logger.warn(`Forge run journals could not be listed: ${extractErrorMessage(err)}`);
+      return new Set(journalIds);
+    }
+  }
+
+  /**
+   * Drop the journals of runs that ended which neither the history nor a
+   * removal plan names any longer: kept for a run to be taken up, or for the
+   * ids of a run past the bound, they were never dropped once the history let
+   * the run go — a journal of a million records weighs some hundred MB.
+   */
+  private async dropJournalsNoLongerNamed(
+    history: readonly ForgeExecutionResult[],
+    plans: readonly ForgeRemovalPlan[],
+  ): Promise<void> {
+    const journal = this.runJournal;
+    if (!journal) return;
+    try {
+      const named = new Set(
+        [
+          ...history.map((entry) => entry.journalId),
+          ...plans.map((plan) => plan.inJournal?.journalId),
+          ...this.journalsRunning,
+        ]
+          .filter((journalId): journalId is string => journalId !== undefined)
+          .map((journalId) => journal.fileNameOf(journalId)),
+      );
+      for (const file of await journal.endedFiles()) {
+        if (!named.has(file)) await journal.forgetFile(file);
+      }
+    } catch (err: unknown) {
+      logger.warn(`Forge run journals could not be dropped: ${extractErrorMessage(err)}`);
+    }
+  }
+
+  /**
+   * A run's entry with its ids: as the history holds them, or, for a run
+   * whose ids stayed in its journal (`remapInJournal`), read from the part of
+   * the journal it names — what its summary would have held, and the records
+   * its removals left beside it. Every reader of a run's ids goes through
+   * here: the removal and its confirmation, Verify, a retry, the record
+   * opened, the Id map saved. `gone` when the journal cannot be read.
+   */
+  private async withIdsOf(
+    entry: ForgeExecutionResult,
+  ): Promise<{ entry: ForgeExecutionResult } | { gone: string }> {
+    if (!entry.remapInJournal) return { entry };
+    const journal = this.runJournal;
+    if (!journal || !entry.journalId || entry.journalPart === undefined) {
+      return { gone: JOURNAL_GONE_MESSAGE };
+    }
+    try {
+      const ids = await journal.idsOf(entry.journalId, entry.journalPart);
+      if (!ids) return { gone: JOURNAL_GONE_MESSAGE };
+      const left = await journal.leftOf(entry.journalId, entry.journalPart);
+      return {
+        entry: {
+          ...entry,
+          idRemapTable: ids.table,
+          idRemapExisting: ids.existing,
+          idRemapCreated: ids.createdByObject,
+          ...(left ? { removalLeft: left } : {}),
+        },
+      };
+    } catch (err: unknown) {
+      logger.warn(`Forge run journal could not be read: ${extractErrorMessage(err)}`);
+      return { gone: JOURNAL_GONE_MESSAGE };
+    }
+  }
+
+  /**
+   * What a removal takes now of a run the history dropped whose plan keeps
+   * its ids in its journal: what the part created, less what its removals
+   * took. `gone` when the journal cannot be read.
+   */
+  private async planRecordsOf(
+    plan: ForgeRemovalPlan & { inJournal: NonNullable<ForgeRemovalPlan['inJournal']> },
+  ): Promise<{ records: ForgeRunObjectRecords[] } | { gone: string }> {
+    const journal = this.runJournal;
+    if (!journal) return { gone: JOURNAL_GONE_MESSAGE };
+    try {
+      const { journalId, part } = plan.inJournal;
+      const ids = await journal.idsOf(journalId, part);
+      if (!ids) return { gone: JOURNAL_GONE_MESSAGE };
+      const left = await journal.leftOf(journalId, part);
+      return {
+        records: forgeRunRecordsLeft({
+          idRemapTable: ids.table,
+          idRemapExisting: ids.existing,
+          idRemapCreated: ids.createdByObject,
+          ...(plan.undo ? { undo: plan.undo } : {}),
+          ...(left ? { removalLeft: left } : {}),
+        }),
+      };
+    } catch (err: unknown) {
+      logger.warn(`Forge run journal could not be read: ${extractErrorMessage(err)}`);
+      return { gone: JOURNAL_GONE_MESSAGE };
     }
   }
 
@@ -3392,7 +3630,7 @@ export class ForgeHandler implements DomainHandler {
       ...(plan ? [store.put(plan)] : []),
       ...dropped.flatMap((old) => {
         const oldPlan = forgeRemovalPlanOf(old);
-        return oldPlan && forgeRemovalPlanLeft(oldPlan).length > 0
+        return oldPlan && forgeRemovalPlanCountsLeft(oldPlan).length > 0
           ? [store.putIfAbsent(oldPlan)]
           : [];
       }),
@@ -3447,10 +3685,16 @@ export class ForgeHandler implements DomainHandler {
       refuse('This run was recorded before Forge kept the org it wrote to.', 'NOT_RECORDED');
       return;
     }
+    // A run past the bound names what it created in its journal.
+    const read = await this.withIdsOf(entry);
+    if ('gone' in read) {
+      refuse(read.gone, JOURNAL_GONE);
+      return;
+    }
     // The same record whichever length its id is written in.
     const wanted = parsed.recordId.slice(0, 15);
     let created: { objectApiName: string; id: string } | undefined;
-    for (const { objectApiName, ids } of forgeRunCreatedRecords(entry)) {
+    for (const { objectApiName, ids } of forgeRunCreatedRecords(read.entry)) {
       const id = ids.find((candidate) => candidate.slice(0, 15) === wanted);
       if (id) {
         created = { objectApiName, id };
@@ -3535,7 +3779,17 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
-    const records = forgeRunRecordsLeft(entry);
+    // The ids of a run past the bound are read from its journal.
+    let withIds = entry;
+    if (entry.remapInJournal && forgeRunCountsLeft(entry).length > 0) {
+      const read = await this.withIdsOf(entry);
+      if ('gone' in read) {
+        refuse(read.gone, JOURNAL_GONE);
+        return;
+      }
+      withIds = read.entry;
+    }
+    const records = entry.remapInJournal && withIds === entry ? [] : forgeRunRecordsLeft(withIds);
     if (records.length === 0) {
       if (entry.undo) {
         refuse(
@@ -3571,7 +3825,7 @@ export class ForgeHandler implements DomainHandler {
       // target did not date is dated by when it was recorded.
       const verification = await verifier.verify({
         records,
-        remapTable: entry.idRemapTable,
+        remapTable: withIds.idRemapTable ?? {},
         ...(entry.writtenBetween
           ? { runEndedAt: new Date(entry.writtenBetween.last) }
           : { runRecordedAt: new Date(entry.timestamp) }),
@@ -3611,6 +3865,66 @@ export class ForgeHandler implements DomainHandler {
     } finally {
       this.verifying.delete(forgeId);
     }
+  }
+
+  /**
+   * Save the Id map of a past run whose ids are in its journal: read from
+   * there, as the results page writes the map of a run its history entry
+   * holds the ids of — object, source id, target id, outcome — and written a
+   * piece at a time where the user picks. The request names the run, never
+   * records. Refused when the entry is gone, keeps its ids itself (the page
+   * writes those), or its journal is gone.
+   */
+  private async handleExportIds(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(exportIdsPayloadSchema, msg, 'forge:export-ids:error', this.deps);
+    if (!parsed) return;
+    const refuse = (message: string, code: string): void => {
+      sendHandlerError(
+        this.deps,
+        'forge:export-ids:request',
+        'forge:export-ids:error',
+        msg,
+        new Error(message),
+        { code },
+      );
+    };
+    const entry = this.loadHistory().find((e) => e.forgeId === parsed.forgeId);
+    if (!entry) {
+      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      return;
+    }
+    if (!entry.remapInJournal) {
+      refuse(
+        'This run keeps its ids in its results: save its Id map from there.',
+        'NOT_IN_JOURNAL',
+      );
+      return;
+    }
+    const read = await this.withIdsOf(entry);
+    if ('gone' in read) {
+      refuse(read.gone, JOURNAL_GONE);
+      return;
+    }
+    const rows = idMapRows(read.entry);
+    const day = new Date().toISOString().slice(0, 10);
+    const outcome = await this.saveDialog.saveStream(
+      `sandforge-forge-id-map-${day}.csv`,
+      async (append) => {
+        await append(idMapCsv([]));
+        for (let at = 0; at < rows.length; at += ID_MAP_ROWS_PER_WRITE) {
+          await append(`\n${idMapCsvLines(rows.slice(at, at + ID_MAP_ROWS_PER_WRITE))}`);
+        }
+        return rows.length;
+      },
+      ['csv'],
+    );
+    const payload =
+      outcome.status === 'saved'
+        ? { status: 'saved' as const, path: outcome.path, rows: outcome.result }
+        : outcome;
+    const response = buildResponse(this.deps, msg, 'forge:export-ids:response', payload);
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id} status=${outcome.status}`);
   }
 
   /**
@@ -3788,6 +4102,25 @@ export class ForgeHandler implements DomainHandler {
       const gone = new Set(outcome.gone);
       const left =
         gone.size > 0 ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id))) : undefined;
+      // Of a run whose ids are in its journal, what is left is kept beside the
+      // journal and counted on its entry and its plan, which hold no id.
+      const { inJournal } = entry;
+      const leftCounts =
+        left && inJournal
+          ? plan
+              .map(({ objectApiName, ids }) => ({
+                objectApiName,
+                count: ids.filter((id) => !gone.has(id)).length,
+              }))
+              .filter(({ count }) => count > 0)
+          : undefined;
+      if (left && inJournal) {
+        await this.runJournal
+          ?.keepLeft(inJournal.journalId, inJournal.part, left)
+          .catch((err: unknown) => {
+            logger.warn(`Forge removal left not kept: ${extractErrorMessage(err)}`);
+          });
+      }
       if (mark || stamped || ran || left) {
         // The history entry and the plan kept of the run say the same of its
         // removals: either may be the one the next removal reads.
@@ -3796,14 +4129,25 @@ export class ForgeHandler implements DomainHandler {
           ...(mark ? { undo: mark } : {}),
           ...(stamped ? { removalStamps: { ...e.removalStamps, ...outcome.stamps } } : {}),
           ...(ran ? { removalSpans: [...(e.removalSpans ?? []), ran] } : {}),
-          ...(left ? { removalLeft: left } : {}),
+          ...(left && !leftCounts ? { removalLeft: left } : {}),
         });
-        this.saveHistory(this.loadHistory().map((e) => (e.forgeId === forgeId ? marked(e) : e)));
+        this.saveHistory(
+          this.loadHistory().map((e) =>
+            e.forgeId === forgeId
+              ? { ...marked(e), ...(leftCounts ? { removalLeftByObject: leftCounts } : {}) }
+              : e,
+          ),
+        );
         // A plan with nothing left to remove is dropped: nothing would offer it.
         await this.removalPlans
           ?.update(forgeId, (kept) => {
-            const next = marked(kept);
-            return forgeRemovalPlanLeft(next).length > 0 ? next : undefined;
+            const next: ForgeRemovalPlan = {
+              ...marked(kept),
+              ...(kept.inJournal && leftCounts
+                ? { inJournal: { ...kept.inJournal, left: leftCounts } }
+                : {}),
+            };
+            return forgeRemovalPlanCountsLeft(next).length > 0 ? next : undefined;
           })
           .catch((err: unknown) => {
             logger.warn(`Forge removal plan not updated: ${extractErrorMessage(err)}`);
@@ -4393,7 +4737,8 @@ export class ForgeHandler implements DomainHandler {
       refuse(new Error('This run is no longer in the Forge history.'), 'NOT_FOUND');
       return;
     }
-    const objects = forgeRunRecordsLeft(entry).map((object) => object.objectApiName);
+    // Its objects, counted: a run past the bound counts them without its ids.
+    const objects = forgeRunCountsLeft(entry).map((object) => object.objectApiName);
     const targetOrgId = entry.targetOrgId;
     try {
       const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(

@@ -109,6 +109,44 @@ describe('ForgeRemovalPlanStore', () => {
     expect(REMOVAL_PLANS_HARD_MAX_BYTES).toBe(64 * 1024 * 1024);
   });
 
+  it('keeps the plan of a run whose ids are in its journal, and drops it past the bound only once nothing is left', async () => {
+    const disk = memoryDisk();
+    const one = JSON.stringify({ version: 1, plans: [plan('forge-0', 50)] }).length;
+    const store = new ForgeRemovalPlanStore({ ...disk.deps, maxBytes: one * 2 + 50 });
+    const removed = {
+      removedAt: '2026-09-21T10:00:00.000Z',
+      deleted: 49_000,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 1_000,
+    };
+    const inJournal = (left: number): Partial<ForgeRemovalPlan> => ({
+      objects: [],
+      undo: removed,
+      inJournal: {
+        journalId: 'forge-run-1',
+        part: 0,
+        left: [{ objectApiName: 'Contact', count: left }],
+      },
+    });
+
+    await store.put(
+      plan('forge-left', 0, { timestamp: '2026-09-20T09:00:00.000Z', ...inJournal(1_000) }),
+    );
+    await store.put(
+      plan('forge-none', 0, { timestamp: '2026-09-20T10:00:00.000Z', ...inJournal(0) }),
+    );
+    await store.put(plan('forge-big', 500, { timestamp: '2026-09-20T13:00:00.000Z' }));
+
+    const kept = await store.list();
+    expect(kept.map((p) => p.forgeId)).toEqual(['forge-big', 'forge-left']);
+    expect(kept[1]?.inJournal).toEqual({
+      journalId: 'forge-run-1',
+      part: 0,
+      left: [{ objectApiName: 'Contact', count: 1_000 }],
+    });
+  });
+
   it('drops a run left behind once from the bound on bytes it was kept under', async () => {
     const disk = memoryDisk();
     const one = JSON.stringify({ version: 1, plans: [plan('forge-0', 50)] }).length;

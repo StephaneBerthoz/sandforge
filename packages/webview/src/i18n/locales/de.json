@@ -2798,7 +2798,7 @@
     "retryStopped": "Rest schreiben",
     "retryStoppedHint": "„Rest schreiben“ führt den Klon erneut aus: Was dieser Lauf vor dem Anhalten nicht geschrieben hat, wird geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
     "resumeRun": "Dort fortsetzen, wo er stoppte",
-    "resumeRunHint": "Fortsetzen nimmt diesen Lauf aus dem Journal wieder auf, das SandForge von ihm geführt hat: Jedes Objekt wird nach dem letzten Datensatz gelesen, den dieser Lauf geschrieben hat, und die Lookups und Status, die er noch schuldete, werden gesetzt. Nichts, was er geschrieben hat, wird ein zweites Mal geschrieben.",
+    "resumeRunHint": "Fortsetzen nimmt diesen Lauf aus dem Journal wieder auf, das SandForge von ihm geführt hat: Ein Klon ganzer Tabellen liest jedes Objekt nach dem letzten Datensatz, den dieser Lauf geschrieben hat, ein Klon eines Datensatzes liest seine Datensätze erneut und verknüpft sich mit denen, die dieser Lauf geschrieben hat, und die Lookups und Status, die er noch schuldete, werden gesetzt. Nichts, was er geschrieben hat, wird ein zweites Mal geschrieben.",
     "retrySkipped": "Übersprungene Objekte wiederholen",
     "retrySkippedHint": "„Übersprungene Objekte wiederholen“ führt den Klon erneut aus, sobald behoben ist, was sie übersprungen hat: Die Objekte, die dieser Lauf ganz übersprungen hat, werden geschrieben und mit dem verknüpft, was er geschrieben hat; das wird kein zweites Mal geschrieben.",
     "retryWithParents": "Fehlende übergeordnete abrufen und wiederholen",
@@ -2951,7 +2951,9 @@
       "existingBadge": "vorhanden",
       "openRecord": "{{object}} {{id}} in der Ziel-Org öffnen",
       "openNote": "Wählen Sie die Id eines Datensatzes, den dieser Durchlauf erstellt hat, um ihn in der Ziel-Org zu öffnen.",
-      "openFailed": "Der Datensatz konnte nicht geöffnet werden: {{message}}"
+      "openFailed": "Der Datensatz konnte nicht geöffnet werden: {{message}}",
+      "inJournal_one": "Die Id des Datensatzes, den dieser Durchlauf zugeordnet hat, liegt in seinem Journal, nicht in seinen Ergebnissen: Id-Zuordnung speichern schreibt sie in eine Datei.",
+      "inJournal_other": "Die Ids der {{formatted}} Datensätze, die dieser Durchlauf zugeordnet hat, liegen in seinem Journal, nicht in seinen Ergebnissen: Id-Zuordnung speichern schreibt sie in eine Datei."
     },
     "preview": {
       "title": "Was bei der Ausführung passiert",
@@ -3207,6 +3209,7 @@
       "removeLeft": "Die verbliebenen Datensätze dieses Durchlaufs entfernen",
       "removeNotRecorded": "Aufgezeichnet, bevor Durchläufe festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen.",
       "removeOrgGone": "Die Org, in die dieser Durchlauf geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
+      "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern.",
       "removeTitle": "Datensätze dieses Durchlaufs aus {{org}} entfernen",
       "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Durchlauf erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Datensätze, mit denen der Durchlauf verknüpft hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ende des Durchlaufs geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
       "removeObject_one": "{{object}}: {{formatted}} Datensatz",

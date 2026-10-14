@@ -2,7 +2,7 @@ import { closeSync, fstatSync, openSync, readSync, writeSync } from 'node:fs';
 import type { PendingFkUpdate } from './stages/BatchWriter.js';
 
 /**
- * What a run of whole tables keeps of what it wrote, on disk as it goes: the
+ * What a run that writes keeps of what it wrote, on disk as it goes: the
  * journal of the run, and what the run looks up in it.
  *
  * A run read page by page holds a page of rows whatever its tables hold, and
@@ -591,6 +591,49 @@ export class ForgeRunStore {
       }
     }
     if (page.length > 0) yield page;
+  }
+
+  /**
+   * Keep that the lookup `fieldName` of the record `recordId` was filled in:
+   * a run that fills in its lookups node by node, from memory, says so here,
+   * and a run that takes it up owes again only those it had not.
+   */
+  patched(recordId: string, fieldName: string): void {
+    this.write(JSON.stringify(['p', recordId, fieldName]));
+  }
+
+  /**
+   * The lookups earlier parts owed that none of them filled in
+   * (`patched`), in the order owed: what a run that fills in its lookups
+   * from memory, and stopped before it filled them all in, leaves to the
+   * part that takes it up. The journal read twice from its start.
+   */
+  owedLeftByEarlierParts(): PendingFkUpdate[] {
+    const filled = new Set<string>();
+    for (const line of this.lines()) {
+      if (line.offset >= this.partStart) break;
+      if (!line.text.startsWith('["p"')) continue;
+      const value = parseLine(line.text);
+      if (value && value.length >= 3) filled.add(`${String(value[1])}\u0000${String(value[2])}`);
+    }
+    const left: PendingFkUpdate[] = [];
+    for (const line of this.lines()) {
+      if (line.offset >= this.partStart) break;
+      if (!line.text.startsWith('["o"')) continue;
+      const value = parseLine(line.text);
+      if (!value || value.length < 7) continue;
+      const [, objectApiName, newId, sourceId, fieldName, sourceRefId, insertOnly] = value;
+      if (filled.has(`${String(newId)}\u0000${String(fieldName)}`)) continue;
+      left.push({
+        objectApiName: String(objectApiName),
+        newId: String(newId),
+        sourceId: sourceId ? String(sourceId) : undefined,
+        fieldName: String(fieldName),
+        sourceRefId: String(sourceRefId),
+        ...(insertOnly === 1 ? { insertOnly: true as const } : {}),
+      });
+    }
+    return left;
   }
 
   /** Owe a record written as a draft its status. */

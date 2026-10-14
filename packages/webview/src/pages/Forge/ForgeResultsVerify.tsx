@@ -2,7 +2,7 @@ import React, { useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { ShieldCheck } from 'lucide-react';
-import { forgeRunCreatedRecords } from '@sandforge/shared';
+import { forgeRunCreatedSome } from '@sandforge/shared';
 import type {
   ForgeExecutionResult,
   ForgeRunVerification,
@@ -195,8 +195,9 @@ export const ForgeResultsVerify: React.FC<ForgeResultsVerifyProps> = ({ run }) =
     errorType: 'forge:verify:error',
     timeoutMs: VERIFY_TIMEOUT_MS,
   });
-  const created = useMemo(() => forgeRunCreatedRecords(run).length > 0, [run]);
-  if (run.dryRun === true || !created || !run.idRemapCreated) return null;
+  const created = useMemo(() => forgeRunCreatedSome(run), [run]);
+  // A run whose ids were in a journal that is gone has nothing to read back by.
+  if (run.dryRun === true || !created || !run.idRemapCreated || run.journalGone) return null;
 
   const verification = verify.data?.verification ?? run.verification;
   return (

@@ -272,6 +272,60 @@ describe("a run's journal", () => {
     expect(read?.created).toHaveLength(2);
   });
 
+  it('gives the ids of a part as its summary would hold them: every part mapped, what this part created apart', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run-ids');
+    // A second part links to what the first wrote, and creates a contact of its own.
+    const store = journal.open('run-ids');
+    store.beginPart(STARTED);
+    store.setMapping('created', '003000000000002AAA', '003000000000102AAA', 'Contact');
+    store.close();
+
+    expect(await journal.idsOf('run-ids', 1)).toEqual({
+      table: {
+        [ACCOUNT_A]: NEW_ACCOUNT_A,
+        [ACCOUNT_B]: NEW_ACCOUNT_B,
+        [CONTACT_A]: NEW_CONTACT_A,
+        '003000000000002AAA': '003000000000102AAA',
+      },
+      createdByObject: [{ objectApiName: 'Contact', sourceIds: ['003000000000002AAA'] }],
+      existing: [ACCOUNT_A, ACCOUNT_B, CONTACT_A],
+    });
+    expect(await journal.idsOf('run-gone', 0)).toBeUndefined();
+  });
+
+  it('keeps beside the journal what removals of a part left, and drops it with the journal', async () => {
+    const { deps, files } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run-left');
+    expect(await journal.leftOf('run-left', 0)).toBeUndefined();
+
+    await journal.keepLeft('run-left', 0, [NEW_CONTACT_A, 'not an id', NEW_ACCOUNT_B]);
+    expect(await journal.leftOf('run-left', 0)).toEqual([NEW_CONTACT_A, NEW_ACCOUNT_B]);
+    await journal.keepLeft('run-left', 0, [NEW_ACCOUNT_B]);
+    expect(await journal.leftOf('run-left', 0)).toEqual([NEW_ACCOUNT_B]);
+
+    await journal.end('run-left');
+    expect([...files.keys()]).toEqual([]);
+  });
+
+  it('lists the journals that ended, says which are there, and forgets one by its file', async () => {
+    const { deps, files } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run-ended');
+    await runThatWrote(journal, 'run-going');
+    await journal.stop('run-ended', 'success', 'forge-1');
+
+    expect(await journal.endedFiles()).toEqual(['run-ended.ndjson']);
+    expect(await journal.present(['run-ended', 'run-going', 'run-gone'])).toEqual(
+      new Set(['run-ended', 'run-going']),
+    );
+
+    await journal.forgetFile('run-ended.ndjson');
+    expect([...files.keys()].map((file) => path.basename(file))).toEqual(['run-going.ndjson']);
+  });
+
   it('keeps its journals on disk, under the storage it is given, until the run ends', async () => {
     const storage = await mkdtemp(path.join(os.tmpdir(), 'forge-journal-'));
     try {

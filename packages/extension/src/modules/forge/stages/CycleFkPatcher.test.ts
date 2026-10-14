@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { patchCycleFkUpdates, type CycleFkPatchInput } from './CycleFkPatcher.js';
+import {
+  CycleFkPass,
+  RecordsOwingAcrossParts,
+  patchCycleFkUpdates,
+  type CycleFkPatchInput,
+} from './CycleFkPatcher.js';
 import { IdRemapper } from '../IdRemapper.js';
 import type { PendingFkUpdate } from './BatchWriter.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent } from '../ForgeExecutor.js';
@@ -515,5 +520,94 @@ describe('patchCycleFkUpdates', () => {
         "Cycle FK 'Case__c' could not be resolved — referenced parent (source 003OLD1) was not cloned",
       );
     });
+  });
+});
+
+describe('the second pass handed in parts', () => {
+  /** Parts of two lookups each, as the pass reads what a journal owes. */
+  function inParts(updates: PendingFkUpdate[], size = 2): PendingFkUpdate[][] {
+    const parts: PendingFkUpdate[][] = [];
+    for (let at = 0; at < updates.length; at += size) parts.push(updates.slice(at, at + size));
+    return parts;
+  }
+
+  /** Patch `parts` as the pass of a journal does: which records owe in several told first, held back, sent at the end. */
+  async function patchInParts(input: CycleFkPatchInput, parts: PendingFkUpdate[][]) {
+    const across = new RecordsOwingAcrossParts();
+    parts.forEach((part, n) => {
+      for (const update of part) across.note(n, update.newId);
+    });
+    const pass = new CycleFkPass(input);
+    for (const part of parts) await pass.patch(part, (update) => across.spans(update.newId));
+    await pass.sendHeld();
+    return pass.finish();
+  }
+
+  it('sends one update for a record whose lookups fall in two parts', async () => {
+    const remapper = new IdRemapper();
+    remapper.add('003OLD1', '003NEW1');
+    remapper.add('001OLD9', '001NEW9');
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((record) => ({ id: String(record['Id']), success: true, errors: [] })),
+      );
+    // The first record's second lookup is the first of the second part.
+    const parts = inParts([
+      makePending({ newId: '001NEW2', fieldName: 'ParentId', sourceRefId: '001OLD9' }),
+      makePending({ newId: '001NEW1', fieldName: 'PrimaryContactId' }),
+      makePending({ newId: '001NEW1', fieldName: 'ParentId', sourceRefId: '001OLD9' }),
+    ]);
+
+    const error = await patchInParts(makeInput({ remapper, updateRecords }), parts);
+
+    expect(error).toBeNull();
+    const sent = updateRecords.mock.calls.flatMap(([, , records]) => records);
+    expect(sent).toEqual([
+      { Id: '001NEW2', ParentId: '001NEW9' },
+      { Id: '001NEW1', PrimaryContactId: '003NEW1', ParentId: '001NEW9' },
+    ]);
+  });
+
+  it('says two values of one lookup of a record owed in two parts, and sends the first alone', async () => {
+    const remapper = new IdRemapper();
+    remapper.add('003OLD1', '003NEW1');
+    remapper.add('003OLD2', '003NEW2');
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation(async (_org, _object, records) =>
+        records.map((record) => ({ id: String(record['Id']), success: true, errors: [] })),
+      );
+    const parts = inParts([
+      makePending({ newId: '001NEW1', sourceRefId: '003OLD1' }),
+      makePending({ newId: '001NEW2', sourceRefId: '003OLD1' }),
+      makePending({ newId: '001NEW1', sourceRefId: '003OLD2' }),
+    ]);
+
+    const error = await patchInParts(makeInput({ remapper, updateRecords }), parts);
+
+    const sent = updateRecords.mock.calls.flatMap(([, , records]) => records);
+    expect(sent).toEqual([
+      { Id: '001NEW2', PrimaryContactId: '003NEW1' },
+      { Id: '001NEW1', PrimaryContactId: '003NEW1' },
+    ]);
+    expect(error?.failedCount).toBe(1);
+    expect(error?.samples[0].messages[0]).toBe(
+      'Conflicting cycle FK update for PrimaryContactId: 003NEW1 vs 003NEW2',
+    );
+  });
+
+  it('tells a record owing in two parts from one owing in a single part, however many records it holds', () => {
+    const across = new RecordsOwingAcrossParts();
+    for (let n = 0; n < 5000; n++) across.note(n % 7, `001NEW${String(n).padStart(9, '0')}`);
+    // Each was first seen in part n % 7: once more there is not another part.
+    across.note(4, '001NEW000000004');
+    across.note(2, '001NEW000000009');
+    across.note(5, '001NEW000000011');
+    expect(across.spans('001NEW000000004')).toBe(false);
+    expect(across.spans('001NEW000000009')).toBe(false);
+    expect(across.spans('001NEW000000011')).toBe(true);
+    expect(across.spans('001NEW000000010')).toBe(false);
+    expect(across.spans('001NEW999999999')).toBe(false);
   });
 });

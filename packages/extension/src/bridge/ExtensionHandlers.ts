@@ -820,6 +820,7 @@ export class ExtensionHandlers {
         'forge:resume-run',
         'forge:open-record',
         'forge:verify:request',
+        'forge:export-ids:request',
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',

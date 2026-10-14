@@ -2798,7 +2798,7 @@
     "retryStopped": "Escribir el resto",
     "retryStoppedHint": "Escribir el resto vuelve a ejecutar el clon: lo que esta ejecución no escribió antes de detenerse se escribe, vinculado a lo que sí escribió, que no se escribe una segunda vez.",
     "resumeRun": "Reanudar donde se detuvo",
-    "resumeRunHint": "Reanudar retoma esta ejecución desde el diario que SandForge guardó de ella: cada objeto se lee después del último registro que escribió, y se completan las búsquedas y los estados que aún debía. Nada de lo que escribió se escribe por segunda vez.",
+    "resumeRunHint": "Reanudar retoma esta ejecución desde el diario que SandForge guardó de ella: una clonación de tablas enteras lee cada objeto después del último registro que escribió, una clonación de un registro vuelve a leer sus registros y se vincula a los que escribió, y se completan las búsquedas y los estados que aún debía. Nada de lo que escribió se escribe por segunda vez.",
     "retrySkipped": "Reintentar objetos omitidos",
     "retrySkippedHint": "Reintentar objetos omitidos vuelve a ejecutar el clon una vez corregido lo que los hizo omitir: los objetos que esta ejecución omitió por completo se escriben, vinculados a lo que sí escribió, que no se escribe una segunda vez.",
     "retryWithParents": "Obtener los padres que faltan y reintentar",
@@ -2951,7 +2951,9 @@
       "existingBadge": "existente",
       "openRecord": "Abrir {{object}} {{id}} en la org destino",
       "openNote": "Seleccione el Id de un registro que creó esta ejecución para abrirlo en la org destino.",
-      "openFailed": "No se pudo abrir el registro: {{message}}"
+      "openFailed": "No se pudo abrir el registro: {{message}}",
+      "inJournal_one": "El Id del registro que esta ejecución asignó se guarda en su diario, no en sus resultados: Guardar correspondencia de Ids lo escribe en un archivo.",
+      "inJournal_other": "Los Ids de los {{formatted}} registros que esta ejecución asignó se guardan en su diario, no en sus resultados: Guardar correspondencia de Ids los escribe en un archivo."
     },
     "preview": {
       "title": "Qué ocurrirá al ejecutar",
@@ -3207,6 +3209,7 @@
       "removeLeft": "Eliminar lo que queda de los registros de esta ejecución",
       "removeNotRecorded": "Registrada antes de que las ejecuciones guardaran lo que crean: sus registros no se pueden eliminar desde aquí.",
       "removeOrgGone": "La org en la que escribió esta ejecución ya no está registrada: sus registros no se pueden eliminar desde aquí.",
+      "journalGone": "Los Ids de los registros de esta ejecución se guardaban en su diario, que ya no existe: ya no se pueden eliminar, verificar, reintentar ni guardar desde aquí.",
       "removeTitle": "Eliminar de {{org}} los registros de esta ejecución",
       "removeDescription": "Elimina de {{org}} los registros que creó esta ejecución, los hijos antes que sus padres; van a su papelera de reciclaje. Los registros a los que se vinculó la ejecución, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde que terminó la ejecución, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
       "removeObject_one": "{{object}}: {{formatted}} registro",

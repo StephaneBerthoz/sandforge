@@ -36,8 +36,8 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 
 /*
- * A run of whole tables that stops part way — a cancel, a failure, a window
- * closed under it — is kept with its journal, which says how it was set up,
+ * A run that stops part way — a cancel, a failure, a window closed under
+ * it — is kept with its journal, which says how it was set up,
  * what it wrote and where it stood: the run is offered to be taken up where
  * it stopped, from Forge's history, its results and Live Operations, and is
  * refused when the org it wrote to or its setup is no longer what it was.
@@ -192,7 +192,7 @@ type Execute = (
   options?: Pick<ExecuteOptions, 'beforeWrite' | 'stream' | 'writtenBefore'>,
 ) => Promise<ForgeExecutionResult>;
 
-describe('a run of whole tables taken up where it stopped', () => {
+describe('a run taken up where it stopped', () => {
   let deps: HandlerDeps;
   let configStore: ConfigStore;
   let settings: Record<string, unknown>;
@@ -465,6 +465,42 @@ describe('a run of whole tables taken up where it stopped', () => {
     await send(handler, 'wv-again', 'forge:resume-run', { forgeId: stopped.forgeId });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(refusal('wv-again')).toMatchObject({ code: 'RESUME_UNAVAILABLE' });
+  });
+
+  it('keeps the journal of a clone of one record that stopped, and takes it up reading its scope again', async () => {
+    const recordConfig: ForgeConfig = {
+      ...CONFIG,
+      inputMode: 'record',
+      recordId: CONTACT,
+      soqlQuery: undefined,
+    };
+    const first = windowRunning(cancelledAfterOne);
+    await send(first.handler, 'wv-execute', 'forge:execute', {
+      graph: GRAPH,
+      config: recordConfig,
+    });
+    const stopped = posted('forge:execute:error')[0]?.payload.result as ForgeExecutionResult;
+    expect(stopped).toMatchObject({ cancelled: true, resumable: true });
+    expect(stopped.journalId).toMatch(/^forge-run-/);
+
+    const { handler, execute } = windowRunning(async (_graph, _config, options) => {
+      const store = options?.stream?.store;
+      store?.beginPart(new Date());
+      // What the first part wrote is linked to, never written again.
+      expect(store?.mapping(CONTACT)).toMatchObject({ targetId: NEW_CONTACT, earlier: true });
+      return DONE;
+    });
+    expect((await history(handler))[0]).toMatchObject({
+      forgeId: stopped.forgeId,
+      resumable: true,
+    });
+    await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: stopped.forgeId });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    const [, config] = execute.mock.calls[0] as Parameters<Execute>;
+    expect(config).toEqual(recordConfig);
+    const answer = posted('forge:execute:response').find((m) => m.correlationId === 'wv-resume');
+    expect(answer?.payload.result).toMatchObject({ retryOf: stopped.forgeId, resumed: true });
   });
 
   it('leaves the part it resumed the one to take up when the resumed part stops before writing', async () => {

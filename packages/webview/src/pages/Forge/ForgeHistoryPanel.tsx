@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, RotateCcw, Trash2 } from 'lucide-react';
-import { forgeRemovalPlanLeft, forgeRunRecordsLeft } from '@sandforge/shared';
+import { forgeRemovalPlanCountsLeft, forgeRunCountsLeft } from '@sandforge/shared';
 import type {
   ForgeConfig,
   ForgeRemovalPlan,
@@ -97,10 +97,13 @@ export interface ForgeHistoryPanelProps {
  * the org is listed under the older runs, from the removal plan the extension
  * kept of it, with the same removal.
  *
- * A run of whole tables that stopped part way — a cancel, a failure, a window
- * closed under it — is offered to be taken up where it stopped (`resumable`):
- * the extension runs it again as its journal says it was set up, each object
- * read after the last record it wrote, and the execution screen follows it.
+ * A run that stopped part way — a cancel, a failure, a window closed under
+ * it — is offered to be taken up where it stopped (`resumable`): the
+ * extension runs it again as its journal says it was set up — a run of whole
+ * tables reading each object after the last record it wrote, a run from a
+ * record reading its records again and linking to those it wrote — and the
+ * execution screen follows it. A run whose ids were kept in a journal that is
+ * gone says so, and offers no removal.
  */
 export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   entries,
@@ -135,7 +138,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     orgs.find((o) => o.id === orgId)?.alias;
   /** The runs whose records a removal could take now, by `forgeId`. */
   const removable = useMemo(
-    () => new Set(entries.filter((e) => forgeRunRecordsLeft(e).length > 0).map((e) => e.forgeId)),
+    () => new Set(entries.filter((e) => forgeRunCountsLeft(e).length > 0).map((e) => e.forgeId)),
     [entries],
   );
   const confirmingOrg = (confirming && orgLabel(confirming.targetOrgId)) ?? '';
@@ -201,7 +204,17 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
       />
     ) : null;
     let action: React.ReactNode = null;
-    if (!keptPlan && (!entry.idRemapCreated || !entry.targetOrgId)) {
+    if (entry.journalGone) {
+      // Its ids were in its journal, which is gone: said, and nothing offered.
+      action = (
+        <p
+          data-testid={`forge-history-journal-gone-${entry.forgeId}`}
+          className="text-[10px] text-text-secondary"
+        >
+          {t('forge.history.journalGone')}
+        </p>
+      );
+    } else if (!keptPlan && (!entry.idRemapCreated || !entry.targetOrgId)) {
       // Recorded before a run kept what it created and where: said only of a
       // run that did write something.
       if (!entry.undo && (entry.createdCount ?? entry.idRemapCount) > 0) {
@@ -354,7 +367,10 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           </div>
           <p className="text-[10px] text-text-secondary">{t('forge.history.olderHint')}</p>
           {olderRuns.map((plan) => {
-            const left = forgeRemovalPlanLeft(plan).reduce((sum, o) => sum + o.ids.length, 0);
+            // A run whose journal is gone still says what it left, which nothing can take now.
+            const left = (
+              plan.journalGone ? (plan.inJournal?.left ?? []) : forgeRemovalPlanCountsLeft(plan)
+            ).reduce((sum, o) => sum + o.count, 0);
             const org = orgLabel(plan.targetOrgId);
             return (
               <div

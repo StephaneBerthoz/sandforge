@@ -1819,6 +1819,88 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Forge results of a run whose ids are in its journal, saying where they are and saving its Id map from there', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: FORGE_RUN_GRAPH,
+      });
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('execute-button').click();
+      await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          forgeId: 'forge-run-journal',
+          status: 'success',
+          graph: FORGE_RUN_GRAPH,
+          duration: 2_000,
+          timestamp: '2026-09-01T08:00:00.000Z',
+          idRemapCount: 60_000,
+          idRemapTable: {},
+          idRemapExisting: [],
+          idRemapCreated: [],
+          idRemapByObject: [{ objectApiName: 'Account', created: 60_000, linked: 0 }],
+          createdCount: 60_000,
+          remapInJournal: true,
+          journalId: 'forge-run-1',
+          journalPart: 0,
+          readByObject: [{ objectApiName: 'Account', read: 60_000 }],
+          errors: [],
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-id-mapping-journal"]', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-save-id-map-journal')).toBeVisible();
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-id-mapping-journal"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge recent runs saying the journal of a run is gone, and offering it no removal', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+        history: [
+          {
+            ...FORGE_REMOVABLE_RUN,
+            forgeId: 'forge-run-journal-gone',
+            idRemapTable: {},
+            idRemapExisting: [],
+            idRemapCreated: [],
+            idRemapByObject: [{ objectApiName: 'Account', created: 60_000, linked: 0 }],
+            createdCount: 60_000,
+            remapInJournal: true,
+            journalId: 'forge-run-1',
+            journalPart: 0,
+            journalGone: true,
+          },
+        ],
+      });
+      await page
+        .getByTestId('forge-history-journal-gone-forge-run-journal-gone')
+        .waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-history-remove-forge-run-journal-gone')).toHaveCount(0);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="forge-history-journal-gone-forge-run-journal-gone"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge results naming the objects the run could not read', async ({ page }) => {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       await page.getByTestId('forge-tab-soql').click();

@@ -160,7 +160,7 @@ Run for real, a clone whose dry run said 37 records wrote 34 216 into a sandbox 
 - **What it is about to read.** A clone of whole tables reads each object a page at a time and writes each page before it reads the next, holding one page; a clone of one record holds every record it reads of an object until it writes them. Either reads at most `sandforge.forge.maxRecordsPerObject` records of one object (50 000 by default, a million at most): an object with more is read to that number and said truncated. When nothing caps the read of an object it writes — **Records per object** on **All** — and its table holds more than that number, as discovery counted it, a VS Code confirmation lists those tables with their counts before anything is read. A clone of one record reads only what its record reaches of each table, which no count says before the read: the table is the most it can read. A simulation is not asked. **Cancel** reads and writes nothing.
 - **What it is about to write.** Once every row is read, and before the first is written, the records are counted per object — a clone of whole tables, which holds no row before it writes the first, counts each table before it reads anything (`SELECT COUNT()` under the object's filter, no more than it reads of it, the person accounts apart) — and the data storage they take is estimated by the sizes Salesforce documents (help.salesforce.com, knowledge article 000383664): most records 2 KB, a person account 4 KB, a campaign 8 KB, a campaign member 1 KB, an article 4 KB and more with rich text, an email message its actual size. That is held to what the target has left (its limits, `DataStorageMB`): records that do not fit are refused. Past `sandforge.safety.confirmAboveRecords` (2 000 by default; 0 never asks about the volume), past 80 % of what the target has left — Salesforce counts storage a while after a load, so less may be left than it says — or when the target will not say what it has left, as it may answer the user the run writes as, a VS Code confirmation lists the records per object and the storage; past 50 000 records it says the volume is large. When the target's flows, processes and workflow rules send emails as the records go in, the daily limits they count against are read too (`SingleEmail` for a Send Email, `DailyWorkflowEmails` for an email alert): past what the target has left today, a flow that sends fails, and a record whose flow fails in the save is refused, so the confirmation says it, with the emails each record sends. A bypass that keeps the flow quiet, or a smaller run, avoids it. **Cancel** writes nothing.
 
-A run of whole tables — a query, a template — reads every table before it writes any, as a record clone always did, so that what is counted is every row it writes; it holds them all meanwhile. A run refused or cancelled at one of these checks goes back to Review — a retry, to the results of the run it retries — which says why, and the audit trail records it as stopped, under `PRODUCTION_TARGET`, `AUTOMATION_DECLINED`, `READ_DECLINED`, `WRITE_DECLINED`, `STORAGE_EXCEEDED` or `CONFIRMATION_UNAVAILABLE`; a run you confirmed is recorded as confirmed.
+A clone of one record reads every row it clones before it writes any, so that what is counted is every row it writes, and holds them meanwhile. A run of whole tables — a query, a template — counts each table before it reads a row, as above, then reads and writes it a page at a time. A run refused or cancelled at one of these checks goes back to Review — a retry, to the results of the run it retries — which says why, and the audit trail records it as stopped, under `PRODUCTION_TARGET`, `AUTOMATION_DECLINED`, `READ_DECLINED`, `WRITE_DECLINED`, `STORAGE_EXCEEDED` or `CONFIRMATION_UNAVAILABLE`; a run you confirmed is recorded as confirmed.
 
 ## Rehearse a run
 
@@ -242,28 +242,32 @@ The Forge page lists your recent runs under **Recent runs**. A run that created 
 - **Records out of reach.** A call whose answer never came back — a timeout, a connection cut once the request was out — may have written its records under ids the run never learned. They count as failed and are never sent again; the run's results and its audit entry count them per object as maybe in the target, and the removal's result says how many it cannot reach.
 - **Records it cannot see.** A record of the run that no query finds when the removal begins is looked for in the org's recycle bin: there, it counts as already gone; nowhere, it counts as **not visible to this user**, never as removed — sharing or an owner whose records your user does not reach can hide it, and a record deleted for good, or emptied from the bin, is not there either. The removal then ends partial, and the run is offered again for those records, to a user who sees them.
 - **Past the last twenty runs.** **Recent runs** lists the last twenty. A run past them whose records are still in the org is listed under **Older runs**, with the records left to remove and the org, and offers the same removal. What that takes is kept apart from the history, in the extension's own storage: per run, the ids of the records it created, its dates and what its removals left — never a value of a record — up to 4 MB, some 200 000 records; past that, the oldest runs' go first, and the latest run's is always kept. A run whose records were all removed is no longer kept there.
+- **Runs of more than 50 000 records.** A run that maps more records keeps their ids in its journal (below), not in the history: its entry, its plan under **Older runs** and its results count the records per object, and the removal, its confirmation, **Verify**, a retry and **Save Id map (CSV)** read the ids from the journal, which stays as long as the run is listed. Its results say where its ids are instead of listing them. A removal that leaves some of its records keeps what it left beside the journal. Should the journal be gone — the extension's storage cleared — the run says so, and offers none of them.
 - **Runs from before.** A run recorded before runs kept what they created says so and offers no removal. `sandforge-cleanup` (below) remains for those.
 - **Said before the run.** Review's **Automation** tab says which objects the run writes may refuse a removal of its records: a record-triggered Flow that runs before a delete, an Apex trigger on a delete — one a managed package installed, which no one in the org can change, named apart — and the orders and contracts whose records, once activated, lock the records under them. When the run asks about what fires as it inserts, that question says it too; a run **Clone directly** started, which never shows Review, asks about them alone when nothing else is asked.
 
 ## Resume a run that stopped
 
-A clone of whole tables keeps a journal of what it writes as it goes — the
-ids of the records it created and linked to, where each object's read stood,
-the lookups and statuses it still owed; never a value of a record — in the
+Every clone that writes keeps a journal of what it writes as it goes — the
+ids of the records it created and linked to, put on disk as each call's
+answer comes back, where each object's read stood, the lookups and statuses
+it still owed, and those it filled in; never a value of a record — in the
 extension's own storage. One that stopped before its end — you cancelled it,
 it failed past its first objects, or VS Code closed under it — offers
 **Resume where it stopped** on its results, **Resume** under **Recent runs**,
 and **Resume** in Live Operations while it is listed there: the clone runs
-again as it was set up, each object read after the last record it wrote, the
-lookups and statuses it still owed filled in, and nothing it wrote is written
-again. A run VS Code closed under is listed under **Recent runs** as
-interrupted, with what it created, removable from there. Resume is refused,
-writing nothing, when the org the run wrote to was refreshed or replaced
-since, or is no longer registered; when the clone on the page, or
-`sandforge.forge.maxRecordsPerObject`, changed since it stopped; and when its
-records were removed, or it was resumed already. Each part is a run of the
-history of its own, with what it created and its own removal. The clone
-command does the same with `--resume`.
+again as it was set up — a clone of whole tables reads each object after the
+last record it wrote, a clone of one record reads its records again and
+links to those it wrote — the lookups and statuses it still owed are filled
+in, and nothing it wrote is written again. Its lines say the records it links
+to were written before the run stopped. A run VS Code closed under is listed
+under **Recent runs** as interrupted, with what it created, removable from
+there. Resume is refused, writing nothing, when the org the run wrote to was
+refreshed or replaced since, or is no longer registered; when the clone on
+the page, or `sandforge.forge.maxRecordsPerObject`, changed since it stopped;
+and when its records were removed, or it was resumed already. Each part is a
+run of the history of its own, with what it created and its own removal. The
+clone command does the same with `--resume`.
 
 ## The run's audit entry
 

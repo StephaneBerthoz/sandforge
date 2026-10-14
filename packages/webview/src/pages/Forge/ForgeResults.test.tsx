@@ -1162,7 +1162,7 @@ describe('ForgeResults', () => {
         'forge-resume-hint',
       );
       expect(screen.getByTestId('forge-resume-hint').textContent).toBe(
-        'Resume takes this run up from the journal SandForge kept of it: each object is read after the last record this run wrote, and the lookups and statuses it still owed are filled in. Nothing it wrote is written a second time.',
+        'Resume takes this run up from the journal SandForge kept of it: a clone of whole tables reads each object after the last record this run wrote, a clone of one record reads its records again and links to those this run wrote, and the lookups and statuses it still owed are filled in. Nothing it wrote is written a second time.',
       );
       fireEvent.click(screen.getByTestId('forge-resume'));
 
@@ -1497,6 +1497,68 @@ describe('ForgeResults', () => {
       expect(JSON.parse(file.content)).toEqual(mockResult);
     });
 
+    describe('of a run whose ids are in its journal', () => {
+      /** A run past the bound: its counts, and none of its ids. */
+      function runInTheJournal(overrides: Record<string, unknown> = {}): void {
+        mockResult = Object.assign(makeMockResult(), {
+          forgeId: 'forge-journal',
+          idRemapCount: 60_002,
+          idRemapTable: {},
+          idRemapExisting: [],
+          idRemapCreated: [],
+          idRemapByObject: [{ objectApiName: 'Account', created: 60_000, linked: 2 }],
+          createdCount: 60_000,
+          remapInJournal: true,
+          journalId: 'forge-run-1',
+          journalPart: 0,
+          ...overrides,
+        });
+      }
+
+      it('offers a retry while its journal is there', () => {
+        mockGraph = makeMockGraphWithError();
+        runInTheJournal({ status: 'partial', graph: mockGraph });
+        render(<ForgeResults />);
+
+        expect(screen.getByTestId('forge-retry-failed')).toBeDefined();
+      });
+
+      it('says where its ids are, and saves its Id map from there through the extension', () => {
+        runInTheJournal();
+        render(<ForgeResults />);
+
+        expect(screen.getByTestId('forge-id-mapping-journal').textContent).toContain(
+          'The ids of the 60,002 records this run mapped are kept in its journal, not in its results: Save the Id map writes them to a file.',
+        );
+        expect(screen.queryByTestId('forge-save-id-map')).toBeNull();
+        fireEvent.click(screen.getByTestId('forge-save-id-map-journal'));
+
+        expect(sent('forge:export-ids:request')).toEqual([{ forgeId: 'forge-journal' }]);
+        expect(sent('file:save')).toEqual([]);
+        replyTo('forge:export-ids:request', 'forge:export-ids:response', {
+          status: 'saved',
+          path: '/picked/id-map.csv',
+          rows: 60_002,
+        });
+        expect(useNotificationStore.getState().notifications.at(-1)?.message).toContain(
+          '/picked/id-map.csv',
+        );
+      });
+
+      it('says its journal is gone, and offers neither its Id map nor a retry', () => {
+        // A run that failed objects: one whose journal is there offers a retry.
+        mockGraph = makeMockGraphWithError();
+        runInTheJournal({ journalGone: true, status: 'partial', graph: mockGraph });
+        render(<ForgeResults />);
+
+        expect(screen.getByTestId('forge-id-mapping-journal').textContent).toContain(
+          'which is gone',
+        );
+        expect(screen.queryByTestId('forge-save-id-map-journal')).toBeNull();
+        expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+      });
+    });
+
     it('offers no Id map file for a run that mapped no record', () => {
       render(<ForgeResults />);
 
@@ -1668,6 +1730,51 @@ describe('ForgeResults', () => {
       expect(screen.queryByTestId('forge-retry-parents')).toBeNull();
       // What it found can still be saved.
       expect(screen.getByTestId('forge-save-results-csv')).toBeDefined();
+    });
+
+    it('offers the removal and the verification of a run whose ids are in its journal, from its counts', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-journal',
+        idRemapCount: 60_000,
+        idRemapTable: {},
+        idRemapExisting: [],
+        idRemapCreated: [],
+        idRemapByObject: [{ objectApiName: 'Account', created: 60_000, linked: 0 }],
+        createdCount: 60_000,
+        remapInJournal: true,
+        journalId: 'forge-run-1',
+        journalPart: 0,
+      });
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-results-verify-run')).toBeDefined();
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+      expect(
+        within(screen.getByTestId('forge-removal-plan'))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Account: 60,000 records']);
+    });
+
+    it('says the journal of such a run is gone, and offers neither its removal nor its verification', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        forgeId: 'forge-journal',
+        idRemapCount: 60_000,
+        idRemapTable: {},
+        idRemapExisting: [],
+        idRemapCreated: [],
+        idRemapByObject: [{ objectApiName: 'Account', created: 60_000, linked: 0 }],
+        createdCount: 60_000,
+        remapInJournal: true,
+        journalId: 'forge-run-1',
+        journalPart: 0,
+        journalGone: true,
+      });
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-results-remove')).toBeNull();
+      expect(screen.queryByTestId('forge-results-verify-run')).toBeNull();
+      expect(screen.getByTestId('forge-results-journal-gone')).toBeDefined();
     });
 
     it('offers the removal of the records the run created, and no retry once it took some', () => {

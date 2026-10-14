@@ -333,6 +333,8 @@ export class OrphanExpander {
                   remapper.add(entry.sourceId, parent.id, entry.object);
                   if (parent.owedStatus)
                     input.oweStatus?.(entry.object, parent.id, parent.owedStatus);
+                  // On disk before the other expansions are awaited: see `IdRemapper.persist`.
+                  remapper.persist();
                 }
                 // Register the parent in scopeCache so multi-hop
                 // children that pivot through this object include the

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
@@ -25,10 +25,11 @@ import type {
   ForgeFieldRefusal,
   ForgeGraphNode,
   ForgeNodeStatus,
+  ForgeExportIdsResponse,
   ForgeOpenRecordResponse,
   ForgeResumeRunRequest,
 } from '@sandforge/shared';
-import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
+import { idMapCsv, idMapRows, leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { translateForgeError } from './forgeErrorTranslator';
@@ -44,7 +45,13 @@ import { useForgeStore } from '../../stores/useForgeStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { staggerContainer, slideUp } from '../../motion/presets';
 import { cn } from '../../theme';
-import { collator, formatElapsed, formatStoredDate, uiLocale } from '../../utils/formatters';
+import {
+  collator,
+  formatElapsed,
+  formatNumber,
+  formatStoredDate,
+  uiLocale,
+} from '../../utils/formatters';
 import { ForgeSaveTemplate } from './ForgeSaveTemplate';
 import { ForgeDecisionsResult } from './ForgeDecisionsResult';
 import { ForgeFilesResult } from './ForgeFilesResult';
@@ -55,7 +62,7 @@ import { ForgeResultsRemoval } from './ForgeResultsRemoval';
 import { ForgeResultsVerify } from './ForgeResultsVerify';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { useForgeRunGateStore } from './runGate';
-import { createdTargets, idMapCsv, idMapRows, objectResultsCsv } from './forgeResultsExport';
+import { createdTargets, objectResultsCsv } from './forgeResultsExport';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -75,6 +82,9 @@ function namesARequiredFieldMissing(error: ForgeExecutionError): boolean {
 function ranAsSimulation(result: ForgeExecutionResult | null): boolean {
   return result !== null && 'dryRun' in result && result.dryRun === true;
 }
+
+/** How long the Id map of a run whose ids are in its journal may take to save: the dialog waits on a person. */
+const SAVE_FROM_THE_JOURNAL_MS = 600_000;
 
 /** Today, as an export's file name carries it. */
 function exportDate(): string {
@@ -410,7 +420,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
    * were was offered no retry. A simulation wrote nothing to retry against,
    * and once a removal took the run's records, the extension refuses one.
    */
-  const retryOffered = !simulated && !removed && (retryable || failures.length > 0);
+  const retryOffered =
+    !simulated && !removed && result?.journalGone !== true && (retryable || failures.length > 0);
 
   /**
    * A run of whole tables that stopped part way can be taken up where it
@@ -691,6 +702,43 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const handleSaveResultsCsv = useCallback(() => {
     save(`sandforge-forge-results-${exportDate()}.csv`, objectResultsCsv(rows, result), ['csv']);
   }, [rows, result, save]);
+
+  /*
+   * The Id map of a run whose ids are in its journal: the extension reads them
+   * there and writes the file where the user picks, a piece at a time — a
+   * run past the bound maps more than the page holds.
+   */
+  const idsExport = useBridgeMutation<ForgeExportIdsResponse['payload']>(
+    'forge:export-ids:request',
+    {
+      responseType: 'forge:export-ids:response',
+      errorType: 'forge:export-ids:error',
+      timeoutMs: SAVE_FROM_THE_JOURNAL_MS,
+    },
+  );
+  const exportIds = idsExport.mutate;
+  const handleSaveIdMapFromJournal = useCallback(() => {
+    if (result) exportIds({ forgeId: result.forgeId });
+  }, [result, exportIds]);
+  const exported = idsExport.data;
+  useEffect(() => {
+    if (!exported || exported.status === 'cancelled') return;
+    addNotification(
+      exported.status === 'saved'
+        ? {
+            level: 'success',
+            title: t('common.export'),
+            message: t('common.exportSaved', { path: exported.path }),
+            autoDismissMs: 4000,
+          }
+        : { level: 'error', title: t('common.export'), message: exported.message },
+    );
+  }, [exported, addNotification, t]);
+  const exportError = idsExport.error;
+  useEffect(() => {
+    if (exportError)
+      addNotification({ level: 'error', title: t('common.export'), message: exportError });
+  }, [exportError, addNotification, t]);
 
   /** The whole result as a JSON file, as the clipboard copy holds it. */
   const handleSaveResultJson = useCallback(() => {
@@ -1008,6 +1056,27 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         )}
       </m.div>
 
+      {/* A run past the bound keeps its ids in its journal, not in its results:
+          the map is saved from there, or said gone with the journal. */}
+      {result?.remapInJournal && !simulated && (
+        <div
+          data-testid="forge-id-mapping-journal"
+          className="rounded-lg border border-subtle bg-surface-1 p-3"
+        >
+          <h3 className="text-sm font-semibold text-text-primary mb-2">
+            {t('forge.idMapping.title')}
+          </h3>
+          <p className="text-xs text-text-secondary">
+            {result.journalGone
+              ? t('forge.history.journalGone')
+              : t('forge.idMapping.inJournal', {
+                  count: idRemaps,
+                  formatted: formatNumber(idRemaps),
+                })}
+          </p>
+        </div>
+      )}
+
       {/* Source -> target Id map. The executor has always returned this table;
           only its count used to survive, so a finished clone could report
           "312 records" without being able to say where any one of them went. */}
@@ -1261,6 +1330,19 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           {t('forge.exportJson')}
         </Button>
         {/* Saved by the host as files, beside the clipboard copies above. */}
+        {result?.remapInJournal && !result.journalGone && !simulated && (
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<FileDown size={14} />}
+            onClick={handleSaveIdMapFromJournal}
+            loading={idsExport.loading}
+            disabled={idsExport.loading}
+            data-testid="forge-save-id-map-journal"
+          >
+            {t('forge.saveIdMapCsv')}
+          </Button>
+        )}
         {idMap.length > 0 && (
           <Button
             variant="secondary"

@@ -762,6 +762,12 @@ export interface ForgeUndoMark {
   notVisible?: number;
 }
 
+/** Records of one object, counted: what a removal leaves, or takes, of a run whose ids are in its journal. */
+export interface ForgeRemovalLeftCount {
+  objectApiName: string;
+  count: number;
+}
+
 /**
  * What removing a run's records needs, kept apart from the run's history
  * entry so the run stays removable once the history has dropped it: ids and
@@ -799,6 +805,15 @@ export interface ForgeRemovalPlan {
   removalSpans?: ForgeRemovalSpan[];
   /** See `ForgeExecutionResult.removalLeft`. */
   removalLeft?: string[];
+  /**
+   * Set for a run whose ids are in its journal (`ForgeExecutionResult.remapInJournal`):
+   * `objects` is empty, and the ids are read from that part of that journal,
+   * what removals left beside it. `left` counts per object what a removal
+   * takes now.
+   */
+  inJournal?: { journalId: string; part: number; left: ForgeRemovalLeftCount[] };
+  /** Set, when the plans are listed, on one whose journal is gone. Never stored. */
+  journalGone?: true;
 }
 
 /**
@@ -1316,10 +1331,36 @@ export interface ForgeExecutionResult {
   resumed?: true;
   /**
    * The journal the extension keeps of the run while it can be taken up
-   * where it stopped: a run stopped by a cancel, a failure or a closed window.
-   * Absent from a run that ended, and from runs recorded before.
+   * where it stopped — a run stopped by a cancel, a failure or a closed
+   * window — or while it holds the ids of a run past the bound
+   * (`remapInJournal`). Absent from a run that ended otherwise, and from runs
+   * recorded before.
    */
   journalId?: string;
+  /** Which part of its journal the run is: the run, then each time it was taken up. */
+  journalPart?: number;
+  /**
+   * Set on a run that mapped more records than the history keeps the ids of
+   * (50 000): the ids of what it created and linked to are in its journal
+   * (`journalId`, part `journalPart`), and `idRemapTable`, `idRemapExisting`
+   * and `idRemapCreated` are left empty — the counts beside them stand, per
+   * object in `idRemapByObject`. Every reader of the ids reads them from the
+   * journal: kept in the history, a run of a million records put them all in
+   * the extension's global state, rewritten whole at every change.
+   */
+  remapInJournal?: true;
+  /**
+   * Of a run whose ids are in its journal (`remapInJournal`), the records its
+   * removals left, per object: the ids are kept beside the journal. Absent
+   * until a removal left some.
+   */
+  removalLeftByObject?: ForgeRemovalLeftCount[];
+  /**
+   * Set, when the history is listed, on a run whose ids are in its journal
+   * when that journal is gone: its records can no longer be removed,
+   * verified, retried against or exported from here. Never stored.
+   */
+  journalGone?: true;
   /**
    * Set, when the history is listed, on the run that can be taken up where
    * it stopped (`forge:resume-run`): the last part of its journal, its

@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { ForgeExecutionResult } from '../types/forge.types.js';
 import {
+  forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,
+  forgeRunCountsLeft,
   forgeRunCreatedRecords,
+  forgeRunCreatedSome,
   forgeRunLinkedKept,
+  forgeRunLinkedKeptCount,
   forgeRunRecordsLeft,
   removalTookAll,
 } from './forge-run-records.js';
@@ -335,5 +339,117 @@ describe('forgeRunRecordsLeft', () => {
     expect(forgeRunRecordsLeft(entry)).toEqual([
       { objectApiName: 'Contact', ids: [tgt('003', 3)] },
     ]);
+  });
+});
+
+describe('a run whose ids are in its journal', () => {
+  /** A run past the bound: its counts, and none of its ids. */
+  function inTheJournal(overrides: Partial<ForgeExecutionResult> = {}): ForgeExecutionResult {
+    return {
+      forgeId: 'forge-big',
+      status: 'success',
+      graph: {
+        nodes: [],
+        edges: [],
+        totalRecords: 0,
+        estimatedSizeMB: 0,
+        estimatedDurationSeconds: 0,
+      },
+      duration: 1_000,
+      timestamp: '2026-10-14T10:00:00.000Z',
+      idRemapCount: 60_002,
+      idRemapTable: {},
+      idRemapExisting: [],
+      idRemapCreated: [],
+      idRemapByObject: [
+        { objectApiName: 'Account', created: 10_000, linked: 2 },
+        { objectApiName: 'Contact', created: 50_000, linked: 0 },
+      ],
+      createdCount: 60_000,
+      linkedExistingCount: 2,
+      remapInJournal: true,
+      journalId: 'forge-run-1',
+      journalPart: 0,
+      targetOrgId: 'org-target',
+      ...overrides,
+    };
+  }
+
+  it('counts what a removal takes from its counts, children first, and what its removals left once one did', () => {
+    expect(forgeRunCountsLeft(inTheJournal())).toEqual([
+      { objectApiName: 'Contact', count: 50_000 },
+      { objectApiName: 'Account', count: 10_000 },
+    ]);
+    expect(
+      forgeRunCountsLeft(
+        inTheJournal({
+          undo: {
+            removedAt: '2026-10-14T11:00:00.000Z',
+            deleted: 59_997,
+            alreadyGone: 0,
+            kept: 0,
+            refused: 3,
+          },
+          removalLeftByObject: [
+            { objectApiName: 'Contact', count: 3 },
+            { objectApiName: 'Account', count: 0 },
+          ],
+        }),
+      ),
+    ).toEqual([{ objectApiName: 'Contact', count: 3 }]);
+  });
+
+  it('counts nothing to take once its removals took all, or its journal is gone', () => {
+    expect(
+      forgeRunCountsLeft(
+        inTheJournal({
+          undo: {
+            removedAt: '2026-10-14T11:00:00.000Z',
+            deleted: 60_000,
+            alreadyGone: 0,
+            kept: 0,
+            refused: 0,
+          },
+        }),
+      ),
+    ).toEqual([]);
+    expect(forgeRunCountsLeft(inTheJournal({ journalGone: true }))).toEqual([]);
+  });
+
+  it('counts the records an entry holds the ids of as their ids say', () => {
+    expect(forgeRunCountsLeft(accountsThenContacts())).toEqual([
+      { objectApiName: 'Contact', count: 3 },
+      { objectApiName: 'Account', count: 2 },
+    ]);
+    expect(forgeRunCreatedSome(accountsThenContacts())).toBe(true);
+    expect(forgeRunLinkedKeptCount(accountsThenContacts())).toBe(0);
+  });
+
+  it('says it created records, and the records it linked to, from its counts', () => {
+    expect(forgeRunCreatedSome(inTheJournal())).toBe(true);
+    expect(forgeRunCreatedSome(inTheJournal({ createdCount: 0 }))).toBe(false);
+    expect(forgeRunLinkedKeptCount(inTheJournal())).toBe(2);
+  });
+
+  it('keeps a plan that names its journal and holds no id, counted as the entry counts it', () => {
+    const plan = forgeRemovalPlanOf(inTheJournal());
+    expect(plan).toMatchObject({
+      forgeId: 'forge-big',
+      objects: [],
+      linked: 2,
+      inJournal: {
+        journalId: 'forge-run-1',
+        part: 0,
+        left: [
+          { objectApiName: 'Contact', count: 50_000 },
+          { objectApiName: 'Account', count: 10_000 },
+        ],
+      },
+    });
+    expect(plan && forgeRemovalPlanCountsLeft(plan)).toEqual(plan?.inJournal?.left);
+    expect(plan && forgeRemovalPlanCountsLeft({ ...plan, journalGone: true })).toEqual([]);
+    // No journal named, or nothing left to take: no plan.
+    expect(forgeRemovalPlanOf(inTheJournal({ journalId: undefined }))).toBeUndefined();
+    expect(forgeRemovalPlanOf(inTheJournal({ journalGone: true }))).toBeUndefined();
   });
 });

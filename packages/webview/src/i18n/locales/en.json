@@ -2798,7 +2798,7 @@
     "retryStopped": "Write the rest",
     "retryStoppedHint": "Write the rest runs the clone again: what this run did not write before it stopped is written, linked to what it did write, which is not written a second time.",
     "resumeRun": "Resume where it stopped",
-    "resumeRunHint": "Resume takes this run up from the journal SandForge kept of it: each object is read after the last record this run wrote, and the lookups and statuses it still owed are filled in. Nothing it wrote is written a second time.",
+    "resumeRunHint": "Resume takes this run up from the journal SandForge kept of it: a clone of whole tables reads each object after the last record this run wrote, a clone of one record reads its records again and links to those this run wrote, and the lookups and statuses it still owed are filled in. Nothing it wrote is written a second time.",
     "retrySkipped": "Retry skipped objects",
     "retrySkippedHint": "Retry skipped objects runs the clone again once what skipped them is fixed: the objects this run skipped whole are written, linked to what it did write, which is not written a second time.",
     "retryWithParents": "Fetch the missing parents and retry",
@@ -2951,7 +2951,9 @@
       "existingBadge": "existing",
       "openRecord": "Open {{object}} {{id}} in the target org",
       "openNote": "Select the Id of a record this run created to open it in the target org.",
-      "openFailed": "The record could not be opened: {{message}}"
+      "openFailed": "The record could not be opened: {{message}}",
+      "inJournal_one": "The id of the record this run mapped is kept in its journal, not in its results: Save the Id map writes it to a file.",
+      "inJournal_other": "The ids of the {{formatted}} records this run mapped are kept in its journal, not in its results: Save the Id map writes them to a file."
     },
     "preview": {
       "title": "What will happen on Execute",
@@ -3207,6 +3209,7 @@
       "removeLeft": "Remove what is left of this run's records",
       "removeNotRecorded": "Recorded before runs kept what they created: its records cannot be removed from here.",
       "removeOrgGone": "The org this run wrote to is no longer registered: its records cannot be removed from here.",
+      "journalGone": "The ids of this run's records were kept in its journal, which is gone: they can no longer be removed, verified, retried against or saved from here.",
       "removeTitle": "Remove this run's records from {{org}}",
       "removeDescription": "Deletes from {{org}} the records this run created, children before their parents; they go to its recycle bin. Records the run linked to, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the run ended, or one that records added since depend on, is kept unless you include it below.",
       "removeObject_one": "{{object}}: {{formatted}} record",

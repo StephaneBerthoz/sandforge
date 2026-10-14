@@ -366,20 +366,34 @@ write, the lookups owed to the second pass and the statuses owed to the end
 go to it as they happen, one line each, instead of into memory, and the run
 looks them up through an index of a few bytes a record, which holds no id,
 and a cache of the records asked for last. The second pass and the statuses
-of a run read in one pass go through what the journal owes a page at a time.
-Past `stream.summaryBound` mappings the summary carries the counts and none of
-the ids (`remapInJournal`). Opened on the journal of a run that stopped — a
-cancel, a failure, a process or a window gone — the executor goes on in it as
-a part of its own: each object read after its checkpoint (`resumeAfter`), a
-row an earlier part registered linked to and never written again, the lookups
-and statuses the earlier parts still owed given with this part's own, and
-none of what they wrote counted as this part's. The extension keeps the
-journal of a run of whole tables that stopped, and offers it to be taken up
-where it stopped from the run's results, **Recent runs** and Live Operations
+of a run read in one pass go through what the journal owes a page at a time
+(`secondPassPageSize`, 2 000 lookups; a test seam): a record owing lookups in
+several pages is told from a first read of them and gets one update, sent
+once the last page is through, and two values of one of its lookups are said
+as a conflict wherever they were owed. What a call's answer created goes to
+disk, with the lookups and the statuses its records owe, before the run
+awaits anything else: a process killed right after it leaves them to link to.
+A run that reads every node before it writes — one from a record — owes its
+lookups to the journal too, and says there which it filled in
+(`["p", id, field]`): a part taking it up owes again the rest. Past
+`stream.summaryBound` mappings (50 000, `SUMMARY_IDS_BOUND`, at the command
+line and in the extension) the summary carries the counts and none of the ids
+(`remapInJournal`); the extension's history entry and removal plan then name
+the journal and its part (`journalId`, `journalPart`, `inJournal`) and every
+reader of the ids reads them there. Opened on the journal of a run that
+stopped — a cancel, a failure, a process or a window gone — the executor goes
+on in it as a part of its own: each object read after its checkpoint
+(`resumeAfter`), or, from a record, its scope read again, a row an earlier
+part registered linked to and never written again, the lookups and statuses
+the earlier parts still owed given with this part's own, and none of what
+they wrote counted as this part's. The extension keeps the journal of every
+run that writes, and of one that stopped offers it to be taken up where it
+stopped from the run's results, **Recent runs** and Live Operations
 (`forge:resume-run`): refused when the org it wrote to is no longer that org,
 or when the run would be set up otherwise; a journal a closed window left is
-listed among the recent runs, interrupted. The clone command keeps the journal
-of every run that writes (`--resume`).
+listed among the recent runs, interrupted. It drops a journal that ended once
+neither the history nor a removal plan names it. The clone command keeps the
+journal of every run that writes (`--resume`).
 
 `'keep'` holds for the records the run does not write, whose ids a sandbox
 refreshed from the same production can share with the source. A lookup at the

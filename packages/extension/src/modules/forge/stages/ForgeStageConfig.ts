@@ -39,6 +39,15 @@ export class WrittenBefore implements Iterable<[string, string]> {
     return stored?.earlier ? stored.targetId : undefined;
   }
 
+  /**
+   * Where the rows written before come from, as a node's line says it: the
+   * run retried, which handed them over, or the earlier parts of the run this
+   * one takes up where it stopped, its journal holding them.
+   */
+  get from(): 'retry' | 'resume' {
+    return this.given.size === 0 && (this.store?.earlierMapped ?? 0) > 0 ? 'resume' : 'retry';
+  }
+
   /** Records written before: those handed over, and those earlier parts of the journal mapped. */
   get size(): number {
     return this.given.size + (this.store?.earlierMapped ?? 0);
@@ -130,6 +139,8 @@ export interface ForgeStageConfig {
     readonly store?: ForgeRunStore;
     /** Mappings past which the summary leaves the ids in the journal. */
     readonly summaryBound?: number;
+    /** Lookups the second pass takes from the journal at a time. */
+    readonly secondPassPageSize?: number;
   };
   /** The user's decisions about the rows, applied before they are written. */
   readonly decisions: RunDecisions;
@@ -203,6 +214,9 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
           ...(options.stream.store ? { store: options.stream.store } : {}),
           ...(options.stream.summaryBound !== undefined
             ? { summaryBound: Math.max(0, Math.floor(options.stream.summaryBound)) }
+            : {}),
+          ...(positiveWhole(options.stream.secondPassPageSize) !== undefined
+            ? { secondPassPageSize: positiveWhole(options.stream.secondPassPageSize) }
             : {}),
         }
       : undefined,

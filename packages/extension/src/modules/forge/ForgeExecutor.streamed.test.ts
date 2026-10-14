@@ -33,7 +33,12 @@ vi.mock('../../logger.js', () => ({
 
 type Row = Record<string, unknown>;
 
-const KEY_PREFIX: Record<string, string> = { Account: '001', Contact: '003', Contract: '800' };
+const KEY_PREFIX: Record<string, string> = {
+  Account: '001',
+  Contact: '003',
+  Contract: '800',
+  Opportunity: '006',
+};
 
 const idField: FieldInfo = { name: 'Id', queryable: true, createable: false, isReference: false };
 const text = (name: string, type = 'string'): FieldInfo => ({
@@ -127,6 +132,10 @@ interface FakeOrgOptions {
   noCursor?: boolean;
   /** The target's record types per object, as the running user sees them. */
   recordTypes?: Record<string, RecordTypeAvailability[]>;
+  /** Told as the target answers each insert call, by its number, before the answer is returned. */
+  onAnswer?: (call: number) => void;
+  /** Whether the target is out of reach: every insert call throws. */
+  insertsFail?: () => boolean;
 }
 
 /** The rows of `object` per record type, as `SELECT RecordTypeId, COUNT(Id) n … GROUP BY RecordTypeId` answers. */
@@ -235,6 +244,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
       return schema[object]?.rows.length ?? 0;
     }),
     insertRecords: vi.fn(async (_org: string, object: string, rows: Row[]) => {
+      if (options.insertsFail?.()) throw new Error('The process was killed.');
       insertCalls.push({ object, rows: rows.length });
       flow.written += rows.length;
       const results = rows.map((row) => {
@@ -254,6 +264,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
       if (options.abortAfterInserts !== undefined && inserted >= options.abortAfterInserts) {
         holder.executor?.abort();
       }
+      options.onAnswer?.(insertCalls.length);
       return results;
     }),
     updateRecords: vi.fn(async (_org: string, object: string, rows: Row[]) =>
@@ -282,6 +293,13 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
       ]),
     );
   return { executor, deps, written, insertCalls, flow, recordTypeScans };
+}
+
+/** The ids of the records the target was sent updates of, in the order sent. */
+function updatedIds(deps: ForgeExecutorDeps): string[] {
+  const update = deps.updateRecords;
+  if (!update) return [];
+  return vi.mocked(update).mock.calls.flatMap(([, , rows]) => rows.map((row) => String(row['Id'])));
 }
 
 /** Run `graph` over a fresh pair of orgs holding `schema`. */
@@ -364,6 +382,103 @@ function cycle(): { schema: Schema; graph: ForgeGraph } {
     graph: graphOf(
       [node('Account', 15), node('Contact', 15)],
       [edge('Account', 'Contact', false), edge('Contact', 'Account', false)],
+    ),
+  };
+}
+
+/**
+ * Accounts naming their key contact and, most of them, a parent account;
+ * contacts under their account. The accounts go first, and each owes its key
+ * contact, and its parent when it comes later, to the second pass.
+ */
+function twoLookups(): { schema: Schema; graph: ForgeGraph } {
+  const accounts = Array.from({ length: 13 }, (_, n) => ({
+    Id: sourceId('Account', n),
+    Name: `Account ${n}`,
+    ParentId: n % 3 === 0 ? null : sourceId('Account', (n * 5 + 2) % 13),
+    Key_Contact__c: sourceId('Contact', (n * 4) % 13),
+  }));
+  const contacts = Array.from({ length: 13 }, (_, n) => ({
+    Id: sourceId('Contact', n),
+    LastName: `Contact ${n}`,
+    AccountId: sourceId('Account', (n * 2) % 13),
+  }));
+  return {
+    schema: {
+      Account: {
+        fields: [
+          text('Name'),
+          lookup('ParentId', 'Account', true),
+          lookup('Key_Contact__c', 'Contact', true),
+        ],
+        rows: accounts,
+      },
+      Contact: {
+        fields: [text('LastName'), lookup('AccountId', 'Account', false)],
+        rows: contacts,
+      },
+    },
+    graph: graphOf(
+      [node('Account', 13), node('Contact', 13)],
+      [
+        edge('Account', 'Contact', true),
+        edge('Contact', 'Account', false),
+        edge('Account', 'Account', false),
+      ],
+    ),
+  };
+}
+
+/**
+ * An account whose key contact is one of its contacts, the contacts
+ * reporting to one another, opportunities under it, and another account with
+ * contacts of its own: what a clone of the first account reaches is it, its
+ * contacts and its opportunities.
+ */
+function accountFamily(): { schema: Schema; graph: ForgeGraph } {
+  const accounts = Array.from({ length: 2 }, (_, n) => ({
+    Id: sourceId('Account', n),
+    Name: `Account ${n}`,
+    Key_Contact__c: sourceId('Contact', n === 0 ? 5 : 8),
+  }));
+  const contacts = Array.from({ length: 10 }, (_, n) => ({
+    Id: sourceId('Contact', n),
+    LastName: `Contact ${n}`,
+    AccountId: sourceId('Account', n < 8 ? 0 : 1),
+    ReportsToId: n < 8 ? sourceId('Contact', (n + 3) % 8) : null,
+  }));
+  const opportunities = Array.from({ length: 3 }, (_, n) => ({
+    Id: sourceId('Opportunity', n),
+    Name: `Opportunity ${n}`,
+    AccountId: sourceId('Account', 0),
+  }));
+  return {
+    schema: {
+      Account: {
+        fields: [text('Name'), lookup('Key_Contact__c', 'Contact', true)],
+        rows: accounts,
+      },
+      Contact: {
+        fields: [
+          text('LastName'),
+          lookup('AccountId', 'Account', false),
+          lookup('ReportsToId', 'Contact', true),
+        ],
+        rows: contacts,
+      },
+      Opportunity: {
+        fields: [text('Name'), lookup('AccountId', 'Account', false)],
+        rows: opportunities,
+      },
+    },
+    graph: graphOf(
+      [node('Account', 2), node('Contact', 10), node('Opportunity', 3)],
+      [
+        edge('Account', 'Contact', true),
+        edge('Contact', 'Account', false),
+        edge('Contact', 'Contact', false),
+        edge('Account', 'Opportunity', true),
+      ],
     ),
   };
 }
@@ -816,6 +931,105 @@ describe('a run of whole tables read page by page', () => {
       expect((first?.successCount ?? 0) + second.successCount).toBe(whole.summary.successCount);
     });
 
+    it.each([
+      [1, 'Account', selfLookups],
+      [3, 'Account', selfLookups],
+      [6, 'Contact', selfLookups],
+      [2, 'Contract', statuses],
+    ] as const)(
+      'keeps what call %i created, the lookups and the statuses its records owe, on disk before the run goes on: a process killed right after the answer leaves them to link to and give',
+      async (killedAfter, object, build) => {
+        const { schema, graph } = build();
+        const whole = await runOver(schema, graph);
+        /*
+         * The journal of a process killed at the first turn after the target
+         * answered the call — a page of five rows: the kill is queued as the
+         * store first touches the file once the answer is in, and nothing
+         * written after it reaches the disk. An account of the first page
+         * names another of the same page as its parent: the lookup went in
+         * empty, owed with the record.
+         */
+        const disk = memoryRunFile();
+        let armed = false;
+        let killed = false;
+        const killable = {
+          size: () => {
+            if (armed) {
+              armed = false;
+              queueMicrotask(() => {
+                killed = true;
+              });
+            }
+            return disk.size();
+          },
+          append: (text: string) => {
+            if (!killed) disk.append(text);
+          },
+          read: (offset: number, length: number) => disk.read(offset, length),
+          close: () => {},
+        };
+        const orgOptions: FakeOrgOptions = {
+          onAnswer: (call) => {
+            if (call === killedAfter) armed = true;
+          },
+          insertsFail: () => killed,
+        };
+        const orgs = fakeOrgs(schema, orgOptions);
+        await orgs.executor
+          .execute(graph, 'src', 'tgt', () => {}, {
+            stream: { pageSize: 5, store: ForgeRunStore.open(killable) },
+          })
+          .catch(() => undefined);
+        expect(killed).toBe(true);
+        // Its five rows went in before the kill.
+        expect(orgs.insertCalls[killedAfter - 1]).toEqual({ object, rows: 5 });
+
+        // Taken up from what the disk holds: the page the kill cut short is
+        // read again, and its five contacts linked to, never sent again.
+        orgOptions.insertsFail = undefined;
+        orgOptions.onAnswer = undefined;
+        const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+        const resumed = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+          stream: { pageSize: 5, store },
+        });
+        store.close();
+        expect(orgs.written()).toEqual(whole.written());
+        expect(orgs.insertCalls.reduce((sum, call) => sum + call.rows, 0)).toBe(
+          whole.summary.successCount,
+        );
+        expect(resumed.linkedCount).toBe(5);
+      },
+    );
+
+    it('says the rows it links to were written before the run stopped, not by a run it retried', async () => {
+      const { schema, graph } = selfLookups();
+      const withoutLastCheckpoint = (text: string): string => {
+        const lines = text.split('\n');
+        const last = lines.map((line) => line.startsWith('{"at"')).lastIndexOf(true);
+        return lines.filter((_, index) => index !== last).join('\n');
+      };
+      const orgOptions: FakeOrgOptions = { abortAfterInserts: 10 };
+      const orgs = fakeOrgs(schema, orgOptions);
+      const firstFile = memoryRunFile();
+      const firstStore = ForgeRunStore.open(firstFile);
+      await orgs.executor
+        .execute(graph, 'src', 'tgt', () => {}, { stream: { pageSize: 5, store: firstStore } })
+        .catch(() => undefined);
+      firstStore.close();
+      orgOptions.abortAfterInserts = undefined;
+      const events: ForgeProgressEvent[] = [];
+      const store = ForgeRunStore.open(memoryRunFile(withoutLastCheckpoint(firstFile.text())));
+      await orgs.executor.execute(graph, 'src', 'tgt', (event) => events.push(event), {
+        stream: { pageSize: 5, store },
+      });
+      store.close();
+      const accounts = events.find((e) => e.objectName === 'Account' && e.status === 'done');
+      expect(accounts?.message).toContain(
+        '5 already in the target, written before the run stopped',
+      );
+      expect(events.some((e) => e.message.includes('from the run retried'))).toBe(false);
+    });
+
     it('reads each object after the checkpoint the first part left, and nothing of an object it read to its end', async () => {
       const { schema, graph } = selfLookups();
       // Stopped in the accounts: they are read again after the last one written.
@@ -847,6 +1061,60 @@ describe('a run of whole tables read page by page', () => {
         expect(outcomeOf(paged.summary)).toEqual(outcomeOf(whole.summary));
         expect(paged.summary.errors).toEqual(whole.summary.errors);
       }
+    });
+
+    it('sends one update per record in a second pass that reads what is owed two lookups at a time', async () => {
+      const { schema, graph } = twoLookups();
+      const whole = await runOver(schema, graph);
+      const store = ForgeRunStore.open(memoryRunFile());
+      const paged = await runOver(schema, graph, {
+        stream: { pageSize: 5, store, secondPassPageSize: 2 },
+      });
+      expect(paged.written()).toEqual(whole.written());
+      expect(paged.summary.errors).toEqual([]);
+      const updated = updatedIds(paged.deps);
+      // Every account owes its key contact, and most their parent: one update each.
+      expect(updated).toHaveLength(13);
+      expect(new Set(updated).size).toBe(13);
+    });
+
+    it('says two values of one lookup owed in two pages of the second pass, wherever they were owed', async () => {
+      const { schema, graph } = twoLookups();
+      // The window closed after the first page of accounts went in, before its
+      // checkpoint: the resume reads the page again.
+      const withoutLastCheckpoint = (text: string): string => {
+        const lines = text.split('\n');
+        const last = lines.map((line) => line.startsWith('{"at"')).lastIndexOf(true);
+        return lines.filter((_, index) => index !== last).join('\n');
+      };
+      const orgOptions: FakeOrgOptions = { abortAfterInserts: 5 };
+      const orgs = fakeOrgs(schema, orgOptions);
+      const firstFile = memoryRunFile();
+      const firstStore = ForgeRunStore.open(firstFile);
+      await orgs.executor
+        .execute(graph, 'src', 'tgt', () => {}, {
+          stream: { pageSize: 5, store: firstStore, secondPassPageSize: 2 },
+        })
+        .catch(() => undefined);
+      firstStore.close();
+      // Meanwhile the first account was given another key contact in the source:
+      // the first part owed the one it read, the second owes the one it reads now.
+      const first = schema['Account']?.rows[0];
+      if (!first) throw new Error('no account');
+      first['Key_Contact__c'] = sourceId('Contact', 7);
+      orgOptions.abortAfterInserts = undefined;
+      const store = ForgeRunStore.open(memoryRunFile(withoutLastCheckpoint(firstFile.text())));
+      const second = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        stream: { pageSize: 5, store, secondPassPageSize: 2 },
+      });
+      store.close();
+      const pass2 = second.errors.find((error) => error.objectApiName === '__pass2__');
+      expect(pass2?.failedCount).toBe(1);
+      expect(pass2?.samples.map((sample) => sample.messages[0])).toEqual([
+        expect.stringMatching(
+          /^Conflicting cycle FK update for Key_Contact__c: 003T\w+ vs 003T\w+$/,
+        ),
+      ]);
     });
 
     it('counts the records past its bound and leaves their ids in the journal', async () => {
@@ -1060,6 +1328,45 @@ describe('a run of whole tables read page by page', () => {
       expect(paged.insertCalls.filter((call) => call.object === 'Account')).toEqual([]);
     });
   });
+
+  it.each([1, 9, 10])(
+    'takes a run from a record that kept its journal up where it stopped: its scope read again, what it wrote linked to, nothing written twice, stopped after %i rows',
+    async (stopAfter) => {
+      const { schema, graph } = accountFamily();
+      const scoped: ExecuteOptions = {
+        rootRecordId: sourceId('Account', 0),
+        rootObjectApiName: 'Account',
+      };
+      const whole = await runOver(schema, graph, scoped);
+      const orgOptions: FakeOrgOptions = { abortAfterInserts: stopAfter };
+      const orgs = fakeOrgs(schema, orgOptions);
+      const firstFile = memoryRunFile();
+      const firstStore = ForgeRunStore.open(firstFile);
+      await orgs.executor
+        .execute(graph, 'src', 'tgt', () => {}, {
+          ...scoped,
+          stream: { store: firstStore },
+        })
+        .catch(() => undefined);
+      firstStore.close();
+      orgOptions.abortAfterInserts = undefined;
+      const store = ForgeRunStore.open(memoryRunFile(firstFile.text()));
+      const second = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        ...scoped,
+        stream: { store },
+      });
+      store.close();
+      expect(whole.summary.successCount).toBeGreaterThanOrEqual(stopAfter);
+      expect(orgs.written()).toEqual(whole.written());
+      expect(orgs.insertCalls.reduce((sum, call) => sum + call.rows, 0)).toBe(
+        whole.summary.successCount,
+      );
+      expect(second.failedCount).toBe(0);
+      // A lookup the first part filled in is not sent again.
+      const updates = updatedIds(orgs.deps);
+      expect(updates).toHaveLength(new Set(updates).size);
+    },
+  );
 
   it('reads a run from a record whole, writing once it has read, its reads through the cursor only when given pages', async () => {
     const { schema, graph } = selfLookups();

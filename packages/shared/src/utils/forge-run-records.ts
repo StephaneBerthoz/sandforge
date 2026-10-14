@@ -1,5 +1,6 @@
 import type {
   ForgeExecutionResult,
+  ForgeRemovalLeftCount,
   ForgeRemovalPlan,
   ForgeUndoMark,
 } from '../types/forge.types.js';
@@ -159,8 +160,14 @@ function stillLeft(
  */
 export function forgeRemovalPlanOf(entry: ForgeExecutionResult): ForgeRemovalPlan | undefined {
   if (!entry.targetOrgId || !Array.isArray(entry.idRemapCreated)) return undefined;
-  const objects = forgeRunCreatedRecords(entry);
-  if (objects.length === 0) return undefined;
+  // A run whose ids are in its journal is kept by its journal and its counts.
+  const inJournal =
+    entry.remapInJournal && entry.journalId !== undefined && entry.journalPart !== undefined
+      ? { journalId: entry.journalId, part: entry.journalPart, left: forgeRunCountsLeft(entry) }
+      : undefined;
+  if (entry.remapInJournal && (!inJournal || inJournal.left.length === 0)) return undefined;
+  const objects = inJournal ? [] : forgeRunCreatedRecords(entry);
+  if (!inJournal && objects.length === 0) return undefined;
   const unreachable = (entry.mayHaveBeenWritten ?? []).reduce(
     (sum, { sourceIds }) => sum + sourceIds.length,
     0,
@@ -174,7 +181,8 @@ export function forgeRemovalPlanOf(entry: ForgeExecutionResult): ForgeRemovalPla
     ...(entry.cancelled ? { cancelled: true as const } : {}),
     ...(entry.writtenBetween ? { writtenBetween: { ...entry.writtenBetween } } : {}),
     objects,
-    linked: forgeRunLinkedKept(entry).length,
+    ...(inJournal ? { inJournal } : {}),
+    linked: forgeRunLinkedKeptCount(entry),
     ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
     ...(entry.undo ? { undo: { ...entry.undo } } : {}),
     ...(entry.removalStamps ? { removalStamps: { ...entry.removalStamps } } : {}),
@@ -197,4 +205,95 @@ export function forgeRemovalPlanLeft(
     plan.objects.map(({ objectApiName, ids }) => ({ objectApiName, ids: [...ids] })),
     plan.removalLeft,
   );
+}
+
+/** A run as the counts of what a removal takes read it: its ids, or the counts of a run whose ids are in its journal. */
+export type ForgeRunCounted = Pick<
+  ForgeExecutionResult,
+  | 'idRemapTable'
+  | 'idRemapExisting'
+  | 'idRemapCreated'
+  | 'undo'
+  | 'removalLeft'
+  | 'remapInJournal'
+  | 'removalLeftByObject'
+  | 'idRemapByObject'
+  | 'journalGone'
+>;
+
+/**
+ * Per object, the records a removal of a run takes now, counted, in the
+ * order it takes them: {@link forgeRunRecordsLeft} counted, or, for a run
+ * whose ids are in its journal (`remapInJournal`), the counts it keeps —
+ * what its removals left, or else what it created — and nothing once its
+ * journal is gone. What a confirmation names and what offers a removal.
+ *
+ * @param entry - A run's history entry.
+ */
+export function forgeRunCountsLeft(entry: ForgeRunCounted): ForgeRemovalLeftCount[] {
+  if (removalTookAll(entry.undo)) return [];
+  if (!entry.remapInJournal) {
+    return forgeRunRecordsLeft(entry).map(({ objectApiName, ids }) => ({
+      objectApiName,
+      count: ids.length,
+    }));
+  }
+  if (entry.journalGone) return [];
+  if (Array.isArray(entry.removalLeftByObject)) {
+    return entry.removalLeftByObject.filter(({ count }) => count > 0).map((left) => ({ ...left }));
+  }
+  // Children before their parents: the reverse of the order the run wrote them.
+  return [...(entry.idRemapByObject ?? [])]
+    .reverse()
+    .filter(({ created }) => created > 0)
+    .map(({ objectApiName, created }) => ({ objectApiName, count: created }));
+}
+
+/**
+ * What a removal takes now of a run the history dropped, counted, from its
+ * kept plan: {@link forgeRunCountsLeft} read from the plan.
+ *
+ * @param plan - The run's removal plan.
+ */
+export function forgeRemovalPlanCountsLeft(
+  plan: Pick<ForgeRemovalPlan, 'objects' | 'undo' | 'removalLeft' | 'inJournal' | 'journalGone'>,
+): ForgeRemovalLeftCount[] {
+  if (removalTookAll(plan.undo)) return [];
+  if (!plan.inJournal) {
+    return forgeRemovalPlanLeft(plan).map(({ objectApiName, ids }) => ({
+      objectApiName,
+      count: ids.length,
+    }));
+  }
+  if (plan.journalGone) return [];
+  return plan.inJournal.left.filter(({ count }) => count > 0).map((left) => ({ ...left }));
+}
+
+/**
+ * The records a run linked to that removing its records leaves, counted:
+ * {@link forgeRunLinkedKept}, or what a run whose ids are in its journal
+ * counted as linked.
+ */
+export function forgeRunLinkedKeptCount(
+  entry: Pick<
+    ForgeExecutionResult,
+    'idRemapExisting' | 'idRemapWithTheirRecord' | 'remapInJournal' | 'linkedExistingCount'
+  >,
+): number {
+  return entry.remapInJournal ? (entry.linkedExistingCount ?? 0) : forgeRunLinkedKept(entry).length;
+}
+
+/**
+ * Whether a run created records it says it created: by their ids, or, for a
+ * run whose ids are in its journal, by its count of them.
+ */
+export function forgeRunCreatedSome(
+  entry: Pick<
+    ForgeExecutionResult,
+    'idRemapTable' | 'idRemapExisting' | 'idRemapCreated' | 'remapInJournal' | 'createdCount'
+  >,
+): boolean {
+  return entry.remapInJournal
+    ? (entry.createdCount ?? 0) > 0
+    : forgeRunCreatedRecords(entry).length > 0;
 }

@@ -223,6 +223,21 @@ export interface WriteNodeInput {
    * for a row the target already held.
    */
   remapper: IdRemapper;
+  /**
+   * Where the lookups a row went in without are owed, as each call's answer
+   * is counted: the run's journal, which takes them with the record that owes
+   * them. Absent, they are gathered in `pendingFkUpdates` for the run to owe
+   * once the node is through — a process killed before then left records in
+   * the target, and their journal, with none of the lookups they owed.
+   */
+  oweLookups?: (updates: readonly PendingFkUpdate[]) => void;
+  /**
+   * Told of each row the target took, created or written over through its
+   * external id, as its call's answer is counted and before it is put on
+   * disk: what the record owes beside its lookups — the status of an order
+   * written as a draft — is owed with it.
+   */
+  onWritten?: (built: CleanedRecord, targetId: string) => void;
   /** Pause/abort checkpoint — called between batch iterations. */
   waitIfPaused: () => Promise<void>;
   /**
@@ -372,6 +387,10 @@ interface NodeWrite {
   readonly targetKeyPrefix: string | null | undefined;
   readonly remapper: IdRemapper;
   readonly tally: BatchWriteResult;
+  /** Where the lookups a written row owes go as its call is answered: see `WriteNodeInput.oweLookups`. */
+  readonly oweLookups: ((updates: readonly PendingFkUpdate[]) => void) | undefined;
+  /** Told of each row the target took: see `WriteNodeInput.onWritten`. */
+  readonly onWritten: ((built: CleanedRecord, targetId: string) => void) | undefined;
   /** Duplicates the target did not name, for an object with a natural key. */
   readonly byNaturalKey: UnnamedDuplicate[];
   /** Rows the target refused on fields it named, to write again without them. */
@@ -677,6 +696,8 @@ export class BatchWriter {
       targetKeyPrefix: input.targetKeyPrefix,
       remapper,
       tally,
+      oweLookups: input.oweLookups,
+      onWritten: input.onWritten,
       byNaturalKey: [],
       refusedOnTheirFields: [],
       locked: [],
@@ -889,11 +910,20 @@ export class BatchWriter {
     rows: readonly RowToWrite[],
     answers: readonly InsertResult[],
   ): Promise<void> {
+    // The records the target created are put on disk before the run awaits
+    // anything, with the lookups they owe. The describe below, read for a
+    // refusal of the call, came first and left them in memory for the length
+    // of a request: a process killed meanwhile left them in the target unnamed.
+    rows.forEach((row, i) => {
+      const answer = answers[i];
+      if (answer?.success) this.settle(write, answer, row);
+    });
+    write.remapper.persist();
     await this.readWhatMayBeEmpty(write, answers);
     rows.forEach((row, i) => {
       const answer = answers[i];
       if (answer) {
-        this.settle(write, answer, row);
+        if (!answer.success) this.settle(write, answer, row);
         return;
       }
       write.tally.failureCount++;
@@ -906,6 +936,7 @@ export class BatchWriter {
         ],
       });
     });
+    write.remapper.persist();
   }
 
   /**
@@ -1046,20 +1077,21 @@ export class BatchWriter {
         if (updated) remapper.addUpdated(oldId, result.id, objectApiName);
         else remapper.add(oldId, result.id, objectApiName);
       }
+      if (built) write.onWritten?.(built, result.id);
       // Record nullified FKs so pass 2 can patch them
       // once the parent target is in the IdRemapper.
       if (built && built.nullifiedFks.length > 0) {
         const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
-        for (const nf of built.nullifiedFks) {
-          tally.pendingFkUpdates.push({
-            objectApiName,
-            newId: result.id,
-            sourceId,
-            fieldName: nf.field,
-            sourceRefId: nf.sourceRefId,
-            ...(nf.insertOnly ? { insertOnly: true as const } : {}),
-          });
-        }
+        const owed = built.nullifiedFks.map((nf): PendingFkUpdate => ({
+          objectApiName,
+          newId: result.id,
+          sourceId,
+          fieldName: nf.field,
+          sourceRefId: nf.sourceRefId,
+          ...(nf.insertOnly ? { insertOnly: true as const } : {}),
+        }));
+        if (write.oweLookups) write.oweLookups(owed);
+        else tally.pendingFkUpdates.push(...owed);
       }
       // Counted the same whether the target refused the value of this row or
       // of one before it: either way the row is in, short of the value.

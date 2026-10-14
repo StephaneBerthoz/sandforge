@@ -73,6 +73,18 @@ const planSchema = z.object({
     .array(z.object({ first: dateSchema, last: dateSchema, userId: idSchema }))
     .optional(),
   removalLeft: z.array(idSchema).optional(),
+  inJournal: z
+    .object({
+      journalId: z.string().min(1).max(200),
+      part: z.number().int().nonnegative(),
+      left: z.array(
+        z.object({
+          objectApiName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
+          count: z.number().int().nonnegative(),
+        }),
+      ),
+    })
+    .optional(),
 });
 
 const fileSchema = z.object({ version: z.literal(1), plans: z.array(z.unknown()) });
@@ -201,7 +213,11 @@ export class ForgeRemovalPlanStore {
 
 /** A run removed with nothing left behind: its plan has nothing more to remove. */
 function settled(plan: ForgeRemovalPlan): boolean {
-  return plan.undo !== undefined && (plan.removalLeft?.length ?? 0) === 0;
+  return (
+    plan.undo !== undefined &&
+    (plan.removalLeft?.length ?? 0) === 0 &&
+    (plan.inJournal?.left ?? []).every(({ count }) => count === 0)
+  );
 }
 
 /** When a run was recorded, in epoch milliseconds; a date that cannot be read is the oldest. */

@@ -179,7 +179,11 @@ import {
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { partialSummaryOf } from '../src/modules/forge/interruptedRun.js';
-import { ForgeRunJournal, nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
+import {
+  ForgeRunJournal,
+  SUMMARY_IDS_BOUND,
+  nodeRunJournal,
+} from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunPartEnd } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../src/modules/forge/ForgeRunStore.js';
 import { forgeRunFingerprint } from '../src/modules/forge/runFingerprint.js';
@@ -1082,9 +1086,6 @@ function resumeArg(args: readonly string[]): string | undefined {
   }
   return value;
 }
-
-/** Records mapped past which a summary keeps the ids in the run's journal, and counts them. */
-const SUMMARY_IDS_BOUND = 50_000;
 
 /**
  * Where the command keeps the journals of the runs that write:

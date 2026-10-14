@@ -348,6 +348,8 @@ const AutomationMessages = [
   msg('forge:open-record'),
   // Verifies what a past run created, once the target has settled.
   msg('forge:verify:request'),
+  // Saves the Id map of a past run whose ids are in its journal.
+  msg('forge:export-ids:request'),
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
@@ -382,6 +384,8 @@ const AutomationMessages = [
   msg('forge:open-record:error'),
   msg('forge:verify:response'),
   msg('forge:verify:error'),
+  msg('forge:export-ids:response'),
+  msg('forge:export-ids:error'),
   msg('forge:plan:response'),
   msg('forge:plan:error'),
   msg('forge:compliance:response'),

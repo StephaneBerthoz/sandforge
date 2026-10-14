@@ -70,6 +70,12 @@ export interface CycleFkPatchInput {
    * on writing to the target until its last lookup.
    */
   stopped?: () => boolean;
+  /**
+   * Told of each update the target took, with what it filled in: a run that
+   * keeps its journal and fills in its lookups node by node keeps there what
+   * it filled in, for a run that takes it up to owe again only the rest.
+   */
+  onPatched?: (objectApiName: string, update: Readonly<Record<string, unknown>>) => void;
 }
 
 /** The lookups one update fills in: every field it carries but the record's Id. */
@@ -93,11 +99,121 @@ export async function patchCycleFkUpdates(
   return pass.finish();
 }
 
+/** Records the index below holds before it doubles. */
+const INITIAL_RECORDS = 1024;
+/** Fullness of the index past which it doubles. */
+const RECORDS_LOAD = 0.6;
+
+/** First 32-bit hash of a record id (FNV-1a). */
+function idHashA(id: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Second 32-bit hash of a record id, independent of the first. */
+function idHashB(id: string): number {
+  let h = 0x9747b28c;
+  for (let i = 0; i < id.length; i++) {
+    h = Math.imul(h ^ id.charCodeAt(i), 0x5bd1e995);
+    h ^= h >>> 15;
+  }
+  return h >>> 0;
+}
+
+/**
+ * Which records owe lookups in more than one part of what the second pass is
+ * handed — the pages of what a run's journal owes — told from a first read of
+ * those parts (`note`), so that the pass gathers what each such record owes
+ * into one update (`CycleFkPass.patch`).
+ *
+ * A record's lookups are owed together as its row is written, but a page of
+ * the journal ends where it ends, and a run taken up where it stopped owes
+ * lookups in its own part as well as the parts before it: such a record took
+ * an update per page, and two values of the same lookup, one per page, went
+ * one after the other with neither said. Kept under two hashes of the
+ * record's id and none of the id, a few bytes a record, whatever the run
+ * wrote: two records whose hashes meet are both taken for records owing in
+ * several parts, which costs them a wait to the end of the pass, never a
+ * lookup.
+ */
+export class RecordsOwingAcrossParts {
+  private capacity = INITIAL_RECORDS;
+  private used = 0;
+  private h1 = new Uint32Array(this.capacity);
+  private h2 = new Uint32Array(this.capacity);
+  /** The part a record was first seen in, plus one; 0 for a free slot. */
+  private firstPart = new Float64Array(this.capacity);
+  /** Whether a record was seen in another part than its first. */
+  private several = new Uint8Array(this.capacity);
+
+  /** Note that the record `recordId` owes a lookup in part `part`. */
+  note(part: number, recordId: string): void {
+    const a = idHashA(recordId);
+    const b = idHashB(recordId);
+    const slot = this.find(a, b);
+    if (slot >= 0) {
+      if (this.firstPart[slot] !== part + 1) this.several[slot] = 1;
+      return;
+    }
+    if (this.used + 1 > this.capacity * RECORDS_LOAD) this.grow();
+    const free = this.freeSlotFor(b);
+    this.h1[free] = a;
+    this.h2[free] = b;
+    this.firstPart[free] = part + 1;
+    this.used++;
+  }
+
+  /** Whether the record `recordId` owes lookups in more than one part. */
+  spans(recordId: string): boolean {
+    const slot = this.find(idHashA(recordId), idHashB(recordId));
+    return slot >= 0 && this.several[slot] === 1;
+  }
+
+  private find(a: number, b: number): number {
+    const mask = this.capacity - 1;
+    for (let slot = b & mask; ; slot = (slot + 1) & mask) {
+      if (this.firstPart[slot] === 0) return -1;
+      if (this.h1[slot] === a && this.h2[slot] === b) return slot;
+    }
+  }
+
+  private freeSlotFor(b: number): number {
+    const mask = this.capacity - 1;
+    let slot = b & mask;
+    while (this.firstPart[slot] !== 0) slot = (slot + 1) & mask;
+    return slot;
+  }
+
+  private grow(): void {
+    const { h1, h2, firstPart, several } = this;
+    this.capacity *= 2;
+    this.h1 = new Uint32Array(this.capacity);
+    this.h2 = new Uint32Array(this.capacity);
+    this.firstPart = new Float64Array(this.capacity);
+    this.several = new Uint8Array(this.capacity);
+    for (let i = 0; i < firstPart.length; i++) {
+      if (firstPart[i] === 0) continue;
+      const slot = this.freeSlotFor(h2[i]);
+      this.h1[slot] = h1[i];
+      this.h2[slot] = h2[i];
+      this.firstPart[slot] = firstPart[i];
+      this.several[slot] = several[i];
+    }
+  }
+}
+
 /**
  * The second pass over lookups handed to it in parts — a page of what a
  * run's journal owes at a time — and counted as one: one `__pass2__` event
- * and one error entry once every part is through (`finish`). A record owing
- * two lookups in two parts takes two updates; what each fills in is the same.
+ * and one error entry once every part is through (`finish`). What a record
+ * owes in several parts (`RecordsOwingAcrossParts`) is held back as each
+ * part goes by and gathered into one update, sent once the last part is
+ * through (`sendHeld`): one update a record, whichever parts owe it, and two
+ * values of one of its lookups said as a conflict, wherever they were owed.
  */
 export class CycleFkPass {
   private resolvedCount = 0;
@@ -118,74 +234,103 @@ export class CycleFkPass {
   private cancelled = false;
   /** Lookups handed to the pass, in every part. */
   private handed = 0;
+  /** What the records owing in several parts owe, gathered across them: see `sendHeld`. */
+  private readonly held = new LookupPatchSet();
 
   constructor(private readonly input: Omit<CycleFkPatchInput, 'pendingFkUpdates'>) {}
 
-  /** Patch one part of the lookups owed. */
-  async patch(pendingFkUpdates: readonly PendingFkUpdate[]): Promise<void> {
+  /**
+   * Patch one part of the lookups owed.
+   *
+   * @param heldBack - Whether a record owes lookups in other parts as well:
+   *   what it owes is held, and goes with what those owe (`sendHeld`).
+   */
+  async patch(
+    pendingFkUpdates: readonly PendingFkUpdate[],
+    heldBack?: (update: PendingFkUpdate) => boolean,
+  ): Promise<void> {
     const { input } = this;
-    const { remapper, targetOrgId } = input;
-    const updateRecords = input.updateRecords;
-    if (!input.enabled || !updateRecords || pendingFkUpdates.length === 0) return;
+    if (!input.enabled || !input.updateRecords || pendingFkUpdates.length === 0) return;
     this.handed += pendingFkUpdates.length;
     const owed = new LookupPatchSet();
     for (const upd of pendingFkUpdates) {
-      const newRefId = remapper.get(upd.sourceRefId);
-      if (!newRefId) {
-        if (input.deferUnresolved) {
-          input.stillPending?.push(upd);
-          continue;
-        }
-        this.unresolvedCount++;
-        if (this.unresolved.length < 3) {
-          this.unresolved.push({
-            recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}=<source ${upd.sourceRefId}>`,
-            messages: [
-              `Cycle FK '${upd.fieldName}' could not be resolved — referenced parent (source ${upd.sourceRefId}) was not cloned`,
-            ],
-          });
-        }
-        continue;
-      }
-      // Only an insert sets it, and its record went in after the row: sent, the
-      // update is refused — and takes the row's other lookups of that update
-      // down with it. Said to be left empty instead, once, as it now is.
-      if (upd.insertOnly) {
-        this.insertOnlyLost++;
-        if (this.unresolved.length < 3) {
-          this.unresolved.push({
-            recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
-            messages: [
-              `Lookup '${upd.fieldName}' left empty: only an insert sets it, and the record it names ` +
-                `(source ${upd.sourceRefId}) was written after this one`,
-            ],
-          });
-        }
-        continue;
-      }
-      // Detect dup-on-same-record collisions (same record, same field,
-      // different remapped target) — surface explicitly so the user
-      // can investigate ambiguous polymorphic FKs (Task.WhatId etc.).
-      const patched = owed.add({
-        objectApiName: upd.objectApiName,
-        recordId: upd.newId,
-        fieldName: upd.fieldName,
-        value: newRefId,
-      });
-      if (!patched.taken) {
-        this.unresolvedCount++;
-        if (this.unresolved.length < 3) {
-          this.unresolved.push({
-            recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
-            messages: [
-              `Conflicting cycle FK update for ${upd.fieldName}: ${String(patched.kept)} vs ${newRefId}`,
-            ],
-          });
-        }
-        continue;
-      }
-      this.resolvedCount++;
+      this.take(upd, heldBack?.(upd) === true ? this.held : owed);
     }
+    await this.send(owed);
+  }
+
+  /** Send what the records owing in several parts owe, once every part is through. */
+  async sendHeld(): Promise<void> {
+    await this.send(this.held);
+  }
+
+  /** Count one lookup owed, and add it to the updates of `owed` when it can be filled in. */
+  private take(upd: PendingFkUpdate, owed: LookupPatchSet): void {
+    const { input } = this;
+    const { remapper } = input;
+    const newRefId = remapper.get(upd.sourceRefId);
+    if (!newRefId) {
+      if (input.deferUnresolved) {
+        input.stillPending?.push(upd);
+        return;
+      }
+      this.unresolvedCount++;
+      if (this.unresolved.length < 3) {
+        this.unresolved.push({
+          recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}=<source ${upd.sourceRefId}>`,
+          messages: [
+            `Cycle FK '${upd.fieldName}' could not be resolved — referenced parent (source ${upd.sourceRefId}) was not cloned`,
+          ],
+        });
+      }
+      return;
+    }
+    // Only an insert sets it, and its record went in after the row: sent, the
+    // update is refused — and takes the row's other lookups of that update
+    // down with it. Said to be left empty instead, once, as it now is.
+    if (upd.insertOnly) {
+      this.insertOnlyLost++;
+      if (this.unresolved.length < 3) {
+        this.unresolved.push({
+          recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
+          messages: [
+            `Lookup '${upd.fieldName}' left empty: only an insert sets it, and the record it names ` +
+              `(source ${upd.sourceRefId}) was written after this one`,
+          ],
+        });
+      }
+      return;
+    }
+    // Detect dup-on-same-record collisions (same record, same field,
+    // different remapped target) — surface explicitly so the user
+    // can investigate ambiguous polymorphic FKs (Task.WhatId etc.).
+    const patched = owed.add({
+      objectApiName: upd.objectApiName,
+      recordId: upd.newId,
+      fieldName: upd.fieldName,
+      value: newRefId,
+    });
+    if (!patched.taken) {
+      this.unresolvedCount++;
+      if (this.unresolved.length < 3) {
+        this.unresolved.push({
+          recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
+          messages: [
+            `Conflicting cycle FK update for ${upd.fieldName}: ${String(patched.kept)} vs ${newRefId}`,
+          ],
+        });
+      }
+      return;
+    }
+    this.resolvedCount++;
+  }
+
+  /** Send the updates `owed` holds, per object, in calls of the REST limit. */
+  private async send(owed: LookupPatchSet): Promise<void> {
+    const { input } = this;
+    const { targetOrgId } = input;
+    const updateRecords = input.updateRecords;
+    if (!updateRecords) return;
     const maxPerCall = WRITE_API_MAX_BATCH['rest'];
     for (const [objectApiName, recordsToUpdate] of owed.updates()) {
       for (let offset = 0; offset < recordsToUpdate.length; offset += maxPerCall) {
@@ -200,6 +345,7 @@ export class CycleFkPass {
           const updateResults = await updateRecords(targetOrgId, objectApiName, batch);
           for (let i = 0; i < updateResults.length; i++) {
             const r = updateResults[i];
+            if (r.success) input.onPatched?.(objectApiName, batch[i]);
             if (!r.success) {
               this.pass2Failed += lookupsIn(batch[i]);
               if (this.pass2Samples.length < 3) {

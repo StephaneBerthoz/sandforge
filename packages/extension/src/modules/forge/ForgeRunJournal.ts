@@ -64,6 +64,14 @@ async function* linesOf(filePath: string): AsyncGenerator<string> {
   }
 }
 
+/**
+ * Records mapped past which a run's summary, its history entry and its
+ * removal plan keep their counts and none of their ids, which stay in the
+ * journal: 50 000 ids are a couple of MB of JSON, and a run of whole tables
+ * can map a million.
+ */
+export const SUMMARY_IDS_BOUND = 50_000;
+
 /** A Salesforce id, as every id a journal holds is: they end up in deletes. */
 const idSchema = z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/);
 const objectSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/);
@@ -150,6 +158,24 @@ function endPathOf(filePath: string): string {
   return filePath.replace(/\.ndjson$/, '') + '.end.json';
 }
 
+/** Beside a journal, the ids of what the removals of one of its parts left: one per line. */
+function leftPathOf(filePath: string, part: number): string {
+  return `${filePath.replace(/\.ndjson$/, '')}.part${part}.left`;
+}
+
+/** Ids written to a file of what removals left at a time. */
+const LEFT_IDS_PER_WRITE = 10_000;
+
+/** The ids of a part of a run whose summary keeps them in its journal, as its readers take them. */
+export interface ForgeRunJournalIds {
+  /** Source id to target id: every part's, the latest word on each. */
+  table: Record<string, string>;
+  /** What the part created, per object, in the order it created them. */
+  createdByObject: Array<{ objectApiName: string; sourceIds: string[] }>;
+  /** The source ids the part did not create: linked to, written over, or an earlier part's. */
+  existing: string[];
+}
+
 /** How a part of a run ended; `interrupted` for one a closed window stopped, recorded once found. */
 export type ForgeRunPartEnd = z.infer<typeof endSchema>['end']['status'];
 
@@ -188,15 +214,18 @@ function fileSegment(name: string): string {
 }
 
 /**
- * What a run read and written page by page has written, read and still owes,
- * kept on disk as it goes (see `ForgeRunStore`): a head line that names the
- * run, the org it writes to and what it was started with, then each part of
- * the run — the run, and every resumption of it — with what it created and
- * linked to, where each object's read stood, the lookups and statuses it
- * owed.
+ * What a run that writes has written, read and still owes, kept on disk as
+ * it goes (see `ForgeRunStore`): a head line that names the run, the org it
+ * writes to and what it was started with, then each part of the run — the
+ * run, and every resumption of it — with what it created and linked to,
+ * where each object's read stood, the lookups and statuses it owed, and
+ * those it filled in.
  *
  * A run that ends in success records what it created in the run history, and
- * its journal goes. One stopped by a cancel or a failure is kept in the
+ * its journal goes — unless it mapped more records than the history keeps
+ * the ids of (`SUMMARY_IDS_BOUND`): its journal stays, ended, and holds them
+ * for as long as the history or a removal plan names it. One stopped by a
+ * cancel or a failure is kept in the
  * history with its journal, which says where to resume it from, and how its
  * last part ended. One whose window closed under it — the extension host
  * stopped, the machine slept for good — leaves a journal whose last part has
@@ -299,8 +328,106 @@ export class ForgeRunJournal {
 
   /** Drop the journal of a run that ended: the run history holds what it created. */
   async end(journalId: string): Promise<void> {
-    await this.deps.rm(this.filePath(journalId));
-    await this.deps.rm(endPathOf(this.filePath(journalId)));
+    const filePath = this.filePath(journalId);
+    await this.deps.rm(filePath);
+    await this.deps.rm(endPathOf(filePath));
+    // What the removals of its parts left goes with it.
+    const prefix = `${path.basename(filePath).replace(/\.ndjson$/, '')}.part`;
+    for (const name of await this.deps.listFiles(this.dir)) {
+      if (name.startsWith(prefix) && name.endsWith('.left')) {
+        await this.deps.rm(path.join(this.dir, name));
+      }
+    }
+  }
+
+  /** The name of the file of the journal `journalId`, as {@link endedFiles} lists it. */
+  fileNameOf(journalId: string): string {
+    return `${fileSegment(journalId)}.ndjson`;
+  }
+
+  /** Of the journals `journalIds`, those that are there. */
+  async present(journalIds: readonly string[]): Promise<Set<string>> {
+    const names = new Set(await this.deps.listFiles(this.dir));
+    return new Set(journalIds.filter((journalId) => names.has(this.fileNameOf(journalId))));
+  }
+
+  /**
+   * The journals whose last part ended, by the name of their file: those a
+   * run kept for its history entry, which says why — taken up where it
+   * stopped, or its ids read from there.
+   */
+  async endedFiles(): Promise<string[]> {
+    const names = await this.deps.listFiles(this.dir);
+    const ended = new Set(names.filter((name) => name.endsWith('.end.json')));
+    return names.filter(
+      (name) => name.endsWith('.ndjson') && ended.has(name.replace(/\.ndjson$/, '.end.json')),
+    );
+  }
+
+  /** Forget the journal whose file is `fileName`, as {@link forget} does. */
+  async forgetFile(fileName: string): Promise<void> {
+    const filePath = path.join(this.dir, fileName);
+    const head = await this.headAt(filePath);
+    if (head) await this.end(head.journalId);
+    else {
+      await this.deps.rm(filePath);
+      await this.deps.rm(endPathOf(filePath));
+    }
+  }
+
+  /**
+   * The ids of the part `part` of the journal `journalId`, for a reader of a
+   * run whose summary keeps them there: every part's table, what this part
+   * created, and the rest as records it did not create — what its summary
+   * would have held. Undefined when the journal is gone, or is not that run's.
+   */
+  async idsOf(journalId: string, part: number): Promise<ForgeRunJournalIds | undefined> {
+    const filePath = this.filePath(journalId);
+    const all = await this.readAt(filePath, 'all');
+    if (all?.journalId !== journalId) return undefined;
+    const mine = await this.readAt(filePath, part);
+    if (!mine) return undefined;
+    const created = new Set(mine.remap.createdByObject.flatMap(({ sourceIds }) => sourceIds));
+    return {
+      table: all.remap.table,
+      createdByObject: mine.remap.createdByObject,
+      existing: Object.keys(all.remap.table).filter((sourceId) => !created.has(sourceId)),
+    };
+  }
+
+  /**
+   * Keep, beside the journal, the target ids of the records the removals of
+   * its part `part` left: what the next removal sets out to take, which the
+   * history entry counts and does not hold.
+   */
+  async keepLeft(journalId: string, part: number, ids: readonly string[]): Promise<void> {
+    const filePath = leftPathOf(this.filePath(journalId), part);
+    await this.deps.rm(filePath);
+    for (let at = 0; at < ids.length; at += LEFT_IDS_PER_WRITE) {
+      await this.deps.appendFile(
+        filePath,
+        `${ids.slice(at, at + LEFT_IDS_PER_WRITE).join('\n')}\n`,
+      );
+    }
+    // A removal that left none leaves a file that says so.
+    if (ids.length === 0) await this.deps.appendFile(filePath, '');
+  }
+
+  /**
+   * The target ids the removals of the part `part` left, as {@link keepLeft}
+   * kept them; undefined when no removal left any record of it, or the file
+   * is gone. A line that is not an id is left out.
+   */
+  async leftOf(journalId: string, part: number): Promise<string[] | undefined> {
+    const filePath = leftPathOf(this.filePath(journalId), part);
+    const names = await this.deps.listFiles(this.dir);
+    if (!names.includes(path.basename(filePath))) return undefined;
+    const ids: string[] = [];
+    for await (const line of this.deps.readLines(filePath)) {
+      const id = line.trim();
+      if (idSchema.safeParse(id).success) ids.push(id);
+    }
+    return ids;
   }
 
   /**
