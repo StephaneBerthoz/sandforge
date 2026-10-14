@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
@@ -138,6 +139,26 @@ const DONE: ForgeExecutionResult = {
   createdCount: 1,
 };
 
+/**
+ * A disk in memory, keyed as the platform writes paths: the journal joins its
+ * paths with the platform's separator (a backslash on Windows), and a test
+ * names a file with forward slashes. Both reach the same entry.
+ */
+class PathMap extends Map<string, string> {
+  override get(key: string): string | undefined {
+    return super.get(path.normalize(key));
+  }
+  override set(key: string, value: string): this {
+    return super.set(path.normalize(key), value);
+  }
+  override has(key: string): boolean {
+    return super.has(path.normalize(key));
+  }
+  override delete(key: string): boolean {
+    return super.delete(path.normalize(key));
+  }
+}
+
 /** A disk in memory under a real journal: each file's text, by its path. */
 function journalOnMemory(files: Map<string, string>): ForgeRunJournal {
   return new ForgeRunJournal({
@@ -153,8 +174,8 @@ function journalOnMemory(files: Map<string, string>): ForgeRunJournal {
     rm: async (filePath) => void files.delete(filePath),
     listFiles: async (dirPath) =>
       [...files.keys()]
-        .filter((filePath) => filePath.startsWith(`${dirPath}/`))
-        .map((filePath) => filePath.slice(dirPath.length + 1)),
+        .filter((filePath) => path.dirname(filePath) === path.normalize(dirPath))
+        .map((filePath) => path.basename(filePath)),
     openRunFile: (filePath) => ({
       size: () => Buffer.byteLength(files.get(filePath) ?? ''),
       append: (text) => void files.set(filePath, (files.get(filePath) ?? '') + text),
@@ -182,7 +203,7 @@ describe('a run of whole tables taken up where it stopped', () => {
 
   beforeEach(() => {
     settings = {};
-    files = new Map();
+    files = new PathMap();
     targetOrg = TARGET_ORG;
     tracker = new LiveOperationTracker();
     configStore = new ConfigStore(new InMemoryConfigStoreBackend());

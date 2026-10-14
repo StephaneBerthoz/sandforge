@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
@@ -171,6 +172,26 @@ const boundaryOf = (n: number): ForgeWriteBoundary => ({
   ],
   dryRun: false,
 });
+
+/**
+ * A disk in memory, keyed as the platform writes paths: the journal joins its
+ * paths with the platform's separator (a backslash on Windows), and a test
+ * names a file with forward slashes. Both reach the same entry.
+ */
+class PathMap extends Map<string, string> {
+  override get(key: string): string | undefined {
+    return super.get(path.normalize(key));
+  }
+  override set(key: string, value: string): this {
+    return super.set(path.normalize(key), value);
+  }
+  override has(key: string): boolean {
+    return super.has(path.normalize(key));
+  }
+  override delete(key: string): boolean {
+    return super.delete(path.normalize(key));
+  }
+}
 
 describe('forge:execute, the gate before the first write', () => {
   let handler: ForgeHandler;
@@ -1224,7 +1245,7 @@ describe('forge:execute, the gate before the first write', () => {
   describe('the journal of a run of whole tables', () => {
     /** A disk in memory under a real journal: each file's text, by its path. */
     function journalOnMemory(options: { unwritable?: boolean } = {}) {
-      const files = new Map<string, string>();
+      const files = new PathMap();
       const journal = new ForgeRunJournal({
         storagePath: '/storage',
         appendFile: async (filePath, content) => {
@@ -1239,8 +1260,8 @@ describe('forge:execute, the gate before the first write', () => {
         rm: async (filePath) => void files.delete(filePath),
         listFiles: async (dirPath) =>
           [...files.keys()]
-            .filter((filePath) => filePath.startsWith(`${dirPath}/`))
-            .map((filePath) => filePath.slice(dirPath.length + 1)),
+            .filter((filePath) => path.dirname(filePath) === path.normalize(dirPath))
+            .map((filePath) => path.basename(filePath)),
         openRunFile: (filePath) => ({
           size: () => Buffer.byteLength(files.get(filePath) ?? ''),
           append: (text) => void files.set(filePath, (files.get(filePath) ?? '') + text),
