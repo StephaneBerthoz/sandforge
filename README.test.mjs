@@ -15,6 +15,10 @@
  * language i18next renders in — and the README now says formatting follows the
  * picked language; the gate holds that sentence to the wiring it describes.
  *
+ * The Marketplace README is generated from the root one
+ * (`scripts/sync-extension-readme.mjs`), so both carry the same section, and
+ * each rule below reads both.
+ *
  * Run: node --test README.test.mjs
  */
 import assert from 'node:assert/strict';
@@ -65,36 +69,42 @@ function i18nSection(relPath) {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-test('the Marketplace README claims key parity, not translation coverage', () => {
-  const section = i18nSection('packages/extension/README.md');
+const READMES = ['README.md', 'packages/extension/README.md'];
 
-  assert.doesNotMatch(
-    section,
-    /coverage/i,
-    'no gate measures translation coverage — claim what check-i18n-parity.ts enforces instead',
-  );
-  assert.doesNotMatch(
-    section,
-    /\d{1,3}\s?%/,
-    'a percentage reads as a measurement; nothing produces this number',
-  );
-  assert.match(section, /parity/i, 'say which property CI actually enforces');
-  assert.match(section, /\bCI\b/, 'name where it is enforced');
+test('both READMEs claim key parity, not translation coverage', () => {
+  for (const relPath of READMES) {
+    const section = i18nSection(relPath);
+
+    assert.doesNotMatch(
+      section,
+      /coverage/i,
+      `${relPath}: no gate measures translation coverage — claim what check-i18n-parity.ts enforces instead`,
+    );
+    assert.doesNotMatch(
+      section,
+      /\d{1,3}\s?%/,
+      `${relPath}: a percentage reads as a measurement; nothing produces this number`,
+    );
+    assert.match(section, /parity/i, `${relPath}: say which property CI actually enforces`);
+    assert.match(section, /\bCI\b/, `${relPath}: name where it is enforced`);
+  }
 });
 
-test('the root README says which locale drives Intl formatting', () => {
-  const section = i18nSection('README.md');
+test('both READMEs say which locale drives Intl formatting', () => {
+  for (const relPath of READMES) {
+    const section = i18nSection(relPath);
 
-  assert.match(
-    section,
-    /Intl APIs in the language picked in SandForge/,
-    'say which language dates and numbers are written in',
-  );
-  assert.doesNotMatch(
-    section,
-    /editor locale/,
-    'formatting follows the picked language: the editor only lends its region',
-  );
+    assert.match(
+      section,
+      /Intl APIs in the language picked in SandForge/,
+      `${relPath}: say which language dates and numbers are written in`,
+    );
+    assert.doesNotMatch(
+      section,
+      /editor locale/,
+      `${relPath}: formatting follows the picked language: the editor only lends its region`,
+    );
+  }
 });
 
 test('the co-location scan distinguishes a bound formatter from a host-locale one', () => {

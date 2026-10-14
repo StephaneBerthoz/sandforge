@@ -321,6 +321,19 @@ else
 fi
 rm -f /tmp/sf-badges.txt
 
+# 11b'. The Marketplace README and changelog are what the generator makes of
+# the root files. The listing shows packages/extension/README.md, which nobody
+# edits by hand any more; a release built from a stale copy would publish a
+# page the repository no longer says. Same reason as 11b for not gating it.
+if node scripts/sync-extension-readme.mjs --check > /tmp/sf-readme.txt 2>&1; then
+  echo "PASS: Marketplace README and changelog match the root files"
+else
+  echo "FAIL: Marketplace README or changelog is stale — run 'pnpm sync:readme'"
+  sed 's/^/       /' /tmp/sf-readme.txt
+  ERRORS=$((ERRORS + 1))
+fi
+rm -f /tmp/sf-readme.txt
+
 # 11c. Every README image reaches an anonymous reader.
 #
 # The Marketplace renders packages/extension/README.md on its own site and

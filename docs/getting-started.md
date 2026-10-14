@@ -140,5 +140,6 @@ Now that you are up and running, explore the full capabilities of each module:
 - [Compare](modules/compare.md) -- Metadata diff, permission set and profile presence, and five Organization settings
 - [DataOps](modules/dataops.md) -- Backup, restore, anonymization, data subject requests, cleanup and a data-quality scan
 - [Automation](modules/automation.md) -- Visual pipeline builder: backups, comparisons, checks, notifications, started by hand, on a schedule or on a sandbox refresh
+- [AI Assistant](modules/ai-assistant.md) -- Chat, NL2SOQL, pipeline drafts and Seed's AI rules on your own Anthropic key, what each sends, and what works with AI off
 
 Have questions? Check the [FAQ and Troubleshooting](faq.md) guide.

@@ -4,7 +4,7 @@
  *
  * The script resolves the repository from its own location, so each case runs
  * a copy of it inside a throwaway tree holding only the files it reads. The
- * READMEs there carry no badge block, which the script leaves alone, so the
+ * README there carries no badge block, which the script leaves alone, so the
  * outcome depends on SECURITY.md alone.
  *
  * Run: node --test scripts/sync-readme-badges.test.mjs
@@ -35,7 +35,7 @@ function securityPage(supported, unsupported) {
   ].join('\n');
 }
 
-function withRepo(version, security, run) {
+function withRepo(version, security, run, extra = {}) {
   const root = mkdtempSync(join(tmpdir(), 'sync-badges-'));
   try {
     const write = (relative, content) => {
@@ -46,15 +46,19 @@ function withRepo(version, security, run) {
     copyFileSync(SCRIPT, join(root, 'scripts', 'sync-readme-badges.mjs'));
     write('package.json', JSON.stringify({ version }));
     write('README.md', '# Readme\n');
-    write('packages/extension/README.md', '# Readme\n');
     write('packages/webview/src/i18n/locales/en.json', '{}');
     if (security !== undefined) write('SECURITY.md', security);
+    for (const [relative, content] of Object.entries(extra)) write(relative, content);
 
     const sync = (...args) =>
       spawnSync(process.execPath, [join(root, 'scripts', 'sync-readme-badges.mjs'), ...args], {
         encoding: 'utf8',
       });
-    run({ sync, security: () => readFileSync(join(root, 'SECURITY.md'), 'utf8') });
+    run({
+      sync,
+      security: () => readFileSync(join(root, 'SECURITY.md'), 'utf8'),
+      read: (relative) => readFileSync(join(root, relative), 'utf8'),
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -110,4 +114,21 @@ test('a sync rewrites the table to the current minor and leaves the rest of the 
     );
     assert.equal(sync('--check').status, 0);
   });
+});
+
+test('a sync writes the badges into the root README and leaves the Marketplace README alone', () => {
+  // The Marketplace README is generated from the root one by
+  // sync-extension-readme.mjs; a second writer would fight it on every run.
+  const stale = '# Readme\n\n<!-- badges:start -->\n\n![Version](old)\n\n<!-- badges:end -->\n';
+  withRepo(
+    '1.22.0',
+    securityPage('1.22.x', '< 1.22'),
+    ({ sync, read }) => {
+      assert.equal(sync().status, 0);
+
+      assert.match(read('README.md'), /badge\/version-1\.22\.0-blue/);
+      assert.equal(read('packages/extension/README.md'), stale);
+    },
+    { 'README.md': stale, 'packages/extension/README.md': stale },
+  );
 });

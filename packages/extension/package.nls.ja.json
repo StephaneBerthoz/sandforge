@@ -1,6 +1,6 @@
 {
-  "displayName": "SandForge: Salesforce サンドボックスを鍛造する",
-  "description": "オールインワンの Salesforce サンドボックスツールキット。AI ペルソナ、CSV インポート、組織からのクローンによるデータ生成 — SFDMU export.json のインポートにも対応。競合解決機能付きの組織間同期。メタデータの比較、制限の監視、手動、スケジュール、または Sandbox のリフレッシュ時に、VS Code が開いている間に開始するパイプラインによる組織のバックアップ・比較・チェック — パイプラインが組織に書き込むのは保存済みの Sync を通じてのみで、Production Guard が確認する組織では事前に承認が必要です。",
+  "displayName": "SandForge: Salesforce サンドボックスにリアルなデータを",
+  "description": "Salesforce サンドボックスにリアルなデータを。レコードとそのリレーショングラフを組織間でクローンし、合成データを生成し、データを匿名化してデータセットを再現します。本番環境ガードレールは既定で有効です。",
   "capabilities.untrustedWorkspaces.description": "SandForge は Salesforce の認証情報を読み取り、開いているフォルダーの構成に従って組織にレコードを書き込みます。有効にするにはフォルダーを信頼してください。",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

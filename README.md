@@ -1,3 +1,5 @@
+<!-- github-only:start -->
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/sandforge-logo-horizontal-dark.png">
@@ -5,7 +7,9 @@
   </picture>
 </p>
 
-# SandForge: Salesforce DevOps Toolkit
+<!-- github-only:end -->
+
+# SandForge: Realistic Data for Salesforce Sandboxes
 
 <!-- badges:start -->
 
@@ -32,13 +36,15 @@
 
 ## Your first clone in 2 minutes
 
-1. **Connect your orgs**: click the SandForge icon in the Activity Bar, open **Organizations**, and click **Import from SF CLI** to pull in every org authenticated in the Salesforce CLI.
+1. **Connect your orgs**: click the SandForge icon in the Activity Bar, open the org dropdown at the top of the launcher, choose **New organization...**, then **Import from SF CLI** to pull in every org authenticated in the Salesforce CLI.
 2. **Open Forge**: click the flame icon in the sidebar, or run **SandForge: Open Forge** from the Command Palette.
 3. **Paste a root record ID** from your UAT sandbox into **Record ID or Salesforce URL** (an Account works well).
 4. Click **Discover Graph**, then tune **Depth**, **Records per object**, and **Anonymize PII**.
 5. Click **Review & Execute** toward your dev sandbox. IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.
 
 ![Forge — live record preview, dependency estimate and PII detection](assets/screenshots/forge.png)
+
+New here? The built-in **Get Started** walkthrough (Help → Welcome → "Get started with SandForge") guides you through these steps directly inside VS Code.
 
 ---
 
@@ -61,42 +67,24 @@
 
 SandForge ships 14 modules in a single extension:
 
-| Module             | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Forge**          | Clone a record and its relationship graph between orgs, with BFS dependency discovery and automatic ID remapping                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Frozen Dataset** | Extract once, pseudonymize deterministically, replay identically after every sandbox refresh                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Seed**           | Synthetic data from AI personas, templates, CSV import, or LLM-backed field rules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **Sync**           | Source-to-target sync between orgs with field mapping, transforms, and conflict resolution against the target                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Monitor**        | API limits, jobs, storage, and health score in real time, with threshold alerts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **Compare**        | Metadata diff, permission set and profile presence, and five Organization settings, compared between two orgs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **DataOps**        | Org backup, restore from any backup, PII anonymization templates, a read-only data-quality scan, a personal-data inventory with data subject requests (one person found by email, name or phone, exported, and erased in place or deleted, with a local request log of counts only), and a cleanup of stale, orphaned and duplicate records, exported or deleted through Production Guard                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **Automation**     | Visual pipeline builder, each step followed live as a run goes, and a run you can cancel. `backup` (a DataOps snapshot into local storage), `compare`, `precheck` (the Monitor's health signals), `notification` (a VS Code notification), `delay`, `condition`, `approval` (waits for Approve or Reject in VS Code) and `sync` (a configuration saved on the Sync page) run, and the palette offers all of them. `sync` is the one step that writes to an org: into a production org or a Developer Edition it needs an `approval` before it, whose answer Production Guard takes. `seed`, `restore`, `anonymize` and `delete` run from their own pages, and a pipeline holding one of them — from a template or a draft — is refused before it starts. A saved pipeline also starts on a cron schedule or when a sandbox is refreshed, while VS Code is open                                                                                                   |
-| **AI Assistant**   | With your own Anthropic key: chat, pipeline drafts in Automation, and NL2SOQL, custom personas and AI field rules (picked by you or set by a built-in persona) in Seed. A saved chat continues after a restart or an AI setting change, and the model is given its last 20 messages of it. While AI is on, a failed Seed, Sync, DataOps or Automation run sends its error message — every Salesforce Id in it replaced by `<id>` — to the model for a fix suggestion shown as a VS Code notification. A built-in table of common Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing. The failures SandForge writes itself, and any failure raised with no SandForge view open, send nothing either. `sandforge.ai.errorResolution` turns that sending off on its own; turning AI off stops it at once. Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key |
-| **Grappe**         | A progress page, not an engine: once `sandforge.grappe.enabled` is on (it is off by default), a Seed or Sync run of at least `sandforge.grappe.autoActivateThreshold` records reports its progress there partition by partition — an Autopilot run only its start and its end. Until then the page is empty. Execution itself is sequential — this splits the _reporting_, not the work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| **Migration**      | Import existing SFDMU `export.json` or CSV configurations into Sync configs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **Autopilot**      | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **Organizations**  | Org registry with SF CLI import and tier-based safety coloring                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Reports**        | Execution reports and success-rate analytics, built from your Forge and Sync run history; an audit trail of every run that writes to an org, and the data lineage of the records each run carried                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Module             | What it does                                                                                                                                                                                                                            |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Forge**          | Clone a record and its relationship graph between orgs, with BFS dependency discovery and automatic ID remapping. [Guide](docs/forge-quickstart.md)                                                                                     |
+| **Frozen Dataset** | Extract once, pseudonymize deterministically, replay identically after every sandbox refresh. [Guide](docs/modules/frozen-dataset.md)                                                                                                   |
+| **Seed**           | Synthetic data from AI personas, templates, CSV import, or LLM-backed field rules. [Guide](docs/modules/seed.md)                                                                                                                        |
+| **Sync**           | Source-to-target sync between orgs with field mapping, transforms, and conflict resolution against the target. [Guide](docs/modules/sync.md)                                                                                            |
+| **Monitor**        | API limits, jobs, storage, and health score in real time, with threshold alerts. [Guide](docs/modules/monitor.md)                                                                                                                       |
+| **Compare**        | Metadata diff, permission set and profile presence, and five Organization settings, compared between two orgs. [Guide](docs/modules/compare.md)                                                                                         |
+| **DataOps**        | Backup and restore, PII anonymization, data subject requests, a read-only data-quality scan, and a cleanup of stale, orphaned and duplicate records through Production Guard. [Guide](docs/modules/dataops.md)                          |
+| **Automation**     | Visual pipelines of `backup`, `compare`, `precheck`, `notification`, `delay`, `condition`, `approval` and `sync` steps, run by hand, on a cron schedule or a sandbox refresh while VS Code is open. [Guide](docs/modules/automation.md) |
+| **AI Assistant**   | Chat, NL2SOQL, pipeline drafts and Seed field rules on your Anthropic key. Failed runs send their error for a fix unless `sandforge.ai.errorResolution` is off; known codes answer with AI off. [Guide](docs/modules/ai-assistant.md)   |
+| **Grappe**         | A progress page, not an engine: once `sandforge.grappe.enabled` is on (off by default), large Seed and Sync runs report there partition by partition. Execution stays sequential.                                                       |
+| **Migration**      | Import existing SFDMU `export.json` or CSV/JSON files into Sync configs.                                                                                                                                                                |
+| **Autopilot**      | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets.                                                                                                                        |
+| **Organizations**  | Org registry with SF CLI import and tier-based safety coloring; at startup, expired sessions are refreshed through the sf CLI.                                                                                                          |
+| **Reports**        | Execution reports and success rates from your Forge and Sync run history, an audit trail of every run that writes to an org, and the data lineage of the records each run carried.                                                      |
 
 Safety is on by default: Forge refuses a Production org as a target, and for every other module Production Guard asks for confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail.
-
----
-
-## Documentation
-
-| Guide                                                            | Description                                                                                                          |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| [Getting Started](docs/getting-started.md)                       | Install, connect your org, run your first operation                                                                  |
-| [Forge: Dev Sandbox Quickstart](docs/forge-quickstart.md)        | Clone a record graph from a partial-copy sandbox into your dev sandbox (wizard + CLI)                                |
-| [Forge: Record-Scoped Architecture](docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion)    |
-| [Frozen Dataset](docs/modules/frozen-dataset.md)                 | Replayable reference datasets                                                                                        |
-| [Seed](docs/modules/seed.md)                                     | AI generation, CSV import, org-to-org cloning                                                                        |
-| [Sync](docs/modules/sync.md)                                     | Org-to-org data synchronization with field mapping and conflict resolution                                           |
-| [Monitor](docs/modules/monitor.md)                               | Real-time org health, API limits, and job tracking                                                                   |
-| [Compare](docs/modules/compare.md)                               | Metadata diff, permission set and profile presence, and five Organization settings                                   |
-| [DataOps](docs/modules/dataops.md)                               | Backup, restore, anonymization, data subject requests, cleanup and a data-quality scan                               |
-| [Automation](docs/modules/automation.md)                         | Visual pipeline builder: backups, comparisons, checks, notifications, by hand, on a schedule or on a sandbox refresh |
-| [FAQ & Troubleshooting](docs/faq.md)                             | Common questions and solutions to frequent issues                                                                    |
 
 ---
 
@@ -118,14 +106,41 @@ Safety is on by default: Forge refuses a Production org as a target, and for eve
 
 ---
 
+## FAQ
+
+- **Does my data leave my machine?** Beyond the orgs you connect, only to Anthropic, and nothing before you turn the AI Assistant on (it is off by default) and store your own key, which stays in VS Code Secret Storage. From then on a failed run's error message is sent too, unless `sandforge.ai.errorResolution` is off; [the FAQ](docs/faq.md#is-my-data-sent-to-external-services) lists what each feature sends. Telemetry is off by default and, turned on, only writes error reports to a local log.
+- **Can I point it at production?** Reads, yes. Forge never writes to one: it refuses a production target outright. The other modules' writes go through the Production Guard: a confirmation first, and destructive operations (DELETE) are blocked outright.
+- **Is this an SFDMU replacement?** For moving data between orgs from your editor, yes — and without the config file: you paste a record ID, SandForge discovers the relationship graph and remaps IDs on write (a record type the target does not have keeps its source Id, and the SandForge log names it). SFDMU keeps the edge for headless CI, where it has a real binary and SandForge does not. Switching costs nothing you already built: the Migration module imports your existing `export.json` into a Sync config, non-destructively — nothing is written to your orgs.
+- **Which orgs are supported?** Any org authenticated in the Salesforce CLI (`sf`), imported in one click.
+- **Is it free?** Yes — MIT licensed, no account, no paid tier.
+
+---
+
+## Documentation
+
+| Guide                                                            | Description                                                                                                          |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [Getting Started](docs/getting-started.md)                       | Install, connect your org, run your first operation                                                                  |
+| [Forge: Dev Sandbox Quickstart](docs/forge-quickstart.md)        | Clone a record graph from a partial-copy sandbox into your dev sandbox (wizard + CLI)                                |
+| [Forge: Record-Scoped Architecture](docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion)    |
+| [Frozen Dataset](docs/modules/frozen-dataset.md)                 | Replayable reference datasets                                                                                        |
+| [Seed](docs/modules/seed.md)                                     | AI generation, CSV import, org-to-org cloning                                                                        |
+| [Sync](docs/modules/sync.md)                                     | Org-to-org data synchronization with field mapping and conflict resolution                                           |
+| [Monitor](docs/modules/monitor.md)                               | Real-time org health, API limits, and job tracking                                                                   |
+| [Compare](docs/modules/compare.md)                               | Metadata diff, permission set and profile presence, and five Organization settings                                   |
+| [DataOps](docs/modules/dataops.md)                               | Backup, restore, anonymization, data subject requests, cleanup and a data-quality scan                               |
+| [Automation](docs/modules/automation.md)                         | Visual pipeline builder: backups, comparisons, checks, notifications, by hand, on a schedule or on a sandbox refresh |
+| [AI Assistant](docs/modules/ai-assistant.md)                     | Chat, NL2SOQL, pipeline drafts, Seed's AI rules and error resolution, and what works with AI off                     |
+| [FAQ & Troubleshooting](docs/faq.md)                             | Common questions and solutions to frequent issues                                                                    |
+
+---
+
 ## Requirements
 
 | Requirement           | Version            |
 | --------------------- | ------------------ |
 | Visual Studio Code    | 1.95+              |
 | Salesforce CLI (`sf`) | Latest             |
-| Node.js               | 24                 |
-| pnpm                  | 11                 |
 | AI API key (optional) | Anthropic (Claude) |
 
 ---
@@ -143,7 +158,11 @@ Safety is on by default: Forge refuses a Production org as a target, and for eve
 
 Download `sandforge.vsix` from the [Releases](https://github.com/StephaneBerthoz/sandforge/releases) page, then run **Extensions: Install from VSIX...** from the Command Palette.
 
+<!-- github-only:start -->
+
 ### From Source
+
+Building from source needs Node.js 24 and pnpm 11:
 
 ```bash
 git clone https://github.com/StephaneBerthoz/sandforge.git
@@ -167,6 +186,8 @@ SandForge is a pnpm monorepo with three packages:
 
 The WebView talks to the extension host through a typed `postMessage` broker; every message is validated by Zod schemas at the boundary.
 
+<!-- github-only:end -->
+
 ---
 
 ## Keyboard Shortcuts
@@ -176,7 +197,7 @@ The WebView talks to the extension host through a typed `postMessage` broker; ev
 | `Ctrl+Shift+R` | Open Grappe (partition progress) |
 | `Ctrl+Shift+A` | Open Automation                  |
 
-On macOS, use `Cmd` instead of `Ctrl`.
+In-app, press `Ctrl+K` for the command palette and `G` + a letter to jump between modules (see the Help page for the full map). On macOS, use `Cmd` instead of `Ctrl`.
 
 ---
 
@@ -213,15 +234,22 @@ See the full list of settings in the VSCode Settings UI under "SandForge".
 
 ## Internationalization
 
-Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Portuguese. All UI text uses `t('key')` via react-i18next, and numbers and dates are formatted with Intl APIs in the language picked in SandForge, keeping the editor's regional conventions when the editor uses that same language. Durations are not: they are composed from fixed `h`/`min`/`s`/`ms` tokens and read the same in every locale.
+Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Portuguese. Key parity across locales is enforced in CI, and your language choice persists across sessions. Numbers and dates are formatted with Intl APIs in the language picked in SandForge, keeping the editor's regional conventions when the editor uses that same language. Durations are not: they are composed from fixed `h`/`min`/`s`/`ms` tokens and read the same in every locale.
 
 ---
 
-## What's New
+## Support
 
-See the [CHANGELOG](changelog.md) for release notes. Report issues on the [GitHub Issues](https://github.com/StephaneBerthoz/sandforge/issues) page.
+- [Report an issue](https://github.com/StephaneBerthoz/sandforge/issues)
+- [Ask a question (Q&A)](https://github.com/StephaneBerthoz/sandforge/discussions)
+- [Changelog](changelog.md)
+- [Security policy](SECURITY.md)
+
+Missing a feature? [Open a feature request](https://github.com/StephaneBerthoz/sandforge/issues/new?template=feature_request.yml) — responses are fast.
 
 ---
+
+<!-- github-only:start -->
 
 ## Contributing
 
@@ -233,11 +261,14 @@ pnpm test             # Run tests (Vitest)
 pnpm build            # Build all packages
 pnpm validate         # typecheck + lint + test + build
 pnpm package          # Generate .vsix
+pnpm sync:readme      # Write the Marketplace README and changelog from README.md and changelog.md
 ```
 
 Every `.ts` file must have a corresponding `.test.ts` in the same directory. The build must stay green at all times. TypeScript strict mode is enforced: no `any`, no unused locals. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ---
+
+<!-- github-only:end -->
 
 ## Author
 

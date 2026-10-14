@@ -26,13 +26,17 @@
  * before `vsce package` reads the old artifact, syncing after ships a stale
  * README. It was also the least informative of the set.
  *
+ * The badges are written into the root README only. The Marketplace README is
+ * generated from it by `sync-extension-readme.mjs`, which drops the CI badge
+ * and links the version badge to the listing, so run this script first.
+ *
  * SECURITY.md's supported-versions table is derived here too, from the same
  * version. It promises fixes to "the latest minor" and was typed by hand, so it
  * still offered support for 1.21.x after 1.22.0 shipped: a security promise
  * about the wrong release, which nothing compared with package.json.
  *
- *   node scripts/sync-readme-badges.mjs           # rewrite both READMEs and SECURITY.md
- *   node scripts/sync-readme-badges.mjs --check   # exit 1 if any of them has drifted
+ *   node scripts/sync-readme-badges.mjs           # rewrite README.md and SECURITY.md
+ *   node scripts/sync-readme-badges.mjs --check   # exit 1 if either has drifted
  */
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -42,7 +46,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHECK_ONLY = process.argv.includes('--check');
 
 const REPO = 'StephaneBerthoz/sandforge';
-const MARKETPLACE = `https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge`;
 
 /** Markers delimiting the generated block, so the rest of the README is ours to edit. */
 const START = '<!-- badges:start -->';
@@ -60,19 +63,12 @@ function countLanguages() {
 /** shields.io escapes `-` as `--` inside a label or message. */
 const esc = (value) => String(value).replace(/-/g, '--');
 
-function buildBlock({ languages, linkVersion }) {
-  const versionBadge = `![Version](https://img.shields.io/badge/version-${esc(version)}-blue)`;
+function buildBlock({ languages }) {
   const lines = [
-    linkVersion ? `[${versionBadge}](${MARKETPLACE})` : versionBadge,
-    // Live, not asserted: this one goes red on its own when CI does. It is
-    // absent from the Marketplace README on purpose — GitHub serves the badge
-    // of a private repo only to a signed-in collaborator, so on the listing it
-    // renders as a broken image to everyone. `linkVersion` marks that README.
-    ...(linkVersion
-      ? []
-      : [
-          `[![CI](https://github.com/${REPO}/actions/workflows/ci.yml/badge.svg)](https://github.com/${REPO}/actions/workflows/ci.yml)`,
-        ]),
+    `![Version](https://img.shields.io/badge/version-${esc(version)}-blue)`,
+    // Live, not asserted: this one goes red on its own when CI does.
+    // `sync-extension-readme.mjs` leaves it out of the Marketplace README.
+    `[![CI](https://github.com/${REPO}/actions/workflows/ci.yml/badge.svg)](https://github.com/${REPO}/actions/workflows/ci.yml)`,
     `![TypeScript](https://img.shields.io/badge/typescript-strict-blue)`,
     `![License](https://img.shields.io/badge/license-MIT-green)`,
     `![Languages](https://img.shields.io/badge/i18n-${languages}%20languages-orange)`,
@@ -106,23 +102,21 @@ const facts = { languages: countLanguages() };
 console.log(`measured: version ${version}, ${facts.languages} locales`);
 
 let drifted = false;
-for (const [file, linkVersion] of [
-  ['README.md', false],
-  ['packages/extension/README.md', true],
-]) {
+{
+  const file = 'README.md';
   const path = join(ROOT, file);
   const before = readFileSync(path, 'utf8');
-  const after = applyBlock(before, buildBlock({ ...facts, linkVersion }));
+  const after = applyBlock(before, buildBlock(facts));
   if (before === after) {
     console.log(`  ${file}: up to date`);
-    continue;
-  }
-  drifted = true;
-  if (CHECK_ONLY) {
-    console.error(`  ${file}: STALE — run \`node scripts/sync-readme-badges.mjs\``);
   } else {
-    writeFileSync(path, after);
-    console.log(`  ${file}: updated`);
+    drifted = true;
+    if (CHECK_ONLY) {
+      console.error(`  ${file}: STALE — run \`node scripts/sync-readme-badges.mjs\``);
+    } else {
+      writeFileSync(path, after);
+      console.log(`  ${file}: updated`);
+    }
   }
 }
 

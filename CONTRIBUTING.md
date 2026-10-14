@@ -171,6 +171,19 @@ shortcut rather than the only way in. If you cannot, it is not an exception.
 - ESLint runs via `pnpm lint`; auto-fix with `pnpm lint:fix`.
 - Prettier runs via `pnpm format` (writes) or `pnpm format:check` (CI-style).
 
+## README and changelog
+
+Edit `README.md` and `changelog.md` at the root, never their copies in
+`packages/extension/`: the Marketplace listing renders
+`packages/extension/README.md` and `packages/extension/CHANGELOG.md`, and
+`pnpm sync:readme` (`node scripts/sync-extension-readme.mjs`) writes both from
+the root files. On the way it drops what sits between
+`<!-- github-only:start -->` and `<!-- github-only:end -->`, drops the CI badge
+and links the version badge to the listing, and turns every relative link and
+image into an absolute GitHub URL, since the Marketplace would resolve them
+against `packages/extension/`. `pnpm test:gates` fails while a copy differs from
+what the script makes, and `pnpm package` runs it after `sync-readme-badges.mjs`.
+
 ## Disposable hygiene
 
 The extension manages many disposables (timers, listeners, panels). The
@@ -197,9 +210,9 @@ bump if it is anything else. It reads `ci.yml` only, and the release commit
 the workflow pushes starts no CI run of its own, so dispatch from a commit
 CI ran on.
 
-1. Update `changelog.md` (root) and `packages/extension/CHANGELOG.md`.
-   Keep both in semver-descending order; the pre-publish gate refuses a
-   version with no entry in either.
+1. Update `changelog.md` (root), in semver-descending order, then run
+   `pnpm sync:readme` to copy it to `packages/extension/CHANGELOG.md`; the
+   pre-publish gate refuses a version with no entry in either.
 2. Run the workflow from the Actions tab (`workflow_dispatch`) with the
    bump type. It runs `scripts/bump-version.sh`, commits exactly the files
    that script writes plus the lockfile, tags, validates and packages.

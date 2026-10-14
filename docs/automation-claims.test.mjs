@@ -558,8 +558,15 @@ test('the module page lists exactly the step types that run, and names every one
   }
 });
 
-test('both READMEs name the step types that run, and say which are refused', () => {
+test('both READMEs name exactly the step types that run, and link the page that names the refused ones', () => {
+  // The row names the step types a pipeline runs and no other: one it named
+  // beside them would read as running too. Which types are refused, and where
+  // each runs instead, is the module page's to say — the test above holds it
+  // to the executor — and the row links there.
   const handled = handledStepTypes();
+  const refused = refusedStepTypes();
+  // Positive control: there is something refused for the row to stay silent on.
+  assert.ok(refused.length > 0, 'every step type runs now — re-read this gate');
   for (const file of ['README.md', join('packages', 'extension', 'README.md')]) {
     const row = read(repoRoot, file)
       .split('\n')
@@ -569,8 +576,17 @@ test('both READMEs name the step types that run, and say which are refused', () 
     for (const type of handled) {
       assert.match(row, new RegExp('`' + type + '`'), `${file} does not say ${type} runs`);
     }
-    for (const type of WRITE_STEP_TYPES) {
-      assert.match(row, new RegExp('`' + type + '`'), `${file} does not say ${type} is refused`);
+    for (const type of refused) {
+      assert.doesNotMatch(
+        row,
+        new RegExp('`' + type + '`'),
+        `${file} names ${type} among the steps a pipeline runs`,
+      );
     }
+    assert.match(
+      row,
+      /\]\((?:https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/master\/)?docs\/modules\/automation\.md\)/,
+      `${file}: the row does not link the module page that names the refused steps`,
+    );
   }
 });

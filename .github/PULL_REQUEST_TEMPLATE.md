@@ -10,7 +10,7 @@
 - [ ] New bridge messages have **both** the Zod schema (`packages/shared/src/bridge/messageSchemas.ts`) **and** the TS interface (`packages/shared/src/types/messages/<domain>.messages.ts`) — zero-drift rule, ADR 0002
 - [ ] New listeners / timers have a disposal sink (`pnpm audit:disposables` passes)
 - [ ] Commits follow Conventional Commits (`<type>(<scope>): <subject>`)
-- [ ] User-visible change? Both changelogs updated (`changelog.md` + `packages/extension/CHANGELOG.md`)
+- [ ] User-visible change? `changelog.md` updated (and `README.md` if it describes the change), then `pnpm sync:readme` run to write their `packages/extension/` copies
 
 ## Security-sensitive areas
 

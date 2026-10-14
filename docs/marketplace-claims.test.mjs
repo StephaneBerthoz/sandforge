@@ -147,7 +147,9 @@ const STEPS_CREDITED_WITH_THE_ORG = {
 
 /**
  * That a pipeline writes to the org only through a saved Sync, approved first
- * where Production Guard asks, as each language says it.
+ * where Production Guard asks, as each language says it. Owed only by a
+ * description that brings pipelines up: one that never names them promises
+ * nothing about them.
  */
 const ONLY_SYNC_WRITES_TO_THE_ORG = {
   en: /a pipeline writes to your org only through a saved Sync, approved first/i,
@@ -156,6 +158,16 @@ const ONLY_SYNC_WRITES_TO_THE_ORG = {
   es: /un pipeline solo escribe en tu org mediante un Sync guardado, aprobado antes/i,
   ja: /パイプラインが組織に書き込むのは保存済みの Sync を通じてのみ[^。]*承認/,
   'pt-br': /um pipeline só grava na sua org por meio de um Sync salvo, aprovado antes/i,
+};
+
+/** How each language names a pipeline. */
+const NAMES_A_PIPELINE = {
+  en: /pipeline/i,
+  fr: /pipeline/i,
+  de: /pipeline/i,
+  es: /pipeline/i,
+  ja: /パイプライン/,
+  'pt-br': /pipeline/i,
 };
 
 test('anchor: the delay and condition steps are handed nothing that reaches an org', () => {
@@ -178,13 +190,14 @@ test('anchor: the delay and condition steps are handed nothing that reaches an o
   }
 });
 
-test('the Marketplace description says a pipeline writes only through an approved Sync, in six languages', () => {
+test('a Marketplace description that names pipelines says they write only through an approved Sync, in six languages', () => {
   const offenders = [];
   for (const [locale, text] of Object.entries(resolveNls(manifest().description))) {
     assert.ok(STEPS_CREDITED_WITH_THE_ORG[locale], `${locale}: no rule written for this locale`);
+    assert.ok(NAMES_A_PIPELINE[locale], `${locale}: no pipeline word written for this locale`);
     const hit = STEPS_CREDITED_WITH_THE_ORG[locale].exec(text);
     if (hit) offenders.push(`${locale}: "${hit[0]}"`);
-    if (!ONLY_SYNC_WRITES_TO_THE_ORG[locale].test(text)) {
+    if (NAMES_A_PIPELINE[locale].test(text) && !ONLY_SYNC_WRITES_TO_THE_ORG[locale].test(text)) {
       offenders.push(
         `${locale}: does not say that a pipeline writes to the org only through an approved Sync`,
       );
@@ -197,6 +210,22 @@ test('the Marketplace description says a pipeline writes only through an approve
       'Sync; delay waits and condition reads variables:\n  ' +
       offenders.join('\n  '),
   );
+});
+
+/**
+ * The Marketplace keeps the first 300 characters of the description. At
+ * 1.52.0 the English one ran to 440: the listing page, its meta description
+ * and the preview of a shared link all stopped at "…on a schedule or when a
+ * sandbo", and the five translations ran longer still (French: 532). What the
+ * listing says has to fit in what it keeps, in every language.
+ */
+const LISTING_KEEPS = 300;
+
+test('the Marketplace description fits in the 300 characters the listing keeps, in six languages', () => {
+  const cut = Object.entries(resolveNls(manifest().description))
+    .filter(([, text]) => text.length > LISTING_KEEPS)
+    .map(([locale, text]) => `${locale}: ${text.length} characters`);
+  assert.deepEqual(cut, [], `the listing would cut these mid-word:\n  ${cut.join('\n  ')}`);
 });
 
 // ── ID remapping, sold without its one exception ──────────────────────────
@@ -678,20 +707,25 @@ test('the CSV claim says optional, never absent', () => {
 });
 
 test('the SFDMU FAQ answer keeps the search term and answers the question', () => {
-  const faq = read('packages', 'extension', 'README.md')
-    .split('\n')
-    .find((line) => /SFDMU replacement/.test(line));
-  assert.ok(faq, 'the "SFDMU replacement" phrasing is what the searcher scans for — keep it');
-  assert.match(
-    faq,
-    /\byes\b/i,
-    'the answer described the Migration module instead of answering; take a position',
-  );
-  assert.match(
-    faq,
-    /SFDMU keeps the edge|SFDMU (?:still )?(?:wins|is better)/i,
-    'an answer that claims everything answers nothing — name what SFDMU still does better',
-  );
+  for (const relPath of READMES) {
+    const faq = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => /SFDMU replacement/.test(line));
+    assert.ok(
+      faq,
+      `${relPath}: the "SFDMU replacement" phrasing is what the searcher scans for — keep it`,
+    );
+    assert.match(
+      faq,
+      /\byes\b/i,
+      `${relPath}: the answer described the Migration module instead of answering; take a position`,
+    );
+    assert.match(
+      faq,
+      /SFDMU keeps the edge|SFDMU (?:still )?(?:wins|is better)/i,
+      `${relPath}: an answer that claims everything answers nothing — name what SFDMU still does better`,
+    );
+  }
 });
 
 // ── Restore shipped, the docs did not notice ──────────────────────────────
@@ -980,4 +1014,116 @@ test('anchor: what the first steps say of Forge is what its code does', () => {
     /platform events published immediately and callouts already made/,
     'step 5 no longer names what a rollback leaves, which the confirmation does',
   );
+});
+
+// ── what the two READMEs disagreed on, settled against the code ───────────
+
+/**
+ * The GitHub README and the Marketplace README were kept by hand and drifted:
+ * the first step of the quick start sent one reader to a tree view removed in
+ * v1.9.0, the Migration row undersold what it imports, and the listing alone
+ * said startup refreshes expired sessions while its FAQ answered "No" to
+ * "Does my data leave my machine?". The Marketplace README is generated from
+ * the root one now; these hold what both say to the code that makes it true.
+ */
+test('anchor: the first step names the controls the launcher and the Organizations page show', () => {
+  const en = readJson('packages', 'webview', 'src', 'i18n', 'locales', 'en.json');
+  const panel = read('packages', 'webview', 'src', 'SidePanel.tsx');
+  assert.match(
+    panel,
+    /navigate\('orgs'\);\s*\}\}\s*data-testid="sidepanel-org-new"/,
+    "the org dropdown's last entry no longer opens the Organizations page — re-read step 1",
+  );
+  assert.match(panel, /t\('sidePanel\.newOrg'/, 'the entry no longer shows sidePanel.newOrg');
+  const page = read('packages', 'webview', 'src', 'pages', 'OrgManager', 'OrgManagerPage.tsx');
+  assert.match(
+    page,
+    /method: 'sfdx_import',[\s\S]{0,80}?labelKey: 'auth\.sfdxImport'/,
+    'the Organizations page no longer offers the SF CLI import under auth.sfdxImport',
+  );
+  for (const relPath of READMES) {
+    const step = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => line.startsWith('1. **Connect your orgs**'));
+    assert.ok(step, `${relPath}: the quick start no longer opens with "Connect your orgs"`);
+    for (const label of [en.sidePanel.newOrg, en.auth.sfdxImport]) {
+      assert.ok(
+        step.includes(`**${label}**`),
+        `${relPath}: step 1 does not name "${label}" as the UI shows it`,
+      );
+    }
+  }
+});
+
+test('anchor: Migration imports CSV and JSON files, as both READMEs say', () => {
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'MigrationHandler.ts');
+  assert.match(
+    handler,
+    /UNIVERSAL_IMPORT_EXTENSIONS = new Set\(\['\.json', '\.csv'\]\)/,
+    'the universal import takes other files now — re-read the Migration rows',
+  );
+  for (const relPath of READMES) {
+    const row = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => line.startsWith('| **Migration**'));
+    assert.ok(row, `${relPath}: the Migration row is gone`);
+    assert.match(
+      row,
+      /CSV\/JSON files/,
+      `${relPath}: the Migration row does not say CSV/JSON files`,
+    );
+  }
+});
+
+test('anchor: startup refreshes expired org sessions through the sf CLI, as both READMEs say', () => {
+  assert.match(
+    read(...EXT, 'src', 'extension.ts'),
+    /if \(services\.getSandforgeSetting\('orgs\.validateOnStartup', true\)\) \{\s*void validateOrgsOnStartup\(/,
+    'activation no longer validates the registered orgs — the Organizations rows promise it',
+  );
+  assert.match(
+    read(...EXT, 'src', 'core', 'connection', 'startupValidation.ts'),
+    /getJsforceConnection\(org\.id, orgRegistry, orgManager\)/,
+    'the startup sweep no longer goes through the connection path that refreshes a token',
+  );
+  const helper = read(...EXT, 'src', 'core', 'connection', 'ConnectionHelper.ts');
+  assert.match(helper, /await refreshTokenViaCli\(org\.username\)/, 'no refresh through the CLI');
+  assert.match(helper, /sf org auth show-access-token/, 'the refresh no longer asks the CLI');
+  for (const relPath of READMES) {
+    const row = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => line.startsWith('| **Organizations**'));
+    assert.ok(row, `${relPath}: the Organizations row is gone`);
+    assert.match(
+      row,
+      /at startup, expired sessions are refreshed through the sf CLI/,
+      `${relPath}: the Organizations row no longer says what startup does`,
+    );
+  }
+});
+
+test('both READMEs answer "does my data leave my machine?" with what the AI Assistant sends', () => {
+  // "No" was the answer while a failed run's error message went to the model
+  // as soon as AI was on; the answer has to name that and the switch.
+  for (const relPath of READMES) {
+    const answer = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => /Does my data leave my machine\?/.test(line));
+    assert.ok(answer, `${relPath}: the privacy question is gone from the FAQ`);
+    assert.doesNotMatch(
+      answer,
+      /\?\*\*\s*No\b/,
+      `${relPath}: "No" — once AI is on, a failed run's error message goes to Anthropic`,
+    );
+    assert.match(answer, /Anthropic/, `${relPath}: the answer does not say where data goes`);
+    assert.match(
+      answer,
+      /failed run's error message/,
+      `${relPath}: the answer leaves out what is sent with nobody asking`,
+    );
+    assert.ok(
+      answer.includes('sandforge.ai.errorResolution'),
+      `${relPath}: the answer does not name the setting that stops the sending`,
+    );
+  }
 });

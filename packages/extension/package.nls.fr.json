@@ -1,6 +1,6 @@
 {
-  "displayName": "SandForge : Forgez vos Sandboxes Salesforce",
-  "description": "Toolkit Salesforce tout-en-un. Génération de données par IA avec personas, import CSV ou clonage entre orgs — import SFDMU export.json inclus. Sync entre orgs avec résolution de conflits. Comparaison de métadonnées, suivi des limites et pipelines qui sauvegardent, comparent et vérifient des orgs, lancés à la main, selon une planification ou au rafraîchissement d'une sandbox, tant que VS Code est ouvert — un pipeline n'écrit dans votre org que par un Sync enregistré, approuvé d'abord là où Production Guard demande confirmation.",
+  "displayName": "SandForge : des données réalistes pour vos sandboxes Salesforce",
+  "description": "Des données réalistes pour vos sandboxes Salesforce : clonez un enregistrement et son graphe de relations d'une org à l'autre, générez des données synthétiques, anonymisez et rejouez des jeux de données, avec des garde-fous de production actifs par défaut.",
   "capabilities.untrustedWorkspaces.description": "SandForge lit des identifiants Salesforce et écrit des enregistrements dans vos orgs, à partir de la configuration du dossier ouvert. Approuvez le dossier pour l'activer.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",
