@@ -5,6 +5,35 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.53.0] - 2026-10-14
+
+A resumed Forge run picks up exactly where it stopped, and the canary covers Sync.
+
+### Added
+
+- The Sync command line runs a saved config, delta and files included, and a
+  removal it runs tells the config what went.
+- The canary syncs its own records in full, then in delta, then removes the run.
+
+### Changed
+
+- Removal and the Id map export read a Forge run's journal page by page, and
+  its removal stamps stay beside the journal.
+- The Forge graph line counts included, empty, not counted and left-out
+  objects the same way in a dry run and a real one.
+- A removal confirmation counts files as files.
+
+### Fixed
+
+- A resumed Forge run copies the files left to copy, and links rather than
+  copies again a file the stopped part copied.
+- A Forge resume no longer gives back a status twice nor resends a lookup the
+  stopped part filled.
+- A Forge resume is no longer refused because an empty table of the graph
+  changed meanwhile.
+- A Forge retry counts what the run it retries wrote through the object's
+  filter.
+
 ## [1.52.1] - 2026-10-14
 
 ### Changed

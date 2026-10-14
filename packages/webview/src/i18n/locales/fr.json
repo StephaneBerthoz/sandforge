@@ -2298,6 +2298,8 @@
       "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Répéter interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
       "results1430": "Agir depuis les résultats",
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
+      "exactResume1530": "Reprendre exactement là où le run s'est arrêté",
+      "exactResume1530Desc": "Un run Forge repris copie désormais les fichiers restants, ne rend jamais un statut deux fois et n'est plus refusé quand une table vide a changé entre-temps. La suppression d'un gros run lit son journal page par page.",
       "undoSync1520": "Défaire ce qu'un run Sync a créé",
       "undoSync1520Desc": "Un run Sync peut maintenant être supprimé depuis son historique ou ses résultats : les enregistrements et fichiers qu'il a créés partent, fichiers d'abord, et les enregistrements modifiés depuis restent sauf si vous les incluez. Les runs Forge de toute taille restent supprimables, leurs ids gardés dans le journal du run.",
       "resumeRun1510": "Reprendre un run Forge arrêté",
