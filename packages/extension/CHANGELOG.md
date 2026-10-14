@@ -5,6 +5,27 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.52.1] - 2026-10-14
+
+### Changed
+
+- **Marketplace listing**: its name and description say what SandForge is for,
+  realistic data for Salesforce sandboxes, and fit in what the listing shows,
+  in six languages.
+- **README**: one text for GitHub and the Marketplace, a short line per
+  module with a link to its guide, an animated tour of a Forge clone, and a
+  guide for the AI Assistant.
+
+### Fixed
+
+- **Forge and Autopilot graphs**: the minimap shows the objects, coloured as
+  the legend says, and it and the zoom controls follow the VS Code theme.
+
+### Security
+
+- **AI replies**: a reply that opens a code fence and never closes it is read
+  at once; it could hold the extension for seconds.
+
 ## [1.52.0] - 2026-10-14
 
 What a run writes can be taken back, however large the run.
