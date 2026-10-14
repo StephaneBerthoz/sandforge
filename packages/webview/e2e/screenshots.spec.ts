@@ -5,6 +5,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 
 import { MockBridge } from './helpers';
+import { encodeGif, type GifFrame } from './helpers/gifEncoder';
+import { readPng } from './helpers/readPng';
 import { MOCK_ORGS } from './fixtures';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
@@ -15,7 +17,8 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  *
  *   SCREENSHOTS=1 npx playwright test screenshots.spec.ts
  *
- * Output lands in assets/screenshots/ at the repo root, and
+ * Output lands in assets/screenshots/ at the repo root — the stills, and
+ * `forge-flow.gif`, the animation the listing opens on — and
  * `scripts/check-screenshots.mjs` fails the release if what ships no longer
  * matches what this file produces.
  *
@@ -208,6 +211,12 @@ async function respondToAll(
  * module panel: it fills the sidebar's height whatever it holds, so what it
  * holds is measured, by where its last block ends. The width is whatever the
  * test set.
+ *
+ * Every shot starts at the top of its panel. Playwright scrolls each control
+ * into view to click it, and a panel taller than its shot kept that scroll:
+ * Sync, once its delta and file options grew the page past its ceiling, came
+ * out without its title, scrolled to the object rows its last click added.
+ * A panel that outgrows its ceiling now loses its foot, not its head.
  */
 async function shoot(
   page: import('@playwright/test').Page,
@@ -233,6 +242,7 @@ async function shoot(
     await page.setViewportSize({ width, height: Math.max(Math.min(height, maxHeight), 360) });
     await settle(page);
   }
+  await page.evaluate(() => document.querySelector('[data-testid="panel-app"]')?.scrollTo(0, 0));
 
   // `animations: 'disabled'` cancels infinite CSS animations back to their
   // first frame instead of catching whichever frame the capture landed on.
@@ -242,6 +252,11 @@ async function shoot(
   // consecutive monitor runs produced four different files, differing in
   // exactly the ten-by-ten pixels of that dot and nowhere else.
   await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png`, animations: 'disabled' });
+  stampGenerator();
+}
+
+/** Record that this version of the generator produced what is on disk. */
+function stampGenerator(): void {
   writeFileSync(STAMP_FILE, `${generatorFingerprint()}\n`);
 }
 
@@ -812,6 +827,48 @@ async function finishEveryObject(
   }
 }
 
+/**
+ * Run Review's Execute up to its execution screen: the run's request id,
+ * which its progress and its answer are correlated to.
+ */
+async function startRun(
+  page: import('@playwright/test').Page,
+  bridge: MockBridge,
+): Promise<string> {
+  await page.getByTestId('execute-button').click();
+  await page.waitForSelector('[data-testid="forge-execution"]');
+  // The simulation was the first `forge:execute`; the run is the second.
+  await waitForRequests(page, 'forge:execute', 2);
+  return String(((await bridge.getMessages('forge:execute')).at(-1) ?? {}).id);
+}
+
+/** Have the extension say the run is half way: the account written, its contacts going in. */
+async function runHalfWay(page: import('@playwright/test').Page, run: string): Promise<void> {
+  for (const [objectName, status, progress] of [
+    ['Account', 'done', 100],
+    ['Contact', 'running', 60],
+  ] as const) {
+    await sendExtensionMessage(page, {
+      type: 'forge:progress',
+      id: `progress-${objectName}-${progress}`,
+      correlationId: run,
+      payload: { objectName, status, progress },
+    });
+  }
+}
+
+/** Finish the run `startRun` began, and wait for its results down to the removal they offer. */
+async function finishRun(page: import('@playwright/test').Page, run: string): Promise<void> {
+  await finishEveryObject(page, run);
+  await sendExtensionMessage(page, {
+    type: 'forge:execute:response',
+    id: 'resp-run',
+    correlationId: run,
+    payload: { result: MOCK_FORGE_RUN, operationId: 'forge-execute-1' },
+  });
+  await page.waitForSelector('[data-testid="forge-results-remove"]');
+}
+
 /** Run Review's Simulate up to its results. */
 async function simulateFromReview(
   page: import('@playwright/test').Page,
@@ -828,6 +885,110 @@ async function simulateFromReview(
     payload: { result: MOCK_FORGE_SIMULATION, operationId: 'forge-simulation-1' },
   });
   await page.waitForSelector('[data-testid="forge-results-simulation"]');
+}
+
+/** Enter a record id on Forge's Record tab, and answer its preview with the account. */
+async function previewRecord(
+  page: import('@playwright/test').Page,
+  bridge: MockBridge,
+  recordId: string,
+): Promise<void> {
+  await page.getByTestId('forge-input-record').fill(recordId);
+  await page.getByTestId('forge-preview-btn').click();
+  // Typing into the input invalidates the in-flight preview and schedules a
+  // debounced one; answer after that fires, or the response reads as stale.
+  await bridge.waitForMessage('forge:preview', { timeout: 10_000 });
+  await page.waitForTimeout(1200);
+  await respondToAll(page, 'forge:preview', 'forge:preview:response', {
+    objectApiName: 'Account',
+    objectLabel: 'Account',
+    recordId,
+    fields: [
+      { name: 'Name', value: 'Acme Corporation' },
+      { name: 'Industry', value: 'Technology' },
+      { name: 'Type', value: 'Enterprise' },
+      { name: 'Website', value: 'https://acme.com' },
+      { name: 'Phone', value: '+1 (555) 123-4567' },
+    ],
+    // Without these three the Estimated Graph card renders two numbers and
+    // two dashes — half an empty card, on the flagship module's screenshot.
+    // They must agree with each other: the product derives size from the
+    // record count with `estimatedRecordCount * 0.001` (ForgeHandler's
+    // preview), so any pair that does not satisfy it shows the user an
+    // arithmetic the product would never produce.
+    estimatedRecordCount: 500,
+    totalFieldCount: 68,
+    estimatedSize: 0.5,
+  });
+  await page.waitForSelector('[data-testid="forge-record-preview"]');
+}
+
+/** Decide the simulation's three gaps on Review's Gaps tab, as a user would before the run. */
+async function decideSimulationGaps(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByTestId('tab-gaps').click();
+  await page.waitForSelector('[data-testid="gaps-severity-blocking"]');
+  await page
+    .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[0].id}`)
+    .getByTestId('gap-map-value')
+    .selectOption('Customer');
+  const region = page.getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[1].id}`);
+  await region.getByTestId('gap-default-value').fill('EMEA');
+  await region.getByTestId('gap-set-default').click();
+  await page
+    .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[2].id}`)
+    .getByTestId('gap-truncate')
+    .click();
+}
+
+/** Drop the focus the last click left, which a still would show as a ring. */
+async function blurFocus(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+}
+
+/**
+ * The animation the listing opens on, and how long each of its screens stays.
+ *
+ * It replaces a hand-made one that went on showing a navigation sidebar for
+ * months after the sidebar was gone. Drawn here, from the same mocked bridge
+ * and fixtures as the stills, it is redrawn whenever they are, and the
+ * staleness check that covers them covers it.
+ *
+ * A user reads a screen they have never seen in about two seconds, a little
+ * more for the first, which says what the animation is about, and for the
+ * last, before it starts over. Every frame is one viewport of the same size:
+ * a GIF has one screen size for all its frames, and a frame scaled to fit
+ * would blur the text it exists to show.
+ */
+const FLOW_FIRST_MS = 3500;
+const FLOW_FRAME_MS = 2300;
+const FLOW_LAST_MS = 4500;
+
+/**
+ * A screenshot of the viewport, as a frame of the animation: the screen from
+ * its top, as a user arriving on it sees it, or from the element `top` names.
+ *
+ * Playwright scrolls each control into view to click it, and the panel keeps
+ * that scroll from one screen to the next: the results of a run started from
+ * the foot of Review opened scrolled past their title.
+ */
+async function flowFrame(
+  page: import('@playwright/test').Page,
+  delayMs: number,
+  top?: string,
+): Promise<GifFrame> {
+  await page.evaluate((testId) => {
+    const panel = document.querySelector('[data-testid="panel-app"]');
+    const target = testId ? document.querySelector(`[data-testid="${testId}"]`) : null;
+    panel?.scrollTo(0, 0);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      // A margin above it, as the panel's own padding gives the top of a screen.
+      panel?.scrollBy(0, -16);
+    }
+  }, top ?? null);
+  await settle(page);
+  const png = await page.screenshot({ animations: 'disabled' });
+  return { ...readPng(png), delayMs };
 }
 
 test.describe('Marketplace Screenshots', () => {
@@ -859,35 +1020,7 @@ test.describe('Marketplace Screenshots', () => {
     await page.getByTestId('forge-target-org').click();
     await page.getByTestId('forge-target-org-option-org-tgt-1').click();
 
-    await page.getByTestId('forge-input-record').fill('001000000000001AAA');
-    await page.getByTestId('forge-preview-btn').click();
-    // Typing into the input invalidates the in-flight preview and schedules a
-    // debounced one; answer after that fires, or the response reads as stale.
-    await bridge.waitForMessage('forge:preview', { timeout: 10_000 });
-    await page.waitForTimeout(1200);
-    await respondToAll(page, 'forge:preview', 'forge:preview:response', {
-      objectApiName: 'Account',
-      objectLabel: 'Account',
-      recordId: '001000000000001AAA',
-      fields: [
-        { name: 'Name', value: 'Acme Corporation' },
-        { name: 'Industry', value: 'Technology' },
-        { name: 'Type', value: 'Enterprise' },
-        { name: 'Website', value: 'https://acme.com' },
-        { name: 'Phone', value: '+1 (555) 123-4567' },
-      ],
-      // Without these three the Estimated Graph card renders two numbers and
-      // two dashes — half an empty card, on the flagship module's screenshot.
-      // They must agree with each other: the product derives size from the
-      // record count with `estimatedRecordCount * 0.001` (ForgeHandler.ts:465),
-      // so any pair that does not satisfy it shows the user an arithmetic the
-      // product would never produce.
-      estimatedRecordCount: 500,
-      totalFieldCount: 68,
-      estimatedSize: 0.5,
-    });
-
-    await page.waitForSelector('[data-testid="forge-record-preview"]');
+    await previewRecord(page, bridge, '001000000000001AAA');
     await settle(page);
     await shoot(page, 'forge');
   });
@@ -981,7 +1114,9 @@ test.describe('Marketplace Screenshots', () => {
 
     await page.waitForSelector('[data-testid="object-entry-Opportunity"]');
     await settle(page);
-    await shoot(page, 'sync');
+    // The object rows sit below the delta and file options: at the design
+    // viewport's 800 pixels the picture lost the rows it was set up to show.
+    await shoot(page, 'sync', { maxHeight: 1200 });
   });
 
   test('dataops', async ({ page }) => {
@@ -1046,7 +1181,8 @@ test.describe('Marketplace Screenshots', () => {
     const bridge = await openForgeReview(page);
     await simulateFromReview(page, bridge);
     await settle(page);
-    await shoot(page, 'forge-simulation');
+    // Its last row of actions ends a little past 800 pixels.
+    await shoot(page, 'forge-simulation', { maxHeight: 900 });
   });
 
   test('forge-review', async ({ page }) => {
@@ -1076,7 +1212,10 @@ test.describe('Marketplace Screenshots', () => {
     // The last click leaves its button focused, ringed in the shot.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await settle(page);
-    await shoot(page, 'forge-review', { maxHeight: 1400 });
+    // The tabs take a second row since Controls joined them, and the graph
+    // search keeps lines for what it finds: at 1400 pixels Rehearse, Simulate
+    // and Execute fell off the foot again.
+    await shoot(page, 'forge-review', { maxHeight: 1600 });
   });
 
   test('forge-results', async ({ page }) => {
@@ -1087,34 +1226,87 @@ test.describe('Marketplace Screenshots', () => {
     await answerReviewReads(page, 2);
 
     // Every gap that refuses rows decided, then the run for real.
-    await page.getByTestId('tab-gaps').click();
-    await page
-      .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[0].id}`)
-      .getByTestId('gap-map-value')
-      .selectOption('Customer');
-    const region = page.getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[1].id}`);
-    await region.getByTestId('gap-default-value').fill('EMEA');
-    await region.getByTestId('gap-set-default').click();
-    await page
-      .getByTestId(`gap-${MOCK_FORGE_SIMULATION_GAPS[2].id}`)
-      .getByTestId('gap-truncate')
-      .click();
-
-    // The simulation was the first `forge:execute`; the run is the second.
-    await page.getByTestId('execute-button').click();
-    await page.waitForSelector('[data-testid="forge-execution"]');
-    await waitForRequests(page, 'forge:execute', 2);
-    const run = (await bridge.getMessages('forge:execute')).at(-1) as Record<string, unknown>;
-    await finishEveryObject(page, String(run.id));
-    await sendExtensionMessage(page, {
-      type: 'forge:execute:response',
-      id: 'resp-run',
-      correlationId: String(run.id),
-      payload: { result: MOCK_FORGE_RUN, operationId: 'forge-execute-1' },
-    });
-
-    await page.waitForSelector('[data-testid="forge-results-remove"]');
+    await decideSimulationGaps(page);
+    const run = await startRun(page, bridge);
+    await finishRun(page, run);
     await settle(page);
     await shoot(page, 'forge-results', { maxHeight: 1200 });
+  });
+
+  test('forge-flow', async ({ page }) => {
+    // Eight screens, each given time to settle, run past the default timeout.
+    test.setTimeout(180_000);
+    const frames: GifFrame[] = [];
+
+    // A record id pasted on the Record tab, the target picked, personal data
+    // anonymized, and the record's preview beside them.
+    const bridge = await openModule(page, 'forge');
+    await page.waitForSelector('[data-testid="forge-page"]');
+    await page.getByTestId('forge-target-org').click();
+    await page.getByTestId('forge-target-org-option-org-tgt-1').click();
+    await page.getByTestId('forge-anonymize-toggle').check({ force: true });
+    // The account whose clone the run's results map, by the id they give it.
+    await previewRecord(page, bridge, fakeForgeId('001', 1, true));
+    await blurFocus(page);
+    frames.push(await flowFrame(page, FLOW_FIRST_MS));
+
+    // The graph discovery finds from it, the account's detail open.
+    await page.getByTestId('forge-discover-btn').click();
+    await page.waitForSelector('[data-testid="forge-discovery-loading"]');
+    await respondToAll(page, 'forge:discover', 'forge:discover:response', {
+      graph: MOCK_FORGE_GRAPH,
+    });
+    await page
+      .getByTestId('progress-node-select')
+      .filter({ hasText: /^Account$/ })
+      .click();
+    await blurFocus(page);
+    frames.push(await flowFrame(page, FLOW_FRAME_MS));
+
+    // Review: what the target org runs as the records go in.
+    await page.getByTestId('forge-execute-btn').click();
+    await page.waitForSelector('[data-testid="forge-review"]');
+    await answerReviewReads(page, 1);
+    await page.getByTestId('tab-automation').click();
+    await blurFocus(page);
+    frames.push(await flowFrame(page, FLOW_FRAME_MS));
+
+    // A simulation: nothing written, three gaps found.
+    await simulateFromReview(page, bridge);
+    frames.push(await flowFrame(page, FLOW_FRAME_MS));
+
+    // Back on Review, every gap that refuses rows decided: the tabs at the
+    // top, for the decisions to fill the screen below them.
+    await page.getByTestId('forge-results-simulation-review').click();
+    await page.waitForSelector('[data-testid="forge-review"]');
+    await answerReviewReads(page, 2);
+    await decideSimulationGaps(page);
+    await blurFocus(page);
+    frames.push(await flowFrame(page, FLOW_FRAME_MS, 'review-tabs'));
+
+    // The run for real, half way.
+    const run = await startRun(page, bridge);
+    await runHalfWay(page, run);
+    frames.push(await flowFrame(page, FLOW_FRAME_MS));
+
+    // Its results.
+    await finishRun(page, run);
+    frames.push(await flowFrame(page, FLOW_FRAME_MS));
+
+    // And the way back: what removing the run would take out of the target,
+    // with what the target runs as the records go, read as it opens.
+    await page.getByTestId('forge-results-remove').click();
+    await page.waitForSelector('[data-testid="forge-removal-plan"]');
+    await waitForRequests(page, 'forge:undo-automation:request', 1);
+    await respondToAll(page, 'forge:undo-automation:request', 'forge:undo-automation:response', {
+      forgeId: MOCK_FORGE_RUN.forgeId,
+      automation: MOCK_FORGE_AUTOMATION,
+      drafted: [],
+    });
+    await page.waitForSelector('[data-testid="forge-removal-automation-none"]');
+    frames.push(await flowFrame(page, FLOW_LAST_MS));
+
+    writeFileSync(path.resolve(SCREENSHOT_DIR, 'forge-flow.gif'), encodeGif(frames));
+    stampGenerator();
   });
 });

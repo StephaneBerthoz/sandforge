@@ -13,6 +13,8 @@
 
 **Forge your Salesforce sandboxes.** SandForge populates your developer sandbox with realistic data: cloned from a real record or generated synthetically, with production guardrails. One WebView UI, no Command Palette required.
 
+![A Forge clone from start to finish: a record Id, its relationship graph, the automation the target runs, a simulation, the gaps decided, the run, its results, and the removal of what it created](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge-flow.gif)
+
 ---
 
 ## Why switch from SFDMU or Data Loader?
