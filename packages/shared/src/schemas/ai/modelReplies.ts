@@ -11,8 +11,14 @@ import { z } from 'zod';
  * in are the ones the readers applied field by field.
  */
 
-/** The first fenced block of a reply, with or without a `json` tag. */
-const FENCED_BLOCK = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/;
+/**
+ * The first fenced block of a reply, with or without a `json` tag. The
+ * whitespace around the content is trimmed after the match, not inside it:
+ * `\s*` on both sides of a lazy body backtracks polynomially, and a reply that
+ * opened a fence and sent 5,000 spaces without closing it held the extension
+ * host for 23 seconds.
+ */
+const FENCED_BLOCK = /```(?:json)?([\s\S]*?)```/;
 
 /**
  * Parse a model reply as JSON and read it with `schema`.

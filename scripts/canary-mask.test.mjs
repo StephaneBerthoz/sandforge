@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { maskIds } from './canary-mask.mjs';
+import { maskIds, tableCell } from './canary-mask.mjs';
 
 test('masks an 18-character record id in an org error message', () => {
   assert.equal(
@@ -21,4 +21,12 @@ test('leaves counts, words and API names as they are', () => {
 
 test('leaves a fifteen-letter word with no digit alone', () => {
   assert.equal(maskIds('Representatives'), 'Representatives');
+});
+
+test('keeps a detail holding a backslash before a pipe inside its table cell', () => {
+  assert.equal(tableCell('C:\\work\\|x'), 'C:\\\\work\\\\\\|x');
+});
+
+test('keeps a detail spread over several lines on its table row', () => {
+  assert.equal(tableCell('first line\nsecond | line'), 'first line second \\| line');
 });

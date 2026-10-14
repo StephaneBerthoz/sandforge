@@ -32,6 +32,20 @@ describe('parseModelJson', () => {
   it('throws when the JSON does not have the expected shape', () => {
     expect(() => parseModelJson(NL2SOQLReplySchema, '[1, 2]')).toThrow(/expected format/);
   });
+
+  it('reads a fence whose content sits between blank lines and indentation', () => {
+    const reply = '```json\n\n   {"soql": "SELECT Id FROM Lead"}   \n\n```';
+
+    expect(parseModelJson(NL2SOQLReplySchema, reply).soql).toBe('SELECT Id FROM Lead');
+  });
+
+  it('answers at once when a reply opens a fence and never closes it', () => {
+    const reply = '```' + ' '.repeat(3000) + 'x';
+
+    const started = performance.now();
+    expect(() => parseModelJson(NL2SOQLReplySchema, reply)).toThrow(/not valid JSON/);
+    expect(performance.now() - started).toBeLessThan(250);
+  });
 });
 
 describe('PipelineDraftReplySchema', () => {

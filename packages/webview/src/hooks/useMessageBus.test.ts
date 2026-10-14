@@ -163,4 +163,28 @@ describe('useMessageListener', () => {
     expect(firstHandler).not.toHaveBeenCalled();
     expect(secondHandler).toHaveBeenCalledOnce();
   });
+
+  it('logs a throwing handler with its error intact, whatever the message type holds', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failure = new Error('handler failed');
+    renderHook(() =>
+      useMessageListener('weird:%o:type', () => {
+        throw failure;
+      }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { id: 'msg-3', type: 'weird:%o:type', timestamp: Date.now() },
+        }),
+      );
+    });
+
+    expect(consoleSpy).toHaveBeenCalledOnce();
+    const [format, ...args] = consoleSpy.mock.calls[0] ?? [];
+    expect(format).not.toContain('weird:%o:type');
+    expect(args).toEqual(['weird:%o:type', failure]);
+    consoleSpy.mockRestore();
+  });
 });

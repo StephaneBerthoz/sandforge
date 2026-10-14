@@ -24,7 +24,7 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { maskIds } from './canary-mask.mjs';
+import { maskIds, tableCell } from './canary-mask.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = 'SANDFORGE-SOURCE';
@@ -451,9 +451,7 @@ const report = [
   '',
   '| Step | Verdict | Detail |',
   '| --- | --- | --- |',
-  ...steps.map(
-    (s) => `| ${s.name} | ${s.ok ? 'pass' : '**fail**'} | ${s.detail.replace(/\|/g, '\\|')} |`,
-  ),
+  ...steps.map((s) => `| ${s.name} | ${s.ok ? 'pass' : '**fail**'} | ${tableCell(s.detail)} |`),
   '',
 ].join('\n');
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);

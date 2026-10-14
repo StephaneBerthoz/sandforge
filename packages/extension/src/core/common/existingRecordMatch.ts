@@ -200,7 +200,8 @@ const BULK_ERROR_RE = /^([A-Z][A-Z0-9_]*):([\s\S]*):([A-Za-z0-9_]+(?: [A-Za-z0-9
  */
 export function bulkSaveErrorDetail(sfError: string): SaveErrorDetail | undefined {
   const text = sfError.trim();
-  if (text.indexOf('--') !== text.length - 2) return undefined;
+  // One error ends at its closing dashes, and no other pair comes before them.
+  if (!text.endsWith('--') || text.slice(0, -2).includes('--')) return undefined;
   const match = BULK_ERROR_RE.exec(text);
   if (!match) return undefined;
   return {

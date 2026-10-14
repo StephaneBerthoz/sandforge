@@ -73,8 +73,10 @@ function dispatchMessage(event: MessageEvent): void {
     try {
       handler(data);
     } catch (error) {
+      // The type goes in as an argument, not into the format string: a type
+      // holding `%o` would otherwise take the error's place in the log.
       // eslint-disable-next-line no-console
-      console.error(`[useMessageBus] handler for '${data.type}' threw`, error);
+      console.error("[useMessageBus] handler for '%s' threw", data.type, error);
     }
   }
 }
