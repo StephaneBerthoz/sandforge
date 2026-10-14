@@ -20,5 +20,28 @@
   "dataops backup": {
     "held": 1200,
     "orgCount": 1200
+  },
+  "sync simulation": {
+    "insert": 4,
+    "update": 0,
+    "files": 2
+  },
+  "sync first run": {
+    "written": 4,
+    "failed": 0,
+    "files": 2,
+    "created": 6
+  },
+  "sync delta run": {
+    "read": "delta",
+    "changed": 2,
+    "written": 2,
+    "created": 0,
+    "files": 0
+  },
+  "sync remove": {
+    "firstStatus": "partial",
+    "keptChanged": 2,
+    "left": 0
   }
 }

@@ -190,6 +190,36 @@ describe('SyncConfigStore', () => {
     });
   });
 
+  describe('where a run keeps its watermarks and copied files', () => {
+    it('keeps them beside a saved configuration, read back by the next run', () => {
+      store.save(createSyncConfig());
+      const delta = store.deltaStore();
+      const files = store.fileStore();
+
+      delta.record('cfg-1', watermark());
+      files.record('cfg-1', copiedFile());
+
+      expect(store.isSaved('cfg-1')).toBe(true);
+      expect(delta.load('cfg-1')).toEqual({
+        kind: 'stored',
+        state: { version: 1, entries: [watermark()] },
+      });
+      expect(files.load('cfg-1')).toEqual({
+        kind: 'stored',
+        map: { version: 1, entries: [copiedFile()] },
+      });
+    });
+
+    it('has nothing for a configuration that is not saved: no run of it is made again', () => {
+      store.recordWatermark('cfg-1', watermark());
+      store.recordFile('cfg-1', copiedFile());
+
+      expect(store.isSaved('cfg-1')).toBe(false);
+      expect(store.deltaStore().load('cfg-1')).toBeNull();
+      expect(store.fileStore().load('cfg-1')).toBeNull();
+    });
+  });
+
   describe('the files a configuration copied', () => {
     it('keeps each file once per source file and pair of orgs, the last copy winning', () => {
       store.recordFile('cfg-1', copiedFile());

@@ -20,6 +20,7 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 import { makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import {
+  configurationToldLines,
   main,
   memoryCreations,
   parseRemoveArgs,
@@ -27,6 +28,7 @@ import {
   removalRefusal,
   removalsPathOf,
   runOfSummary,
+  savedConfigStore,
 } from './sandforge-sync.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
@@ -90,6 +92,15 @@ describe('parseRemoveArgs', () => {
         argv('--remove', 'run.json', '--target', 'TGT', '--include-changed', '--json'),
       ),
     ).toEqual({ summaryPath: 'run.json', target: 'TGT', includeChanged: true, json: true });
+    expect(
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--store', 'state')),
+    ).toEqual({
+      summaryPath: 'run.json',
+      target: 'TGT',
+      includeChanged: false,
+      json: false,
+      store: 'state',
+    });
   });
 
   it('refuses a flag a removal does not read, and a line without its target', () => {
@@ -164,6 +175,18 @@ describe('what the command takes back, and from where', () => {
         'Enterprise Edition): sandforge-sync removes records from sandboxes and Developer ' +
         'Edition orgs only. Nothing was deleted.',
     );
+  });
+
+  it('names the configuration of a run it was given the store of, and says what it was told', () => {
+    const read = readRunSummary(JSON.stringify(summary({ configId: 'cfg-1' })));
+    if (!('summary' in read)) throw new Error('refused');
+    expect(runOfSummary(read.summary)).toMatchObject({ configId: 'cfg-1' });
+
+    expect(configurationToldLines('cfg-1', { readWhole: ['Account'], filesForgotten: 2 })).toEqual([
+      'configuration cfg-1: its next run reads Account whole',
+      'configuration cfg-1: 2 copied file(s) forgotten, copied again by its next run',
+    ]);
+    expect(configurationToldLines(undefined, { readWhole: ['Account'] })).toEqual([]);
   });
 
   it('keeps in memory what a run created, each object in the order first written', () => {
@@ -258,6 +281,77 @@ describe('sandforge-sync --remove', () => {
 
     expect(exit.stderr()).toContain('is not the org the run wrote to');
     expect(org.deletes).toEqual([]);
+  });
+
+  describe('of a run of a saved configuration', () => {
+    const watermark = {
+      sourceOrgId: 'SRC',
+      targetOrgId: 'TGT',
+      objectApiName: 'Account',
+      watermark: '2026-10-14T08:00:00.000Z',
+      fingerprint: 'a'.repeat(64),
+      recordedAt: '2026-10-14T08:01:00.000Z',
+    };
+    let state: string;
+
+    beforeEach(() => {
+      state = join(dir, 'state');
+      writeFileSync(file, JSON.stringify(summary({ configId: 'cfg-1' })));
+      const configs = savedConfigStore(state);
+      configs.save({
+        id: 'cfg-1',
+        name: 'Accounts',
+        description: '',
+        sourceOrgId: 'SRC',
+        targetOrgId: 'TGT',
+        direction: 'source_to_target',
+        mode: 'delta',
+        objects: [],
+        conflictStrategy: 'source_wins',
+        enableRollback: false,
+        createdAt: '2026-10-14T08:00:00.000Z',
+        updatedAt: '2026-10-14T08:00:00.000Z',
+      });
+      configs.recordWatermark('cfg-1', watermark);
+    });
+
+    it('tells its store what it took, so that the next delta run reads those objects whole', async () => {
+      await main(argv('--remove', file, '--target', 'TGT', '--store', state, '--json'));
+
+      expect(JSON.parse(stdout)).toMatchObject({
+        result: { status: 'success', readWhole: ['Account'] },
+      });
+      const delta = savedConfigStore(state).loadDelta('cfg-1');
+      expect(delta.kind === 'stored' ? delta.state.entries : []).toEqual([
+        { ...watermark, removedAt: expect.any(String) },
+      ]);
+    });
+
+    it('says, when its store was not given, that the next delta run is not told', async () => {
+      const exit = stubExit();
+
+      await main(argv('--remove', file, '--target', 'TGT', '--json'));
+
+      expect(exit.stderr()).toContain('its store was not given');
+      const delta = savedConfigStore(state).loadDelta('cfg-1');
+      expect(delta.kind === 'stored' ? delta.state.entries : []).toEqual([watermark]);
+    });
+
+    it('refuses a store that holds no such configuration, and a store for a run of none, deleting nothing', async () => {
+      const exit = stubExit();
+
+      await expect(
+        main(argv('--remove', file, '--target', 'TGT', '--store', join(dir, 'elsewhere'))),
+      ).rejects.toThrow('exit 2');
+      expect(exit.stderr()).toContain('holds no configuration cfg-1');
+
+      writeFileSync(file, JSON.stringify(summary()));
+      await expect(
+        main(argv('--remove', file, '--target', 'TGT', '--store', state)),
+      ).rejects.toThrow('exit 2');
+      expect(exit.stderr()).toContain('names none');
+      expect(org.deletes).toEqual([]);
+    });
   });
 
   it('exits 3 when it leaves records of the run in the org, and takes them on the next removal', async () => {

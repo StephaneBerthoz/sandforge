@@ -18,7 +18,7 @@ import {
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
-import { useFrozenCancel } from '../Frozen/useFrozenBridge';
+import { useOperationCancel } from '../../hooks/useOperationCancel';
 
 /**
  * How long a removal may keep the card waiting: Production Guard may wait on a
@@ -81,10 +81,13 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
     errorType: ERROR_CHANNEL,
     timeoutMs: REMOVAL_TIMEOUT_MS,
   });
-  const { requested: cancelRequested, cancel: cancelRemoval } = useFrozenCancel(removal.requestId, {
-    title: t('sync.removal.cancelRefused'),
-    message: t('sync.removal.cancelRefusedDetail'),
-  });
+  const { requested: cancelRequested, cancel: cancelRemoval } = useOperationCancel(
+    removal.requestId,
+    {
+      title: t('sync.removal.cancelRefused'),
+      message: t('sync.removal.cancelRefusedDetail'),
+    },
+  );
 
   // Read again once per answer, a refusal included: what is left, and the mark.
   const { refetch } = info;

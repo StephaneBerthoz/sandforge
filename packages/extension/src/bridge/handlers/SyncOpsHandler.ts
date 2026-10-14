@@ -572,11 +572,7 @@ export class SyncOpsHandler implements DomainHandler {
    * the same id, and nowhere for one that is not saved.
    */
   private deltaStoreFor(): SyncDeltaStore {
-    return {
-      load: (configId) =>
-        this.syncConfigStore.load(configId) ? this.syncConfigStore.loadDelta(configId) : null,
-      record: (configId, watermark) => this.syncConfigStore.recordWatermark(configId, watermark),
-    };
+    return this.syncConfigStore.deltaStore();
   }
 
   /**
@@ -584,11 +580,7 @@ export class SyncOpsHandler implements DomainHandler {
    * the same id, and nowhere for one that is not saved, which copies none.
    */
   private fileStoreFor(): SyncFileStore {
-    return {
-      load: (configId) =>
-        this.syncConfigStore.load(configId) ? this.syncConfigStore.loadFiles(configId) : null,
-      record: (configId, entry) => this.syncConfigStore.recordFile(configId, entry),
-    };
+    return this.syncConfigStore.fileStore();
   }
 
   /**

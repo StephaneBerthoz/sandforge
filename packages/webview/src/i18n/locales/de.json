@@ -3216,6 +3216,8 @@
       "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Durchlauf erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Datensätze, mit denen der Durchlauf verknüpft hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ende des Durchlaufs geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
       "removeObject_one": "{{object}}: {{formatted}} Datensatz",
       "removeObject_other": "{{object}}: {{formatted}} Datensätze",
+      "removeFiles_one": "{{object}}: {{formatted}} Datei",
+      "removeFiles_other": "{{object}}: {{formatted}} Dateien",
       "removeLinked_one": "{{formatted}} verknüpfter Datensatz bleibt erhalten.",
       "removeLinked_other": "{{formatted}} verknüpfte Datensätze bleiben erhalten.",
       "removeIncludeChanged": "Auch die seit dem Durchlauf geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",

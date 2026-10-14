@@ -3035,6 +3035,7 @@
       "removeTitle": "{{org}} からこの実行のレコードを削除",
       "removeDescription": "この実行が {{org}} に作成したレコードを、子から親の順に削除します。削除したレコードはごみ箱に移ります。実行がリンクしただけの、{{org}} に既にあったレコードは残します。{{org}} に残るレコードが依存しているレコードも残します。実行終了後に変更されたレコードや、その後に追加されたレコードが依存しているレコードは、下で含めない限り残します。",
       "removeObject_other": "{{object}}: {{formatted}} 件",
+      "removeFiles_other": "{{object}}: ファイル {{formatted}} 件",
       "removeLinked_other": "リンクされたレコード {{formatted}} 件は残します。",
       "removeIncludeChanged": "実行後に変更されたレコードと、その後に追加されたものも削除する",
       "removeLeftBy": "{{date}} の削除で次のレコードが残りました:",

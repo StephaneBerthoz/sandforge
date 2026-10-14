@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
   ForgeExecutionResult,
+  ForgeFileObject,
   ForgeRemovalPlan,
   ForgeUndoMark,
   ForgeUndoObjectResult,
@@ -53,6 +54,17 @@ const FILES_LEFT_KEYS: Record<RemovalSubject, string> = {
   run: 'forge.history.resultFilesLeft',
   load: 'frozen.removal.resultFilesLeft',
 };
+
+/**
+ * The objects a removal counts files under — a Salesforce File by its
+ * document, a legacy attachment by itself — which its confirmation counts as
+ * files: "ContentDocument: 1 record" read as a record of an object nobody
+ * syncs.
+ */
+const FILE_OBJECTS: ReadonlySet<string> = new Set<ForgeFileObject>([
+  'ContentDocument',
+  'Attachment',
+]);
 
 /** The colour of that first line. */
 const RESULT_TITLE_CLASSES: Record<ForgeUndoStatus, string> = {
@@ -141,9 +153,14 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
             data-testid={`forge-removal-plan-${object.objectApiName}`}
             className="font-mono"
           >
-            {counted(t, 'forge.history.removeObject', object.count, {
-              object: object.objectApiName,
-            })}
+            {counted(
+              t,
+              FILE_OBJECTS.has(object.objectApiName)
+                ? 'forge.history.removeFiles'
+                : 'forge.history.removeObject',
+              object.count,
+              { object: object.objectApiName },
+            )}
           </li>
         ))}
       </ul>

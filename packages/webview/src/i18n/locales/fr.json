@@ -3216,6 +3216,8 @@
       "removeDescription": "Supprime de {{org}} les enregistrements créés par cette exécution, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels l'exécution s'est liée, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis la fin de l'exécution, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
       "removeObject_one": "{{object}} : {{formatted}} enregistrement",
       "removeObject_other": "{{object}} : {{formatted}} enregistrements",
+      "removeFiles_one": "{{object}} : {{formatted}} fichier",
+      "removeFiles_other": "{{object}} : {{formatted}} fichiers",
       "removeLinked_one": "{{formatted}} enregistrement lié est conservé.",
       "removeLinked_other": "{{formatted}} enregistrements liés sont conservés.",
       "removeIncludeChanged": "Supprimer aussi les enregistrements modifiés depuis l'exécution, et ce qui leur a été ajouté depuis",

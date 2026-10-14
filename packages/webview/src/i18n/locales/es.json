@@ -3216,6 +3216,8 @@
       "removeDescription": "Elimina de {{org}} los registros que creó esta ejecución, los hijos antes que sus padres; van a su papelera de reciclaje. Los registros a los que se vinculó la ejecución, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde que terminó la ejecución, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
       "removeObject_one": "{{object}}: {{formatted}} registro",
       "removeObject_other": "{{object}}: {{formatted}} registros",
+      "removeFiles_one": "{{object}}: {{formatted}} archivo",
+      "removeFiles_other": "{{object}}: {{formatted}} archivos",
       "removeLinked_one": "Se conserva {{formatted}} registro vinculado.",
       "removeLinked_other": "Se conservan {{formatted}} registros vinculados.",
       "removeIncludeChanged": "Eliminar también los registros modificados desde la ejecución, y lo que se les añadió desde entonces",

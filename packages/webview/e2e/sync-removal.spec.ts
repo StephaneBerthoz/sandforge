@@ -104,9 +104,7 @@ for (const theme of THEMES) {
       expect(listed.violations.length, formatViolations(listed.violations)).toBe(0);
 
       await card.getByTestId('sync-removal-remove').click();
-      await expect(page.getByTestId('forge-removal-plan')).toContainText(
-        'ContentDocument: 1 record',
-      );
+      await expect(page.getByTestId('forge-removal-plan')).toContainText('ContentDocument: 1 file');
       const confirming = await checkAccessibility(page);
       expect(confirming.violations.length, formatViolations(confirming.violations)).toBe(0);
 

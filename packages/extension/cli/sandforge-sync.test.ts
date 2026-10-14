@@ -5,6 +5,8 @@ import {
   buildConfig,
   buildQueryFn,
   cliFileDeps,
+  deltaLine,
+  readSavedConfig,
   simulationLines,
 } from './sandforge-sync.js';
 
@@ -104,6 +106,127 @@ describe('parseArgs', () => {
   it('keeps the whole clause, equals signs and all', () => {
     const args = parseArgs(argv(...MINIMAL, '--where', "Account=Name = 'A=B'"));
     expect(args.where.Account).toBe("Name = 'A=B'");
+  });
+});
+
+describe('a saved configuration on the command line', () => {
+  /** A delta configuration of accounts, as the panel saves one. */
+  const saved = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: 'cfg-accounts',
+    name: 'Accounts',
+    description: '',
+    sourceOrgId: '00D000000000001AAA',
+    targetOrgId: '00D000000000002AAA',
+    direction: 'source_to_target',
+    mode: 'delta',
+    objects: [
+      {
+        objectApiName: 'Account',
+        operation: 'upsert',
+        externalIdField: 'Ext_Id__c',
+        where: "Ext_Id__c LIKE 'X-%'",
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [{ fieldApiName: 'Region__c', value: 'EU', overwriteExisting: true }],
+        insertOrder: 0,
+      },
+    ],
+    conflictStrategy: 'source_wins',
+    enableRollback: false,
+    files: { maxFileSizeMB: 10, maxRunMB: 100 },
+    ...overrides,
+  });
+
+  it('reads the file, the store and the two orgs, and nothing a file carries itself', () => {
+    const args = parseArgs(
+      argv('--config-file', 'cfg.json', '--store', 'state', '--source', 'S', '--target', 'T'),
+    );
+    expect(args).toMatchObject({
+      configFile: 'cfg.json',
+      store: 'state',
+      source: 'S',
+      target: 'T',
+    });
+    expect(args.objects).toEqual([]);
+  });
+
+  it('refuses a configuration without a store, and the settings the file carries beside it', () => {
+    expect(refuse('--config-file', 'cfg.json', '--source', 'S', '--target', 'T').code).toBe(2);
+    const mixed = refuse('--config-file', 'cfg.json', '--store', 'state', ...MINIMAL, '--files');
+    expect(mixed.code).toBe(2);
+    expect(mixed.message).toContain('--object, --files cannot be given with it');
+  });
+
+  it('refuses a store with no configuration to keep', () => {
+    const { code, message } = refuse(...MINIMAL, '--store', 'state');
+    expect(code).toBe(2);
+    expect(message).toContain('give it with --config-file');
+  });
+
+  it('runs the configuration between the orgs of the line, with its own settings', () => {
+    const read = readSavedConfig(JSON.stringify(saved()), { source: 'S', target: 'T' });
+    if (!('config' in read)) throw new Error(read.refusal);
+    expect(read.config).toMatchObject({
+      id: 'cfg-accounts',
+      sourceOrgId: 'S',
+      targetOrgId: 'T',
+      mode: 'delta',
+      files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      objects: [
+        {
+          objectApiName: 'Account',
+          externalIdField: 'Ext_Id__c',
+          batchSize: 200,
+          addOnFields: [{ fieldApiName: 'Region__c', value: 'EU', overwriteExisting: true }],
+        },
+      ],
+    });
+  });
+
+  it('refuses what the panel refuses, and a configuration with no id to keep it under', () => {
+    const orgs = { source: 'S', target: 'T' };
+    expect(readSavedConfig('{', orgs)).toEqual({
+      refusal: 'is not JSON: give a Sync configuration as the panel saves one.',
+    });
+    expect(readSavedConfig('[]', orgs)).toMatchObject({
+      refusal: expect.stringContaining('no object'),
+    });
+    const inserting = saved();
+    (inserting.objects as Array<Record<string, unknown>>)[0].operation = 'insert';
+    expect(readSavedConfig(JSON.stringify(inserting), orgs)).toMatchObject({
+      refusal: expect.stringContaining('objects.0.operation: A delta sync writes Account again'),
+    });
+    expect(readSavedConfig(JSON.stringify(saved({ id: undefined })), orgs)).toMatchObject({
+      refusal: expect.stringContaining('names no id'),
+    });
+  });
+
+  it('says how each object of a delta configuration was read, and whether its watermark moved', () => {
+    expect(
+      deltaLine({
+        read: 'delta',
+        since: '2026-10-14T08:00:00.000Z',
+        changed: 2,
+        deletionsChecked: false,
+        deleted: 0,
+        deleteFailed: 0,
+        recorded: '2026-10-14T09:00:00.000Z',
+      }),
+    ).toBe('delta: 2 record(s) changed since 2026-10-14T08:00:00.000Z; watermark recorded');
+    expect(
+      deltaLine({
+        read: 'full',
+        reason: 'first_run',
+        changed: 5,
+        deletionsChecked: false,
+        deleted: 0,
+        deleteFailed: 0,
+      }),
+    ).toBe(
+      'delta: read whole (first_run), 5 record(s); watermark kept as it was: the next run ' +
+        'reads from the same point',
+    );
   });
 });
 

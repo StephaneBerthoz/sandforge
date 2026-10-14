@@ -20,7 +20,8 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { ProgressBar } from '../../components/ui/ProgressBar';
-import { useFrozenCancel, useFrozenMutation } from './useFrozenBridge';
+import { useOperationCancel } from '../../hooks/useOperationCancel';
+import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
@@ -127,7 +128,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   // stops before its next write. The page had no Cancel, and could not have
   // named the load: its id was minted where the page never saw it.
   const loadRequestId = loadMutation.requestId;
-  const { requested: cancelRequested, cancel: cancelLoad } = useFrozenCancel(loadRequestId, {
+  const { requested: cancelRequested, cancel: cancelLoad } = useOperationCancel(loadRequestId, {
     title: t('frozen.load.cancelRefused'),
     message: t('frozen.load.cancelRefusedDetail'),
   });

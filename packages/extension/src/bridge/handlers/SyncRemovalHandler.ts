@@ -36,7 +36,7 @@ import {
   type SyncRunCreations,
   type SyncRunKept,
 } from '../../modules/sync/SyncRunCreations.js';
-import { removeSyncRun, type SyncRemovalConfigs } from '../../modules/sync/SyncRunRemoval.js';
+import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
 
 /** Message types handled by SyncRemovalHandler. */
 const SYNC_REMOVAL_TYPES = new Set(['sync:removal:info', 'sync:removal:list', 'sync:remove']);
@@ -415,18 +415,12 @@ export class SyncRemovalHandler implements DomainHandler {
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const configs: SyncRemovalConfigs = {
-        isSaved: (configId) => this.configs.load(configId) !== undefined,
-        forgetFiles: (configId, orgs, ids) => this.configs.forgetFiles(configId, orgs, ids),
-        markRemoved: (configId, orgs, objects, at) =>
-          this.configs.markRemoved(configId, orgs, objects, at),
-      };
       const { result, notes } = await removeSyncRun({
         run,
         org: removalOrg(conn, 'sync:remove'),
         includeChanged,
         store,
-        configs,
+        configs: this.configs,
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
           const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));

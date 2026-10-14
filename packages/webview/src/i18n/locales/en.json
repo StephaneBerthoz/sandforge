@@ -3216,6 +3216,8 @@
       "removeDescription": "Deletes from {{org}} the records this run created, children before their parents; they go to its recycle bin. Records the run linked to, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the run ended, or one that records added since depend on, is kept unless you include it below.",
       "removeObject_one": "{{object}}: {{formatted}} record",
       "removeObject_other": "{{object}}: {{formatted}} records",
+      "removeFiles_one": "{{object}}: {{formatted}} file",
+      "removeFiles_other": "{{object}}: {{formatted}} files",
       "removeLinked_one": "{{formatted}} linked record is kept.",
       "removeLinked_other": "{{formatted}} linked records are kept.",
       "removeIncludeChanged": "Also remove the records changed since the run, and what was added to them since",

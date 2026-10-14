@@ -154,7 +154,7 @@ describe('SyncRunRemoval', () => {
       within(screen.getByTestId('forge-removal-plan'))
         .getAllByRole('listitem')
         .map((item) => item.textContent),
-    ).toEqual(['ContentDocument: 1 record', 'Account: 2 records']);
+    ).toEqual(['ContentDocument: 1 file', 'Account: 2 records']);
     expect(sentAll('sync:remove')).toEqual([]);
   });
 

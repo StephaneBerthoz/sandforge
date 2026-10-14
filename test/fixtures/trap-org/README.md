@@ -125,9 +125,18 @@ is empty.
 
 `pnpm canary` (`scripts/canary.mjs`) runs SandForge's own commands against the pair: the probes
 above, then a Forge clone from the seeded account `Trap Account 01` (dry run, rehearsal, clone,
-verification, removal), then a DataOps backup of every contact. It removes what it wrote however
-the run ends, and prints counts and verdicts, never an id. `--skip-probes` leaves out the probes
+verification, removal), then a DataOps backup of every contact, then a Sync of a saved delta
+configuration (simulation, first run, delta run, removal). It removes what it wrote however the
+run ends, and prints counts and verdicts, never an id. `--skip-probes` leaves out the probes
 (about six minutes, and probe 17 takes one of the day's fifteen emails).
+
+- The Sync runs on records of its own, never the seeded ones: four accounts, two files on them and
+  a marker account, created in the source with a tag of the run in their key and title, and
+  deleted from both orgs at the end. They are created first: a delta read starts five minutes
+  before its watermark, so the canary changes the marker once the accounts are more than five
+  minutes older than it, by the org's clock, and the delta run then reads the two accounts the
+  source changed, and nothing else. Its removal keeps those two, changed since the first run, and
+  takes them with `--include-changed`.
 
 - The clone runs as a holder of `Trap_Bypass`, which the dry run names as the bypass of trap 9's
   flow: without it the day's emails run out after seven contacts and the rest are refused. The

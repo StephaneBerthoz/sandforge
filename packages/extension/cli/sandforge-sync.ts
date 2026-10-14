@@ -20,18 +20,26 @@
  * inserted, or upserted where the target held none — with the removal the
  * panel runs, from the summary alone.
  *
+ * A configuration saved as the panel saves one runs with `--config-file`,
+ * kept between runs in the directory `--store` names with its watermarks and
+ * the files it copied, as the panel keeps them beside it: its second run in
+ * delta mode reads only what the source changed since the first.
+ *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --source SRC --target TGT --object Account --object Contact
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
- *     --remove <summary.json> --target TGT [--include-changed] [--json]
+ *     --config-file <config.json> --store <dir> --source SRC --target TGT
+ *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
+ *     --remove <summary.json> --target TGT [--include-changed] [--store <dir>] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
  */
 
 import { randomUUID } from 'node:crypto';
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
 import { z } from 'zod';
@@ -39,7 +47,9 @@ import type {
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   SyncConfig,
+  SyncDeltaOutcome,
   SyncObjectConfig,
+  SyncRemovalResult,
   SyncSimulationResult,
 } from '@sandforge/shared';
 import { recordWriteHeaders } from '@sandforge/shared';
@@ -48,7 +58,10 @@ import {
   type FileCopyOrg,
   type SyncCopiedFile,
   type SyncFileDeps,
+  type SyncFileStore,
 } from '../src/modules/sync/SyncFiles.js';
+import { SyncConfigStore } from '../src/modules/sync/SyncConfigStore.js';
+import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { isDeveloperEdition } from '../src/modules/forge/ForgeRunGate.js';
@@ -62,7 +75,7 @@ import {
 } from '../src/modules/sync/SyncRunCreations.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
-import { sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
+import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
 import { DataSync } from '../src/modules/sync/DataSync.js';
 import {
   targetWriteFieldsOf,
@@ -72,7 +85,11 @@ import { ConflictResolver } from '../src/modules/sync/ConflictResolver.js';
 import { FieldMappingService } from '../src/modules/sync/FieldMapping.js';
 import { TransformPipeline } from '../src/modules/sync/TransformPipeline.js';
 import { targetLookup } from '../src/modules/sync/SyncSimulation.js';
-import { cannotCopyMessage, syncCannotCopy } from '../src/bridge/validatePayload.js';
+import {
+  cannotCopyMessage,
+  syncCannotCopy,
+  syncExecutePayloadSchema,
+} from '../src/bridge/validatePayload.js';
 import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
@@ -111,9 +128,27 @@ Options:
                          run back from: it names what the run created.
   --help                 this text
 
+Run a saved configuration:
+  pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
+    --config-file <config.json> --store <dir> --source <alias> --target <alias> \\
+    [--dry-run] [--json]
+
+  --config-file <file>   a Sync configuration as the panel saves one, checked
+                         as the panel checks it: its objects, filters,
+                         mappings, add-ons, mode, and whether it copies files.
+                         It runs between the two orgs given, whatever orgs it
+                         names. In delta mode, each object reads only what the
+                         source changed since its last good run.
+  --store <dir>          where the configuration is kept between runs, with
+                         its watermarks and the files it copied, as the panel
+                         keeps them beside it: give every run of it the same
+                         directory, and --remove too.
+  --object, --where, --operation, --batch-size and --files come from the file,
+  and are refused with it.
+
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
-    --remove <summary.json> --target <alias> [--include-changed] [--json]
+    --remove <summary.json> --target <alias> [--include-changed] [--store <dir>] [--json]
 
   --remove <file>        the summary a run printed with --json, saved to a
                          file. Deletes from the target what the run created:
@@ -124,6 +159,10 @@ Remove what a run created:
                          sandbox or a Developer Edition org.
   --include-changed      remove also the records changed since the run, which
                          are kept otherwise
+  --store <dir>          for a run of a saved configuration: its store, which
+                         the removal tells what it took, so that the next
+                         delta run reads those objects whole and copies the
+                         files it deleted again
   --json                 print the removal as JSON
 
   What the removal left on the run's records is kept beside the summary, in
@@ -153,7 +192,20 @@ interface CliArgs {
   /** Copy the files of the records each object writes. */
   files: boolean;
   json: boolean;
+  /** A saved configuration to run instead of the objects of the line. */
+  configFile?: string;
+  /** Where that configuration is kept between runs. */
+  store?: string;
 }
+
+/** The flags whose settings a saved configuration carries itself. */
+const CONFIG_FILE_SETTINGS: readonly string[] = [
+  '--object',
+  '--where',
+  '--operation',
+  '--batch-size',
+  '--files',
+];
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
@@ -180,6 +232,46 @@ export function parseArgs(argv: string[]): CliArgs {
 
   const source = get('--source');
   const target = get('--target');
+
+  if (has('--config-file')) {
+    const configFile = get('--config-file');
+    const store = get('--store');
+    if (!configFile || !store || !source || !target) {
+      process.stderr.write(
+        '--config-file wants the file, --store <dir> where it is kept between runs, ' +
+          '--source and --target. Run with --help.\n',
+      );
+      process.exit(2);
+    }
+    const given = CONFIG_FILE_SETTINGS.filter(has);
+    if (given.length > 0) {
+      process.stderr.write(
+        `--config-file takes its objects, filters and files from the file: ${given.join(', ')} ` +
+          'cannot be given with it.\n',
+      );
+      process.exit(2);
+    }
+    return {
+      source,
+      target,
+      objects: [],
+      operation: 'insert',
+      where: {},
+      batchSize: 200,
+      dryRun: has('--dry-run'),
+      files: false,
+      json: has('--json'),
+      configFile,
+      store,
+    };
+  }
+  if (has('--store')) {
+    process.stderr.write(
+      '--store keeps a saved configuration between runs: give it with --config-file.\n',
+    );
+    process.exit(2);
+  }
+
   const rawObjects = collect('--object');
   if (!source || !target || rawObjects.length === 0) {
     process.stderr.write('Missing --source, --target or --object. Run with --help.\n');
@@ -281,16 +373,77 @@ export function buildConfig(args: CliArgs): SyncConfig {
 }
 
 /**
+ * The configuration a `--config-file` holds, as a run takes it, or why it
+ * cannot run: external input, checked as the panel checks a configuration it
+ * saves or runs (`syncExecutePayloadSchema`) — a delta configuration that
+ * inserts, a script, a strategy no run acts on are refused here as there. It
+ * runs between the orgs of the command line, whatever orgs it names, and
+ * needs an id, which its watermarks and copied files are kept under.
+ */
+export function readSavedConfig(
+  text: string,
+  orgs: { source: string; target: string },
+): { config: SyncConfig } | { refusal: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { refusal: 'is not JSON: give a Sync configuration as the panel saves one.' };
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { refusal: 'is not a Sync configuration: it holds no object.' };
+  }
+  const parsed = syncExecutePayloadSchema.safeParse({
+    config: { ...raw, sourceOrgId: orgs.source, targetOrgId: orgs.target },
+  });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const where = issue.path.slice(1).join('.') || 'configuration';
+    return { refusal: `is not a configuration a run takes (${where}: ${issue.message})` };
+  }
+  const checked = parsed.data.config;
+  if (checked.id === undefined) {
+    return {
+      refusal:
+        'names no id: a saved configuration keeps its watermarks and the files it copied ' +
+        'under its id.',
+    };
+  }
+  const now = new Date().toISOString();
+  return {
+    config: {
+      ...checked,
+      id: checked.id,
+      createdAt: checked.createdAt ?? now,
+      updatedAt: checked.updatedAt ?? now,
+      // The panel's default for an object saved without one.
+      objects: checked.objects.map((object) => ({ ...object, batchSize: object.batchSize ?? 200 })),
+    } as SyncConfig,
+  };
+}
+
+/**
+ * The store a saved configuration is kept in between runs of the command:
+ * the panel's own (`SyncConfigStore`), over a file in `dir`.
+ */
+export function savedConfigStore(dir: string): SyncConfigStore {
+  mkdirSync(dir, { recursive: true });
+  return new SyncConfigStore(fileConfigStore(join(dir, 'configStore.json')));
+}
+
+/**
  * What a run that copies files reads and writes beside its records, over the
  * two connections: the requests the panel's run sends. A configuration the
- * panel saved keeps which file it copied where; the command keeps it for the
- * run alone, so a file is never copied twice within it, and copied again by
- * the next run. Exported so it can be tested.
+ * panel saved keeps which file it copied where, and so does one the command
+ * runs from `--config-file`, in its store (`store`); otherwise the command
+ * keeps it for the run alone, so a file is never copied twice within it, and
+ * copied again by the next run. Exported so it can be tested.
  */
 export function cliFileDeps(
   config: Pick<SyncConfig, 'sourceOrgId' | 'targetOrgId'>,
   sourceConn: Connection,
   targetConn: Connection,
+  store?: SyncFileStore,
 ): SyncFileDeps {
   const pagesOf = (conn: Connection) => ({
     query: async (q: string) => conn.query<Record<string, unknown>>(q),
@@ -320,7 +473,7 @@ export function cliFileDeps(
       );
       return records.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
     },
-    store: {
+    store: store ?? {
       load: () =>
         copied.size === 0
           ? { kind: 'none' }
@@ -402,6 +555,23 @@ export function simulationLines(simulation: SyncSimulationResult): string[] {
   return lines;
 }
 
+/** How an object of a delta configuration was read, as the line the command prints. */
+export function deltaLine(delta: SyncDeltaOutcome): string {
+  const read =
+    delta.read === 'delta'
+      ? `delta: ${delta.changed} record(s) changed since ${delta.since ?? 'the last run'}`
+      : `delta: read whole (${delta.reason ?? 'no watermark'}), ${delta.changed} record(s)`;
+  const deletions = delta.deletionsChecked
+    ? `, ${delta.deleted} deleted as the source deleted them` +
+      (delta.deleteFailed > 0 ? `, ${delta.deleteFailed} refused` : '')
+    : '';
+  const mark =
+    delta.recorded !== undefined
+      ? '; watermark recorded'
+      : '; watermark kept as it was: the next run reads from the same point';
+  return `${read}${deletions}${mark}`;
+}
+
 /** What a run created, kept in memory as it writes it, for its summary. */
 export function memoryCreations(runId: string): SyncCreationRecorder & {
   /** Per object in the order first written, each id once. */
@@ -444,12 +614,41 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (!args.json) process.stdout.write(`${line}\n`);
   };
 
+  // A saved configuration is read and checked before any org is contacted,
+  // and kept in its store before it runs, as the panel's Save keeps it: its
+  // watermarks and copied files are kept beside it, and only for a saved one.
+  let config: SyncConfig;
+  let saved: SyncConfigStore | undefined;
+  if (args.configFile !== undefined && args.store !== undefined) {
+    let text: string;
+    try {
+      text = readFileSync(args.configFile, 'utf8');
+    } catch (err: unknown) {
+      process.stderr.write(
+        `--config-file ${args.configFile} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(2);
+    }
+    const read = readSavedConfig(text, args);
+    if ('refusal' in read) {
+      process.stderr.write(`--config-file ${args.configFile} ${read.refusal}\n`);
+      process.exit(2);
+    }
+    config = read.config;
+    saved = savedConfigStore(args.store);
+    saved.save(config);
+  } else {
+    config = buildConfig(args);
+  }
+
   log(`sandforge-sync  ${args.source} -> ${args.target}`);
-  log(`objects: ${args.objects.map((o) => o.objectApiName).join(', ')}`);
+  log(
+    `objects: ${config.objects.map((o) => o.objectApiName).join(', ')}` +
+      (saved ? `  (configuration ${config.id}, ${config.mode})` : ''),
+  );
 
   const sourceConn = makeConn(await loadOrg(args.source));
   const targetConn = makeConn(await loadOrg(args.target));
-  const config = buildConfig(args);
 
   // One describe of the target per object, kept for the run.
   const targetFieldsByObject = new Map<string, TargetWriteFields>();
@@ -468,26 +667,29 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // transforms, then the target asked which records it holds. It never
   // reaches the writer, which refuses to write if anything ever tried.
   // Answering every record "written" instead told nothing a run would not.
+  // Each object's batch size, as the engine hands it: the line's for every
+  // object of a line, each object's own for a saved configuration.
   const write = async (
     kind: 'insert' | 'update' | 'upsert' | 'delete',
     objectName: string,
     records: Record<string, unknown>[] | string[],
+    batchSize: number,
     externalIdField?: string,
   ): Promise<OperationOutcome[]> => {
     if (args.dryRun) throw new Error(`A dry run writes nothing: ${kind} ${objectName} refused.`);
-    if (kind === 'delete') return writer.delete(objectName, records as string[], args.batchSize);
+    if (kind === 'delete') return writer.delete(objectName, records as string[], batchSize);
     if (kind === 'upsert') {
       return writer.upsert(
         objectName,
         externalIdField ?? 'Id',
         records as Record<string, unknown>[],
-        args.batchSize,
+        batchSize,
       );
     }
     if (kind === 'update') {
-      return writer.update(objectName, records as Record<string, unknown>[], args.batchSize);
+      return writer.update(objectName, records as Record<string, unknown>[], batchSize);
     }
-    return writer.insert(objectName, records as Record<string, unknown>[], args.batchSize);
+    return writer.insert(objectName, records as Record<string, unknown>[], batchSize);
   };
 
   const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
@@ -506,13 +708,34 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const orchestrator = new SyncOrchestrator({
     ...(args.dryRun ? {} : { creations: kept }),
-    ...(args.files ? { files: cliFileDeps(config, sourceConn, targetConn) } : {}),
+    ...(config.files !== undefined
+      ? { files: cliFileDeps(config, sourceConn, targetConn, saved?.fileStore()) }
+      : {}),
+    // A saved configuration's watermarks, kept in its store, and what a delta
+    // run asks both orgs beside its reads: the panel's.
+    ...(saved
+      ? {
+          deltaStore: saved.deltaStore(),
+          deltaReads: orgDeltaReads(
+            {
+              query: async (q, options) => sourceConn.query<Record<string, unknown>>(q, options),
+              queryMore: async (url) => sourceConn.queryMore<Record<string, unknown>>(url),
+            },
+            {
+              query: async (q) => targetConn.query<Record<string, unknown>>(q),
+              queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+            },
+            controller.signal,
+          ),
+        }
+      : {}),
     dataSync: new DataSync({
-      insert: (objectName, records) => write('insert', objectName, records),
-      update: (objectName, records) => write('update', objectName, records),
-      upsert: (objectName, externalIdField, records) =>
-        write('upsert', objectName, records, externalIdField),
-      delete: (objectName, recordIds) => write('delete', objectName, recordIds),
+      insert: (objectName, records, batchSize) => write('insert', objectName, records, batchSize),
+      update: (objectName, records, batchSize) => write('update', objectName, records, batchSize),
+      upsert: (objectName, externalIdField, records, batchSize) =>
+        write('upsert', objectName, records, batchSize, externalIdField),
+      delete: (objectName, recordIds, batchSize) =>
+        write('delete', objectName, recordIds, batchSize),
       describeTargetFields,
     }),
     conflictResolver: new ConflictResolver(),
@@ -559,6 +782,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           source: args.source,
           target: args.target,
           ...(targetOrgId ? { targetOrgId } : {}),
+          // The saved configuration that ran: --remove tells its store.
+          ...(saved ? { configId: config.id } : {}),
           dryRun: args.dryRun,
           startedAt,
           finishedAt: new Date().toISOString(),
@@ -597,6 +822,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           `${files.failed ?? 0} failed`,
       );
     }
+    const delta = entry.delta as SyncDeltaOutcome | undefined;
+    if (delta) log(`      ${deltaLine(delta)}`);
   }
   const count = created.reduce((sum, object) => sum + object.ids.length, 0);
   if (count > 0) {
@@ -620,6 +847,8 @@ export interface RemoveArgs {
   includeChanged: boolean;
   /** Print the removal as JSON on stdout, every other line on stderr. */
   json: boolean;
+  /** The store of the saved configuration the run was of, which the removal tells. */
+  store?: string;
 }
 
 /** The flags a removal reads. */
@@ -627,9 +856,10 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--remove',
   '--target',
   '--include-changed',
+  '--store',
   '--json',
 ]);
-const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target']);
+const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target', '--store']);
 
 /** Read the command line of a removal, or explain why it cannot be read. */
 export function parseRemoveArgs(argv: string[]): RemoveArgs {
@@ -642,7 +872,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed and --json, not "${arg}". Run with --help.\n`,
+        `--remove takes --target, --include-changed, --store and --json, not "${arg}". ` +
+          'Run with --help.\n',
       );
       process.exit(2);
     }
@@ -653,6 +884,11 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
   };
   const summaryPath = get('--remove');
   const target = get('--target');
+  const store = get('--store');
+  if (args.includes('--store') && (!store || REMOVE_FLAGS.has(store))) {
+    process.stderr.write('--store wants the directory the configuration of the run is kept in.\n');
+    process.exit(2);
+  }
   if (!summaryPath || !target || REMOVE_FLAGS.has(summaryPath) || REMOVE_FLAGS.has(target)) {
     process.stderr.write(
       '--remove takes the file a run printed its --json summary to, and --target the org the ' +
@@ -665,6 +901,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     target,
     includeChanged: args.includes('--include-changed'),
     json: args.includes('--json'),
+    ...(store !== undefined ? { store } : {}),
   };
 }
 
@@ -678,6 +915,7 @@ const runSummarySchema = z
     source: z.string().min(1),
     target: z.string().min(1),
     targetOrgId: z.string().regex(ID).optional(),
+    configId: z.string().min(1).max(200).optional(),
     dryRun: z.boolean().optional(),
     startedAt: z.string().min(1).max(40).optional(),
     finishedAt: z.string().min(1).max(40).optional(),
@@ -748,8 +986,8 @@ export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState)
   const finishedAt = summary.finishedAt ?? created?.lastWrittenAt ?? new Date().toISOString();
   return {
     runId: created?.runId ?? 'sandforge-sync',
-    configId: 'sandforge-sync',
-    configName: 'sandforge-sync',
+    configId: summary.configId ?? 'sandforge-sync',
+    configName: summary.configId ?? 'sandforge-sync',
     sourceOrgId: summary.source,
     targetOrgId: summary.target,
     startedAt: summary.startedAt ?? finishedAt,
@@ -833,6 +1071,29 @@ export function removalSummaryLines(
   ];
 }
 
+/**
+ * What a removal told the saved configuration its run was of, as the lines the
+ * command prints: the objects its next run reads whole, the copied files it
+ * forgot.
+ */
+export function configurationToldLines(
+  configId: string | undefined,
+  told: Pick<SyncRemovalResult, 'readWhole' | 'filesForgotten'>,
+): string[] {
+  if (configId === undefined) return [];
+  return [
+    ...(told.readWhole && told.readWhole.length > 0
+      ? [`configuration ${configId}: its next run reads ${told.readWhole.join(', ')} whole`]
+      : []),
+    ...((told.filesForgotten ?? 0) > 0
+      ? [
+          `configuration ${configId}: ${told.filesForgotten} copied file(s) forgotten, copied ` +
+            'again by its next run',
+        ]
+      : []),
+  ];
+}
+
 /** The exit code of a removal that left records of the run in the org. */
 const RECORDS_LEFT_EXIT = 3;
 
@@ -874,6 +1135,30 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(2);
   }
 
+  // The store of the configuration the run was of, which the removal tells
+  // what it took: checked before any org is contacted.
+  let configs: SyncConfigStore | undefined;
+  if (args.store !== undefined) {
+    if (summary.configId === undefined) {
+      process.stderr.write(
+        `--store tells the configuration a run was of what its removal took, and ` +
+          `${args.summaryPath} names none: the run was not of a saved configuration ` +
+          '(--config-file).\n',
+      );
+      process.exit(2);
+    }
+    configs = existsSync(join(args.store, 'configStore.json'))
+      ? savedConfigStore(args.store)
+      : undefined;
+    if (!configs?.isSaved(summary.configId)) {
+      process.stderr.write(
+        `${args.store} holds no configuration ${summary.configId}: give the --store the run ` +
+          'was made with.\n',
+      );
+      process.exit(2);
+    }
+  }
+
   // What earlier removals of this summary left on the run's records: unread,
   // a second removal would take what the first wrote to a record it left for
   // a change since the run, and keep the record.
@@ -908,7 +1193,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   const run = runOfSummary(summary, earlier);
 
-  const output = (status: ForgeUndoStatus, objects: ForgeUndoObjectResult[], planned: number) => {
+  const output = (
+    status: ForgeUndoStatus,
+    objects: ForgeUndoObjectResult[],
+    planned: number,
+    told: Pick<SyncRemovalResult, 'readWhole' | 'filesForgotten'> = {},
+  ) => {
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -918,7 +1208,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             summary: args.summaryPath,
             target: args.target,
             includeChanged: args.includeChanged,
-            result: { status, planned, objects },
+            result: { status, planned, objects, ...told },
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -928,6 +1218,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       return;
     }
     for (const line of removalSummaryLines(status, objects)) say(line);
+    for (const line of configurationToldLines(summary.configId, told)) say(line);
     say(`\ndone in ${Date.now() - t0}ms`);
   };
 
@@ -975,6 +1266,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       org: removalOrg(conn, 'sandforge-sync --remove'),
       includeChanged: args.includeChanged,
       signal: stop.signal,
+      ...(configs ? { configs } : {}),
       store: {
         // Kept beside the summary whatever the removal ended on, written
         // whole through a file renamed over it.
@@ -993,7 +1285,19 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.off('SIGINT', interrupt);
   }
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
-  output(outcome.result.status, outcome.result.objects, outcome.planned);
+  const took = outcome.result.objects.some((o) => o.deleted + o.alreadyGone > 0);
+  if (summary.configId !== undefined && !configs && took) {
+    process.stderr.write(
+      `The run was of the saved configuration ${summary.configId}, and its store was not given: ` +
+        'its next delta run is not told what this removal took. Give --store with the next ' +
+        'removal, or run the configuration full next time.\n',
+    );
+  }
+  const { readWhole, filesForgotten } = outcome.result;
+  output(outcome.result.status, outcome.result.objects, outcome.planned, {
+    ...(readWhole ? { readWhole } : {}),
+    ...(filesForgotten !== undefined ? { filesForgotten } : {}),
+  });
   if (outcome.result.status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 

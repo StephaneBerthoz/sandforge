@@ -3216,6 +3216,8 @@
       "removeDescription": "Exclui de {{org}} os registros que esta execução criou, os filhos antes dos pais; eles vão para a lixeira dela. Os registros aos quais a execução se vinculou, que {{org}} já tinha, são mantidos, assim como um registro do qual dependem registros que ficam em {{org}}. Um registro alterado desde o fim da execução, ou do qual dependem registros adicionados desde então, é mantido, a menos que você o inclua abaixo.",
       "removeObject_one": "{{object}}: {{formatted}} registro",
       "removeObject_other": "{{object}}: {{formatted}} registros",
+      "removeFiles_one": "{{object}}: {{formatted}} arquivo",
+      "removeFiles_other": "{{object}}: {{formatted}} arquivos",
       "removeLinked_one": "{{formatted}} registro vinculado é mantido.",
       "removeLinked_other": "{{formatted}} registros vinculados são mantidos.",
       "removeIncludeChanged": "Remover também os registros alterados desde a execução, e o que foi adicionado a eles desde então",

@@ -57,6 +57,25 @@ describe('ForgeRunRemovalPlan', () => {
     expect(screen.queryByTestId('forge-removal-linked')).toBeNull();
   });
 
+  it('counts the files a run created as files, one or several, and records as records', () => {
+    render(
+      <ForgeRunRemovalPlan
+        plan={[
+          { objectApiName: 'ContentDocument', count: 1 },
+          { objectApiName: 'Attachment', count: 2 },
+          { objectApiName: 'Account', count: 1 },
+        ]}
+        linked={0}
+      />,
+    );
+
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['ContentDocument: 1 file', 'Attachment: 2 files', 'Account: 1 record']);
+  });
+
   it('says the linked records are kept', () => {
     render(<ForgeRunRemovalPlan plan={[{ objectApiName: 'Account', count: 1 }]} linked={3} />);
 

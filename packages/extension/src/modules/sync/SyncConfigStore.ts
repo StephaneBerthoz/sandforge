@@ -4,6 +4,7 @@ import {
   readDeltaState,
   type SyncDeltaLoad,
   type SyncDeltaState,
+  type SyncDeltaStore,
   type SyncWatermark,
 } from './SyncDelta.js';
 import {
@@ -12,6 +13,7 @@ import {
   type SyncCopiedFile,
   type SyncFileMap,
   type SyncFileMapLoad,
+  type SyncFileStore,
 } from './SyncFiles.js';
 
 /** Key prefix for sync config entries in the config store. */
@@ -66,6 +68,39 @@ export class SyncConfigStore {
    */
   load(id: string): SyncConfig | undefined {
     return this.configStore.get<SyncConfig>(`${SYNC_CONFIG_PREFIX}${id}`);
+  }
+
+  /**
+   * Whether a configuration is saved under that id: what a removal of one of
+   * its runs tells only a saved one (see `SyncRemovalConfigs`).
+   *
+   * @param id - The configuration ID.
+   */
+  isSaved(id: string): boolean {
+    return this.load(id) !== undefined;
+  }
+
+  /**
+   * Where a run keeps its watermarks: beside the saved configuration of the
+   * same id, and nowhere for one that is not saved. The panel's runs and the
+   * command line's runs of a saved configuration keep them here alike.
+   */
+  deltaStore(): SyncDeltaStore {
+    return {
+      load: (configId) => (this.isSaved(configId) ? this.loadDelta(configId) : null),
+      record: (configId, watermark) => this.recordWatermark(configId, watermark),
+    };
+  }
+
+  /**
+   * Where a run keeps the files it copied: beside the saved configuration of
+   * the same id, and nowhere for one that is not saved, which copies none.
+   */
+  fileStore(): SyncFileStore {
+    return {
+      load: (configId) => (this.isSaved(configId) ? this.loadFiles(configId) : null),
+      record: (configId, entry) => this.recordFile(configId, entry),
+    };
   }
 
   /**

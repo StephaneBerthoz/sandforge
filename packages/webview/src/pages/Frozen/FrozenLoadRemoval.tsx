@@ -14,7 +14,7 @@ import {
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
-import { useFrozenCancel } from './useFrozenBridge';
+import { useOperationCancel } from '../../hooks/useOperationCancel';
 
 /**
  * How long a removal may keep the page waiting: Production Guard may wait on
@@ -78,10 +78,13 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   // does: Cancel stops it between two calls to the org, never in one, and its
   // answer says what went and what stays, which a removal later takes. Only
   // Live Operations could stop it, while the card said it was removing.
-  const { requested: cancelRequested, cancel: cancelRemoval } = useFrozenCancel(removal.requestId, {
-    title: t('frozen.removal.cancelRefused'),
-    message: t('frozen.removal.cancelRefusedDetail'),
-  });
+  const { requested: cancelRequested, cancel: cancelRemoval } = useOperationCancel(
+    removal.requestId,
+    {
+      title: t('frozen.removal.cancelRefused'),
+      message: t('frozen.removal.cancelRefusedDetail'),
+    },
+  );
 
   // Once per answer, whatever the caller hands in: a callback made anew on
   // every render of the page asked for the status again on every render the
