@@ -89,6 +89,8 @@ function targetOrg(): RemovalOrg & { deleted: number } {
 describe('the readers of a journal of a million records', () => {
   writeTheJournal();
 
+  // A million lines through the disk: under a minute here, past two on a
+  // Windows runner's disk. The bound is the one ForgeExecutor.memory.test.ts uses.
   it('removes every record of the run holding a page of ids at a time, not the run', async () => {
     const before = held();
     peak.reset();
@@ -119,7 +121,7 @@ describe('the readers of a journal of a million records', () => {
     } finally {
       file.close();
     }
-  }, 120_000);
+  }, 600_000);
 
   it('gives the Id map of the run row by row, holding no more than a row', () => {
     const before = held();
@@ -144,5 +146,5 @@ describe('the readers of a journal of a million records', () => {
     } finally {
       file.close();
     }
-  }, 120_000);
+  }, 600_000);
 });
