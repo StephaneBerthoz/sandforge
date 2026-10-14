@@ -2298,6 +2298,8 @@
       "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Proben fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
       "results1430": "Aus den Ergebnissen handeln",
       "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Zielorg, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
+      "undoSync1520": "Zurücknehmen, was ein Sync-Lauf erstellt hat",
+      "undoSync1520Desc": "Ein Sync-Lauf lässt sich jetzt aus seinem Verlaufseintrag oder seinen Ergebnissen entfernen: Die Datensätze und Dateien, die er erstellt hat, werden gelöscht, Dateien zuerst, und seither geänderte Datensätze bleiben, sofern Sie sie nicht einschließen. Forge-Läufe jeder Größe bleiben entfernbar, ihre IDs im Journal des Laufs.",
       "resumeRun1510": "Einen angehaltenen Forge-Lauf fortsetzen",
       "resumeRun1510Desc": "Ein Forge-Lauf über ganze Tabellen, der angehalten wurde, abgestürzt ist oder sein Fenster verloren hat, setzt dort fort, wo er aufgehört hat, aus seinen Ergebnissen, dem Verlauf oder Live Operations, und liest jede Tabelle nach dem, was er bereits geschrieben hat. Jeder Lauf, den Sie anhalten, wird jetzt als abgebrochen erfasst, mit dem, was er getan hat.",
       "syncAlone1500": "Sync läuft von selbst",

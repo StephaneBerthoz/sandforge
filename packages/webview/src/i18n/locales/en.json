@@ -2298,6 +2298,8 @@
       "gaps1430Desc": "Simulate runs a clone through its write stage without writing; Rehearse asks the target itself, inside rolled-back transactions. The Gaps tab lists what they find, with a decision in one click for each, kept in the template.",
       "results1430": "Act from the results",
       "results1430Desc": "Open a created record in the target org, save the results to CSV or JSON, remove the run in place, and retry objects that were skipped. Templates now export and import as JSON files.",
+      "undoSync1520": "Take back what a Sync run created",
+      "undoSync1520Desc": "A Sync run can now be removed from its history entry or its results: the records and files it created go, files first, and records changed since stay unless you include them. Forge runs of any size stay removable, their ids kept in the run's journal.",
       "resumeRun1510": "Resume a Forge run that stopped",
       "resumeRun1510Desc": "A Forge run of whole tables that stopped, crashed or lost its window picks up where it left off, from its results, the history or Live Operations, reading each table after what it already wrote. Every run you stop is now recorded as cancelled, with what it did.",
       "syncAlone1500": "Sync runs on its own",

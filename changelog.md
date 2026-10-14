@@ -5,6 +5,34 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.52.0] - 2026-10-14
+
+What a run writes can be taken back, however large the run.
+
+### Added
+
+- A Sync run can be removed from its history entry or its results: the records
+  and files it created, files first, records changed since kept unless
+  included, refused on a production org.
+- A Forge run from a record keeps a journal too, and can be resumed.
+- The Forge Id map export writes from the host, piece by piece.
+
+### Changed
+
+- Past 50,000 records, a Forge run's ids stay in its journal rather than in the
+  history and the removal plan; removal, Verify, Retry and the export read
+  them from there.
+- A Sync delta run looks for newly attached files only past the newest it
+  already looked at.
+
+### Fixed
+
+- The ids an insert returns are written to the journal before the run goes on.
+- A resumed run from a record fills the lookups its stopped part owed.
+- Lookups a record owes on two pages are sent once, and a conflict between them
+  is found.
+- The Sync help no longer says delta runs do not exist.
+
 ## [1.51.0] - 2026-10-14
 
 A Forge run that stopped can be resumed, and every stop says what it left.
