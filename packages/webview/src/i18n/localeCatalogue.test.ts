@@ -101,7 +101,7 @@ describe('French copy carries its accents', () => {
       .filter(([, value]) => UNACCENTED.test(value))
       .map(([key]) => key);
     expect(offenders).toEqual([]);
-    expect(nls.description).toContain('Génération de données');
+    expect(nls.description).toContain('générez des données synthétiques');
     expect(nls['command.openSettings']).toBe('SandForge : Paramètres');
   });
 });
