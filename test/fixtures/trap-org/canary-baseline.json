@@ -17,6 +17,12 @@
     "refusedItems": 1,
     "left": 0
   },
+  "forge sweep": {
+    "leftByRemoval": 30,
+    "listed": 30,
+    "sweepStatus": "success",
+    "left": 0
+  },
   "dataops backup": {
     "held": 1200,
     "orgCount": 1200

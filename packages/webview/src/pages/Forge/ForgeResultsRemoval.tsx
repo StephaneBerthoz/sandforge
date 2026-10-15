@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Trash2 } from 'lucide-react';
+import { Eraser, Trash2 } from 'lucide-react';
 import { forgeRunCountsLeft, forgeRunCreatedSome } from '@sandforge/shared';
 import type { ForgeExecutionResult, ForgeUndoResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -13,6 +13,7 @@ import {
   ForgeRunRemovalMark,
   ForgeRunRemovalResult,
 } from './ForgeRunRemovalView';
+import { ForgeRunSweepMark } from './ForgeRemovalSweep';
 
 /** How long a removal may wait on the host: Production Guard may wait on a person. */
 const WAIT_ON_A_PERSON_MS = 600_000;
@@ -41,7 +42,8 @@ export interface ForgeResultsRemovalProps {
  * the removal the history of runs offers, with the same confirmation
  * (`ForgeRunRemovalConfirm`), and what it did shown in place. A removal that
  * left records in the org — kept, refused, or not reached before a cancel —
- * is followed by one of what it left.
+ * is followed by one of what it left. A run whose records are all removed
+ * already is offered the sweep alone, when the target dated its writes.
  *
  * The extension removes what its own history says the run created; what that
  * history now says of the run, once a removal answered, is read back from it
@@ -57,6 +59,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
   const org = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId)?.alias);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
+  const [sweep, setSweep] = useState(false);
   const removal = useBridgeMutation<UndoAnswer>('forge:undo', {
     responseType: 'forge:undo:response',
     errorType: 'forge:undo:error',
@@ -102,7 +105,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
 
   const confirmRemoval = (): void => {
     if (!entry) return;
-    removal.mutate({ forgeId: run.forgeId, includeChanged });
+    removal.mutate({ forgeId: run.forgeId, includeChanged, ...(sweep ? { sweep: true } : {}) });
     setConfirming(false);
   };
 
@@ -124,6 +127,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         disabled={removal.loading}
         onClick={() => {
           setIncludeChanged(false);
+          setSweep(false);
           setConfirming(true);
         }}
         data-testid="forge-results-remove"
@@ -135,6 +139,27 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
       <p data-testid="forge-results-remove-org-gone" className="text-xs text-text-secondary">
         {t('forge.history.removeOrgGone')}
       </p>
+    );
+  } else if (entry && !awaitingEntry && entry.undo && entry.writtenBetween && org) {
+    // Nothing of the run left to remove: what its target's automation
+    // created during it may be, and the sweep alone is offered.
+    action = (
+      <Button
+        variant="secondary"
+        size="md"
+        icon={<Eraser size={14} />}
+        loading={removal.loading}
+        disabled={removal.loading}
+        onClick={() => {
+          setIncludeChanged(false);
+          setSweep(true);
+          setConfirming(true);
+        }}
+        data-testid="forge-results-sweep"
+        className="self-start"
+      >
+        {t('forge.history.sweepAction')}
+      </Button>
     );
   }
 
@@ -148,6 +173,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
           }
         />
       )}
+      {entry?.sweep && <ForgeRunSweepMark mark={entry.sweep} />}
       {action}
       {removal.loading && (
         <p
@@ -167,6 +193,8 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         org={org ?? ''}
         includeChanged={includeChanged}
         onIncludeChangedChange={setIncludeChanged}
+        sweep={sweep}
+        onSweepChange={setSweep}
         onClose={() => setConfirming(false)}
         onConfirm={confirmRemoval}
       />

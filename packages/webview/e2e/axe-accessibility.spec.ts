@@ -5373,6 +5373,72 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Forge run removal confirmation with the sweep ticked, listing what it would take', async ({
+      page,
+    }) => {
+      await openForgeHistory(bridge, page, theme);
+      await page.getByTestId(`forge-history-remove-${FORGE_REMOVABLE_RUN.forgeId}`).click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this run's records from ${QA_SANDBOX.alias}`,
+      });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await dialog.getByTestId('forge-removal-sweep-toggle').check();
+      await expect(dialog.getByTestId('forge-sweep-loading')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+      await bridge.waitForMessage('forge:undo-sweep:request', { timeout: 10_000 });
+      await answerAll(page, 'forge:undo-sweep:request', 'forge:undo-sweep:response', {
+        forgeId: FORGE_REMOVABLE_RUN.forgeId,
+        listing: {
+          window: { from: '2026-09-20T09:59:59Z', to: '2026-09-20T10:06:00Z' },
+          looked: ['Contact', 'Account', 'Task', 'FeedItem', 'ContentDocumentLink', 'Asset'],
+          found: [
+            { objectApiName: 'Task', count: 35, names: ['Welcome call', 'Follow up', 'Check'] },
+            { objectApiName: 'Asset', count: 66, names: ['Insured risk'] },
+            { objectApiName: 'FeedItem', count: 10_000, names: [], overBound: true },
+          ],
+          unread: [
+            {
+              objectApiName: 'ContentDocumentLink',
+              reason: 'It keeps no creator or creation date.',
+            },
+          ],
+          automationGaps: { flowsNotRead: 2, triggers: 1 },
+          handWork: [],
+        },
+      });
+      await expect(dialog.getByTestId('forge-sweep-found-Task')).toBeVisible();
+      await dialog.getByTestId('forge-sweep-found-Task').locator('summary').click();
+      await expect(dialog.getByText('Welcome call, Follow up, Check, …')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge run removal result followed by what the sweep did', async ({ page }) => {
+      await openForgeHistory(bridge, page, theme);
+      await page.getByTestId(`forge-history-remove-${FORGE_REMOVABLE_RUN.forgeId}`).click();
+      await page.getByTestId('forge-removal-sweep-toggle').check();
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('forge:undo', { timeout: 10_000 });
+      await answerAll(page, 'forge:undo', 'forge:undo:response', {
+        result: {
+          ...FORGE_REMOVAL_RESULT,
+          sweep: {
+            status: 'refused',
+            refusal:
+              'The run’s user created records in the run’s window that neither the run nor the target’s automation writes (Opportunity: 2): hand work, likely.',
+            objects: [],
+            unread: [],
+            handWork: [{ objectApiName: 'Opportunity', count: 2 }],
+          },
+        },
+        operationId: 'forge-undo-1',
+      });
+      await page.getByTestId('forge-sweep-result').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-sweep-hand-work-Opportunity')).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Frozen load removal confirmation open over the last load', async ({ page }) => {
       await openFrozenLastLoad(bridge, page, theme);
       await page.getByTestId('frozen-removal-remove').click();

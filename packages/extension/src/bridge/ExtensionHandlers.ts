@@ -827,6 +827,7 @@ export class ExtensionHandlers {
         'forge:rehearse:request',
         'forge:automation:request',
         'forge:undo-automation:request',
+        'forge:undo-sweep:request',
         'forge:gaps:request',
         'forge:users:request',
       ],

@@ -325,6 +325,37 @@ back from a query no more than a deleted one. A record the first read of its
 object does not find is looked for in the org's recycle bin: there, it is
 already gone; nowhere, it is not visible to the user the removal runs as.
 
+A removal takes back what the run wrote, and nothing the target's automation
+wrote in answer. Run for real into a client sandbox, a clone of 1 284 records
+made the target's automation create some 585 more in the same minute, as the
+run's user — 484 feed items, 66 assets a Case flow created for each case, 35
+tasks — which no remap held: some went in cascade with their parents, the
+assets stayed. A removal asked with a sweep (`ForgeRunSweep`) then looks, once
+the run's own records are gone, for what the run's user created in the run's
+window that the run's id map does not hold: the window is `writtenBetween`,
+from a second before its first date (the org dates a record to the second) to
+a minute after its last (an asynchronous path or a queued job writes seconds
+after the save); the user is the creator of the run's records, read from the
+org or its recycle bin; the objects are those the run wrote, `Task`, `Event`,
+`FeedItem`, `FeedComment`, `EmailMessage`, `ContentDocumentLink`, `Note` and
+`CaseComment`, and those the record-create elements of the target's flows on
+the run's objects create (`ForgeTargetFlow.creates`), with the flows whose
+metadata was not read and the Apex triggers said, as no metadata says what a
+trigger creates. An object that keeps no creator or creation date —
+`ContentDocumentLink` — is said and not looked at; past 10 000 records, an
+object is said and left. Every row the org answers is checked again against
+the user and the window before its delete is sent. The sweep is refused,
+deleting nothing, when the run's user created records in the window on
+objects neither the run nor the automation reaches (`Account`, `Contact`,
+`Lead`, `Opportunity`, `Case`, `Campaign`, `Contract`, `Order`, `Asset`,
+`Product2`, less those): hand work, likely, which could not be told from what
+the automation created. Production Guard judges its deletes as the removal's;
+a record changed since the run by anyone but a removal of it stays unless the
+request includes what changed; children go before their parents, and a stop
+is honoured between two calls. The result says per object what was found,
+deleted, already gone, kept and refused, the run keeps its counts (`sweep`),
+and the audit trail records it as a `cleanup_delete` with a `sweep` detail.
+
 ## ExecuteOptions
 
 | Option                 | Default                                  | Effect                                                                         |

@@ -204,9 +204,10 @@ function leftInTarget(byObject) {
  * Remove what the clone wrote, the trap included: the target's before-delete
  * flow refuses an item until `Trap_Allow_Delete__c` is checked (trap 8), so
  * the first removal is expected to leave those, and the second, once they are
- * let go, everything.
+ * let go, everything. Then the sweep takes what the target's automation
+ * created as the clone wrote (`sweepClone`).
  */
-function removeClone(summaryPath, { quiet = false } = {}) {
+function removeClone(summaryPath, user, { quiet = false } = {}) {
   const first = tsx('forge-remove', CLONE_CLI, [
     '--remove',
     summaryPath,
@@ -246,7 +247,10 @@ function removeClone(summaryPath, { quiet = false } = {}) {
     '--json',
   ]);
   const left = leftInTarget(created);
-  if (quiet) return left;
+  if (quiet) {
+    sweepClone(summaryPath, user, { quiet });
+    return left;
+  }
   record(
     'forge remove',
     left === 0,
@@ -255,7 +259,94 @@ function removeClone(summaryPath, { quiet = false } = {}) {
       `${left ?? 'unknown'} record(s) left in the target`,
     { firstStatus: firstResult?.status ?? null, refusedItems, left: left ?? null },
   );
-  return left;
+  return sweepClone(summaryPath, user) ? left : undefined;
+}
+
+/**
+ * How far around the run's writes a sweep looks: `SWEEP_LEAD_MS` and
+ * `SWEEP_TRAIL_MS` in ForgeRunSweep.ts.
+ */
+const SWEEP_LEAD_MS = 1_000;
+const SWEEP_TRAIL_MS = 60_000;
+/** The subject trap 18's flow gives each task it opens. */
+const FOLLOW_UP_SUBJECT = 'Trap follow-up: ';
+
+/** A date as a SOQL literal takes it, to the second. */
+const soqlDate = (epoch) => new Date(epoch).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+/**
+ * What the target's automation created as the clone wrote, taken back by the
+ * sweep: trap 18's flow opens a task for each contact created under an
+ * account, pointing at no record, so the removal leaves every one of them.
+ * Counted by the run's window and user once the removal is through, listed
+ * by `--sweep-list`, taken by `--sweep`, and counted again: none is left. A
+ * task of the flow the sweep left is deleted all the same, so that nothing of
+ * the canary's stays in the target; the step then fails.
+ *
+ * @returns Whether no task of the run's window and user is left.
+ */
+function sweepClone(summaryPath, user, { quiet = false } = {}) {
+  const written = JSON.parse(readFileSync(summaryPath, 'utf8')).result?.writtenBetween;
+  const first = Date.parse(written?.first ?? '');
+  const last = Date.parse(written?.last ?? '');
+  if (!user || !Number.isFinite(first) || !Number.isFinite(last)) {
+    if (!quiet) record('forge sweep', false, 'the run did not say when it wrote, or as whom');
+    return false;
+  }
+  const from = soqlDate(Math.floor((first - SWEEP_LEAD_MS) / 1000) * 1000);
+  const to = soqlDate(Math.ceil((last + SWEEP_TRAIL_MS) / 1000) * 1000);
+  const inWindow = `CreatedById = '${user}' AND CreatedDate >= ${from} AND CreatedDate <= ${to}`;
+  const tasks = (label) => rows(label, TARGET, `SELECT Id, Subject FROM Task WHERE ${inWindow}`);
+
+  const leftByRemoval = tasks('sweep-before')?.length;
+  const list = tsx('forge-sweep-list', CLONE_CLI, [
+    '--remove',
+    summaryPath,
+    '--target',
+    TARGET,
+    '--sweep-list',
+    '--json',
+  ]);
+  const listing = jsonOf(list.stdout)?.listing;
+  const listed = (listing?.found ?? []).find((found) => found.objectApiName === 'Task')?.count ?? 0;
+  const sweep = tsx('forge-sweep', CLONE_CLI, [
+    '--remove',
+    summaryPath,
+    '--target',
+    TARGET,
+    '--sweep',
+    '--accept-automation',
+    '--json',
+  ]);
+  const swept = jsonOf(sweep.stdout)?.result?.sweep;
+  const after = tasks('sweep-after');
+  const strays = (after ?? []).filter((task) => String(task.Subject).startsWith(FOLLOW_UP_SUBJECT));
+  if (strays.length > 0)
+    destroy(
+      'sweep-strays',
+      TARGET,
+      strays.map((task) => task.Id),
+    );
+  const left = after?.length;
+  if (quiet) return left === 0;
+  return record(
+    'forge sweep',
+    (leftByRemoval ?? 0) > 0 &&
+      listed === leftByRemoval &&
+      swept?.status === 'success' &&
+      left === 0,
+    `${leftByRemoval ?? 'unknown'} task(s) the target's flow created left by the removal, ` +
+      `${listed} listed, sweep ${swept?.status ?? `exit ${sweep.status}`}` +
+      (swept?.refusal ? ` (${swept.refusal})` : '') +
+      `, ${left ?? 'unknown'} left in the window` +
+      (strays.length > 0 ? ` (${strays.length} deleted after it)` : ''),
+    {
+      leftByRemoval: leftByRemoval ?? null,
+      listed,
+      sweepStatus: swept?.status ?? null,
+      left: left ?? null,
+    },
+  );
 }
 
 function forge() {
@@ -300,7 +391,7 @@ function forge() {
     return record('forge bypass', false, `${BYPASS_SET} not assigned: ${why(assigned.stderr)}`);
   }
   try {
-    return cloneAndRemove(root);
+    return cloneAndRemove(root, user);
   } finally {
     const given = dropBypass(user);
     record(
@@ -338,7 +429,7 @@ function dropBypass(user) {
   return query('bypass-left').length === 0;
 }
 
-function cloneAndRemove(root) {
+function cloneAndRemove(root, user) {
   const rehearse = tsx('forge-rehearse', CLONE_CLI, [
     ...cloneBase(root),
     '--rehearse',
@@ -396,10 +487,10 @@ function cloneAndRemove(root) {
     const verdict = jsonOf(verify.stdout)?.result?.verdict;
     record('forge verify', verdict === 'verified', verdict ?? why(verify.stderr));
 
-    return removeClone(summaryPath) === 0;
+    return removeClone(summaryPath, user) === 0;
   } catch (error) {
     // Whatever broke, what was written goes.
-    if (wrote) removeClone(summaryPath, { quiet: true });
+    if (wrote) removeClone(summaryPath, user, { quiet: true });
     return record('forge', false, error instanceof Error ? error.message : String(error));
   }
 }

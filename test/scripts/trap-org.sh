@@ -889,6 +889,10 @@ verify_target() {
     --query "SELECT Id FROM WorkflowRule WHERE Name = 'Trap_Contact_Welcome'" || true)
   note target 9c 'workflow rule with an email alert' \
     "$(jq -r 'if .result.totalSize > 0 then "deployed" elif .result then "absent: the deploy was refused" else "unread" end' <<<"$response" 2>/dev/null || printf 'unread')"
+  # 18. A flow that opens a task, pointing at no record, for each contact
+  # created under an account: what a sweep after a removal takes back.
+  note target 18 'active flow: follow-up task' \
+    "$(count "$org" "SELECT COUNT() FROM FlowDefinitionView WHERE ApiName = 'Trap_Contact_Follow_Up_Task' AND IsActive = true")"
 
   # 10. An active assignment rule on Lead.
   insert "$org" Lead '{"LastName":"Probe Assign","Company":"Trap Probe","Email":"trap.probe.assign@example.invalid"}'

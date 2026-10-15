@@ -10,6 +10,7 @@ import type {
   ForgeRehearsalProgress,
   ForgeRemovalPlan,
   ForgeRunVerification,
+  ForgeSweepListing,
   ForgeTargetAutomation,
   ForgeTargetGaps,
   ForgeTemplate,
@@ -118,6 +119,13 @@ export interface ForgeUndoRequest extends BaseMessage {
      * them since; they are kept otherwise.
      */
     includeChanged?: boolean;
+    /**
+     * Sweep too, once the run's records are gone: delete what the target's
+     * automation created during the run, as the run's user, that the run's
+     * id map does not hold (`ForgeSweepListing`). Never done unasked. Asked
+     * of a run whose records were all removed already, the sweep alone runs.
+     */
+    sweep?: boolean;
   };
 }
 
@@ -252,6 +260,17 @@ export interface ForgeAutomationRequest extends BaseMessage {
  */
 export interface ForgeUndoAutomationRequest extends BaseMessage {
   type: 'forge:undo-automation:request';
+  payload: { forgeId: string };
+}
+
+/**
+ * `forge:undo-sweep:request`. WebView -> Extension. Read what a sweep asked
+ * with a past run's removal would take, for the removal's confirmation: read
+ * only. The run is named, never records: the extension reads its window, its
+ * objects and its id map from its own history, as the sweep does.
+ */
+export interface ForgeUndoSweepRequest extends BaseMessage {
+  type: 'forge:undo-sweep:request';
   payload: { forgeId: string };
 }
 
@@ -586,6 +605,22 @@ export interface ForgeUndoAutomationResponse extends BaseMessage {
 /** `forge:undo-automation:error`. Extension -> WebView (emitted via sendHandlerError). */
 export interface ForgeUndoAutomationErrorMessage extends BaseMessage {
   type: 'forge:undo-automation:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:undo-sweep:response`. Extension -> WebView. What a sweep would take
+ * once the run's records are gone, per object, read before anything is
+ * deleted; or why it would not run.
+ */
+export interface ForgeUndoSweepResponse extends BaseMessage {
+  type: 'forge:undo-sweep:response';
+  payload: { forgeId: string; listing: ForgeSweepListing };
+}
+
+/** `forge:undo-sweep:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeUndoSweepErrorMessage extends BaseMessage {
+  type: 'forge:undo-sweep:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

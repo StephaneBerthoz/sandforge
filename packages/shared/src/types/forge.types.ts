@@ -726,6 +726,131 @@ export interface ForgeUndoResult {
    * there were none.
    */
   mayHaveBeenWritten?: number;
+  /**
+   * What the sweep asked with the removal did: the records the target's
+   * automation created during the run, taken back once the run's own were.
+   * Absent when no sweep was asked.
+   */
+  sweep?: ForgeSweepResult;
+}
+
+/**
+ * The span a sweep looks in, by the target's clock, ISO 8601: the run's
+ * writes (`ForgeWrittenBetween`), from a second before its first to a minute
+ * after its last.
+ */
+export interface ForgeSweepWindow {
+  from: string;
+  to: string;
+}
+
+/** What a sweep found of one object, before it deletes anything. */
+export interface ForgeSweepFound {
+  objectApiName: string;
+  /** Records the run's user created in the window that the run's id map does not hold. */
+  count: number;
+  /** A few of them by name, as the org names them; empty for an object whose records have none. */
+  names: string[];
+  /**
+   * Set when the object holds more such records than a sweep takes of one
+   * object: none of them is swept, and the count stops at the bound.
+   */
+  overBound?: true;
+}
+
+/** An object a sweep could not look at, and why, in the org's words or the sweep's. */
+export interface ForgeSweepUnread {
+  objectApiName: string;
+  reason: string;
+}
+
+/**
+ * What a sweep could not tell of the target's automation: the objects it may
+ * have created that the sweep does not look at.
+ */
+export interface ForgeSweepAutomationGaps {
+  /** Flows and processes on the run's objects whose metadata was not read: what they create is unknown. */
+  flowsNotRead: number;
+  /** Apex triggers on the run's objects: no metadata says what they create. */
+  triggers: number;
+  /** Why the target's automation could not be read at all, when it could not. */
+  error?: string;
+}
+
+/**
+ * What a sweep would take, read before anything is deleted: per object, the
+ * records the run's user created during the run that the run's id map does
+ * not hold — in the objects the run wrote, the objects the platform and its
+ * automation commonly fill beside a record (tasks, events, feed, email
+ * messages, notes, case comments, file links) and the objects the target's
+ * flows create.
+ */
+export interface ForgeSweepListing {
+  /**
+   * Why the sweep will not run, when it will not: nothing is deleted. The
+   * run's write window or its user could not be told, or the user created
+   * records in the window that neither the run nor the target's automation
+   * reaches — hand work, likely, in the same span.
+   */
+  refusal?: string;
+  /** The span looked in; absent when the run's writes were not dated. */
+  window?: ForgeSweepWindow;
+  /** The objects looked at, by API name. */
+  looked: string[];
+  /** Per object, what was found; objects with nothing found are left out. */
+  found: ForgeSweepFound[];
+  /** The objects that could not be looked at. */
+  unread: ForgeSweepUnread[];
+  /** What of the target's automation could not be read; absent when all of it was. */
+  automationGaps?: ForgeSweepAutomationGaps;
+  /**
+   * Records the run's user created in the window on objects neither the run
+   * nor the target's automation reaches, per object: said, never swept, and
+   * the reason the sweep is refused.
+   */
+  handWork: ForgeRemovalLeftCount[];
+}
+
+/** What a sweep did to one object's records. */
+export interface ForgeSweepObjectResult {
+  objectApiName: string;
+  /** Records found, as the listing counted them once the run's own were gone. */
+  found: number;
+  deleted: number;
+  /** Gone by the time their delete was sent: taken along with a parent. */
+  alreadyGone: number;
+  /** Modified since the run by someone other than a removal of it: kept unless the request included what changed. */
+  keptChanged: number;
+  /** Refused by the org. */
+  refused: number;
+  /** Why records were refused, in the org's words: each reason once, a few at most. */
+  reasons: string[];
+}
+
+/** What a sweep did, once the run's own records were removed. */
+export interface ForgeSweepResult {
+  /** How it ended; `refused` when it would not run, and deleted nothing. */
+  status: ForgeUndoStatus | 'refused';
+  /** Why it would not run, when it would not. */
+  refusal?: string;
+  window?: ForgeSweepWindow;
+  /** Per object, children before their parents. */
+  objects: ForgeSweepObjectResult[];
+  unread: ForgeSweepUnread[];
+  automationGaps?: ForgeSweepAutomationGaps;
+  handWork: ForgeRemovalLeftCount[];
+}
+
+/** What a history entry remembers of the sweeps run with its removals. */
+export interface ForgeSweepMark {
+  /** ISO 8601 timestamp of when the last sweep ended. */
+  sweptAt: string;
+  /** Records deleted, by every sweep of the run. */
+  deleted: number;
+  /** Records the last sweep kept, changed since the run. */
+  keptChanged: number;
+  /** Records the org refused the last sweep. */
+  refused: number;
 }
 
 /**
@@ -805,6 +930,8 @@ export interface ForgeRemovalPlan {
   removalSpans?: ForgeRemovalSpan[];
   /** See `ForgeExecutionResult.removalLeft`. */
   removalLeft?: string[];
+  /** See `ForgeExecutionResult.sweep`. */
+  sweep?: ForgeSweepMark;
   /**
    * Set for a run whose ids are in its journal (`ForgeExecutionResult.remapInJournal`):
    * `objects` is empty, and the ids are read from that part of that journal,
@@ -1485,6 +1612,11 @@ export interface ForgeExecutionResult {
    */
   removalLeft?: string[];
   /**
+   * What the sweeps asked with its removals took back of what the target's
+   * automation created during the run. Absent until a sweep ran.
+   */
+  sweep?: ForgeSweepMark;
+  /**
    * The configuration that produced this run, minus the org ids.
    *
    * History used to store graph + timings + remap table and nothing you could
@@ -1764,6 +1896,12 @@ export interface ForgeTargetFlow {
   messages?: ForgeMessageAction[];
   /** The custom settings, user fields, profiles and custom metadata it tests. */
   switches?: ForgeFlowSwitch[];
+  /**
+   * The objects its record-create elements create, as its metadata names
+   * them; absent when it creates none, and when its metadata was not read
+   * (`condition`).
+   */
+  creates?: string[];
 }
 
 /** An active Apex trigger of the target, on an object a run writes. */

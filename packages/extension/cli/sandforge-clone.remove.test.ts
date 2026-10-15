@@ -3,7 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Connection } from 'jsforce';
-import type { ForgeRemovalSpan, ForgeUndoObjectResult } from '@sandforge/shared';
+import type {
+  ForgeRemovalSpan,
+  ForgeSweepListing,
+  ForgeSweepResult,
+  ForgeUndoObjectResult,
+} from '@sandforge/shared';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 // The files are real; a test can make one write refuse.
@@ -21,6 +26,11 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/modules/forge/ForgeRunRemoval.js')>();
   return { ...actual, removalOrg: vi.fn(), removeRunRecords: vi.fn() };
 });
+// So is the sweep: here, what the command hands it, when, and what it says of it.
+vi.mock('../src/modules/forge/ForgeRunSweep.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/modules/forge/ForgeRunSweep.js')>();
+  return { ...actual, listSweep: vi.fn(), sweepRunRecords: vi.fn() };
+});
 
 import { loadOrg, makeConn } from './sfSession.js';
 import {
@@ -30,6 +40,12 @@ import {
   type RunRemovalOptions,
   type RunRemovalOutcome,
 } from '../src/modules/forge/ForgeRunRemoval.js';
+import {
+  listSweep,
+  sweepRunRecords,
+  type SweepInput,
+  type SweepOptions,
+} from '../src/modules/forge/ForgeRunSweep.js';
 import {
   main,
   parseRunSummary,
@@ -891,6 +907,206 @@ describe('sandforge-clone --remove', () => {
       expect(await run(['--remove', path, '--target', 'TGT', '--json'])).toBeUndefined();
 
       expect(JSON.parse(stdout.join(''))).toMatchObject({ removalsFile: removalsPath(path) });
+    });
+  });
+
+  describe('the sweep', () => {
+    /** The removals file beside a summary, as JSON. */
+    const removalsOf = (summaryPath: string): unknown =>
+      JSON.parse(readFileSync(removalsPath(summaryPath), 'utf8'));
+    /** What a sweep found: a task and an asset the target's automation created. */
+    const LISTING: ForgeSweepListing = {
+      window: { from: '2026-10-01T09:59:59Z', to: '2026-10-01T10:01:05Z' },
+      looked: ['Contact', 'Account', 'Task', 'Asset'],
+      found: [
+        { objectApiName: 'Task', count: 1, names: ['Welcome call'] },
+        { objectApiName: 'Asset', count: 1, names: ['Insured risk'] },
+      ],
+      unread: [],
+      handWork: [],
+    };
+    const SWEPT: ForgeSweepResult = {
+      status: 'success',
+      window: LISTING.window,
+      objects: [
+        {
+          objectApiName: 'Task',
+          found: 1,
+          deleted: 1,
+          alreadyGone: 0,
+          keptChanged: 0,
+          refused: 0,
+          reasons: [],
+        },
+        {
+          objectApiName: 'Asset',
+          found: 1,
+          deleted: 1,
+          alreadyGone: 0,
+          keptChanged: 0,
+          refused: 0,
+          reasons: [],
+        },
+      ],
+      unread: [],
+      handWork: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(listSweep).mockResolvedValue(LISTING);
+      vi.mocked(sweepRunRecords).mockImplementation(async (_org, _input, options) => {
+        await options.approve?.(LISTING);
+        return SWEPT;
+      });
+    });
+
+    /** What the command handed the sweep, from its one call. */
+    function sweepCall(): { input: SweepInput; options: SweepOptions } {
+      expect(sweepRunRecords).toHaveBeenCalledTimes(1);
+      const [, input, options] = vi.mocked(sweepRunRecords).mock.calls[0];
+      return { input, options };
+    }
+
+    it('refuses --sweep beside --sweep-list, before anything is read', async () => {
+      const path = file(runSummary());
+      expect(await run(['--remove', path, '--target', 'TGT', '--sweep', '--sweep-list'])).toBe(2);
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
+    it('lists what a sweep would delete, with a few names, and deletes nothing', async () => {
+      const path = file(runSummary());
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--sweep-list'])).toBeUndefined();
+
+      expect(removeRunRecords).not.toHaveBeenCalled();
+      expect(sweepRunRecords).not.toHaveBeenCalled();
+      expect(printed).toContain('it would delete 2 record(s), children first:');
+      expect(printed).toContain('  Task: 1 (Welcome call)');
+      expect(printed).toContain('  Asset: 1 (Insured risk)');
+      expect(existsSync(removalsPath(path))).toBe(false);
+    });
+
+    it('prints the listing as JSON alone on stdout under --json', async () => {
+      const path = file(runSummary());
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep-list', '--json']),
+      ).toBeUndefined();
+
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        action: 'sweep-list',
+        targetOrgId: TARGET_ORG,
+        listing: { found: LISTING.found },
+      });
+    });
+
+    it('sweeps once the removal is through, with the run’s window, records and id map, and the removal’s span', async () => {
+      const path = file(runSummary());
+      vi.mocked(removeRunRecords).mockResolvedValue({ ...TOOK_ALL, span: FIRST_SPAN });
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--sweep', '--json'])).toBeUndefined();
+
+      expect(vi.mocked(removeRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(sweepRunRecords).mock.invocationCallOrder[0],
+      );
+      const { input, options } = sweepCall();
+      expect(input.writtenBetween).toEqual(WRITTEN_BETWEEN);
+      expect(input.created).toEqual(PLAN);
+      // Every record the id map holds is out of the sweep's reach: the ones
+      // the run created, linked to, wrote over, and the person contact.
+      for (const source of [ACCOUNT, ...CONTACTS, HELD, WRITTEN_OVER, PERSON_CONTACT]) {
+        const target = TGT(source.slice(0, 3), Number(source.slice(3, 15)));
+        expect(input.remap.has(target.slice(0, 15))).toBe(true);
+      }
+      expect(options).toMatchObject({ includeChanged: false, removalSpans: [FIRST_SPAN] });
+      expect(stderr).toContain('it would delete 2 record(s), children first:');
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        result: { status: 'success', sweep: { status: 'success' } },
+      });
+      expect(removalsOf(path)).toMatchObject({
+        sweep: { deleted: 2, keptChanged: 0, refused: 0 },
+        removalSpans: [FIRST_SPAN],
+      });
+    });
+
+    it('sweeps nothing unasked', async () => {
+      const path = file(runSummary());
+
+      expect(await run(['--remove', path, '--target', 'TGT'])).toBeUndefined();
+
+      expect(sweepRunRecords).not.toHaveBeenCalled();
+      expect(listSweep).not.toHaveBeenCalled();
+    });
+
+    it('runs alone once earlier removals took every record of the run', async () => {
+      const path = file(runSummary());
+      file(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          run: runKey(PLAN),
+          removalStamps: {},
+          removalSpans: [FIRST_SPAN],
+          removalLeft: [],
+        },
+        'clone-summary.removals.json',
+      );
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--sweep'])).toBeUndefined();
+
+      expect(removeRunRecords).not.toHaveBeenCalled();
+      expect(sweepCall().options.removalSpans).toEqual([FIRST_SPAN]);
+      expect(printed).toContain('sweep: SUCCESS');
+      expect(printed).toContain('  Task: 1 deleted of 1');
+      expect(printed.join('\n')).not.toContain('removal: ');
+      expect(removalsOf(path)).toMatchObject({ removalLeft: [], sweep: { deleted: 2 } });
+    });
+
+    it('refuses a production org before the sweep reads anything', async () => {
+      organization = { Id: TARGET_ORG, IsSandbox: false };
+      const path = file(runSummary());
+      file(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          run: runKey(PLAN),
+          removalStamps: {},
+          removalSpans: [],
+          removalLeft: [],
+        },
+        'clone-summary.removals.json',
+      );
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--sweep'])).toBe(1);
+
+      expect(sweepRunRecords).not.toHaveBeenCalled();
+    });
+
+    it('exits 3 when the sweep is refused, and records it in the audit trail', async () => {
+      const path = file(runSummary());
+      const auditPath = join(dir, 'audit.json');
+      vi.mocked(sweepRunRecords).mockResolvedValue({
+        status: 'refused',
+        refusal: 'hand work, likely',
+        objects: [],
+        unread: [],
+        handWork: [{ objectApiName: 'Opportunity', count: 1 }],
+      });
+
+      expect(
+        await run(['--remove', path, '--target', 'TGT', '--sweep', '--audit', auditPath]),
+      ).toBe(3);
+
+      expect(printed).toContain('sweep: REFUSED');
+      expect(printed.join('\n')).toContain('Opportunity: 1 (left)');
+      const kept = JSON.parse(readFileSync(auditPath, 'utf8')) as Record<string, { value: string }>;
+      const entries = JSON.parse(kept['audit:trail'].value) as Array<Record<string, unknown>>;
+      expect(entries.at(-1)).toMatchObject({
+        action: 'cleanup_delete',
+        outcome: 'stopped',
+        operationId: expect.stringMatching(/-sweep$/),
+        details: { sweep: true, handWork: 1, code: 'SWEEP_REFUSED' },
+      });
     });
   });
 });

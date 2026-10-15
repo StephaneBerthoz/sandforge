@@ -455,6 +455,51 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     });
   });
 
+  it('sends a sweep with the removal once it is ticked, and none unticked', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+    fireEvent.click(screen.getByTestId('forge-removal-sweep-toggle'));
+    expect(sent('forge:undo-sweep:request')?.payload).toEqual({ forgeId: 'forge-removable' });
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-removable',
+      includeChanged: false,
+      sweep: true,
+    });
+  });
+
+  it('offers the sweep alone for a run whose records went, and says what it took', () => {
+    const removed: ForgeExecutionResult = {
+      ...REMOVABLE_RUN,
+      writtenBetween: { first: '2026-09-01T07:59:00.000Z', last: '2026-09-01T08:00:00.000Z' },
+      undo: {
+        removedAt: '2026-09-02T08:00:00.000Z',
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      },
+      removalLeft: [],
+      sweep: { sweptAt: '2026-09-02T08:01:00.000Z', deleted: 4, keptChanged: 0, refused: 0 },
+    };
+    render(<ForgeHistoryPanel entries={[removed]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.queryByTestId('forge-history-remove-forge-removable')).toBeNull();
+    expect(screen.getByTestId('forge-sweep-mark').textContent).toContain('4 deleted');
+    fireEvent.click(screen.getByTestId('forge-history-sweep-forge-removable'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-removable',
+      includeChanged: false,
+      sweep: true,
+    });
+  });
+
   it('asks for the records changed since the run too when the box is ticked', () => {
     render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
 
@@ -761,6 +806,21 @@ describe('ForgeHistoryPanel — older runs', () => {
     expect(run.textContent).toContain('Success');
     expect(run.textContent).toContain('3 records to remove from DEV-SANDBOX');
     expect(within(run).getByRole('button', { name: 'Remove the records this run created' }));
+  });
+
+  it('offers no sweep for a run the history dropped: its id map is not kept', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[]}
+        olderRuns={[OLDER_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-older'));
+
+    expect(screen.queryByTestId('forge-removal-sweep-toggle')).toBeNull();
   });
 
   it('confirms with the records the plan names and the linked ones it keeps, and sends the run alone', () => {

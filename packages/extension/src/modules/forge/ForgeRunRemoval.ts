@@ -1142,7 +1142,7 @@ async function settleTakenAlong(
  * objects hold a lookup to it. An object the org cannot describe keeps its
  * place.
  */
-async function removalOrder<T extends { readonly objectApiName: string }>(
+export async function removalOrder<T extends { readonly objectApiName: string }>(
   org: RemovalOrg,
   plan: readonly T[],
 ): Promise<T[]> {
@@ -1750,7 +1750,7 @@ function runSpan(
 }
 
 /** What a delete did to one record. */
-type DeleteOutcome =
+export type DeleteOutcome =
   { kind: 'deleted' } | { kind: 'gone' } | { kind: 'refused'; reason: string; dependency: boolean };
 
 /**
@@ -1758,7 +1758,7 @@ type DeleteOutcome =
  * — deleted since it was read, often along with a parent — or refused, with
  * the org's reason. A call the org refuses whole refuses every record of it.
  */
-async function deleteBatch(
+export async function deleteBatch(
   org: RemovalOrg,
   objectApiName: string,
   batch: readonly string[],

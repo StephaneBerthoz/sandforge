@@ -314,4 +314,121 @@ describe('ForgeResultsRemoval', () => {
 
     expect(screen.queryByTestId('forge-results-removal')).toBeNull();
   });
+
+  describe('the sweep beside the removal', () => {
+    /** The run as the history holds it once every record it created is gone. */
+    const REMOVED: ForgeExecutionResult = {
+      ...RUN,
+      targetOrgId: DEV.id,
+      writtenBetween: { first: '2026-10-01T07:59:00.000Z', last: '2026-10-01T08:00:00.000Z' },
+      undo: {
+        removedAt: '2026-10-01T09:00:00.000Z',
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      },
+      removalLeft: [],
+    };
+
+    it('is offered unticked, lists what it would take once ticked, and goes with the removal', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      fireEvent.click(screen.getByTestId('forge-results-remove'));
+
+      const toggle = screen.getByTestId('forge-removal-sweep-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
+      expect(sentAll('forge:undo-sweep:request')).toEqual([]);
+
+      fireEvent.click(toggle);
+      expect(sentAll('forge:undo-sweep:request').map((m) => m.payload)).toEqual([
+        { forgeId: 'forge-on-screen' },
+      ]);
+      answer('forge:undo-sweep:request', 'forge:undo-sweep:response', {
+        forgeId: 'forge-on-screen',
+        listing: {
+          looked: ['Contact', 'Account', 'Task'],
+          found: [{ objectApiName: 'Task', count: 2, names: ['Welcome call'] }],
+          unread: [],
+          handWork: [],
+        },
+      });
+      expect(screen.getByTestId('forge-sweep-found-Task').textContent).toContain('Task: 2 records');
+
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(sentAll('forge:undo').map((message) => message.payload)).toEqual([
+        { forgeId: 'forge-on-screen', includeChanged: false, sweep: true },
+      ]);
+    });
+
+    it('shows what the sweep did after what the removal did', () => {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      confirmRemoval();
+      answer('forge:undo', 'forge:undo:response', {
+        result: {
+          ...PARTIAL_ANSWER,
+          status: 'success',
+          sweep: {
+            status: 'success',
+            objects: [
+              {
+                objectApiName: 'Task',
+                found: 2,
+                deleted: 2,
+                alreadyGone: 0,
+                keptChanged: 0,
+                refused: 0,
+                reasons: [],
+              },
+            ],
+            unread: [],
+            handWork: [],
+          },
+        },
+        operationId: 'forge-undo-3',
+      });
+
+      expect(screen.getByTestId('forge-removal-result-Contact')).toBeDefined();
+      expect(screen.getByTestId('forge-sweep-result-Task').textContent).toBe('Task: 2 deleted');
+    });
+
+    it('is offered alone for a run whose records are all removed, when the target dated its writes', () => {
+      render(<ForgeResultsRemoval run={REMOVED} targetOrgId={DEV.id} />);
+
+      expect(screen.queryByTestId('forge-results-remove')).toBeNull();
+      fireEvent.click(screen.getByTestId('forge-results-sweep'));
+      expect((screen.getByTestId('forge-removal-sweep-toggle') as HTMLInputElement).checked).toBe(
+        true,
+      );
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('forge:undo').map((message) => message.payload)).toEqual([
+        { forgeId: 'forge-on-screen', includeChanged: false, sweep: true },
+      ]);
+    });
+
+    it('is not offered alone for a run whose writes the target did not date', () => {
+      render(
+        <ForgeResultsRemoval
+          run={{ ...REMOVED, writtenBetween: undefined }}
+          targetOrgId={DEV.id}
+        />,
+      );
+      expect(screen.queryByTestId('forge-results-sweep')).toBeNull();
+    });
+
+    it('shows what every sweep of the run took', () => {
+      render(
+        <ForgeResultsRemoval
+          run={{
+            ...REMOVED,
+            sweep: { sweptAt: '2026-10-01T09:05:00.000Z', deleted: 2, keptChanged: 0, refused: 0 },
+          }}
+          targetOrgId={DEV.id}
+        />,
+      );
+      expect(screen.getByTestId('forge-sweep-mark').textContent).toContain('2 deleted');
+    });
+  });
 });

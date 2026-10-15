@@ -41,6 +41,7 @@ connected with `sf org login web --alias SANDFORGE-TRAP --instance-url https://l
 | 15  | The same with a Lead twin of a seeded email (Block rule)                                                                                                                                                                      | the twin refused in all four; nothing left                                       |
 | 16  | Asynchronous work an insert starts, rolled back in a composite call beside the same insert committed (the async probe, `target/probes`)                                                                                       | after the rollback, only the event published at once; the control, all six       |
 | 17  | A contact with an email (trap 9's flow) in a rolled-back composite call, beside one message sent for good                                                                                                                     | one single email taken, the control's                                            |
+| 18  | A flow that opens a follow-up Task, pointing at no record, for every Contact created under an account, as the user who created it: what a client org's Case flow did with assets, which no removal of the clone took back     | reports whether the flow is active                                               |
 
 A Developer Edition sends 15 single emails a day. The flow of trap 9 sends two per contact, and
 once the day's are spent it fails and the contact is refused (`CANNOT_EXECUTE_FLOW_TRIGGER`,
@@ -144,6 +145,10 @@ run ends, and prints counts and verdicts, never an id. `--skip-probes` leaves ou
   find it assigned to nobody (trap 3).
 - The first removal leaves the item trap 8 holds; the canary checks `Trap_Allow_Delete__c` on it
   and removes the rest with `--include-changed`, then counts by id what the target still holds.
+- Trap 18's flow opens a task for each contact the clone writes. The tasks point at no record, so
+  the removal leaves them: the canary counts them by the run's window and user once the removal is
+  through, lists what `--sweep-list` finds, takes them back with `--sweep`, and counts again: none
+  is left. A task of the flow the sweep left is deleted all the same, and the step fails.
 - `canary-clone-config.json` gives the clone the decisions the target needs (a value for
   `Trap_Target_Only__c`, the picklist values it refuses). `canary-baseline.json` holds the counts
   of the last accepted run; a run that counts otherwise fails, and `--update-baseline` records a

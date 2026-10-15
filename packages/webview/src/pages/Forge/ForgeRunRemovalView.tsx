@@ -19,6 +19,7 @@ import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
+import { ForgeRemovalSweep, ForgeRunSweepResult } from './ForgeRemovalSweep';
 
 /**
  * What a removal takes back — a Forge run, or a Frozen load — which is all
@@ -215,6 +216,12 @@ export interface ForgeRunRemovalConfirmProps {
   /** Whether the records changed since the run go too. */
   includeChanged: boolean;
   onIncludeChangedChange: (includeChanged: boolean) => void;
+  /**
+   * Whether a sweep follows the removal (`ForgeRemovalSweep`): offered for a
+   * run the history holds, never ticked unasked. Absent, no sweep is offered.
+   */
+  sweep?: boolean;
+  onSweepChange?: (sweep: boolean) => void;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -226,12 +233,19 @@ export interface ForgeRunRemovalConfirmProps {
  * earlier removal left when one did, what the target runs as the records go,
  * and whether the records changed since the run go too. One confirmation, so
  * the two places never say two things.
+ *
+ * A run the history holds is offered a sweep beside its removal: what the
+ * target's automation created during the run, as its user, that the run's id
+ * map does not hold — listed once ticked, before the org's name is typed. A
+ * run the history dropped keeps no id map, and is offered none.
  */
 export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   run,
   org,
   includeChanged,
   onIncludeChangedChange,
+  sweep = false,
+  onSweepChange,
   onClose,
   onConfirm,
 }) => {
@@ -243,6 +257,8 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
     [run],
   );
   const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKeptCount(run)) : 0;
+  const sweepOffered =
+    onSweepChange !== undefined && run !== null && !isKeptPlan(run) && run.forgeId !== undefined;
   return (
     <DangerConfirm
       open={run !== null}
@@ -272,6 +288,20 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
         />
         {t('forge.history.removeIncludeChanged')}
       </label>
+      {sweepOffered && (
+        <>
+          <label className="flex items-center gap-2 mt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={sweep}
+              onChange={(e) => onSweepChange?.(e.target.checked)}
+              data-testid="forge-removal-sweep-toggle"
+            />
+            {t('forge.history.removeSweep')}
+          </label>
+          {sweep && <ForgeRemovalSweep forgeId={run?.forgeId} org={org} />}
+        </>
+      )}
     </DangerConfirm>
   );
 };
@@ -279,7 +309,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
 /** Props for {@link ForgeRunRemovalResult}. */
 export interface ForgeRunRemovalResultProps {
   /** What the removal did, and the removal whose leftovers it took up, if any. */
-  result: Pick<ForgeUndoResult, 'status' | 'objects' | 'leftBy' | 'mayHaveBeenWritten'>;
+  result: Pick<ForgeUndoResult, 'status' | 'objects' | 'leftBy' | 'mayHaveBeenWritten' | 'sweep'>;
   /** The org it removed from, as the user knows it. */
   org: string;
   /** What it took back: a Forge run unless said. */
@@ -291,7 +321,9 @@ export interface ForgeRunRemovalResultProps {
  * changed since the run or because records that stay depend on them, refused
  * — with what the org said about the refusals, the files attached to the
  * records deleted that stay in the org (the removal takes only what the run
- * created), and, for a removal of what an earlier one left, which one.
+ * created), and, for a removal of what an earlier one left, which one. A sweep
+ * asked with it says what it did after; a sweep that ran alone, with nothing
+ * of the run left to remove, says it alone.
  */
 export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   result,
@@ -303,6 +335,9 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   // Said once for the removal: the same objects go unchecked under every
   // object that has them.
   const unchecked = [...new Set(result.objects.flatMap((object) => object.unchecked))];
+  if (result.sweep && result.objects.length === 0) {
+    return <ForgeRunSweepResult result={result.sweep} org={org} />;
+  }
   return (
     <section
       aria-labelledby={headingId}
@@ -370,6 +405,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
           })}
         </p>
       )}
+      {result.sweep && <ForgeRunSweepResult result={result.sweep} org={org} />}
     </section>
   );
 };

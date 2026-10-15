@@ -22,7 +22,7 @@
  *     [--max <n>] [--anonymize] [--dry-run]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
- *       [--audit <file>]
+ *       [--sweep | --sweep-list] [--audit <file>]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
  *
@@ -54,6 +54,10 @@ import type {
   ForgePlan,
   ForgeRemovalFilesLeft,
   ForgeRunObjectRecords,
+  ForgeSweepListing,
+  ForgeSweepMark,
+  ForgeSweepResult,
+  ForgeTargetAutomation,
   ForgeTemplateInput,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
@@ -139,6 +143,15 @@ import {
   removalAuditOutcome,
   removalStatus,
 } from '../src/modules/forge/removalOutcome.js';
+import {
+  listSweep,
+  sweepAuditDetails,
+  sweepAuditObjects,
+  sweepAutomationOf,
+  sweepMarkOf,
+  sweepRunRecords,
+  type SweepInput,
+} from '../src/modules/forge/ForgeRunSweep.js';
 import { recordWriteRun } from '../src/modules/audit/auditTrail.js';
 import type { AuditDeps, WriteRun } from '../src/modules/audit/auditTrail.js';
 import {
@@ -314,7 +327,7 @@ Usage:
     --record <id> --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
-      [--audit <file>]
+      [--sweep | --sweep-list] [--audit <file>]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
 
@@ -552,9 +565,25 @@ Remove what a run created:
                          before or after a delete, or as an activated order
                          is set back to Draft for its delete — or could not
                          say what it runs                       (default: off)
+  --sweep                once the run's records are gone, delete too what the
+                         target's automation created during the run, as the
+                         run's user, that the run's id map does not hold: in
+                         the objects the run wrote, tasks, events, feed, email
+                         messages, notes, case comments, and the objects the
+                         target's flows create. The window is the run's writes,
+                         from a second before the first to a minute after the
+                         last. Refused when that user created records in the
+                         window on objects neither the run nor the automation
+                         reaches (hand work, likely). Records someone changed
+                         since stay, unless --include-changed. Runs alone when
+                         an earlier --remove took every record of the run
+                                                                (default: off)
+  --sweep-list           list what --sweep would delete, per object with a few
+                         names, and delete nothing, the run's records included
   --json                 print what became of the records as JSON on stdout,
                          every other line on stderr
-  --audit <file>         record the removal in the audit trail kept in <file>
+  --audit <file>         record the removal, and the sweep, in the audit trail
+                         kept in <file>
 
 Verify what a run created:
   --verify <file>        the summary a run printed with --json, saved to a file,
@@ -609,7 +638,7 @@ Exit codes:
      a file beside it that is not what a removal kept there
   3  the removal left records of the run in the org: kept, or refused, or
      found neither in the org nor in its recycle bin, as the user it ran as
-     sees them
+     sees them; or the sweep was refused, or left some of what it found
   130  Ctrl-C stopped the clone: the summary says what it created by then
 `;
 
@@ -2458,6 +2487,10 @@ export interface RemoveArgs {
   json: boolean;
   /** Delete although the target runs automation as the records go, or could not say what it runs. */
   acceptAutomation: boolean;
+  /** Once the run's records are gone, sweep what the target's automation created during the run. */
+  sweep: boolean;
+  /** List what a sweep would delete, and delete nothing. */
+  sweepList: boolean;
   /** The file the removal's entry in the audit trail goes to; undefined = no entry. */
   audit: string | undefined;
 }
@@ -2469,6 +2502,8 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--include-changed',
   '--json',
   '--accept-automation',
+  '--sweep',
+  '--sweep-list',
   '--audit',
 ]);
 
@@ -2502,7 +2537,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --accept-automation, --json and --audit, not "${arg}". ` +
+        `--remove takes --target, --include-changed, --accept-automation, --sweep, --sweep-list, --json and --audit, not "${arg}". ` +
           'Run with --help for usage.\n',
       );
       process.exit(2);
@@ -2517,12 +2552,20 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     );
     process.exit(2);
   }
+  if (has('--sweep') && has('--sweep-list')) {
+    process.stderr.write(
+      '--sweep deletes and --sweep-list only lists: give one of them. Run with --help for usage.\n',
+    );
+    process.exit(2);
+  }
   return {
     summaryPath,
     target,
     includeChanged: has('--include-changed'),
     json: has('--json'),
     acceptAutomation: has('--accept-automation'),
+    sweep: has('--sweep'),
+    sweepList: has('--sweep-list'),
     audit: auditArg(args),
   };
 }
@@ -2820,6 +2863,135 @@ export function removalLines(
   ];
 }
 
+/** What a sweep could not tell of the target's automation, said in a line or two. */
+function sweepGapLines(listing: Pick<ForgeSweepListing, 'automationGaps'>): string[] {
+  const gaps = listing.automationGaps;
+  if (!gaps) return [];
+  return [
+    ...(gaps.error
+      ? [
+          `  the target's automation could not all be read (${gaps.error}): what it creates may be missed`,
+        ]
+      : []),
+    ...(gaps.flowsNotRead > 0
+      ? [
+          `  ${gaps.flowsNotRead} flow(s) on the run's objects not read: what they create is not looked at`,
+        ]
+      : []),
+    ...(gaps.triggers > 0
+      ? [
+          `  ${gaps.triggers} Apex trigger(s) on the run's objects: what they create no metadata says`,
+        ]
+      : []),
+  ];
+}
+
+/** What a sweep could not look at, and the hand work that refuses it. */
+function sweepNoteLines(listing: Pick<ForgeSweepListing, 'unread' | 'handWork'>): string[] {
+  return [
+    ...listing.unread.map((unread) => `  not looked at: ${unread.objectApiName}: ${unread.reason}`),
+    ...listing.handWork.map(
+      (count) =>
+        `  created by the run's user in the window, where neither the run nor its automation writes: ` +
+        `${count.objectApiName}: ${count.count} (left)`,
+    ),
+  ];
+}
+
+/**
+ * What a sweep would delete, said before anything is: the window and the
+ * objects looked at, per object the records found with a few of their names
+ * — names, never ids — what could not be looked at, and why the sweep would
+ * be refused. Exported so it can be tested.
+ */
+export function sweepListingLines(listing: ForgeSweepListing, target: string): string[] {
+  const found = listing.found.reduce((sum, object) => sum + object.count, 0);
+  return [
+    listing.window
+      ? `a sweep looks in ${target} for what the run's user created from ${listing.window.from} ` +
+        `to ${listing.window.to} that the run's id map does not hold, in: ${listing.looked.join(', ')}`
+      : `a sweep of ${target} cannot tell the window the run wrote in`,
+    ...(listing.found.length > 0
+      ? [
+          `it would delete ${found} record(s), children first:`,
+          ...listing.found.map(
+            (object) =>
+              `  ${object.objectApiName}: ${object.count}` +
+              (object.overBound ? ' or more (over the bound: none would be deleted)' : '') +
+              (object.names.length > 0
+                ? ` (${object.names.join(', ')}${object.count > object.names.length ? ', …' : ''})`
+                : ''),
+          ),
+        ]
+      : listing.window
+        ? ['it finds nothing to delete']
+        : []),
+    ...sweepGapLines(listing),
+    ...sweepNoteLines(listing),
+    ...(listing.refusal ? [`sweep refused: ${listing.refusal}`] : []),
+  ];
+}
+
+/**
+ * What a sweep did: how it ended, per object what became of the records it
+ * found — deleted, already gone, kept as changed since the run, refused with
+ * the org's words — what it could not look at, and why it was refused when it
+ * was. Exported so it can be tested.
+ */
+export function sweepLines(result: ForgeSweepResult): string[] {
+  return [
+    `sweep: ${result.status.toUpperCase()}`,
+    ...result.objects.flatMap((object) => {
+      const counts = [
+        object.deleted > 0 ? `${object.deleted} deleted` : '',
+        object.alreadyGone > 0 ? `${object.alreadyGone} already gone` : '',
+        object.keptChanged > 0 ? `${object.keptChanged} kept, changed since the run` : '',
+        object.refused > 0 ? `${object.refused} refused` : '',
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return [
+        `  ${object.objectApiName}: ${counts || 'nothing'} of ${object.found}`,
+        ...object.reasons.map((reason) => `      ${reason}`),
+      ];
+    }),
+    ...sweepGapLines(result),
+    ...sweepNoteLines(result),
+    ...(result.refusal ? [`  ${result.refusal}`] : []),
+  ];
+}
+
+/**
+ * What a sweep of a summary's run is told of it: when the target dated its
+ * writes, what it created, every record its id map holds — written, linked
+ * to, matched or written over — and what the target's automation creates as
+ * the run's objects are written, read now. Exported so it can be tested.
+ */
+export async function cliSweepInput(
+  conn: Connection,
+  target: string,
+  summary: RunSummary,
+  created: readonly ForgeRunObjectRecords[],
+  signal?: AbortSignal,
+): Promise<SweepInput> {
+  let automation: ForgeTargetAutomation | { error: string };
+  try {
+    automation = await targetAutomationReader(conn).read(
+      target,
+      created.map((object) => object.objectApiName),
+    );
+  } catch (err: unknown) {
+    automation = { error: extractErrorMessage(err) };
+  }
+  return {
+    writtenBetween: summary.result.writtenBetween,
+    created,
+    remap: new Set(Object.values(summary.result.remapTable).map((id) => id.slice(0, 15))),
+    automation: sweepAutomationOf(automation),
+    ...(signal ? { signal } : {}),
+  };
+}
+
 /** The exit code of a removal that left records of the run in the org. */
 const RECORDS_LEFT_EXIT = 3;
 
@@ -2879,13 +3051,25 @@ const runRemovalsSchema = z.object({
     z.object({ first: orgDateSchema, last: orgDateSchema, userId: summaryIdSchema }),
   ),
   removalLeft: z.array(summaryIdSchema).optional(),
+  /** What the sweeps run with its removals took (`ForgeSweepMark`). */
+  sweep: z
+    .object({
+      sweptAt: summaryDateSchema,
+      deleted: z.number().int().nonnegative(),
+      keptChanged: z.number().int().nonnegative(),
+      refused: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 
 /** What a removal keeps beside the summary for the next one. */
 export type RunRemovals = z.infer<typeof runRemovalsSchema>;
 
 /** What earlier removals of a run left on its records, for the next removal to be told. */
-export type EarlierRemovals = Pick<RunRemovals, 'removalStamps' | 'removalSpans' | 'removalLeft'>;
+export type EarlierRemovals = Pick<
+  RunRemovals,
+  'removalStamps' | 'removalSpans' | 'removalLeft' | 'sweep'
+>;
 
 /**
  * What the removals file beside a summary says of the earlier removals of
@@ -2926,8 +3110,15 @@ export function readEarlierRemovals(
       .map((issue) => `${issue.path.map(String).join('.') || 'the file'}: ${issue.message}`);
     return { refusal: `is not a record of removals a removal can read: ${issues.join('; ')}.` };
   }
-  const { removalStamps, removalSpans, removalLeft } = parsed.data;
-  return { earlier: { removalStamps, removalSpans, ...(removalLeft ? { removalLeft } : {}) } };
+  const { removalStamps, removalSpans, removalLeft, sweep } = parsed.data;
+  return {
+    earlier: {
+      removalStamps,
+      removalSpans,
+      ...(removalLeft ? { removalLeft } : {}),
+      ...(sweep ? { sweep } : {}),
+    },
+  };
 }
 
 /**
@@ -2945,17 +3136,20 @@ export function readEarlierRemovals(
  * visible to the user, and the removal exited 3 for records already gone.
  *
  * @param plan - What this removal set out to take.
+ * @param sweep - What the sweeps of the run took, this one's included, when one ran.
  */
 export function removalsAfter(
   run: string,
   earlier: EarlierRemovals | undefined,
   outcome: Pick<RunRemovalOutcome, 'stamps' | 'span'> & { gone?: readonly string[] },
   plan: readonly ForgeRunObjectRecords[] = [],
+  sweep?: ForgeSweepMark,
 ): RunRemovals | undefined {
   const gone = new Set(outcome.gone ?? []);
-  if (Object.keys(outcome.stamps).length === 0 && !outcome.span && gone.size === 0) {
+  if (Object.keys(outcome.stamps).length === 0 && !outcome.span && gone.size === 0 && !sweep) {
     return undefined;
   }
+  const swept = sweep ?? earlier?.sweep;
   const left =
     gone.size > 0
       ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id)))
@@ -2967,6 +3161,7 @@ export function removalsAfter(
     removalStamps: { ...earlier?.removalStamps, ...outcome.stamps },
     removalSpans: [...(earlier?.removalSpans ?? []), ...(outcome.span ? [outcome.span] : [])],
     ...(left ? { removalLeft: left } : {}),
+    ...(swept ? { sweep: swept } : {}),
   };
 }
 
@@ -3050,12 +3245,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   /**
    * @param removalsFile - Where what the removal left on the run's records
    *   was kept, when it was.
+   * @param sweep - What the sweep did, when one ran.
    */
   const output = (
     status: ForgeUndoStatus,
     objects: ForgeUndoObjectResult[],
     orgId?: string,
     removalsFile?: string,
+    sweep?: ForgeSweepResult,
   ) => {
     if (args.json) {
       process.stdout.write(
@@ -3074,6 +3271,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               objects,
               ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
               ...(removedEarlier > 0 ? { removedEarlier } : {}),
+              ...(sweep ? { sweep } : {}),
             },
             ...(removalsFile ? { removalsFile } : {}),
             elapsedMs: Date.now() - t0,
@@ -3084,7 +3282,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
       return;
     }
-    for (const line of removalLines(status, objects, unreachable)) console.log(line);
+    // A sweep alone took none of the run's records: only its own lines are said.
+    if (objects.length > 0 || !sweep) {
+      for (const line of removalLines(status, objects, unreachable)) console.log(line);
+    }
+    if (sweep) for (const line of sweepLines(sweep)) console.log(line);
     if (removalsFile) {
       console.log(
         `what this removal left on the run's records is kept in ${removalsFile}, ` +
@@ -3125,13 +3327,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.stderr.write(`${removalsFile} ${before.refusal}\n`);
     process.exit(2);
   }
+  const { earlier, otherRun } = before;
 
   say(`sandforge-clone --remove  ${args.summaryPath}  from ${args.target}`);
   // What earlier removals took is not planned again, as the panel plans only
   // what a run's history entry says is left (`forgeRemovalPlanLeft`).
   const plan = forgeRemovalPlanLeft({
     objects: created,
-    removalLeft: before.earlier?.removalLeft,
+    removalLeft: earlier?.removalLeft,
   });
   const count = (objects: readonly ForgeRunObjectRecords[]): number =>
     objects.reduce((sum, object) => sum + object.ids.length, 0);
@@ -3139,7 +3342,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (removedEarlier > 0) {
     say(`${removedEarlier} record(s) removed by an earlier --remove of this summary`);
   }
-  if (plan.length === 0) {
+  // A sweep, or its listing, still has the run's window to look in.
+  if (plan.length === 0 && !args.sweep && !args.sweepList) {
     say('nothing left of the run to remove');
     output('success', []);
     return;
@@ -3158,7 +3362,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       orgId: org.id,
       ...run,
     });
-  const refusal = productionRefusal(args.target, org, 'remove');
+  // A listing deletes nothing; a removal and a sweep delete, and a
+  // production org is refused before either reads anything.
+  const refusal = args.sweepList ? undefined : productionRefusal(args.target, org, 'remove');
   if (refusal) {
     recordRemoval({ outcome: 'stopped', code: 'PRODUCTION_TARGET' });
     process.stderr.write(`${refusal}\n`);
@@ -3171,88 +3377,176 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(1);
   }
-  for (const line of removalPlanLines(summary, plan, args)) say(line);
-  // What the target runs as the records go, said before the first delete,
-  // and asked as the clone asks about what fires as it inserts: a removal
-  // deletes, and what runs before or after a delete runs then, with what
-  // fires as an activated order is set back to Draft for its delete.
-  const removed = plan.map((object) => object.objectApiName);
-  const drafted = setBackToDraftOf(removed);
-  const automation = await targetAutomationReader(conn).read(args.target, removed);
-  say('');
-  for (const line of removalAutomationLines(automation, args.target, removed.length, drafted)) {
-    say(line);
-  }
-  const automationStop = removalAutomationRefusal(automation, args.target, {
-    drafted,
-    assign: bypassesToAssign(
-      automation,
-      removalBypassesOf(automation, drafted),
-      session.username ? { alias: args.target, username: session.username } : undefined,
-    ),
-  });
-  if (automationStop && !args.acceptAutomation) {
-    recordRemoval({ outcome: 'stopped', code: 'AUTOMATION_NOT_ACCEPTED' });
-    process.stderr.write(`${automationStop}\n`);
-    process.exit(1);
-  }
-  if (before.earlier) {
-    say(
-      `what earlier removals of this summary left on the run's records, read from ` +
-        `${removalsFile}, is not a change since the run`,
+
+  if (args.sweepList) {
+    // What a sweep would delete, read and said; nothing is deleted, the
+    // run's own records included.
+    const listing = await listSweep(
+      removalOrg(conn, 'sandforge-clone --sweep-list'),
+      await cliSweepInput(conn, args.target, summary, created),
     );
-  } else if (before.otherRun) {
-    say(
-      `${removalsFile} is of another run: it is not read, and what this removal leaves on ` +
-        'the records, if anything, takes its place',
-    );
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            tool: 'sandforge-clone',
+            version: 1,
+            action: 'sweep-list',
+            summary: args.summaryPath,
+            target: args.target,
+            targetOrgId: org.id,
+            listing,
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+    } else {
+      for (const line of sweepListingLines(listing, args.target)) console.log(line);
+      console.log(`\ndone in ${Date.now() - t0}ms`);
+    }
+    return;
   }
 
-  // Ctrl-C stops the removal before its next call to the org, as Cancel does
-  // in the panel: an order it set to Draft for its delete gets its status
-  // back on the way out, where a process killed outright left it a draft.
+  // Ctrl-C stops the removal, or the sweep, before its next call to the org,
+  // as Cancel does in the panel: an order the removal set to Draft for its
+  // delete gets its status back on the way out, where a process killed
+  // outright left it a draft.
   const stop = new AbortController();
   const interrupt = (): void => stop.abort();
-  process.once('SIGINT', interrupt);
-  const span = summary.result.writtenBetween;
-  let outcome: Awaited<ReturnType<typeof removeRunRecords>>;
-  try {
-    // The run's span as the target dated it, as the wizard passes a history
-    // entry's. A run the target did not date is dated by its records and by
-    // when it ended, read on the org's clock as the removal starts.
-    outcome = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), plan, {
-      ...(span
-        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-        : {
-            runDurationMs: summary.elapsedMs,
-            ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
-          }),
-      ...(before.earlier
-        ? {
-            removalStamps: before.earlier.removalStamps,
-            removalSpans: before.earlier.removalSpans,
-          }
-        : {}),
-      includeChanged: args.includeChanged,
-      signal: stop.signal,
-    });
-  } finally {
-    process.off('SIGINT', interrupt);
+  let outcome: RunRemovalOutcome | undefined;
+  if (plan.length > 0) {
+    outcome = await removeThePlan();
+  } else {
+    say('nothing left of the run to remove');
   }
-  const status = removalStatus(outcome.objects, outcome.cancelled);
-  // A removal after an earlier one of the summary takes what that one left,
-  // as the panel records it: with when that one ended, by the org's clock.
-  const leftBy = before.earlier?.removalSpans.at(-1)?.last;
-  recordRemoval({
-    outcome: removalAuditOutcome({ status }),
-    objects: removalAuditObjects(outcome.objects),
-    ...(leftBy ? { leftBy } : {}),
-  });
+
+  /** The removal of what is left of the run, said, asked and recorded as it always was. */
+  async function removeThePlan(): Promise<RunRemovalOutcome> {
+    for (const line of removalPlanLines(summary, plan, args)) say(line);
+    // What the target runs as the records go, said before the first delete,
+    // and asked as the clone asks about what fires as it inserts: a removal
+    // deletes, and what runs before or after a delete runs then, with what
+    // fires as an activated order is set back to Draft for its delete.
+    const removed = plan.map((object) => object.objectApiName);
+    const drafted = setBackToDraftOf(removed);
+    const automation = await targetAutomationReader(conn).read(args.target, removed);
+    say('');
+    for (const line of removalAutomationLines(automation, args.target, removed.length, drafted)) {
+      say(line);
+    }
+    const automationStop = removalAutomationRefusal(automation, args.target, {
+      drafted,
+      assign: bypassesToAssign(
+        automation,
+        removalBypassesOf(automation, drafted),
+        session.username ? { alias: args.target, username: session.username } : undefined,
+      ),
+    });
+    if (automationStop && !args.acceptAutomation) {
+      recordRemoval({ outcome: 'stopped', code: 'AUTOMATION_NOT_ACCEPTED' });
+      process.stderr.write(`${automationStop}\n`);
+      process.exit(1);
+    }
+    if (earlier) {
+      say(
+        `what earlier removals of this summary left on the run's records, read from ` +
+          `${removalsFile}, is not a change since the run`,
+      );
+    } else if (otherRun) {
+      say(
+        `${removalsFile} is of another run: it is not read, and what this removal leaves on ` +
+          'the records, if anything, takes its place',
+      );
+    }
+
+    process.once('SIGINT', interrupt);
+    const span = summary.result.writtenBetween;
+    let removal: RunRemovalOutcome;
+    try {
+      // The run's span as the target dated it, as the wizard passes a history
+      // entry's. A run the target did not date is dated by its records and by
+      // when it ended, read on the org's clock as the removal starts.
+      removal = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove'), plan, {
+        ...(span
+          ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+          : {
+              runDurationMs: summary.elapsedMs,
+              ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
+            }),
+        ...(earlier
+          ? {
+              removalStamps: earlier.removalStamps,
+              removalSpans: earlier.removalSpans,
+            }
+          : {}),
+        includeChanged: args.includeChanged,
+        signal: stop.signal,
+      });
+    } finally {
+      process.off('SIGINT', interrupt);
+    }
+    // A removal after an earlier one of the summary takes what that one left,
+    // as the panel records it: with when that one ended, by the org's clock.
+    const leftBy = earlier?.removalSpans.at(-1)?.last;
+    recordRemoval({
+      outcome: removalAuditOutcome({ status: removalStatus(removal.objects, removal.cancelled) }),
+      objects: removalAuditObjects(removal.objects),
+      ...(leftBy ? { leftBy } : {}),
+    });
+    return removal;
+  }
+
+  // The sweep, once the run's records are gone: what the target's automation
+  // created during the run, as its user. A removal stopped part way is
+  // followed by none.
+  let sweep: ForgeSweepResult | undefined;
+  if (args.sweep && outcome?.cancelled) {
+    sweep = { status: 'cancelled', objects: [], unread: [], handWork: [] };
+  } else if (args.sweep) {
+    process.once('SIGINT', interrupt);
+    try {
+      sweep = await sweepRunRecords(
+        removalOrg(conn, 'sandforge-clone --sweep'),
+        await cliSweepInput(conn, args.target, summary, created, stop.signal),
+        {
+          includeChanged: args.includeChanged,
+          // What the removals of the run changed while they ran, this one's
+          // included, is no change since the run.
+          removalSpans: [
+            ...(earlier?.removalSpans ?? []),
+            ...(outcome?.span ? [outcome.span] : []),
+          ],
+          // What it found, said before the first delete: --sweep asked for it.
+          approve: async (listing) => {
+            say('');
+            for (const line of sweepListingLines(listing, args.target)) say(line);
+            return undefined;
+          },
+        },
+      );
+    } finally {
+      process.off('SIGINT', interrupt);
+    }
+    recordCliRun(args.audit, audited, {
+      action: 'cleanup_delete',
+      module: 'forge',
+      operationId: `${operationId}-sweep`,
+      orgId: org.id,
+      outcome: sweep.status === 'refused' ? 'stopped' : sweep.status,
+      ...(sweep.status === 'refused' ? { code: 'SWEEP_REFUSED' } : {}),
+      objects: sweepAuditObjects(sweep),
+      details: sweepAuditDetails(sweep, run),
+    });
+  }
+
   // Kept beside the summary whatever the removal ended on, cancelled
   // included, as the wizard adds it to the run's history. A file that cannot
   // be written is said, and the removal's own outcome stands: the next one may
   // then read what this one wrote as changes since the run.
-  const removals = removalsAfter(run, before.earlier, outcome, plan);
+  const swept = sweep && sweepMarkOf(sweep, new Date().toISOString(), earlier?.sweep);
+  const removals = removalsAfter(run, earlier, outcome ?? { stamps: {} }, plan, swept);
   const failure = removals ? writeWhole(removalsFile, removals) : undefined;
   if (failure) {
     process.stderr.write(
@@ -3261,8 +3555,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         'to as changed since the run, which --include-changed then takes.\n',
     );
   }
-  output(status, outcome.objects, org.id, removals && !failure ? removalsFile : undefined);
-  if (status !== 'success') process.exit(RECORDS_LEFT_EXIT);
+  const status = outcome ? removalStatus(outcome.objects, outcome.cancelled) : 'success';
+  output(
+    status,
+    outcome?.objects ?? [],
+    org.id,
+    removals && !failure ? removalsFile : undefined,
+    sweep,
+  );
+  if (status !== 'success' || (sweep && sweep.status !== 'success')) {
+    process.exit(RECORDS_LEFT_EXIT);
+  }
 }
 
 /** Whether two ids name the same record, whichever length each is written in. */

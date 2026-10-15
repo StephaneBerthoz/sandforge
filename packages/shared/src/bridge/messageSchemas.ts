@@ -359,6 +359,7 @@ const AutomationMessages = [
   msg('forge:automation:request'),
   // Reads what the target org runs on the objects a past run's removal deletes.
   msg('forge:undo-automation:request'),
+  msg('forge:undo-sweep:request'),
   // Reads from the target org's metadata what will refuse or surprise a run.
   msg('forge:gaps:request'),
   // An org's active users, for Review's owner mapping.
@@ -399,6 +400,8 @@ const AutomationMessages = [
   msg('forge:automation:error'),
   msg('forge:undo-automation:response'),
   msg('forge:undo-automation:error'),
+  msg('forge:undo-sweep:response'),
+  msg('forge:undo-sweep:error'),
   msg('forge:gaps:response'),
   msg('forge:gaps:error'),
   msg('forge:users:response'),

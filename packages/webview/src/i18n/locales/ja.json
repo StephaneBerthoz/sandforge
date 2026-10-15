@@ -3067,6 +3067,31 @@
         "drafted": "削除のためにドラフトに戻すとき",
         "none": "これらのレコードを削除しても、{{org}} の自動化は何も実行されません。",
         "error": "これらのレコードを削除するときに {{org}} が実行するものを読み取れませんでした: {{reason}}"
+      },
+      "removeSweep": "続けて一掃する: 実行中にターゲットの自動化がその実行ユーザーとして作成したものも取り戻す",
+      "sweepAction": "ターゲットの自動化が作成したものを取り戻す",
+      "sweep": {
+        "title": "一掃で {{org}} から取り戻すもの",
+        "loading": "実行中に {{org}} の自動化が作成したものを読み取っています…",
+        "error": "一掃で {{org}} から取り戻すものを読み取れませんでした: {{reason}}",
+        "window": "実行ユーザーが {{from}} から {{to}} までに作成し、実行の ID マップに含まれないレコード。対象: {{objects}}",
+        "found_other": "{{object}}: {{formatted}} 件のレコード",
+        "overBound_other": "{{object}}: {{formatted}} 件を超えるため、一掃しません",
+        "names": "いくつかの名前",
+        "none": "一掃するものは見つかりませんでした。",
+        "nothing": "なし",
+        "refused": "一掃は拒否され、何も削除しません: {{reason}}",
+        "handWork_other": "{{object}}: 実行も自動化も書き込まない場所で、実行ユーザーが期間内に作成した {{formatted}} 件のレコードは残します",
+        "unread": "確認していません。{{object}}: {{reason}}",
+        "flowsNotRead_other": "実行のオブジェクトの Flow {{formatted}} 件を読み取れませんでした: それらが作成するものは確認していません。",
+        "triggers_other": "実行のオブジェクトの Apex トリガー {{formatted}} 件: 何を作成するかを示すメタデータはありません。",
+        "automationError": "ターゲットの自動化をすべては読み取れなかったため、作成されたものを見落とす可能性があります: {{reason}}",
+        "resultSuccess": "一掃で見つかったものは {{org}} に残っていません。",
+        "resultPartial": "一掃で {{org}} からレコードを削除しました。残りは一覧のとおりです。",
+        "resultFailure": "一掃では {{org}} から何も削除しませんでした。",
+        "resultCancelled": "一掃は最後まで実行されませんでした。それまでに行った内容を一覧に示します。",
+        "resultRefused": "一掃は拒否され、何も削除しませんでした。",
+        "sweptOn": "{{date}} に一掃しました:"
       }
     },
     "error": {

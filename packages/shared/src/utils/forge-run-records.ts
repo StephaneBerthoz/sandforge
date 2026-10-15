@@ -188,6 +188,7 @@ export function forgeRemovalPlanOf(entry: ForgeExecutionResult): ForgeRemovalPla
     ...(entry.removalStamps ? { removalStamps: { ...entry.removalStamps } } : {}),
     ...(entry.removalSpans ? { removalSpans: [...entry.removalSpans] } : {}),
     ...(Array.isArray(entry.removalLeft) ? { removalLeft: [...entry.removalLeft] } : {}),
+    ...(entry.sweep ? { sweep: { ...entry.sweep } } : {}),
   };
 }
 

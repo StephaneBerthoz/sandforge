@@ -1218,6 +1218,35 @@ describe('TargetAutomationReader', () => {
       ]);
     });
 
+    it('names the objects a flow and a process create, read from their metadata', async () => {
+      const target = fakeTarget({
+        flows: [
+          flowRow('Case', 'Clone_Risk', 'RecordAfterSave', 'Create', '301000000000001AAA'),
+          flowRow('Case', 'Quiet', 'RecordAfterSave', 'Create', '301000000000002AAA'),
+        ],
+        processes: [processRow('Case_Follow_Up', '301000000000005AAA', 'Case')],
+        metadata: {
+          '301000000000001AAA': {
+            start: { filterFormula: null },
+            variables: [{ name: 'risk', objectType: 'Asset' }],
+            recordCreates: [{ name: 'Create_Risk', inputReference: 'risk' }],
+          },
+          '301000000000002AAA': { start: { filterFormula: null } },
+          '301000000000005AAA': {
+            processMetadataValues: [{ name: 'ObjectType', value: { stringValue: 'Case' } }],
+            recordCreates: [{ name: 'myRule_1_A1', object: 'Task' }],
+          },
+        },
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+      const [object] = automation.objects;
+      expect(object.flows.find((f) => f.apiName === 'Clone_Risk')?.creates).toEqual(['Asset']);
+      expect(object.flows.find((f) => f.apiName === 'Quiet')?.creates).toBeUndefined();
+      expect(object.processes?.[0]?.creates).toEqual(['Task']);
+    });
+
     it('says the asynchronous path of a flow whose metadata the bound left unread', async () => {
       const flows = Array.from({ length: CONDITIONS_BOUND + 1 }, (_, i) =>
         flowRow(

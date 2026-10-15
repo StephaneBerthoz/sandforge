@@ -312,6 +312,7 @@ import type {
   ForgeRehearseRequest,
   ForgeAutomationRequest,
   ForgeUndoAutomationRequest,
+  ForgeUndoSweepRequest,
   ForgeGapsRequest,
   ForgeUsersRequest,
   ForgePreviewResponse,
@@ -349,6 +350,8 @@ import type {
   ForgeAutomationErrorMessage,
   ForgeUndoAutomationResponse,
   ForgeUndoAutomationErrorMessage,
+  ForgeUndoSweepResponse,
+  ForgeUndoSweepErrorMessage,
   ForgeGapsResponse,
   ForgeGapsErrorMessage,
   ForgeUsersResponse,
@@ -632,6 +635,7 @@ export type WebViewToExtensionMessage =
   | ForgeRehearseRequest
   | ForgeAutomationRequest
   | ForgeUndoAutomationRequest
+  | ForgeUndoSweepRequest
   | ForgeGapsRequest
   | ForgeUsersRequest
   // AI
@@ -868,6 +872,8 @@ export type ExtensionToWebViewMessage =
   | ForgeAutomationErrorMessage
   | ForgeUndoAutomationResponse
   | ForgeUndoAutomationErrorMessage
+  | ForgeUndoSweepResponse
+  | ForgeUndoSweepErrorMessage
   | ForgeGapsResponse
   | ForgeGapsErrorMessage
   | ForgeUsersResponse

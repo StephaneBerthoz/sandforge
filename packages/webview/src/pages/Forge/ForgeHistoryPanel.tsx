@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, RotateCcw, Trash2 } from 'lucide-react';
+import { Eraser, Play, RotateCcw, Trash2 } from 'lucide-react';
 import { forgeRemovalPlanCountsLeft, forgeRunCountsLeft } from '@sandforge/shared';
 import type {
   ForgeConfig,
@@ -24,6 +24,7 @@ import {
   ForgeRunRemovalMark,
   ForgeRunRemovalResult,
 } from './ForgeRunRemovalView';
+import { ForgeRunSweepMark } from './ForgeRemovalSweep';
 
 /** How long a removal may wait on the host: Production Guard may wait on a person. */
 const WAIT_ON_A_PERSON_MS = 600_000;
@@ -91,7 +92,9 @@ export interface ForgeHistoryPanelProps {
  * confirmation names the org and the records per object; the extension
  * removes what its own history says the run created, and nothing it linked.
  * A removal that left some of them in the org — kept, or refused — says so
- * on the run, which then offers to remove what is left.
+ * on the run, which then offers to remove what is left. The confirmation
+ * offers a sweep beside the removal; a run whose records are all removed
+ * already is offered the sweep alone, when the target dated its writes.
  *
  * The history keeps twenty runs; a run it dropped whose records are still in
  * the org is listed under the older runs, from the removal plan the extension
@@ -120,6 +123,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     null,
   );
   const [includeChanged, setIncludeChanged] = useState(false);
+  const [sweep, setSweep] = useState(false);
   /** The run the last removal was asked for: its answer shows under it. */
   const [removingId, setRemovingId] = useState<string | null>(null);
   const removal = useBridgeMutation<UndoAnswer>('forge:undo', {
@@ -179,7 +183,11 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   const confirmRemoval = (): void => {
     if (!confirming) return;
     setRemovingId(confirming.forgeId);
-    removal.mutate({ forgeId: confirming.forgeId, includeChanged });
+    removal.mutate({
+      forgeId: confirming.forgeId,
+      includeChanged,
+      ...(sweep ? { sweep: true } : {}),
+    });
     setConfirming(null);
   };
 
@@ -237,6 +245,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           disabled={removal.loading}
           onClick={() => {
             setIncludeChanged(false);
+            setSweep(false);
             setConfirming(entry);
           }}
           data-testid={`forge-history-remove-${entry.forgeId}`}
@@ -252,11 +261,34 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           {t('forge.history.removeOrgGone')}
         </p>
       );
+    } else if (entry.undo && entry.writtenBetween && org) {
+      // Nothing of the run left to remove: what its target's automation
+      // created during it may be, and the sweep alone is offered.
+      action = (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Eraser size={11} />}
+          loading={mine && removal.loading}
+          disabled={removal.loading}
+          onClick={() => {
+            setIncludeChanged(false);
+            setSweep(true);
+            setConfirming(entry);
+          }}
+          data-testid={`forge-history-sweep-${entry.forgeId}`}
+          className="self-start text-[11px]"
+        >
+          {t('forge.history.sweepAction')}
+        </Button>
+      );
     }
-    if (!mark && !action && !mine) return null;
+    const swept = entry.sweep ? <ForgeRunSweepMark mark={entry.sweep} /> : null;
+    if (!mark && !swept && !action && !mine) return null;
     return (
       <div className="flex flex-col gap-1">
         {mark}
+        {swept}
         {action}
         {mine && removal.loading && (
           <p role="status" className="text-[10px] text-text-secondary">
@@ -423,6 +455,8 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         org={confirmingOrg}
         includeChanged={includeChanged}
         onIncludeChangedChange={setIncludeChanged}
+        sweep={sweep}
+        onSweepChange={setSweep}
         onClose={() => setConfirming(null)}
         onConfirm={confirmRemoval}
       />

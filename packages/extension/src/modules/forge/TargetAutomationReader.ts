@@ -30,7 +30,8 @@
  *   a standard object by its name and a custom one by its id, and has no
  *   `Active` of its own: active or not, and what a rule does, is in its
  *   `Metadata`;
- * - a start condition, the paths after commit and the actions of a flow from
+ * - a start condition, the paths after commit, the actions and the objects
+ *   its record-create elements create of a flow from
  *   the `Metadata` of its active version, `Flow` over the Tooling API, and a
  *   rule's from its own `Metadata`. The org gives `Metadata` one row per
  *   query: asked for two, it refuses with `MALFORMED_QUERY`. Each costs a
@@ -85,6 +86,7 @@ import {
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { recordCreatesOf } from './flowRecordCreates.js';
 import { queryAllPages, type PagedQuerySource } from './queryAllPages.js';
 import { resolveStageConfig } from './stages/ForgeStageConfig.js';
 import { PRODUCT_OBJECT, catalogBeyond } from './stages/ScopeResolver.js';
@@ -975,6 +977,16 @@ export function pathsOf(metadata: unknown): ForgeFlowPath[] {
 }
 
 /**
+ * The objects a flow's or a process's record-create elements create, set on
+ * it when there are any (`recordCreatesOf`): what a sweep of what the target's
+ * automation created looks in.
+ */
+function setCreates(flow: ForgeTargetFlow, metadata: unknown): void {
+  const creates = recordCreatesOf(metadata);
+  if (creates.length > 0) flow.creates = creates;
+}
+
+/**
  * A flow's start condition, Decisions, paths and actions, read from its
  * version's metadata. A version the org answered without one leaves the
  * asynchronous path the definition view said.
@@ -988,6 +1000,7 @@ function readFlowMetadata(flow: ForgeTargetFlow, metadata: unknown): void {
   // The asynchronous path the definition view said is among the start's paths.
   flow.paths = pathsOf(metadata);
   flow.messages = messagesOf(metadata);
+  setCreates(flow, metadata);
 }
 
 /**
@@ -1006,6 +1019,7 @@ function readProcessMetadata(flow: ForgeTargetFlow, metadata: unknown): string |
   flow.permissions = decisions.permissions;
   flow.switches = decisions.switches;
   flow.messages = messagesOf(metadata);
+  setCreates(flow, metadata);
   return values.get('ObjectType') || undefined;
 }
 
