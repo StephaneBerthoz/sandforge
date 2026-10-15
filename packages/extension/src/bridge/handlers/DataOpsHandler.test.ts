@@ -1752,6 +1752,95 @@ describe('DataOpsHandler', () => {
       });
     });
 
+    it('says an object read whole is not cut short, the same way in its answer, its metadata and the list', async () => {
+      const conn = mockOrg([{ Id: '001', Name: 'Acme' }], ['Id', 'Name']);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const stored = new Map<string, unknown>();
+      deps.configStore = {
+        get: vi.fn((key: string) => stored.get(key)),
+        set: vi.fn((key: string, value: unknown) => {
+          stored.set(key, value);
+        }),
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn((prefix: string) =>
+          [...stored.keys()].filter((key) => key.startsWith(prefix)),
+        ),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-whole',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-whole-list',
+          type: 'backup:list',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        } as BaseMessage),
+      );
+
+      const response = posted().find((m) => m.type === 'dataops:backup:response');
+      const answered = (response?.payload as { objects: Array<Record<string, unknown>> }).objects;
+      const meta = stored.get('backup:bk-whole') as { objects: Array<Record<string, unknown>> };
+      const list = posted().find((m) => m.type === 'backup:list:result');
+      const listed = (
+        list?.payload as { backups: Array<{ objectResults: Array<Record<string, unknown>> }> }
+      ).backups[0].objectResults;
+      for (const held of [answered[0], meta.objects[0], listed[0]]) {
+        expect(held).toMatchObject({ objectApiName: 'Account', recordCount: 1, truncated: false });
+        expect(held).not.toHaveProperty('stoppedAt');
+      }
+    });
+
+    it('lists a backup kept before the flag was recorded as not cut short', async () => {
+      const stored = new Map<string, unknown>([
+        [
+          'backup:bk-old',
+          {
+            operationId: 'bk-old',
+            orgId: 'org-1',
+            timestamp: '2026-01-01T00:00:00.000Z',
+            totalRecords: 3,
+            objects: [{ objectApiName: 'Contact', recordCount: 3 }],
+          },
+        ],
+      ]);
+      deps.configStore = {
+        get: vi.fn((key: string) => stored.get(key)),
+        set: vi.fn(),
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn((prefix: string) =>
+          [...stored.keys()].filter((key) => key.startsWith(prefix)),
+        ),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-old-list',
+          type: 'backup:list',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        } as BaseMessage),
+      );
+
+      const list = posted().find((m) => m.type === 'backup:list:result');
+      expect(list?.payload).toEqual(
+        expect.objectContaining({
+          backups: [
+            expect.objectContaining({
+              objectResults: [{ objectApiName: 'Contact', recordCount: 3, truncated: false }],
+            }),
+          ],
+        }),
+      );
+    });
+
     it('records in the backup the org id the org answered with, for a restore to compare', async () => {
       const query = vi.fn(async (soql: string) =>
         soql === 'SELECT Id FROM Organization'

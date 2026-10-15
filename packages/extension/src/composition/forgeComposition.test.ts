@@ -1200,10 +1200,23 @@ describe('initForgeComposition', () => {
   it("reads the target's flows and rules over its regular API and its triggers, workflow rules and start conditions over its Tooling API", async () => {
     const VERSION = '301000000000001AAA';
     const asked: Array<{ org: string; api: 'regular' | 'tooling'; soql: string }> = [];
+    /** The Tooling composites sent, each with the paths its queries were sent to. */
+    const composites: string[][] = [];
     vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
       const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+      const tooling = {
+        query: vi.fn(async (soql: string) => {
+          asked.push({ org: orgId, api: 'tooling', soql });
+          if (/FROM (ApexTrigger|WorkflowRule)/.test(soql)) return page([]);
+          return page([
+            { Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } },
+          ]);
+        }),
+        queryMore: vi.fn(async () => page([])),
+      };
       return {
         ...fakeConnection(orgId),
+        version: '66.0',
         query: vi.fn(async (soql: string) => {
           asked.push({ org: orgId, api: 'regular', soql });
           if (!/FROM FlowDefinitionView/.test(soql) || /ProcessType/.test(soql)) return page([]);
@@ -1218,16 +1231,26 @@ describe('initForgeComposition', () => {
             },
           ]);
         }),
-        tooling: {
-          query: vi.fn(async (soql: string) => {
-            asked.push({ org: orgId, api: 'tooling', soql });
-            if (/FROM (ApexTrigger|WorkflowRule)/.test(soql)) return page([]);
-            return page([
-              { Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } },
-            ]);
-          }),
-          queryMore: vi.fn(async () => page([])),
-        },
+        tooling,
+        // A Tooling composite, each of its queries answered as the Tooling API answers it alone.
+        request: vi.fn(async ({ url, body }: { url: string; body: string }) => {
+          if (url !== '/tooling/composite') return {};
+          const { compositeRequest } = JSON.parse(body) as {
+            compositeRequest: Array<{ url: string; referenceId: string }>;
+          };
+          composites.push(compositeRequest.map((sub) => sub.url.split('?')[0]));
+          return {
+            compositeResponse: await Promise.all(
+              compositeRequest.map(async (sub) => ({
+                referenceId: sub.referenceId,
+                httpStatusCode: 200,
+                body: await tooling.query(
+                  new URL(sub.url, 'https://org.example').searchParams.get('q') ?? '',
+                ),
+              })),
+            ),
+          };
+        }),
       } as unknown as Connection;
     });
     const { services } = await compose();
@@ -1248,6 +1271,8 @@ describe('initForgeComposition', () => {
       // The bypass the user does not hold: what would give it, over the regular API too.
       ['tgt', 'regular', 'CustomPermission'],
     ]);
+    // The start condition went in a Tooling composite, to the API version of the org.
+    expect(composites).toEqual([['/services/data/v66.0/tooling/query']]);
     expect(automation?.objects).toEqual([
       {
         objectApiName: 'Contact',

@@ -20,6 +20,7 @@
 
 import type { Connection } from 'jsforce';
 import type {
+  ForgeLookupsLeftEmpty,
   ForgeRunObjectRecords,
   ForgeRunVerification,
   ForgeVerificationChange,
@@ -114,6 +115,21 @@ export interface RunToVerify {
    * having refused them: empty on purpose in those rows, which the run said.
    */
   writtenWithout?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Per object and field, the records whose lookup a lookup filter of the
+   * target refused, which the run left empty (`lookupsLeftEmptyByFilter`):
+   * such a lookup found empty is left empty by the filter, not broken.
+   */
+  leftEmptyByFilter?: ReadonlyArray<
+    Pick<ForgeLookupsLeftEmpty, 'objectApiName' | 'field' | 'recordIds'>
+  >;
+  /**
+   * The target's date of the run's first write (`writtenBetween.first`): with
+   * its end, the window in which a record the run's user created, and the
+   * run did not, was created by the target's automation. Without it, a lookup
+   * pointing at such a record is broken.
+   */
+  runStartedAt?: Date;
 }
 
 /** How a verification goes. */
@@ -157,6 +173,25 @@ interface LinkPlan {
   sample: string[];
   /** Why the lookups could not be checked, when they could not. */
   unchecked?: string;
+  /** The objects each lookup read may point at, as the target describes it. */
+  referenceTo?: ReadonlyMap<string, readonly string[]>;
+  /** Whether the target's object says who created a record: who the run wrote as. */
+  createdBy?: boolean;
+}
+
+/** What tells a lookup the target explains from one that broke: see `RunVerifier.explaining`. */
+interface Explaining {
+  /** The lookups the run left empty on a lookup filter's refusal, by {@link linkKey}. */
+  emptiedByFilter: ReadonlySet<string>;
+  /** The records the run created, by their first fifteen characters. */
+  createdByRun: ReadonlySet<string>;
+  /** The run's window by the org's clock, in epoch milliseconds, when it is known. */
+  window?: { from: number; to: number };
+}
+
+/** One lookup of one record of one object, whichever length its id is written in. */
+function linkKey(objectApiName: string, recordId: string, field: string): string {
+  return `${objectApiName}:${recordId.slice(0, 15)}:${field}`;
 }
 
 /** One reading of one object. Compared whole across readings. */
@@ -169,6 +204,8 @@ interface ObjectReading {
   changed: ForgeVerificationChange[];
   linksChecked: number;
   broken: ForgeVerificationLink[];
+  /** The lookups that do not point where the run set them, the target explaining why. */
+  explained: ForgeVerificationLink[];
   error?: string;
   recycleBinUnread?: string;
   linksUnchecked?: string;
@@ -184,6 +221,12 @@ const DATE_COLUMNS: readonly { modified?: string; by?: string }[] = [
   { modified: 'SystemModstamp' },
   {},
 ];
+
+/** Who created a record: on the run's own records, the user the run wrote as. */
+const CREATED_BY = 'CreatedById';
+
+/** When a record was created, by the org's clock. */
+const CREATED_DATE = 'CreatedDate';
 
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -253,12 +296,15 @@ export class RunVerifier {
     let stable: ObjectReading[] | null = null;
     let last: ObjectReading[] = [];
     let attempts = 0;
+    const explaining = this.explaining(run, runEnd);
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       attempts = attempt;
       await sleep(intervalMs);
       last = [];
       for (const object of run.records) {
-        last.push(await this.read(run, object, runEnd, plans.get(object.objectApiName)));
+        last.push(
+          await this.read(run, object, runEnd, plans.get(object.objectApiName), explaining),
+        );
       }
       const serialized = stableSerialize(last);
       if (previous !== null && serialized === previous) {
@@ -299,6 +345,117 @@ export class RunVerifier {
       }
     }
     return run.runRecordedAt.getTime() + aheadMs + CLOCK_LEEWAY_MS;
+  }
+
+  /**
+   * What tells a lookup the target explains from one that broke: the lookups
+   * the run left empty on a lookup filter's refusal, by object, record and
+   * field; the records the run created, by their ids in the target; and the
+   * run's window, its first write to its end give or take
+   * {@link CLOCK_LEEWAY_MS}, when both are known.
+   */
+  private explaining(run: RunToVerify, runEnd: number): Explaining {
+    const emptiedByFilter = new Set<string>();
+    for (const { objectApiName, field, recordIds } of run.leftEmptyByFilter ?? []) {
+      for (const id of recordIds) emptiedByFilter.add(linkKey(objectApiName, id, field));
+    }
+    const from = run.runStartedAt?.getTime() ?? Number.NaN;
+    return {
+      emptiedByFilter,
+      createdByRun: new Set(Object.values(run.remapTable).map(recordKey)),
+      ...(Number.isFinite(from) && Number.isFinite(runEnd)
+        ? { window: { from: from - CLOCK_LEEWAY_MS, to: runEnd + CLOCK_LEEWAY_MS } }
+        : {}),
+    };
+  }
+
+  /**
+   * Of the lookups found pointing at a record other than the one the run set
+   * them to, those the target's automation set: the record they point at is
+   * none the run created, and the user the run wrote as — who created the
+   * record the lookup is on — created it during the run. Run on a large
+   * client sandbox, the target's own automation created assets as the run
+   * wrote its cases, and pointed four of them at those: counted as broken
+   * lookups, they made the verdict partial. The others are broken.
+   */
+  private async setByAutomation(
+    candidates: ReadonlyArray<{ link: ForgeVerificationLink; createdBy: unknown }>,
+    plan: LinkPlan,
+    explaining: Explaining,
+  ): Promise<{ explained: ForgeVerificationLink[]; broken: ForgeVerificationLink[] }> {
+    const window = explaining.window;
+    const judged = candidates.filter(
+      ({ link, createdBy }) =>
+        window !== undefined &&
+        typeof createdBy === 'string' &&
+        link.found !== null &&
+        !explaining.createdByRun.has(recordKey(link.found)),
+    );
+    if (!window || judged.length === 0) {
+      return { explained: [], broken: candidates.map(({ link }) => link) };
+    }
+    // Each record pointed at, read where its key prefix says it lives.
+    const created = new Map<string, Record<string, unknown>>();
+    const byObject = new Map<string, string[]>();
+    for (const { link } of judged) {
+      const object = await this.objectOfId(plan.referenceTo?.get(link.field) ?? [], link.found!);
+      if (object === undefined) continue;
+      byObject.set(object, [...(byObject.get(object) ?? []), link.found!]);
+    }
+    for (const [object, ids] of byObject) {
+      try {
+        const rows = await readRecordsById(
+          this.deps.target,
+          object,
+          [CREATED_BY, CREATED_DATE],
+          [...new Set(ids)],
+        );
+        for (const row of rows) {
+          const id = idOf(row);
+          if (id) created.set(recordKey(id), row);
+        }
+      } catch {
+        // Unread, the lookups pointing there stay broken.
+      }
+    }
+    const explained: ForgeVerificationLink[] = [];
+    const broken: ForgeVerificationLink[] = [];
+    for (const candidate of candidates) {
+      const { link, createdBy } = candidate;
+      const pointedAt = link.found === null ? undefined : created.get(recordKey(link.found));
+      const when = epochOf(pointedAt?.[CREATED_DATE]);
+      const byTheRunsUser =
+        judged.includes(candidate) &&
+        typeof createdBy === 'string' &&
+        typeof pointedAt?.[CREATED_BY] === 'string' &&
+        recordKey(pointedAt[CREATED_BY]) === recordKey(createdBy);
+      if (byTheRunsUser && when >= window.from && when <= window.to) {
+        explained.push({ ...link, cause: 'automation' });
+      } else {
+        broken.push(link);
+      }
+    }
+    return { explained, broken };
+  }
+
+  /**
+   * The object a record of `id` belongs to among those a lookup may point at:
+   * the one there is, or the one whose key prefix the id starts with.
+   */
+  private async objectOfId(
+    referenceTo: readonly string[],
+    id: string,
+  ): Promise<string | undefined> {
+    if (referenceTo.length === 1) return referenceTo[0];
+    for (const object of referenceTo) {
+      try {
+        const described = await this.describe(this.deps.target, 'target', object);
+        if ((described as { keyPrefix?: unknown }).keyPrefix === id.slice(0, 3)) return object;
+      } catch {
+        // An object the target cannot describe holds none of them.
+      }
+    }
+    return undefined;
   }
 
   /** An object's describe, asked once per org. */
@@ -374,7 +531,18 @@ export class RunVerifier {
         if (links.length > 0) expected.set(recordKey(targetId), links);
       }
       const fields = [...new Set([...expected.values()].flat().map((link) => link.field))];
-      return { fields, expected, sample: fields.length > 0 ? sample : [] };
+      const referenceTo = new Map(
+        target.fields
+          .filter((f) => fields.includes(f.name))
+          .map((f) => [f.name, f.referenceTo ?? []] as const),
+      );
+      return {
+        fields,
+        expected,
+        sample: fields.length > 0 ? sample : [],
+        referenceTo,
+        createdBy: target.fields.some((f) => f.name === CREATED_BY),
+      };
     } catch (err: unknown) {
       return { ...empty, unchecked: extractErrorMessage(err) };
     }
@@ -386,6 +554,7 @@ export class RunVerifier {
     object: ForgeRunObjectRecords,
     runEnd: number,
     plan: LinkPlan | undefined,
+    explaining: Explaining,
   ): Promise<ObjectReading> {
     const name = object.objectApiName;
     const reading: ObjectReading = {
@@ -397,6 +566,7 @@ export class RunVerifier {
       changed: [],
       linksChecked: 0,
       broken: [],
+      explained: [],
       ...(plan?.unchecked !== undefined ? { linksUnchecked: plan.unchecked } : {}),
     };
 
@@ -462,8 +632,15 @@ export class RunVerifier {
 
     if (plan && plan.sample.length > 0) {
       try {
-        const sampled = await readRecordsById(this.deps.target, name, plan.fields, plan.sample);
+        const sampled = await readRecordsById(
+          this.deps.target,
+          name,
+          plan.createdBy ? [...plan.fields, CREATED_BY] : plan.fields,
+          plan.sample,
+        );
         const leftOut = new Set(run.writtenWithout?.[name] ?? []);
+        /** Pointing elsewhere: broken, unless the target's automation set it. */
+        const elsewhere: Array<{ link: ForgeVerificationLink; createdBy: unknown }> = [];
         for (const row of sampled) {
           const id = idOf(row);
           if (!id) continue;
@@ -474,12 +651,32 @@ export class RunVerifier {
               reading.linksChecked++;
               continue;
             }
+            // Left empty by the run itself on a lookup filter's refusal, and
+            // said: counted, never broken.
+            if (found === null && explaining.emptiedByFilter.has(linkKey(name, id, field))) {
+              reading.linksChecked++;
+              reading.explained.push({
+                recordId: id,
+                field,
+                expected,
+                found,
+                cause: 'lookup-filter',
+              });
+              continue;
+            }
             // Written again without the field, the target having refused it:
             // empty on purpose, as the run said.
             if (found === null && leftOut.has(field)) continue;
             reading.linksChecked++;
-            reading.broken.push({ recordId: id, field, expected, found });
+            const link: ForgeVerificationLink = { recordId: id, field, expected, found };
+            if (found === null) reading.broken.push(link);
+            else elsewhere.push({ link, createdBy: row[CREATED_BY] });
           }
+        }
+        if (elsewhere.length > 0) {
+          const { explained, broken } = await this.setByAutomation(elsewhere, plan, explaining);
+          reading.explained.push(...explained);
+          reading.broken.push(...broken);
         }
       } catch (err: unknown) {
         reading.linksUnchecked = extractErrorMessage(err);
@@ -535,6 +732,14 @@ function objectResult(reading: ObjectReading): ForgeVerificationObject {
     linksChecked: reading.linksChecked,
     linksBroken: reading.broken.length,
     brokenLinks: reading.broken.slice(0, NAMED_PER_LIST),
+    ...(reading.explained.length > 0
+      ? {
+          linksLeftEmptyByFilter: reading.explained.filter((l) => l.cause === 'lookup-filter')
+            .length,
+          linksSetByAutomation: reading.explained.filter((l) => l.cause === 'automation').length,
+          explainedLinks: reading.explained.slice(0, NAMED_PER_LIST),
+        }
+      : {}),
     ...(reading.error !== undefined ? { error: reading.error } : {}),
     ...(reading.linksUnchecked !== undefined ? { linksUnchecked: reading.linksUnchecked } : {}),
     ...(reading.recycleBinUnread !== undefined
@@ -547,7 +752,9 @@ function objectResult(reading: ObjectReading): ForgeVerificationObject {
  * What the readings come to: `unstable` without two that agreed; `partial`
  * when a record is not there, a lookup does not hold, or a part could not be
  * checked; `verified` otherwise. A record changed since the run is there, and
- * listed: it lowers nothing on its own, a lookup it changed being checked.
+ * listed: it lowers nothing on its own, a lookup it changed being checked. A
+ * lookup the target explains — left empty by its lookup filter, set by its
+ * automation — holds as the target took it, and is counted apart.
  */
 function verdictOf(
   stable: boolean,
@@ -573,6 +780,9 @@ function verdictOf(
 export function verificationTotals(verification: ForgeRunVerification): Record<string, number> {
   const sum = (pick: (o: ForgeVerificationObject) => number): number =>
     verification.objects.reduce((total, o) => total + pick(o), 0);
+  // The lookups the target explains, only when there are any.
+  const leftEmpty = sum((o) => o.linksLeftEmptyByFilter ?? 0);
+  const byAutomation = sum((o) => o.linksSetByAutomation ?? 0);
   return {
     expected: sum((o) => o.expected),
     present: sum((o) => o.present),
@@ -581,6 +791,8 @@ export function verificationTotals(verification: ForgeRunVerification): Record<s
     changed: sum((o) => o.changed),
     linksChecked: sum((o) => o.linksChecked),
     linksBroken: sum((o) => o.linksBroken),
+    ...(leftEmpty > 0 ? { linksLeftEmptyByFilter: leftEmpty } : {}),
+    ...(byAutomation > 0 ? { linksSetByAutomation: byAutomation } : {}),
     attempts: verification.attempts,
   };
 }

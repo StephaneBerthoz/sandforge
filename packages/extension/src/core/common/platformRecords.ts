@@ -608,6 +608,27 @@ export function personAccountWriteEdges(
   ];
 }
 
+/** The query that reads, for each of the accounts `ids`, the contact the platform wrote with it. */
+export function personContactsSoql(ids: readonly string[]): string {
+  const inList = ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+  return `SELECT Id, ${PERSON_CONTACT_FIELD} FROM ${ACCOUNT} WHERE Id IN (${inList})`;
+}
+
+const PERSON_CONTACTS_SOQL_RE = new RegExp(
+  `^SELECT Id, ${PERSON_CONTACT_FIELD} FROM ${ACCOUNT} WHERE Id IN \\((.*)\\)$`,
+);
+
+/**
+ * The accounts a query of {@link personContactsSoql} asks about, in the order
+ * it names them; undefined for any other query. What answers that query in
+ * place of the target — a rehearsal, which wrote no account — reads it so.
+ */
+export function accountsOfPersonContactsSoql(soql: string): string[] | undefined {
+  const asked = PERSON_CONTACTS_SOQL_RE.exec(soql);
+  if (!asked) return undefined;
+  return [...asked[1].matchAll(/'([^']*)'/g)].map(([, id]) => id);
+}
+
 /**
  * The contact the platform wrote with each of the accounts `ids`, by the
  * account's id, read from the target once they are in: written by the run, or
@@ -629,13 +650,7 @@ export async function personContactsOfAccounts(
 ): Promise<Map<string, string>> {
   const found = new Map<string, string>();
   for (let i = 0; i < ids.length; i += WRITTEN_CHUNK) {
-    const inList = ids
-      .slice(i, i + WRITTEN_CHUNK)
-      .map((id) => `'${sanitizeSoqlValue(id)}'`)
-      .join(', ');
-    const rows = await query(
-      `SELECT Id, ${PERSON_CONTACT_FIELD} FROM ${ACCOUNT} WHERE Id IN (${inList})`,
-    );
+    const rows = await query(personContactsSoql(ids.slice(i, i + WRITTEN_CHUNK)));
     for (const row of rows) {
       const contact = row[PERSON_CONTACT_FIELD];
       if (typeof row['Id'] === 'string' && typeof contact === 'string' && contact !== '') {

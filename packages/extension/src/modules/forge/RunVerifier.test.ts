@@ -23,7 +23,13 @@ const OTHER_USER = '005000000000002AAA';
 
 /** One object of a fake org: its fields, its rows, and what is no longer there. */
 interface FakeTable {
-  fields: Array<{ name: string; type: string; createable?: boolean; updateable?: boolean }>;
+  fields: Array<{
+    name: string;
+    type: string;
+    createable?: boolean;
+    updateable?: boolean;
+    referenceTo?: string[];
+  }>;
   rows: Map<string, Record<string, unknown>>;
   /** Ids in the recycle bin. */
   deleted?: Set<string>;
@@ -610,5 +616,216 @@ describe('RunVerifier', () => {
       linksBroken: 0,
       attempts: 2,
     });
+  });
+});
+
+/*
+ * Cases whose asset lookups the target took its own way. Run on a large
+ * client sandbox, a verification said `partial` with eighteen broken links on
+ * cases: fourteen asset lookups a lookup filter of the target refused, which
+ * the run left empty and said so, and four pointing at assets the target's
+ * automation created during the run.
+ */
+describe('RunVerifier — lookups the target explains', () => {
+  const RUN_START = '2026-10-01T09:50:00.000Z';
+  const DURING = '2026-10-01T09:55:00.000+0000';
+  const BEFORE = '2026-10-01T08:00:00.000+0000';
+  const CASE_FIELDS = [
+    { name: 'Id', type: 'id' },
+    { name: 'CreatedById', type: 'reference', referenceTo: ['User'] },
+    {
+      name: 'AssetId',
+      type: 'reference',
+      createable: true,
+      updateable: true,
+      referenceTo: ['Asset'],
+    },
+    {
+      name: 'Cloned_Risk__c',
+      type: 'reference',
+      createable: true,
+      updateable: true,
+      referenceTo: ['Asset'],
+    },
+  ];
+  const ASSET_FIELDS = [
+    { name: 'Id', type: 'id' },
+    { name: 'CreatedById', type: 'reference' },
+    { name: 'CreatedDate', type: 'datetime' },
+  ];
+  const ASSET = tid('02i', 1);
+  const SOURCE_ASSET = sid('02i', 1);
+
+  /**
+   * Cases of the run, each as the target holds it now, and the assets the
+   * target holds: each case pointed at the run's asset in the source.
+   */
+  function cases(
+    now: Array<Record<string, unknown>>,
+    assets: Array<{ id: string; by: string; at: string }> = [],
+  ) {
+    const ids = now.map((_, i) => tid('500', i + 1));
+    const target = fakeOrg({
+      Case: {
+        fields: CASE_FIELDS,
+        rows: new Map(
+          now.map((fields, i) => [ids[i], targetRow(ids[i], { CreatedById: RUN_USER, ...fields })]),
+        ),
+      },
+      Asset: {
+        fields: ASSET_FIELDS,
+        rows: new Map([
+          [ASSET, { Id: ASSET, CreatedById: RUN_USER, CreatedDate: DURING }],
+          ...assets.map(
+            ({ id, by, at }) => [id, { Id: id, CreatedById: by, CreatedDate: at }] as const,
+          ),
+        ]),
+      },
+    });
+    const source = fakeOrg({
+      Case: {
+        fields: CASE_FIELDS,
+        rows: new Map(
+          now.map((_, i) => [
+            sid('500', i + 1),
+            { Id: sid('500', i + 1), AssetId: SOURCE_ASSET, Cloned_Risk__c: SOURCE_ASSET },
+          ]),
+        ),
+      },
+    });
+    const run: RunToVerify = {
+      records: [{ objectApiName: 'Case', ids }],
+      remapTable: {
+        [SOURCE_ASSET]: ASSET,
+        ...Object.fromEntries(ids.map((id, i) => [sid('500', i + 1), id])),
+      },
+      runStartedAt: new Date(RUN_START),
+      runEndedAt: new Date(RUN_END),
+    };
+    return { target, source, run, ids };
+  }
+
+  it('counts a lookup the run left empty on a lookup filter’s refusal apart, never as broken', async () => {
+    const { target, source, run, ids } = cases([
+      { AssetId: null, Cloned_Risk__c: ASSET },
+      { AssetId: null, Cloned_Risk__c: ASSET },
+    ]);
+
+    const verification = await new RunVerifier({ target, source }).verify(
+      {
+        ...run,
+        leftEmptyByFilter: [{ objectApiName: 'Case', field: 'AssetId', recordIds: [ids[0]] }],
+      },
+      NO_WAIT,
+    );
+
+    const object = objectOf(verification, 'Case');
+    // The second case's asset was not left empty by the run: it broke.
+    expect(object).toMatchObject({ linksChecked: 4, linksBroken: 1, linksLeftEmptyByFilter: 1 });
+    expect(object.brokenLinks).toEqual([
+      { recordId: ids[1], field: 'AssetId', expected: ASSET, found: null },
+    ]);
+    expect(object.explainedLinks).toEqual([
+      { recordId: ids[0], field: 'AssetId', expected: ASSET, found: null, cause: 'lookup-filter' },
+    ]);
+    expect(verification.verdict).toBe('partial');
+  });
+
+  it('is verified when only lookups the target explains are left, and says how many', async () => {
+    const automation = tid('02i', 2);
+    const { target, source, run, ids } = cases(
+      [
+        { AssetId: null, Cloned_Risk__c: automation },
+        { AssetId: ASSET, Cloned_Risk__c: ASSET },
+      ],
+      [{ id: automation, by: RUN_USER, at: DURING }],
+    );
+
+    const verification = await new RunVerifier({ target, source }).verify(
+      {
+        ...run,
+        leftEmptyByFilter: [{ objectApiName: 'Case', field: 'AssetId', recordIds: [ids[0]] }],
+      },
+      NO_WAIT,
+    );
+
+    expect(verification.verdict).toBe('verified');
+    expect(objectOf(verification, 'Case')).toMatchObject({
+      linksChecked: 4,
+      linksBroken: 0,
+      linksLeftEmptyByFilter: 1,
+      linksSetByAutomation: 1,
+    });
+    expect(verificationTotals(verification)).toMatchObject({
+      linksBroken: 0,
+      linksLeftEmptyByFilter: 1,
+      linksSetByAutomation: 1,
+    });
+  });
+
+  it('says a lookup the target’s automation set when it points at a record the run’s user created during the run', async () => {
+    const automation = tid('02i', 2);
+    const { target, source, run, ids } = cases(
+      [{ AssetId: ASSET, Cloned_Risk__c: automation }],
+      [{ id: automation, by: RUN_USER, at: DURING }],
+    );
+
+    const verification = await new RunVerifier({ target, source }).verify(run, NO_WAIT);
+
+    expect(objectOf(verification, 'Case').explainedLinks).toEqual([
+      {
+        recordId: ids[0],
+        field: 'Cloned_Risk__c',
+        expected: ASSET,
+        found: automation,
+        cause: 'automation',
+      },
+    ]);
+    expect(target.asked.queries).toContain(
+      `SELECT Id, CreatedById, CreatedDate FROM Asset WHERE Id IN ('${automation}')`,
+    );
+  });
+
+  it('keeps as broken a lookup pointing at a record someone else created, one created before the run, or one the run created', async () => {
+    const someoneElse = tid('02i', 3);
+    const before = tid('02i', 4);
+    const otherOfTheRun = tid('02i', 5);
+    const { target, source, run } = cases(
+      [
+        { AssetId: ASSET, Cloned_Risk__c: someoneElse },
+        { AssetId: ASSET, Cloned_Risk__c: before },
+        { AssetId: ASSET, Cloned_Risk__c: otherOfTheRun },
+      ],
+      [
+        { id: someoneElse, by: OTHER_USER, at: DURING },
+        { id: before, by: RUN_USER, at: BEFORE },
+        { id: otherOfTheRun, by: RUN_USER, at: DURING },
+      ],
+    );
+
+    const verification = await new RunVerifier({ target, source }).verify(
+      { ...run, remapTable: { ...run.remapTable, [sid('02i', 5)]: otherOfTheRun } },
+      NO_WAIT,
+    );
+
+    const object = objectOf(verification, 'Case');
+    expect(object).toMatchObject({ linksBroken: 3 });
+    expect(object.linksSetByAutomation).toBeUndefined();
+    expect(verification.verdict).toBe('partial');
+  });
+
+  it('keeps as broken a lookup pointing elsewhere when the run’s first write is not known', async () => {
+    const automation = tid('02i', 2);
+    const { target, source, run } = cases(
+      [{ AssetId: ASSET, Cloned_Risk__c: automation }],
+      [{ id: automation, by: RUN_USER, at: DURING }],
+    );
+
+    const verification = await new RunVerifier({ target, source }).verify(
+      { ...run, runStartedAt: undefined },
+      NO_WAIT,
+    );
+
+    expect(objectOf(verification, 'Case')).toMatchObject({ linksBroken: 1 });
   });
 });

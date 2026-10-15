@@ -22,6 +22,8 @@ import {
 import {
   COLLECTIONS_PER_CALL,
   compositeBody,
+  contactReadsOf,
+  contactsNamedIn,
   planCalls,
   readCompositeAnswer,
   updateVerdictsOf,
@@ -193,13 +195,22 @@ interface SendableUpdate extends PlannedUpdate {
 function sendableOf(
   update: RehearsedUpdate,
   rowOf: (value: unknown) => RehearsedRow | undefined,
+  contactOf: (value: unknown) => RehearsedRow | undefined,
 ): SendableUpdate | undefined {
   const row = rowOf(update.recordId);
   if (!row) return undefined;
   const needs = new Set([row.seq]);
+  const contacts = new Set<number>();
   for (const value of Object.values(update.fields)) {
     const named = rowOf(value);
     if (named) needs.add(named.seq);
+    // The contact the platform writes with a person account is there once
+    // the account is.
+    const account = named ? undefined : contactOf(value);
+    if (account) {
+      needs.add(account.seq);
+      contacts.add(account.seq);
+    }
   }
   return {
     seq: update.seq,
@@ -207,18 +218,33 @@ function sendableOf(
     rowSeq: row.seq,
     fields: update.fields,
     needs: [...needs],
+    ...(contacts.size > 0 ? { contacts: [...contacts] } : {}),
   };
 }
 
 /**
  * The updates of `pending` a call can carry: those whose rows it creates, in
- * order, as many as its subrequests leave room for.
+ * order, as many as its subrequests leave room for beside the reads of the
+ * contacts of person accounts its rows and those updates name.
  */
-function updatesFor(call: PlannedCall, pending: readonly SendableUpdate[]): SendableUpdate[] {
+function updatesFor(
+  call: PlannedCall,
+  pending: readonly SendableUpdate[],
+  family: Pick<RowFamily, 'personContactsNamed'>,
+): SendableUpdate[] {
   const inCall = new Set(call.collections.flatMap((collection) => collection.seqs));
-  return pending
-    .filter((update) => update.needs.every((seq) => inCall.has(seq)))
-    .slice(0, updatesRoomOf(call.collections.length));
+  const reads = new Set(contactsNamedIn(inCall, family));
+  const carried: SendableUpdate[] = [];
+  for (const update of pending) {
+    if (!update.needs.every((seq) => inCall.has(seq))) continue;
+    const more = (update.contacts ?? []).filter((account) => !reads.has(account));
+    if (carried.length + 1 > updatesRoomOf(call.collections.length, reads.size + more.length)) {
+      break;
+    }
+    for (const account of more) reads.add(account);
+    carried.push(update);
+  }
+  return carried;
 }
 
 /**
@@ -247,7 +273,7 @@ function updateCallOf(
     return plan.calls.length === 1 &&
       plan.beyond.length === 0 &&
       call &&
-      updates.length <= updatesRoomOf(call.collections.length)
+      updatesFor(call, updates, family).length === updates.length
       ? call
       : undefined;
   };
@@ -283,7 +309,7 @@ function plannedCallsOf(
   let pending = [...updates];
   /** Takes off `pending` the updates `call` carries; how many it did. */
   const carry = (call: PlannedCall): number => {
-    const carried = new Set(updatesFor(call, pending));
+    const carried = new Set(updatesFor(call, pending, family));
     pending = pending.filter((update) => !carried.has(update));
     return carried.size;
   };
@@ -331,11 +357,14 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
   await deps.prepare(writer);
   const rows = writer.rows;
   const rowOf = (value: unknown): RehearsedRow | undefined => writer.rowOf(value);
-  const family = familyOf(rows, rowOf);
+  // The contact the platform writes with a person account the run creates:
+  // never sent, what names it judged against the one its call reads back.
+  const contactOf = (value: unknown): RehearsedRow | undefined => writer.personContactOf(value);
+  const family = familyOf(rows, rowOf, contactOf);
   const sample = sampleOf(rows);
   const updateSample = sampleOfUpdates(
     writer.updated.flatMap((update) => {
-      const sendable = sendableOf(update, rowOf);
+      const sendable = sendableOf(update, rowOf, contactOf);
       return sendable ? [sendable] : [];
     }),
   );
@@ -450,9 +479,11 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     const carried = updatesFor(
       call,
       updatesLeft.filter((update) => !updatesNotJudged.has(update.seq)),
+      judging,
     );
     calls++;
     deps.onProgress?.({ phase: 'rehearsing', call: calls, calls: Math.max(plannedCalls, calls) });
+    const reads = contactReadsOf(call, judging, carried, linked);
     const body = compositeBody(
       call,
       family,
@@ -461,12 +492,14 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
       deps.writeHeaders,
       carried,
       linked,
+      { of: contactOf, reads },
     );
     const answer = readCompositeAnswer(
       await deps.composite(body),
       call,
       carried.length,
       (seq) => family.bySeq.get(seq)?.objectApiName,
+      reads,
     );
     if (answer.kind === 'not_rolled_back') {
       throw new RehearsalNotRolledBackError(answer.ids, objectsOfIds(answer.ids, rows));

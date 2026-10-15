@@ -16,8 +16,10 @@ import {
   leftToThePlatformReason,
   leftToThePlatformSummary,
   lookupsThePlatformFills,
+  accountsOfPersonContactsSoql,
   personAccountWriteEdges,
   personContactsOfAccounts,
+  personContactsSoql,
   recordsByNaturalKey,
   rowsACopySends,
   standardPriceIds,
@@ -320,6 +322,18 @@ describe('person accounts', () => {
           new Map([['Account', [{ name: 'PersonContactId' }]]]),
         ),
       ).toEqual([]);
+    });
+  });
+
+  describe('accountsOfPersonContactsSoql', () => {
+    it('reads back the accounts the query of their contacts names, and nothing of another query', () => {
+      expect(accountsOfPersonContactsSoql(personContactsSoql(['001PERSON', '001OTHER']))).toEqual([
+        '001PERSON',
+        '001OTHER',
+      ]);
+      expect(
+        accountsOfPersonContactsSoql("SELECT Id, Name FROM Account WHERE Id IN ('001A')"),
+      ).toBe(undefined);
     });
   });
 

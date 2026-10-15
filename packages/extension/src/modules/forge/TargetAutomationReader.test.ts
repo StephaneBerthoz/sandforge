@@ -10,10 +10,12 @@ import type {
 import {
   ASSIGNMENT_RULES_SOQL,
   CONDITIONS_BOUND,
+  CONDITION_REQUESTS_BOUND,
   DEFINITIONS_BOUND,
   DUPLICATE_RULES_SOQL,
   FLOWS_SOQL,
   PROCESSES_SOQL,
+  TOOLING_QUERIES_PER_REQUEST,
   TRIGGERS_SOQL,
   TargetAutomationReader,
   USER_PERMISSIONS_SOQL,
@@ -30,6 +32,8 @@ import {
   processObjectsSoql,
   ruleDefinitionSoql,
   switchesNamed,
+  toolingAnswersOf,
+  toolingCompositeBody,
   type QueryAnswer,
   type TargetAutomationDeps,
 } from './TargetAutomationReader.js';
@@ -736,6 +740,8 @@ type Refusals = {
   userPermissions?: Error;
   permissionSets?: Error;
   conditions?: Record<string, Error>;
+  /** A whole composite refused, by the id its first query names. */
+  composite?: Record<string, Error>;
 };
 
 /**
@@ -761,6 +767,7 @@ function fakeTarget({
   starts = {},
   metadata = {},
   refuse = {},
+  composites = false,
 }: {
   flows?: Array<Record<string, unknown>>;
   triggers?: Array<Record<string, unknown>>;
@@ -780,10 +787,17 @@ function fakeTarget({
   starts?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   refuse?: Refusals;
+  /**
+   * Whether the host sends Tooling queries in composites; `refuse.composite`
+   * then refuses the composites whose first query names that id.
+   */
+  composites?: boolean;
 }) {
   const asked: string[] = [];
   const regular: string[] = [];
   const tooling: string[] = [];
+  /** The size of each composite sent. */
+  const composite: number[] = [];
   let inFlight = 0;
   let mostInFlight = 0;
   const answering = async (respond: () => QueryAnswer): Promise<QueryAnswer> => {
@@ -837,19 +851,41 @@ function fakeTarget({
       tooling.push(soql);
       if (soql === TRIGGERS_SOQL) return answering(part(refuse.triggers, triggers));
       if (soql === WORKFLOW_RULES_SOQL) return answering(part(refuse.workflowRules, rules));
-      const id = /WHERE Id = '(\w+)'/.exec(soql)?.[1] ?? '';
-      return answering(() => {
-        const refused = refuse.conditions?.[id];
-        if (refused) throw refused;
-        return answer([
-          {
-            Metadata: metadata[id] ?? { start: starts[id] ?? { filterFormula: null, filters: [] } },
-          },
-        ]);
-      });
+      return answering(() => metadataAnswer(soql));
     },
+    ...(composites
+      ? {
+          toolingQueries: async (_orgId: string, soqls: readonly string[]) => {
+            asked.push(...soqls);
+            tooling.push(...soqls);
+            composite.push(soqls.length);
+            const first = /WHERE Id = '(\w+)'/.exec(soqls[0] ?? '')?.[1] ?? '';
+            const whole = refuse.composite?.[first];
+            await answering(() => answer([]));
+            if (whole) throw whole;
+            return soqls.map((soql) => {
+              try {
+                return { records: metadataAnswer(soql).records };
+              } catch (err: unknown) {
+                return { refused: err instanceof Error ? err.message : String(err) };
+              }
+            });
+          },
+        }
+      : {}),
   };
-  return { deps, asked, regular, tooling, mostInFlight: () => mostInFlight };
+  /** The metadata of the flow version or rule a query names, as the org answers it. */
+  function metadataAnswer(soql: string): QueryAnswer {
+    const id = /WHERE Id = '(\w+)'/.exec(soql)?.[1] ?? '';
+    const refused = refuse.conditions?.[id];
+    if (refused) throw refused;
+    return answer([
+      {
+        Metadata: metadata[id] ?? { start: starts[id] ?? { filterFormula: null, filters: [] } },
+      },
+    ]);
+  }
+  return { deps, asked, regular, tooling, composite, mostInFlight: () => mostInFlight };
 }
 
 /** An error as jsforce raises one for an org's refusal. */
@@ -1685,6 +1721,190 @@ describe('TargetAutomationReader', () => {
   });
 });
 
+/** The flow versions {@link flowsOn} gave so far: each gets an id of its own. */
+let versionsGiven = 0;
+
+/** `count` after-save flows of each of `objects`, on insert unless told, their version ids apart. */
+function flowsOn(objects: readonly string[], count: number, startsOn = 'Create') {
+  return objects.flatMap((objectApiName) =>
+    Array.from({ length: count }, (_, i) =>
+      flowRow(
+        objectApiName,
+        `${objectApiName}_${startsOn}_${String(i).padStart(3, '0')}`,
+        'RecordAfterSave',
+        startsOn,
+        `301${String(++versionsGiven).padStart(12, '0')}AAA`,
+      ),
+    ),
+  );
+}
+
+describe('start conditions read in composites', () => {
+  const TEN = Array.from({ length: 10 }, (_, i) => `Object_${i}__c`);
+
+  it('reads the start condition of every one of 300 flows across 10 objects, 25 a request', async () => {
+    const target = fakeTarget({ flows: flowsOn(TEN, 30), composites: true });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', TEN);
+
+    const flows = automation.objects.flatMap((o) => o.flows);
+    expect(flows).toHaveLength(300);
+    expect(flows.every((f) => f.condition === 'read')).toBe(true);
+    expect(automation.conditionsNotRead).toBe(0);
+    expect(automation).not.toHaveProperty('conditionsNotReadOn');
+    expect(automation.conditionsBound).toBe(CONDITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST);
+    expect(target.composite).toEqual(Array.from({ length: 12 }, () => 25));
+    // Five parts (no Case or Lead: no assignment rules), then twelve composites.
+    expect(automation.requests).toBe(5 + 12);
+    expect(target.mostInFlight()).toBeLessThanOrEqual(4);
+  });
+
+  it('past its bound of requests, says how many conditions it left unread and on which objects', async () => {
+    // The flows on insert first, the run's nearest objects first: what is
+    // left is the update flows of the last object.
+    const flows = [
+      ...flowsOn(['Case'], 300),
+      ...flowsOn(['Contact'], 200),
+      ...flowsOn(['Contact'], 15, 'Update'),
+      ...flowsOn(['Task'], 5, 'Update'),
+    ];
+    const target = fakeTarget({ flows, composites: true });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', [
+      'Case',
+      'Contact',
+      'Task',
+    ]);
+
+    expect(automation.conditionsNotRead).toBe(20);
+    expect(automation.conditionsNotReadOn).toEqual([
+      { objectApiName: 'Contact', flows: 15 },
+      { objectApiName: 'Task', flows: 5 },
+    ]);
+    expect(target.composite).toHaveLength(CONDITION_REQUESTS_BOUND);
+    const onInsert = automation.objects
+      .flatMap((o) => o.flows)
+      .filter((f) => f.startsOn === 'create');
+    expect(onInsert.every((f) => f.condition === 'read')).toBe(true);
+    expect(automationLines(automation, 'TGT')).toContain(
+      `  20 start condition(s) not read: the read takes ${CONDITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST} at most; left unread on Contact (15), Task (5)`,
+    );
+  });
+
+  it('keeps the conditions a composite answered when one of its queries is refused', async () => {
+    const flows = flowsOn(['Case'], 3);
+    const refused = String(flows[1].ActiveVersionId);
+    const target = fakeTarget({
+      flows,
+      composites: true,
+      refuse: { conditions: { [refused]: refusal('INVALID_ID', 'no such version') } },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    const byName = new Map(automation.objects[0].flows.map((f) => [f.apiName, f.condition]));
+    expect([...byName.values()].sort()).toEqual(['read', 'read', 'unreadable']);
+    expect(byName.get(String(flows[1].ApiName))).toBe('unreadable');
+    expect(automation.unread).toEqual([{ part: 'conditions', reason: 'no such version' }]);
+    expect(target.composite).toEqual([3]);
+  });
+
+  it('says the conditions of a composite the org refused whole could not be read, and reads the others', async () => {
+    const flows = flowsOn(['Case'], 30);
+    const target = fakeTarget({
+      flows,
+      composites: true,
+      refuse: {
+        composite: {
+          [String(flows[0].ActiveVersionId)]: refusal('REQUEST_LIMIT_EXCEEDED', 'too many'),
+        },
+      },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    const conditions = automation.objects[0].flows.map((f) => f.condition);
+    expect(conditions.filter((c) => c === 'unreadable')).toHaveLength(25);
+    expect(conditions.filter((c) => c === 'read')).toHaveLength(5);
+    expect(automation.unread).toEqual([
+      { part: 'conditions', reason: 'REQUEST_LIMIT_EXCEEDED: too many' },
+    ]);
+    expect(automation.requests).toBe(6 + 2);
+  });
+
+  it('reads the definitions of processes and rules in composites too', async () => {
+    const processes = Array.from({ length: 30 }, (_, i) =>
+      processRow(`Case_Process_${i}`, `301000000${String(i).padStart(6, '0')}AAA`, 'Case'),
+    );
+    const target = fakeTarget({ processes, composites: true });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.definitionsNotRead).toBe(0);
+    expect(target.composite).toEqual([25, 5]);
+  });
+});
+
+describe('toolingCompositeBody and toolingAnswersOf', () => {
+  it('asks each query in a subrequest of its own, answered on its own', () => {
+    const body = toolingCompositeBody('/services/data/v66.0', [
+      conditionSoql('301000000000001AAA'),
+      ruleDefinitionSoql('01Q000000000001AAA'),
+    ]);
+    expect(body).toEqual({
+      allOrNone: false,
+      compositeRequest: [
+        {
+          method: 'GET',
+          url: `/services/data/v66.0/tooling/query?q=${encodeURIComponent(conditionSoql('301000000000001AAA'))}`,
+          referenceId: 'q0',
+        },
+        {
+          method: 'GET',
+          url: `/services/data/v66.0/tooling/query?q=${encodeURIComponent(ruleDefinitionSoql('01Q000000000001AAA'))}`,
+          referenceId: 'q1',
+        },
+      ],
+    });
+  });
+
+  it('refuses more queries than a composite holds', () => {
+    const soqls = Array.from({ length: TOOLING_QUERIES_PER_REQUEST + 1 }, (_, i) =>
+      conditionSoql(`30100000000${String(i).padStart(4, '0')}AAA`),
+    );
+    expect(() => toolingCompositeBody('/services/data/v66.0', soqls)).toThrow(/25 queries/);
+  });
+
+  it('reads each answer in the order asked, the rows of one and the refusal of another', () => {
+    const answers = toolingAnswersOf(
+      {
+        compositeResponse: [
+          {
+            referenceId: 'q1',
+            httpStatusCode: 400,
+            body: [{ errorCode: 'MALFORMED_QUERY', message: 'unexpected token' }],
+          },
+          {
+            referenceId: 'q0',
+            httpStatusCode: 200,
+            body: { totalSize: 1, done: true, records: [{ Metadata: { start: {} } }] },
+          },
+        ],
+      },
+      3,
+    );
+    expect(answers).toEqual([
+      { records: [{ Metadata: { start: {} } }] },
+      { refused: 'MALFORMED_QUERY: unexpected token' },
+      { refused: 'The org gave no answer to this query of the composite' },
+    ]);
+  });
+
+  it('throws on an answer that is no composite answer', () => {
+    expect(() => toolingAnswersOf({}, 1)).toThrow(/no composite answer/);
+  });
+});
+
 describe('answerOf', () => {
   it('reads every page, and counts a request for each', async () => {
     const pages = [
@@ -1739,7 +1959,7 @@ describe('automationLines', () => {
       '    on insert: Apex trigger CaseTrigger (before and after save), flow "Case notify" (after save; not for a user with Case_BypassFlow)',
       '    on update: flow "Case sync" (after save; start condition not read)',
       '  bypass: assign Case_BypassFlow to the user the run writes as, and the flows whose start condition excludes them stay quiet',
-      `  1 start condition(s) not read: the read takes ${CONDITIONS_BOUND} at most, one request each`,
+      `  1 start condition(s) not read: the read takes ${CONDITIONS_BOUND} at most`,
       '  the start conditions of some flows could not be read: INSUFFICIENT_ACCESS: no access',
       '  read in 27 request(s) to TGT',
     ]);
@@ -1912,7 +2132,7 @@ describe('automationLines', () => {
         'its decisions test $User.Region__c)',
     );
     expect(lines).toContain(
-      `  2 process or workflow rule definition(s) not read: the read takes ${DEFINITIONS_BOUND} at most, one request each`,
+      `  2 process or workflow rule definition(s) not read: the read takes ${DEFINITIONS_BOUND} at most`,
     );
   });
 

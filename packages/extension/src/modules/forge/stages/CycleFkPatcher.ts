@@ -23,9 +23,11 @@ import type {
   ExecutionObjectError,
   ForgeExecutorDeps,
   ForgeProgressEvent,
+  UpdateResult,
 } from '../ForgeExecutor.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { LookupPatchSet } from '../../../core/common/lookupPatches.js';
+import { LOOKUP_FILTER_REFUSAL } from '../../../core/common/refusedFields.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import {
   WRITE_API_MAX_BATCH,
@@ -84,6 +86,12 @@ export interface CycleFkPatchInput {
    * part taking the run up would send its lookups again.
    */
   onAnswered?: () => void;
+  /**
+   * Told of each lookup of an update a lookup filter of the target refused,
+   * which stays empty: the record, by its id in the target, and the field.
+   * A verification of the run tells it from a lookup that broke.
+   */
+  onRefusedByFilter?: (objectApiName: string, field: string, recordId: string) => void;
 }
 
 /** The lookups one update fills in: every field it carries but the record's Id. */
@@ -355,6 +363,7 @@ export class CycleFkPass {
             const r = updateResults[i];
             if (r.success) input.onPatched?.(objectApiName, batch[i]);
             if (!r.success) {
+              this.tellRefusedByFilter(objectApiName, batch[i], r);
               this.pass2Failed += lookupsIn(batch[i]);
               if (this.pass2Samples.length < 3) {
                 this.pass2Samples.push({
@@ -392,6 +401,28 @@ export class CycleFkPass {
         }
         input.onAnswered?.();
       }
+    }
+  }
+
+  /**
+   * Tell `onRefusedByFilter` of each lookup of a refused update that a lookup
+   * filter of the target named: the update fails whole and leaves it empty.
+   */
+  private tellRefusedByFilter(
+    objectApiName: string,
+    update: Readonly<Record<string, unknown>>,
+    result: UpdateResult,
+  ): void {
+    const told = this.input.onRefusedByFilter;
+    const recordId = update['Id'];
+    if (!told || typeof recordId !== 'string') return;
+    const named = new Set(
+      (result.errorDetails ?? [])
+        .filter((detail) => detail.statusCode === LOOKUP_FILTER_REFUSAL)
+        .flatMap((detail) => detail.fields),
+    );
+    for (const field of Object.keys(update)) {
+      if (field !== 'Id' && named.has(field)) told(objectApiName, field, recordId);
     }
   }
 

@@ -131,6 +131,11 @@ export function forgeRunResult(
     // without the fields it named: in the target, each short of a value the
     // source held.
     ...(summary.writtenWithoutFields ? { writtenWithoutFields: summary.writtenWithoutFields } : {}),
+    // The lookups a lookup filter refused that the run left empty, by record:
+    // a verification counts them as such, never as broken.
+    ...(summary.lookupsLeftEmptyByFilter
+      ? { lookupsLeftEmptyByFilter: summary.lookupsLeftEmptyByFilter }
+      : {}),
     // Whether the emails and phone numbers it wrote were neutralized, and how
     // many: the results, the history and the audit trail say so.
     ...(summary.contactPoints ? { contactPoints: summary.contactPoints } : {}),

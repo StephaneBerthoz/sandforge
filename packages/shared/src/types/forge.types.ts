@@ -1200,6 +1200,15 @@ export interface ForgeWrittenBetween {
  */
 export type ForgeVerificationVerdict = 'verified' | 'partial' | 'unstable';
 
+/**
+ * Why a lookup that does not point where the run set it is not broken:
+ * `lookup-filter`, it is empty, a lookup filter of the target having refused
+ * the record it named, and the run left it so, as it said; `automation`, it
+ * points at a record the user the run wrote as created in the target during
+ * the run, one the run did not create: the target's automation set it.
+ */
+export type ForgeVerificationLinkCause = 'lookup-filter' | 'automation';
+
 /** A lookup of a record the run created that no longer points where the run set it. */
 export interface ForgeVerificationLink {
   /** The record, by its id in the target. */
@@ -1210,6 +1219,25 @@ export interface ForgeVerificationLink {
   expected: string;
   /** What the target holds in it now; null when it is empty. */
   found: string | null;
+  /** Why it is not broken, when the target explains it. */
+  cause?: ForgeVerificationLinkCause;
+}
+
+/**
+ * The lookups of one field of one object that a lookup filter of the target
+ * refused and the run left empty — the row written again without the
+ * lookup, or the lookup not filled in by the second pass — by the records'
+ * ids in the target. What a verification tells from a lookup that broke.
+ */
+export interface ForgeLookupsLeftEmpty {
+  /** API name of the object. */
+  objectApiName: string;
+  /** The lookup, by the API name the run wrote it under. */
+  field: string;
+  /** How many records the run left so. */
+  records: number;
+  /** Their ids in the target, the first few thousand. */
+  recordIds: string[];
 }
 
 /** A record the run created that was modified after the run ended. */
@@ -1250,10 +1278,27 @@ export interface ForgeVerificationObject {
   notVisibleIds: string[];
   /** The lookups checked on the sample of the object's records. */
   linksChecked: number;
-  /** Of those, the ones that point elsewhere than the run set them, or are empty. */
+  /**
+   * Of those, the ones that point elsewhere than the run set them, or are
+   * empty, the target explaining neither.
+   */
   linksBroken: number;
   /** The first few of them. */
   brokenLinks: ForgeVerificationLink[];
+  /**
+   * Of the lookups checked, those empty because a lookup filter of the target
+   * refused the record they named, the run leaving them so: not broken.
+   * Absent from verifications made before they were told apart.
+   */
+  linksLeftEmptyByFilter?: number;
+  /**
+   * Of the lookups checked, those pointing at a record the user the run
+   * wrote as created during the run, which the run did not create: set by
+   * the target's automation, not broken.
+   */
+  linksSetByAutomation?: number;
+  /** The first few of either, each with its cause. */
+  explainedLinks?: ForgeVerificationLink[];
   /** Why the object could not be read; nothing of it was judged then. */
   error?: string;
   /** Why its lookups could not be checked, when they could not. */
@@ -1566,6 +1611,13 @@ export interface ForgeExecutionResult {
    * removal of its records. Absent when every call was answered.
    */
   mayHaveBeenWritten?: Array<{ objectApiName: string; sourceIds: string[] }>;
+  /**
+   * The lookups a lookup filter of the target refused, which the run left
+   * empty, per object and field, by record: a verification counts them as
+   * left empty by the filter, never as broken. Absent when there were none,
+   * from a simulation, and from runs recorded before they were kept.
+   */
+  lookupsLeftEmptyByFilter?: ForgeLookupsLeftEmpty[];
   /**
    * When the target dated the run's writes. Absent from a run that created
    * nothing, one whose dates could not all be read back, and runs recorded
@@ -2026,11 +2078,20 @@ export interface ForgeTargetAutomation {
   unread: ForgeTargetAutomationUnread[];
   /** Start conditions left unread past the bound. */
   conditionsNotRead: number;
-  /** The most start conditions the read reads, one request each. */
+  /**
+   * The most start conditions the read reads: many a request where the host
+   * sends them in composites, one a request otherwise.
+   */
   conditionsBound: number;
+  /**
+   * Per object, in the order the run's objects were given, the flows whose
+   * start condition was left unread past the bound. Absent when none was,
+   * and from reads made before it was said.
+   */
+  conditionsNotReadOn?: Array<{ objectApiName: string; flows: number }>;
   /** Definitions of processes and workflow rules left unread past their bound. */
   definitionsNotRead?: number;
-  /** The most definitions of processes and workflow rules the read reads, one request each. */
+  /** The most definitions of processes and workflow rules the read reads. */
   definitionsBound?: number;
   /**
    * For each bypass the user the run writes as does not hold, the permission

@@ -7,6 +7,7 @@ import {
   type SaveErrorDetail,
   type SaveOutcome,
 } from '../../../core/common/existingRecordMatch.js';
+import { ACCOUNT, PERSON_CONTACT_FIELD } from '../../../core/common/platformRecords.js';
 import type { RehearsedRow } from './RehearsalWriter.js';
 import { ancestorsOf, type LinkedTo, type RowFamily } from './rehearsalSample.js';
 
@@ -61,11 +62,86 @@ export interface PlannedUpdate {
   rowSeq: number;
   /** What it sets. A placeholder of a row of the call goes as that row's new id. */
   fields: Record<string, unknown>;
+  /** The person accounts of the call whose contact a value of it names, by `seq`. */
+  contacts?: number[];
 }
 
-/** How many updates a call of `collections` Collections requests has room for. */
-export function updatesRoomOf(collections: number): number {
-  return Math.max(0, SUBREQUESTS_PER_CALL - collections - 1);
+/**
+ * How many updates a call of `collections` Collections requests has room
+ * for, beside `reads` reads of the contacts of person accounts.
+ */
+export function updatesRoomOf(collections: number, reads = 0): number {
+  return Math.max(0, SUBREQUESTS_PER_CALL - collections - reads - 1);
+}
+
+/**
+ * The person accounts whose contact — the one the platform writes with the
+ * account — the rows of `seqs` name, each once, in the order first named.
+ */
+export function contactsNamedIn(
+  seqs: Iterable<number>,
+  family: Pick<RowFamily, 'personContactsNamed'>,
+): number[] {
+  const named = new Set<number>();
+  for (const seq of seqs) {
+    for (const account of family.personContactsNamed?.get(seq) ?? []) named.add(account);
+  }
+  return [...named];
+}
+
+/**
+ * One read a call makes of the contact the platform wrote with a person
+ * account, once the account is in: what names the contact reads its id from
+ * there (`@{contactN.PersonContactId}`), as the run's writer reads it back
+ * from the target to link the source's contact to it.
+ */
+export interface PlannedContactRead {
+  /** The person account's row, by `seq`. */
+  account: number;
+  /**
+   * The Collections request it follows, by index: the one that creates the
+   * account, or the row the account is linked to; -1, before the first, for
+   * an account linked to a record the target holds.
+   */
+  after: number;
+}
+
+/**
+ * The reads of the contacts of person accounts a call makes: one for each
+ * account whose contact a row of the call, or an update it sends, names,
+ * right after the request that creates the account. An account the call
+ * cannot place is left out, and what names its contact makes the call's body
+ * throw (`compositeBody`).
+ *
+ * @param linked - What each row refused for a record the target holds stands for.
+ */
+export function contactReadsOf(
+  call: PlannedCall,
+  family: Pick<RowFamily, 'personContactsNamed'>,
+  updates: ReadonlyArray<Pick<PlannedUpdate, 'contacts'>> = [],
+  linked: ReadonlyMap<number, LinkedTo> = new Map(),
+): PlannedContactRead[] {
+  const collectionOf = new Map<number, number>();
+  call.collections.forEach((collection, index) =>
+    collection.seqs.forEach((seq) => collectionOf.set(seq, index)),
+  );
+  const accounts = new Set([
+    ...contactsNamedIn(
+      call.collections.flatMap((collection) => collection.seqs),
+      family,
+    ),
+    ...updates.flatMap((update) => update.contacts ?? []),
+  ]);
+  const reads: PlannedContactRead[] = [];
+  for (const account of accounts) {
+    const own = collectionOf.get(account);
+    const standIn = linked.get(account);
+    const after =
+      own ??
+      (standIn === undefined ? undefined : 'id' in standIn ? -1 : collectionOf.get(standIn.seq));
+    if (after !== undefined) reads.push({ account, after });
+  }
+  return reads.sort((a, b) => a.after - b.after || a.account - b.account);
 }
 
 /** The calls that judge some rows, and the rows no call can hold with what they need. */
@@ -145,8 +221,15 @@ export function planCalls(toJudge: readonly RehearsedRow[], family: RowFamily): 
     }
     return next;
   };
-  const fits = (byLevel: ReadonlyMap<number, ReadonlySet<number>>): boolean =>
-    collectionsOf(byLevel, family.bySeq).length <= COLLECTIONS_PER_CALL;
+  // A read of a person account's contact takes a subrequest of its own.
+  const fits = (byLevel: ReadonlyMap<number, ReadonlySet<number>>): boolean => {
+    const collections = collectionsOf(byLevel, family.bySeq).length;
+    const reads = contactsNamedIn(
+      [...byLevel.values()].flatMap((seqs) => [...seqs]),
+      family,
+    ).length;
+    return collections <= COLLECTIONS_PER_CALL && collections + reads < SUBREQUESTS_PER_CALL;
+  };
   for (const row of order) {
     if (placed.has(row.seq)) continue;
     const members = [row.seq, ...ancestorsOf(row.seq, family)];
@@ -170,10 +253,11 @@ export function planCalls(toJudge: readonly RehearsedRow[], family: RowFamily): 
 
 /** One subrequest of a composite call. */
 export interface CompositeSubrequest {
-  method: 'POST' | 'PATCH';
+  method: 'POST' | 'PATCH' | 'GET';
   url: string;
   referenceId: string;
-  body: unknown;
+  /** What it sends; none for a read. */
+  body?: unknown;
   httpHeaders?: Record<string, string>;
 }
 
@@ -205,6 +289,40 @@ function updateRef(index: number): string {
 /** The reference id of the update that ends a call, and fails. */
 const ROLLBACK_REF = 'rollback';
 
+/** The reference id of a call's read of the contact of the person account of row `account`. */
+function contactRef(account: number): string {
+  return `contact${account}`;
+}
+
+/** What a call needs to name the contacts of the person accounts it creates. */
+export interface CallContacts {
+  /** The person account whose contact a value stands for, when it is the placeholder of one. */
+  of: (value: unknown) => RehearsedRow | undefined;
+  /** The reads the call makes of those contacts ({@link contactReadsOf}). */
+  reads: readonly PlannedContactRead[];
+}
+
+/**
+ * The reference ids of a call's subrequests, in the order sent: each read of
+ * a contact right after the request that creates its account (or first, for
+ * an account the target holds), each Collections request, then the updates,
+ * then the update that rolls the call back.
+ */
+function subrequestOrder(
+  call: PlannedCall,
+  updates: number,
+  reads: readonly PlannedContactRead[],
+): string[] {
+  const readsAfter = (index: number): string[] =>
+    reads.filter((read) => read.after === index).map((read) => contactRef(read.account));
+  return [
+    ...readsAfter(-1),
+    ...call.collections.flatMap((_, index) => [collectionRef(index), ...readsAfter(index)]),
+    ...Array.from({ length: updates }, (_, index) => updateRef(index)),
+    ROLLBACK_REF,
+  ];
+}
+
 /**
  * The composite request of a call, all or none: each Collections request
  * creates its rows one by one (`allOrNone: false` inside, so each row gets
@@ -232,6 +350,12 @@ const ROLLBACK_REF = 'rollback';
  *   of an earlier call that holds the value it collided with. A lookup to it
  *   goes as that id, or as that row's new id, as the run's writer links what
  *   hangs from such a row to the record named.
+ * @param contacts - The contacts of the person accounts the call creates,
+ *   which the platform writes with each: a value that stands for one goes as
+ *   the account's `PersonContactId`, read right after the request that
+ *   creates the account (`@{contactN.PersonContactId}`). The run's writer
+ *   sends no such contact, and links what names it to the one the platform
+ *   wrote, read back from the target.
  * @throws When a row or an update names a record the run creates that the
  *   call does not hold, or the call would hold more subrequests than one may.
  */
@@ -243,8 +367,10 @@ export function compositeBody(
   headers: Readonly<Record<string, string>>,
   updates: readonly PlannedUpdate[] = [],
   linked: ReadonlyMap<number, LinkedTo> = new Map(),
+  contacts: CallContacts = { of: () => undefined, reads: [] },
 ): CompositeRequestBody {
-  if (updates.length > updatesRoomOf(call.collections.length)) {
+  const { reads } = contacts;
+  if (updates.length > updatesRoomOf(call.collections.length, reads.length)) {
     throw new Error(
       `A rehearsal call of ${call.collections.length} Collections request(s) has no room for ` +
         `${updates.length} update(s): a call holds ${SUBREQUESTS_PER_CALL} subrequests`,
@@ -264,13 +390,36 @@ export function compositeBody(
     if (standIn === undefined) return undefined;
     return 'id' in standIn ? standIn.id : at.get(standIn.seq);
   };
+  const read = new Set(reads.map((r) => r.account));
+  /**
+   * What a value goes as: a lookup to a row of the call its new id, one to
+   * the contact of a person account of the call what the call read of it,
+   * anything else itself; undefined when the call holds neither.
+   */
+  const valueOf = (value: unknown): { sent: unknown } | undefined => {
+    const parent = rowOf(value);
+    if (parent) {
+      const reference = referenceTo(parent);
+      return reference === undefined ? undefined : { sent: reference };
+    }
+    const account = contacts.of(value);
+    if (account) {
+      return read.has(account.seq)
+        ? { sent: `@{${contactRef(account.seq)}.${PERSON_CONTACT_FIELD}}` }
+        : undefined;
+    }
+    return { sent: value };
+  };
   const rowsOf = (collection: PlannedCollection): RehearsedRow[] =>
     collection.seqs.map((seq) => {
       const row = family.bySeq.get(seq);
       if (!row) throw new Error(`Row ${seq} is not among the rows the run creates`);
       return row;
     });
-  const compositeRequest: CompositeSubrequest[] = call.collections.map((collection, index) => ({
+  const collectionRequest = (
+    collection: PlannedCollection,
+    index: number,
+  ): CompositeSubrequest => ({
     method: 'POST',
     url: `${apiPath}/composite/sobjects`,
     referenceId: collectionRef(index),
@@ -280,24 +429,42 @@ export function compositeBody(
         const record: Record<string, unknown> = { attributes: { type: row.objectApiName } };
         for (const [field, value] of Object.entries(row.fields)) {
           if (field === 'attributes' || field === 'Id') continue;
-          const parent = rowOf(value);
-          if (!parent) {
-            record[field] = value;
-            continue;
-          }
-          const reference = referenceTo(parent);
-          if (reference === undefined) {
+          const sent = valueOf(value);
+          if (sent === undefined) {
             throw new Error(
               `${row.objectApiName} row ${row.seq} names a record the run creates that its call does not hold`,
             );
           }
-          record[field] = reference;
+          record[field] = sent.sent;
         }
         return record;
       }),
     },
     httpHeaders: { ...headers },
-  }));
+  });
+  const contactRead = ({ account }: PlannedContactRead): CompositeSubrequest => {
+    const row = family.bySeq.get(account);
+    const reference = row ? referenceTo(row) : undefined;
+    if (reference === undefined) {
+      throw new Error(
+        `A read of a person account's contact names an account its call does not hold`,
+      );
+    }
+    return {
+      method: 'GET',
+      url: `${apiPath}/sobjects/${ACCOUNT}/${reference}?fields=${PERSON_CONTACT_FIELD}`,
+      referenceId: contactRef(account),
+    };
+  };
+  const readsAfter = (index: number): CompositeSubrequest[] =>
+    reads.filter((r) => r.after === index).map(contactRead);
+  const compositeRequest: CompositeSubrequest[] = [
+    ...readsAfter(-1),
+    ...call.collections.flatMap((collection, index) => [
+      collectionRequest(collection, index),
+      ...readsAfter(index),
+    ]),
+  ];
   updates.forEach((update, index) => {
     const record = at.get(update.rowSeq);
     if (record === undefined) {
@@ -308,18 +475,13 @@ export function compositeBody(
     const body: Record<string, unknown> = {};
     for (const [field, value] of Object.entries(update.fields)) {
       if (field === 'attributes' || field === 'Id') continue;
-      const parent = rowOf(value);
-      if (!parent) {
-        body[field] = value;
-        continue;
-      }
-      const reference = referenceTo(parent);
-      if (reference === undefined) {
+      const sent = valueOf(value);
+      if (sent === undefined) {
         throw new Error(
           `An update of ${update.objectApiName} names a record the run creates that its call does not hold`,
         );
       }
-      body[field] = reference;
+      body[field] = sent.sent;
     }
     compositeRequest.push({
       method: 'PATCH',
@@ -411,36 +573,40 @@ function halted(sub: Subresponse): boolean {
  * closing update that did not fail means no subrequest did, and nothing was
  * rolled back.
  *
+ * A read of a person account's contact made before the stop reads as
+ * stopped too; one the target refused stops the call with no verdict to read
+ * past it, and is thrown.
+ *
  * @param updates - How many updates the call sent after its Collections requests.
  * @param objectOf - The object of a row, by `seq`: a duplicate rule's match
  *   is kept only when it is of the object written, as the run's writer
  *   keeps it.
- * @throws When the answer is not a composite answer of this call.
+ * @param reads - The reads of the contacts of person accounts the call made
+ *   ({@link contactReadsOf}).
+ * @throws When the answer is not a composite answer of this call, or the
+ *   target refused a read of a person account's contact.
  */
 export function readCompositeAnswer(
   raw: unknown,
   call: PlannedCall,
   updates = 0,
   objectOf: (seq: number) => string | undefined = () => undefined,
+  reads: readonly PlannedContactRead[] = [],
 ): CallAnswer {
   const parsed = compositeAnswerSchema.safeParse(raw);
   if (!parsed.success)
     throw new Error('The target answered the rehearsal with no composite answer');
   const subs = parsed.data.compositeResponse;
-  const sent = call.collections.length + updates + 1;
+  // The platform lists the subrequests in the order it ran them: one out of
+  // the order sent would have its verdict read from another's place.
+  const order = subrequestOrder(call, updates, reads);
+  const sent = order.length;
   const closing = subs[sent - 1];
   if (subs.length !== sent || !closing) {
     throw new Error(
       `The target answered ${subs.length} subrequests of the ${sent} the rehearsal sent`,
     );
   }
-  // The platform lists the subrequests in the order it ran them: one out of
-  // the order sent would have its verdict read from another's place.
-  const order = [
-    ...call.collections.map((_, index) => collectionRef(index)),
-    ...Array.from({ length: updates }, (_, index) => updateRef(index)),
-    ROLLBACK_REF,
-  ];
   const misplaced = subs.findIndex(
     (sub, index) => sub.referenceId !== undefined && sub.referenceId !== order[index],
   );
@@ -451,8 +617,19 @@ export function readCompositeAnswer(
       )} in place of ${order[misplaced]}): no verdict can be read from it`,
     );
   }
+  const subOf = (ref: string): (typeof subs)[number] => subs[order.indexOf(ref)];
+  for (const { account } of reads) {
+    const sub = subOf(contactRef(account));
+    if (sub.httpStatusCode < 400 || halted(sub)) continue;
+    const errors = errorBodySchema.safeParse(sub.body);
+    const code = errors.success ? (errors.data[0]?.errorCode ?? errors.data[0]?.statusCode) : '';
+    throw new Error(
+      `The target refused to read back the contact the platform wrote with a person account ` +
+        `(status ${sub.httpStatusCode}${code ? `, ${code}` : ''}): no verdict can be read past it`,
+    );
+  }
   const collections = call.collections.map((collection, index): CollectionAnswer => {
-    const sub = subs[index];
+    const sub = subOf(collectionRef(index));
     if (halted(sub)) return { kind: 'halted' };
     const results = saveResultsSchema.safeParse(sub.body);
     if (sub.httpStatusCode < 400 && results.success) {
@@ -477,7 +654,7 @@ export function readCompositeAnswer(
     );
   });
   const updateAnswers = Array.from({ length: updates }, (_, index): UpdateAnswer => {
-    const sub = subs[call.collections.length + index];
+    const sub = subOf(updateRef(index));
     if (halted(sub)) return { kind: 'halted' };
     if (sub.httpStatusCode < 400) return { kind: 'saved' };
     const errors = errorBodySchema.safeParse(sub.body);

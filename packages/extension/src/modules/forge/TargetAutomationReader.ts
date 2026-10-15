@@ -34,9 +34,14 @@
  *   its record-create elements create of a flow from
  *   the `Metadata` of its active version, `Flow` over the Tooling API, and a
  *   rule's from its own `Metadata`. The org gives `Metadata` one row per
- *   query: asked for two, it refuses with `MALFORMED_QUERY`. Each costs a
- *   request, so the read takes {@link CONDITIONS_BOUND} flows and
- *   {@link DEFINITIONS_BOUND} processes and rules at most;
+ *   query: asked for two, it refuses with `MALFORMED_QUERY`. A Tooling
+ *   composite asks {@link TOOLING_QUERIES_PER_REQUEST} such queries in one
+ *   request, each answered on its own, and the read takes
+ *   {@link CONDITION_REQUESTS_BOUND} requests of flows and
+ *   {@link DEFINITION_REQUESTS_BOUND} of processes and rules at most; one
+ *   query a request, where no composite can be sent, it takes
+ *   {@link CONDITIONS_BOUND} flows and {@link DEFINITIONS_BOUND} processes
+ *   and rules;
  * - the assignment rules from `AssignmentRule` (Case and Lead only), the
  *   duplicate rules from `DuplicateRule`, and the custom permissions of the
  *   user the read runs as — the user the run writes as — from
@@ -85,6 +90,7 @@ import {
   bypassPermissionsOf,
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
+import { z } from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordCreatesOf } from './flowRecordCreates.js';
 import { queryAllPages, type PagedQuerySource } from './queryAllPages.js';
@@ -103,7 +109,18 @@ export interface TargetAutomationDeps {
   query: (orgId: string, soql: string) => Promise<QueryAnswer>;
   /** A SOQL query on the Tooling API of an org, every page of it. */
   toolingQuery: (orgId: string, soql: string) => Promise<QueryAnswer>;
+  /**
+   * Several queries of one page each on the Tooling API of an org, in one
+   * request — {@link TOOLING_QUERIES_PER_REQUEST} at most, a Tooling
+   * composite (`toolingCompositeBody`) — each answered on its own, in the
+   * order asked (`toolingAnswersOf`). Without it, each start condition and
+   * each definition takes a request of its own, and the read takes fewer.
+   */
+  toolingQueries?: (orgId: string, soqls: readonly string[]) => Promise<ToolingAnswer[]>;
 }
+
+/** What one query of a Tooling composite came to: its rows, or the org's refusal of it alone. */
+export type ToolingAnswer = { records: Array<Record<string, unknown>> } | { refused: string };
 
 /**
  * Every page of `soql` from a connection, or from its Tooling API, and the
@@ -131,6 +148,26 @@ export const CONDITIONS_BOUND = 25;
  * inactive, which only a rule's definition tells.
  */
 export const DEFINITIONS_BOUND = 15;
+
+/**
+ * The queries one Tooling composite holds: the 25 subrequests a composite
+ * request takes. Each asks for one flow's or one rule's `Metadata`, the one
+ * row a query of it gives.
+ */
+export const TOOLING_QUERIES_PER_REQUEST = 25;
+
+/**
+ * The most requests a read sends for start conditions when it can send them
+ * in composites: 500 flows. Run on a large client sandbox, a clone's objects
+ * ran 242 record-triggered flows, and a read of {@link CONDITIONS_BOUND}, one
+ * request each, left 217 of them "start condition not read" — the org where
+ * the report matters most. Twenty requests stay a sliver of a day's API
+ * budget, and the report says what is still left unread past them.
+ */
+export const CONDITION_REQUESTS_BOUND = 20;
+
+/** The most requests a read sends for the definitions of processes and rules, in composites. */
+export const DEFINITION_REQUESTS_BOUND = 4;
 
 /**
  * Requests in flight at a time. Review compares the two orgs' metadata at the
@@ -176,6 +213,75 @@ export const USER_PERMISSIONS_SOQL =
 /** The metadata of one version of a flow: the only way the org gives its start condition. */
 export function conditionSoql(versionId: string): string {
   return `SELECT Metadata FROM Flow WHERE Id = '${versionId}'`;
+}
+
+/**
+ * The body of a Tooling composite asking `soqls`, one query a subrequest,
+ * each answered on its own: a query the org refuses fails alone.
+ *
+ * @param apiPath - The org's REST API path, `/services/data/vXX.X`.
+ */
+export function toolingCompositeBody(
+  apiPath: string,
+  soqls: readonly string[],
+): {
+  allOrNone: false;
+  compositeRequest: Array<{ method: 'GET'; url: string; referenceId: string }>;
+} {
+  if (soqls.length > TOOLING_QUERIES_PER_REQUEST) {
+    throw new Error(
+      `A Tooling composite holds ${TOOLING_QUERIES_PER_REQUEST} queries, not ${soqls.length}`,
+    );
+  }
+  return {
+    allOrNone: false,
+    compositeRequest: soqls.map((soql, index) => ({
+      method: 'GET',
+      url: `${apiPath}/tooling/query?q=${encodeURIComponent(soql)}`,
+      referenceId: `q${index}`,
+    })),
+  };
+}
+
+const compositeAnswerSchema = z.object({
+  compositeResponse: z.array(
+    z.object({ body: z.unknown(), httpStatusCode: z.number(), referenceId: z.string() }).loose(),
+  ),
+});
+const queryBodySchema = z.object({ records: z.array(z.record(z.string(), z.unknown())) }).loose();
+const refusalBodySchema = z.array(
+  z.object({ errorCode: z.string().optional(), message: z.string().optional() }).loose(),
+);
+
+/**
+ * The answers of a Tooling composite of `count` queries
+ * ({@link toolingCompositeBody}), in the order asked: each query's rows, or
+ * the org's refusal of it.
+ *
+ * @throws When the answer is no composite answer of `count` queries.
+ */
+export function toolingAnswersOf(raw: unknown, count: number): ToolingAnswer[] {
+  const parsed = compositeAnswerSchema.safeParse(raw);
+  if (!parsed.success)
+    throw new Error('The org answered the Tooling composite with no composite answer');
+  const byRef = new Map(parsed.data.compositeResponse.map((sub) => [sub.referenceId, sub]));
+  return Array.from({ length: count }, (_, index): ToolingAnswer => {
+    const sub = byRef.get(`q${index}`);
+    if (!sub) return { refused: 'The org gave no answer to this query of the composite' };
+    if (sub.httpStatusCode < 400) {
+      const body = queryBodySchema.safeParse(sub.body);
+      return body.success
+        ? { records: body.data.records }
+        : { refused: `The org answered with status ${sub.httpStatusCode} and no rows` };
+    }
+    const errors = refusalBodySchema.safeParse(sub.body);
+    const first = errors.success ? errors.data[0] : undefined;
+    return {
+      refused: first
+        ? [first.errorCode, first.message].filter(Boolean).join(': ')
+        : `status ${sub.httpStatusCode}`,
+    };
+  });
 }
 
 /** The metadata of one workflow rule: the only way the org says whether it is active. */
@@ -1312,7 +1418,16 @@ export class TargetAutomationReader {
           objectRank(a) - objectRank(b) ||
           a.flow.label.localeCompare(b.flow.label),
       );
-    const reading = toRead.slice(0, CONDITIONS_BOUND);
+    // In composites when the host can send them, many flows a request; one
+    // a request otherwise, as the read always did.
+    const toolingQueries = this.deps.toolingQueries;
+    const conditionsBound = toolingQueries
+      ? CONDITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST
+      : CONDITIONS_BOUND;
+    const definitionsBound = toolingQueries
+      ? DEFINITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST
+      : DEFINITIONS_BOUND;
+    const reading = toRead.slice(0, conditionsBound);
     // The root's processes and rules first, a process before a rule: a rule
     // may well be inactive, which only its definition says.
     const definitionsToRead = [
@@ -1326,50 +1441,97 @@ export class TargetAutomationReader {
           (a.kind === b.kind ? 0 : a.kind === 'process' ? -1 : 1) ||
           a.read.flow.label.localeCompare(b.read.flow.label),
       );
-    const definitionsReading = definitionsToRead.slice(0, DEFINITIONS_BOUND);
+    const definitionsReading = definitionsToRead.slice(0, definitionsBound);
 
     let refusal: string | undefined;
     let definitionRefusal: string | undefined;
     const inactive = new Set<ForgeTargetFlow>();
-    const metadataOf = (answer: QueryAnswer): unknown => answer.records[0]?.Metadata;
+    const metadataOf = (records: ReadonlyArray<Record<string, unknown>>): unknown =>
+      records[0]?.Metadata;
+    const takeCondition = (read: ReadFlow, records: ReadonlyArray<Record<string, unknown>>) => {
+      read.flow.condition = 'read';
+      readFlowMetadata(read.flow, metadataOf(records));
+    };
+    const conditionRefused = (read: ReadFlow, reason: string): void => {
+      read.flow.condition = 'unreadable';
+      refusal ??= reason;
+    };
+    type DefinitionToRead = (typeof definitionsReading)[number];
+    const definitionSoql = ({ read, kind }: DefinitionToRead): string =>
+      kind === 'process' ? conditionSoql(read.id!) : ruleDefinitionSoql(read.id!);
+    const takeDefinition = (
+      { read, kind }: DefinitionToRead,
+      records: ReadonlyArray<Record<string, unknown>>,
+    ): void => {
+      const metadata = metadataOf(records);
+      if (typeof metadata !== 'object' || metadata === null) {
+        read.flow.condition = 'unreadable';
+        return;
+      }
+      read.flow.condition = 'read';
+      if (kind === 'process') {
+        const objectOfMetadata = readProcessMetadata(read.flow, metadata);
+        read.objectApiName ??= objectOfMetadata;
+      } else if (!readRuleMetadata(read.flow, metadata)) {
+        inactive.add(read.flow);
+      }
+    };
+    const definitionRefused = ({ read }: DefinitionToRead, reason: string): void => {
+      read.flow.condition = 'unreadable';
+      definitionRefusal ??= reason;
+    };
+    /**
+     * The tasks that read `items`: a composite a chunk of them, each item
+     * answered on its own; or, without composites, a query each.
+     */
+    const readingTasks = <T>(
+      items: readonly T[],
+      soqlOf: (item: T) => string,
+      take: (item: T, records: ReadonlyArray<Record<string, unknown>>) => void,
+      refused: (item: T, reason: string) => void,
+    ): Array<() => Promise<void>> => {
+      if (!toolingQueries) {
+        return items.map((item) => async () => {
+          try {
+            const answer = await this.deps.toolingQuery(targetOrgId, soqlOf(item));
+            requests += answer.requests;
+            take(item, answer.records);
+          } catch (err: unknown) {
+            requests++;
+            refused(item, extractErrorMessage(err));
+          }
+        });
+      }
+      const chunks: T[][] = [];
+      for (let at = 0; at < items.length; at += TOOLING_QUERIES_PER_REQUEST) {
+        chunks.push(items.slice(at, at + TOOLING_QUERIES_PER_REQUEST));
+      }
+      return chunks.map((chunk) => async () => {
+        requests++;
+        let answers: ToolingAnswer[];
+        try {
+          answers = await toolingQueries(targetOrgId, chunk.map(soqlOf));
+        } catch (err: unknown) {
+          for (const item of chunk) refused(item, extractErrorMessage(err));
+          return;
+        }
+        chunk.forEach((item, index) => {
+          const answer = answers[index];
+          if (!answer) refused(item, 'The org gave no answer to this query of the composite');
+          else if ('refused' in answer) refused(item, answer.refused);
+          else take(item, answer.records);
+        });
+      });
+    };
     await inFlight(
       [
-        ...reading.map((read) => async () => {
-          try {
-            const answer = await this.deps.toolingQuery(targetOrgId, conditionSoql(read.id!));
-            requests += answer.requests;
-            read.flow.condition = 'read';
-            readFlowMetadata(read.flow, metadataOf(answer));
-          } catch (err: unknown) {
-            requests++;
-            read.flow.condition = 'unreadable';
-            refusal ??= extractErrorMessage(err);
-          }
-        }),
-        ...definitionsReading.map(({ read, kind }) => async () => {
-          try {
-            const soql =
-              kind === 'process' ? conditionSoql(read.id!) : ruleDefinitionSoql(read.id!);
-            const answer = await this.deps.toolingQuery(targetOrgId, soql);
-            requests += answer.requests;
-            const metadata = metadataOf(answer);
-            if (typeof metadata !== 'object' || metadata === null) {
-              read.flow.condition = 'unreadable';
-              return;
-            }
-            read.flow.condition = 'read';
-            if (kind === 'process') {
-              const objectOfMetadata = readProcessMetadata(read.flow, metadata);
-              read.objectApiName ??= objectOfMetadata;
-            } else if (!readRuleMetadata(read.flow, metadata)) {
-              inactive.add(read.flow);
-            }
-          } catch (err: unknown) {
-            requests++;
-            read.flow.condition = 'unreadable';
-            definitionRefusal ??= extractErrorMessage(err);
-          }
-        }),
+        ...readingTasks(
+          reading,
+          (read) => conditionSoql(read.id!),
+          takeCondition,
+          conditionRefused,
+        ),
+        ...readingTasks(definitionsReading, definitionSoql, takeDefinition, definitionRefused),
       ],
       REQUESTS_IN_FLIGHT,
     );
@@ -1444,6 +1606,18 @@ export class TargetAutomationReader {
         .map((read) => read.flow)
         .sort(byLabel);
 
+    // Past the bound, the flows whose start condition is left unread, per
+    // object, in the run's order: a report that said only how many left the
+    // reader to guess where.
+    const unreadPerObject = new Map<string, number>();
+    for (const read of toRead.slice(reading.length)) {
+      unreadPerObject.set(read.objectApiName, (unreadPerObject.get(read.objectApiName) ?? 0) + 1);
+    }
+    const notReadOn = objectApiNames.flatMap((objectApiName) => {
+      const flowsLeft = unreadPerObject.get(objectApiName);
+      return flowsLeft ? [{ objectApiName, flows: flowsLeft }] : [];
+    });
+
     const objects: ForgeTargetObjectAutomation[] = objectApiNames
       .map((objectApiName) => ({
         objectApiName,
@@ -1472,9 +1646,10 @@ export class TargetAutomationReader {
       objects,
       unread,
       conditionsNotRead: toRead.length - reading.length,
-      conditionsBound: CONDITIONS_BOUND,
+      conditionsBound,
+      ...(notReadOn.length > 0 ? { conditionsNotReadOn: notReadOn } : {}),
       definitionsNotRead: definitionsToRead.length - definitionsReading.length,
-      definitionsBound: DEFINITIONS_BOUND,
+      definitionsBound,
       ...(bypassGrants ? { bypassGrants } : {}),
       requests,
     };
@@ -1754,15 +1929,19 @@ export function automationLines(
     );
   }
   if (automation.conditionsNotRead > 0) {
+    const on = (automation.conditionsNotReadOn ?? [])
+      .map(({ objectApiName, flows }) => `${objectApiName} (${flows})`)
+      .join(', ');
     lines.push(
       `  ${automation.conditionsNotRead} start condition(s) not read: the read takes ` +
-        `${automation.conditionsBound} at most, one request each`,
+        `${automation.conditionsBound} at most` +
+        (on ? `; left unread on ${on}` : ''),
     );
   }
   if ((automation.definitionsNotRead ?? 0) > 0) {
     lines.push(
       `  ${automation.definitionsNotRead} process or workflow rule definition(s) not read: the ` +
-        `read takes ${automation.definitionsBound ?? DEFINITIONS_BOUND} at most, one request each`,
+        `read takes ${automation.definitionsBound ?? DEFINITIONS_BOUND} at most`,
     );
   }
   for (const { part, reason } of automation.unread) {

@@ -158,6 +158,46 @@ describe('ForgeExecutor — a row a validation rule refused on a field it named'
     expect(d.inserts).toHaveLength(3);
   });
 
+  it('keeps, by record, a lookup a lookup filter refused and the run left empty, in the result the run is recorded under', async () => {
+    const d = deps([[{ id: '003NEW1', success: true, errors: [] }]]);
+    const insertCase = d.insertRecords;
+    const filter = 'Value does not exist or does not match filter criteria.';
+    let refused = false;
+    d.insertRecords = async (org, objectName, records) => {
+      if (objectName !== 'Case' || refused) return insertCase(org, objectName, records);
+      refused = true;
+      d.inserts.push([objectName, records.map((r) => ({ ...r }))]);
+      return [
+        toSaveOutcome(
+          {
+            success: false,
+            errors: [
+              {
+                statusCode: 'FIELD_FILTER_VALIDATION_EXCEPTION',
+                message: filter,
+                fields: ['ContactId'],
+              },
+            ],
+          },
+          'Case',
+        ),
+      ];
+    };
+
+    const summary = await new ForgeExecutor(d).execute(GRAPH, 'src', 'tgt', () => undefined);
+    const result = forgeRunResult(summary, GRAPH, { startedAt: Date.now(), status: 'success' });
+
+    expect(d.inserts.filter(([object]) => object === 'Case').map(([, rows]) => rows)).toEqual([
+      [{ Subject: 'Help', ContactId: '003NEW1' }],
+      [{ Subject: 'Help' }],
+    ]);
+    const leftEmpty = [
+      { objectApiName: 'Case', field: 'ContactId', records: 1, recordIds: ['500NEW1'] },
+    ];
+    expect(summary.lookupsLeftEmptyByFilter).toEqual(leftEmpty);
+    expect(result.lookupsLeftEmptyByFilter).toEqual(leftEmpty);
+  });
+
   it('keeps the field left out in the result the run is recorded under', async () => {
     const d = deps([[refusedOnThePhone()], [{ id: '003NEW1', success: true, errors: [] }]]);
 

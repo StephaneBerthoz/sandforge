@@ -130,6 +130,8 @@ function fakeOrg({
 } = {}) {
   const regular: string[] = [];
   const tooling: string[] = [];
+  /** The size of each Tooling composite the read sent. */
+  const composites: number[] = [];
   const written: string[] = [];
   const headers: Array<Record<string, string> | undefined> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
@@ -212,6 +214,24 @@ function fakeOrg({
     },
     request: async (request: unknown) => {
       const url = typeof request === 'string' ? request : (request as { url?: string }).url;
+      if (url === '/tooling/composite') {
+        // Each query of the composite answered as the Tooling API answers it alone.
+        const { compositeRequest } = JSON.parse(String((request as { body?: string }).body)) as {
+          compositeRequest: Array<{ url: string; referenceId: string }>;
+        };
+        composites.push(compositeRequest.length);
+        return {
+          compositeResponse: await Promise.all(
+            compositeRequest.map(async (sub) => ({
+              referenceId: sub.referenceId,
+              httpStatusCode: 200,
+              body: await conn.tooling.query(
+                decodeURIComponent(new URL(sub.url, 'https://x').searchParams.get('q') ?? ''),
+              ),
+            })),
+          ),
+        };
+      }
       return url === '/limits' ? limits : {};
     },
     metadata: {
@@ -219,7 +239,7 @@ function fakeOrg({
         fullNames.map((fullName) => ({ fullName, ...duplicateActions[fullName] })),
     },
   };
-  return { conn: conn as unknown as Connection, regular, tooling, written, headers };
+  return { conn: conn as unknown as Connection, regular, tooling, composites, written, headers };
 }
 
 describe('sandforge-clone target automation', () => {
@@ -323,6 +343,8 @@ describe('sandforge-clone target automation', () => {
       'ValidationRule',
     ]);
     expect(orgs.TGT.tooling[2]).toContain(WELCOME_VERSION);
+    // The start condition asked in a Tooling composite, as many as one holds.
+    expect(orgs.TGT.composites).toEqual([1]);
     expect(orgs.SRC.tooling).toEqual([]);
     expect(orgs.SRC.regular.some((soql) => soql.includes(' FROM FlowDefinitionView '))).toBe(false);
   });
@@ -385,9 +407,9 @@ describe('sandforge-clone target automation', () => {
       ],
       unread: [],
       conditionsNotRead: 0,
-      conditionsBound: 25,
+      conditionsBound: 500,
       definitionsNotRead: 0,
-      definitionsBound: 15,
+      definitionsBound: 100,
       bypassGrants: [{ permission: 'Load_Data', permissionSets: [] }],
       requests: 9,
     });

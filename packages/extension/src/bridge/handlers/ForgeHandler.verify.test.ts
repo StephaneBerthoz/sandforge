@@ -232,6 +232,10 @@ describe('forge:verify:request', () => {
     expect(run.fieldExclusions).toEqual({ Contact: ['Birthdate'] });
     expect(run.fieldMappings).toEqual({ Account: { Region__c: 'Region__pc' } });
     expect(run.writtenWithout).toEqual({ Contact: ['ReportsToId'] });
+    // The run's window, which tells a record its automation created from one
+    // the run did.
+    expect(run.runStartedAt).toEqual(new Date('2026-10-01T07:59:00.000Z'));
+    expect(run.leftEmptyByFilter).toBeUndefined();
 
     expect(posted()).toEqual([
       expect.objectContaining({
@@ -283,6 +287,22 @@ describe('forge:verify:request', () => {
     verifierAnswer = async () => ({ ...VERIFIED, verdict: 'unstable', attempts: 3 });
     await handler.handle(request({ forgeId: 'forge-run' }));
     expect(audit()[0]).toMatchObject({ outcome: 'partial', verdict: 'unstable' });
+  });
+
+  it('hands the verification the lookups the run left empty on a lookup filter’s refusal', async () => {
+    const leftEmpty = [
+      {
+        objectApiName: 'Contact',
+        field: 'ReportsToId',
+        records: 1,
+        recordIds: ['003000000000101AAA'],
+      },
+    ];
+    data.set('forge:history', [pastRun({ lookupsLeftEmptyByFilter: leftEmpty })]);
+
+    await handler.handle(request({ forgeId: 'forge-run' }));
+
+    expect(verifierCalls[0].run.leftEmptyByFilter).toEqual(leftEmpty);
   });
 
   it('dates a run the target did not date by when it was recorded', async () => {

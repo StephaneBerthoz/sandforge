@@ -308,6 +308,13 @@ export interface BatchWriteResult {
    */
   writtenWithoutFields?: WrittenWithoutFields;
   /**
+   * Of the rows written again without fields, each lookup a lookup filter of
+   * the target refused, and the record that went without it, by its id in
+   * the target: what a verification tells from a lookup that broke. Absent
+   * when none did.
+   */
+  leftEmptyByFilter?: Array<{ field: string; recordId: string }>;
+  /**
    * The rows of a call whose answer never came back — a timeout, a connection
    * reset once the request was out, the edge saying the org failed it — by
    * source id, in the order the call carried them: the target may hold any of
@@ -1105,6 +1112,13 @@ export class BatchWriter {
           rows: 1,
           fields: leftOut.map((f) => ({ ...f, rows: 1 })),
         });
+      }
+      // Each lookup a filter refused, by record: verified later, an empty
+      // lookup the run left so is told from one that broke. Run on a large
+      // client sandbox, a verification counted fourteen of them as broken.
+      for (const { field, refusedBy } of leftOut) {
+        if (refusedBy !== 'lookup-filter' || !result.id) continue;
+        (tally.leftEmptyByFilter ??= []).push({ field, recordId: result.id });
       }
       return;
     }

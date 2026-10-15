@@ -6,6 +6,7 @@ import {
   ROWS_PER_COLLECTION,
   SUBREQUESTS_PER_CALL,
   compositeBody,
+  contactReadsOf,
   planCalls,
   readCompositeAnswer,
   updateVerdictsOf,
@@ -601,5 +602,127 @@ describe("reading a call's answer", () => {
         call,
       ),
     ).toThrow(/1 rows of the 2/);
+  });
+});
+
+describe('the contact the platform writes with a person account a call creates', () => {
+  // The run sends no such contact: what names it is judged against the one
+  // the call reads back once the account is in.
+  const person = row(0, 'Account', { LastName: 'Doe' });
+  const contact = placeholderId('003', person.seq);
+  const caseRow = row(1, 'Case', {
+    Subject: 'Help',
+    AccountId: person.placeholderId,
+    ContactId: contact,
+  });
+  const rows = [person, caseRow];
+  const contactOf = (value: unknown): RehearsedRow | undefined =>
+    value === contact ? person : undefined;
+  const family = familyOf(rows, rowOfIn(rows), contactOf);
+
+  it('has what names the contact go in a call after the account, its read in between', () => {
+    expect(family.parents.get(1)).toEqual([0]);
+    expect(family.personContactsNamed?.get(1)).toEqual([0]);
+    const { calls } = planCalls([caseRow], family);
+    const [call] = calls;
+    const reads = contactReadsOf(call, family);
+    expect(reads).toEqual([{ account: 0, after: 0 }]);
+
+    const body = compositeBody(call, family, rowOfIn(rows), API, HEADERS, [], new Map(), {
+      of: contactOf,
+      reads,
+    });
+
+    expect(body.compositeRequest.map((sub) => sub.referenceId)).toEqual([
+      'rows0',
+      'contact0',
+      'rows1',
+      'rollback',
+    ]);
+    expect(body.compositeRequest[1]).toEqual({
+      method: 'GET',
+      url: `${API}/sobjects/Account/@{rows0[0].id}?fields=PersonContactId`,
+      referenceId: 'contact0',
+    });
+    const sent = (body.compositeRequest[2].body as { records: Array<Record<string, unknown>> })
+      .records[0];
+    expect(sent).toEqual({
+      attributes: { type: 'Case' },
+      Subject: 'Help',
+      AccountId: '@{rows0[0].id}',
+      ContactId: '@{contact0.PersonContactId}',
+    });
+  });
+
+  it('reads the contact of an account linked to a record the target holds from that record, first', () => {
+    const linked = new Map([[0, { id: '001Fk00000HeLdA' }]]);
+    // Linked, the account is sent no more: the call holds the case alone.
+    const call: PlannedCall = { collections: [{ level: 0, seqs: [1] }] };
+    const reads = contactReadsOf(call, family, [], linked);
+    expect(reads).toEqual([{ account: 0, after: -1 }]);
+    const body = compositeBody(call, family, rowOfIn(rows), API, HEADERS, [], linked, {
+      of: contactOf,
+      reads,
+    });
+    expect(body.compositeRequest[0].url).toBe(
+      `${API}/sobjects/Account/001Fk00000HeLdA?fields=PersonContactId`,
+    );
+    expect(
+      (body.compositeRequest[1].body as { records: Array<Record<string, unknown>> }).records[0],
+    ).toMatchObject({ AccountId: '001Fk00000HeLdA', ContactId: '@{contact0.PersonContactId}' });
+  });
+
+  it('refuses a row naming a contact whose account its call does not read', () => {
+    const { calls } = planCalls([caseRow], family);
+    expect(() =>
+      compositeBody(calls[0], family, rowOfIn(rows), API, HEADERS, [], new Map(), {
+        of: contactOf,
+        reads: [],
+      }),
+    ).toThrow(/does not hold/);
+  });
+
+  it('reads the call’s answer past the read, and throws when the target refused the read', () => {
+    const { calls } = planCalls([caseRow], family);
+    const reads = contactReadsOf(calls[0], family);
+    const answer = readCompositeAnswer(
+      { compositeResponse: [{ ...HALTED }, { ...HALTED }, { ...HALTED }, NOT_FOUND] },
+      calls[0],
+      0,
+      () => undefined,
+      reads,
+    );
+    expect(answer.kind).toBe('rolled_back');
+    expect(
+      answer.kind === 'rolled_back' ? verdictsOf(calls[0], answer.collections) : undefined,
+    ).toEqual(
+      new Map([
+        [0, { passed: true }],
+        [1, { passed: true }],
+      ]),
+    );
+    expect(() =>
+      readCompositeAnswer(
+        {
+          compositeResponse: [
+            { ...HALTED },
+            {
+              body: [{ errorCode: 'INVALID_FIELD', message: 'No such column' }],
+              httpStatusCode: 400,
+            },
+            { ...HALTED },
+            { ...HALTED },
+          ],
+        },
+        calls[0],
+        0,
+        () => undefined,
+        reads,
+      ),
+    ).toThrow(/refused to read back the contact .* INVALID_FIELD/);
+  });
+
+  it('counts each read in the subrequests a call holds', () => {
+    expect(updatesRoomOf(2, 3)).toBe(SUBREQUESTS_PER_CALL - 2 - 3 - 1);
   });
 });

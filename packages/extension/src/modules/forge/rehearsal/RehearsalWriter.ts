@@ -1,4 +1,11 @@
 import { canonicalRecordId } from '../../../core/common/existingRecordMatch.js';
+import {
+  ACCOUNT,
+  CONTACT,
+  PERSON_CONTACT_FIELD,
+  accountsOfPersonContactsSoql,
+  personContactsSoql,
+} from '../../../core/common/platformRecords.js';
 import type { ForgeExecutorDeps, InsertResult, UpdateResult } from '../ForgeExecutor.js';
 
 /** One row the run would create, as the executor handed it to its writer. */
@@ -84,6 +91,11 @@ export class RehearsalWriter {
   readonly updated: RehearsedUpdate[] = [];
   /** Each placeholder, by its first 15 characters, to the row it stands for. */
   private readonly byId = new Map<string, RehearsedRow>();
+  /**
+   * The placeholder of the contact the platform writes with a person account
+   * the run creates, by its first 15 characters, to the account's row.
+   */
+  private readonly personContacts = new Map<string, RehearsedRow>();
   /** Key prefix per object, asked once. */
   private readonly prefixes = new Map<string, Promise<string | null>>();
 
@@ -147,19 +159,76 @@ export class RehearsalWriter {
   }
 
   /**
+   * The person account whose contact a value stands for, when it is the
+   * placeholder of the contact the platform writes with an account the run
+   * creates ({@link guardQueries}).
+   */
+  personContactOf(value: unknown): RehearsedRow | undefined {
+    if (typeof value !== 'string' || (value.length !== 15 && value.length !== 18)) return undefined;
+    return this.personContacts.get(value.slice(0, 15));
+  }
+
+  /**
    * The executor's `queryRecords`, answering with no row a query that names a
    * placeholder: the run reads back from the target what it created — the
-   * dates of its writes, the contact of a person account — and no record
-   * stands behind a placeholder. Every other query goes to `query`.
+   * dates of its writes — and no record stands behind a placeholder. Every
+   * other query goes to `query`.
+   *
+   * But the read of the contact the platform wrote with each person account
+   * (`personContactsSoql`), which this writer answers for the accounts the
+   * run creates as the target would. Answered with none, every person
+   * account's contact went on its own, as the contact of an account the
+   * target holds as a business one does: run on a large client sandbox, the
+   * rehearsal sent the contact the run leaves to the platform, the target
+   * refused it (`INVALID_CROSS_REFERENCE_KEY: Cannot select a person
+   * account`), and the five records under it were judged under a refusal no
+   * run meets.
    */
   guardQueries(query: ForgeExecutorDeps['queryRecords']): ForgeExecutorDeps['queryRecords'] {
-    return async (orgId, soql, onTruncated) =>
-      this.namesAPlaceholder(soql) ? [] : query(orgId, soql, onTruncated);
+    return async (orgId, soql, onTruncated) => {
+      const accounts = accountsOfPersonContactsSoql(soql);
+      if (accounts) {
+        return this.personContactsOf(accounts, (held) =>
+          query(orgId, personContactsSoql(held), onTruncated),
+        );
+      }
+      return this.namesAPlaceholder(soql) ? [] : query(orgId, soql, onTruncated);
+    };
+  }
+
+  /**
+   * The answer to the read of the contact of each of `ids`: the target's for
+   * the accounts it holds, and, for each the run creates, the placeholder of
+   * the contact the platform writes with it — or none, the row going as a
+   * business account. The run sends a person account without its name, which
+   * the platform computes, and one the target takes as a business account
+   * with it (`RecordCleaner`): the platform writes a contact with the first
+   * alone.
+   */
+  private async personContactsOf(
+    ids: readonly string[],
+    askTheTarget: (held: string[]) => Promise<Record<string, unknown>[]>,
+  ): Promise<Record<string, unknown>[]> {
+    const held = ids.filter((id) => !this.rowOf(id));
+    const answered = held.length > 0 ? await askTheTarget(held) : [];
+    const ours = ids.flatMap((id) => (this.rowOf(id)?.objectApiName === ACCOUNT ? [id] : []));
+    if (ours.length === 0) return answered;
+    const prefix = await this.prefixOf(CONTACT);
+    return [
+      ...answered,
+      ...ours.map((id) => {
+        const account = this.rowOf(id) as RehearsedRow;
+        if ('Name' in account.fields) return { Id: id, [PERSON_CONTACT_FIELD]: null };
+        const contact = placeholderId(prefix, account.seq);
+        this.personContacts.set(contact.slice(0, 15), account);
+        return { Id: id, [PERSON_CONTACT_FIELD]: contact };
+      }),
+    ];
   }
 
   private namesAPlaceholder(text: string): boolean {
     for (const [candidate] of text.matchAll(PLACEHOLDER_IN_TEXT_RE)) {
-      if (this.rowOf(candidate)) return true;
+      if (this.rowOf(candidate) || this.personContactOf(candidate)) return true;
     }
     return false;
   }

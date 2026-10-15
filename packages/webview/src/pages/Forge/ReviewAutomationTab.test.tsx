@@ -319,10 +319,31 @@ describe('ReviewAutomationTab', () => {
       'Flow: Case other · after saveStart condition could not be read',
     ]);
     expect(screen.getByTestId('automation-not-read').textContent).toBe(
-      'The start condition of 1 flow was not read: the read takes 25 at most, one request each.',
+      'The start condition of 1 flow was not read: the read takes 25 at most.',
     );
     expect(screen.getByTestId('automation-unread-conditions').textContent).toBe(
       'The start conditions of some flows could not be read: INSUFFICIENT_ACCESS: no access',
+    );
+  });
+
+  it('names the objects whose start conditions the bound left unread, and how many on each', () => {
+    render(
+      <ReviewAutomationTab
+        automation={automation({
+          objectsRead: ['Case', 'Contact', 'Task'],
+          conditionsNotRead: 1_217,
+          conditionsBound: 500,
+          conditionsNotReadOn: [
+            { objectApiName: 'Contact', flows: 1_200 },
+            { objectApiName: 'Task', flows: 17 },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('automation-not-read').textContent).toBe(
+      'The start conditions of 1217 flows were not read: the read takes 500 at most. ' +
+        'Left unread on Contact (1,200), Task (17).',
     );
   });
 
@@ -658,7 +679,7 @@ describe('ReviewAutomationTab', () => {
       'Nothing was found in what could be read.',
     );
     expect(screen.getByTestId('automation-definitions-not-read').textContent).toBe(
-      'The definitions of 3 processes or workflow rules were not read: the read takes 15 at most, one request each.',
+      'The definitions of 3 processes or workflow rules were not read: the read takes 15 at most.',
     );
     expect(
       [

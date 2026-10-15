@@ -20,7 +20,7 @@ import {
 } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { useForgeStore } from '../../stores/useForgeStore';
-import { uiLocale } from '../../utils/formatters';
+import { formatNumber, uiLocale } from '../../utils/formatters';
 import { BypassAssistant, ReadAgainButton, type BypassTarget } from './BypassAssistant';
 
 /** The heading of each write, as the tab says it. */
@@ -175,6 +175,11 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   // seen there, which is not the same.
   const blind = blindedBy(automation.unread);
   const definitionsNotRead = automation.definitionsNotRead ?? 0;
+  // Where the bound left start conditions unread: how many alone did not say
+  // which objects' flows went unjudged.
+  const notReadOn = (automation.conditionsNotReadOn ?? []).filter(
+    (object) => !leftOut.has(object.objectApiName),
+  );
 
   return (
     <div data-testid="review-automation-tab" className="flex flex-col gap-2 text-xs">
@@ -252,6 +257,16 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
             count: automation.conditionsNotRead,
             bound: automation.conditionsBound,
           })}
+          {notReadOn.length > 0 && (
+            <>
+              {' '}
+              {t('forge.review.automation.notReadOn', {
+                objects: notReadOn
+                  .map(({ objectApiName, flows }) => `${objectApiName} (${formatNumber(flows)})`)
+                  .join(', '),
+              })}
+            </>
+          )}
         </p>
       )}
       {definitionsNotRead > 0 && (

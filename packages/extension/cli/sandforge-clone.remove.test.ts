@@ -226,6 +226,16 @@ describe('sandforge-clone --remove', () => {
   let targetFlows: Array<Record<string, unknown>>;
   let targetTriggers: Array<Record<string, unknown>>;
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+  const tooling = {
+    query: vi.fn(async (soql: string) => {
+      if (soql.includes(' FROM ApexTrigger ')) return page(targetTriggers);
+      if (soql.includes(' FROM Flow WHERE Id ')) {
+        return page([{ Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } }]);
+      }
+      return page([]);
+    }),
+    queryMore: vi.fn(async () => page([])),
+  };
   const targetConn = {
     query: vi.fn(async (soql: string) => {
       if (soql.includes(' FROM Organization ')) return page([organization]);
@@ -235,18 +245,25 @@ describe('sandforge-clone --remove', () => {
       return page([]);
     }),
     queryMore: vi.fn(async () => page([])),
-    tooling: {
-      query: vi.fn(async (soql: string) => {
-        if (soql.includes(' FROM ApexTrigger ')) return page(targetTriggers);
-        if (soql.includes(' FROM Flow WHERE Id ')) {
-          return page([
-            { Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } },
-          ]);
-        }
-        return page([]);
-      }),
-      queryMore: vi.fn(async () => page([])),
-    },
+    tooling,
+    // A Tooling composite, each of its queries answered as the Tooling API answers it alone.
+    request: vi.fn(async ({ url, body }: { url: string; body: string }) => {
+      if (url !== '/tooling/composite') return {};
+      const { compositeRequest } = JSON.parse(body) as {
+        compositeRequest: Array<{ url: string; referenceId: string }>;
+      };
+      return {
+        compositeResponse: await Promise.all(
+          compositeRequest.map(async (sub) => ({
+            referenceId: sub.referenceId,
+            httpStatusCode: 200,
+            body: await tooling.query(
+              new URL(sub.url, 'https://org.example').searchParams.get('q') ?? '',
+            ),
+          })),
+        ),
+      };
+    }),
   } as unknown as Connection;
   const session = { label: 'the removal session' } as unknown as RemovalOrg;
 

@@ -2030,6 +2030,23 @@ describe('BatchWriter — a row the lookup filter of a lookup refused', () => {
     );
   });
 
+  it('names the record it wrote without the lookup, by its id in the target, for a verification', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValueOnce([byFilter(), written('003NEW2')])
+      .mockResolvedValueOnce([written('003NEW1')]);
+
+    const result = await new BatchWriter({
+      insertRecords,
+      describeFields: describing(true),
+    }).writeNode(contactsNaming('001PROSPECT', '001CUSTOMER'));
+
+    // The second row went in whole: only the first is left empty by the filter.
+    expect(result.leftEmptyByFilter).toEqual([
+      { field: 'Preferred_Account__c', recordId: '003NEW1' },
+    ]);
+  });
+
   it('leaves it failed, sent once, when the target requires the lookup: left out, it would be missing', async () => {
     const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([byFilter()]);
 

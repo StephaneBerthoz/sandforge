@@ -17,7 +17,11 @@ import {
   objectOfQuery,
   queryAllPages,
 } from '../modules/forge/queryAllPages.js';
-import { formatSaveError, toSaveOutcomes } from '../core/common/existingRecordMatch.js';
+import {
+  formatSaveError,
+  saveErrorDetail,
+  toSaveOutcomes,
+} from '../core/common/existingRecordMatch.js';
 import {
   parseRecordTypeInfos,
   type RecordTypeAvailability,
@@ -194,7 +198,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeRehearser },
         { getJsforceConnection },
         fileTransfer,
-        { TargetAutomationReader, answerOf },
+        { TargetAutomationReader, answerOf, toolingAnswersOf, toolingCompositeBody },
         { TargetGapReader },
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
@@ -487,10 +491,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
                 headers: forgeWriteHeaders(runWrites),
               });
             const arr = Array.isArray(results) ? results : [results];
+            // With each error's code and fields: what says a lookup filter
+            // refused the record a lookup of the second pass named.
             return arr.map((r, i) => ({
               id: r.id ?? (records[i]['Id'] as string) ?? '',
               success: r.success,
               errors: (r.errors ?? []).map(formatSaveError),
+              errorDetails: (r.errors ?? []).map(saveErrorDetail),
             }));
           },
           upsertRecords: async (orgId, objectName, externalIdField, records) => {
@@ -611,6 +618,18 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               },
               soql,
             );
+          },
+          // The start conditions and definitions, many a request: one query
+          // each left most flows of a large org unread.
+          toolingQueries: async (orgId: string, soqls: readonly string[]) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const answer = await conn.request({
+              method: 'POST',
+              url: '/tooling/composite',
+              body: JSON.stringify(toolingCompositeBody(`/services/data/v${conn.version}`, soqls)),
+              headers: { 'Content-Type': 'application/json' },
+            });
+            return toolingAnswersOf(answer, soqls.length);
           },
         };
         const targetAutomation = new TargetAutomationReader(targetQueries);

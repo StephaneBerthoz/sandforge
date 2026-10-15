@@ -6,6 +6,7 @@ import { forgeRunCreatedSome } from '@sandforge/shared';
 import type {
   ForgeExecutionResult,
   ForgeRunVerification,
+  ForgeVerificationLink,
   ForgeVerificationObject,
   ForgeVerificationVerdict,
 } from '@sandforge/shared';
@@ -62,12 +63,21 @@ function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
   if (object.deleted > 0) parts.push(counted(t, 'forge.verify.deleted', object.deleted));
   if (object.notVisible > 0) parts.push(counted(t, 'forge.verify.notVisible', object.notVisible));
   if (object.changed > 0) parts.push(counted(t, 'forge.verify.changed', object.changed));
+  // The lookups the target explains: counted apart, never as broken.
+  const leftEmpty = object.linksLeftEmptyByFilter ?? 0;
+  const byAutomation = object.linksSetByAutomation ?? 0;
   if (object.linksUnchecked !== undefined) {
     parts.push(t('forge.verify.linksUnchecked', { reason: object.linksUnchecked }));
   } else if (object.linksChecked === 0) {
     parts.push(t('forge.verify.noLinks'));
-  } else if (object.linksBroken === 0) {
+  } else if (object.linksBroken === 0 && leftEmpty + byAutomation === 0) {
     parts.push(counted(t, 'forge.verify.linksHold', object.linksChecked));
+  } else if (object.linksBroken === 0) {
+    parts.push(
+      counted(t, 'forge.verify.linksHoldSome', object.linksChecked - leftEmpty - byAutomation, {
+        checked: formatNumber(object.linksChecked),
+      }),
+    );
   } else {
     parts.push(
       counted(t, 'forge.verify.linksBroken', object.linksBroken, {
@@ -75,7 +85,33 @@ function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
       }),
     );
   }
+  if (object.linksUnchecked === undefined) {
+    if (leftEmpty > 0) parts.push(counted(t, 'forge.verify.linksLeftEmptyByFilter', leftEmpty));
+    if (byAutomation > 0) {
+      parts.push(counted(t, 'forge.verify.linksSetByAutomation', byAutomation));
+    }
+  }
   return parts;
+}
+
+/** Whether a lookup of the verification is one the target explains. */
+function explainsAny(verification: ForgeRunVerification): boolean {
+  return verification.objects.some(
+    (object) => (object.linksLeftEmptyByFilter ?? 0) + (object.linksSetByAutomation ?? 0) > 0,
+  );
+}
+
+/** One lookup that does not point where the run set it, and why when the target says. */
+function linkLine(t: TFunction, link: ForgeVerificationLink): string {
+  const values = {
+    record: link.recordId,
+    field: link.field,
+    found: link.found ?? '',
+    expected: link.expected,
+  };
+  if (link.cause === 'lookup-filter') return t('forge.verify.linkLeftEmptyByFilter', values);
+  if (link.cause === 'automation') return t('forge.verify.linkSetByAutomation', values);
+  return t(link.found === null ? 'forge.verify.linkEmpty' : 'forge.verify.linkElsewhere', values);
 }
 
 /** Props for {@link ForgeVerificationView}. */
@@ -106,7 +142,11 @@ export const ForgeVerificationView: React.FC<ForgeVerificationViewProps> = ({ ve
         data-testid="forge-verification-verdict"
         className={cn('text-[11px] font-semibold', VERDICT_CLASSES[verification.verdict])}
       >
-        {t(VERDICT_KEYS[verification.verdict])}
+        {t(
+          verification.verdict === 'verified' && explainsAny(verification)
+            ? 'forge.verify.verdictVerifiedExplained'
+            : VERDICT_KEYS[verification.verdict],
+        )}
       </h4>
       <p className="text-text-secondary">
         {counted(t, 'forge.verify.readings', verification.attempts, {
@@ -125,20 +165,12 @@ export const ForgeVerificationView: React.FC<ForgeVerificationViewProps> = ({ ve
             <span className="font-mono text-text-primary">{object.objectApiName}</span>
             {': '}
             {objectParts(t, object).join(' · ')}
-            {(object.brokenLinks.length > 0 || object.recycleBinUnread !== undefined) && (
+            {(object.brokenLinks.length > 0 ||
+              (object.explainedLinks ?? []).length > 0 ||
+              object.recycleBinUnread !== undefined) && (
               <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
-                {object.brokenLinks.map((link) => (
-                  <li key={`${link.recordId}:${link.field}`}>
-                    {t(
-                      link.found === null ? 'forge.verify.linkEmpty' : 'forge.verify.linkElsewhere',
-                      {
-                        record: link.recordId,
-                        field: link.field,
-                        found: link.found ?? '',
-                        expected: link.expected,
-                      },
-                    )}
-                  </li>
+                {[...object.brokenLinks, ...(object.explainedLinks ?? [])].map((link) => (
+                  <li key={`${link.recordId}:${link.field}`}>{linkLine(t, link)}</li>
                 ))}
                 {object.recycleBinUnread !== undefined && (
                   <li>{t('forge.verify.recycleBinUnread', { reason: object.recycleBinUnread })}</li>

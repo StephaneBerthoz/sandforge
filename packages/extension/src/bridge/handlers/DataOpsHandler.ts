@@ -318,6 +318,26 @@ interface BackupMeta {
 }
 
 /**
+ * One object of a backup as its answer, its metadata and the listing all say
+ * it: whether it holds fewer rows than the object had, always said — `false`
+ * for an object read whole — and why, only when it does.
+ *
+ * Read with a tool that names every key it is asked for, the answer of a
+ * backup of a large sandbox said `truncated: null` and `stoppedAt: null` for
+ * an object read whole: the answer left `truncated` out where the metadata
+ * said `false`, and a backup kept before the flag was recorded lists none.
+ */
+function heldOf(o: BackupObjectHeld): BackupObjectHeld & { truncated: boolean } {
+  return {
+    objectApiName: o.objectApiName,
+    recordCount: o.recordCount,
+    truncated: o.truncated === true,
+    ...(o.orgCount !== undefined ? { orgCount: o.orgCount } : {}),
+    ...(o.stoppedAt ? { stoppedAt: o.stoppedAt } : {}),
+  };
+}
+
+/**
  * Per object, what a backup holds short of what the org held, as a restore's
  * result says it: `Contact 5000 of 12345 (stopped at the cap)`. Empty for a
  * backup that holds every row of every object.
@@ -1024,13 +1044,7 @@ export class DataOpsHandler implements DomainHandler {
     const response = buildResponse(this.deps, msg, 'dataops:backup:response', {
       operationId,
       status: 'completed',
-      objects: outcome.objects.map((r) => ({
-        objectApiName: r.objectApiName,
-        recordCount: r.recordCount,
-        ...(r.orgCount !== undefined ? { orgCount: r.orgCount } : {}),
-        ...(r.truncated ? { truncated: true } : {}),
-        ...(r.stoppedAt ? { stoppedAt: r.stoppedAt } : {}),
-      })),
+      objects: outcome.objects.map(heldOf),
       totalRecords: outcome.totalRecords,
       ...(outcome.partial ? { partial: true } : {}),
       timestamp: outcome.timestamp,
@@ -1497,13 +1511,7 @@ export class DataOpsHandler implements DomainHandler {
       operationId: backup.operationId,
       orgId: backup.orgId,
       ...(backup.organizationId !== undefined ? { organizationId: backup.organizationId } : {}),
-      objects: objects.map((r) => ({
-        objectApiName: r.objectApiName,
-        recordCount: r.recordCount,
-        truncated: r.truncated,
-        ...(r.orgCount !== undefined ? { orgCount: r.orgCount } : {}),
-        ...(r.stoppedAt ? { stoppedAt: r.stoppedAt } : {}),
-      })),
+      objects: objects.map(heldOf),
       // True when any object stopped short, or was never reached, so the
       // listing can say so without reading every object of every snapshot.
       partial: objects.some((r) => r.truncated),
@@ -1635,7 +1643,7 @@ export class DataOpsHandler implements DomainHandler {
         // Run for real, a backup of 1 220 contacts on a Developer Edition
         // read 500 and was listed as complete: the snapshot knew, the list
         // did not say.
-        objectResults: meta.objects ?? [],
+        objectResults: (meta.objects ?? []).map(heldOf),
         ...(meta.partial ? { partial: true } : {}),
       });
     }

@@ -313,6 +313,53 @@ describe('patchCycleFkUpdates', () => {
     expect(progress[0].message).toBe('Pass 2 (cycle FK update): 0/2 resolved');
   });
 
+  it('tells which lookups of a refused update a lookup filter named, by record, and none another refusal names', async () => {
+    const remapper = new IdRemapper();
+    remapper.add('003OLD1', '003NEW1');
+    remapper.add('02iOLD1', '02iNEW1');
+    const filter = 'FIELD_FILTER_VALIDATION_EXCEPTION';
+    const updateRecords = vi.fn<UpdateRecordsFn>().mockResolvedValue([
+      {
+        id: '500NEW1',
+        success: false,
+        errors: [`${filter}: Value does not exist or does not match filter criteria. [AssetId]`],
+        errorDetails: [
+          { statusCode: filter, message: 'Value does not exist', fields: ['AssetId'] },
+        ],
+      },
+      {
+        id: '500NEW2',
+        success: false,
+        errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused [ContactId]'],
+        errorDetails: [
+          {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: 'refused',
+            fields: ['ContactId'],
+          },
+        ],
+      },
+    ]);
+    const onRefusedByFilter = vi.fn();
+    const onCase = (newId: string, fieldName: string, sourceRefId: string) =>
+      makePending({ objectApiName: 'Case', newId, fieldName, sourceRefId });
+
+    await patchCycleFkUpdates(
+      makeInput({
+        remapper,
+        updateRecords,
+        onRefusedByFilter,
+        pendingFkUpdates: [
+          onCase('500NEW1', 'AssetId', '02iOLD1'),
+          onCase('500NEW1', 'ContactId', '003OLD1'),
+          onCase('500NEW2', 'ContactId', '003OLD1'),
+        ],
+      }),
+    );
+
+    expect(onRefusedByFilter.mock.calls).toEqual([['Case', 'AssetId', '500NEW1']]);
+  });
+
   it('counts every lookup of a batch that threw as left empty', async () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');

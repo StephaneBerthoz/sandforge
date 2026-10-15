@@ -127,6 +127,14 @@ export interface RowFamily {
    * a call than every row it names.
    */
   levels: ReadonlyMap<number, number>;
+  /**
+   * By `seq`, the person accounts among the rows whose contact a row names:
+   * the contact the platform writes with the account, which the run never
+   * sends. The account is among the row's parents, and its call reads the
+   * contact once the account is in (`contactReadsOf`). Absent when no row
+   * names one.
+   */
+  personContactsNamed?: ReadonlyMap<number, readonly number[]>;
 }
 
 /**
@@ -135,29 +143,52 @@ export interface RowFamily {
  * leaves a lookup to one it has not written yet empty, and fills it in after
  * — so the rows can be walked in order.
  *
+ * A row that names the contact the platform writes with a person account the
+ * run creates names that account: the contact is there once the account is.
+ *
  * @param rowOf - The row a value stands for, when it is a placeholder.
+ * @param contactOf - The person account whose contact a value stands for,
+ *   when it is the placeholder of one.
  */
 export function familyOf(
   rows: readonly RehearsedRow[],
   rowOf: (value: unknown) => RehearsedRow | undefined,
+  contactOf: (value: unknown) => RehearsedRow | undefined = () => undefined,
 ): RowFamily {
   const bySeq = new Map(rows.map((row) => [row.seq, row]));
   const parents = new Map<number, number[]>();
   const levels = new Map<number, number>();
+  const personContactsNamed = new Map<number, number[]>();
   for (const row of [...rows].sort((a, b) => a.seq - b.seq)) {
     const named = new Set<number>();
+    const contacts = new Set<number>();
     for (const value of Object.values(row.fields)) {
       const parent = rowOf(value);
       if (parent && parent.seq !== row.seq) named.add(parent.seq);
+      const account = parent ? undefined : contactOf(value);
+      if (account && account.seq !== row.seq && bySeq.has(account.seq)) {
+        named.add(account.seq);
+        contacts.add(account.seq);
+      }
     }
     const own = [...named].sort((a, b) => a - b);
     parents.set(row.seq, own);
+    if (contacts.size > 0)
+      personContactsNamed.set(
+        row.seq,
+        [...contacts].sort((a, b) => a - b),
+      );
     levels.set(
       row.seq,
       own.reduce((most, seq) => Math.max(most, (levels.get(seq) ?? 0) + 1), 0),
     );
   }
-  return { bySeq, parents, levels };
+  return {
+    bySeq,
+    parents,
+    levels,
+    ...(personContactsNamed.size > 0 ? { personContactsNamed } : {}),
+  };
 }
 
 /**
@@ -206,7 +237,12 @@ export function familyWithLinks(
       ),
     );
   }
-  return { bySeq: family.bySeq, parents, levels };
+  return {
+    bySeq: family.bySeq,
+    parents,
+    levels,
+    ...(family.personContactsNamed ? { personContactsNamed: family.personContactsNamed } : {}),
+  };
 }
 
 /** The rows a row needs before it, nearest first, each once. */

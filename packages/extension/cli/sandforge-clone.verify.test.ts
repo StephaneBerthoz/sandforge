@@ -261,6 +261,24 @@ describe('sandforge-clone --verify', () => {
       expect(printed).toContain('verification: VERIFIED (2 readings of TGT)');
     });
 
+    it('hands the verification the run’s window and the lookups it left empty on a lookup filter’s refusal', async () => {
+      const leftEmpty = [
+        { objectApiName: 'Contact', field: 'ReportsToId', records: 1, recordIds: [TGT('003', 1)] },
+      ];
+      expect(
+        await run([
+          '--verify',
+          file(runSummary({}, { lookupsLeftEmptyByFilter: leftEmpty })),
+          '--target',
+          'TGT',
+        ]),
+      ).toBeUndefined();
+
+      const [{ run: verified }] = verifierCalls;
+      expect(verified.runStartedAt).toEqual(new Date('2026-10-01T10:00:00.000Z'));
+      expect(verified.leftEmptyByFilter).toEqual(leftEmpty);
+    });
+
     it('reads the source records in the org --source names', async () => {
       await run(['--verify', file(runSummary()), '--target', 'TGT', '--source', 'UAT-COPY']);
       expect(verifierCalls[0].deps.source).toEqual({ org: 'UAT-COPY' });
@@ -446,6 +464,57 @@ describe('sandforge-clone verification lines', () => {
       "  Invoice__c: not read (INVALID_TYPE: sObject type 'Invoice__c' is not supported.)",
       'changed since the run: 1 record(s), which --remove keeps unless --include-changed',
       `      Contact ${TGT('003', 1)}: modified 2026-10-01T10:30:00.000+0000 by 005000000000002AAA`,
+    ]);
+  });
+
+  it('counts the lookups the target explains apart from those that do not hold, and names each with why', () => {
+    const lines = verificationLines(
+      {
+        verdict: 'verified',
+        verifiedAt: '2026-10-01T11:00:00.000Z',
+        attempts: 2,
+        objects: [
+          {
+            objectApiName: 'Case',
+            expected: 20,
+            present: 20,
+            deleted: 0,
+            notVisible: 0,
+            changed: 0,
+            changedRecords: [],
+            deletedIds: [],
+            notVisibleIds: [],
+            linksChecked: 20,
+            linksBroken: 0,
+            brokenLinks: [],
+            linksLeftEmptyByFilter: 3,
+            linksSetByAutomation: 1,
+            explainedLinks: [
+              {
+                recordId: TGT('500', 1),
+                field: 'AssetId',
+                expected: TGT('02i', 1),
+                found: null,
+                cause: 'lookup-filter',
+              },
+              {
+                recordId: TGT('500', 2),
+                field: 'Cloned_Risk__c',
+                expected: TGT('02i', 1),
+                found: TGT('02i', 7),
+                cause: 'automation',
+              },
+            ],
+          },
+        ],
+      },
+      'TGT',
+    );
+    expect(lines).toEqual([
+      'verification: VERIFIED (2 readings of TGT)',
+      "  Case: 20 of 20 there; lookups: 20 checked, 16 hold, 3 left empty by the target's lookup filter, as the run said, 1 set by the target's automation during the run",
+      `      ${TGT('500', 1)}: AssetId is empty: the target's lookup filter refused ${TGT('02i', 1)}, and the run left it empty`,
+      `      ${TGT('500', 2)}: Cloned_Risk__c points at ${TGT('02i', 7)}, which the target's automation created during the run; the run set it to ${TGT('02i', 1)}`,
     ]);
   });
 

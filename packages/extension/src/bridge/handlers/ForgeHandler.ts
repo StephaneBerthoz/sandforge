@@ -3952,12 +3952,20 @@ export class ForgeHandler implements DomainHandler {
         records,
         remapTable: withIds.idRemapTable ?? {},
         ...(entry.writtenBetween
-          ? { runEndedAt: new Date(entry.writtenBetween.last) }
+          ? {
+              runStartedAt: new Date(entry.writtenBetween.first),
+              runEndedAt: new Date(entry.writtenBetween.last),
+            }
           : { runRecordedAt: new Date(entry.timestamp) }),
         ...(withIds.removalStamps ? { removalStamps: withIds.removalStamps } : {}),
         ...(entry.config?.fieldExclusions ? { fieldExclusions: entry.config.fieldExclusions } : {}),
         ...(entry.config?.fieldMappings ? { fieldMappings: entry.config.fieldMappings } : {}),
         writtenWithout: writtenWithoutByObject(entry.writtenWithoutFields ?? []),
+        // A lookup the run left empty on a lookup filter's refusal is no
+        // broken lookup, nor one the target's automation set during the run.
+        ...(entry.lookupsLeftEmptyByFilter
+          ? { leftEmptyByFilter: entry.lookupsLeftEmptyByFilter }
+          : {}),
       });
       this.saveHistory(
         this.loadHistory().map((e) => (e.forgeId === forgeId ? { ...e, verification } : e)),

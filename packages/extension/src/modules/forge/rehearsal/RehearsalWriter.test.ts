@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeExecutorDeps } from '../ForgeExecutor.js';
 import { canonicalRecordId } from '../../../core/common/existingRecordMatch.js';
+import { personContactsSoql } from '../../../core/common/platformRecords.js';
 import { RehearsalWriter, placeholderId, rehearsalExecutorDeps } from './RehearsalWriter.js';
 
 const prefixes: Record<string, string> = { Account: '001', Contact: '003' };
@@ -98,6 +99,42 @@ describe('the writer a rehearsal hands the executor', () => {
     ).toEqual([{ Id: 'real' }]);
     expect(await guarded('source', 'SELECT Id FROM Account')).toEqual([{ Id: 'real' }]);
     expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers the read of person accounts’ contacts as the target would: one the platform writes for a person, none for a business account', async () => {
+    const w = writer();
+    // A person account goes without its name, which the platform computes; a
+    // business account, or one the target takes as such, with it.
+    const [person, business] = await w.insertRecords('target', 'Account', [
+      { LastName: 'Doe' },
+      { Name: 'Acme' },
+    ]);
+    const held = '001Fk00000HeLdA';
+    const query = vi.fn(async () => [{ Id: held, PersonContactId: '003Fk00000HeLdA' }]);
+
+    const answer = await w.guardQueries(query)(
+      'target',
+      personContactsSoql([held, person.id, business.id]),
+    );
+
+    // The account the target holds is asked of the target, alone.
+    expect(query).toHaveBeenCalledWith('target', personContactsSoql([held]), undefined);
+    const contact = answer.find((row) => row['Id'] === person.id)?.['PersonContactId'];
+    expect(answer).toEqual([
+      { Id: held, PersonContactId: '003Fk00000HeLdA' },
+      { Id: person.id, PersonContactId: contact },
+      { Id: business.id, PersonContactId: null },
+    ]);
+    expect(String(contact).startsWith('003RHZ')).toBe(true);
+    expect(w.personContactOf(contact)?.placeholderId).toBe(person.id);
+    expect(w.rowOf(contact)).toBeUndefined();
+    // Read back later, the contact names no record of the target either.
+    expect(
+      await w.guardQueries(query)(
+        'target',
+        `SELECT Id FROM Contact WHERE Id = '${String(contact)}'`,
+      ),
+    ).toEqual([]);
   });
 });
 

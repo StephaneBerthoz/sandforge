@@ -122,7 +122,11 @@ import {
   contactPointOf,
   personalFieldsByApiName,
 } from '../src/core/precheck/PIIDetector.js';
-import { formatSaveError, toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
+import {
+  formatSaveError,
+  saveErrorDetail,
+  toSaveOutcomes,
+} from '../src/core/common/existingRecordMatch.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
 import { describePicklistChange } from '../src/modules/forge/stages/RecordTypePicklists.js';
@@ -168,6 +172,8 @@ import {
   TargetAutomationReader,
   answerOf,
   automationLines,
+  toolingAnswersOf,
+  toolingCompositeBody,
 } from '../src/modules/forge/TargetAutomationReader.js';
 import { TargetGapReader, gapFieldOf, gapLines } from '../src/modules/forge/TargetGapReader.js';
 import {
@@ -1934,6 +1940,11 @@ export function jsonResult(summary: ExecutionSummary) {
     // or a restricted picklist refused, each field with what refused it
     // (`refusedBy`) and the refusal; only when there were any.
     ...(summary.writtenWithoutFields ? { writtenWithoutFields: summary.writtenWithoutFields } : {}),
+    // Per object and field, the records whose lookup a lookup filter refused
+    // and the run left empty: --verify tells them from a lookup that broke.
+    ...(summary.lookupsLeftEmptyByFilter
+      ? { lookupsLeftEmptyByFilter: summary.lookupsLeftEmptyByFilter }
+      : {}),
     // Whether the email addresses and phone numbers were neutralized, and how
     // many values of which fields — on a dry run, would have been.
     ...(summary.contactPoints ? { contactPoints: summary.contactPoints } : {}),
@@ -2255,6 +2266,17 @@ export function targetAutomationReader(conn: Connection): TargetAutomationReader
           queryMore: async (url) => conn.tooling.queryMore<Record<string, unknown>>(url),
         },
         soql,
+      ),
+    // The start conditions and definitions, many a request, as the panel reads them.
+    toolingQueries: async (_orgId, soqls) =>
+      toolingAnswersOf(
+        await conn.request({
+          method: 'POST',
+          url: '/tooling/composite',
+          body: JSON.stringify(toolingCompositeBody(`/services/data/v${conn.version}`, soqls)),
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        soqls.length,
       ),
   });
 }
@@ -3668,6 +3690,24 @@ const writtenWithoutSchema = z.object({
   }),
 });
 
+/**
+ * The lookups a run left empty on a lookup filter's refusal, by record, as
+ * its summary names them: read apart from what a removal reads, and nothing
+ * from a summary that names none or names them otherwise.
+ */
+const leftEmptySchema = z.object({
+  result: z.object({
+    lookupsLeftEmptyByFilter: z.array(
+      z.object({
+        objectApiName: z.string().regex(API_NAME_RE),
+        field: z.string().regex(API_NAME_RE),
+        records: z.number().int().nonnegative(),
+        recordIds: z.array(summaryIdSchema),
+      }),
+    ),
+  }),
+});
+
 /** The exit code each verdict leaves. */
 const VERDICT_EXIT: Readonly<Record<ForgeRunVerification['verdict'], number>> = {
   verified: 0,
@@ -3698,14 +3738,26 @@ export function verificationLines(verification: ForgeRunVerification, target: st
       o.deleted > 0 ? `${o.deleted} in the recycle bin` : '',
       o.notVisible > 0 ? `${o.notVisible} neither there nor in the recycle bin, out of sight` : '',
     ].filter(Boolean);
+    // The lookups the target explains, counted apart from those that broke.
+    const leftEmpty = o.linksLeftEmptyByFilter ?? 0;
+    const byAutomation = o.linksSetByAutomation ?? 0;
+    const explained = [
+      leftEmpty > 0 ? `${leftEmpty} left empty by the target's lookup filter, as the run said` : '',
+      byAutomation > 0 ? `${byAutomation} set by the target's automation during the run` : '',
+    ].filter(Boolean);
+    const held = o.linksChecked - o.linksBroken - leftEmpty - byAutomation;
     const links =
       o.linksUnchecked !== undefined
         ? `lookups not checked (${o.linksUnchecked})`
         : o.linksChecked === 0
           ? 'no lookup the run set to check'
-          : o.linksBroken === 0
+          : o.linksBroken === 0 && explained.length === 0
             ? `lookups: ${o.linksChecked} checked, all hold`
-            : `lookups: ${o.linksChecked} checked, ${o.linksBroken} do not hold`;
+            : `lookups: ${o.linksChecked} checked, ` +
+              [
+                ...(o.linksBroken > 0 ? [`${o.linksBroken} do not hold`] : [`${held} hold`]),
+                ...explained,
+              ].join(', ');
     lines.push(
       `  ${o.objectApiName}: ${o.present} of ${o.expected} there` +
         (missing.length > 0 ? `, ${missing.join(', ')}` : '') +
@@ -3716,6 +3768,15 @@ export function verificationLines(verification: ForgeRunVerification, target: st
         link.found === null
           ? `      ${link.recordId}: ${link.field} is empty, the run set it to ${link.expected}`
           : `      ${link.recordId}: ${link.field} points at ${link.found}, the run set it to ${link.expected}`,
+      );
+    }
+    for (const link of o.explainedLinks ?? []) {
+      lines.push(
+        link.cause === 'automation'
+          ? `      ${link.recordId}: ${link.field} points at ${link.found ?? ''}, which the ` +
+              `target's automation created during the run; the run set it to ${link.expected}`
+          : `      ${link.recordId}: ${link.field} is empty: the target's lookup filter refused ` +
+              `${link.expected}, and the run left it empty`,
       );
     }
     if (o.recycleBinUnread !== undefined) {
@@ -3826,6 +3887,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     }
   }
   const written = writtenWithoutSchema.safeParse(raw);
+  const leftEmpty = leftEmptySchema.safeParse(raw);
 
   say(`sandforge-clone --verify  ${args.summaryPath}  in ${args.target}`);
   const session = await loadOrg(args.target);
@@ -3866,13 +3928,19 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
       records,
       remapTable: summary.result.remapTable,
       ...(summary.result.writtenBetween
-        ? { runEndedAt: new Date(summary.result.writtenBetween.last) }
+        ? {
+            runStartedAt: new Date(summary.result.writtenBetween.first),
+            runEndedAt: new Date(summary.result.writtenBetween.last),
+          }
         : summary.finishedAt
           ? { runRecordedAt: new Date(summary.finishedAt) }
           : {}),
       ...(removalStamps ? { removalStamps } : {}),
       ...(written.success
         ? { writtenWithout: writtenWithoutByObject(written.data.result.writtenWithoutFields) }
+        : {}),
+      ...(leftEmpty.success
+        ? { leftEmptyByFilter: leftEmpty.data.result.lookupsLeftEmptyByFilter }
         : {}),
     });
   } catch (err: unknown) {
@@ -4342,10 +4410,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         headers: forgeWriteHeaders({ applyAssignmentRules: args.applyAssignmentRules }),
       });
       const arr = Array.isArray(r) ? r : [r];
+      // With each error's code and fields, as the panel reads them.
       return arr.map((x, i) => ({
         id: x.id ?? (records[i]['Id'] as string) ?? '',
         success: x.success,
         errors: (x.errors ?? []).map(formatSaveError),
+        errorDetails: (x.errors ?? []).map(saveErrorDetail),
       }));
     },
     describeFields: async (orgId, name) => {

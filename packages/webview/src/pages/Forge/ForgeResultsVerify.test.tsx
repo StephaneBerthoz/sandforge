@@ -261,6 +261,71 @@ describe('ForgeVerificationView', () => {
     ]);
   });
 
+  it('says the lookups the target explains apart from those that hold, each with why, under a verified verdict', () => {
+    render(
+      <ForgeVerificationView
+        verification={{
+          verdict: 'verified',
+          verifiedAt: '2026-10-01T09:00:00.000Z',
+          attempts: 2,
+          objects: [
+            {
+              objectApiName: 'Case',
+              expected: 20,
+              present: 20,
+              deleted: 0,
+              notVisible: 0,
+              changed: 0,
+              changedRecords: [],
+              deletedIds: [],
+              notVisibleIds: [],
+              linksChecked: 20,
+              linksBroken: 0,
+              brokenLinks: [],
+              linksLeftEmptyByFilter: 3,
+              linksSetByAutomation: 1,
+              explainedLinks: [
+                {
+                  recordId: rid('500', 1),
+                  field: 'AssetId',
+                  expected: rid('02i', 1),
+                  found: null,
+                  cause: 'lookup-filter',
+                },
+                {
+                  recordId: rid('500', 2),
+                  field: 'Cloned_Risk__c',
+                  expected: rid('02i', 1),
+                  found: rid('02i', 7),
+                  cause: 'automation',
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-verification-verdict').textContent).toBe(
+      'Verified: every record read back is there, and every lookup checked points where the run ' +
+        'set it or where the target put it: left empty by its lookup filter, or set by its ' +
+        'automation during the run.',
+    );
+    const cases = screen.getByTestId('forge-verification-Case');
+    expect(cases.textContent).toContain(
+      "Case: 20 of 20 there · 20 lookups checked, 16 hold · 3 left empty by the target's lookup " +
+        "filter, as the run said · 1 set by the target's automation during the run",
+    );
+    expect(
+      within(cases)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      `${rid('500', 1)}: AssetId is empty: the target's lookup filter refused ${rid('02i', 1)}, and the run left it empty`,
+      `${rid('500', 2)}: Cloned_Risk__c points at ${rid('02i', 7)}, which the target's automation created during the run; the run set it to ${rid('02i', 1)}`,
+    ]);
+  });
+
   it('says an unstable verification as one to run again, and the lookups it could not check', () => {
     render(
       <ForgeVerificationView

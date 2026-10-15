@@ -9,6 +9,7 @@ import type {
   ForgeGraph,
   ForgeGraphEdge,
   ForgeGraphNode,
+  ForgeLookupsLeftEmpty,
   ForgeNodeStatus,
   ForgePicklistValuesChanged,
   ForgeReadRecords,
@@ -243,6 +244,12 @@ export interface UpdateResult {
   success: boolean;
   /** Error messages if the update failed. */
   errors: string[];
+  /**
+   * The same errors, each with its code and the fields it named,
+   * index-aligned with `errors`: what says a lookup filter refused the
+   * record a lookup of the update named. See `InsertResult.errorDetails`.
+   */
+  errorDetails?: SaveErrorDetail[];
 }
 
 /**
@@ -1030,6 +1037,13 @@ export interface ExecutionSummary {
    */
   writtenWithoutFields?: ForgeWrittenWithoutFields[];
   /**
+   * The lookups a lookup filter of the target refused, which the run left
+   * empty — the row written again without them, or the second pass refused —
+   * per object and field, by record in the target. Absent when there were
+   * none, and from a simulation.
+   */
+  lookupsLeftEmptyByFilter?: ForgeLookupsLeftEmpty[];
+  /**
    * Whether the run neutralized the email addresses and phone numbers of the
    * rows it sent — or, on a dry run, would send — and how many per object and
    * field. Set by every run; absent from summaries built elsewhere.
@@ -1290,6 +1304,16 @@ interface NodeReadOnce {
   /** Whether it was read while the object it is read again under waited for its turn. */
   readonly whileWaiting: boolean;
 }
+
+/**
+ * The records a run kept per object and field whose lookup a lookup filter
+ * of the target refused: past it, only how many. A filter that refuses every
+ * row of a large run would otherwise hold its every id in the summary.
+ */
+const LEFT_EMPTY_BY_FILTER_KEPT = 5_000;
+
+/** Per object and field, the lookups a lookup filter refused, which the run left empty. */
+type FilterEmptiedLookups = Map<string, Map<string, { records: number; ids: string[] }>>;
 
 /** Per object, the lookups written empty for a record outside the clone, by field and object pointed at. */
 type LeftEmptyLookups = Map<
@@ -1570,6 +1594,8 @@ interface ExecutionState {
    * on. See `ExecutionSummary.writtenWithoutFields`.
    */
   readonly writtenWithoutFields: Map<string, WrittenWithoutFields>;
+  /** See `ExecutionSummary.lookupsLeftEmptyByFilter`. */
+  readonly leftEmptyByFilter: FilterEmptiedLookups;
   /**
    * Whether the target has person accounts, read once a run from its describe
    * of the account: see `personAccountsInTarget`. Unset until asked.
@@ -3054,6 +3080,7 @@ export class ForgeExecutor {
       ),
       picklistChanges: new PicklistChangeTally(),
       writtenWithoutFields: new Map<string, WrittenWithoutFields>(),
+      leftEmptyByFilter: new Map(),
       contactsOnTheirOwn: new Set<string>(),
       withTheirRecord: new Set<string>(),
       leftToThePlatform: new RowsLeftToThePlatform(),
@@ -3689,6 +3716,8 @@ export class ForgeExecutor {
             stopped: () => this.isAborted,
             onPatched: this.patchedInTheJournal(state),
             onAnswered: () => state.store?.flush(),
+            onRefusedByFilter: (object, field, recordId) =>
+              this.noteLeftEmptyByFilter(state, object, field, recordId),
           });
           if (settled) state.errors.push(settled);
           state.pendingFkUpdates.push(...stillPending);
@@ -3717,6 +3746,8 @@ export class ForgeExecutor {
           stopped: () => this.isAborted,
           onPatched: this.patchedInTheJournal(state),
           onAnswered: () => state.store?.flush(),
+          onRefusedByFilter: (object, field, recordId) =>
+            this.noteLeftEmptyByFilter(state, object, field, recordId),
         });
     if (pass2Error) {
       state.errors.push(pass2Error);
@@ -5525,6 +5556,19 @@ export class ForgeExecutor {
       updatedSourceIds: state.remapper.updatedSourceIds().filter(kept),
       ...(state.withTheirRecord.size > 0 && !simulated
         ? { withTheirRecordSourceIds: [...state.withTheirRecord] }
+        : {}),
+      ...(state.leftEmptyByFilter.size > 0 && !simulated
+        ? {
+            lookupsLeftEmptyByFilter: [...state.leftEmptyByFilter].flatMap(
+              ([objectApiName, fields]) =>
+                [...fields].map(([field, { records, ids }]) => ({
+                  objectApiName,
+                  field,
+                  records,
+                  recordIds: [...ids],
+                })),
+            ),
+          }
         : {}),
       remapByObject: simulated ? [] : state.remapper.countsByObject(),
       ...(state.notSent.size > 0
@@ -8786,6 +8830,9 @@ export class ForgeExecutor {
     if (written.writtenWithoutFields) {
       this.countWrittenWithoutFields(state, objectApiName, written.writtenWithoutFields);
     }
+    for (const { field, recordId } of written.leftEmptyByFilter ?? []) {
+      this.noteLeftEmptyByFilter(state, objectApiName, field, recordId);
+    }
     for (const sourceId of written.withTheirRecord ?? []) state.withTheirRecord.add(sourceId);
     if (written.linkedExistingCount > 0 || written.unidentifiedExistingCount > 0) {
       state.existingRecords.push({
@@ -8823,6 +8870,31 @@ export class ForgeExecutor {
       objectApiName,
       addWrittenWithoutFields(state.writtenWithoutFields.get(objectApiName), written),
     );
+  }
+
+  /**
+   * Keep, for a verification of the run, a record whose lookup a lookup filter
+   * of the target refused and the run left empty: written again without it,
+   * or not filled in by the second pass. See
+   * `ExecutionSummary.lookupsLeftEmptyByFilter`.
+   *
+   * @param recordId - The record, by its id in the target.
+   */
+  private noteLeftEmptyByFilter(
+    state: ExecutionState,
+    objectApiName: string,
+    field: string,
+    recordId: string,
+  ): void {
+    let fields = state.leftEmptyByFilter.get(objectApiName);
+    if (!fields) {
+      fields = new Map();
+      state.leftEmptyByFilter.set(objectApiName, fields);
+    }
+    const kept = fields.get(field) ?? { records: 0, ids: [] };
+    kept.records++;
+    if (kept.ids.length < LEFT_EMPTY_BY_FILTER_KEPT) kept.ids.push(recordId);
+    fields.set(field, kept);
   }
 
   /**
@@ -9035,6 +9107,8 @@ export class ForgeExecutor {
       // pass sends only those the marks leave.
       onPatched: marksIn(store),
       onAnswered: () => store.flush(),
+      onRefusedByFilter: (object, field, recordId) =>
+        this.noteLeftEmptyByFilter(state, object, field, recordId),
     });
     const leftEmpty: LeftEmptyLookups = new Map();
     const pageSize = state.config.stream?.secondPassPageSize ?? SECOND_PASS_PAGE;
