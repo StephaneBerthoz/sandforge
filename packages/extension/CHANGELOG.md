@@ -5,6 +5,30 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.54.0] - 2026-10-15
+
+Forge tested on a large org: what its automation creates can be swept, and its report reads every flow.
+
+### Added
+
+- A Forge removal can sweep what the target's automation created during the
+  run: records created by the run's user inside the run's window, listed and
+  asked before any delete, refused where the user likely worked by hand
+  (`--sweep`, `--sweep-list` at the command line).
+
+### Changed
+
+- The automation report reads up to 500 flow start conditions in grouped
+  calls, with fewer API requests, and says per object what it left unread.
+- Verify tells a lookup the target's filter emptied, or its automation set,
+  apart from a broken one.
+
+### Fixed
+
+- A rehearsal leaves a person account's contact to the platform, as the run
+  does, and judges its children against it.
+- A backup says whether it stopped short with a boolean.
+
 ## [1.53.0] - 2026-10-14
 
 A resumed Forge run picks up exactly where it stopped, and the canary covers Sync.

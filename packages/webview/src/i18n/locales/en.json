@@ -2298,6 +2298,8 @@
       "gaps1430Desc": "Simulate runs a clone through its write stage without writing; Rehearse asks the target itself, inside rolled-back transactions. The Gaps tab lists what they find, with a decision in one click for each, kept in the template.",
       "results1430": "Act from the results",
       "results1430Desc": "Open a created record in the target org, save the results to CSV or JSON, remove the run in place, and retry objects that were skipped. Templates now export and import as JSON files.",
+      "sweepAutomation1540": "Sweep what the target's automation created",
+      "sweepAutomation1540Desc": "A Forge removal can now also take back what the target's own automation created during the run, listed and asked first. The automation report reads every flow's start condition, and Verify no longer counts a lookup the target emptied as broken.",
       "exactResume1530": "Resume exactly where it stopped",
       "exactResume1530Desc": "A resumed Forge run now copies the files left to copy, never gives a status back twice, and is no longer refused when an empty table changed meanwhile. Removing a large run reads its journal page by page.",
       "undoSync1520": "Take back what a Sync run created",

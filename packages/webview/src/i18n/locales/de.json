@@ -2298,6 +2298,8 @@
       "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Proben fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
       "results1430": "Aus den Ergebnissen handeln",
       "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Zielorg, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
+      "sweepAutomation1540": "Entfernen, was die Automatisierung des Ziels erstellt hat",
+      "sweepAutomation1540Desc": "Eine Forge-Entfernung kann jetzt auch zurücknehmen, was die Automatisierung des Ziels während des Laufs erstellt hat, zuerst aufgelistet und erfragt. Der Automatisierungsbericht liest die Startbedingung jedes Flows, und die Überprüfung zählt ein vom Ziel geleertes Lookup nicht mehr als defekt.",
       "exactResume1530": "Genau dort fortsetzen, wo der Lauf anhielt",
       "exactResume1530Desc": "Ein fortgesetzter Forge-Lauf kopiert jetzt die noch fehlenden Dateien, gibt keinen Status zweimal zurück und wird nicht mehr abgelehnt, wenn sich eine leere Tabelle inzwischen geändert hat. Das Entfernen eines großen Laufs liest sein Journal seitenweise.",
       "undoSync1520": "Zurücknehmen, was ein Sync-Lauf erstellt hat",

@@ -2298,6 +2298,8 @@
       "gaps1430Desc": "Simuler fait passer un clone par son étape d'écriture sans rien écrire ; Répéter interroge la cible elle-même, dans des transactions annulées. L'onglet Écarts liste ce qu'ils trouvent, avec une décision en un clic pour chacun, gardée dans le modèle.",
       "results1430": "Agir depuis les résultats",
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
+      "sweepAutomation1540": "Balayer ce que l'automatisation de la cible a créé",
+      "sweepAutomation1540Desc": "Une suppression Forge peut désormais retirer aussi ce que l'automatisation de la cible a créé pendant le run, listé et demandé d'abord. Le rapport d'automatisation lit la condition de chaque Flow, et la vérification ne compte plus comme cassé un lookup que la cible a vidé.",
       "exactResume1530": "Reprendre exactement là où le run s'est arrêté",
       "exactResume1530Desc": "Un run Forge repris copie désormais les fichiers restants, ne rend jamais un statut deux fois et n'est plus refusé quand une table vide a changé entre-temps. La suppression d'un gros run lit son journal page par page.",
       "undoSync1520": "Défaire ce qu'un run Sync a créé",
