@@ -87,6 +87,15 @@ const PERSONAL_ATTRIBUTES: readonly NamePattern[] = [
     words: true,
   },
   {
+    // A salutation says the gender it was chosen for: a dataset that cleared
+    // the gender field kept a restricted salutation picklist, Mr. and Ms. intact.
+    regex: wordsRegex('salutations?', 'civility', 'honorifics?', 'civilit[eé]s?'),
+    classification: 'PII',
+    confidence: 0.8,
+    label: 'salutation',
+    words: true,
+  },
+  {
     regex: wordsRegex('marital status', 'marital', 'situation familiale', 'situation matrimoniale'),
     classification: 'PII',
     confidence: 0.85,

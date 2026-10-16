@@ -257,6 +257,21 @@ describe('PIIDetector', () => {
       });
     });
 
+    it('flags a salutation, which says the gender it was chosen for, by API name or a French label', () => {
+      expect(
+        classified([
+          field('Salutation', 'Salutation', 'picklist'),
+          field('Salutation__c', 'Civility', 'picklist'),
+          field('Field_8__c', 'Civilité', 'picklist'),
+          field('Title', 'Title', 'string'),
+        ]),
+      ).toEqual({
+        Salutation: 'PII',
+        Salutation__c: 'PII',
+        Field_8__c: 'PII',
+      });
+    });
+
     it("keeps the GDPR's special categories apart as sensitive, and a disability as health data", () => {
       expect(
         classified([
