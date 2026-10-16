@@ -1277,7 +1277,7 @@
       "toggleHint": "Désactivé sauf si coché. Une fois les enregistrements d'un objet écrits, la dernière version de chaque fichier Salesforce lié à l'un d'eux, et leurs pièces jointes classiques, sont copiées et liées aux copies des enregistrements dans la cible. Une configuration enregistrée retient quel fichier elle a copié où : l'exécuter de nouveau ne copie un fichier que si la source en a une version plus récente, ajoutée comme version de la copie, jamais comme second fichier. Avant que l'exécution n'écrive quoi que ce soit, le stockage de fichiers de la cible est lu et une exécution dont les fichiers ne tiendraient pas est refusée. Un fichier plus gros que la taille maximale, et les fichiers au-delà de ce qu'une exécution copie au plus, sont ignorés et comptés ; l'exécution suivante copie ces derniers. Retirer une exécution reprend, avec ses enregistrements, les fichiers qu'elle a créés ; une version ajoutée à une copie antérieure reste.",
       "maxFileSize": "Fichier le plus gros (Mo, 35 au plus)",
       "maxRun": "Copie maximale par exécution (Mo, 2000 au plus)",
-      "needsSave": "Cette configuration copie des fichiers : enregistrez-la d'abord à l'étape Revue. Une configuration enregistrée retient les fichiers qu'elle a copiés, pour qu'une deuxième exécution ne les copie pas de nouveau ; une configuration non enregistrée est refusée.",
+      "needsSave": "Cette configuration copie des fichiers : enregistrez-la d'abord. Une configuration enregistrée retient les fichiers qu'elle a copiés, pour qu'une deuxième exécution ne les copie pas de nouveau ; une configuration non enregistrée est refusée.",
       "badge": "Fichiers copiés",
       "summary_one": "{{count}} fichier, {{size}} copiés, {{skipped}} ignorés au-delà des plafonds",
       "summary_other": "{{count}} fichiers, {{size}} copiés, {{skipped}} ignorés au-delà des plafonds",
@@ -1799,7 +1799,9 @@
       "busy": "Prévu le {{time}}, pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
       "busyMany": "{{n}} démarrages prévus du {{first}} au {{last}}, pendant que l'exécution démarrée le {{since}} était encore en cours : aucun n'a eu lieu. Un pipeline ne s'exécute jamais deux fois en même temps.",
       "busyRefresh": "Le rafraîchissement remarqué le {{time}} est arrivé pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
-      "cannotRun": "Le rafraîchissement remarqué le {{time}} n'a rien lancé : une étape de ce pipeline ne peut pas s'exécuter."
+      "cannotRun": "Le rafraîchissement remarqué le {{time}} n'a rien lancé : une étape de ce pipeline ne peut pas s'exécuter.",
+      "cannotRunSchedule": "Prévu le {{time}} : pas démarré, car une étape de ce pipeline ne peut pas s'exécuter.",
+      "cannotRunScheduleMany": "{{n}} démarrages prévus du {{first}} au {{last}} : aucun n'a eu lieu, car une étape de ce pipeline ne peut pas s'exécuter."
     },
     "pipelineSchedules": {
       "title": "Planifications des pipelines",

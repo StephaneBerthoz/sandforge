@@ -456,26 +456,116 @@ describe('PipelineTriggerScheduler', () => {
       h.scheduler.stop();
     });
 
-    it('starts nothing, and plans nothing, while a step of its pipeline cannot run', async () => {
+    it('gathers the starts an hourly schedule falls due for while its pipeline cannot run into one entry, said once, until it can run or the reason changes', async () => {
       const refusal = 'Pipeline step "Seed" (seed) cannot run in a pipeline.';
       const problems: Record<string, string[]> = { p1: [refusal] };
-      const h = harness({ pipelines: [pipeline('p1', [schedule('0 2 * * *')])], problems });
+      const h = harness({
+        pipelines: [pipeline('p1', [schedule('0 * * * *')], 'Hourly')],
+        problems,
+      });
+      h.scheduler.start();
+      // Due at 02:00, 03:00 and 04:00.
+      await settle(2 * 60 * 60_000 + 2 * 60_000);
+
+      // An entry and a notification each, the fifty entries the history keeps
+      // were full in two days, and the warning came every hour.
+      expect([...h.history.values()]).toEqual([
+        expect.objectContaining({
+          runId: 'missed-id-1',
+          startTime: '2026-09-23T02:00:00.000Z',
+          missed: {
+            reason: 'cannotRun',
+            count: 3,
+            lastDueAt: '2026-09-23T04:00:00.000Z',
+            detail: refusal,
+          },
+        }),
+      ]);
+      expect(h.reports).toHaveLength(1);
+
+      // Another reason is a new entry, said again.
+      problems.p1 = ['Pipeline step "Mask" (anonymize) cannot run in a pipeline.'];
+      await settle(60 * 60_000);
+      expect(h.history.size).toBe(2);
+      expect(h.reports).toHaveLength(2);
+
+      // It runs at 06:00; refused again at 07:00, that is a new entry too.
+      delete problems.p1;
+      await settle(60 * 60_000);
+      expect(h.started).toHaveLength(1);
+      problems.p1 = [refusal];
+      await settle(60 * 60_000);
+      expect(h.history.size).toBe(3);
+      expect(h.reports).toHaveLength(3);
+      h.scheduler.stop();
+    });
+
+    it('starts nothing while a step of its pipeline cannot run, and writes each start it falls due for as missed, with the step and the reason', async () => {
+      const refusal =
+        'Step "Archive old cases" is a "archive" step, a step type this release of SandForge ' +
+        'does not have: the pipeline was saved by a later release, or written by hand.';
+      const problems: Record<string, string[]> = { p1: [refusal] };
+      const h = harness({
+        pipelines: [pipeline('p1', [schedule('0 2 * * *')], 'Nightly')],
+        problems,
+      });
       h.scheduler.start();
       await settle(2 * 60_000);
+
       expect(h.started).toEqual([]);
-      expect(h.history.size).toBe(0);
+      // Left unplanned, its start fell due with nothing where the runs are
+      // read: a nightly run that never ran left no trace in the history.
+      expect([...h.history.values()]).toEqual([
+        {
+          runId: 'missed-id-1',
+          pipelineId: 'p1',
+          pipelineName: 'Nightly',
+          status: 'missed',
+          triggeredBy: 'schedule',
+          startTime: '2026-09-23T02:00:00.000Z',
+          duration: 0,
+          stepCount: 0,
+          errorCount: 0,
+          missed: { reason: 'cannotRun', count: 1, detail: refusal },
+        },
+      ]);
+      expect(h.reports).toEqual([
+        {
+          kind: 'missed',
+          pipelineName: 'Nightly',
+          triggeredBy: 'schedule',
+          dueAt: '2026-09-23T02:00:00.000Z',
+          missed: { reason: 'cannotRun', count: 1, detail: refusal },
+          nextRunAt: '2026-09-24T02:00:00.000Z',
+        },
+      ]);
       expect(await h.scheduler.statuses()).toEqual([
-        expect.objectContaining({ armed: false, idle: 'cannotRun', detail: refusal }),
+        expect.objectContaining({
+          armed: false,
+          idle: 'cannotRun',
+          detail: refusal,
+          lastFiredAt: '2026-09-23T02:00:00.000Z',
+          lastOutcome: 'missed',
+        }),
       ]);
 
-      // Once it can run, it is planned from then: the time it could not run owes nothing.
+      // Looked at again before it next falls due: nothing more is written.
+      await settle(3 * CHECK_INTERVAL_MS);
+      expect(h.history.size).toBe(1);
+
+      // Once it can run, its next start is made.
       delete problems.p1;
       await settle(CHECK_INTERVAL_MS);
-      expect(h.history.size).toBe(0);
       expect((await h.scheduler.statuses())[0]).toMatchObject({
         armed: true,
         nextRunAt: '2026-09-24T02:00:00.000Z',
       });
+      vi.setSystemTime(new Date('2026-09-24T01:59:30.000Z'));
+      await settle(CHECK_INTERVAL_MS);
+      expect(h.started).toEqual([
+        expect.objectContaining({ pipelineId: 'p1', triggeredBy: 'schedule' }),
+      ]);
+      expect(h.history.size).toBe(1);
       h.scheduler.stop();
     });
 

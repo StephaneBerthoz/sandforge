@@ -27,11 +27,12 @@ beforeAll(() => {
   }
 });
 
-/** The props React Flow, its minimap and its controls were last given. */
+/** The props React Flow, its minimap, its controls and its background were last given. */
 const received = vi.hoisted(() => ({
   flow: {} as Record<string, unknown>,
   minimap: {} as Record<string, unknown>,
   controls: {} as Record<string, unknown>,
+  background: {} as Record<string, unknown>,
   fitView: vi.fn(),
 }));
 
@@ -69,7 +70,10 @@ vi.mock('@xyflow/react', () => ({
     received.controls = props;
     return React.createElement('div', { 'data-testid': 'controls' });
   },
-  Background: () => React.createElement('div', { 'data-testid': 'background' }),
+  Background: (props: Record<string, unknown>) => {
+    received.background = props;
+    return React.createElement('div', { 'data-testid': 'background' });
+  },
   useReactFlow: () => ({ fitView: received.fitView }),
   Handle: () => React.createElement('div'),
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
@@ -160,6 +164,12 @@ describe('LiveGraph', () => {
     expect(screen.getByTestId('minimap')).toBeDefined();
     expect(screen.getByTestId('controls')).toBeDefined();
     expect(screen.getByTestId('background')).toBeDefined();
+  });
+
+  it('draws its background dots in the theme’s border colour, which a light theme shows too', () => {
+    render(<LiveGraph graph={makeSampleGraph()} />);
+    // A white at 5% was drawn on a white pane in a light theme.
+    expect(received.background).toMatchObject({ color: 'var(--sf-border)', gap: 20 });
   });
 
   it('fits the graph left of the strip the minimap stands in, on first draw and from the fit button', () => {

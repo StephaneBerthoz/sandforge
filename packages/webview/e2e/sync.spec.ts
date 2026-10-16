@@ -201,6 +201,36 @@ test.describe('Sync panel — simulate, then run', () => {
     await expect(page.getByTestId('sync-run-state')).toContainText('Stopping');
   });
 
+  test('a configuration that copies files is saved from beside Run, which then runs it as saved', async ({
+    page,
+  }) => {
+    const bridge = await openSyncOnDraft(page, {
+      ...READY_DRAFT,
+      files: { maxFileSizeMB: 10, maxRunMB: 100 },
+    });
+
+    // The extension refuses the files of a configuration that is not saved:
+    // Run waits for the save, offered beside the reason.
+    await expect(page.getByTestId('sync-files-needs-save')).toBeVisible();
+    await expect(page.getByTestId('sync-run')).toBeDisabled();
+    const waiting = await checkAccessibility(page);
+    expect(waiting.violations, formatViolations(waiting.violations)).toEqual([]);
+
+    await page.getByTestId('sync-files-save').click();
+    const save = await bridge.waitForMessage('sync:config:save', { timeout: 10_000 });
+    const saved = (save.payload as { config: { id: string } }).config;
+    await bridge.respond(
+      'sync:config:save:response',
+      { success: true, id: saved.id },
+      String(save.id),
+    );
+
+    await expect(page.getByTestId('sync-files-needs-save')).toHaveCount(0);
+    await page.getByTestId('sync-run').click();
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    expect((run.payload as { config: { id: string } }).config.id).toBe(saved.id);
+  });
+
   test('a draft that asked for manual review reopens on target wins, and says so', async ({
     page,
   }) => {

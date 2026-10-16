@@ -65,7 +65,12 @@ function missedLine(entry: PipelineHistoryEntry, t: TFunction): string {
         ? t('automation.missed.busyMany', { n, first: time, last, since })
         : t('automation.missed.busy', { time, since });
     case 'cannotRun':
-      return t('automation.missed.cannotRun', { time });
+      // A schedule that fell due is not a refresh noticed: said as one, its
+      // start read as a sandbox refreshed at that time.
+      if (entry.triggeredBy !== 'schedule') return t('automation.missed.cannotRun', { time });
+      return many
+        ? t('automation.missed.cannotRunScheduleMany', { n, first: time, last })
+        : t('automation.missed.cannotRunSchedule', { time });
   }
 }
 

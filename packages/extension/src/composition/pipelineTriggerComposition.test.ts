@@ -100,6 +100,25 @@ describe('what the user is told of a pipeline trigger', () => {
     expect(notice).toContain('"Mask" (anonymize) cannot run');
   });
 
+  it('says a schedule was due and did not start its pipeline, naming the step in the way, and no sandbox', () => {
+    const notice = pipelineTriggerNotice({
+      kind: 'missed',
+      pipelineName: 'Nightly',
+      triggeredBy: 'schedule',
+      dueAt: '2026-09-23T02:00:00.000Z',
+      missed: {
+        reason: 'cannotRun',
+        count: 1,
+        detail: 'Step "Archive" is a "archive" step, a step type this release does not have.',
+      },
+      nextRunAt: '2026-09-24T02:00:00.000Z',
+    });
+    // Said as a refresh, it read "the refresh of sandbox  did not start…".
+    expect(notice).toMatch(/^SandForge: pipeline "Nightly" was due at .+ and did not start: /);
+    expect(notice).not.toContain('refresh');
+    expect(notice).toContain('a step type this release does not have');
+  });
+
   it('says what started a run that failed', () => {
     expect(
       pipelineTriggerNotice({

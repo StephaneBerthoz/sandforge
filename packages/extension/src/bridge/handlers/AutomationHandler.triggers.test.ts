@@ -252,7 +252,7 @@ describe('AutomationHandler triggers', () => {
     expect(seed?.detail).toContain('"Seed accounts" is a seed step, and this step type cannot run');
   });
 
-  it('lists a saved pipeline holding a step type this release does not have as one that cannot run, and the log says why once', async () => {
+  it('lists a saved pipeline holding a step type this release does not have as one that cannot run, says why once in the log, and writes the start it falls due for to the history as missed, naming the step', async () => {
     // Saved by a later release: the page sends what it was given.
     await save(
       definition('p1', [{ type: 'archive', name: 'Archive old cases' }], [nightly], 'Nightly'),
@@ -275,9 +275,37 @@ describe('AutomationHandler triggers', () => {
     expect(said()).toHaveLength(1);
     expect(said()[0]).toContain('a step type this release of SandForge does not have');
 
-    // Due at 02:00, and looked at again: it starts nothing, and the log is not told twice.
+    // Due at 02:00, and looked at again: it starts nothing, and the log is not
+    // told twice. The start it owed is in the history, where the runs are
+    // read: nothing was there, and a nightly run that never ran left no trace.
     await vi.advanceTimersByTimeAsync(3 * 60_000);
-    expect(history(deps)).toEqual([]);
+    expect(history(deps)).toEqual([
+      expect.objectContaining({
+        pipelineId: 'p1',
+        pipelineName: 'Nightly',
+        status: 'missed',
+        triggeredBy: 'schedule',
+        startTime: '2026-09-23T02:00:00.000Z',
+        stepCount: 0,
+        errorCount: 0,
+        missed: {
+          reason: 'cannotRun',
+          count: 1,
+          detail: expect.stringContaining(
+            '"Archive old cases" is a "archive" step, a step type this release of SandForge does not have',
+          ),
+        },
+      }),
+    ]);
+    expect(posted(deps, 'operation:started')).toEqual([]);
+    expect(reports).toEqual([
+      expect.objectContaining({
+        kind: 'missed',
+        pipelineName: 'Nightly',
+        triggeredBy: 'schedule',
+        missed: expect.objectContaining({ reason: 'cannotRun' }),
+      }),
+    ]);
     expect(said()).toHaveLength(1);
   });
 

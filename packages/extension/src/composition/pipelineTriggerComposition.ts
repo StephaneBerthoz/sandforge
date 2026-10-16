@@ -45,12 +45,19 @@ export function pipelineTriggerNotice(report: TriggerReport): string {
 
   const { missed } = report;
   if (missed.reason === 'cannotRun') {
-    return vscode.l10n.t(
-      'SandForge: the refresh of sandbox {0} did not start pipeline "{1}", which holds a step that cannot run: {2}',
-      report.sandboxName ?? '',
-      name,
-      missed.detail ?? '',
-    );
+    return report.triggeredBy === 'sandbox_refresh'
+      ? vscode.l10n.t(
+          'SandForge: the refresh of sandbox {0} did not start pipeline "{1}", which holds a step that cannot run: {2}',
+          report.sandboxName ?? '',
+          name,
+          missed.detail ?? '',
+        )
+      : vscode.l10n.t(
+          'SandForge: pipeline "{0}" was due at {1} and did not start: it holds a step that cannot run, and its schedule starts nothing until it can. {2}',
+          name,
+          when(report.dueAt),
+          missed.detail ?? '',
+        );
   }
   if (missed.reason === 'busy') {
     return report.triggeredBy === 'sandbox_refresh'

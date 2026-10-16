@@ -13,7 +13,7 @@ import type {
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
 import type { ExecuteOptions, ExecutionSummary } from '../../modules/forge/ForgeExecutor.js';
-import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
+import { ForgeRunJournal, HISTORY_IDS_BOUND } from '../../modules/forge/ForgeRunJournal.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -404,6 +404,45 @@ describe('a run taken up where it stopped', () => {
 
     await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: listed[0].forgeId });
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a run a closed window stopped past the bound by its counts, its ids left in the journal', async () => {
+    const contacts = HISTORY_IDS_BOUND + 1;
+    const first = windowRunning(async (_graph, _config, options) => {
+      const store = options?.stream?.store;
+      store?.beginPart(new Date());
+      for (let n = 1; n <= contacts; n++) {
+        store?.setMapping(
+          'created',
+          `003S${String(n).padStart(11, '0')}AAA`,
+          `003T${String(n).padStart(11, '0')}AAA`,
+          'Contact',
+        );
+      }
+      store?.flush();
+      return new Promise<ForgeExecutionResult>(() => {});
+    });
+    void send(first.handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+    await vi.waitFor(() => expect(first.execute).toHaveBeenCalled());
+
+    // The next window finds the journal with no end, and writes the run to
+    // the history as a run that ended would be: its counts, never its ids.
+    const { handler } = windowRunning(async () => DONE);
+    const listed = await history(handler);
+    expect(listed).toEqual([
+      expect.objectContaining({
+        interrupted: true,
+        resumable: true,
+        createdCount: contacts,
+        remapInJournal: true,
+        idRemapTable: {},
+        idRemapCreated: [],
+        journalId: expect.stringMatching(/^forge-run-/),
+      }),
+    ]);
+    expect(Buffer.byteLength(JSON.stringify(configStore.get('forge:history')))).toBeLessThan(
+      10_000,
+    );
   });
 
   it('refuses to take it up in an org refreshed since, or no longer registered', async () => {

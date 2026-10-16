@@ -224,7 +224,8 @@ export type PipelineHistoryStatus = PipelineRunStatus | 'missed';
  * - `asleep`: it fell due while VS Code could not check it — the computer
  *   asleep, the extension host held up — and the check came too late.
  * - `busy`: a run of the same pipeline was still going.
- * - `cannotRun`: a sandbox was refreshed, and a step of the pipeline cannot run.
+ * - `cannotRun`: a sandbox was refreshed, or a schedule fell due, and a step of
+ *   the pipeline cannot run.
  *
  * None of them is started late: a missed start is reported, never replayed.
  */

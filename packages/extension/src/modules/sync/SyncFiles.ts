@@ -152,7 +152,7 @@ export interface SyncFileDeps {
   /**
    * Delete records of the target in one call: the earlier copy of a legacy
    * attachment the source changed, once its new copy is written. Without it,
-   * a changed attachment is left as it was copied.
+   * a changed attachment is left as it was copied, and the run says how many.
    */
   deleteFromTarget?: (objectApiName: string, ids: string[]) => Promise<InsertResult[]>;
   /** Told as each file is copied, for the run's progress: how far, in percent, and what. */
@@ -693,9 +693,10 @@ export async function planRunFiles(input: {
       }
       // When the source last changed each attachment: one changed since its
       // copy was made has the copy replaced. An attachment has no versions,
-      // and one the source changed was never copied again.
+      // and one the source changed was never copied again. Read where the
+      // run may not delete too, to say what it leaves.
       const attachments = candidates.filter((f) => f.objectApiName === 'Attachment');
-      if (attachments.length > 0 && deps.deleteFromTarget) {
+      if (attachments.length > 0) {
         changedAt = await attachmentsChangedAt(
           deps,
           config,
@@ -712,6 +713,8 @@ export async function planRunFiles(input: {
     const files: FileToCopy[] = [];
     const replacing = new Map<string, string>();
     let mapFull = 0;
+    /** Attachments the source changed since their copy, left as copied: the run may not delete. */
+    let leftChanged = 0;
     for (const file of candidates) {
       if (plannedEarlier.has(file.sourceId)) {
         // Its copy exists by the time this object's files are copied: see
@@ -724,6 +727,13 @@ export async function planRunFiles(input: {
       const replaces =
         earlier?.kind === 'attachment' &&
         attachmentChanged(earlier, changedAt.get(file.sourceId), changedSince);
+      // Replacing one deletes its earlier copy. Where the run may not delete
+      // in the target, it was counted unchanged, as if the change had been
+      // copied, and nothing said it was not.
+      if (replaces && !deps.deleteFromTarget) {
+        leftChanged++;
+        continue;
+      }
       if (
         earlier &&
         !replaces &&
@@ -769,6 +779,13 @@ export async function planRunFiles(input: {
       notes.push(
         `${outcome.pastRunCap - mapFull} file(s) past the ${option.maxRunMB} MB a run copies ` +
           'were not copied: the next run copies them.',
+      );
+    }
+    if (leftChanged > 0) {
+      notes.push(
+        `${leftChanged} legacy attachment(s) the source changed since they were copied were left ` +
+          'as copied: replacing one deletes its earlier copy, and this run may not delete in ' +
+          'the target.',
       );
     }
     if (mapFull > 0) {

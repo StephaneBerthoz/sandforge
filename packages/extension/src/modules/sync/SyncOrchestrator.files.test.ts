@@ -979,6 +979,27 @@ describe('SyncOrchestrator — the files of the records it writes', () => {
       );
     });
 
+    it('says how many changed attachments it left as copied where it may not delete in the target, never counting them unchanged', async () => {
+      const noDelete: SyncFileDeps = { ...fileDeps(), deleteFromTarget: undefined };
+      await orchestrator({ files: noDelete }).execute(delta());
+      const [first] = orgs.targetFiles.attachments;
+      orgs.changeAttachment(ATT_2, 30, '2026-10-13T10:00:00.000Z');
+
+      const result = await orchestrator({ files: noDelete }).execute(delta());
+
+      // Left as it was: replacing it deletes its earlier copy.
+      expect(orgs.targetFiles.attachments).toEqual([first]);
+      expect(orgs.deleteFromTarget).not.toHaveBeenCalled();
+      // The report linked to the same account is unchanged; the attachment,
+      // counted with it, read as a change copied already.
+      expect(result.objectResults[0].files).toMatchObject({ copied: 0, unchanged: 1, failed: 0 });
+      expect(result.objectResults[0].files?.replaced).toBeUndefined();
+      expect(result.objectResults[0].errors).toContain(
+        '1 legacy attachment(s) the source changed since they were copied were left as copied: ' +
+          'replacing one deletes its earlier copy, and this run may not delete in the target.',
+      );
+    });
+
     it('replaces a changed attachment once, however many runs read it', async () => {
       await orchestrator().execute(delta());
       orgs.changeAttachment(ATT_2, 30, '2026-10-13T10:00:00.000Z');

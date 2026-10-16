@@ -801,16 +801,30 @@ export const SyncPage: React.FC = () => {
               )}
               {/* Files are copied by a saved configuration only: the
                   extension refuses a run and a simulation of one that is not
-                  saved, so both wait for the save, and say why. */}
+                  saved, so both wait for the save, and say why. The save is
+                  offered right there: the reason sent the user back to the
+                  Review step for it. */}
               {!busy && filesNeedSave && (
-                <p
-                  id={filesNeedSaveId}
-                  className="text-xs text-status-warning"
-                  role="status"
-                  data-testid="sync-files-needs-save"
-                >
-                  {t('sync.files.needsSave')}
-                </p>
+                <div className="flex items-center gap-(--sf-space-2)">
+                  <p
+                    id={filesNeedSaveId}
+                    className="text-xs text-status-warning"
+                    role="status"
+                    data-testid="sync-files-needs-save"
+                  >
+                    {t('sync.files.needsSave')}
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleSaveConfig(configName)}
+                    aria-describedby={filesNeedSaveId}
+                    className="shrink-0"
+                    data-testid="sync-files-save"
+                  >
+                    {t('common.save')}
+                  </Button>
+                </div>
               )}
               {!busy && (
                 <>

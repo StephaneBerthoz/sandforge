@@ -1277,7 +1277,7 @@
       "toggleHint": "Aus, sofern nicht angehakt. Sobald die Datensätze eines Objekts geschrieben sind, werden die neueste Version jeder Salesforce-Datei, die mit einem von ihnen verknüpft ist, und ihre klassischen Anhänge kopiert und mit den Kopien der Datensätze im Ziel verknüpft. Eine gespeicherte Konfiguration merkt sich, welche Datei sie wohin kopiert hat: Ein erneuter Lauf kopiert eine Datei nur, wenn die Quelle eine neuere Version hat, die als Version der Kopie hinzugefügt wird, nie als zweite Datei. Bevor der Lauf etwas schreibt, wird der Dateispeicher des Ziels gelesen, und ein Lauf, dessen Dateien nicht hineinpassen, wird abgelehnt. Eine Datei, die größer als die Höchstgröße ist, und die Dateien über der Höchstmenge eines Laufs werden übersprungen und gezählt; der nächste Lauf kopiert Letztere. Das Entfernen eines Laufs nimmt mit seinen Datensätzen die Dateien zurück, die er erstellt hat; eine einer früheren Kopie hinzugefügte Version bleibt.",
       "maxFileSize": "Größte Datei (MB, höchstens 35)",
       "maxRun": "Höchstmenge pro Lauf (MB, höchstens 2000)",
-      "needsSave": "Diese Konfiguration kopiert Dateien: Speichern Sie sie zuerst im Schritt Überprüfung. Eine gespeicherte Konfiguration merkt sich, welche Dateien sie kopiert hat, damit ein zweiter Lauf sie nicht erneut kopiert; eine nicht gespeicherte wird abgelehnt.",
+      "needsSave": "Diese Konfiguration kopiert Dateien: Speichern Sie sie zuerst. Eine gespeicherte Konfiguration merkt sich, welche Dateien sie kopiert hat, damit ein zweiter Lauf sie nicht erneut kopiert; eine nicht gespeicherte wird abgelehnt.",
       "badge": "Dateien kopiert",
       "summary_one": "{{count}} Datei, {{size}} kopiert, {{skipped}} über den Obergrenzen übersprungen",
       "summary_other": "{{count}} Dateien, {{size}} kopiert, {{skipped}} über den Obergrenzen übersprungen",
@@ -1799,7 +1799,9 @@
       "busy": "Fällig am {{time}}, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
       "busyMany": "{{n}} Starts fällig von {{first}} bis {{last}}, während der am {{since}} gestartete Lauf noch andauerte: keiner fand statt. Eine Pipeline läuft nie zweimal gleichzeitig.",
       "busyRefresh": "Die am {{time}} bemerkte Aktualisierung kam, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
-      "cannotRun": "Die am {{time}} bemerkte Aktualisierung hat nichts gestartet: Ein Schritt dieser Pipeline kann nicht laufen."
+      "cannotRun": "Die am {{time}} bemerkte Aktualisierung hat nichts gestartet: Ein Schritt dieser Pipeline kann nicht laufen.",
+      "cannotRunSchedule": "Fällig am {{time}}: nicht gestartet, weil ein Schritt dieser Pipeline nicht laufen kann.",
+      "cannotRunScheduleMany": "{{n}} Starts fällig von {{first}} bis {{last}}: keiner fand statt, weil ein Schritt dieser Pipeline nicht laufen kann."
     },
     "pipelineSchedules": {
       "title": "Pipeline-Zeitpläne",

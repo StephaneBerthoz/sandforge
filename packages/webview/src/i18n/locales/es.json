@@ -1277,7 +1277,7 @@
       "toggleHint": "Desactivado salvo que se marque. Una vez escritos los registros de un objeto, la última versión de cada archivo de Salesforce vinculado a uno de ellos, y sus archivos adjuntos clásicos, se copian y se vinculan a las copias de los registros en el destino. Una configuración guardada recuerda qué archivo copió y dónde: ejecutarla de nuevo copia un archivo solo si el origen tiene una versión más reciente, que se añade como versión de la copia, nunca como un segundo archivo. Antes de que la ejecución escriba nada, se lee el almacenamiento de archivos del destino y se rechaza una ejecución cuyos archivos no cabrían. Un archivo más grande que el tamaño máximo, y los archivos que superan lo máximo que copia una ejecución, se omiten y se cuentan; la siguiente ejecución copia estos últimos. Quitar una ejecución retira, con sus registros, los archivos que creó; una versión añadida a una copia anterior se queda.",
       "maxFileSize": "Archivo más grande (MB, 35 como máximo)",
       "maxRun": "Máximo por ejecución (MB, 2000 como máximo)",
-      "needsSave": "Esta configuración copia archivos: guárdela primero en el paso Revisión. Una configuración guardada recuerda los archivos que copió, para que una segunda ejecución no los vuelva a copiar; una sin guardar se rechaza.",
+      "needsSave": "Esta configuración copia archivos: guárdela primero. Una configuración guardada recuerda los archivos que copió, para que una segunda ejecución no los vuelva a copiar; una sin guardar se rechaza.",
       "badge": "Archivos copiados",
       "summary_one": "{{count}} archivo, {{size}} copiados, {{skipped}} omitidos por superar los límites",
       "summary_other": "{{count}} archivos, {{size}} copiados, {{skipped}} omitidos por superar los límites",
@@ -1799,7 +1799,9 @@
       "busy": "Previsto el {{time}}, mientras la ejecución iniciada el {{since}} seguía en curso: no se inició. Un pipeline nunca se ejecuta dos veces a la vez.",
       "busyMany": "{{n}} inicios previstos del {{first}} al {{last}}, mientras la ejecución iniciada el {{since}} seguía en curso: no se inició ninguno. Un pipeline nunca se ejecuta dos veces a la vez.",
       "busyRefresh": "La actualización detectada el {{time}} llegó mientras la ejecución iniciada el {{since}} seguía en curso: no se inició. Un pipeline nunca se ejecuta dos veces a la vez.",
-      "cannotRun": "La actualización detectada el {{time}} no inició nada: un paso de este pipeline no puede ejecutarse."
+      "cannotRun": "La actualización detectada el {{time}} no inició nada: un paso de este pipeline no puede ejecutarse.",
+      "cannotRunSchedule": "Previsto el {{time}}: no se inició, porque un paso de este pipeline no puede ejecutarse.",
+      "cannotRunScheduleMany": "{{n}} inicios previstos del {{first}} al {{last}}: no se inició ninguno, porque un paso de este pipeline no puede ejecutarse."
     },
     "pipelineSchedules": {
       "title": "Programaciones de pipelines",

@@ -15,7 +15,7 @@ import type { HandlerDeps } from './HandlerTypes.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
 import type { ExecuteOptions, ExecutionSummary } from '../../modules/forge/ForgeExecutor.js';
-import { ForgeRunJournal, SUMMARY_IDS_BOUND } from '../../modules/forge/ForgeRunJournal.js';
+import { ForgeRunJournal, HISTORY_IDS_BOUND } from '../../modules/forge/ForgeRunJournal.js';
 import { memoryRunFile, type ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
 import { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
@@ -123,7 +123,14 @@ vi.mock('../../modules/forge/RunVerifier.js', async (importOriginal) => {
 
 const TARGET_ORG = '00D000000000001AAA';
 /** Records mapped, one past the bound. */
-const PAST_THE_BOUND = SUMMARY_IDS_BOUND + 1;
+const PAST_THE_BOUND = HISTORY_IDS_BOUND + 1;
+
+/**
+ * The most an entry of the history takes once its ids are in the journal, in
+ * bytes of JSON: VS Code's global state rewrites the whole history at every
+ * change, and is not made for megabytes.
+ */
+const ENTRY_BYTES = 10_000;
 
 /** A source id and its target id, the `n`-th, of an object's prefix. */
 const sourceOf = (prefix: string, n: number): string =>
@@ -292,13 +299,17 @@ function summaryOf(store: ForgeRunStore, bound: number | undefined): ExecutionSu
   };
 }
 
-/** Write a run past the bound through `store`: accounts, contacts, and an account it linked to. */
-function writePastTheBound(store: ForgeRunStore | undefined): void {
+/**
+ * Write a run through `store`: an account it linked to, an account it
+ * created, and `contacts` contacts it created — past the bound unless told
+ * fewer.
+ */
+function writeTheRun(store: ForgeRunStore | undefined, contacts = PAST_THE_BOUND - 1): void {
   if (!store) throw new Error('no store');
   store.beginPart(new Date());
   store.setMapping('existing', sourceOf('001', 0), targetOf('001', 0), 'Account');
   store.setMapping('created', sourceOf('001', 1), targetOf('001', 1), 'Account');
-  for (let n = 1; n < PAST_THE_BOUND; n++) {
+  for (let n = 1; n <= contacts; n++) {
     store.setMapping('created', sourceOf('003', n), targetOf('003', n), 'Contact');
   }
 }
@@ -309,16 +320,21 @@ type Execute = (
   options?: Pick<ExecuteOptions, 'beforeWrite' | 'stream' | 'writtenBefore'>,
 ) => Promise<ForgeExecutionResult>;
 
-/** A run that writes past the bound and ends, its result built as the orchestrator builds it. */
-const endsPastTheBound: Execute = async (graph, _config, options) => {
-  const store = options?.stream?.store;
-  writePastTheBound(store);
-  if (!store) throw new Error('no store');
-  return forgeRunResult(summaryOf(store, options?.stream?.summaryBound), graph, {
-    startedAt: Date.now(),
-    status: 'success',
-  });
-};
+/** A run that writes `contacts` contacts and ends, its result built as the orchestrator builds it. */
+const endsAfter =
+  (contacts?: number): Execute =>
+  async (graph, _config, options) => {
+    const store = options?.stream?.store;
+    writeTheRun(store, contacts);
+    if (!store) throw new Error('no store');
+    return forgeRunResult(summaryOf(store, options?.stream?.summaryBound), graph, {
+      startedAt: Date.now(),
+      status: 'success',
+    });
+  };
+
+/** A run that writes past the bound and ends. */
+const endsPastTheBound: Execute = endsAfter();
 
 describe('a run whose ids are in its journal', () => {
   let deps: HandlerDeps;
@@ -468,7 +484,7 @@ describe('a run whose ids are in its journal', () => {
     const entry = await runPastTheBound();
 
     const [, , options] = execute.mock.calls[0] as Parameters<Execute>;
-    expect(options?.stream?.summaryBound).toBe(SUMMARY_IDS_BOUND);
+    expect(options?.stream?.summaryBound).toBe(HISTORY_IDS_BOUND);
     expect(entry).toMatchObject({
       remapInJournal: true,
       journalId: expect.stringMatching(/^forge-run-/),
@@ -478,13 +494,95 @@ describe('a run whose ids are in its journal', () => {
       idRemapTable: {},
       idRemapCreated: [],
     });
-    // A few KB for a run of fifty thousand records: what globalState rewrites.
-    expect(JSON.stringify(configStore.get('forge:history')).length).toBeLessThan(10_000);
+    // A few KB, what globalState rewrites, whatever the run's size.
+    expect(Buffer.byteLength(JSON.stringify(configStore.get('forge:history')))).toBeLessThan(
+      ENTRY_BYTES,
+    );
     // The journal stays, ended: its run is not one to take up.
     expect(await disk.journal.lastEnd(entry.journalId ?? '')).toMatchObject({ status: 'success' });
     const { history } = await listed();
     expect(history[0]).not.toHaveProperty('journalGone');
     expect(history[0]).not.toHaveProperty('resumable');
+  });
+
+  it('keeps a run of 200 000 records in the history by its counts alone, and its removal still finds every record it created, read from the journal', async () => {
+    const contacts = 200_000 - 2;
+    execute.mockImplementation(endsAfter(contacts));
+
+    const entry = await runPastTheBound();
+
+    expect(entry).toMatchObject({
+      remapInJournal: true,
+      idRemapCount: 200_000,
+      createdCount: contacts + 1,
+      idRemapTable: {},
+      idRemapExisting: [],
+      idRemapCreated: [],
+    });
+    expect(Buffer.byteLength(JSON.stringify(stored()[0]))).toBeLessThan(ENTRY_BYTES);
+
+    await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+    const plan = removals[0] ?? [];
+    expect(plan.map((object) => object.objectApiName)).toEqual(['Contact', 'Account']);
+    expect(plan[0]?.ids).toHaveLength(contacts);
+    expect(new Set(plan[0]?.ids).size).toBe(contacts);
+    expect(plan[0]?.ids[0]).toBe(targetOf('003', contacts));
+    expect(plan[0]?.ids[contacts - 1]).toBe(targetOf('003', 1));
+    // The account it linked to is never the run's to remove.
+    expect(plan[1]?.ids).toEqual([targetOf('001', 1)]);
+    // Two hundred thousand mappings through the journal and back: a few
+    // seconds here, several times that on a slow runner.
+  }, 60_000);
+
+  it('keeps in its journal, not in the history, the ids of a run of a few thousand records', async () => {
+    // Under the command line's bound of 50 000, a run of 20 000 records put
+    // more than a MB of ids into its entry, and the history keeps twenty.
+    execute.mockImplementation(endsAfter(20_000));
+
+    const entry = await runPastTheBound();
+
+    expect(entry).toMatchObject({
+      remapInJournal: true,
+      journalId: expect.stringMatching(/^forge-run-/),
+      idRemapCount: 20_002,
+      idRemapTable: {},
+    });
+    expect(Buffer.byteLength(JSON.stringify(configStore.get('forge:history')))).toBeLessThan(
+      ENTRY_BYTES,
+    );
+    expect(await disk.journal.lastEnd(entry.journalId ?? '')).toMatchObject({ status: 'success' });
+  });
+
+  it('keeps a small run as it was: its ids in the history, its journal gone, its removal read from the entry', async () => {
+    execute.mockImplementation(endsAfter(3));
+
+    const entry = await runPastTheBound();
+
+    expect(entry).not.toHaveProperty('remapInJournal');
+    expect(entry).not.toHaveProperty('journalId');
+    expect(Object.keys(entry.idRemapTable ?? {})).toHaveLength(5);
+    expect(entry.idRemapExisting).toEqual([sourceOf('001', 0)]);
+    expect(entry.idRemapCreated).toEqual([
+      { objectApiName: 'Account', sourceIds: [sourceOf('001', 1)] },
+      {
+        objectApiName: 'Contact',
+        sourceIds: [sourceOf('003', 1), sourceOf('003', 2), sourceOf('003', 3)],
+      },
+    ]);
+    expect([...disk.files.keys()].filter((file) => file.includes('forge-runs'))).toEqual([]);
+
+    await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+    expect(removals).toEqual([
+      [
+        {
+          objectApiName: 'Contact',
+          ids: [targetOf('003', 3), targetOf('003', 2), targetOf('003', 1)],
+        },
+        { objectApiName: 'Account', ids: [targetOf('001', 1)] },
+      ],
+    ]);
   });
 
   it('removes what the run created, read from its journal', async () => {
@@ -639,7 +737,7 @@ describe('a run whose ids are in its journal', () => {
   it('keeps a run past the bound that stopped, with its journal, to remove and take up', async () => {
     execute.mockImplementation(async (graph: ForgeGraph, _config: ForgeConfig, options) => {
       const store = (options as ExecuteOptions | undefined)?.stream?.store;
-      writePastTheBound(store);
+      writeTheRun(store);
       if (!store) throw new Error('no store');
       const error = new ForgeAbortedError('Forge execution was aborted by user request.');
       keepPartialSummary(error, summaryOf(store, (options as ExecuteOptions).stream?.summaryBound));

@@ -252,7 +252,10 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         <MiniMap style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }} />
         <Controls fitViewOptions={FIT_CLEAR_OF_MINIMAP} />
         {focus ? <FitOnNode id={focus} /> : null}
-        <Background color="rgba(255,255,255,0.05)" gap={20} />
+        {/* Its dots in the theme's border colour, as the Autopilot graph draws
+            its own: a white at 5% was drawn on a white pane in a light theme,
+            and the grid was gone. */}
+        <Background color="var(--sf-border)" gap={20} />
       </ReactFlow>
     </div>
   );

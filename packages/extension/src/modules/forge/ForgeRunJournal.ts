@@ -76,12 +76,23 @@ async function* linesOf(filePath: string): AsyncGenerator<string> {
 }
 
 /**
- * Records mapped past which a run's summary, its history entry and its
- * removal plan keep their counts and none of their ids, which stay in the
- * journal: 50 000 ids are a couple of MB of JSON, and a run of whole tables
- * can map a million.
+ * Records mapped past which a run's summary keeps its counts and none of its
+ * ids, which stay in the journal: 50 000 ids are a couple of MB of JSON, and a
+ * run of whole tables can map a million. The command line's bound, whose
+ * summary is a file of its own.
  */
 export const SUMMARY_IDS_BOUND = 50_000;
+
+/**
+ * The same bound for a run of the extension, whose summary becomes an entry of
+ * the run history and a removal plan: past it, both keep the counts and the
+ * journal's name, never the ids. The history lives in VS Code's global state,
+ * which is rewritten whole at every change and is not made for megabytes: at
+ * the command line's bound, an entry held some 3 MB of ids, and the history
+ * keeps twenty. Two thousand ids are about 130 KB of JSON, which a clone from
+ * a record seldom reaches.
+ */
+export const HISTORY_IDS_BOUND = 2_000;
 
 /** A Salesforce id, as every id a journal holds is: they end up in deletes. */
 const idSchema = z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/);
@@ -249,7 +260,7 @@ function fileSegment(name: string): string {
  *
  * A run that ends in success records what it created in the run history, and
  * its journal goes — unless it mapped more records than the history keeps
- * the ids of (`SUMMARY_IDS_BOUND`): its journal stays, ended, and holds them
+ * the ids of (`HISTORY_IDS_BOUND`): its journal stays, ended, and holds them
  * for as long as the history or a removal plan names it. One stopped by a
  * cancel or a failure is kept in the
  * history with its journal, which says where to resume it from, and how its

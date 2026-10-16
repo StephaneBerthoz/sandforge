@@ -408,7 +408,8 @@ A run that reads every node before it writes — one from a record — owes its
 lookups to the journal too, and says there which it filled in
 (`["p", id, field]`): a part taking it up owes again the rest. Past
 `stream.summaryBound` mappings (50 000, `SUMMARY_IDS_BOUND`, at the command
-line and in the extension) the summary carries the counts and none of the ids
+line; 2 000, `HISTORY_IDS_BOUND`, in the extension, whose history entries live
+in VS Code's global state) the summary carries the counts and none of the ids
 (`remapInJournal`); the extension's history entry and removal plan then name
 the journal and its part (`journalId`, `journalPart`, `inJournal`) and every
 reader of the ids reads them there. Opened on the journal of a run that

@@ -651,7 +651,44 @@ describe('SyncPage', () => {
       render(<SyncPage />);
 
       expect(screen.getByTestId('sync-files-needs-save').textContent).toContain(
-        'save it on the Review step first',
+        'This configuration copies files: save it first.',
+      );
+    });
+
+    it('saves the configuration from beside Run, which then runs it as saved', () => {
+      draft.value = {
+        currentStep: 4,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+        files: { maxFileSizeMB: 10, maxRunMB: 100 },
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      const { rerender } = render(<SyncPage />);
+
+      // The reason sent the user back to the Review step to save.
+      const why = screen.getByTestId('sync-files-needs-save');
+      const save = screen.getByTestId('sync-files-save');
+      expect(save.getAttribute('aria-describedby')).toBe(why.id);
+      expect((screen.getByTestId('sync-run') as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(save);
+      expect(mockSaveConfigMutate).toHaveBeenCalledTimes(1);
+      const saved = (mockSaveConfigMutate.mock.calls[0][0] as { config: { id: string } }).config;
+      mockSaveConfigMutationState.data = { success: true, id: saved.id };
+      rerender(<SyncPage />);
+
+      expect(screen.queryByTestId('sync-files-needs-save')).toBeNull();
+      expect(screen.queryByTestId('sync-files-save')).toBeNull();
+      const run = screen.getByTestId('sync-run') as HTMLButtonElement;
+      expect(run.disabled).toBe(false);
+      fireEvent.click(run);
+      expect((mockExecuteMutate.mock.calls[0][0] as { config: { id: string } }).config.id).toBe(
+        saved.id,
       );
     });
 

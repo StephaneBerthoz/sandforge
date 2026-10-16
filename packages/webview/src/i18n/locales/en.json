@@ -1277,7 +1277,7 @@
       "toggleHint": "Off unless ticked. Once an object's records are written, the latest version of each Salesforce File linked to one of them, and their legacy attachments, are copied and linked to the records' copies in the target. A saved configuration remembers which file it copied where: running it again copies a file only when the source holds a newer version, which is added as a version of the copy, never as a second file. Before the run writes anything, the target's file storage is read and a run whose files would not fit is refused. A file larger than the largest size, and the files past the most a run copies, are skipped and counted; the next run copies the latter. Removing a run takes back the files it created with its records; a version it added to an earlier copy stays.",
       "maxFileSize": "Largest file (MB, up to 35)",
       "maxRun": "Most a run copies (MB, up to 2000)",
-      "needsSave": "This configuration copies files: save it on the Review step first. A saved configuration remembers which files it copied, so a second run does not copy them again; an unsaved one is refused.",
+      "needsSave": "This configuration copies files: save it first. A saved configuration remembers which files it copied, so a second run does not copy them again; an unsaved one is refused.",
       "badge": "Files copied",
       "summary_one": "{{count}} file, {{size}} copied, {{skipped}} skipped past the caps",
       "summary_other": "{{count}} files, {{size}} copied, {{skipped}} skipped past the caps",
@@ -1799,7 +1799,9 @@
       "busy": "Due at {{time}}, while the run started at {{since}} was still going: not started. A pipeline never runs twice at once.",
       "busyMany": "{{n}} starts due from {{first}} to {{last}}, while the run started at {{since}} was still going: none was made. A pipeline never runs twice at once.",
       "busyRefresh": "The refresh noticed at {{time}} came while the run started at {{since}} was still going: not started. A pipeline never runs twice at once.",
-      "cannotRun": "The refresh noticed at {{time}} started nothing: a step of this pipeline cannot run."
+      "cannotRun": "The refresh noticed at {{time}} started nothing: a step of this pipeline cannot run.",
+      "cannotRunSchedule": "Due at {{time}}: not started, because a step of this pipeline cannot run.",
+      "cannotRunScheduleMany": "{{n}} starts due from {{first}} to {{last}}: none was started, because a step of this pipeline cannot run."
     },
     "pipelineSchedules": {
       "title": "Pipeline schedules",

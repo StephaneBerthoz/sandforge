@@ -183,7 +183,7 @@ import type {
 } from '../../modules/forge/ForgeExecutor.js';
 import {
   ForgeRunJournal,
-  SUMMARY_IDS_BOUND,
+  HISTORY_IDS_BOUND,
   type ForgeRunJournalRead,
   type ForgeRunResumeHead,
 } from '../../modules/forge/ForgeRunJournal.js';
@@ -536,7 +536,7 @@ function interruptedRunOf(read: ForgeRunJournalRead, graph: ForgeGraph): ForgeEx
   // Past the bound, the entry counts what the part created and its journal
   // keeps the ids, as for a run that ended.
   const ids =
-    mapped > SUMMARY_IDS_BOUND
+    mapped > HISTORY_IDS_BOUND
       ? {
           idRemapTable: {},
           idRemapExisting: [],
@@ -2091,10 +2091,11 @@ export class ForgeHandler implements DomainHandler {
           // Past the bound, the summary, the history entry and the removal
           // plan keep the counts, and the journal the ids: a run of a million
           // records put them all in the history, which the extension's global
-          // state rewrites whole at every change.
+          // state rewrites whole at every change — and up to the command
+          // line's bound, an entry still held megabytes of them.
           stream: {
             ceiling: readCeiling,
-            ...(store ? { store, summaryBound: SUMMARY_IDS_BOUND } : {}),
+            ...(store ? { store, summaryBound: HISTORY_IDS_BOUND } : {}),
           },
           beforeWrite: this.writeGate({
             guard,

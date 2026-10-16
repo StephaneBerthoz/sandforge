@@ -291,5 +291,48 @@ describe('PipelineHistoryView', () => {
       );
       expect(refused).toContain('this step type cannot run in a pipeline yet.');
     });
+
+    it('says a schedule fell due and started nothing, naming the step that cannot run and why', () => {
+      const detail =
+        'Step "Archive old cases" is a "archive" step, a step type this release of SandForge ' +
+        'does not have: the pipeline was saved by a later release, or written by hand. ' +
+        'Remove the step, or update SandForge.';
+      render(
+        <PipelineHistoryView
+          entries={[missedEntry({ reason: 'cannotRun', count: 1, detail }, 'schedule')]}
+        />,
+      );
+      const card = screen.getByTestId('history-missed-1');
+      expect(card.textContent).toContain('Missed');
+      expect(card.textContent).toContain('Triggered By: Schedule');
+      // Said as a refresh, it read as a sandbox refreshed at the time it fell due.
+      const refused = screen.getByTestId('history-missed-missed-1').textContent ?? '';
+      expect(refused).toMatch(
+        /^Due at .+: not started, because a step of this pipeline cannot run\./,
+      );
+      expect(refused).not.toContain('refresh');
+      expect(refused).toContain(detail);
+    });
+
+    it('counts the starts a schedule fell due for while its pipeline could not run, gathered in one entry', () => {
+      render(
+        <PipelineHistoryView
+          entries={[
+            missedEntry(
+              {
+                reason: 'cannotRun',
+                count: 3,
+                lastDueAt: '2026-09-23T04:00:00.000Z',
+                detail: 'Pipeline step "Seed" (seed) cannot run in a pipeline.',
+              },
+              'schedule',
+            ),
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('history-missed-missed-1').textContent).toMatch(
+        /^3 starts due from .+ to .+: none was started, because a step of this pipeline cannot run\./,
+      );
+    });
   });
 });

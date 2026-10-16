@@ -1449,6 +1449,51 @@ async function nodesUnder(page: Page, graph: string, overlay: string): Promise<s
   );
 }
 
+/**
+ * How far the dots of the background of the pane `graph` stand out from what
+ * lies under them, as a contrast ratio of the colours Chromium paints: the
+ * dot's fill composited over the backgrounds of the pane and of everything it
+ * sits in. axe does not look at them: they are decoration, and no text.
+ */
+async function backgroundDotsContrast(page: Page, graph: string): Promise<number> {
+  return page.getByTestId(graph).evaluate((pane) => {
+    type Rgba = [number, number, number, number];
+    const parse = (text: string): Rgba => {
+      const parts =
+        /rgba?\(([^)]+)\)/
+          .exec(text)?.[1]
+          ?.split(/[\s,/]+/)
+          .filter(Boolean) ?? [];
+      const [r = 0, g = 0, b = 0] = parts.slice(0, 3).map(Number);
+      return [r, g, b, parts[3] === undefined ? 1 : Number(parts[3])];
+    };
+    const over = (top: Rgba, under: Rgba): Rgba => [
+      top[0] * top[3] + under[0] * (1 - top[3]),
+      top[1] * top[3] + under[1] * (1 - top[3]),
+      top[2] * top[3] + under[2] * (1 - top[3]),
+      1,
+    ];
+    const luminance = ([r, g, b]: Rgba): number => {
+      const channel = (value: number): number => {
+        const s = value / 255;
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    const dot = pane.querySelector('.react-flow__background-pattern.dots');
+    if (!dot) throw new Error('the pane draws no background dots');
+    // The backgrounds from the page down to the background's own layer.
+    const layers: Rgba[] = [];
+    for (let at: Element | null = dot.closest('svg'); at; at = at.parentElement) {
+      layers.unshift(parse(getComputedStyle(at).backgroundColor));
+    }
+    const under = layers.reduce<Rgba>((below, layer) => over(layer, below), [255, 255, 255, 1]);
+    const drawn = over(parse(getComputedStyle(dot).fill), under);
+    const [light, dark] = [luminance(drawn), luminance(under)].sort((a, b) => b - a);
+    return (light + 0.05) / (dark + 0.05);
+  });
+}
+
 /** What the Autopilot graph's pane draws over its graph: the minimap, the legend and the controls. */
 const AUTOPILOT_GRAPH_OVERLAYS = [
   MINIMAP,
@@ -2764,6 +2809,14 @@ for (const theme of SCANNED_THEMES) {
       await graphFitted(page, FORGE_GRAPH);
       expect(await graphPaneHeight(page, FORGE_GRAPH)).toBeGreaterThanOrEqual(300);
       expect(await nodesUnder(page, FORGE_GRAPH, MINIMAP)).toEqual([]);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge graph drawing its background dots apart from its pane', async ({ page }) => {
+      // A white at 5%: on a light theme's white pane the grid was not drawn at all.
+      await discoverForgeGraph(bridge, page, theme);
+      await graphFitted(page, FORGE_GRAPH);
+      expect(await backgroundDotsContrast(page, FORGE_GRAPH)).toBeGreaterThan(1.15);
       expectNoViolations(await checkAccessibility(page));
     });
 

@@ -96,6 +96,7 @@
   "SandForge: pipeline \"{0}\", started by the refresh of sandbox {1}, failed: {2}": "SandForge: Sandbox {1} のリフレッシュで開始したパイプライン「{0}」が失敗しました: {2}",
   "SandForge: pipeline \"{0}\", started by its schedule, failed: {1}": "SandForge: スケジュールで開始したパイプライン「{0}」が失敗しました: {1}",
   "SandForge: the refresh of sandbox {0} did not start pipeline \"{1}\", which holds a step that cannot run: {2}": "SandForge: Sandbox {0} のリフレッシュでは、実行できないステップを含むパイプライン「{1}」を開始しませんでした: {2}",
+  "SandForge: pipeline \"{0}\" was due at {1} and did not start: it holds a step that cannot run, and its schedule starts nothing until it can. {2}": "SandForge: パイプライン「{0}」は {1} に予定されていましたが、開始しませんでした。実行できないステップを含んでおり、実行できるようになるまでスケジュールは何も開始しません。{2}",
   "SandForge: the refresh of sandbox {0} did not start pipeline \"{1}\": the run started at {2} was still going. A pipeline never runs twice at once.": "SandForge: Sandbox {0} のリフレッシュではパイプライン「{1}」を開始しませんでした。{2} に開始した実行がまだ続いていました。1 つのパイプラインが同時に 2 回実行されることはありません。",
   "SandForge: pipeline \"{0}\" was due at {1} and did not start: the run started at {2} was still going. A pipeline never runs twice at once.": "SandForge: パイプライン「{0}」は {1} に予定されていましたが、開始しませんでした。{2} に開始した実行がまだ続いていました。1 つのパイプラインが同時に 2 回実行されることはありません。",
   "SandForge: pipeline \"{0}\" missed {1} scheduled starts, from {2} to {3}, while VS Code was closed. None was made late; the schedule goes on.": "SandForge: VS Code が閉じている間に、パイプライン「{0}」は {2} から {3} までの予定された開始を {1} 回逃しました。遅れて開始されたものはありません。スケジュールは続きます。",

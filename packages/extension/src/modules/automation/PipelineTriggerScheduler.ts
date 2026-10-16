@@ -10,7 +10,6 @@ import type {
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { TriggerEngine, savedTriggerSchema } from './TriggerEngine.js';
-import type { TriggerIdle } from './TriggerEngine.js';
 import type { RunHolder, TriggerClaims } from './TriggerClaims.js';
 
 /**
@@ -132,6 +131,18 @@ function stateKey(pipelineId: string, triggerId: string): string {
   return `pipeline-trigger:${pipelineId}:${triggerId}`;
 }
 
+/**
+ * The starts of one schedule refused while its pipeline could not run, for
+ * one reason, gathered into one entry.
+ */
+interface RefusedMisses {
+  runId: string;
+  /** Why the pipeline cannot run, as the entry says it. */
+  detail: string;
+  firstDueAt: number;
+  count: number;
+}
+
 /** The busy starts of one trigger while one run was going, gathered into one entry. */
 interface BusyMisses {
   runId: string;
@@ -150,7 +161,9 @@ interface BusyMisses {
  * closed, or while the computer sleeps, is written to the history as missed
  * and said in a notification, and the schedule goes on from the next time.
  * Nothing is replayed. The next start is kept in the ConfigStore, so a start
- * missed while VS Code was closed is known at the next launch.
+ * missed while VS Code was closed is known at the next launch. A start due on
+ * time for a pipeline that holds a step that cannot run is written to the
+ * history as missed, with the step and the reason, and not made.
  *
  * **A sandbox refresh** trigger starts its pipeline when SandForge notices a
  * refresh of the sandbox it names — only a pipeline whose steps can all run:
@@ -182,6 +195,7 @@ export class PipelineTriggerScheduler {
   /** The soonest planned start, found by the last look. */
   private soonest: number | undefined;
   private readonly busyMisses = new Map<string, BusyMisses>();
+  private readonly refusedMisses = new Map<string, RefusedMisses>();
   /**
    * Why each pipeline whose triggers start nothing cannot run, as the log was
    * last told, by pipeline id: said once, and again only when it changes.
@@ -240,19 +254,7 @@ export class PipelineTriggerScheduler {
         const now = this.now();
         const problems = await this.problemsOf(pipeline);
         if (problems.length > 0) {
-          const missed: PipelineMissedStart = {
-            reason: 'cannotRun',
-            count: 1,
-            detail: problems.join(' '),
-          };
-          this.recordMissed(pipeline, 'sandbox_refresh', now, missed);
-          this.remember(pipeline, trigger, { lastFiredAt: now, lastOutcome: 'missed' });
-          this.deps.report({
-            kind: 'missed',
-            pipelineName: pipeline.name,
-            triggeredBy: 'sandbox_refresh',
-            dueAt: new Date(now).toISOString(),
-            missed,
+          this.refuseStart(pipeline, trigger, 'sandbox_refresh', now, problems, {
             sandboxName: org?.name,
           });
           continue;
@@ -362,11 +364,14 @@ export class PipelineTriggerScheduler {
         const own = this.engine.idleReason(trigger, this.orgOf(trigger), now);
         if (!own) problems ??= await this.problemsOf(pipeline);
         if (trigger.type !== 'schedule') continue;
-        let idle: TriggerIdle | undefined = own;
-        if (!idle && problems && problems.length > 0) idle = { idle: 'cannotRun' };
-        const next = idle
+        // A schedule of a pipeline that cannot run keeps its plan: each start
+        // it falls due for is written to the history as missed, with the step
+        // and the reason. Unplanned, it fell due with nothing anywhere but the
+        // tab and the log, and a nightly run that never ran left no trace
+        // where the runs are read.
+        const next = own
           ? this.unplan(pipeline, trigger)
-          : this.lookAt(pipeline, trigger, now, closed);
+          : this.lookAt(pipeline, trigger, now, closed, problems ?? []);
         if (next !== undefined && (soonest === undefined || next < soonest)) soonest = next;
       }
       this.sayWhyUnscheduled(pipeline, problems);
@@ -410,6 +415,9 @@ export class PipelineTriggerScheduler {
   /**
    * Look at one armed schedule: plan it when it has no plan for its current
    * expression, and when its planned start is due, make it or report it.
+   * @param problems - Why the pipeline cannot run, one sentence per problem:
+   *   a start due on time is then written to the history as missed, with them,
+   *   and none is made.
    * @returns When it starts the pipeline next.
    */
   private lookAt(
@@ -417,6 +425,7 @@ export class PipelineTriggerScheduler {
     trigger: PipelineTrigger,
     now: number,
     closed: boolean,
+    problems: readonly string[],
   ): number | undefined {
     const state = this.read(pipeline.id, trigger.id);
     const planned = this.planOf(trigger, state);
@@ -466,9 +475,61 @@ export class PipelineTriggerScheduler {
       });
     }
     if (onTime !== undefined && this.deps.claims.claim(this.dueKey(pipeline, trigger, onTime))) {
-      this.fire(pipeline, trigger, 'schedule', onTime);
+      if (problems.length > 0) {
+        this.refuseStart(pipeline, trigger, 'schedule', onTime, problems, {
+          ...(next !== undefined ? { nextRunAt: new Date(next).toISOString() } : {}),
+        });
+      } else {
+        this.fire(pipeline, trigger, 'schedule', onTime);
+      }
     }
     return next;
+  }
+
+  /**
+   * Write a start a trigger owed to the history as missed, the pipeline
+   * holding a step that cannot run, and say it: the step and the reason, in
+   * the orchestrator's words. Nothing is started, and nothing executed.
+   *
+   * A schedule falls due again and again while its pipeline cannot run: its
+   * refused starts are gathered into one entry, updated at each, and said
+   * once, until the pipeline runs or the reason changes. One entry and one
+   * notification each, an hourly schedule filled the fifty entries the
+   * history keeps in two days, and spoke every hour.
+   */
+  private refuseStart(
+    pipeline: PipelineDefinition,
+    trigger: PipelineTrigger,
+    triggeredBy: AutomaticTrigger,
+    at: number,
+    problems: readonly string[],
+    said: { nextRunAt?: string; sandboxName?: string },
+  ): void {
+    const detail = problems.join(' ');
+    const key = stateKey(pipeline.id, trigger.id);
+    const open = triggeredBy === 'schedule' ? this.refusedMisses.get(key) : undefined;
+    const gathered: RefusedMisses =
+      open && open.detail === detail
+        ? { ...open, count: open.count + 1 }
+        : { runId: `missed-${this.newId()}`, detail, firstDueAt: at, count: 1 };
+    if (triggeredBy === 'schedule') this.refusedMisses.set(key, gathered);
+    const missed: PipelineMissedStart = {
+      reason: 'cannotRun',
+      count: gathered.count,
+      ...(gathered.count > 1 ? { lastDueAt: new Date(at).toISOString() } : {}),
+      detail,
+    };
+    this.recordMissed(pipeline, triggeredBy, gathered.firstDueAt, missed, gathered.runId);
+    this.remember(pipeline, trigger, { lastFiredAt: at, lastOutcome: 'missed' });
+    if (gathered.count > 1) return;
+    this.deps.report({
+      kind: 'missed',
+      pipelineName: pipeline.name,
+      triggeredBy,
+      dueAt: new Date(at).toISOString(),
+      missed,
+      ...said,
+    });
   }
 
   /** The claim of one start of a schedule: the same key in every window. */
@@ -488,6 +549,8 @@ export class PipelineTriggerScheduler {
     sandboxName?: string,
   ): void {
     const key = stateKey(pipeline.id, trigger.id);
+    // It can run: the next refusal, if any, is a new entry.
+    this.refusedMisses.delete(key);
     const start = this.deps.start(pipeline, triggeredBy);
     if (start.started) {
       this.busyMisses.delete(key);
@@ -603,9 +666,10 @@ export class PipelineTriggerScheduler {
   }
 
   /**
-   * Drop the plan of a schedule that starts nothing now. When it can fire
-   * again it is planned from then: the time it spent switched off, or unable
-   * to run, owes no start.
+   * Drop the plan of a schedule that starts nothing now: switched off, or with
+   * no time to start at. When it can fire again it is planned from then: the
+   * time it spent so owes no start. A schedule whose pipeline cannot run keeps
+   * its plan, and each start it falls due for is written as missed.
    */
   private unplan(pipeline: PipelineDefinition, trigger: PipelineTrigger): undefined {
     const state = this.read(pipeline.id, trigger.id);
