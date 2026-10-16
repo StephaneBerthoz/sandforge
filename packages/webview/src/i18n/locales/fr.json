@@ -1215,7 +1215,7 @@
       "settledBy_other": "{{count}} enregistrements diffèrent de la cible sur un champ que l'exécution écrit : {{strategy}} décide de la valeur écrite.",
       "conflictFields": "Champs qui diffèrent : {{fields}}.",
       "nothingWritten": "Rien n'a été écrit. Les chiffres comparent ce que l'exécution enverrait avec ce que la cible contient maintenant.",
-      "notChecked": "Une simulation n'exécute ni les règles de validation, ni les règles de doublons, ni les champs obligatoires, ni les automatisations de la cible : un enregistrement que l'une d'elles refuserait est compté tel que l'exécution l'enverrait.",
+      "notChecked": "Une simulation prévoit ce que dit la description de la cible — un champ obligatoire laissé vide, une valeur trop longue, une valeur unique qu'elle détient déjà — mais n'exécute ni ses règles de validation, ni ses règles de doublons, ni ses déclencheurs ou ses Flows, et ne vérifie pas son partage : un enregistrement que l'un d'eux refuserait est compté tel que l'exécution l'enverrait.",
       "validationRules_one": "{{count}} règle de validation active de la cible, qu'une simulation ne peut pas évaluer : un enregistrement qu'elle refuse est compté comme écrit.",
       "validationRules_other": "{{count}} règles de validation actives de la cible, qu'une simulation ne peut pas évaluer : un enregistrement que l'une d'elles refuse est compté comme écrit.",
       "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté comme écrit.",
@@ -4104,10 +4104,14 @@
       "heldForExcludedParents": "Seraient laissés de côté, non envoyés — un lookup sans lequel ces enregistrements ne peuvent pas entrer désigne un objet que excludedObjects laisse de côté, ou ils dépendent de tels enregistrements ; aucun enregistrement technique n'est demandé pour lui : {{objects}}",
       "placeholders": "Placeholders à créer, et les enregistrements que chacun remplit : {{fields}}",
       "defaults": "Valeurs par défaut déclarées, et les enregistrements que chacune remplit : {{fields}}",
+      "defaultsPerRecord": "Chaque enregistrement reçoit une valeur à lui — son rang ajouté à la valeur déclarée, le champ étant unique dans la cible ou le nom de l'enregistrement, ou le jeton que porte la valeur ({n}, {referenceId}) remplacé : {{fields}}",
       "personContacts_one": "{{count}} contact de compte personnel entre avec son compte, compté à part : lié au contact que la plateforme écrit avec lui, ou envoyé comme contact à part entière là où la cible tient le compte pour un compte professionnel.",
       "personContacts_other": "{{count}} contacts de comptes personnels entrent avec leur compte, comptés à part : liés au contact que la plateforme écrit avec lui, ou envoyés comme contacts à part entière là où la cible tient le compte pour un compte professionnel.",
       "recordTypeIssues_one": "{{count}} référence de type d'enregistrement que la cible ne résout pas",
-      "recordTypeIssues_other": "{{count}} références de type d'enregistrement que la cible ne résout pas"
+      "recordTypeIssues_other": "{{count}} références de type d'enregistrement que la cible ne résout pas",
+      "validationRules_one": "{{object}} : {{count}} règle de validation active de la cible, qu'un aperçu ne peut pas évaluer — un enregistrement qu'elle refuse est compté parmi ceux à insérer.",
+      "validationRules_other": "{{object}} : {{count}} règles de validation actives de la cible, qu'un aperçu ne peut pas évaluer — un enregistrement que l'une d'elles refuse est compté parmi ceux à insérer.",
+      "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté parmi ceux à insérer."
     },
     "verify": {
       "run": "Re-vérifier",
@@ -4161,6 +4165,7 @@
         "deleted": "Supprimés",
         "deactivated": "Désactivés",
         "leftUnrecorded": "Laissés en place — un chargement enregistré avant que les chargements gardent ce qu'ils créent a pu s'y lier : {{objects}}",
+        "keptByThePlatform": "Conservés — la plateforme ne supprime pas ces enregistrements, que des chargements antérieurs ont créés et que celui-ci ne retrouve pas : {{objects}}",
         "failedReasons": "Pourquoi des enregistrements n'ont pas pu être purgés"
       },
       "unresolved": {
@@ -4193,6 +4198,7 @@
       "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un rechargement les purge, sauf ceux auxquels le chargement a pu se lier.",
       "orgGone": "L'org où ce chargement a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "nothingCreated": "Ce chargement n'a créé aucun enregistrement : il n'y a rien à supprimer.",
+      "keptByThePlatform": "Conservés dans {{org}} par toute suppression — la plateforme ne supprime pas ces enregistrements créés par le chargement : {{objects}}",
       "resultSuccess": "Aucun enregistrement créé par ce chargement ne reste dans {{org}}.",
       "resultPartial": "Des enregistrements créés par ce chargement ont été supprimés de {{org}} ; les autres restent, comme indiqué.",
       "resultFailure": "Aucun enregistrement créé par ce chargement n'a été supprimé de {{org}}.",

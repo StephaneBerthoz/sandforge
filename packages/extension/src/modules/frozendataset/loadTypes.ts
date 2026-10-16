@@ -10,6 +10,7 @@
  */
 
 import type {
+  FrozenDefaultPerRecord,
   FrozenLeftToThePlatform,
   FrozenUnresolvedLinkCause,
   FrozenWrittenWithoutFields,
@@ -40,6 +41,10 @@ export interface TargetFieldDescribe {
    * takes the update.
    */
   updateable?: boolean;
+  /** Whether the target keeps the field's values unique, as its describe says. */
+  unique?: boolean;
+  /** Whether the field is the object's name, as its describe says. */
+  nameField?: boolean;
 }
 
 /** Minimal target-org object describe consumed by the load phase. */
@@ -160,6 +165,8 @@ export interface FrozenLoadConfig {
    * Identity keys per object for reload-without-refresh reuse:
    * `ObjectApiName → [field, ...]` — ExternalId, Name, or composite pairs.
    * A target record matching every key field is reused, not re-inserted.
+   * An object the platform never deletes is matched on every load, by the
+   * keys given here or by its own ({@link KEPT_BY_THE_PLATFORM}).
    */
   identityKeys?: Record<string, string[]>;
   /**
@@ -183,7 +190,13 @@ export interface FrozenLoadConfig {
    * that lookup. No placeholder is asked for such a parent.
    */
   excludedObjects?: string[];
-  /** Declared default values keyed `Object.field` for required scalar fields missing from the dataset. */
+  /**
+   * Declared default values keyed `Object.field` for required scalar fields
+   * missing from the dataset. A text value may carry `{n}` — the record's rank
+   * among the records of its object in the dataset — or `{referenceId}`, each
+   * replaced per record; one that carries neither, given for a field the
+   * target keeps unique or for the object's name, gets the rank appended.
+   */
   requiredFieldDefaults?: Record<string, unknown>;
   /** Picklist rules keyed `Object.field` for values rejected by the target. */
   picklistRules?: Record<string, PicklistRule>;
@@ -198,6 +211,23 @@ export interface FrozenLoadConfig {
   /** Root object of a business folder — required for pilot mode. */
   rootObjectApiName?: string;
 }
+
+/**
+ * Objects the platform never deletes, each with the fields it keeps a record
+ * of unique by: the identity key a load matches it by, on every load, unless
+ * `identityKeys` gives the object keys of its own.
+ *
+ * Business hours: the target's describe says they are not deletable, and run
+ * on a client sandbox a removal and a reload's purge were refused on them; a
+ * reload then sent them again, and the target refused each — "The Business
+ * Hours Name is already in use". Inserted once, a record of them is in the
+ * target for good: a load links it by its name, a reload's purge and a
+ * removal keep it and say so. Operating hours and service territories, which
+ * the describe calls deletable, go as any record does.
+ */
+export const KEPT_BY_THE_PLATFORM: Readonly<Record<string, readonly string[]>> = {
+  BusinessHours: ['Name'],
+};
 
 /** Default duplicate-error markers (Salesforce native duplicate management). */
 export const DEFAULT_DUPLICATE_ERROR_PATTERNS: readonly string[] = [
@@ -283,6 +313,11 @@ export interface MissingRequiredField {
   field: string;
   isLookup: boolean;
   referenceTo: string[];
+  /**
+   * Why a default must give each record a value of its own: the target keeps
+   * the field unique, or it is the object's name. Absent otherwise.
+   */
+  distinct?: 'unique' | 'name';
 }
 
 /** Per-object alignment outcome. */
@@ -382,6 +417,12 @@ export interface PurgeReport {
    * Absent when none was left.
    */
   leftUnrecorded?: Record<string, number>;
+  /**
+   * Per object, records earlier loads created that the reload did not find
+   * again and left in place: the platform does not delete them
+   * ({@link KEPT_BY_THE_PLATFORM}). Absent when none was.
+   */
+  keptByThePlatform?: Record<string, number>;
 }
 
 /** Final load report — every exclusion/adjustment is listed here. */
@@ -397,8 +438,11 @@ export interface FrozenLoadReport {
   requiredDefaults: Array<{
     objectApiName: string;
     field: string;
+    /** The value declared: each record's own, when `perRecord` says so, is built from it. */
     value: unknown;
     affectedRecords: number;
+    /** How each record got a value of its own. Absent when each got the value declared. */
+    perRecord?: FrozenDefaultPerRecord;
   }>;
   perObject: PerObjectLoadResult[];
   /** Cycle-FK pass 2: resolved vs unresolved targeted updates. `referenceId`

@@ -311,6 +311,26 @@ interface LoadRecords {
   removed?: { removedAt: string };
   /** A load before the last one, whose records the loads after it left in the org. */
   earlier?: boolean;
+  /** Records the load created that no removal takes, the platform deleting none of them. */
+  keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
+}
+
+/** What a removal says of the records it keeps, the platform deleting none of them, if any. */
+function keptByThePlatformLine(
+  kept: ReadonlyArray<{ objectApiName: string; count: number }> | undefined,
+): string[] {
+  if (!kept || kept.length === 0) return [];
+  const objects = kept.map(({ objectApiName, count }) => `${objectApiName} (${count})`).join(', ');
+  return [`kept: the platform does not delete them — ${objects}`];
+}
+
+/** How each record a default fills gets a value of its own, in words. */
+function perRecordNote(perRecord: 'token' | 'unique' | 'name', example?: string): string {
+  const how =
+    perRecord === 'token'
+      ? 'each record its own, from the token the value carries'
+      : `each record its own, its rank appended: the field is ${perRecord === 'unique' ? 'unique in the target' : 'the record name'}`;
+  return example === undefined ? how : `${how} (first: "${example}")`;
 }
 
 /** How many records a removal of the load would take. */
@@ -332,6 +352,8 @@ export function removalPlanLines(records: LoadRecords, org: string): string[] {
   let takes = `a removal deletes the ${total} record(s) it created, children first:`;
   if (records.removed && total === 0) {
     takes = `its records were removed on ${records.removed.removedAt}, and none is left to remove`;
+  } else if (total === 0 && (records.keptByThePlatform?.length ?? 0) > 0) {
+    takes = 'it created no record a removal takes';
   } else if (records.removed) {
     takes = `the removal of ${records.removed.removedAt} left ${total} of the records it created, and a removal deletes those, children first:`;
   }
@@ -339,6 +361,7 @@ export function removalPlanLines(records: LoadRecords, org: string): string[] {
     `${which} wrote to ${org} at ${records.loadedAt}; ${takes}`,
     ...records.created.map((object) => `  ${object.objectApiName}: ${object.count}`),
     `${records.linked} record(s) it linked to or reused stay`,
+    ...keptByThePlatformLine(records.keptByThePlatform),
   ];
 }
 
@@ -586,6 +609,7 @@ export function messageLines(message: Posted): string[] {
           deactivated?: Record<string, number>;
           failures: Array<{ objectApiName: string; errors: string[] }>;
           leftUnrecorded?: Record<string, number>;
+          keptByThePlatform?: Record<string, number>;
         };
         leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
         untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
@@ -712,6 +736,12 @@ export function messageLines(message: Posted): string[] {
         );
         for (const [objectApiName, count] of left) lines.push(`  ${objectApiName}: ${count}`);
       }
+      // Never sent to be deleted: refused, they ended every reload with errors.
+      const kept = Object.entries(r.purge.keptByThePlatform ?? {});
+      if (kept.length > 0) {
+        lines.push('kept by the purge, the platform does not delete them:');
+        for (const [objectApiName, count] of kept) lines.push(`  ${objectApiName}: ${count}`);
+      }
       return lines;
     }
     case 'frozen:load:preview:response': {
@@ -728,14 +758,23 @@ export function messageLines(message: Posted): string[] {
           notSent: number;
           toPurge: number;
           toDeactivate: number;
+          validationRules?: Array<{ name: string; message: string; field?: string }>;
         }>;
         excludedObjects: Array<{ objectApiName: string; reason: string }>;
         placeholders: Array<{ objectApiName: string; field: string; affectedRecords: number }>;
-        requiredDefaults: Array<{ objectApiName: string; field: string; affectedRecords: number }>;
+        requiredDefaults: Array<{
+          objectApiName: string;
+          field: string;
+          affectedRecords: number;
+          perRecord?: 'token' | 'unique' | 'name';
+          example?: string;
+        }>;
         personContacts: number;
         earlierLoads: number;
         leftUnrecorded?: Record<string, number>;
+        keptByThePlatform?: Record<string, number>;
         heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
+        validationRulesUnread?: string;
       };
       const sum = (pick: (o: (typeof plan.perObject)[number]) => number): number =>
         plan.perObject.reduce((total, o) => total + pick(o), 0);
@@ -777,7 +816,8 @@ export function messageLines(message: Posted): string[] {
       }
       for (const fill of plan.requiredDefaults) {
         lines.push(
-          `default for ${fill.objectApiName}.${fill.field}: ${fill.affectedRecords} record(s)`,
+          `default for ${fill.objectApiName}.${fill.field}: ${fill.affectedRecords} record(s)` +
+            (fill.perRecord ? `, ${perRecordNote(fill.perRecord, fill.example)}` : ''),
         );
       }
       if (plan.personContacts > 0) {
@@ -791,6 +831,31 @@ export function messageLines(message: Posted): string[] {
           'left in place, of a load recorded before loads kept what they created — it may have linked them:',
         );
         for (const [objectApiName, count] of left) lines.push(`  ${objectApiName}: ${count}`);
+      }
+      const kept = Object.entries(plan.keptByThePlatform ?? {});
+      if (kept.length > 0) {
+        lines.push('left in place by the purge, the platform does not delete them:');
+        for (const [objectApiName, count] of kept) lines.push(`  ${objectApiName}: ${count}`);
+      }
+      // What a preview cannot evaluate, beside what it counts: run on a client
+      // sandbox, three loads in a row were each refused by the next rule.
+      const ruled = plan.perObject.filter((o) => (o.validationRules?.length ?? 0) > 0);
+      for (const o of ruled) {
+        lines.push(
+          `${o.objectApiName}: ${o.validationRules?.length ?? 0} active validation rule(s) of the ` +
+            'target, which a preview cannot evaluate — a record one of them refuses is counted to insert:',
+        );
+        for (const rule of o.validationRules ?? []) {
+          lines.push(
+            `  ${rule.name}${rule.field ? ` (${rule.field})` : ''}${rule.message ? ` — ${rule.message}` : ''}`,
+          );
+        }
+      }
+      if (plan.validationRulesUnread) {
+        lines.push(
+          `the target's validation rules could not be listed (${plan.validationRulesUnread}): ` +
+            'any of them may refuse a record counted to insert',
+        );
       }
       return lines;
     }
@@ -822,6 +887,7 @@ export function messageLines(message: Posted): string[] {
           reasons: string[];
           filesLeft?: { count: number; names: string[] };
         }>;
+        keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
       };
       const unchecked = [...new Set(r.objects.flatMap((o) => o.unchecked))];
       return [
@@ -837,6 +903,8 @@ export function messageLines(message: Posted): string[] {
         ...(unchecked.length > 0
           ? [`not checked, deleted with their parent: ${unchecked.join(', ')}`]
           : []),
+        // Never sent to be deleted, and never counted refused.
+        ...keptByThePlatformLine(r.keptByThePlatform),
       ];
     }
     case 'frozen:remove:sweep:response':

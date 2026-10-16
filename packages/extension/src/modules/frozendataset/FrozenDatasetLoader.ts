@@ -14,11 +14,14 @@
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
  *      DeveloperName and picklist RecordType-gap checks; an object the
  *      target lacks, or takes no insert of, is left out, listed, and its
- *      records to write counted as failed; every
+ *      records to write counted as failed; what the platform never deletes —
+ *      business hours — is linked, on every load, to the record the target
+ *      holds under its identity key, by the name the load would write; every
  *      required field the dataset leaves empty is settled against the
  *      configuration, and all the gaps are refused at once;
  *   4. a reload purges what earlier loads created and it did not match,
- *      children-before-parents (undeletable objects are DEACTIVATED), and
+ *      children-before-parents (undeletable objects are DEACTIVATED, and
+ *      what the platform never deletes is left in place, counted), and
  *      never a record they only linked — a person account's contact among
  *      them, which goes with its account;
  *   5. technical placeholders for required lookups absent from the records
@@ -56,12 +59,14 @@ import {
 } from '@sandforge/shared';
 import type {
   ForgeWrittenBetween,
+  FrozenDefaultPerRecord,
   FrozenLeftToThePlatform,
   FrozenLoadPlanInfo,
   FrozenLoadPlanObject,
   FrozenRefusedField,
   FrozenWrittenWithoutFields,
   GuardDecision,
+  SyncValidationRule,
 } from '@sandforge/shared';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -131,6 +136,7 @@ import type {
 } from './types.js';
 import {
   DEFAULT_DUPLICATE_ERROR_PATTERNS,
+  KEPT_BY_THE_PLATFORM,
   type CalloutMockDetector,
   type FailedRecord,
   type FrozenDmlWriter,
@@ -198,6 +204,16 @@ export interface FrozenDatasetLoaderDeps {
    * doing.
    */
   serverTime?: () => Promise<string>;
+  /**
+   * For {@link FrozenDatasetLoader.planLoad}: the target's active validation
+   * rules on the objects named, as Forge's pre-flight reads them
+   * (`readActiveValidationRules`). A preview cannot evaluate a rule, so it
+   * lists each beside the object it would insert records of. Without it,
+   * none is listed.
+   */
+  readValidationRules?: (
+    objectApiNames: readonly string[],
+  ) => Promise<ReadonlyArray<SyncValidationRule & { objectApiName: string }>>;
 }
 
 /** Options of one load run. */
@@ -419,8 +435,14 @@ interface PreparedLoad {
   mapping: Map<string, string>;
   /** The records the load links rather than writes. */
   reused: Set<string>;
-  /** Of those, the ones a reload's identity keys found; the others are the catalog's. */
+  /**
+   * Of those, the ones identity keys found — a reload's, and those of an
+   * object the platform never deletes, on every load; the others are the
+   * catalog's.
+   */
   reusedByKeys: ReadonlySet<string>;
+  /** Each record's rank among the records of its object in the dataset, 1 first: what `{n}` stands for. */
+  ranks: ReadonlyMap<string, number>;
   recordTypeIssues: SchemaAlignmentReport['recordTypeIssues'];
   alignment: SchemaAlignmentReport;
   /** Per object, the records as the target takes them, those hanging from a record left out gone. */
@@ -591,6 +613,11 @@ interface PurgePlan {
   carried: LoadCreatedRecords[];
   /** Per object, records of a mapping that does not say what its load created, left in place. */
   leftUnrecorded: Record<string, number>;
+  /**
+   * Per object, records earlier loads created that this one does not find
+   * again, left in place: the platform does not delete them.
+   */
+  keptByThePlatform: Record<string, number>;
 }
 
 /** A record of an earlier load the purge set to Draft for its delete, and the status it had. */
@@ -989,6 +1016,9 @@ export class FrozenDatasetLoader {
    * code (`prepare`), so a preview and the load that follows it count alike —
    * but for what only a write tells: a record the target refuses, a duplicate
    * it skips, a relation the platform writes with the record it goes with.
+   * Of what refuses records, it lists the target's active validation rules on
+   * each object it would insert records of, which it cannot evaluate, or says
+   * why the target would not list them.
    *
    * @throws What the load would be refused before its first write, as it
    *   would be: an entry guard, a required field the configuration leaves
@@ -1003,12 +1033,43 @@ export class FrozenDatasetLoader {
       options.reload && !options.pilot
         ? await this.planPurge(options.orgId, prepared.previousLoads, prepared.mapping)
         : undefined;
-    return loadPlanOf(prepared, purge, {
+    const plan = loadPlanOf(prepared, purge, {
       orgId: options.orgId,
       mode: { pilot: options.pilot !== undefined, reload: options.reload === true },
       plannedAt: now().toISOString(),
       undeletableObjects: this.config.undeletableObjects ?? {},
+      requiredFieldDefaults: this.config.requiredFieldDefaults ?? {},
     });
+    return this.withValidationRules(plan);
+  }
+
+  /**
+   * The plan with the target's active validation rules on each object it
+   * would insert records of, or why the target would not list them. Run on a
+   * client sandbox, three loads in a row were refused by three rules of the
+   * accounts, one after the other — a required business family, then a
+   * country, then an industry — each fixed rule showing the next: a preview
+   * cannot evaluate them, but it can name them all before the first load.
+   */
+  private async withValidationRules(plan: FrozenLoadPlanInfo): Promise<FrozenLoadPlanInfo> {
+    const read = this.deps.readValidationRules;
+    const inserted = plan.perObject.filter((o) => o.toInsert > 0).map((o) => o.objectApiName);
+    if (!read || inserted.length === 0) return plan;
+    const byObject = new Map<string, SyncValidationRule[]>();
+    try {
+      for (const { objectApiName, ...rule } of await read(inserted)) {
+        byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), rule]);
+      }
+    } catch (err: unknown) {
+      return { ...plan, validationRulesUnread: extractErrorMessage(err) };
+    }
+    return {
+      ...plan,
+      perObject: plan.perObject.map((o) => {
+        const rules = o.toInsert > 0 ? byObject.get(o.objectApiName) : undefined;
+        return rules && rules.length > 0 ? { ...o, validationRules: rules } : o;
+      }),
+    };
   }
 
   /**
@@ -1094,6 +1155,9 @@ export class FrozenDatasetLoader {
       });
     }
     const refIndex = buildReferenceIndex(working);
+    // Ranked in the whole dataset, a pilot's root folder included: a record
+    // gets the same value of a default from one load to the next.
+    const ranks = ranksOf(options.dataset);
     // The person accounts' contacts: each linked to the one the platform
     // writes with its account, or sent as a contact of its own where it
     // writes none. See `personContactsOf`.
@@ -1141,8 +1205,11 @@ export class FrozenDatasetLoader {
     //    joining what the load links.
     const mapping = new Map<string, string>();
     const reused = new Set<string>();
-    /** What a reload's identity keys found, apart from what the catalog finds after them. */
-    let reusedByKeys: ReadonlySet<string> = new Set();
+    /**
+     * What identity keys found — a reload's, then those of an object the
+     * platform never deletes — apart from what the catalog finds.
+     */
+    const reusedByKeys = new Set<string>();
 
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
@@ -1151,7 +1218,7 @@ export class FrozenDatasetLoader {
       running.endOpenLine = (stoppedBy) =>
         emit(endOfACheck('reload', 10, 'Reference data not reused', stoppedBy));
       await this.reuseByIdentityKeys(options, loading, mapping, reused);
-      reusedByKeys = new Set(reused);
+      for (const key of reused) reusedByKeys.add(key);
       // Ended here, with what it reused, before the catalog is looked up; the
       // purge has a line of its own once the required fields are checked.
       // Ended by the purge's line alone, it held the alignment and the check:
@@ -1365,7 +1432,24 @@ export class FrozenDatasetLoader {
         })),
       );
     }
-    emit({ phase: 'align', status: 'done', progress: 20, message: 'Schema aligned' });
+    // What the platform never deletes is linked, on every load, to the record
+    // the target holds under its identity key: read on the alignment's line,
+    // which a read that throws ends failed, with why.
+    const kept = await this.linkWhatThePlatformKeeps(
+      orgId,
+      alignment.objectResults,
+      alignedByObject,
+      ranks,
+      mapping,
+      reused,
+    );
+    for (const key of kept.linked) reusedByKeys.add(key);
+    emit({
+      phase: 'align',
+      status: 'done',
+      progress: 20,
+      message: `Schema aligned${kept.said.length > 0 ? ` — ${kept.said.join('; ')}` : ''}`,
+    });
     running.endOpenLine = undefined;
     // A record the target will not take without a parent the configuration
     // excludes cannot be loaded: left out, with what hangs from it, rather
@@ -1433,6 +1517,7 @@ export class FrozenDatasetLoader {
       mapping,
       reused,
       reusedByKeys,
+      ranks,
       recordTypeIssues,
       alignment,
       alignedByObject,
@@ -1469,6 +1554,7 @@ export class FrozenDatasetLoader {
       heldForExclusions,
       mapping,
       reused,
+      ranks,
       recordTypeIssues,
       alignment,
       alignedByObject,
@@ -1641,6 +1727,15 @@ export class FrozenDatasetLoader {
             ` — ${left} record(s) left in place of a load recorded before loads kept what ` +
             'they created: it may have linked them';
         }
+        // Never sent to be deleted: refused, they were counted as failures,
+        // and the reload as one with errors, at every reload.
+        const keptObjects = Object.entries(plan.keptByThePlatform);
+        if (keptObjects.length > 0) {
+          purge.keptByThePlatform = plan.keptByThePlatform;
+          leftInPlace +=
+            ` — kept, the platform does not delete them: ` +
+            keptObjects.map(([objectApiName, count]) => `${objectApiName} (${count})`).join(', ');
+        }
         try {
           await this.purgeResiduals(
             options,
@@ -1732,6 +1827,7 @@ export class FrozenDatasetLoader {
             plan.missing,
             written(plan.missing.objectApiName),
             requiredDefaults,
+            ranks,
           );
         }
       }
@@ -2708,43 +2804,127 @@ export class FrozenDatasetLoader {
   ): Promise<void> {
     for (const [objectApiName, keyFields] of Object.entries(this.config.identityKeys ?? {})) {
       const records = working.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [];
-      if (records.length === 0) {
-        continue;
+      for (const [referenceId, realId] of await this.findByKeys(
+        options.orgId,
+        objectApiName,
+        keyFields,
+        records,
+      )) {
+        mapping.set(referenceId, realId);
+        reused.add(referenceId);
       }
-      const candidates = records.filter((r) =>
-        keyFields.every(
-          (f) => r.fields[f] !== undefined && r.fields[f] !== null && r.fields[f] !== '',
-        ),
-      );
-      if (candidates.length === 0) {
-        continue;
-      }
-      const selectFields = ['Id', ...keyFields].map(assertSoqlIdentifier).join(', ');
-      const matched = new Map<string, string>(); // tupleKey → real Id
-      const CHUNK = 100;
-      for (let i = 0; i < candidates.length; i += CHUNK) {
-        const where = candidates
-          .slice(i, i + CHUNK)
-          .map(
-            (r) =>
-              `(${keyFields.map((f) => `${assertSoqlIdentifier(f)} = ${soqlLiteral(r.fields[f])}`).join(' AND ')})`,
-          )
-          .join(' OR ');
-        const soql = `SELECT ${selectFields} FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${where}`;
-        for (const row of await this.deps.orgAccess.query(options.orgId, soql)) {
-          if (typeof row.Id === 'string') {
-            matched.set(tupleKey(keyFields.map((f) => row[f])), row.Id);
-          }
-        }
-      }
-      for (const record of candidates) {
-        const realId = matched.get(tupleKey(keyFields.map((f) => record.fields[f])));
-        if (realId) {
-          mapping.set(record.referenceId, realId);
-          reused.add(record.referenceId);
+    }
+  }
+
+  /**
+   * The target record each of `records` matches on every one of `keyFields`,
+   * by referenceId; a record leaving a key field empty is not looked up.
+   */
+  private async findByKeys(
+    orgId: string,
+    objectApiName: string,
+    keyFields: readonly string[],
+    records: ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>,
+  ): Promise<Map<string, string>> {
+    const found = new Map<string, string>();
+    const candidates = records.filter((r) => keyFields.every((f) => !leftEmpty(r.fields[f])));
+    if (candidates.length === 0) return found;
+    const selectFields = ['Id', ...keyFields].map(assertSoqlIdentifier).join(', ');
+    const matched = new Map<string, string>(); // tupleKey → real Id
+    const CHUNK = 100;
+    for (let i = 0; i < candidates.length; i += CHUNK) {
+      const where = candidates
+        .slice(i, i + CHUNK)
+        .map(
+          (r) =>
+            `(${keyFields.map((f) => `${assertSoqlIdentifier(f)} = ${soqlLiteral(r.fields[f])}`).join(' AND ')})`,
+        )
+        .join(' OR ');
+      const soql = `SELECT ${selectFields} FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${where}`;
+      for (const row of await this.deps.orgAccess.query(orgId, soql)) {
+        if (typeof row.Id === 'string') {
+          matched.set(tupleKey(keyFields.map((f) => row[f])), row.Id);
         }
       }
     }
+    for (const record of candidates) {
+      const realId = matched.get(tupleKey(keyFields.map((f) => record.fields[f])));
+      if (realId) found.set(record.referenceId, realId);
+    }
+    return found;
+  }
+
+  /**
+   * Link each record the load would write of an object the platform never
+   * deletes ({@link KEPT_BY_THE_PLATFORM}) to the one the target holds under
+   * its identity key — the configuration's for the object, or its own — on
+   * every load, a reload or not.
+   *
+   * Such a record, once inserted, is in the target for good: run on a client
+   * sandbox, a load inserted business hours that its removal and a reload's
+   * purge were then refused, and the reload sent them again, each refused in
+   * turn — "The Business Hours Name is already in use". Matched on a reload
+   * only, a load after a removal, which keeps them, would meet the same
+   * refusal; and every org holds business hours of its own named `Default`,
+   * which a dataset whose cases name theirs carries.
+   *
+   * Matched by what the load would write: a key field the dataset leaves
+   * empty — the rules clear a name — takes the value the declared default
+   * gives the record, the same from one load to the next. Read after the
+   * alignment, which says which fields a default fills, and before the
+   * required fields are settled: a record linked needs none.
+   *
+   * @returns The records it linked, and what the alignment's line says of
+   *   them, per object.
+   */
+  private async linkWhatThePlatformKeeps(
+    orgId: string,
+    objectResults: readonly SchemaAlignObjectResult[],
+    alignedByObject: ReadonlyMap<
+      string,
+      ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>
+    >,
+    ranks: ReadonlyMap<string, number>,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+  ): Promise<{ linked: string[]; said: string[] }> {
+    const linked: string[] = [];
+    const said: string[] = [];
+    for (const [objectApiName, ownKeys] of Object.entries(KEPT_BY_THE_PLATFORM)) {
+      const keyFields = this.config.identityKeys?.[objectApiName] ?? ownKeys;
+      const toWrite = (alignedByObject.get(objectApiName) ?? []).filter(
+        (r) => !reused.has(r.referenceId),
+      );
+      if (toWrite.length === 0) continue;
+      const defaulted = (
+        objectResults.find((r) => r.objectApiName === objectApiName)?.missingRequired ?? []
+      ).filter((missing) => !missing.isLookup && keyFields.includes(missing.field));
+      const asWritten = toWrite.map((record) => {
+        const fields = { ...record.fields };
+        for (const missing of defaulted) {
+          const declared = this.config.requiredFieldDefaults?.[`${objectApiName}.${missing.field}`];
+          if (declared === undefined || !leftEmpty(fields[missing.field])) continue;
+          fields[missing.field] = defaultValueFor(
+            declared,
+            defaultPerRecord(declared, missing.distinct),
+            { referenceId: record.referenceId, rank: ranks.get(record.referenceId) ?? 0 },
+          );
+        }
+        return { referenceId: record.referenceId, fields };
+      });
+      const found = await this.findByKeys(orgId, objectApiName, keyFields, asWritten);
+      for (const [referenceId, realId] of found) {
+        mapping.set(referenceId, realId);
+        reused.add(referenceId);
+        linked.push(referenceId);
+      }
+      if (found.size > 0) {
+        said.push(
+          `${objectApiName}: ${found.size} found by ${keyFields.join(', ')}, which the platform does not delete`,
+        );
+      }
+    }
+    return { linked, said };
   }
 
   /**
@@ -2923,16 +3103,19 @@ export class FrozenDatasetLoader {
    * key — is not purged: it is kept as created, under the key this load maps
    * it by, so that its removal, and the next reload, still take it. Matched
    * again means the same record, whatever key names it: a key matched to
-   * another record leaves the one the earlier load created to the purge.
+   * another record leaves the one the earlier load created to the purge. A
+   * created record of an object the platform never deletes that this load
+   * does not match again is not sent to be deleted either: it is left in
+   * place, the earlier load's, and counted.
    *
    * A mapping written before loads kept what they created cannot say which
    * of its records the load linked. Of it, the purge takes only what no load
    * links: never a record of an object the configuration gives identity keys
-   * to, a selling model or option, the standard price book, a record whose
-   * key names no object, or one a later load says it linked; each of those
-   * not matched again is left in place and counted. A load that ran with
-   * identity keys the configuration no longer gives could have linked a
-   * record of another object; nothing records it.
+   * to, or the platform never deletes, a selling model or option, the
+   * standard price book, a record whose key names no object, or one a later
+   * load says it linked; each of those not matched again is left in place and
+   * counted. A load that ran with identity keys the configuration no longer
+   * gives could have linked a record of another object; nothing records it.
    */
   private async planPurge(
     orgId: string,
@@ -2944,6 +3127,7 @@ export class FrozenDatasetLoader {
       datedBy: new Map(),
       carried: [],
       leftUnrecorded: {},
+      keptByThePlatform: {},
     };
     const namedNow = new Map<string, string>();
     for (const [key, id] of mapping) {
@@ -3029,6 +3213,13 @@ export class FrozenDatasetLoader {
             carry(objectApiName, ownKey);
             continue;
           }
+          // What the platform never deletes stays the earlier load's, in
+          // place: sent to be deleted, it was refused at every reload.
+          if (this.keptByThePlatform(objectApiName)) {
+            plan.keptByThePlatform[objectApiName] =
+              (plan.keptByThePlatform[objectApiName] ?? 0) + 1;
+            continue;
+          }
           purgeOne(objectApiName, id);
           const dated = [lastWrite, stampOf.get(record) ?? Number.NaN].filter(Number.isFinite);
           if (dated.length > 0) plan.datedBy.set(record, Math.max(...dated));
@@ -3085,7 +3276,21 @@ export class FrozenDatasetLoader {
       objectApiName === 'Unknown' ||
       objectApiName === SELLING_MODEL_OPTION_OBJECT ||
       Object.prototype.hasOwnProperty.call(NATURAL_KEYS, objectApiName) ||
+      Object.prototype.hasOwnProperty.call(KEPT_BY_THE_PLATFORM, objectApiName) ||
       Object.prototype.hasOwnProperty.call(this.config.identityKeys ?? {}, objectApiName)
+    );
+  }
+
+  /**
+   * Whether a reload's purge leaves the records of an object in place, never
+   * sending their delete: the platform deletes none of them
+   * ({@link KEPT_BY_THE_PLATFORM}), and the configuration gives no field to
+   * deactivate them by (`undeletableObjects`).
+   */
+  private keptByThePlatform(objectApiName: string): boolean {
+    return (
+      Object.prototype.hasOwnProperty.call(KEPT_BY_THE_PLATFORM, objectApiName) &&
+      this.config.undeletableObjects?.[objectApiName] === undefined
     );
   }
 
@@ -3779,29 +3984,40 @@ export class FrozenDatasetLoader {
   /**
    * Apply a declared scalar default for a required field missing from the
    * dataset to each of `records` — the ones the load writes of the object —
-   * that leaves it empty.
+   * that leaves it empty: the value declared, or each record's own built from
+   * it (`defaultPerRecord`).
+   *
+   * One value for every record of a field the target keeps unique is refused
+   * from the second record on: run on a client sandbox, a default given for
+   * the name of service territories put the same name on each, and the
+   * target refused the second — "That name is already taken" — though its
+   * describe says that name is not unique; business hours, the same.
    */
   private applyScalarDefault(
-    missing: { objectApiName: string; field: string },
-    records: ReadonlyArray<{ fields: Record<string, unknown> }>,
+    missing: MissingRequiredField,
+    records: ReadonlyArray<{ referenceId: string; fields: Record<string, unknown> }>,
     applied: FrozenLoadReport['requiredDefaults'],
+    ranks: ReadonlyMap<string, number>,
   ): void {
     const key = `${missing.objectApiName}.${missing.field}`;
     // Settled by planRequiredFields: a default is declared for every key here.
     const value = this.config.requiredFieldDefaults?.[key];
+    const perRecord = defaultPerRecord(value, missing.distinct);
     let affected = 0;
     for (const aligned of records) {
-      const current = aligned.fields[missing.field];
-      if (current === undefined || current === null || current === '') {
-        aligned.fields[missing.field] = value;
-        affected++;
-      }
+      if (!leftEmpty(aligned.fields[missing.field])) continue;
+      aligned.fields[missing.field] = defaultValueFor(value, perRecord, {
+        referenceId: aligned.referenceId,
+        rank: ranks.get(aligned.referenceId) ?? 0,
+      });
+      affected++;
     }
     applied.push({
       objectApiName: missing.objectApiName,
       field: missing.field,
       value,
       affectedRecords: affected,
+      ...(perRecord ? { perRecord } : {}),
     });
   }
 
@@ -4764,6 +4980,60 @@ function leftEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === '';
 }
 
+/** A token a declared default carries, replaced per record: its rank, or its referenceId. */
+const DEFAULT_TOKEN = /\{(n|referenceId)\}/g;
+
+/**
+ * How each record a declared default fills gets a value of its own, if it
+ * does: a text value carrying a token has it replaced; one carrying none,
+ * given for a field the target keeps unique or for the object's name, gets
+ * the record's rank appended. Any other value goes to every record as
+ * declared.
+ *
+ * A name is numbered though its describe does not call it unique: the target,
+ * or a package of its, may hold it so all the same. Run on a client sandbox,
+ * a second service territory given the same name was refused, "That name is
+ * already taken", while a Developer Edition org took two of the same name;
+ * and the platform holds business hours unique by name, "The Business Hours
+ * Name is already in use", their describe saying nothing of it.
+ */
+function defaultPerRecord(
+  declared: unknown,
+  distinct: MissingRequiredField['distinct'],
+): FrozenDefaultPerRecord | undefined {
+  if (typeof declared !== 'string') return undefined;
+  if (declared.match(DEFAULT_TOKEN)) return 'token';
+  return distinct;
+}
+
+/**
+ * The value a declared default gives one record, as {@link defaultPerRecord}
+ * says: the same for a record from one load to the next, its rank being its
+ * place among the records of its object in the dataset.
+ */
+function defaultValueFor(
+  declared: unknown,
+  perRecord: FrozenDefaultPerRecord | undefined,
+  record: { referenceId: string; rank: number },
+): unknown {
+  if (typeof declared !== 'string' || perRecord === undefined) return declared;
+  if (perRecord === 'token') {
+    return declared.replace(DEFAULT_TOKEN, (_token, name: string) =>
+      name === 'n' ? String(record.rank) : record.referenceId,
+    );
+  }
+  return `${declared} ${record.rank}`;
+}
+
+/** Each record's rank among the records of its object in the dataset, 1 first, by referenceId. */
+function ranksOf(dataset: FrozenDataset): Map<string, number> {
+  const ranks = new Map<string, number>();
+  for (const objectData of dataset.objects) {
+    objectData.records.forEach((record, index) => ranks.set(record.referenceId, index + 1));
+  }
+  return ranks;
+}
+
 /**
  * What a load would do, from what it read before its first write and what
  * its purge would take: see {@link FrozenDatasetLoader.planLoad}. Counted as
@@ -4779,9 +5049,10 @@ function loadPlanOf(
     mode: FrozenLoadPlanInfo['mode'];
     plannedAt: string;
     undeletableObjects: Readonly<Record<string, string>>;
+    requiredFieldDefaults: Readonly<Record<string, unknown>>;
   },
 ): FrozenLoadPlanInfo {
-  const { working, loading, alignedByObject, reused, reusedByKeys, alignment } = prepared;
+  const { working, loading, alignedByObject, reused, reusedByKeys, alignment, ranks } = prepared;
   // A person account's contact goes in with its account, and is counted
   // apart — unless the target has no person accounts, which take it as any
   // contact of a business account.
@@ -4828,9 +5099,41 @@ function loadPlanOf(
       toDeactivate: deactivates ? purged : 0,
     });
   }
+  const filledIn = (objectApiName: string, field: string) =>
+    written(objectApiName).filter((r) => leftEmpty(r.fields[field]));
   const emptyIn = (objectApiName: string, field: string): number =>
-    written(objectApiName).filter((r) => leftEmpty(r.fields[field])).length;
+    filledIn(objectApiName, field).length;
+  /*
+   * What a default gives the records it fills: the count, and when each gets a
+   * value of its own, how, and the first one's — what the load will write,
+   * built the way it builds it.
+   */
+  const defaultOf = (
+    missing: MissingRequiredField,
+  ): FrozenLoadPlanInfo['requiredDefaults'][number] => {
+    const filled = filledIn(missing.objectApiName, missing.field);
+    const declared = context.requiredFieldDefaults[`${missing.objectApiName}.${missing.field}`];
+    const perRecord = defaultPerRecord(declared, missing.distinct);
+    const first = filled[0];
+    return {
+      objectApiName: missing.objectApiName,
+      field: missing.field,
+      affectedRecords: filled.length,
+      ...(perRecord ? { perRecord } : {}),
+      ...(perRecord && first
+        ? {
+            example: String(
+              defaultValueFor(declared, perRecord, {
+                referenceId: first.referenceId,
+                rank: ranks.get(first.referenceId) ?? 0,
+              }),
+            ),
+          }
+        : {}),
+    };
+  };
   const leftUnrecorded = purge?.leftUnrecorded ?? {};
+  const keptByThePlatform = purge?.keptByThePlatform ?? {};
   const heldForExcluded = prepared.heldForExclusions.counts();
   return {
     orgId: context.orgId,
@@ -4853,20 +5156,13 @@ function loadPlanOf(
         : [],
     ),
     requiredDefaults: prepared.plans.flatMap((plan) =>
-      plan.kind === 'default'
-        ? [
-            {
-              objectApiName: plan.missing.objectApiName,
-              field: plan.missing.field,
-              affectedRecords: emptyIn(plan.missing.objectApiName, plan.missing.field),
-            },
-          ]
-        : [],
+      plan.kind === 'default' ? [defaultOf(plan.missing)] : [],
     ),
     recordTypeIssues: prepared.recordTypeIssues.length,
     personContacts,
     earlierLoads: prepared.previousLoads.length,
     ...(Object.keys(leftUnrecorded).length > 0 ? { leftUnrecorded } : {}),
+    ...(Object.keys(keptByThePlatform).length > 0 ? { keptByThePlatform } : {}),
     ...(heldForExcluded.length > 0
       ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
       : {}),

@@ -25,6 +25,7 @@ import type {
   ForgeUndoObjectResult,
   ForgeUndoStatus,
 } from './forge.types.js';
+import type { SyncValidationRule } from './sync.types.js';
 
 /** One configurable coverage axis (aggregate SOQL enumerating observed values). */
 export interface FrozenCoverageAxisConfig {
@@ -111,13 +112,23 @@ export interface FrozenProjectConfig {
   datasetVersion?: string;
   /** Protected environment org IDs — the load refuses them outright. */
   protectedOrgIds?: string[];
-  /** Identity keys per object for reload-without-refresh reuse. */
+  /**
+   * Identity keys per object for reload-without-refresh reuse. An object the
+   * platform never deletes has one by default, matched on every load: business
+   * hours by `Name`; keys given here replace it.
+   */
   identityKeys?: Record<string, string[]>;
   /** Undeletable objects: `ObjectApiName → deactivation field`. */
   undeletableObjects?: Record<string, string>;
   /** Placeholder specs keyed `Object.field` for required lookups missing from the dataset. */
   requiredLookupPlaceholders?: Record<string, FrozenPlaceholderConfig>;
-  /** Declared default values keyed `Object.field` for required scalar fields. */
+  /**
+   * Declared default values keyed `Object.field` for required scalar fields.
+   * A text value may carry `{n}` — the record's rank among its object's
+   * records in the dataset — or `{referenceId}`; one without either, given for
+   * a field the target keeps unique or for the object's name, gets the rank
+   * appended, so that each record has a value of its own.
+   */
   requiredFieldDefaults?: Record<string, unknown>;
   /** Picklist rules keyed `Object.field` for values rejected by the target. */
   picklistRules?: Record<string, FrozenPicklistRule>;
@@ -466,8 +477,11 @@ export interface FrozenLoadReportInfo {
   requiredDefaults: Array<{
     objectApiName: string;
     field: string;
+    /** The value declared: each record's own, when `perRecord` says so, is built from it. */
     value: unknown;
     affectedRecords: number;
+    /** How each record got a value of its own. Absent when each got the value declared. */
+    perRecord?: FrozenDefaultPerRecord;
   }>;
   perObject: FrozenPerObjectLoadResult[];
   pass2: {
@@ -515,6 +529,12 @@ export interface FrozenLoadReportInfo {
      * them. Absent when none was left.
      */
     leftUnrecorded?: Record<string, number>;
+    /**
+     * Per object, records earlier loads created that the reload did not find
+     * again and left in place: the platform does not delete them — business
+     * hours. Absent when none was.
+     */
+    keptByThePlatform?: Record<string, number>;
   };
   /**
    * Records the dataset carries and the load left out, by object: the
@@ -577,6 +597,13 @@ export interface FrozenLoadPlanObject {
   toPurge: number;
   /** On a reload, records earlier loads created that its purge would deactivate, undeletable. */
   toDeactivate: number;
+  /**
+   * The target's active validation rules on the object, which a preview
+   * cannot evaluate: a record one of them refuses is counted to insert.
+   * Listed for an object the load inserts records of; absent when it has none,
+   * or when they could not be read (`FrozenLoadPlanInfo.validationRulesUnread`).
+   */
+  validationRules?: SyncValidationRule[];
 }
 
 /**
@@ -604,7 +631,15 @@ export interface FrozenLoadPlanInfo {
     affectedRecords: number;
   }>;
   /** The declared defaults the load would give required fields, and the records each fills. */
-  requiredDefaults: Array<{ objectApiName: string; field: string; affectedRecords: number }>;
+  requiredDefaults: Array<{
+    objectApiName: string;
+    field: string;
+    affectedRecords: number;
+    /** How each record would get a value of its own. Absent when each would get the value declared. */
+    perRecord?: FrozenDefaultPerRecord;
+    /** The value the first record it fills would get, when each gets its own. */
+    example?: string;
+  }>;
   /** Record type references the target does not resolve. */
   recordTypeIssues: number;
   /**
@@ -629,7 +664,28 @@ export interface FrozenLoadPlanInfo {
    * linked them. Absent when none would be.
    */
   leftUnrecorded?: Record<string, number>;
+  /**
+   * On a reload, per object, records earlier loads created that the purge
+   * would leave in place, the platform deleting none of them — business
+   * hours the reload does not find again. Absent when none would be.
+   */
+  keptByThePlatform?: Record<string, number>;
+  /**
+   * Why the target's active validation rules could not be listed, when it
+   * refused to say: any of them may still refuse a record counted to insert.
+   */
+  validationRulesUnread?: string;
 }
+
+/**
+ * How each record a declared default fills gets a value of its own: `token`,
+ * the value carries `{n}` or `{referenceId}`, replaced per record; `unique`,
+ * the target keeps the field unique, and the record's rank is appended;
+ * `name`, the field is the object's name — which the target, or a package of
+ * its, may hold unique where its describe does not say so — and the rank is
+ * appended.
+ */
+export type FrozenDefaultPerRecord = 'token' | 'unique' | 'name';
 
 /**
  * Load/verify phases surfaced in progress events. `mapping` reads what earlier
@@ -740,6 +796,12 @@ export interface FrozenLoadRecordsInfo {
    * or when it created none: its removal comes next.
    */
   earlier?: true;
+  /**
+   * Per object, records the load created that no removal takes: the platform
+   * does not delete them — business hours. Not in `created`; absent when the
+   * load created none.
+   */
+  keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
 }
 
 /**
@@ -766,6 +828,12 @@ export interface FrozenRemovalResult {
    * Absent when none was asked.
    */
   sweep?: ForgeSweepResult;
+  /**
+   * Per object, records the load created that the removal kept, never sent to
+   * be deleted: the platform does not delete them — business hours. Absent
+   * when the load created none.
+   */
+  keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
 }
 
 /** The verdict of the last verification of a load into a target org. */

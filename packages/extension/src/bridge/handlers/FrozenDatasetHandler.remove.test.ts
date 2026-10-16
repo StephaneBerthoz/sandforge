@@ -1347,4 +1347,87 @@ describe('frozen:remove', () => {
       ).toEqual(['LOAD_REMOVED']);
     });
   });
+
+  describe('business hours the load created, which the platform never deletes', () => {
+    const HOURS = id('01m', 1);
+
+    /** The load of `loaded`, which also inserted business hours. */
+    async function loadedWithBusinessHours(onlyThem = false): Promise<void> {
+      org.rows.set('BusinessHours', [
+        { Id: HOURS, CreatedDate: DURING_LOAD, LastModifiedDate: DURING_LOAD },
+      ]);
+      await new SasReferenceIdMappingStore(sasDir, {
+        orgId: TARGET_ORG,
+        organizationId: ORGANIZATION,
+        now: () => new Date(LOAD_ENDED),
+      }).persist(
+        new Map([
+          ['BusinessHours-000001', HOURS],
+          ...(onlyThem
+            ? []
+            : ([
+                ['Account-000001', ACCOUNT],
+                ['Contact-000001', CONTACTS[0]],
+                ['Contact-000002', CONTACTS[1]],
+              ] as Array<[string, string]>)),
+        ]),
+        {
+          created: [
+            { objectApiName: 'BusinessHours', referenceIds: ['BusinessHours-000001'] },
+            ...(onlyThem
+              ? []
+              : [
+                  { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+                  {
+                    objectApiName: 'Contact',
+                    referenceIds: ['Contact-000001', 'Contact-000002'],
+                  },
+                ]),
+          ],
+          startedAt: new Date(LOAD_STARTED),
+        },
+      );
+    }
+
+    it('are never sent to be deleted, and the removal says it kept them', async () => {
+      // Sent, they were refused on a client sandbox: the removal ended
+      // partial, and the load was offered for removal again and again.
+      fs.rmSync(sasDir, { recursive: true, force: true });
+      fs.mkdirSync(sasDir);
+      await loadedWithBusinessHours();
+
+      await remove();
+
+      expect(errors()).toEqual([]);
+      expect(org.deletes.map((d) => d.object)).toEqual(['Contact', 'Account']);
+      expect(org.rows.get('BusinessHours')).toHaveLength(1);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+      });
+      expect(answer()?.objects.map((o) => o.objectApiName)).not.toContain('BusinessHours');
+      // Not offered again for what the platform keeps.
+      expect(
+        (await new SasReferenceIdMappingStore(sasDir, { orgId: TARGET_ORG }).recordedLoads()).map(
+          (load) => load.removal?.refused ?? 0,
+        ),
+      ).toEqual([0]);
+    });
+
+    it('leave nothing to remove when they are all the load created, and the refusal says so', async () => {
+      fs.rmSync(sasDir, { recursive: true, force: true });
+      fs.mkdirSync(sasDir);
+      await loadedWithBusinessHours(true);
+
+      await remove();
+
+      expect(errors().map((e) => [e.payload.code, e.payload.message])).toEqual([
+        [
+          'NOTHING_TO_REMOVE',
+          'This load created no record a removal takes. Kept in the org, the platform does not delete them: BusinessHours (1).',
+        ],
+      ]);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+  });
 });

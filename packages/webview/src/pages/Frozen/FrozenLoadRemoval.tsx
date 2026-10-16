@@ -102,6 +102,11 @@ const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({ orgId, loadedAt
   );
 };
 
+/** The records a load created that the platform does not delete, per object, in words. */
+function keptObjects(kept: NonNullable<FrozenLoadRecordsInfo['keptByThePlatform']>): string {
+  return kept.map((object) => `${object.objectApiName} (${object.count})`).join(', ');
+}
+
 /** Props for {@link FrozenLoadRemoval}. */
 export interface FrozenLoadRemovalProps {
   /**
@@ -211,8 +216,9 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
       </p>
     );
   } else if (created === 0) {
-    // Once a removal took them all, its mark alone says so.
-    if (!records.removed) {
+    // Once a removal took them all, its mark alone says so; and what the
+    // platform keeps is said below, not counted as nothing created.
+    if (!records.removed && !records.keptByThePlatform) {
       action = (
         <p data-testid="frozen-removal-nothing" className="text-[11px] text-text-secondary">
           {t('frozen.removal.nothingCreated')}
@@ -263,6 +269,16 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           )}
           {records.removed && removedOn !== undefined && (
             <ForgeRunRemovalMark mark={records.removed} date={removedOn} />
+          )}
+          {/* Never sent to be deleted: the platform deletes none of them, and
+              sent, they were refused and the load offered for removal again. */}
+          {records.keptByThePlatform && records.keptByThePlatform.length > 0 && (
+            <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-kept">
+              {t('frozen.removal.keptByThePlatform', {
+                org: org ?? records.orgId,
+                objects: keptObjects(records.keptByThePlatform),
+              })}
+            </p>
           )}
           {action}
           {removal.loading && (

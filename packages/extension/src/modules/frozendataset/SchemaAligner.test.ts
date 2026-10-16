@@ -274,6 +274,33 @@ describe('SchemaAligner — required fields', () => {
     expect(result.missingRequired).toEqual([]);
   });
 
+  it("says a default must give each record its own value of a unique field, or of the object's name", async () => {
+    const aligner = new SchemaAligner({
+      query: vi.fn(),
+      describe: vi.fn(),
+      picklistValues: vi.fn(),
+    });
+    const records: FrozenRecord[] = [{ referenceId: 'Contact-000001', fields: { Other__c: 'x' } }];
+    const result = await aligner.alignObject(
+      makeInput({
+        records,
+        describe: makeDescribe([
+          field({ name: 'Other__c' }),
+          field({ name: 'Code__c', nillable: false, unique: true }),
+          field({ name: 'Name', nillable: false, nameField: true }),
+          field({ name: 'Rating__c', nillable: false }),
+        ]),
+      }),
+    );
+
+    expect(result.missingRequired.map(({ field: name, distinct }) => [name, distinct])).toEqual([
+      ['Code__c', 'unique'],
+      ['Name', 'name'],
+      ['Rating__c', undefined],
+    ]);
+    expect(result.missingRequired[2]).not.toHaveProperty('distinct');
+  });
+
   it('does not flag a required field carried by at least one record', async () => {
     const aligner = new SchemaAligner({
       query: vi.fn(),

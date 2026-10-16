@@ -705,6 +705,11 @@ const FROZEN_RELOAD_PLAN = {
       notSent: 0,
       toPurge: 7,
       toDeactivate: 0,
+      // What a preview cannot evaluate, listed beside the plan.
+      validationRules: [
+        { name: 'Trap_Email_Required', message: 'Email is required.', field: 'Email' },
+        { name: 'Trap_Phone_Format', message: 'Phone must be written +33 X XX XX XX XX.' },
+      ],
     },
     {
       objectApiName: 'ErrorLog__c',
@@ -729,10 +734,20 @@ const FROZEN_RELOAD_PLAN = {
     { objectApiName: 'Contact', field: 'Legacy__c', reason: 'not-in-target', affectedRecords: 5 },
   ],
   placeholders: [],
-  requiredDefaults: [{ objectApiName: 'Account', field: 'Rating', affectedRecords: 1 }],
+  requiredDefaults: [
+    { objectApiName: 'Account', field: 'Rating', affectedRecords: 1 },
+    {
+      objectApiName: 'BusinessHours',
+      field: 'Name',
+      affectedRecords: 2,
+      perRecord: 'name',
+      example: 'Frozen hours 1',
+    },
+  ],
   recordTypeIssues: 0,
   personContacts: 0,
   earlierLoads: 2,
+  keptByThePlatform: { BusinessHours: 1 },
 };
 
 const FROZEN_STATUS_WITH_DATASET = {
@@ -5717,10 +5732,13 @@ for (const theme of SCANNED_THEMES) {
               kept: 1,
               refused: 0,
             },
+            // What the platform does not delete, kept by every removal and said.
+            keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
           },
         ],
       });
       await expect(page.getByTestId('forge-removal-mark')).toBeVisible();
+      await expect(page.getByTestId('frozen-removal-kept')).toBeVisible();
 
       expectNoViolations(await checkAccessibility(page));
     });
@@ -7936,6 +7954,13 @@ for (const theme of STATE_THEMES) {
       });
       await page
         .getByTestId('frozen-preview-excluded')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      // The target's validation rules and the defaults numbered per record, read too.
+      await page
+        .getByTestId('frozen-preview-rules-Contact')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('frozen-preview-defaults-per-record')
         .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);

@@ -206,6 +206,19 @@ export function validationRulesSoql(objectApiNames: readonly string[]): string {
   );
 }
 
+/**
+ * The fields of an object with their labels, over the Tooling API: the labels
+ * a validation rule's `ErrorDisplayField` names its field by, in the org's
+ * language. A name a query cannot hold safely asks for none.
+ */
+export function fieldLabelsSoql(objectApiName: string): string {
+  const name = API_NAME_RE.test(objectApiName) ? objectApiName : '';
+  return (
+    'SELECT QualifiedApiName, Label FROM FieldDefinition ' +
+    `WHERE EntityDefinition.QualifiedApiName = '${name}'`
+  );
+}
+
 /** The metadata of one validation rule: the only way the org gives its formula. */
 export function validationFormulaSoql(ruleId: string): string {
   return `SELECT Metadata FROM ValidationRule WHERE Id = '${ruleId}'`;
@@ -400,21 +413,53 @@ export interface ActiveValidationRule {
  * query, the same names — without their formulas: a reader that cannot
  * evaluate a rule, as a simulation cannot, lists it beside what it predicts.
  *
+ * The field a rule shows its error on comes back as the org names it, which
+ * may be the field's label in the org's language: read on a French Developer
+ * Edition, `Adresse e-mail` for a rule displayed on `Email`, and `Haut de la
+ * page` for one on the top of the page. Given the fields of the object, the
+ * label is read back to the field's API name, and what names no field — the
+ * top of the page — is no field. Without them, only a value that is an API
+ * name is taken for one.
+ *
  * @param toolingQuery - A SOQL query on the target's Tooling API, every page of it.
  * @param objectApiNames - The objects whose rules are read; one the query
  *   could not name safely is left out.
+ * @param fieldsOf - The fields of an object, with their labels as the org's
+ *   field definitions give them (`fieldLabelsSoql`) — a describe's can differ;
+ *   an object whose fields cannot be read has its rules listed with the fields
+ *   that are API names alone.
  */
 export async function readActiveValidationRules(
   toolingQuery: (soql: string) => Promise<Row[]>,
   objectApiNames: readonly string[],
+  fieldsOf?: (objectApiName: string) => Promise<ReadonlyArray<{ name: string; label?: string }>>,
 ): Promise<ActiveValidationRule[]> {
   const queryable = [...new Set(objectApiNames)].filter((name) => API_NAME_RE.test(name));
   if (queryable.length === 0) return [];
   const wanted = new Map(queryable.map((name) => [name.toLowerCase(), name]));
   const order = new Map(queryable.map((name, index) => [name, index]));
   const rows = await toolingQuery(validationRulesSoql(queryable));
-  return rows
-    .flatMap((row): ActiveValidationRule[] => {
+  const described = new Map<string, Promise<ReadonlyArray<{ name: string; label?: string }>>>();
+  const shownOn = async (objectApiName: string, value: unknown): Promise<string | undefined> => {
+    const asApiName = displayFieldOf(value, undefined);
+    if (!fieldsOf) return asApiName;
+    let fields = described.get(objectApiName);
+    if (!fields) {
+      fields = fieldsOf(objectApiName).catch(() => []);
+      described.set(objectApiName, fields);
+    }
+    const shown = text(value).trim().toLowerCase();
+    if (!shown) return undefined;
+    const byName = asApiName?.toLowerCase();
+    const of = await fields;
+    if (of.length === 0) return asApiName;
+    return (
+      of.find((f) => f.name.toLowerCase() === byName)?.name ??
+      of.find((f) => f.label?.trim().toLowerCase() === shown)?.name
+    );
+  };
+  const listed = await Promise.all(
+    rows.map(async (row): Promise<ActiveValidationRule[]> => {
       const named = entityName(row.EntityDefinition);
       const objectApiName = named === undefined ? undefined : wanted.get(named.toLowerCase());
       const name = text(row.ValidationName);
@@ -424,10 +469,13 @@ export async function readActiveValidationRules(
           objectApiName,
           name: withNamespace(text(row.NamespacePrefix), name),
           message: text(row.ErrorMessage),
-          ...fieldKey(displayFieldOf(row.ErrorDisplayField, undefined)),
+          ...fieldKey(await shownOn(objectApiName, row.ErrorDisplayField)),
         },
       ];
-    })
+    }),
+  );
+  return listed
+    .flat()
     .sort(
       (a, b) =>
         (order.get(a.objectApiName) ?? 0) - (order.get(b.objectApiName) ?? 0) ||

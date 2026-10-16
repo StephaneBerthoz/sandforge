@@ -9,6 +9,7 @@ import {
   callsEstimateOf,
   gapFieldOf,
   gapLines,
+  fieldLabelsSoql,
   readActiveValidationRules,
   validationFormulaSoql,
   validationRulesSoql,
@@ -277,6 +278,47 @@ describe('readActiveValidationRules', () => {
         field: 'Siret__c',
       },
     ]);
+  });
+
+  it("reads the field a rule shows its error on back from its label, in the org's language", async () => {
+    // Read on a French Developer Edition: the Tooling API answers the label.
+    const described: string[] = [];
+    const rules = await readActiveValidationRules(
+      async () => [
+        rule(ruleId(1), 'Email_Required', 'Contact', 'Adresse e-mail'),
+        rule(ruleId(2), 'Phone_Format', 'Contact', 'Phone'),
+        rule(ruleId(3), 'Top', 'Contact', 'Haut de la page'),
+        rule(ruleId(4), 'Siret_Format', 'Account', 'Numéro SIRET'),
+      ],
+      ['Contact', 'Account'],
+      async (objectApiName) => {
+        described.push(objectApiName);
+        if (objectApiName === 'Account') throw new Error('describe refused');
+        return [
+          { name: 'Email', label: 'Adresse e-mail' },
+          { name: 'Phone', label: 'Téléphone' },
+        ];
+      },
+    );
+
+    expect(rules.map((r) => [r.name, r.field])).toEqual([
+      ['Email_Required', 'Email'],
+      ['Phone_Format', 'Phone'],
+      ['Top', undefined],
+      // An object it cannot describe keeps what is an API name alone.
+      ['Siret_Format', undefined],
+    ]);
+    // Each object described once, however many of its rules name a field.
+    expect(described.sort()).toEqual(['Account', 'Contact']);
+  });
+
+  it("asks the org's field definitions for the labels, and holds no name a query cannot", () => {
+    expect(fieldLabelsSoql('Contact')).toBe(
+      "SELECT QualifiedApiName, Label FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Contact'",
+    );
+    expect(fieldLabelsSoql("Contact' OR Id != '")).toBe(
+      "SELECT QualifiedApiName, Label FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = ''",
+    );
   });
 
   it('asks nothing for no object, nor for a name a query cannot hold', async () => {

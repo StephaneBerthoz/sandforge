@@ -1215,7 +1215,7 @@
       "settledBy_other": "{{count}} registros diferem do destino em um campo que a execução grava: {{strategy}} decide qual valor é gravado.",
       "conflictFields": "Campos que diferem: {{fields}}.",
       "nothingWritten": "Nada foi gravado. Os números comparam o que a execução enviaria com o que o destino contém agora.",
-      "notChecked": "Uma simulação não executa as regras de validação, as regras de duplicidade, os campos obrigatórios nem as automações do destino: um registro que uma delas recusaria é contado como a execução o enviaria.",
+      "notChecked": "Uma simulação prevê o que a descrição do destino informa — um campo obrigatório deixado vazio, um valor longo demais, um valor único que ele já tem — mas não executa suas regras de validação, regras de duplicidade, gatilhos nem fluxos, nem verifica seu compartilhamento: um registro que um deles recusaria é contado como a execução o enviaria.",
       "validationRules_one": "{{count}} regra de validação ativa do destino, que uma simulação não consegue avaliar: um registro que ela recuse é contado como gravado.",
       "validationRules_other": "{{count}} regras de validação ativas do destino, que uma simulação não consegue avaliar: um registro que uma delas recuse é contado como gravado.",
       "validationRulesUnread": "Não foi possível listar as regras de validação do destino ({{reason}}): qualquer uma delas pode recusar um registro contado como gravado.",
@@ -4104,10 +4104,14 @@
       "heldForExcludedParents": "Seriam deixados de fora, sem envio — um lookup sem o qual estes registros não podem entrar aponta para um objeto que excludedObjects deixa de fora, ou eles dependem de tais registros; nenhum marcador é pedido para ele: {{objects}}",
       "placeholders": "Marcadores a criar, e os registros que cada um preenche: {{fields}}",
       "defaults": "Valores padrão declarados, e os registros que cada um preenche: {{fields}}",
+      "defaultsPerRecord": "Cada registro recebe um valor próprio — sua posição acrescentada ao valor declarado, sendo o campo único no destino ou o nome do registro, ou o token que o valor contém ({n}, {referenceId}) substituído: {{fields}}",
       "personContacts_one": "{{count}} contato de conta pessoal entra com sua conta, contado à parte: vinculado ao contato que a plataforma grava com ela, ou enviado como contato próprio onde o destino tem a conta como conta comercial.",
       "personContacts_other": "{{count}} contatos de contas pessoais entram com sua conta, contados à parte: vinculados ao contato que a plataforma grava com ela, ou enviados como contatos próprios onde o destino tem a conta como conta comercial.",
       "recordTypeIssues_one": "{{count}} referência de tipo de registro que o destino não resolve",
-      "recordTypeIssues_other": "{{count}} referências de tipo de registro que o destino não resolve"
+      "recordTypeIssues_other": "{{count}} referências de tipo de registro que o destino não resolve",
+      "validationRules_one": "{{object}}: {{count}} regra de validação ativa do destino, que uma prévia não consegue avaliar — um registro que ela recuse é contado para inserir.",
+      "validationRules_other": "{{object}}: {{count}} regras de validação ativas do destino, que uma prévia não consegue avaliar — um registro que uma delas recuse é contado para inserir.",
+      "validationRulesUnread": "Não foi possível listar as regras de validação do destino ({{reason}}): qualquer uma delas pode recusar um registro contado para inserir."
     },
     "verify": {
       "run": "Verificar novamente",
@@ -4161,6 +4165,7 @@
         "deleted": "Excluídos",
         "deactivated": "Desativados",
         "leftUnrecorded": "Mantidos no lugar — uma carga registrada antes de as cargas guardarem o que criam pode tê-los vinculado: {{objects}}",
+        "keptByThePlatform": "Mantidos — a plataforma não exclui estes registros, que cargas anteriores criaram e que esta não encontra de novo: {{objects}}",
         "failedReasons": "Por que registros não puderam ser expurgados"
       },
       "unresolved": {
@@ -4193,6 +4198,7 @@
       "notRecorded": "Carregado antes de as cargas guardarem o que criam: seus registros não podem ser removidos daqui. Uma recarga os expurga, exceto os que a carga pode ter vinculado.",
       "orgGone": "A org em que esta carga gravou não está mais registrada: seus registros não podem ser removidos daqui.",
       "nothingCreated": "Esta carga não criou nenhum registro: não há nada a remover.",
+      "keptByThePlatform": "Mantidos em {{org}} por qualquer remoção — a plataforma não exclui estes registros criados pela carga: {{objects}}",
       "resultSuccess": "Nenhum registro criado por esta carga ficou em {{org}}.",
       "resultPartial": "Registros criados por esta carga foram removidos de {{org}}; os demais ficam, como listado.",
       "resultFailure": "Nenhum registro criado por esta carga foi removido de {{org}}.",

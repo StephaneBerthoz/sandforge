@@ -97,7 +97,14 @@ describe('SyncSimulationResults', () => {
     // A one-way run does not compare, so it has no conflicts to count.
     expect(summary.textContent).not.toContain('In conflict');
     expect(screen.getByText(/Nothing was written/)).toBeDefined();
-    expect(screen.getByText(/does not run the target's validation rules/)).toBeDefined();
+    // What it really leaves unchecked: since it predicts a required field
+    // left empty, it no longer says it does not check required fields.
+    const notChecked = screen.getByText(/does not run its validation rules/).textContent ?? '';
+    expect(notChecked).toContain('predicts what the target');
+    expect(notChecked).toContain('a required field left empty');
+    expect(notChecked).toContain('triggers or flows');
+    expect(notChecked).toContain('sharing');
+    expect(notChecked).not.toMatch(/does not run[^:]*required fields/);
   });
 
   it('gives each object its own line, with the reasons the counts leave unsaid', () => {

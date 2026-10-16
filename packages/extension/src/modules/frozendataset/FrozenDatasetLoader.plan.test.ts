@@ -435,3 +435,77 @@ describe('FrozenDatasetLoader — preview of a load', () => {
     expect(plan.perObject.find((o) => o.objectApiName === 'Contact')?.toInsert).toBe(1);
   });
 });
+
+describe('FrozenDatasetLoader — the validation rules a preview cannot evaluate', () => {
+  it("lists the target's active rules on each object it would insert records of, with the field each names", async () => {
+    // Run on a client sandbox, three loads in a row were each refused by the
+    // next rule of the accounts: listed beside the plan, all show at once.
+    const s = scenario();
+    const sasDir = makeTmpDir();
+    const readValidationRules = vi.fn(async (_names: readonly string[]) => [
+      {
+        objectApiName: 'Account',
+        name: 'Trap_Country_Required',
+        message: 'A country is required.',
+        field: 'BillingCountry',
+      },
+      { objectApiName: 'Account', name: 'Trap_Industry_Required', message: 'Pick an industry.' },
+      { objectApiName: 'Contact', name: 'Trap_Email_Required', message: 'An email is required.' },
+    ]);
+
+    const plan = await new FrozenDatasetLoader({
+      ...makeDeps(refusingWriter(), sasDir, s),
+      readValidationRules,
+    }).planLoad(options(s.dataset, sasDir));
+
+    // Asked of what it inserts only: not the price book it links, nor the
+    // error log the target takes no insert of.
+    expect(readValidationRules).toHaveBeenCalledWith(['Account', 'Contact']);
+    const rulesOf = (objectApiName: string) =>
+      plan.perObject.find((o) => o.objectApiName === objectApiName)?.validationRules;
+    expect(rulesOf('Account')).toEqual([
+      {
+        name: 'Trap_Country_Required',
+        message: 'A country is required.',
+        field: 'BillingCountry',
+      },
+      { name: 'Trap_Industry_Required', message: 'Pick an industry.' },
+    ]);
+    expect(rulesOf('Contact')).toEqual([
+      { name: 'Trap_Email_Required', message: 'An email is required.' },
+    ]);
+    expect(rulesOf('Pricebook2')).toBeUndefined();
+    expect(plan).not.toHaveProperty('validationRulesUnread');
+  });
+
+  it('says why the target would not list them, and answers the plan all the same', async () => {
+    const s = scenario();
+    const sasDir = makeTmpDir();
+
+    const plan = await new FrozenDatasetLoader({
+      ...makeDeps(refusingWriter(), sasDir, s),
+      readValidationRules: vi.fn(async () => {
+        throw new Error('INSUFFICIENT_ACCESS: the Tooling API is not open to this user');
+      }),
+    }).planLoad(options(s.dataset, sasDir));
+
+    expect(plan.validationRulesUnread).toBe(
+      'INSUFFICIENT_ACCESS: the Tooling API is not open to this user',
+    );
+    expect(plan.perObject.some((o) => o.validationRules !== undefined)).toBe(false);
+    expect(plan.perObject.find((o) => o.objectApiName === 'Account')?.toInsert).toBe(2);
+  });
+
+  it('reads none on a load, whose writes the rules judge', async () => {
+    const s = scenario();
+    const sasDir = makeTmpDir();
+    const readValidationRules = vi.fn(async () => []);
+
+    await new FrozenDatasetLoader({
+      ...makeDeps(makeWriter([]), sasDir, s),
+      readValidationRules,
+    }).load(options(s.dataset, sasDir));
+
+    expect(readValidationRules).not.toHaveBeenCalled();
+  });
+});

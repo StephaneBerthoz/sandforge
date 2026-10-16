@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   loadCreatedRecords,
   loadRecordsInfo,
+  loadRecordsKept,
   loadRecordsLeft,
   loadToRemove,
 } from './loadRecords.js';
@@ -279,5 +280,74 @@ describe('loadRecordsLeft', () => {
 
   it('takes nothing once a removal left none of the records in the org', () => {
     expect(loadRecordsLeft(recordedLoad({ removal }))).toEqual([]);
+  });
+});
+
+describe('the business hours a load created, which the platform never deletes', () => {
+  /** The load of `recordedLoad`, which also inserted business hours. */
+  function withBusinessHours(overrides: Partial<RecordedLoad> = {}): RecordedLoad {
+    const load = recordedLoad();
+    return {
+      ...load,
+      mapping: new Map([...load.mapping, ['BusinessHours-000001', id('01m', 1)]]),
+      created: [
+        { objectApiName: 'BusinessHours', referenceIds: ['BusinessHours-000001'] },
+        ...(load.created ?? []),
+      ],
+      ...overrides,
+    };
+  }
+
+  it('are never in what a removal takes', () => {
+    // Sent, they were refused: the removal ended partial, and the load was
+    // offered for removal again and again.
+    expect(loadRecordsLeft(withBusinessHours()).map((o) => o.objectApiName)).toEqual([
+      'PricebookEntry',
+      'Contact',
+      'Account',
+    ]);
+  });
+
+  it("are still the load's own records for the sweep, which must not take them for the automation's", () => {
+    expect(loadCreatedRecords(withBusinessHours()).map((o) => o.objectApiName)).toContain(
+      'BusinessHours',
+    );
+  });
+
+  it('are counted apart as kept, before a removal and after one took the rest', () => {
+    const removal = {
+      removedAt: '2026-09-24T11:00:00.000Z',
+      deleted: 5,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+    };
+
+    expect(loadRecordsInfo(withBusinessHours())).toMatchObject({
+      created: [
+        { objectApiName: 'PricebookEntry', count: 1 },
+        { objectApiName: 'Contact', count: 2 },
+        { objectApiName: 'Account', count: 2 },
+      ],
+      keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+    });
+    expect(loadRecordsInfo(withBusinessHours({ removal }))).toMatchObject({
+      created: [],
+      keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+    });
+    expect(loadRecordsKept(recordedLoad())).toEqual([]);
+  });
+
+  it('leave a load whose other records a removal took no longer offered for removal', () => {
+    const removal = {
+      removedAt: '2026-09-24T11:00:00.000Z',
+      deleted: 5,
+      alreadyGone: 0,
+      kept: 0,
+      refused: 0,
+    };
+    const earlier = recordedLoad({ endedAt: '2026-09-23T10:02:00.000Z', earlier: true });
+
+    expect(loadToRemove([withBusinessHours({ removal }), earlier])).toBe(earlier);
   });
 });

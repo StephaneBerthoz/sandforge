@@ -271,6 +271,9 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const purgeRows = loadReport ? purgedRows(loadReport.purge) : [];
   const purgeFailureRows = reasonRows(purgeFailureReasons(loadReport?.purge.failures ?? []));
   const leftUnrecorded = Object.entries(loadReport?.purge.leftUnrecorded ?? {});
+  // Never sent to be deleted, the platform deleting none of them: refused,
+  // they ended every reload with errors.
+  const keptByThePlatform = Object.entries(loadReport?.purge.keptByThePlatform ?? {});
 
   // The links the load owed after its inserts and did not make, and what
   // each cost: a lookup left empty on a record it wrote — or nothing more
@@ -523,6 +526,25 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   })}
                 </p>
               )}
+              {/* One value for every record of a unique field is refused from
+                  the second record on: run on a client sandbox, the second
+                  territory given the same default name was. */}
+              {plan.requiredDefaults.some((d) => d.perRecord) && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-defaults-per-record"
+                >
+                  {t('frozen.preview.defaultsPerRecord', {
+                    fields: plan.requiredDefaults
+                      .filter((d) => d.perRecord)
+                      .map(
+                        (d) =>
+                          `${d.objectApiName}.${d.field}${d.example ? ` (“${d.example}”…)` : ''}`,
+                      )
+                      .join(', '),
+                  })}
+                </p>
+              )}
               {plan.personContacts > 0 && (
                 <p
                   className="text-[11px] text-text-secondary"
@@ -545,6 +567,55 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   })}
                 </p>
               )}
+              {Object.keys(plan.keptByThePlatform ?? {}).length > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-kept-by-platform"
+                >
+                  {t('frozen.report.purge.keptByThePlatform', {
+                    objects: Object.entries(plan.keptByThePlatform ?? {})
+                      .map(([objectApiName, records]) => `${objectApiName} (${records})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
+              {/* What a preview cannot evaluate, beside what it counts: run on
+                  a client sandbox, three loads in a row were each refused by
+                  the next validation rule of the accounts. */}
+              {plan.validationRulesUnread && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-preview-rules-unread"
+                >
+                  {t('frozen.preview.validationRulesUnread', {
+                    reason: plan.validationRulesUnread,
+                  })}
+                </p>
+              )}
+              {plan.perObject
+                .filter((o) => (o.validationRules?.length ?? 0) > 0)
+                .map((o) => (
+                  <div
+                    key={o.objectApiName}
+                    data-testid={`frozen-preview-rules-${o.objectApiName}`}
+                  >
+                    <p className="text-[11px] text-status-warning">
+                      {t('frozen.preview.validationRules', {
+                        object: o.objectApiName,
+                        count: o.validationRules?.length ?? 0,
+                      })}
+                    </p>
+                    <ul className="mt-1 flex flex-col gap-0.5">
+                      {(o.validationRules ?? []).map((rule) => (
+                        <li key={rule.name} className="text-[10px] text-text-secondary">
+                          <code>{rule.name}</code>
+                          {rule.field ? ` (${rule.field})` : ''}
+                          {rule.message ? ` — ${rule.message}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
             </div>
           </CardBody>
         </Card>
@@ -707,7 +778,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               )}
 
               {/* A reload's purge of what earlier loads created: what went, what stayed, and why. */}
-              {purgeRows.length + purgeFailureRows.length + leftUnrecorded.length > 0 && (
+              {purgeRows.length +
+                purgeFailureRows.length +
+                leftUnrecorded.length +
+                keptByThePlatform.length >
+                0 && (
                 <div className="flex flex-col gap-2" data-testid="frozen-report-purge">
                   <span className="text-xs font-medium text-text-primary">
                     {t('frozen.report.purge.title')}
@@ -738,6 +813,18 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     >
                       {t('frozen.report.purge.leftUnrecorded', {
                         objects: leftUnrecorded
+                          .map(([objectApiName, records]) => `${objectApiName} (${records})`)
+                          .join(', '),
+                      })}
+                    </p>
+                  )}
+                  {keptByThePlatform.length > 0 && (
+                    <p
+                      className="text-[11px] text-text-secondary"
+                      data-testid="frozen-report-purge-kept"
+                    >
+                      {t('frozen.report.purge.keptByThePlatform', {
+                        objects: keptByThePlatform
                           .map(([objectApiName, records]) => `${objectApiName} (${records})`)
                           .join(', '),
                       })}

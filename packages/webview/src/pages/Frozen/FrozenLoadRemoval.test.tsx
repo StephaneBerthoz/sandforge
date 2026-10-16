@@ -479,6 +479,38 @@ describe('FrozenLoadRemoval', () => {
     expect(screen.getByTestId('frozen-removal-nothing')).toBeDefined();
   });
 
+  it('says which records the load created that no removal takes, the platform deleting none', () => {
+    render(
+      <FrozenLoadRemoval
+        records={{ ...LOADED, keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }] }}
+        onAnswered={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('frozen-removal-kept').textContent).toBe(
+      'Kept in DEV-SANDBOX by any removal — the platform does not delete these records the load created: BusinessHours (1)',
+    );
+    // What a removal takes is still offered.
+    expect(screen.getByTestId('frozen-removal-remove')).toBeDefined();
+  });
+
+  it('says it keeps them rather than that the load created nothing, when they are all it created', () => {
+    render(
+      <FrozenLoadRemoval
+        records={{
+          ...LOADED,
+          created: [],
+          keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+        }}
+        onAnswered={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('frozen-removal-nothing')).toBeNull();
+    expect(screen.queryByTestId('frozen-removal-remove')).toBeNull();
+    expect(screen.getByTestId('frozen-removal-kept')).toBeDefined();
+  });
+
   it('removes nothing while a load runs from the page', () => {
     render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} busy />);
 

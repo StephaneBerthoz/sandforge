@@ -1215,7 +1215,7 @@
       "settledBy_other": "{{count}} Datensätze weichen in einem Feld, das der Lauf schreibt, vom Ziel ab: {{strategy}} entscheidet, welcher Wert geschrieben wird.",
       "conflictFields": "Abweichende Felder: {{fields}}.",
       "nothingWritten": "Es wurde nichts geschrieben. Die Zahlen vergleichen, was der Lauf senden würde, mit dem, was das Ziel jetzt enthält.",
-      "notChecked": "Eine Simulation führt weder die Validierungsregeln noch die Duplikatregeln, Pflichtfelder oder Automatisierungen des Ziels aus: Ein Datensatz, den eine davon ablehnen würde, wird so gezählt, wie der Lauf ihn senden würde.",
+      "notChecked": "Eine Simulation sagt voraus, was die Beschreibung des Ziels verrät — ein leer gelassenes Pflichtfeld, ein zu langer Wert, ein eindeutiger Wert, den es bereits enthält —, führt aber weder seine Validierungsregeln noch seine Duplikatregeln, Trigger oder Flows aus und prüft nicht seine Freigaben: Ein Datensatz, den eine davon ablehnen würde, wird so gezählt, wie der Lauf ihn senden würde.",
       "validationRules_one": "{{count}} aktive Validierungsregel des Ziels, die eine Simulation nicht auswerten kann: Ein Datensatz, den sie ablehnt, wird als geschrieben gezählt.",
       "validationRules_other": "{{count}} aktive Validierungsregeln des Ziels, die eine Simulation nicht auswerten kann: Ein Datensatz, den eine von ihnen ablehnt, wird als geschrieben gezählt.",
       "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als geschrieben gezählten Datensatz ablehnen.",
@@ -4104,10 +4104,14 @@
       "heldForExcludedParents": "Würden ausgelassen, nicht gesendet — ein Lookup, ohne den diese Datensätze nicht geladen werden können, verweist auf ein Objekt, das excludedObjects auslässt, oder sie hängen von solchen Datensätzen ab; dafür wird kein Platzhalter verlangt: {{objects}}",
       "placeholders": "Anzulegende Platzhalter und die Datensätze, die jeder füllt: {{fields}}",
       "defaults": "Deklarierte Standardwerte und die Datensätze, die jeder füllt: {{fields}}",
+      "defaultsPerRecord": "Jeder Datensatz erhält einen eigenen Wert — seinen Rang an den deklarierten Wert angehängt, da das Feld im Ziel eindeutig oder der Name des Datensatzes ist, oder das Token, das der Wert trägt ({n}, {referenceId}), ersetzt: {{fields}}",
       "personContacts_one": "{{count}} Kontakt eines Personenkontos kommt mit seinem Konto hinein, gesondert gezählt: mit dem Kontakt verknüpft, den die Plattform mit ihm schreibt, oder als eigener Kontakt gesendet, wo das Ziel das Konto als Geschäftskonto führt.",
       "personContacts_other": "{{count}} Kontakte von Personenkonten kommen mit ihrem Konto hinein, gesondert gezählt: mit dem Kontakt verknüpft, den die Plattform mit ihm schreibt, oder als eigene Kontakte gesendet, wo das Ziel das Konto als Geschäftskonto führt.",
       "recordTypeIssues_one": "{{count}} Datensatztyp-Verweis, den das Ziel nicht auflöst",
-      "recordTypeIssues_other": "{{count}} Datensatztyp-Verweise, die das Ziel nicht auflöst"
+      "recordTypeIssues_other": "{{count}} Datensatztyp-Verweise, die das Ziel nicht auflöst",
+      "validationRules_one": "{{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Vorschau nicht auswerten kann — ein Datensatz, den sie ablehnt, wird als einzufügen gezählt.",
+      "validationRules_other": "{{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Vorschau nicht auswerten kann — ein Datensatz, den eine von ihnen ablehnt, wird als einzufügen gezählt.",
+      "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als einzufügen gezählten Datensatz ablehnen."
     },
     "verify": {
       "run": "Erneut prüfen",
@@ -4161,6 +4165,7 @@
         "deleted": "Gelöscht",
         "deactivated": "Deaktiviert",
         "leftUnrecorded": "Belassen — ein Ladevorgang von vor der Zeit, als Ladevorgänge festhielten, was sie erstellen, kann mit ihnen verknüpft haben: {{objects}}",
+        "keptByThePlatform": "Behalten — die Plattform löscht diese Datensätze nicht, die frühere Ladevorgänge erstellt haben und die dieser nicht wiederfindet: {{objects}}",
         "failedReasons": "Warum Datensätze nicht bereinigt werden konnten"
       },
       "unresolved": {
@@ -4193,6 +4198,7 @@
       "notRecorded": "Geladen, bevor Ladevorgänge festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein Neuladen bereinigt sie, außer denen, mit denen der Ladevorgang verknüpft haben kann.",
       "orgGone": "Die Org, in die dieser Ladevorgang geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
       "nothingCreated": "Dieser Ladevorgang hat keinen Datensatz erstellt: Es gibt nichts zu entfernen.",
+      "keptByThePlatform": "In {{org}} von jeder Entfernung behalten — die Plattform löscht diese vom Ladevorgang erstellten Datensätze nicht: {{objects}}",
       "resultSuccess": "Kein von diesem Ladevorgang erstellter Datensatz ist mehr in {{org}}.",
       "resultPartial": "Von diesem Ladevorgang erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",
       "resultFailure": "Kein von diesem Ladevorgang erstellter Datensatz wurde aus {{org}} entfernt.",

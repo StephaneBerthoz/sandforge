@@ -864,6 +864,40 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
   });
 
+  it('says what a reload left in place that the platform does not delete, though it purged nothing else', () => {
+    // Sent to be deleted, the business hours were refused at every reload.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: true },
+        startedAt: '2026-10-16T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: {
+          deleted: {},
+          deactivated: {},
+          failures: [],
+          keptByThePlatform: { BusinessHours: 1 },
+        },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+
+    expect(screen.getByTestId('frozen-report-purge-kept').textContent).toBe(
+      'Kept — the platform does not delete these records, which earlier loads created and this one does not find again: BusinessHours (1)',
+    );
+  });
+
   it('names the links the load left unresolved, by object and lookup, with what each cost', () => {
     // Counted nowhere on screen, where the resolved ones were: a load whose
     // only errors were its unresolved links read "Completed with errors" over

@@ -152,11 +152,15 @@ export class SchemaAligner {
         return v !== undefined && v !== null && v !== '';
       });
       if (!present) {
+        // What a default for it must do: give each record a value of its own
+        // for a field the target keeps unique, or for the object's name.
+        const distinct = fd.unique ? 'unique' : fd.nameField ? 'name' : undefined;
         missing.push({
           objectApiName: input.objectApiName,
           field: fd.name,
           isLookup: (fd.referenceTo?.length ?? 0) > 0,
           referenceTo: fd.referenceTo ?? [],
+          ...(distinct ? { distinct } : {}),
         });
       }
     }

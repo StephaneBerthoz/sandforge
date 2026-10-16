@@ -707,6 +707,71 @@ describe('FrozenDatasetHandler', () => {
         );
       });
 
+      it("hands the loader the target's active validation rules, read on its Tooling API every page of it", async () => {
+        const { config } = writeDataset();
+        wire(config);
+        const toolingQuery = vi.fn(async (soql: string) =>
+          soql.includes('FROM FieldDefinition')
+            ? {
+                done: true,
+                totalSize: 2,
+                records: [
+                  { QualifiedApiName: 'Email', Label: 'Adresse e-mail' },
+                  { QualifiedApiName: 'Phone', Label: 'Téléphone' },
+                ],
+              }
+            : {
+                done: false,
+                totalSize: 2,
+                nextRecordsUrl: '/next',
+                records: [
+                  {
+                    ValidationName: 'Trap_Email_Required',
+                    ErrorMessage: 'An email is required.',
+                    // As a French org answers it: the field's label.
+                    ErrorDisplayField: 'Adresse e-mail',
+                    EntityDefinition: { QualifiedApiName: 'Contact' },
+                  },
+                ],
+              },
+        );
+        const toolingQueryMore = vi.fn(async () => ({
+          done: true,
+          totalSize: 2,
+          records: [
+            {
+              ValidationName: 'Trap_Phone_Format',
+              ErrorMessage: 'Phone format.',
+              EntityDefinition: { QualifiedApiName: 'Contact' },
+            },
+          ],
+        }));
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          tooling: { query: toolingQuery, queryMore: toolingQueryMore },
+        } as never);
+        loaderPlan.mockResolvedValueOnce(PLAN);
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        const [loaderDeps] = vi.mocked(FrozenDatasetLoader).mock.calls.at(-1) ?? [];
+        await expect(loaderDeps?.readValidationRules?.(['Contact'])).resolves.toEqual([
+          {
+            objectApiName: 'Contact',
+            name: 'Trap_Email_Required',
+            message: 'An email is required.',
+            field: 'Email',
+          },
+          { objectApiName: 'Contact', name: 'Trap_Phone_Format', message: 'Phone format.' },
+        ]);
+        expect(toolingQuery).toHaveBeenCalledWith(
+          expect.stringContaining('FROM ValidationRule WHERE Active = true'),
+        );
+        expect(toolingQuery).toHaveBeenCalledWith(
+          "SELECT QualifiedApiName, Label FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Contact'",
+        );
+        expect(toolingQueryMore).toHaveBeenCalledWith('/next');
+      });
+
       it('is refused, saying why, by the entry guard that would refuse the load', async () => {
         const { config } = writeDataset();
         wire(config);
@@ -1711,6 +1776,35 @@ describe('FrozenDatasetHandler', () => {
         expect(described.fields.map((f) => [f.name, f.updateable])).toEqual([
           ['IsWhat', false],
           ['IsInvitee', true],
+        ]);
+      });
+
+      it("says which fields the target keeps unique, and which is the object's name", async () => {
+        // What tells a declared default to give each record a value of its own.
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          describe: async (name: string) => ({
+            name,
+            createable: true,
+            fields: [
+              { name: 'Code__c', type: 'string', createable: true, unique: true },
+              { name: 'Name', type: 'string', createable: true, nameField: true },
+              { name: 'Rating__c', type: 'string', createable: true },
+            ],
+            recordTypeInfos: [],
+          }),
+        } as never);
+        loaderLoad.mockImplementation(async () => report());
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        const [{ orgAccess }] = vi.mocked(FrozenDatasetLoader).mock.calls[0];
+        const described = await orgAccess.describe('org-2', 'ServiceTerritory');
+        expect(described.fields.map((f) => [f.name, f.unique, f.nameField])).toEqual([
+          ['Code__c', true, false],
+          ['Name', false, true],
+          ['Rating__c', false, false],
         ]);
       });
     });

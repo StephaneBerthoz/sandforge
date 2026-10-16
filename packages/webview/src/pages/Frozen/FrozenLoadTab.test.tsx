@@ -285,6 +285,95 @@ describe('FrozenLoadTab', () => {
       );
     });
 
+    it("lists the target's validation rules on each object it would insert, with the field each names", () => {
+      // Run on a client sandbox, three loads in a row were each refused by
+      // the next rule of the accounts: listed in the preview, all show at once.
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            perObject: PLAN.perObject.map((o) =>
+              o.objectApiName === 'Account'
+                ? {
+                    ...o,
+                    validationRules: [
+                      {
+                        name: 'Trap_Country_Required',
+                        message: 'A country is required.',
+                        field: 'BillingCountry',
+                      },
+                      { name: 'Trap_Industry_Required', message: 'Pick an industry.' },
+                    ],
+                  }
+                : o,
+            ),
+          },
+        },
+      };
+
+      render(tab());
+
+      const rules = screen.getByTestId('frozen-preview-rules-Account');
+      expect(rules.textContent).toContain(
+        'Account: 2 active validation rules of the target, which a preview cannot evaluate',
+      );
+      expect(
+        within(rules)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
+        'Trap_Country_Required (BillingCountry) — A country is required.',
+        'Trap_Industry_Required — Pick an industry.',
+      ]);
+      expect(screen.queryByTestId('frozen-preview-rules-Pricebook2')).toBeNull();
+      expect(screen.queryByTestId('frozen-preview-rules-unread')).toBeNull();
+    });
+
+    it("says when the target's validation rules could not be listed", () => {
+      answers['frozen:load:preview'] = {
+        data: { plan: { ...PLAN, validationRulesUnread: 'INSUFFICIENT_ACCESS' } },
+      };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-rules-unread').textContent).toBe(
+        "The target's validation rules could not be listed (INSUFFICIENT_ACCESS): any of them may refuse a record counted to insert.",
+      );
+    });
+
+    it('says which defaults give each record a value of its own, and what the purge keeps', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            requiredDefaults: [
+              {
+                objectApiName: 'ServiceTerritory',
+                field: 'Name',
+                affectedRecords: 2,
+                perRecord: 'unique',
+                example: 'Frozen territory 1',
+              },
+              { objectApiName: 'Account', field: 'Rating__c', affectedRecords: 1 },
+            ],
+            keptByThePlatform: { BusinessHours: 1 },
+          },
+        },
+      };
+
+      render(tab());
+
+      const perRecord = screen.getByTestId('frozen-preview-defaults-per-record').textContent;
+      expect(perRecord).toContain('ServiceTerritory.Name (“Frozen territory 1”…)');
+      expect(perRecord).not.toContain('Rating__c');
+      expect(screen.getByTestId('frozen-preview-kept-by-platform').textContent).toContain(
+        'the platform does not delete these records',
+      );
+      expect(screen.getByTestId('frozen-preview-kept-by-platform').textContent).toContain(
+        'BusinessHours (1)',
+      );
+    });
+
     it('leaves out the purge of a load that is not a reload', () => {
       answers['frozen:load:preview'] = {
         data: { plan: { ...PLAN, mode: { pilot: false, reload: false } } },

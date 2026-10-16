@@ -1215,7 +1215,7 @@
       "settledBy_other": "{{count}} records differ from the target on a field the run writes: {{strategy}} decides which value is written.",
       "conflictFields": "Fields that differ: {{fields}}.",
       "nothingWritten": "Nothing was written. The counts compare what the run would send with what the target holds now.",
-      "notChecked": "A simulation does not run the target's validation rules, duplicate rules, required fields or automations: a record one of them would refuse is counted as the run would send it.",
+      "notChecked": "A simulation predicts what the target's describe tells — a required field left empty, a value too long, a unique value it holds already — but does not run its validation rules, duplicate rules, triggers or flows, nor check its sharing: a record one of them would refuse is counted as the run would send it.",
       "validationRules_one": "{{count}} active validation rule of the target, which a simulation cannot evaluate: a record it refuses is counted as written.",
       "validationRules_other": "{{count}} active validation rules of the target, which a simulation cannot evaluate: a record one of them refuses is counted as written.",
       "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted as written.",
@@ -4104,10 +4104,14 @@
       "heldForExcludedParents": "Would be left out, not sent — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; no placeholder is asked for it: {{objects}}",
       "placeholders": "Placeholders to create, and the records each fills: {{fields}}",
       "defaults": "Declared defaults, and the records each fills: {{fields}}",
+      "defaultsPerRecord": "Each record gets a value of its own — its rank appended to the declared value, the field being unique in the target or the record's name, or the token the value carries ({n}, {referenceId}) replaced: {{fields}}",
       "personContacts_one": "{{count}} person account's contact goes in with its account, counted apart: linked to the contact the platform writes with it, or sent as one of its own where the target holds the account as a business account.",
       "personContacts_other": "{{count}} person accounts' contacts go in with their account, counted apart: linked to the contact the platform writes with it, or sent as one of its own where the target holds the account as a business account.",
       "recordTypeIssues_one": "{{count}} record type reference the target does not resolve",
-      "recordTypeIssues_other": "{{count}} record type references the target does not resolve"
+      "recordTypeIssues_other": "{{count}} record type references the target does not resolve",
+      "validationRules_one": "{{object}}: {{count}} active validation rule of the target, which a preview cannot evaluate — a record it refuses is counted to insert.",
+      "validationRules_other": "{{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a record one of them refuses is counted to insert.",
+      "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted to insert."
     },
     "verify": {
       "run": "Re-verify",
@@ -4161,6 +4165,7 @@
         "deleted": "Deleted",
         "deactivated": "Deactivated",
         "leftUnrecorded": "Left in place — a load recorded before loads kept what they created may have linked them: {{objects}}",
+        "keptByThePlatform": "Kept — the platform does not delete these records, which earlier loads created and this one does not find again: {{objects}}",
         "failedReasons": "Why records could not be purged"
       },
       "unresolved": {
@@ -4193,6 +4198,7 @@
       "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here. A reload purges them, except those the load may have linked to.",
       "orgGone": "The org this load wrote to is no longer registered: its records cannot be removed from here.",
       "nothingCreated": "This load created no record: there is nothing to remove.",
+      "keptByThePlatform": "Kept in {{org}} by any removal — the platform does not delete these records the load created: {{objects}}",
       "resultSuccess": "No record this load created is left in {{org}}.",
       "resultPartial": "Records this load created were removed from {{org}}; the others stay, as listed.",
       "resultFailure": "No record this load created was removed from {{org}}.",

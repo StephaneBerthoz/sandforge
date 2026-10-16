@@ -239,6 +239,37 @@ describe('removalPlanLines, once a removal left records in the org', () => {
       'the last load wrote to TGT at 2026-09-29T15:49:35.673Z; its records were removed on 2026-09-29T15:51:27.295Z, and none is left to remove',
     );
   });
+
+  it('says it keeps what the load created that the platform does not delete', () => {
+    expect(
+      removalPlanLines(
+        {
+          ...left,
+          created: [],
+          keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+        },
+        'TGT',
+      ).at(-1),
+    ).toBe('kept: the platform does not delete them — BusinessHours (1)');
+  });
+
+  it('says a load whose only records the platform keeps has none a removal takes', () => {
+    expect(
+      removalPlanLines(
+        {
+          ...left,
+          removed: undefined,
+          created: [],
+          keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+        },
+        'TGT',
+      ),
+    ).toEqual([
+      'the last load wrote to TGT at 2026-09-29T15:49:35.673Z; it created no record a removal takes',
+      '4 record(s) it linked to or reused stay',
+      'kept: the platform does not delete them — BusinessHours (1)',
+    ]);
+  });
 });
 
 describe('removalAsks', () => {
@@ -382,6 +413,134 @@ describe('messageLines', () => {
       '  ErrorLog__c: not loaded — Not createable in target org',
       'placeholder for Contact.Owner__c: 2 record(s)',
       '1 person account contact(s) go in with their account, not counted above',
+    ]);
+  });
+
+  it("says how each record gets a default of its own, what the purge keeps, and the target's validation rules", () => {
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: true },
+          plannedAt: '2026-10-16T10:00:00.000Z',
+          perObject: [
+            {
+              objectApiName: 'Contact',
+              fromFiles: 2,
+              toInsert: 2,
+              reusedByKeys: 0,
+              reusedFromCatalog: 0,
+              fieldsDropped: 0,
+              picklistsRewritten: 0,
+              notSent: 0,
+              toPurge: 0,
+              toDeactivate: 0,
+              validationRules: [
+                {
+                  name: 'Trap_Email_Required',
+                  message: 'An email is required.',
+                  field: 'Email',
+                },
+                { name: 'Trap_Phone_Format', message: '' },
+              ],
+            },
+          ],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [
+            {
+              objectApiName: 'ServiceTerritory',
+              field: 'Name',
+              affectedRecords: 2,
+              perRecord: 'name',
+              example: 'Frozen territory 1',
+            },
+          ],
+          recordTypeIssues: 0,
+          personContacts: 0,
+          earlierLoads: 1,
+          keptByThePlatform: { BusinessHours: 1 },
+        },
+      },
+    });
+
+    expect(lines.slice(2)).toEqual([
+      'default for ServiceTerritory.Name: 2 record(s), each record its own, its rank appended: the field is the record name (first: "Frozen territory 1")',
+      'left in place by the purge, the platform does not delete them:',
+      '  BusinessHours: 1',
+      'Contact: 2 active validation rule(s) of the target, which a preview cannot evaluate — a record one of them refuses is counted to insert:',
+      '  Trap_Email_Required (Email) — An email is required.',
+      '  Trap_Phone_Format',
+    ]);
+  });
+
+  it("says when the target's validation rules could not be listed", () => {
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          plannedAt: '2026-10-16T10:00:00.000Z',
+          perObject: [],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [],
+          requiredDefaults: [],
+          recordTypeIssues: 0,
+          personContacts: 0,
+          earlierLoads: 0,
+          validationRulesUnread: 'INSUFFICIENT_ACCESS',
+        },
+      },
+    });
+
+    expect(lines.at(-1)).toBe(
+      "the target's validation rules could not be listed (INSUFFICIENT_ACCESS): any of them may refuse a record counted to insert",
+    );
+  });
+
+  it('says a removal kept what the platform does not delete, and a purge too', () => {
+    const removal = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        operationId: 'frozen-remove-3',
+        result: {
+          status: 'success',
+          includeChanged: false,
+          finishedAt: '2026-10-16T16:10:00.000Z',
+          objects: [],
+          keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+        },
+      },
+    });
+    expect(removal.at(-1)).toBe('kept: the platform does not delete them — BusinessHours (1)');
+
+    const load = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: true },
+          startedAt: '2026-10-16T16:00:00.000Z',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: { Case: 1 }, failures: [], keptByThePlatform: { BusinessHours: 1 } },
+          mappingPath: '',
+          contractPath: '',
+        },
+      },
+    });
+    expect(load.slice(-2)).toEqual([
+      'kept by the purge, the platform does not delete them:',
+      '  BusinessHours: 1',
     ]);
   });
 

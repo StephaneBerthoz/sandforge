@@ -10,6 +10,7 @@
 
 import type { ForgeRunObjectRecords, FrozenLoadRecordsInfo } from '@sandforge/shared';
 import { removalTookAll } from '@sandforge/shared';
+import { KEPT_BY_THE_PLATFORM } from './loadTypes.js';
 import type { RecordedLoad } from './SasReferenceIdMappingStore.js';
 
 /** A Salesforce record id: 15 or 18 letters and digits. */
@@ -130,7 +131,8 @@ export function loadCreatedRecords(
 /**
  * What a removal of a load takes now: what it created and a removal has not
  * taken — the mapping forgets what went — or nothing once one took all that
- * was left.
+ * was left. Never a record the platform does not delete: see
+ * {@link loadRecordsKept}.
  *
  * A removal that left records in the org — kept for a change since or for
  * records that stay, refused by the org — used to mark the load as removed
@@ -140,7 +142,28 @@ export function loadCreatedRecords(
 export function loadRecordsLeft(
   load: Pick<RecordedLoad, 'mapping' | 'created' | 'removal'>,
 ): ForgeRunObjectRecords[] {
-  return removalTookAll(load.removal) ? [] : loadCreatedRecords(load);
+  return removalTookAll(load.removal)
+    ? []
+    : loadCreatedRecords(load).filter((object) => !keptByThePlatform(object.objectApiName));
+}
+
+/** Whether the platform deletes no record of the object: see `KEPT_BY_THE_PLATFORM`. */
+function keptByThePlatform(objectApiName: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KEPT_BY_THE_PLATFORM, objectApiName);
+}
+
+/**
+ * Per object, the records a load created that no removal takes: the platform
+ * deletes none of them — business hours. Sent to be deleted, they were
+ * refused, counted as failures, and the load offered for removal again and
+ * again; kept, they are said so.
+ */
+export function loadRecordsKept(
+  load: Pick<RecordedLoad, 'mapping' | 'created'>,
+): Array<{ objectApiName: string; count: number }> {
+  return loadCreatedRecords(load)
+    .filter((object) => keptByThePlatform(object.objectApiName))
+    .map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length }));
 }
 
 /**
@@ -164,6 +187,7 @@ export function loadRecordsInfo(load: RecordedLoad): FrozenLoadRecordsInfo {
   const recorded = load.created !== undefined;
   const going = goWithTheirRecord(load);
   const kept = [...linkedRecords(load)].filter((record) => !going.has(record));
+  const keptByThePlatform = loadRecordsKept(load);
   return {
     orgId: load.orgId,
     loadedAt: load.endedAt,
@@ -176,5 +200,6 @@ export function loadRecordsInfo(load: RecordedLoad): FrozenLoadRecordsInfo {
     recorded,
     ...(load.removal ? { removed: load.removal } : {}),
     ...(load.earlier ? { earlier: true as const } : {}),
+    ...(keptByThePlatform.length > 0 ? { keptByThePlatform } : {}),
   };
 }

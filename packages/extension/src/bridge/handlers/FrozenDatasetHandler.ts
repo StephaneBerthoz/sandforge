@@ -93,6 +93,7 @@ import type { ObjectDescribe } from '../../modules/forge/GraphDiscoveryService.j
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import { readPicklistFieldValues } from '../../core/metadata/recordTypePicklists.js';
 import type { ScopableField } from '../../modules/forge/ScopedSoqlBuilder.js';
+import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import {
   CoverageMatrixSelector,
   CustomMetadataCalloutMockDetector,
@@ -125,6 +126,7 @@ import {
   leftToThePlatformCoverage,
   loadCreatedRecords,
   loadRecordsInfo,
+  loadRecordsKept,
   loadRecordsLeft,
   loadToRemove,
   loadTokensFromSas,
@@ -425,6 +427,15 @@ function graphCoverage(graph: ForgeGraph, maxNodes: number): FrozenGraphCoverage
     truncated: graph.truncated === true,
     maxNodes,
   };
+}
+
+/** What a refused removal adds of the records a load created that no removal takes, if any. */
+function keptByThePlatformNote(
+  kept: ReadonlyArray<{ objectApiName: string; count: number }>,
+): string {
+  if (kept.length === 0) return '';
+  const objects = kept.map(({ objectApiName, count }) => `${objectApiName} (${count})`).join(', ');
+  return ` Kept in the org, the platform does not delete them: ${objects}.`;
 }
 
 /**
@@ -997,6 +1008,9 @@ export class FrozenDatasetHandler implements DomainHandler {
             })),
             // What a flag given back to a relation the load linked to reads.
             updateable: f.updateable !== false,
+            // What tells a default to give each record a value of its own.
+            unique: f.unique === true,
+            nameField: f.nameField === true,
           })),
           // The REST describe carries each record type's developerName;
           // jsforce's type for it leaves the field out.
@@ -1988,6 +2002,51 @@ export class FrozenDatasetHandler implements DomainHandler {
         config: this.toLoadConfig(config),
         sasGuard: guard,
         serverTime: () => targetClock.serverTime(),
+        // What it cannot evaluate, listed beside what it would insert: the
+        // target's validation rules, read as Forge's pre-flight and Sync's
+        // simulation read them.
+        readValidationRules: async (objectApiNames) => {
+          const { readActiveValidationRules, fieldLabelsSoql } =
+            await import('../../modules/forge/TargetGapReader.js');
+          const tooling = conn.tooling;
+          return readActiveValidationRules(
+            async (soql) =>
+              (
+                await queryAllPages<Record<string, unknown>>(
+                  {
+                    query: async (q) => tooling.query<Record<string, unknown>>(q),
+                    queryMore: async (url) => tooling.queryMore<Record<string, unknown>>(url),
+                  },
+                  soql,
+                )
+              ).records,
+            objectApiNames,
+            // The field a rule shows its error on comes back as its label in
+            // the org's language, read back to its API name by the labels the
+            // org's field definitions give. The describe's can differ: on a
+            // French org, `Téléphone` there, `Téléphone (bureau)` in the
+            // describe of a contact.
+            async (objectApiName) =>
+              (
+                await queryAllPages<Record<string, unknown>>(
+                  {
+                    query: async (q) => tooling.query<Record<string, unknown>>(q),
+                    queryMore: async (url) => tooling.queryMore<Record<string, unknown>>(url),
+                  },
+                  fieldLabelsSoql(objectApiName),
+                )
+              ).records.flatMap((row) =>
+                typeof row.QualifiedApiName === 'string'
+                  ? [
+                      {
+                        name: row.QualifiedApiName,
+                        ...(typeof row.Label === 'string' ? { label: row.Label } : {}),
+                      },
+                    ]
+                  : [],
+              ),
+          );
+        },
       });
       const plan = await loader.planLoad({
         orgId: parsed.targetOrgId,
@@ -2291,11 +2350,16 @@ export class FrozenDatasetHandler implements DomainHandler {
     // while the status still counted the records it left.
     const plan = loadRecordsLeft(load);
     if (plan.length === 0) {
+      // What the load created that no removal takes is said, not counted as
+      // nothing created: see `loadRecordsKept`.
+      const kept = keptByThePlatformNote(loadRecordsKept(load));
       if (load.removal) {
         refuse(
-          `The records this load created were already removed, on ${load.removal.removedAt}.`,
+          `The records this load created were already removed, on ${load.removal.removedAt}.${kept}`,
           'ALREADY_REMOVED',
         );
+      } else if (kept) {
+        refuse(`This load created no record a removal takes.${kept}`, 'NOTHING_TO_REMOVE');
       } else {
         refuse('This load created no record to remove.', 'NOTHING_TO_REMOVE');
       }
@@ -2545,6 +2609,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       // A removal after one that marked the load takes what that one left:
       // the result and the audit trail say so, with when it ended.
       const leftBy = load.removal?.removedAt;
+      // What the load created that the platform does not delete was never
+      // sent: said as kept, never counted as refused. Sent, the business
+      // hours of a load were refused, and the removal ended partial.
+      const keptByThePlatform = loadRecordsKept(load);
       const result: FrozenRemovalResult = {
         status: removalStatus(outcome.objects, outcome.cancelled),
         includeChanged,
@@ -2552,6 +2620,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         finishedAt: new Date().toISOString(),
         ...(leftBy ? { leftBy } : {}),
         ...(sweepResult ? { sweep: sweepResult } : {}),
+        ...(keptByThePlatform.length > 0 ? { keptByThePlatform } : {}),
       };
 
       recordWriteRun(this.deps, {
