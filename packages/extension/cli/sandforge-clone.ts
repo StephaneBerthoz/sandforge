@@ -571,7 +571,7 @@ Remove what a run created:
                          before or after a delete, or as an activated order
                          is set back to Draft for its delete — or could not
                          say what it runs                       (default: off)
-  --sweep                once the run's records are gone, delete too what the
+  --sweep                before the run's records go, delete too what the
                          target's automation created during the run, as the
                          run's user, that the run's id map does not hold: in
                          the objects the run wrote, tasks, events, feed, email
@@ -2509,7 +2509,7 @@ export interface RemoveArgs {
   json: boolean;
   /** Delete although the target runs automation as the records go, or could not say what it runs. */
   acceptAutomation: boolean;
-  /** Once the run's records are gone, sweep what the target's automation created during the run. */
+  /** Before the run's records go, sweep what the target's automation created during the run. */
   sweep: boolean;
   /** List what a sweep would delete, and delete nothing. */
   sweepList: boolean;
@@ -3437,15 +3437,60 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // outright left it a draft.
   const stop = new AbortController();
   const interrupt = (): void => stop.abort();
-  let outcome: RunRemovalOutcome | undefined;
+  // The removal is said and its automation asked about before anything is
+  // deleted, the sweep's records included.
   if (plan.length > 0) {
-    outcome = await removeThePlan();
+    await checkThePlan();
   } else {
     say('nothing left of the run to remove');
   }
 
-  /** The removal of what is left of the run, said, asked and recorded as it always was. */
-  async function removeThePlan(): Promise<RunRemovalOutcome> {
+  // The sweep comes before the run's records go, as the panel's does: a
+  // record the target's automation hung under one of them after the run's
+  // last write would otherwise hold it back as a record that stays.
+  let sweep: ForgeSweepResult | undefined;
+  if (args.sweep) {
+    process.once('SIGINT', interrupt);
+    try {
+      sweep = await sweepRunRecords(
+        removalOrg(conn, 'sandforge-clone --sweep'),
+        await cliSweepInput(conn, args.target, summary, created, stop.signal),
+        {
+          includeChanged: args.includeChanged,
+          // What the earlier removals of the run changed while they ran is no
+          // change since the run.
+          removalSpans: earlier?.removalSpans ?? [],
+          // What it found, said before the first delete: --sweep asked for it.
+          approve: async (listing) => {
+            say('');
+            for (const line of sweepListingLines(listing, args.target)) say(line);
+            return undefined;
+          },
+        },
+      );
+    } finally {
+      process.off('SIGINT', interrupt);
+    }
+    recordCliRun(args.audit, audited, {
+      action: 'cleanup_delete',
+      module: 'forge',
+      operationId: `${operationId}-sweep`,
+      orgId: org.id,
+      outcome: sweep.status === 'refused' ? 'stopped' : sweep.status,
+      ...(sweep.status === 'refused' ? { code: 'SWEEP_REFUSED' } : {}),
+      objects: sweepAuditObjects(sweep),
+      details: sweepAuditDetails(sweep, run),
+    });
+  }
+
+  // A Ctrl-C during the sweep stops the removal too.
+  let outcome: RunRemovalOutcome | undefined;
+  if (plan.length > 0) {
+    outcome = stop.signal.aborted ? notRemoved() : await removeThePlan();
+  }
+
+  /** What the run would remove said, and what the target runs as its records go asked about. */
+  async function checkThePlan(): Promise<void> {
     for (const line of removalPlanLines(summary, plan, args)) say(line);
     // What the target runs as the records go, said before the first delete,
     // and asked as the clone asks about what fires as it inserts: a removal
@@ -3482,7 +3527,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           'the records, if anything, takes its place',
       );
     }
+  }
 
+  /** A removal a stop came before: nothing deleted, recorded as cancelled. */
+  function notRemoved(): RunRemovalOutcome {
+    recordRemoval({ outcome: 'cancelled', objects: [] });
+    return { objects: [], cancelled: true, gone: [], stamps: {}, left: async function* () {} };
+  }
+
+  /** The removal of what is left of the run, recorded as it always was. */
+  async function removeThePlan(): Promise<RunRemovalOutcome> {
     process.once('SIGINT', interrupt);
     const span = summary.result.writtenBetween;
     let removal: RunRemovalOutcome;
@@ -3518,49 +3572,6 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       ...(leftBy ? { leftBy } : {}),
     });
     return removal;
-  }
-
-  // The sweep, once the run's records are gone: what the target's automation
-  // created during the run, as its user. A removal stopped part way is
-  // followed by none.
-  let sweep: ForgeSweepResult | undefined;
-  if (args.sweep && outcome?.cancelled) {
-    sweep = { status: 'cancelled', objects: [], unread: [], handWork: [] };
-  } else if (args.sweep) {
-    process.once('SIGINT', interrupt);
-    try {
-      sweep = await sweepRunRecords(
-        removalOrg(conn, 'sandforge-clone --sweep'),
-        await cliSweepInput(conn, args.target, summary, created, stop.signal),
-        {
-          includeChanged: args.includeChanged,
-          // What the removals of the run changed while they ran, this one's
-          // included, is no change since the run.
-          removalSpans: [
-            ...(earlier?.removalSpans ?? []),
-            ...(outcome?.span ? [outcome.span] : []),
-          ],
-          // What it found, said before the first delete: --sweep asked for it.
-          approve: async (listing) => {
-            say('');
-            for (const line of sweepListingLines(listing, args.target)) say(line);
-            return undefined;
-          },
-        },
-      );
-    } finally {
-      process.off('SIGINT', interrupt);
-    }
-    recordCliRun(args.audit, audited, {
-      action: 'cleanup_delete',
-      module: 'forge',
-      operationId: `${operationId}-sweep`,
-      orgId: org.id,
-      outcome: sweep.status === 'refused' ? 'stopped' : sweep.status,
-      ...(sweep.status === 'refused' ? { code: 'SWEEP_REFUSED' } : {}),
-      objects: sweepAuditObjects(sweep),
-      details: sweepAuditDetails(sweep, run),
-    });
   }
 
   // Kept beside the summary whatever the removal ended on, cancelled

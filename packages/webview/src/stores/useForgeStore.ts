@@ -78,13 +78,18 @@ export interface ForgeRunError {
   message: string;
   /**
    * The kind of failure, as the extension keys it rather than by its English
-   * text: `EXECUTE_ERROR` for a run that failed, or was cancelled once it had
-   * written; `RUN_CANCELLED` for one a cancel stopped before it wrote;
-   * `ABORTED_BEFORE_START` for one aborted before it started; a refusal's own
-   * code — `GUARD_DECLINED`, `FORGE_RUNNING`… — for a run stopped before it
-   * started. Absent when the error carried none.
+   * text: `EXECUTE_ERROR` for a run that failed; `RUN_CANCELLED` for one a
+   * cancel stopped, before or after it wrote; `ABORTED_BEFORE_START` for one
+   * aborted before it started; a refusal's own code — `GUARD_DECLINED`,
+   * `FORGE_RUNNING`… — for a run stopped before it started. Absent when the
+   * error carried none.
    */
   code?: string;
+  /**
+   * Whether the user's cancel stopped the run (`RUN_CANCELLED`): the page
+   * says it was cancelled, not the abort's words as an error.
+   */
+  cancelled?: true;
   /**
    * The run as the extension keeps it in its history, when it had created
    * records before it stopped; null when the error said nothing of them.
@@ -168,6 +173,9 @@ export type ForgePhase = 'input' | 'discovery' | 'review' | 'execution' | 'resul
 
 /** Maximum number of results kept in history. */
 const MAX_HISTORY = 50;
+
+/** The code the extension sends a run a cancel stopped under, before or after it wrote. */
+const RUN_CANCELLED = 'RUN_CANCELLED';
 
 /**
  * Most log lines a run keeps. Forge can emit hundreds of them; without a cap
@@ -1010,7 +1018,12 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set((state) => {
       if (!ofRunOnScreen(state, requestId) || state.runError) return state;
       return {
-        runError: { message, ...(code ? { code } : {}), stoppedRun: stoppedRun ?? null },
+        runError: {
+          message,
+          ...(code ? { code } : {}),
+          ...(code === RUN_CANCELLED ? { cancelled: true as const } : {}),
+          stoppedRun: stoppedRun ?? null,
+        },
         // Said by the page, whose region outlives the screen: where it stopped.
         stoppedAt: settledPercent(state.graph?.nodes ?? []),
         logs: withLogLine(state.logs, forgeLogEntry('error', message)),

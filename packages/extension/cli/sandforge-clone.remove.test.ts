@@ -1017,14 +1017,17 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
-    it('sweeps once the removal is through, with the run’s window, records and id map, and the removal’s span', async () => {
+    it('sweeps before the removal, with the run’s window, records and id map', async () => {
+      // Swept after it, a task the target's automation opened under a cloned
+      // contact after the run's last write kept the contact back as a record
+      // that stays.
       const path = file(runSummary());
       vi.mocked(removeRunRecords).mockResolvedValue({ ...TOOK_ALL, span: FIRST_SPAN });
 
       expect(await run(['--remove', path, '--target', 'TGT', '--sweep', '--json'])).toBeUndefined();
 
-      expect(vi.mocked(removeRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
-        vi.mocked(sweepRunRecords).mock.invocationCallOrder[0],
+      expect(vi.mocked(sweepRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(removeRunRecords).mock.invocationCallOrder[0],
       );
       const { input, options } = sweepCall();
       expect(input.writtenBetween).toEqual(WRITTEN_BETWEEN);
@@ -1035,7 +1038,8 @@ describe('sandforge-clone --remove', () => {
         const target = TGT(source.slice(0, 3), Number(source.slice(3, 15)));
         expect(input.remap.has(target.slice(0, 15))).toBe(true);
       }
-      expect(options).toMatchObject({ includeChanged: false, removalSpans: [FIRST_SPAN] });
+      // No removal of the run ran before it.
+      expect(options).toMatchObject({ includeChanged: false, removalSpans: [] });
       expect(stderr).toContain('it would delete 2 record(s), children first:');
       expect(JSON.parse(stdout.join(''))).toMatchObject({
         result: { status: 'success', sweep: { status: 'success' } },
@@ -1043,6 +1047,46 @@ describe('sandforge-clone --remove', () => {
       expect(removalsOf(path)).toMatchObject({
         sweep: { deleted: 2, keptChanged: 0, refused: 0 },
         removalSpans: [FIRST_SPAN],
+      });
+    });
+
+    it('asks about what the target runs as the records go before the sweep deletes anything', async () => {
+      targetTriggers = [
+        {
+          Name: 'ContactCleanup',
+          NamespacePrefix: null,
+          TableEnumOrId: 'Contact',
+          EntityDefinition: { QualifiedApiName: 'Contact' },
+          UsageBeforeInsert: false,
+          UsageAfterInsert: false,
+          UsageBeforeUpdate: false,
+          UsageAfterUpdate: false,
+          UsageBeforeDelete: true,
+          UsageAfterDelete: false,
+          UsageAfterUndelete: false,
+        },
+      ];
+
+      expect(await run(['--remove', file(runSummary()), '--target', 'TGT', '--sweep'])).toBe(1);
+
+      expect(sweepRunRecords).not.toHaveBeenCalled();
+      expect(removeRunRecords).not.toHaveBeenCalled();
+    });
+
+    it('removes none of the run’s records once a Ctrl-C stopped the sweep', async () => {
+      const once = vi.spyOn(process, 'once');
+      vi.mocked(sweepRunRecords).mockImplementation(async () => {
+        const interrupt = once.mock.calls.find(([event]) => event === 'SIGINT')?.[1];
+        (interrupt as () => void)();
+        return { ...SWEPT, status: 'cancelled', objects: [] };
+      });
+      const path = file(runSummary());
+
+      expect(await run(['--remove', path, '--target', 'TGT', '--sweep', '--json'])).toBe(3);
+
+      expect(removeRunRecords).not.toHaveBeenCalled();
+      expect(JSON.parse(stdout.join(''))).toMatchObject({
+        result: { status: 'cancelled', objects: [], sweep: { status: 'cancelled' } },
       });
     });
 
@@ -1118,10 +1162,9 @@ describe('sandforge-clone --remove', () => {
       expect(printed.join('\n')).toContain('Opportunity: 1 (left)');
       const kept = JSON.parse(readFileSync(auditPath, 'utf8')) as Record<string, { value: string }>;
       const entries = JSON.parse(kept['audit:trail'].value) as Array<Record<string, unknown>>;
-      expect(entries.at(-1)).toMatchObject({
+      expect(entries.find((entry) => String(entry.operationId).endsWith('-sweep'))).toMatchObject({
         action: 'cleanup_delete',
         outcome: 'stopped',
-        operationId: expect.stringMatching(/-sweep$/),
         details: { sweep: true, handWork: 1, code: 'SWEEP_REFUSED' },
       });
     });

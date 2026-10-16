@@ -4150,6 +4150,35 @@ describe('ForgeHandler', () => {
       expect(errorsPosted()[0].result).toMatchObject({ status: 'partial', cancelled: true });
     });
 
+    it('sends a run a cancel stopped after writing under the cancel’s code, with what it wrote', async () => {
+      // Sent as EXECUTE_ERROR, the page said the abort's English words as the
+      // error the run stopped on; its removal is offered from what it wrote.
+      const store = historyStore();
+
+      await executeThrowing(
+        stoppedWith(new ForgeAbortedError('Forge execution was aborted by user request.')),
+      );
+
+      const [error] = errorsPosted();
+      expect(error.code).toBe('RUN_CANCELLED');
+      expect(error.result).toMatchObject({
+        forgeId: kept(store)[0].forgeId,
+        cancelled: true,
+        createdCount: 1,
+      });
+      // The trail still records it as cancelled, under no code of a stop before writing.
+      expect(new AuditTrailStore(store).list().entries[0]).toMatchObject({ outcome: 'cancelled' });
+      expect(new AuditTrailStore(store).list().entries[0].details ?? {}).not.toHaveProperty('code');
+    });
+
+    it('still sends a run that failed after writing as a failure', async () => {
+      historyStore();
+
+      await executeThrowing(stoppedWith(new Error('UNABLE_TO_LOCK_ROW: unable to obtain lock')));
+
+      expect(errorsPosted()[0].code).toBe('EXECUTE_ERROR');
+    });
+
     it('counts the calls a stopped run made up to its stop, the record types read before it among them', async () => {
       const store = historyStore();
       // Each org answers the record types in one query.

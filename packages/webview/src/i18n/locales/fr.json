@@ -2746,6 +2746,7 @@
     "executeForge": "Exécuter le Forge",
     "executeFailed": "L'exécution du Forge a échoué",
     "runStoppedOn": "L'exécution s'est arrêtée avant sa fin : {{message}}",
+    "runCancelled": "Vous avez annulé l'exécution avant sa fin.",
     "runStoppedWrote_one": "Avant de s'arrêter, elle avait créé {{count}} enregistrement dans l'org cible.",
     "runStoppedWrote_other": "Avant de s'arrêter, elle avait créé {{count}} enregistrements dans l'org cible.",
     "seeStoppedRun": "Voir ce qu'elle a écrit",
@@ -3288,7 +3289,7 @@
         "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés.",
         "error": "Ce que {{org}} exécute quand ces enregistrements partent n'a pas pu être lu : {{reason}}"
       },
-      "removeSweep": "Puis balayer : reprendre aussi ce que l'automatisation de la cible a créé pendant l'exécution, au nom de son utilisateur",
+      "removeSweep": "Balayer d'abord : reprendre aussi ce que l'automatisation de la cible a créé pendant l'exécution, au nom de son utilisateur — un tel enregistrement ne retient alors plus aucun enregistrement de l'exécution",
       "sweepAction": "Reprendre ce que l'automatisation de la cible a créé",
       "sweep": {
         "title": "Ce que le balayage reprend dans {{org}}",

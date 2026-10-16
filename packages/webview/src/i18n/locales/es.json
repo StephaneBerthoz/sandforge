@@ -2746,6 +2746,7 @@
     "executeForge": "Ejecutar Forge",
     "executeFailed": "La ejecución de Forge ha fallado",
     "runStoppedOn": "La ejecución se detuvo antes de terminar: {{message}}",
+    "runCancelled": "Canceló la ejecución antes de que terminara.",
     "runStoppedWrote_one": "Antes de detenerse, había creado {{count}} registro en la org de destino.",
     "runStoppedWrote_other": "Antes de detenerse, había creado {{count}} registros en la org de destino.",
     "seeStoppedRun": "Ver lo que escribió",
@@ -3288,7 +3289,7 @@
         "none": "Nada de lo que {{org}} automatiza se ejecuta al eliminar estos registros.",
         "error": "No se pudo leer lo que {{org}} ejecuta cuando se van estos registros: {{reason}}"
       },
-      "removeSweep": "Después, barrer: recuperar también lo que la automatización del destino creó durante la ejecución, como su usuario",
+      "removeSweep": "Barrer primero: recuperar también lo que la automatización del destino creó durante la ejecución, como su usuario — así ese registro ya no retiene ningún registro de la ejecución",
       "sweepAction": "Recuperar lo que creó la automatización del destino",
       "sweep": {
         "title": "Lo que el barrido recupera de {{org}}",

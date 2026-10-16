@@ -182,6 +182,34 @@ describe('ForgePage — a run that stops on an error', () => {
     expect(useForgeStore.getState().result).toEqual(STOPPED_RUN);
   });
 
+  it('says a run the user cancelled after it wrote was cancelled, on the run and in what it wrote, with its removal offered', async () => {
+    // Sent as EXECUTE_ERROR, a cancelled run read as one that failed on the
+    // abort's English words.
+    render(<ForgePage />);
+    host('forge:progress', { objectName: 'Opportunity', status: 'done', progress: 100 });
+
+    host('forge:execute:error', {
+      message: 'Forge execution was aborted by user request.',
+      code: 'RUN_CANCELLED',
+      retryable: true,
+      result: { ...STOPPED_RUN, status: 'partial', cancelled: true },
+    });
+
+    const notice = screen.getByTestId('forge-execution-error');
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(notice.textContent).toContain(i18n.t('forge.runCancelled'));
+    expect(notice.textContent).not.toContain('aborted by user request');
+
+    fireEvent.click(screen.getByTestId('forge-execution-see-stopped'));
+
+    const results = await screen.findByTestId('forge-results');
+    expect(within(results).getByTestId('forge-results-stopped-message').textContent).toBe(
+      i18n.t('forge.runCancelled'),
+    );
+    expect(within(results).getByTestId('forge-results-stopped').dataset.cancelled).toBe('true');
+    expect(within(results).getByTestId('forge-results-removal')).toBeTruthy();
+  });
+
   it('says what the error means and what to do, with its row in the guide, on the run and in what it wrote', async () => {
     render(<ForgePage />);
     host('forge:progress', { objectName: 'Opportunity', status: 'done', progress: 100 });

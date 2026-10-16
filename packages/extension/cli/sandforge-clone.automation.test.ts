@@ -407,7 +407,7 @@ describe('sandforge-clone target automation', () => {
       ],
       unread: [],
       conditionsNotRead: 0,
-      conditionsBound: 500,
+      conditionsBound: 300,
       definitionsNotRead: 0,
       definitionsBound: 100,
       bypassGrants: [{ permission: 'Load_Data', permissionSets: [] }],

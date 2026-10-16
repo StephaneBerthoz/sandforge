@@ -728,7 +728,7 @@ export interface ForgeUndoResult {
   mayHaveBeenWritten?: number;
   /**
    * What the sweep asked with the removal did: the records the target's
-   * automation created during the run, taken back once the run's own were.
+   * automation created during the run, taken back before the run's own.
    * Absent when no sweep was asked.
    */
   sweep?: ForgeSweepResult;
@@ -814,7 +814,7 @@ export interface ForgeSweepListing {
 /** What a sweep did to one object's records. */
 export interface ForgeSweepObjectResult {
   objectApiName: string;
-  /** Records found, as the listing counted them once the run's own were gone. */
+  /** Records found, as the listing counted them. */
   found: number;
   deleted: number;
   /** Gone by the time their delete was sent: taken along with a parent. */
@@ -827,7 +827,7 @@ export interface ForgeSweepObjectResult {
   reasons: string[];
 }
 
-/** What a sweep did, once the run's own records were removed. */
+/** What a sweep of a removal did, before the run's own records went. */
 export interface ForgeSweepResult {
   /** How it ended; `refused` when it would not run, and deleted nothing. */
   status: ForgeUndoStatus | 'refused';

@@ -647,7 +647,7 @@ const NOTHING_REMOVED: RunRemovalOutcome = {
   left: async function* () {},
 };
 
-/** A sweep that did not run: the removal before it was stopped part way. */
+/** A sweep that did not run, whose refusal or failure says why. */
 const SWEEP_NOT_RUN: ForgeSweepResult = {
   status: 'cancelled',
   objects: [],
@@ -2353,9 +2353,12 @@ export class ForgeHandler implements DomainHandler {
       // Its code is the one the trail records — a run stopped before it
       // started, or by a cancel before it wrote, is not a failure — which the
       // page says in the user's language: told EXECUTE_ERROR, it showed the
-      // English message of a run that failed.
+      // English message of a run that failed. A run a cancel stopped once it
+      // had written, which the trail records as cancelled under no code, goes
+      // under the cancel's code all the same: under EXECUTE_ERROR, the page
+      // said the abort's words as the error it stopped on.
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
-        code: code ?? 'EXECUTE_ERROR',
+        code: code ?? (cancelled ? RUN_CANCELLED : 'EXECUTE_ERROR'),
         retryable: true,
         ...(stoppedRun
           ? {
@@ -3281,8 +3284,8 @@ export class ForgeHandler implements DomainHandler {
    * and the entry is marked once records went, so the removal is not offered
    * again once none is left.
    *
-   * Asked with a sweep, the removal is followed by one (`sweepAfter`): what
-   * the target's automation created during the run, as its user. A sweep
+   * Asked with a sweep, the removal is preceded by one (`sweepBeforeRemoval`):
+   * what the target's automation created during the run, as its user. A sweep
    * needs the run's id map, which only the history holds: one asked of a run
    * the history dropped is refused. Asked of a run whose records were all
    * removed already, the sweep runs alone.
@@ -4217,8 +4220,8 @@ export class ForgeHandler implements DomainHandler {
 
   /**
    * The removal of {@link handleUndo} once the request is known to name a
-   * run whose records can be removed: Production Guard, then the run itself,
-   * then, when asked, the sweep — alone when nothing of the run is left.
+   * run whose records can be removed: Production Guard, then, when asked,
+   * the sweep — alone when nothing of the run is left — then the run itself.
    *
    * @param sweepOf - The run's history entry, when a sweep was asked.
    */
@@ -4331,9 +4334,28 @@ export class ForgeHandler implements DomainHandler {
               })
           : {}),
       };
+      // The sweep comes before the run's own records go, as a Frozen load's
+      // does: a record the target's automation hung under one of them after
+      // the run's last write — a task or a feed item its asynchronous path
+      // opened — is not of the run, and would hold its parent back as a
+      // record that stays. A cancel during the sweep stops the removal too.
+      const sweepResult = sweepOf
+        ? await this.sweepBeforeRemoval({
+            conn,
+            entry: sweepOf,
+            includeChanged,
+            removalSpans: entry.removalSpans ?? [],
+            signal: stop.signal,
+            guard,
+            orgTier,
+            operationId,
+          })
+        : undefined;
+      // Nothing of the run to remove, or a cancel during the sweep: no record
+      // of the run goes.
       const outcome: RunRemovalOutcome =
-        total === 0
-          ? NOTHING_REMOVED
+        total === 0 || stop.signal.aborted
+          ? { ...NOTHING_REMOVED, cancelled: total > 0 }
           : await removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
               ...(span
                 ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
@@ -4383,27 +4405,6 @@ export class ForgeHandler implements DomainHandler {
         });
       }
 
-      // The sweep comes once the run's own records are gone, so that what
-      // went in cascade with them is no longer there; a removal stopped part
-      // way is followed by none.
-      const sweepResult = !sweepOf
-        ? undefined
-        : outcome.cancelled
-          ? SWEEP_NOT_RUN
-          : await this.sweepAfter({
-              conn,
-              entry: sweepOf,
-              includeChanged,
-              // What this removal changed while it ran is its own doing too.
-              removalSpans: [
-                ...(entry.removalSpans ?? []),
-                ...(outcome.span ? [outcome.span] : []),
-              ],
-              signal: stop.signal,
-              guard,
-              orgTier,
-              operationId,
-            });
       const result: ForgeUndoResult = {
         ...removed,
         ...(sweepResult ? { sweep: sweepResult } : {}),
@@ -4532,15 +4533,22 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /**
-   * The sweep of a removal, once the run's own records are gone: what the
-   * target's automation created during the run, as its user, found again
-   * (`sweepRunRecords`), judged by Production Guard as a delete before the
-   * first one — refused on a production org, a Developer Edition counting as
-   * development — then deleted, children first, until the removal's Cancel.
-   * The audit trail records it beside the removal, as a `cleanup_delete`
-   * with a `sweep` detail, whatever it ended on.
+   * The sweep of a removal, before the run's own records go: what the
+   * target's automation created during the run, as its user, that the run's
+   * id map does not hold, found (`sweepRunRecords`), judged by Production
+   * Guard as a delete before the first one — refused on a production org, a
+   * Developer Edition counting as development — then deleted, children
+   * first, until the removal's Cancel. The audit trail records it beside the
+   * removal, as a `cleanup_delete` with a `sweep` detail, whatever it ended on.
+   *
+   * Swept after the removal, a run's side effects held its records back: a
+   * record the automation created under one of them a few seconds after the
+   * run's last write — on an asynchronous path, out of the run's span — was
+   * a record that stays, and the removal kept its parent "for records that
+   * stay". Swept first, it is gone when the removal reads what hangs from
+   * the run's records.
    */
-  private async sweepAfter(context: {
+  private async sweepBeforeRemoval(context: {
     conn: Parameters<typeof removalOrg>[0];
     entry: ForgeExecutionResult;
     includeChanged: boolean;

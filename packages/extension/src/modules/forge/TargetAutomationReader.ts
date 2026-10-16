@@ -36,12 +36,13 @@
  *   rule's from its own `Metadata`. The org gives `Metadata` one row per
  *   query: asked for two, it refuses with `MALFORMED_QUERY`. A Tooling
  *   composite asks {@link TOOLING_QUERIES_PER_REQUEST} such queries in one
- *   request, each answered on its own, and the read takes
- *   {@link CONDITION_REQUESTS_BOUND} requests of flows and
- *   {@link DEFINITION_REQUESTS_BOUND} of processes and rules at most; one
- *   query a request, where no composite can be sent, it takes
- *   {@link CONDITIONS_BOUND} flows and {@link DEFINITIONS_BOUND} processes
- *   and rules;
+ *   request, each answered on its own — the most queries the org runs in
+ *   one — and the read takes {@link CONDITION_REQUESTS_BOUND} requests of
+ *   flows and {@link DEFINITION_REQUESTS_BOUND} of processes and rules at
+ *   most, a query the org halts sent again among them
+ *   ({@link readInComposites}); one query a request, where no composite can
+ *   be sent, it takes {@link CONDITIONS_BOUND} flows and
+ *   {@link DEFINITIONS_BOUND} processes and rules;
  * - the assignment rules from `AssignmentRule` (Case and Lead only), the
  *   duplicate rules from `DuplicateRule`, and the custom permissions of the
  *   user the read runs as — the user the run writes as — from
@@ -119,8 +120,13 @@ export interface TargetAutomationDeps {
   toolingQueries?: (orgId: string, soqls: readonly string[]) => Promise<ToolingAnswer[]>;
 }
 
-/** What one query of a Tooling composite came to: its rows, or the org's refusal of it alone. */
-export type ToolingAnswer = { records: Array<Record<string, unknown>> } | { refused: string };
+/**
+ * What one query of a Tooling composite came to: its rows, or the org's
+ * refusal of it alone — `halted` when the org did not run it, its limit of
+ * queries a composite reached ({@link TOOLING_QUERIES_PER_REQUEST}).
+ */
+export type ToolingAnswer =
+  { records: Array<Record<string, unknown>> } | { refused: string; halted?: true };
 
 /**
  * Every page of `soql` from a connection, or from its Tooling API, and the
@@ -150,24 +156,31 @@ export const CONDITIONS_BOUND = 25;
 export const DEFINITIONS_BOUND = 15;
 
 /**
- * The queries one Tooling composite holds: the 25 subrequests a composite
- * request takes. Each asks for one flow's or one rule's `Metadata`, the one
- * row a query of it gives.
+ * The queries one Tooling composite holds: of the 25 subrequests a composite
+ * takes, the org runs five queries at most, and halts every query after the
+ * fifth with `PROCESSING_HALTED` ("Limit number of query or Collections in
+ * Rest Operations reached."), as the Tooling API Developer Guide says of its
+ * composite resource ("Up to five of these subrequests can be query
+ * operations"). Run on a large client sandbox, a read that asked 25 a
+ * composite had 20 of each halted, and the sweep of a removal said "20
+ * flow(s) on the run's objects not read". Each query asks for one flow's or
+ * one rule's `Metadata`, the one row a query of it gives.
  */
-export const TOOLING_QUERIES_PER_REQUEST = 25;
+export const TOOLING_QUERIES_PER_REQUEST = 5;
 
 /**
  * The most requests a read sends for start conditions when it can send them
- * in composites: 500 flows. Run on a large client sandbox, a clone's objects
+ * in composites: 300 flows. Run on a large client sandbox, a clone's objects
  * ran 242 record-triggered flows, and a read of {@link CONDITIONS_BOUND}, one
  * request each, left 217 of them "start condition not read" — the org where
- * the report matters most. Twenty requests stay a sliver of a day's API
- * budget, and the report says what is still left unread past them.
+ * the report matters most. Sixty requests stay a sliver of a day's API
+ * budget, a query the org halts is sent again among them, and the report
+ * says what is still left unread past them.
  */
-export const CONDITION_REQUESTS_BOUND = 20;
+export const CONDITION_REQUESTS_BOUND = 60;
 
-/** The most requests a read sends for the definitions of processes and rules, in composites. */
-export const DEFINITION_REQUESTS_BOUND = 4;
+/** The most requests a read sends for the definitions of processes and rules, in composites: 100. */
+export const DEFINITION_REQUESTS_BOUND = 20;
 
 /**
  * Requests in flight at a time. Review compares the two orgs' metadata at the
@@ -243,6 +256,9 @@ export function toolingCompositeBody(
   };
 }
 
+/** The code the org halts a subrequest of a composite with, past its limit of queries. */
+const PROCESSING_HALTED = 'PROCESSING_HALTED';
+
 const compositeAnswerSchema = z.object({
   compositeResponse: z.array(
     z.object({ body: z.unknown(), httpStatusCode: z.number(), referenceId: z.string() }).loose(),
@@ -280,8 +296,93 @@ export function toolingAnswersOf(raw: unknown, count: number): ToolingAnswer[] {
       refused: first
         ? [first.errorCode, first.message].filter(Boolean).join(': ')
         : `status ${sub.httpStatusCode}`,
+      // Halted, the query was not run. The composite's queries name none of
+      // one another, so only the org's limit of queries halts one.
+      ...(first?.errorCode === PROCESSING_HALTED ? { halted: true as const } : {}),
     };
   });
+}
+
+/** A query a read sends in a Tooling composite, and what becomes of its answer. */
+export interface CompositeQuery {
+  soql: string;
+  take: (records: ReadonlyArray<Record<string, unknown>>) => void;
+  refused: (reason: string) => void;
+}
+
+/** Queries of one kind, and the most composites they may take, a halted query's again included. */
+export interface CompositeBatch {
+  queries: readonly CompositeQuery[];
+  requests: number;
+}
+
+/**
+ * Send `batches` in Tooling composites, {@link TOOLING_QUERIES_PER_REQUEST}
+ * queries a composite at most, `inFlightLimit` composites at a time, the first
+ * batch's queries first; and return how many composites were sent.
+ *
+ * A query the org halts (`ToolingAnswer.halted`) was not run: it goes again,
+ * before the queries not sent yet, and every composite sent after it holds no
+ * more queries than the org ran of the one that halted it — an org that runs
+ * fewer than it documents is read all the same, a few a request. A query goes
+ * again only when the org ran another of its composite, so a read always
+ * ends; and within its batch's requests, so the budget holds: a query a
+ * batch's requests leave unsent is refused with the org's reason, and the
+ * report says it was not read.
+ */
+export async function readInComposites(
+  send: (soqls: readonly string[]) => Promise<ToolingAnswer[]>,
+  batches: readonly CompositeBatch[],
+  inFlightLimit: number,
+): Promise<number> {
+  const queues = batches.map((batch) => ({
+    waiting: [...batch.queries],
+    left: batch.requests,
+    halt: undefined as string | undefined,
+  }));
+  let size = TOOLING_QUERIES_PER_REQUEST;
+  let sent = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const queue = queues.find((q) => q.waiting.length > 0 && q.left > 0);
+      if (!queue) return;
+      queue.left--;
+      sent++;
+      const chunk = queue.waiting.splice(0, size);
+      let answers: ToolingAnswer[];
+      try {
+        answers = await send(chunk.map((query) => query.soql));
+      } catch (err: unknown) {
+        for (const query of chunk) query.refused(extractErrorMessage(err));
+        continue;
+      }
+      const halted: CompositeQuery[] = [];
+      let reason: string | undefined;
+      chunk.forEach((query, index) => {
+        const answer = answers[index];
+        if (!answer) query.refused('The org gave no answer to this query of the composite');
+        else if ('records' in answer) query.take(answer.records);
+        else if (answer.halted) {
+          halted.push(query);
+          reason ??= answer.refused;
+        } else query.refused(answer.refused);
+      });
+      if (halted.length === 0) continue;
+      const ran = chunk.length - halted.length;
+      if (ran === 0) {
+        for (const query of halted) query.refused(reason ?? PROCESSING_HALTED);
+        continue;
+      }
+      size = Math.min(size, ran);
+      queue.halt = reason;
+      queue.waiting.unshift(...halted);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, inFlightLimit) }, worker));
+  for (const queue of queues) {
+    for (const query of queue.waiting) query.refused(queue.halt ?? PROCESSING_HALTED);
+  }
+  return sent;
 }
 
 /** The metadata of one workflow rule: the only way the org says whether it is active. */
@@ -1480,61 +1581,56 @@ export class TargetAutomationReader {
       read.flow.condition = 'unreadable';
       definitionRefusal ??= reason;
     };
-    /**
-     * The tasks that read `items`: a composite a chunk of them, each item
-     * answered on its own; or, without composites, a query each.
-     */
-    const readingTasks = <T>(
+    /** The queries that read `items`, each answered on its own. */
+    const queriesOf = <T>(
       items: readonly T[],
       soqlOf: (item: T) => string,
       take: (item: T, records: ReadonlyArray<Record<string, unknown>>) => void,
       refused: (item: T, reason: string) => void,
-    ): Array<() => Promise<void>> => {
-      if (!toolingQueries) {
-        return items.map((item) => async () => {
+    ): CompositeQuery[] =>
+      items.map((item) => ({
+        soql: soqlOf(item),
+        take: (records) => take(item, records),
+        refused: (reason) => refused(item, reason),
+      }));
+    const conditionQueries = queriesOf(
+      reading,
+      (read) => conditionSoql(read.id!),
+      takeCondition,
+      conditionRefused,
+    );
+    const definitionQueries = queriesOf(
+      definitionsReading,
+      definitionSoql,
+      takeDefinition,
+      definitionRefused,
+    );
+    if (toolingQueries) {
+      // In composites, a few queries a request, a query the org halts sent
+      // again within the same bound of requests.
+      requests += await readInComposites(
+        (soqls) => toolingQueries(targetOrgId, soqls),
+        [
+          { queries: conditionQueries, requests: CONDITION_REQUESTS_BOUND },
+          { queries: definitionQueries, requests: DEFINITION_REQUESTS_BOUND },
+        ],
+        REQUESTS_IN_FLIGHT,
+      );
+    } else {
+      await inFlight(
+        [...conditionQueries, ...definitionQueries].map((query) => async () => {
           try {
-            const answer = await this.deps.toolingQuery(targetOrgId, soqlOf(item));
+            const answer = await this.deps.toolingQuery(targetOrgId, query.soql);
             requests += answer.requests;
-            take(item, answer.records);
+            query.take(answer.records);
           } catch (err: unknown) {
             requests++;
-            refused(item, extractErrorMessage(err));
+            query.refused(extractErrorMessage(err));
           }
-        });
-      }
-      const chunks: T[][] = [];
-      for (let at = 0; at < items.length; at += TOOLING_QUERIES_PER_REQUEST) {
-        chunks.push(items.slice(at, at + TOOLING_QUERIES_PER_REQUEST));
-      }
-      return chunks.map((chunk) => async () => {
-        requests++;
-        let answers: ToolingAnswer[];
-        try {
-          answers = await toolingQueries(targetOrgId, chunk.map(soqlOf));
-        } catch (err: unknown) {
-          for (const item of chunk) refused(item, extractErrorMessage(err));
-          return;
-        }
-        chunk.forEach((item, index) => {
-          const answer = answers[index];
-          if (!answer) refused(item, 'The org gave no answer to this query of the composite');
-          else if ('refused' in answer) refused(item, answer.refused);
-          else take(item, answer.records);
-        });
-      });
-    };
-    await inFlight(
-      [
-        ...readingTasks(
-          reading,
-          (read) => conditionSoql(read.id!),
-          takeCondition,
-          conditionRefused,
-        ),
-        ...readingTasks(definitionsReading, definitionSoql, takeDefinition, definitionRefused),
-      ],
-      REQUESTS_IN_FLIGHT,
-    );
+        }),
+        REQUESTS_IN_FLIGHT,
+      );
+    }
     if (refusal !== undefined) unread.push({ part: 'conditions', reason: refusal });
     if (definitionRefusal !== undefined) {
       unread.push({ part: 'definitions', reason: definitionRefusal });

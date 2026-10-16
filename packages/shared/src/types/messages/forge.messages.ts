@@ -136,7 +136,7 @@ export interface ForgeUndoRequest extends BaseMessage {
      */
     includeChanged?: boolean;
     /**
-     * Sweep too, once the run's records are gone: delete what the target's
+     * Sweep too, before the run's records go: delete what the target's
      * automation created during the run, as the run's user, that the run's
      * id map does not hold (`ForgeSweepListing`). Never done unasked. Asked
      * of a run whose records were all removed already, the sweep alone runs.
@@ -643,9 +643,8 @@ export interface ForgeUndoAutomationErrorMessage extends BaseMessage {
 }
 
 /**
- * `forge:undo-sweep:response`. Extension -> WebView. What a sweep would take
- * once the run's records are gone, per object, read before anything is
- * deleted; or why it would not run.
+ * `forge:undo-sweep:response`. Extension -> WebView. What a sweep would take,
+ * per object, read before anything is deleted; or why it would not run.
  */
 export interface ForgeUndoSweepResponse extends BaseMessage {
   type: 'forge:undo-sweep:response';

@@ -2674,7 +2674,7 @@ for (const theme of SCANNED_THEMES) {
         payload: {
           message:
             'Forge execution was aborted by user request. Remaining objects were not processed.',
-          code: 'EXECUTE_ERROR',
+          code: 'RUN_CANCELLED',
           retryable: true,
           result: {
             forgeId: 'forge-run-cancelled',
@@ -2731,7 +2731,7 @@ for (const theme of SCANNED_THEMES) {
         payload: {
           message:
             'Forge execution was aborted by user request. No further batches will be processed.',
-          code: 'EXECUTE_ERROR',
+          code: 'RUN_CANCELLED',
           retryable: true,
           result: {
             forgeId: 'forge-run-stopped-mid-write',
@@ -2780,14 +2780,22 @@ for (const theme of SCANNED_THEMES) {
       );
       expect(shortfalls, shortfalls.join('\n')).toEqual([]);
 
+      // Said as the user's cancel, in the neutral colour, not as an error.
+      await expect(page.getByTestId('forge-execution-error')).toHaveAttribute('role', 'status');
       await page.getByTestId('forge-execution-see-stopped').click();
       await page.getByTestId('forge-results-stopped').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-stopped-message')).toHaveText(
+        'You cancelled the run before its end.',
+      );
       // In words: the badge printed the code itself.
       await expect(page.getByTestId('forge-results-status-stopped')).toHaveText('Stopped');
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-status-stopped"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-stopped-message"]'),
       ).toBeGreaterThan(0);
     });
 
@@ -3099,7 +3107,7 @@ for (const theme of SCANNED_THEMES) {
         payload: {
           message:
             'Forge execution was aborted by user request. Remaining objects were not processed.',
-          code: 'EXECUTE_ERROR',
+          code: 'RUN_CANCELLED',
           retryable: true,
           result: lateRun,
         },

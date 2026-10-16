@@ -41,6 +41,8 @@ const src = (prefix: string, n: number): string => `${prefix}${String(n).padStar
 const FIRST_WRITE = '2026-09-20T10:00:00.000Z';
 const LAST_WRITE = '2026-09-20T10:05:00.000Z';
 const DURING_RUN = '2026-09-20T10:02:00.000+0000';
+/** Past the run's last write, inside the sweep's window: an asynchronous path's moment. */
+const AFTER_LAST_WRITE = '2026-09-20T10:05:20.000+0000';
 const LONG_AFTER = '2026-09-20T12:00:00.000+0000';
 const TARGET_ORG = 'tgt-org';
 /** The user the run wrote as, and the session to the target writes as. */
@@ -119,6 +121,8 @@ function targetOrg() {
   ]);
   const children = new Map([
     ['Account', [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }]],
+    // A contact's activities go with it.
+    ['Contact', [{ childSObject: 'Task', field: 'WhoId', cascadeDelete: true }]],
   ]);
   const deletes: Array<{ object: string; ids: string[] }> = [];
   const bin = new Map<string, Row>();
@@ -318,12 +322,12 @@ describe('a sweep asked with a removal', () => {
     mockGetConn.mockResolvedValue(org.conn as never);
   });
 
-  it('takes back, once the run’s records are gone, what the target’s automation created as its user', async () => {
+  it('takes back, before the run’s records go, what the target’s automation created as its user', async () => {
     await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
 
     expect(errors()).toEqual([]);
-    // The removal first, then the sweep: never a record of the run's twice.
-    expect(org.deletes.map((d) => d.object)).toEqual(['Contact', 'Account', 'Task', 'Asset']);
+    // The sweep first, then the removal: never a record of the run's twice.
+    expect(org.deletes.map((d) => d.object)).toEqual(['Task', 'Asset', 'Contact', 'Account']);
     expect(org.deletes.find((d) => d.object === 'Task')?.ids).toEqual([id('00T', 1)]);
     expect(ids('Task')).toEqual([id('00T', 2), id('00T', 3)]);
     expect(ids('Asset')).toEqual([]);
@@ -349,10 +353,12 @@ describe('a sweep asked with a removal', () => {
       keptChanged: 0,
       refused: 0,
     });
-    const [removal, sweep] = trail()
-      .filter((entry) => entry.action === 'cleanup_delete')
-      .reverse();
-    expect(removal.details ?? {}).not.toHaveProperty('sweep');
+    const removals = trail().filter((entry) => entry.action === 'cleanup_delete');
+    const sweep = removals.find((entry) => entry.operationId?.endsWith('-sweep'));
+    const removal = removals.find((entry) => entry.operationId?.endsWith('-sweep') === false);
+    expect(removal).toBeDefined();
+    expect(sweep).toBeDefined();
+    expect(removal?.details ?? {}).not.toHaveProperty('sweep');
     expect(sweep).toMatchObject({
       outcome: 'success',
       guard: 'allowed',
@@ -366,6 +372,54 @@ describe('a sweep asked with a removal', () => {
     // Counts only: no record id, no name reaches the trail.
     expect(JSON.stringify(store.get('audit:trail'))).not.toContain(id('00T', 1));
     expect(JSON.stringify(store.get('audit:trail'))).not.toContain('Welcome call');
+  });
+
+  it('keeps no record of the run back for a task the automation opened under it after the run’s last write', async () => {
+    // Opened by an asynchronous path twenty seconds after the run's last
+    // write: out of the run's span, so a removal reads it as a record that
+    // stays, and inside the sweep's window, so the sweep takes it.
+    org.rows
+      .get('Task')
+      ?.push(rec(id('00T', 4), 'Follow-up call', USER, AFTER_LAST_WRITE, { WhoId: id('003', 1) }));
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
+
+    expect(errors()).toEqual([]);
+    expect(ids('Contact')).toEqual([]);
+    expect(ids('Account')).toEqual([]);
+    expect(ids('Task')).toEqual([id('00T', 2), id('00T', 3)]);
+    const result = answer();
+    expect(result?.status).toBe('success');
+    expect(result?.objects.map((o) => [o.objectApiName, o.deleted, o.keptDependents])).toEqual([
+      ['Contact', 1, 0],
+      ['Account', 1, 0],
+    ]);
+    expect(result?.sweep).toMatchObject({
+      status: 'success',
+      objects: [
+        { objectApiName: 'Task', found: 2, deleted: 2 },
+        { objectApiName: 'Asset', found: 1, deleted: 1 },
+      ],
+    });
+  });
+
+  it('removes none of the run’s records once a cancel stopped the sweep before them', async () => {
+    // Cancel from Live Operations while the sweep reads: it stops before its
+    // next call to the org, and the removal does not start.
+    reader.read.mockImplementation(async () => {
+      const registry = deps.infraServices?.backgroundRegistry;
+      for (const op of registry?.getRunning() ?? []) registry?.abort(op.operationId);
+      return AUTOMATION;
+    });
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
+
+    expect(org.deletes).toEqual([]);
+    expect(ids('Contact')).toEqual([id('003', 1)]);
+    const result = answer();
+    expect(result?.status).toBe('cancelled');
+    expect(result?.sweep?.status).toBe('cancelled');
+    expect(history()[0]).not.toHaveProperty('undo');
   });
 
   it('sweeps nothing unasked', async () => {

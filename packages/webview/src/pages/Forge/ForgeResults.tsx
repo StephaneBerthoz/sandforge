@@ -198,6 +198,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     runError?.stoppedRun && result && runError.stoppedRun.forgeId === result.forgeId
       ? runError.message
       : null;
+  /** Whether that error was the user's cancel, said as such rather than by its words. */
+  const stoppedByCancel = stoppedOn !== null && runError?.cancelled === true;
 
   /**
    * What that error means and what to do about it, as the execution screen
@@ -205,8 +207,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
    * the time comes to do it.
    */
   const stoppedHint = useMemo(
-    () => (stoppedOn === null ? null : translateForgeError(stoppedOn)),
-    [stoppedOn],
+    () => (stoppedOn === null || stoppedByCancel ? null : translateForgeError(stoppedOn)),
+    [stoppedOn, stoppedByCancel],
   );
 
   /**
@@ -804,13 +806,25 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           that stopped it went with the execution screen. */}
       {stoppedOn !== null && (
         <div
-          className="flex items-start gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+          className={cn(
+            'flex items-start gap-2 rounded-md border px-3 py-2 text-xs text-text-primary',
+            stoppedByCancel
+              ? 'border-subtle bg-surface-1'
+              : 'border-status-error/40 bg-status-error/10',
+          )}
           data-testid="forge-results-stopped"
+          data-cancelled={stoppedByCancel ? 'true' : undefined}
         >
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
+          {stoppedByCancel ? (
+            <Info size={14} className="mt-0.5 shrink-0 text-text-secondary" />
+          ) : (
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
+          )}
           <div className="flex flex-1 flex-col gap-1">
             <p data-testid="forge-results-stopped-message">
-              {t('forge.runStoppedOn', { message: stoppedOn })}
+              {stoppedByCancel
+                ? t('forge.runCancelled')
+                : t('forge.runStoppedOn', { message: stoppedOn })}
             </p>
             {stoppedHint && <ForgeErrorHint hint={stoppedHint} />}
           </div>

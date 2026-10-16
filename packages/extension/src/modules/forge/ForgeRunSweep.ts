@@ -1,7 +1,9 @@
 /**
- * The sweep a removal of a Forge run may be asked to make once the run's own
- * records are gone: what the target's automation created during the run, as
- * the run's user, that the run's id map does not hold.
+ * The sweep a removal of a Forge run, or of a Frozen load, may be asked to
+ * make before the run's own records go: what the target's automation created
+ * during the run, as the run's user, that the run's id map does not hold.
+ * Made after them, a record the automation hung under one of the run's after
+ * its last write held that record back as a record that stays.
  *
  * Run for real into a client sandbox, a clone of 1 284 records made the
  * target's automation create some 585 more in the same minute, as the user
@@ -616,10 +618,9 @@ interface ObjectSweep {
 }
 
 /**
- * Sweep, once the run's own records are gone: find again what the run's user
- * created in the window (what a cascade took is no longer there), keep what
- * someone changed since the run unless the request includes it, and delete
- * the rest, children before their parents, {@link RECORDS_PER_CALL} at a
+ * Sweep, before the run's own records go: find what the run's user created
+ * in the window, keep what someone changed since the run unless the request
+ * includes it, and delete the rest, children before their parents, {@link RECORDS_PER_CALL} at a
  * time, stopped between two calls when asked. Records the org refuses are
  * counted with its reasons, and sent once more when the rest has gone. A
  * refused sweep deletes nothing.
@@ -648,10 +649,12 @@ export async function sweepRunRecords(
     ...(listing.automationGaps ? { automationGaps: listing.automationGaps } : {}),
     handWork: listing.handWork,
   };
+  // A stop before the run's user was read leaves it untold: the refusal that
+  // says so is the stop's doing, and the sweep was cancelled.
+  if (findings.stopped) return { status: 'cancelled', objects: [], ...base };
   if (listing.refusal !== undefined) {
     return { status: 'refused', refusal: listing.refusal, objects: [], ...base };
   }
-  if (findings.stopped) return { status: 'cancelled', objects: [], ...base };
   if (options.approve && findings.rows.size > 0) {
     const refusal = await options.approve(listing);
     if (refusal !== undefined) return { status: 'refused', refusal, objects: [], ...base };

@@ -2746,6 +2746,7 @@
     "executeForge": "Executar Forge",
     "executeFailed": "A execução do Forge falhou",
     "runStoppedOn": "A execução foi interrompida antes do fim: {{message}}",
+    "runCancelled": "Você cancelou a execução antes do fim.",
     "runStoppedWrote_one": "Antes de ser interrompida, ela tinha criado {{count}} registro na org de destino.",
     "runStoppedWrote_other": "Antes de ser interrompida, ela tinha criado {{count}} registros na org de destino.",
     "seeStoppedRun": "Ver o que ela gravou",
@@ -3288,7 +3289,7 @@
         "none": "Nada do que {{org}} automatiza é executado ao excluir estes registros.",
         "error": "Não foi possível ler o que {{org}} executa quando estes registros saem: {{reason}}"
       },
-      "removeSweep": "Depois, varrer: recuperar também o que a automação do destino criou durante a execução, como o usuário dela",
+      "removeSweep": "Varrer primeiro: recuperar também o que a automação do destino criou durante a execução, como o usuário dela — assim esse registro não retém mais nenhum registro da execução",
       "sweepAction": "Recuperar o que a automação do destino criou",
       "sweep": {
         "title": "O que a varredura recupera de {{org}}",

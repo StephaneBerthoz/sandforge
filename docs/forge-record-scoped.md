@@ -330,9 +330,11 @@ wrote in answer. Run for real into a client sandbox, a clone of 1 284 records
 made the target's automation create some 585 more in the same minute, as the
 run's user — 484 feed items, 66 assets a Case flow created for each case, 35
 tasks — which no remap held: some went in cascade with their parents, the
-assets stayed. A removal asked with a sweep (`ForgeRunSweep`) then looks, once
-the run's own records are gone, for what the run's user created in the run's
-window that the run's id map does not hold: the window is `writtenBetween`,
+assets stayed. A removal asked with a sweep (`ForgeRunSweep`) first looks,
+before the run's own records go, for what the run's user created in the run's
+window that the run's id map does not hold — swept after, a task an
+asynchronous path opened under a cloned contact after the run's last write
+kept the contact back as a record that stays: the window is `writtenBetween`,
 from a second before its first date (the org dates a record to the second) to
 a minute after its last (an asynchronous path or a queued job writes seconds
 after the save); the user is the creator of the run's records, read from the

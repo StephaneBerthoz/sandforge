@@ -860,6 +860,31 @@ describe('ForgeExecution', () => {
       expect(mockShowStoppedRun).toHaveBeenCalledTimes(1);
     });
 
+    it('says a run the user cancelled was cancelled, not the abort’s words as an error, and shows what it wrote', () => {
+      mockRunError = {
+        message: 'Forge execution was aborted by user request.',
+        code: 'RUN_CANCELLED',
+        cancelled: true,
+        stoppedRun: WROTE_ONE,
+      };
+      render(<ForgeExecution />);
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      const notice = screen.getByTestId('forge-execution-error');
+      expect(notice.getAttribute('role')).toBe('status');
+      expect(screen.getByTestId('forge-execution-error-message').textContent).toBe(
+        'You cancelled the run before its end.',
+      );
+      expect(notice.textContent).not.toContain('aborted by user request');
+      expect(screen.queryByTestId('forge-error-translation')).toBeNull();
+      expect(screen.getByTestId('forge-execution-error-written').textContent).toBe(
+        'Before it stopped, it had created 1 record in the target org.',
+      );
+      // Its results, where its records can be removed, are a click away.
+      fireEvent.click(screen.getByTestId('forge-execution-see-stopped'));
+      expect(mockShowStoppedRun).toHaveBeenCalledTimes(1);
+    });
+
     it('stops its clock', () => {
       vi.useFakeTimers();
       try {

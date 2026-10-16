@@ -8,6 +8,7 @@ import {
   FastForward,
   FileText,
   FlaskConical,
+  Info,
   Pause,
   Play,
   Square,
@@ -108,7 +109,8 @@ export const ForgeExecution: React.FC = () => {
    * before it started is read by its code, its message having none.
    */
   const runErrorHint = useMemo(
-    () => (runError ? translateForgeError(runError.message, runError.code) : null),
+    () =>
+      runError && !runError.cancelled ? translateForgeError(runError.message, runError.code) : null,
     [runError],
   );
   /** Whether an abort was asked for and the run has not answered: it stops once its step is done. */
@@ -258,19 +260,33 @@ export const ForgeExecution: React.FC = () => {
           left disabled and no way off the screen. Said here with what the
           run had written, when the error says, and the way on: the results
           of what it wrote, or the Review it was started from. */}
+      {/* A run the user cancelled is said as cancelled, in the neutral
+          colour, not as an error the abort's words would name. */}
       {runError && (
         <m.div
           variants={slideUp}
           initial="hidden"
           animate="visible"
-          role="alert"
+          role={runError.cancelled ? 'status' : 'alert'}
           data-testid="forge-execution-error"
-          className="flex items-start gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+          data-cancelled={runError.cancelled ? 'true' : undefined}
+          className={cn(
+            'flex items-start gap-2 rounded-md border px-3 py-2 text-xs text-text-primary',
+            runError.cancelled
+              ? 'border-subtle bg-surface-1'
+              : 'border-status-error/40 bg-status-error/10',
+          )}
         >
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
+          {runError.cancelled ? (
+            <Info size={14} className="mt-0.5 shrink-0 text-text-secondary" />
+          ) : (
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-error" />
+          )}
           <div className="flex flex-1 flex-col gap-1">
             <p data-testid="forge-execution-error-message">
-              {t('forge.runStoppedOn', { message: runError.message })}
+              {runError.cancelled
+                ? t('forge.runCancelled')
+                : t('forge.runStoppedOn', { message: runError.message })}
             </p>
             {runErrorHint && <ForgeErrorHint hint={runErrorHint} />}
             {runError.stoppedRun && (

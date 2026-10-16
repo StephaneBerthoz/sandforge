@@ -1270,6 +1270,39 @@ describe('useForgeStore', () => {
       expect(getState().runError?.stoppedRun).toEqual(kept);
     });
 
+    it('marks cancelled a run the user’s cancel stopped after it wrote, with what it wrote', () => {
+      // Sent as EXECUTE_ERROR, it read as a run that failed on the abort's words.
+      runOnScreen();
+      const kept = createMockResult({
+        forgeId: 'forge-cancelled',
+        status: 'partial',
+        cancelled: true,
+        createdCount: 3,
+      });
+      post('forge:execute:error', 'wv-run-1', {
+        message: 'Forge execution was aborted by user request.',
+        code: 'RUN_CANCELLED',
+        retryable: true,
+        result: kept,
+      });
+      expect(getState().runError).toEqual({
+        message: 'Forge execution was aborted by user request.',
+        code: 'RUN_CANCELLED',
+        cancelled: true,
+        stoppedRun: kept,
+      });
+      // Its results, where its removal is offered, are a click away.
+      getState().showStoppedRun();
+      expect(getState().phase).toBe('results');
+      expect(getState().result?.forgeId).toBe('forge-cancelled');
+    });
+
+    it('marks no run cancelled that failed', () => {
+      runOnScreen();
+      stopped('INVALID_SESSION_ID: Session expired or invalid');
+      expect(getState().runError).not.toHaveProperty('cancelled');
+    });
+
     it('keeps the code a refusal before the run gave its error, whatever its words', () => {
       // The message alone was kept: nothing past the store could tell a run
       // refused before it started from one that failed as it went.

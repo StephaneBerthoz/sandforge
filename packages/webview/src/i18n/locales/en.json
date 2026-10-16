@@ -2746,6 +2746,7 @@
     "executeForge": "Execute Forge",
     "executeFailed": "Forge execution failed",
     "runStoppedOn": "The run stopped before its end: {{message}}",
+    "runCancelled": "You cancelled the run before its end.",
     "runStoppedWrote_one": "Before it stopped, it had created {{count}} record in the target org.",
     "runStoppedWrote_other": "Before it stopped, it had created {{count}} records in the target org.",
     "seeStoppedRun": "See what it wrote",
@@ -3288,7 +3289,7 @@
         "none": "Nothing {{org}} automates runs as these records are deleted.",
         "error": "What {{org}} runs as these records go could not be read: {{reason}}"
       },
-      "removeSweep": "Then sweep: also take back what the target's automation created during the run, as its user",
+      "removeSweep": "Sweep first: also take back what the target's automation created during the run, as its user — then such a record keeps none of the run's records back",
       "sweepAction": "Take back what the target's automation created",
       "sweep": {
         "title": "What the sweep takes from {{org}}",

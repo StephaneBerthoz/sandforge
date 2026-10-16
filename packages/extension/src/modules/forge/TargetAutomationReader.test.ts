@@ -15,6 +15,7 @@ import {
   DUPLICATE_RULES_SOQL,
   FLOWS_SOQL,
   PROCESSES_SOQL,
+  DEFINITION_REQUESTS_BOUND,
   TOOLING_QUERIES_PER_REQUEST,
   TRIGGERS_SOQL,
   TargetAutomationReader,
@@ -30,12 +31,15 @@ import {
   pathsOf,
   permissionsNamed,
   processObjectsSoql,
+  readInComposites,
   ruleDefinitionSoql,
   switchesNamed,
   toolingAnswersOf,
   toolingCompositeBody,
+  type CompositeQuery,
   type QueryAnswer,
   type TargetAutomationDeps,
+  type ToolingAnswer,
 } from './TargetAutomationReader.js';
 
 /** A node of a discovered graph, included unless told. */
@@ -744,6 +748,60 @@ type Refusals = {
   composite?: Record<string, Error>;
 };
 
+/** The queries of a composite the org runs, as the Tooling API documents it and an org answered. */
+const QUERIES_RUN_PER_COMPOSITE = 5;
+
+/** The subrequests a composite takes at most. */
+const SUBREQUESTS_PER_COMPOSITE = 25;
+
+/** The words an org halts a query past its limit with. */
+const HALTED = 'Limit number of query or Collections in Rest Operations reached.';
+
+/**
+ * A Tooling composite endpoint holding to the limits the org documents and a
+ * Developer Edition answered with: more than 25 subrequests refused whole;
+ * the first `queriesRun` queries run — one the org refuses counted among
+ * them, as it counts it — and every query after them halted with
+ * `PROCESSING_HALTED`, status 400, without being run.
+ */
+function compositeEndpoint(
+  body: ReturnType<typeof toolingCompositeBody>,
+  queriesRun: number,
+  answerQuery: (soql: string) => QueryAnswer,
+): unknown {
+  if (body.compositeRequest.length > SUBREQUESTS_PER_COMPOSITE) {
+    throw refusal('LIMIT_EXCEEDED', `More than ${SUBREQUESTS_PER_COMPOSITE} subrequests`);
+  }
+  let queries = 0;
+  return {
+    compositeResponse: body.compositeRequest.map(({ url, referenceId }) => {
+      const query = /\/tooling\/query\?q=(.*)$/.exec(url);
+      if (query && ++queries > queriesRun) {
+        return {
+          referenceId,
+          httpStatusCode: 400,
+          body: [{ errorCode: 'PROCESSING_HALTED', message: HALTED }],
+        };
+      }
+      try {
+        const { records } = answerQuery(decodeURIComponent(query?.[1] ?? ''));
+        return {
+          referenceId,
+          httpStatusCode: 200,
+          body: { totalSize: records.length, done: true, records },
+        };
+      } catch (err: unknown) {
+        const code = (err as { errorCode?: string }).errorCode ?? 'UNKNOWN_EXCEPTION';
+        return {
+          referenceId,
+          httpStatusCode: 400,
+          body: [{ errorCode: code, message: err instanceof Error ? err.message : String(err) }],
+        };
+      }
+    }),
+  };
+}
+
 /**
  * A target answering the read: its flows, triggers, processes, workflow rules,
  * assignment and duplicate rules, the custom permissions of the user the read
@@ -768,6 +826,7 @@ function fakeTarget({
   metadata = {},
   refuse = {},
   composites = false,
+  queriesRun = QUERIES_RUN_PER_COMPOSITE,
 }: {
   flows?: Array<Record<string, unknown>>;
   triggers?: Array<Record<string, unknown>>;
@@ -792,6 +851,8 @@ function fakeTarget({
    * then refuses the composites whose first query names that id.
    */
   composites?: boolean;
+  /** The queries of a composite the org runs before it halts the rest. */
+  queriesRun?: number;
 }) {
   const asked: string[] = [];
   const regular: string[] = [];
@@ -863,13 +924,12 @@ function fakeTarget({
             const whole = refuse.composite?.[first];
             await answering(() => answer([]));
             if (whole) throw whole;
-            return soqls.map((soql) => {
-              try {
-                return { records: metadataAnswer(soql).records };
-              } catch (err: unknown) {
-                return { refused: err instanceof Error ? err.message : String(err) };
-              }
-            });
+            // Sent as the hosts send it, answered as the org answers it.
+            const sent = toolingCompositeBody('/services/data/v66.0', soqls);
+            return toolingAnswersOf(
+              compositeEndpoint(sent, queriesRun, metadataAnswer),
+              soqls.length,
+            );
           },
         }
       : {}),
@@ -1742,7 +1802,7 @@ function flowsOn(objects: readonly string[], count: number, startsOn = 'Create')
 describe('start conditions read in composites', () => {
   const TEN = Array.from({ length: 10 }, (_, i) => `Object_${i}__c`);
 
-  it('reads the start condition of every one of 300 flows across 10 objects, 25 a request', async () => {
+  it('reads the start condition of every one of 300 flows across 10 objects, five a request', async () => {
     const target = fakeTarget({ flows: flowsOn(TEN, 30), composites: true });
 
     const automation = await new TargetAutomationReader(target.deps).read('tgt', TEN);
@@ -1750,21 +1810,68 @@ describe('start conditions read in composites', () => {
     const flows = automation.objects.flatMap((o) => o.flows);
     expect(flows).toHaveLength(300);
     expect(flows.every((f) => f.condition === 'read')).toBe(true);
+    expect(automation.unread).toEqual([]);
     expect(automation.conditionsNotRead).toBe(0);
     expect(automation).not.toHaveProperty('conditionsNotReadOn');
     expect(automation.conditionsBound).toBe(CONDITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST);
-    expect(target.composite).toEqual(Array.from({ length: 12 }, () => 25));
-    // Five parts (no Case or Lead: no assignment rules), then twelve composites.
-    expect(automation.requests).toBe(5 + 12);
+    expect(target.composite).toEqual(Array.from({ length: 60 }, () => 5));
+    // Five parts (no Case or Lead: no assignment rules), then sixty composites.
+    expect(automation.requests).toBe(5 + 60);
     expect(target.mostInFlight()).toBeLessThanOrEqual(4);
+  });
+
+  it('sends no composite of more queries than the org runs, so none of its flows is left unread', async () => {
+    // Run on a large client sandbox, 25 queries a composite had the org halt
+    // 20 of each: "20 flow(s) on the run's objects not read".
+    const target = fakeTarget({ flows: flowsOn(['Case'], 25), composites: true });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.objects[0].flows.filter((f) => f.condition !== 'read')).toEqual([]);
+    expect(automation.unread).toEqual([]);
+    expect(Math.max(...target.composite)).toBeLessThanOrEqual(QUERIES_RUN_PER_COMPOSITE);
+  });
+
+  it('sends again, a few a request, the queries an org that runs fewer halts, and reads them all', async () => {
+    const target = fakeTarget({ flows: flowsOn(['Case'], 30), composites: true, queriesRun: 2 });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.objects[0].flows.every((f) => f.condition === 'read')).toBe(true);
+    expect(automation.unread).toEqual([]);
+    // Four composites of five went before the first answer; every one after
+    // holds the two the org ran.
+    expect(target.composite.slice(0, 4)).toEqual([5, 5, 5, 5]);
+    expect(target.composite.slice(4).every((size) => size <= 2)).toBe(true);
+    expect(target.composite.reduce((sum, size) => sum + size, 0)).toBe(30 + 4 * 3);
+    // Six parts (Case: its assignment rules), then each composite.
+    expect(automation.requests).toBe(6 + target.composite.length);
+  });
+
+  it('keeps to its bound of requests when the org halts most queries, and says what it could not read', async () => {
+    const flows = flowsOn(['Case'], CONDITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST);
+    const target = fakeTarget({ flows, composites: true, queriesRun: 1 });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(target.composite).toHaveLength(CONDITION_REQUESTS_BOUND);
+    const conditions = automation.objects[0].flows.map((f) => f.condition);
+    expect(conditions.filter((c) => c === 'read')).toHaveLength(CONDITION_REQUESTS_BOUND);
+    expect(conditions.filter((c) => c === 'unreadable')).toHaveLength(
+      flows.length - CONDITION_REQUESTS_BOUND,
+    );
+    expect(automation.unread).toEqual([
+      { part: 'conditions', reason: `PROCESSING_HALTED: ${HALTED}` },
+    ]);
+    expect(automation.requests).toBe(6 + CONDITION_REQUESTS_BOUND);
   });
 
   it('past its bound of requests, says how many conditions it left unread and on which objects', async () => {
     // The flows on insert first, the run's nearest objects first: what is
     // left is the update flows of the last object.
     const flows = [
-      ...flowsOn(['Case'], 300),
-      ...flowsOn(['Contact'], 200),
+      ...flowsOn(['Case'], 200),
+      ...flowsOn(['Contact'], 100),
       ...flowsOn(['Contact'], 15, 'Update'),
       ...flowsOn(['Task'], 5, 'Update'),
     ];
@@ -1805,7 +1912,9 @@ describe('start conditions read in composites', () => {
     const byName = new Map(automation.objects[0].flows.map((f) => [f.apiName, f.condition]));
     expect([...byName.values()].sort()).toEqual(['read', 'read', 'unreadable']);
     expect(byName.get(String(flows[1].ApiName))).toBe('unreadable');
-    expect(automation.unread).toEqual([{ part: 'conditions', reason: 'no such version' }]);
+    expect(automation.unread).toEqual([
+      { part: 'conditions', reason: 'INVALID_ID: no such version' },
+    ]);
     expect(target.composite).toEqual([3]);
   });
 
@@ -1824,12 +1933,12 @@ describe('start conditions read in composites', () => {
     const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
 
     const conditions = automation.objects[0].flows.map((f) => f.condition);
-    expect(conditions.filter((c) => c === 'unreadable')).toHaveLength(25);
-    expect(conditions.filter((c) => c === 'read')).toHaveLength(5);
+    expect(conditions.filter((c) => c === 'unreadable')).toHaveLength(5);
+    expect(conditions.filter((c) => c === 'read')).toHaveLength(25);
     expect(automation.unread).toEqual([
       { part: 'conditions', reason: 'REQUEST_LIMIT_EXCEEDED: too many' },
     ]);
-    expect(automation.requests).toBe(6 + 2);
+    expect(automation.requests).toBe(6 + 6);
   });
 
   it('reads the definitions of processes and rules in composites too', async () => {
@@ -1841,7 +1950,69 @@ describe('start conditions read in composites', () => {
     const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
 
     expect(automation.definitionsNotRead).toBe(0);
-    expect(target.composite).toEqual([25, 5]);
+    expect(automation.definitionsBound).toBe(
+      DEFINITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST,
+    );
+    expect(automation.unread).toEqual([]);
+    expect(target.composite).toEqual([5, 5, 5, 5, 5, 5]);
+  });
+});
+
+describe('readInComposites', () => {
+  /** A query that records what became of it. */
+  function recorded(soql: string, outcomes: string[]): CompositeQuery {
+    return {
+      soql,
+      take: () => outcomes.push(`${soql} read`),
+      refused: (reason) => outcomes.push(`${soql} refused: ${reason}`),
+    };
+  }
+
+  it('sends no query again from a composite the org halted whole, and refuses each once', async () => {
+    // Nothing of it ran: sent again, it would be halted again, as long as the
+    // bound allowed.
+    const outcomes: string[] = [];
+    const queries = ['q1', 'q2', 'q3'].map((soql) => recorded(soql, outcomes));
+    const halted: ToolingAnswer = { refused: `PROCESSING_HALTED: ${HALTED}`, halted: true };
+
+    const sent = await readInComposites(
+      async (soqls) => soqls.map(() => halted),
+      [{ queries, requests: 10 }],
+      4,
+    );
+
+    expect(sent).toBe(1);
+    expect(outcomes).toEqual([
+      `q1 refused: PROCESSING_HALTED: ${HALTED}`,
+      `q2 refused: PROCESSING_HALTED: ${HALTED}`,
+      `q3 refused: PROCESSING_HALTED: ${HALTED}`,
+    ]);
+  });
+
+  it('sends the first batch before the second, each within its own requests', async () => {
+    const outcomes: string[] = [];
+    const sent: string[][] = [];
+    const first = Array.from({ length: 7 }, (_, i) => recorded(`a${i}`, outcomes));
+    const second = Array.from({ length: 10 }, (_, i) => recorded(`b${i}`, outcomes));
+
+    const count = await readInComposites(
+      async (soqls) => {
+        sent.push([...soqls]);
+        return soqls.map(() => ({ records: [] }));
+      },
+      [
+        { queries: first, requests: 2 },
+        { queries: second, requests: 2 },
+      ],
+      1,
+    );
+
+    expect(count).toBe(4);
+    expect(sent.map((soqls) => soqls.length)).toEqual([5, 2, 5, 5]);
+    expect(sent[0][0]).toBe('a0');
+    expect(sent[2][0]).toBe('b0');
+    expect(outcomes.filter((o) => o.endsWith(' read'))).toHaveLength(17);
+    expect(outcomes.filter((o) => o.includes(' refused: '))).toEqual([]);
   });
 });
 
@@ -1872,7 +2043,7 @@ describe('toolingCompositeBody and toolingAnswersOf', () => {
     const soqls = Array.from({ length: TOOLING_QUERIES_PER_REQUEST + 1 }, (_, i) =>
       conditionSoql(`30100000000${String(i).padStart(4, '0')}AAA`),
     );
-    expect(() => toolingCompositeBody('/services/data/v66.0', soqls)).toThrow(/25 queries/);
+    expect(() => toolingCompositeBody('/services/data/v66.0', soqls)).toThrow(/holds 5 queries/);
   });
 
   it('reads each answer in the order asked, the rows of one and the refusal of another', () => {
@@ -1897,6 +2068,30 @@ describe('toolingCompositeBody and toolingAnswersOf', () => {
       { records: [{ Metadata: { start: {} } }] },
       { refused: 'MALFORMED_QUERY: unexpected token' },
       { refused: 'The org gave no answer to this query of the composite' },
+    ]);
+  });
+
+  it('marks halted a query the org did not run, past its limit of queries a composite', () => {
+    const answers = toolingAnswersOf(
+      {
+        compositeResponse: [
+          {
+            referenceId: 'q0',
+            httpStatusCode: 400,
+            body: [{ errorCode: 'INVALID_QUERY_FILTER_OPERATOR', message: 'invalid ID field' }],
+          },
+          {
+            referenceId: 'q1',
+            httpStatusCode: 400,
+            body: [{ errorCode: 'PROCESSING_HALTED', message: HALTED }],
+          },
+        ],
+      },
+      2,
+    );
+    expect(answers).toEqual([
+      { refused: 'INVALID_QUERY_FILTER_OPERATOR: invalid ID field' },
+      { refused: `PROCESSING_HALTED: ${HALTED}`, halted: true },
     ]);
   });
 
