@@ -65,7 +65,7 @@ import { logger } from '../../logger.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import { personalFieldsByApiName } from '../../core/precheck/PIIDetector.js';
+import { PIIDetector, personalFieldsByApiName } from '../../core/precheck/PIIDetector.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -107,6 +107,7 @@ import {
   countingContractPath,
   createBulkDmlWriter,
   datasetRecordCount,
+  keptWithoutARule,
   leftToThePlatformCoverage,
   loadRecordsInfo,
   loadRecordsLeft,
@@ -117,6 +118,8 @@ import {
   parsePseudonymRules,
   readCountingContract,
   readSelectionFromSas,
+  requiredFieldsLeftEmpty,
+  withSchemaDefaults,
   writeSelectionToSas,
   type ControlViolation,
   type CoverageSelectionResult,
@@ -131,6 +134,7 @@ import {
   type NonReidentificationReport,
   type PersonContactLink,
   type RecordedLoad,
+  type RuleSchemaField,
   type TargetOrgAccess,
 } from '../../modules/frozendataset/index.js';
 
@@ -734,6 +738,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           name: meta.name,
           fields: meta.fields.map((f) => ({
             name: f.name,
+            label: f.label,
             type: f.type,
             referenceTo: f.referenceTo ?? [],
             relationshipName: f.relationshipName ?? null,
@@ -741,6 +746,9 @@ export class FrozenDatasetHandler implements DomainHandler {
             nillable: f.nillable !== false,
             createable: f.createable !== false,
             updateable: f.updateable !== false,
+            restrictedPicklist: f.restrictedPicklist === true,
+            defaultedOnCreate: f.defaultedOnCreate === true,
+            ...(f.compoundFieldName ? { compoundFieldName: f.compoundFieldName } : {}),
           })),
           childRelationships: (meta.childRelationships ?? []).map((cr) => ({
             childSObject: cr.childSObject,
@@ -854,6 +862,30 @@ export class FrozenDatasetHandler implements DomainHandler {
       // name when scope did not reach them, and knows no other way.
       nillable: f.nillable !== false,
     }));
+  }
+
+  /**
+   * The fields of each object the dataset holds, as the rules' defaults read
+   * them, from the describes discovery made and keeps. An object the org will
+   * not describe has none: its restricted picklists stay cleared, as with no
+   * describe at all, and no required field of it is named.
+   */
+  private async ruleSchemaOf(
+    orgId: string,
+    objects: ReadonlyArray<{ objectApiName: string }>,
+  ): Promise<Map<string, RuleSchemaField[]>> {
+    const schema = new Map<string, RuleSchemaField[]>();
+    for (const { objectApiName } of objects) {
+      try {
+        const described = await this.describeObject(orgId, objectApiName);
+        schema.set(objectApiName, described.fields);
+      } catch (err: unknown) {
+        this.deps.log(
+          `[WARN] frozen: ${objectApiName} could not be described for the rules: ${String(err)}`,
+        );
+      }
+    }
+    return schema;
   }
 
   /**
@@ -1328,29 +1360,51 @@ export class FrozenDatasetHandler implements DomainHandler {
       const author = parsed.author ?? 'sandforge';
       const datasetVersion = config.datasetVersion ?? DEFAULT_DATASET_VERSION;
 
-      const { extracted, frozen, report } = await new TimeoutManager(
-        EXTRACT_TIMEOUT_MS,
-      ).withTimeout('frozen:extract', async () => {
-        const extracted = await extractor.extract({
-          graph,
-          rootObject: config.rootObject,
-          rootRecordIds,
-          asOf: new Date().toISOString(),
-          sasDir,
-          excludedFields: config.excludedFields,
-          excludedObjects: config.excludedObjects,
-          tokens,
-          guard,
+      const { extracted, frozen, report, requiredLeftEmpty, keptUnruled } =
+        await new TimeoutManager(EXTRACT_TIMEOUT_MS).withTimeout('frozen:extract', async () => {
+          const extracted = await extractor.extract({
+            graph,
+            rootObject: config.rootObject,
+            rootRecordIds,
+            asOf: new Date().toISOString(),
+            sasDir,
+            excludedFields: config.excludedFields,
+            excludedObjects: config.excludedObjects,
+            tokens,
+            guard,
+          });
+          // The rules with what the source's describes tell them: a
+          // restricted picklist's value is a word of the schema, kept — but
+          // for one the personal data detector names, a gender or a religion.
+          const schema = await this.ruleSchemaOf(parsed.sourceOrgId, extracted.objects);
+          const effective = withSchemaDefaults(
+            rules,
+            schema,
+            this.deps.infraServices?.piiDetector ?? new PIIDetector(),
+          );
+          const frozen = new FrozenDatasetAnonymizer().anonymize({
+            extracted,
+            rules: effective,
+            pseudonymizer,
+            datasetVersion,
+          });
+          const report = new NonReidentificationControl().run(extracted, frozen, effective, {
+            author,
+          });
+          return {
+            extracted,
+            frozen,
+            report,
+            requiredLeftEmpty: requiredFieldsLeftEmpty(extracted, effective, schema),
+            keptUnruled: keptWithoutARule(extracted, effective),
+          };
         });
-        const frozen = new FrozenDatasetAnonymizer().anonymize({
-          extracted,
-          rules,
-          pseudonymizer,
-          datasetVersion,
-        });
-        const report = new NonReidentificationControl().run(extracted, frozen, rules, { author });
-        return { extracted, frozen, report };
-      });
+      if (requiredLeftEmpty.length > 0) {
+        this.deps.log(
+          `[WARN] frozen: the rules leave ${requiredLeftEmpty.length} required field(s) empty, ` +
+            `which a load will ask a value for: ${requiredLeftEmpty.join(', ')}`,
+        );
+      }
 
       // The 4-point gate result is ALWAYS surfaced (PASS or FAIL).
       const controlMsg = buildResponse(this.deps, msg, 'frozen:control:result', {
@@ -1409,6 +1463,11 @@ export class FrozenDatasetHandler implements DomainHandler {
           // What it holds and cannot load as it is, for an object the
           // configuration leaves out.
           ...(extracted.exclusionCosts ? { exclusionCosts: extracted.exclusionCosts } : {}),
+          // What the rules leave empty that the source requires, said now
+          // rather than at the load that would ask for it.
+          ...(requiredLeftEmpty.length > 0 ? { requiredLeftEmpty } : {}),
+          // What went in clear text with no rule saying so: the platform's own words.
+          ...(keptUnruled.length > 0 ? { keptWithoutARule: keptUnruled } : {}),
         },
       });
 

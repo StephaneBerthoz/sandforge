@@ -889,6 +889,8 @@ export class SyncOpsHandler implements DomainHandler {
       const { ConflictResolver } = await import('../../modules/sync/ConflictResolver.js');
       const { FieldMappingService } = await import('../../modules/sync/FieldMapping.js');
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
+      const { readActiveValidationRules } = await import('../../modules/forge/TargetGapReader.js');
+      const tooling = readers.targetConn.tooling;
 
       // A simulation writes nothing, and its writer says so to anything that
       // tries: the engine never hands it a record, and if it ever did the
@@ -927,6 +929,22 @@ export class SyncOpsHandler implements DomainHandler {
         // The files a run would copy, found and measured as the run finds
         // them; none is read or written, and nothing is recorded.
         files: readers.files,
+        // What it cannot evaluate, listed beside what it predicts: the
+        // target's validation rules, read as Forge's pre-flight reads them.
+        readValidationRules: async (objectApiNames) =>
+          readActiveValidationRules(
+            async (soql) =>
+              (
+                await queryAllPages<Record<string, unknown>>(
+                  {
+                    query: async (q) => tooling.query<Record<string, unknown>>(q),
+                    queryMore: async (url) => tooling.queryMore<Record<string, unknown>>(url),
+                  },
+                  soql,
+                )
+              ).records,
+            objectApiNames,
+          ),
         onSimulationProgress: (done, total, objectApiName) => {
           const pct = Math.round((done / total) * 100);
           const label = `Simulating ${objectApiName}`;

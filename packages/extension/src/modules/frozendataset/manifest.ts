@@ -78,6 +78,19 @@ export interface ManifestCoverage {
    * written before it was recorded.
    */
   exclusionCosts?: FrozenExclusionCost[];
+  /**
+   * The fields, as `Object.Field`, the source requires and the rules leave
+   * empty: each a value a load of the dataset will ask for. Absent when none
+   * is, and from manifests written before it was recorded.
+   */
+  requiredLeftEmpty?: string[];
+  /**
+   * The fields, as `Object.Field`, kept in clear text though the rules declare
+   * no generator for them: the platform's own words — a time zone, a week's
+   * hours, a restricted picklist's value. Absent when none is, and from
+   * manifests written before it was recorded.
+   */
+  keptWithoutARule?: string[];
 }
 
 /**
@@ -200,12 +213,15 @@ export function validateManifest(manifest: FrozenManifest): void {
       !Array.isArray(coverage.unboundedObjects) ||
       !Array.isArray(coverage.filesLeftOut) ||
       (coverage.leftToThePlatform !== undefined && !Array.isArray(coverage.leftToThePlatform)) ||
-      (coverage.exclusionCosts !== undefined && !Array.isArray(coverage.exclusionCosts)))
+      (coverage.exclusionCosts !== undefined && !Array.isArray(coverage.exclusionCosts)) ||
+      (coverage.requiredLeftEmpty !== undefined && !Array.isArray(coverage.requiredLeftEmpty)) ||
+      (coverage.keptWithoutARule !== undefined && !Array.isArray(coverage.keptWithoutARule)))
   ) {
     throw new ManifestError(
       'coverage, when present, needs objects, truncated, maxNodes, unboundedObjects and ' +
-        'filesLeftOut, and a list of what it left to the platform, or of what its exclusions ' +
-        'cost, if it names any',
+        'filesLeftOut, and a list of what it left to the platform, of what its exclusions ' +
+        'cost, of the required fields the rules leave empty, or of the fields kept without ' +
+        'a rule, if it names any',
     );
   }
 }

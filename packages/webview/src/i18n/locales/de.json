@@ -1216,6 +1216,9 @@
       "conflictFields": "Abweichende Felder: {{fields}}.",
       "nothingWritten": "Es wurde nichts geschrieben. Die Zahlen vergleichen, was der Lauf senden würde, mit dem, was das Ziel jetzt enthält.",
       "notChecked": "Eine Simulation führt weder die Validierungsregeln noch die Duplikatregeln, Pflichtfelder oder Automatisierungen des Ziels aus: Ein Datensatz, den eine davon ablehnen würde, wird so gezählt, wie der Lauf ihn senden würde.",
+      "validationRules_one": "{{count}} aktive Validierungsregel des Ziels, die eine Simulation nicht auswerten kann: Ein Datensatz, den sie ablehnt, wird als geschrieben gezählt.",
+      "validationRules_other": "{{count}} aktive Validierungsregeln des Ziels, die eine Simulation nicht auswerten kann: Ein Datensatz, den eine von ihnen ablehnt, wird als geschrieben gezählt.",
+      "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als geschrieben gezählten Datensatz ablehnen.",
       "stoppedAt": "Die Simulation hat bei {{object}} angehalten: {{error}}. Ein Lauf würde dort ebenfalls anhalten.",
       "runNow": "Synchronisierung jetzt starten"
     },
@@ -4194,7 +4197,8 @@
       "unbounded": "Ohne Datumsgrenze gelesen, da kein CreatedDate vorhanden: {{objects}}",
       "filesLeftOut": "Ausgelassen — ihre Dateien lassen sich ohne genehmigte keep-Regel nicht pseudonymisieren: {{objects}}",
       "leftToThePlatform": "Ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",
-      "exclusionCosts": "Lassen sich nicht unverändert laden — sie brauchen ein Objekt, das excludedObjects auslässt: {{objects}}"
+      "exclusionCosts": "Lassen sich nicht unverändert laden — sie brauchen ein Objekt, das excludedObjects auslässt: {{objects}}",
+      "requiredLeftEmpty": "In der Quelle Pflicht und von den Regeln leer gelassen — ein Ladevorgang verlangt für jedes einen Wert: {{fields}}"
     },
     "loadPhase": {
       "guards": "Eingangsprüfungen",

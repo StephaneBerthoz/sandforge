@@ -76,6 +76,7 @@ export const anonymizationRuleSchema = z.object({
   piiCategory: piiCategorySchema,
   aiConfidence: z.number().min(0).max(1),
   userOverridden: z.boolean(),
+  fieldType: z.string().min(1).optional(),
 });
 
 /** Zod schema for AnonymizedPersona */

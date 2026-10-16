@@ -20,6 +20,8 @@ export interface ObjectDescribe {
 export interface FieldDescribe {
   /** Field API name. */
   name: string;
+  /** The field's label in the org, when the describe kept it. */
+  label?: string;
   /** Salesforce field type (e.g. 'reference', 'string'). */
   type: string;
   /** Objects this field references (non-empty for lookups). */
@@ -42,6 +44,16 @@ export interface FieldDescribe {
    */
   createable?: boolean;
   updateable?: boolean;
+  /**
+   * The org holds the picklist to its own values, the platform gives the
+   * field a value when an insert leaves it out, and the compound field — an
+   * address — the field is a part of. Read by Frozen's rules, which keep a
+   * restricted picklist's value, but for a part of an address, and name the
+   * required fields they leave empty. Optional: unknown reads as neither.
+   */
+  restrictedPicklist?: boolean;
+  defaultedOnCreate?: boolean;
+  compoundFieldName?: string;
 }
 
 /** Child relationship descriptor from the parent object describe. */

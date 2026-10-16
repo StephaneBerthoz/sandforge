@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { AutopilotAnonymizationRule, PIIFieldDetection } from '@sandforge/shared';
 import { PIIDetector } from '../../core/precheck/PIIDetector';
 import { ComplianceEngine } from './ComplianceEngine';
+import { SmartAnonymizer } from './SmartAnonymizer';
 import type { FieldDescribeResult, ObjectDescribeResult } from './SchemaScanner';
 import { detectPersonalFields, personalDataNotCovered, withAiDetections } from './personalFields';
 
@@ -55,6 +56,46 @@ function rulesFor(framework: 'gdpr' | 'none'): AutopilotAnonymizationRule[] {
 }
 
 describe('detectPersonalFields', () => {
+  it("names a contact's gender and a custom marital status, and a GDPR run empties them", () => {
+    const contact: ObjectDescribeResult = {
+      ...CONTACT,
+      fields: [
+        ...CONTACT.fields,
+        field('GenderIdentity', 'picklist'),
+        field('MaritalStatus__c', 'picklist'),
+        field('Religion__c', 'picklist'),
+      ],
+    };
+    const detected = detectPersonalFields(new PIIDetector(), new Map([['Contact', contact]]));
+    const engine = new ComplianceEngine();
+    const rules = engine.generateRules(engine.buildProfile('gdpr', detected));
+    const records = [
+      {
+        Id: '003xx000001',
+        GenderIdentity: 'Female',
+        MaritalStatus__c: 'Married',
+        Religion__c: 'None',
+      },
+    ];
+
+    new SmartAnonymizer(undefined, 'gdpr-salt').anonymize(records, rules, 'Contact');
+
+    expect(
+      Object.fromEntries(
+        detected
+          .filter((d) => d.fieldType === 'picklist')
+          .map((d) => [d.fieldApiName, d.piiCategory]),
+      ),
+    ).toEqual({ GenderIdentity: 'PII', MaritalStatus__c: 'PII', Religion__c: 'SENSITIVE' });
+    // A made-up value would be refused by the picklist, and the contact with it.
+    expect(records[0]).toEqual({
+      Id: '003xx000001',
+      GenderIdentity: null,
+      MaritalStatus__c: null,
+      Religion__c: null,
+    });
+  });
+
   it("names a contact's names, email and phones, and a text field named for a phone", () => {
     const detected = detectPersonalFields(new PIIDetector(), new Map([['Contact', CONTACT]]));
 

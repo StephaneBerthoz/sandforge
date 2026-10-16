@@ -192,4 +192,28 @@ describe('what a manifest says was left to the platform', () => {
       }),
     ).toThrow(ManifestError);
   });
+
+  it('keeps the required fields the rules leave empty and the fields kept without a rule', () => {
+    const said = {
+      requiredLeftEmpty: ['BusinessHours.Name', 'OperatingHours.Name'],
+      keptWithoutARule: ['BusinessHours.TimeZoneSidKey', 'OperatingHours.TimeZone'],
+    };
+    const manifest = buildFrozenManifest({
+      ...buildValid(),
+      nonReidentification: passingControl,
+      author: 'stephane',
+      coverage: { ...coverage, ...said },
+      now: () => NOW,
+    });
+
+    expect(parseManifest(JSON.parse(serializeManifest(manifest))).coverage).toEqual({
+      ...coverage,
+      ...said,
+    });
+    for (const list of ['requiredLeftEmpty', 'keptWithoutARule']) {
+      expect(() =>
+        validateManifest({ ...manifest, coverage: { ...coverage, [list]: 'Account.Name' } }),
+      ).toThrow(ManifestError);
+    }
+  });
 });

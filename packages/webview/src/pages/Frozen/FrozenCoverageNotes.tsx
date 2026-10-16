@@ -18,6 +18,8 @@ export interface FrozenCoverageNotesProps {
   leftToThePlatform?: readonly FrozenLeftToThePlatform[];
   /** Records held that cannot be loaded as they are, for an object `excludedObjects` leaves out. */
   exclusionCosts?: readonly FrozenExclusionCost[];
+  /** Fields, as `Object.Field`, the source requires and the rules leave empty. */
+  requiredLeftEmpty?: readonly string[];
   /** Test id of the list. */
   testId: string;
 }
@@ -36,6 +38,7 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
   filesLeftOut = [],
   leftToThePlatform = [],
   exclusionCosts = [],
+  requiredLeftEmpty = [],
   testId,
 }) => {
   const { t } = useTranslation();
@@ -45,7 +48,8 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
     unboundedObjects.length === 0 &&
     filesLeftOut.length === 0 &&
     leftToThePlatform.length === 0 &&
-    exclusionCosts.length === 0
+    exclusionCosts.length === 0 &&
+    requiredLeftEmpty.length === 0
   ) {
     return null;
   }
@@ -88,6 +92,13 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
               .map((c) => `${c.objectApiName} (${c.count}) → ${c.excludedObject}`)
               .join(', '),
           })}
+        </li>
+      )}
+      {/* Said as the dataset is frozen: a real dataset's first load asked for
+          eighteen values the rules file could have settled beforehand. */}
+      {requiredLeftEmpty.length > 0 && (
+        <li className="text-[11px] text-status-warning">
+          {t('frozen.coverage.requiredLeftEmpty', { fields: requiredLeftEmpty.join(', ') })}
         </li>
       )}
     </ul>

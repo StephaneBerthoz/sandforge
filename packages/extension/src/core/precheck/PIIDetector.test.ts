@@ -203,6 +203,99 @@ describe('PIIDetector', () => {
     });
   });
 
+  describe('detectPII — what a field says a person is', () => {
+    /** The classification the detector gives each field, by API name. */
+    function classified(fields: FieldDescribe[]): Record<string, string> {
+      return Object.fromEntries(
+        new PIIDetector()
+          .detectPII('Contact', fields)
+          .piiFields.map((f) => [f.fieldApiName, f.classification]),
+      );
+    }
+
+    it('flags gender, pronouns, sex, marital status and nationality, by API name in any case', () => {
+      expect(
+        classified([
+          field('GenderIdentity', 'Gender Identity', 'picklist'),
+          field('Pronouns', 'Pronouns', 'picklist'),
+          field('Sex__c', 'Sex', 'picklist'),
+          field('MaritalStatus__c', 'Marital Status', 'picklist'),
+          field('Marital_Status__pc', 'Status', 'picklist'),
+          field('ns__Nationality__c', 'Country', 'picklist'),
+          field('Citizenship__c', 'Passport country', 'picklist'),
+        ]),
+      ).toEqual({
+        GenderIdentity: 'PII',
+        Pronouns: 'PII',
+        Sex__c: 'PII',
+        MaritalStatus__c: 'PII',
+        Marital_Status__pc: 'PII',
+        ns__Nationality__c: 'PII',
+        Citizenship__c: 'PII',
+      });
+    });
+
+    it('flags them by a label too, English or French', () => {
+      expect(
+        classified([
+          field('Field_1__c', 'Gender', 'picklist'),
+          field('Field_2__c', 'Sexe', 'picklist'),
+          field('Field_3__c', 'Situation familiale', 'picklist'),
+          field('Field_4__c', 'Nationalité', 'picklist'),
+          field('Field_5__c', 'Religion', 'picklist'),
+          field('Field_6__c', 'Orientation sexuelle', 'picklist'),
+          field('Field_7__c', 'Appartenance syndicale', 'checkbox'),
+        ]),
+      ).toEqual({
+        Field_1__c: 'PII',
+        Field_2__c: 'PII',
+        Field_3__c: 'PII',
+        Field_4__c: 'PII',
+        Field_5__c: 'Confidential',
+        Field_6__c: 'Confidential',
+        Field_7__c: 'Confidential',
+      });
+    });
+
+    it("keeps the GDPR's special categories apart as sensitive, and a disability as health data", () => {
+      expect(
+        classified([
+          field('Ethnicity__c', 'Ethnicity', 'picklist'),
+          field('Race__c', 'Race', 'picklist'),
+          field('Religion__c', 'Religion', 'picklist'),
+          field('SexualOrientation__c', 'Sexual Orientation', 'picklist'),
+          field('Political_Opinion__c', 'Political Opinion', 'picklist'),
+          field('TradeUnionMember__c', 'Trade Union Member', 'checkbox'),
+          field('Disability__c', 'Disability', 'picklist'),
+        ]),
+      ).toEqual({
+        Ethnicity__c: 'Confidential',
+        Race__c: 'Confidential',
+        Religion__c: 'Confidential',
+        SexualOrientation__c: 'Confidential',
+        Political_Opinion__c: 'Confidential',
+        TradeUnionMember__c: 'Confidential',
+        Disability__c: 'PHI',
+      });
+    });
+
+    it('leaves the words that mean something else as often, and words that only hold one', () => {
+      expect(
+        classified([
+          field('Status', 'Status', 'picklist'),
+          field('Origin', 'Case Origin', 'picklist'),
+          field('CleanStatus', 'Clean Status', 'picklist'),
+          field('Genre__c', 'Genre', 'picklist'),
+          field('Unisex__c', 'Unisex', 'checkbox'),
+          field('IsDisabled', 'Disabled', 'boolean'),
+          field('Essex_Region__c', 'Essex Region', 'picklist'),
+          field('Union__c', 'Union', 'string'),
+          field('Trace_Id__c', 'Trace Id', 'string'),
+        ]),
+      ).toEqual({});
+    });
+  });
+
   describe('isPersonNameField', () => {
     it('reads an API name as the detector does', () => {
       expect(isPersonNameField('FirstName')).toBe(true);

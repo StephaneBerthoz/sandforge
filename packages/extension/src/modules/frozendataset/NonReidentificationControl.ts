@@ -6,7 +6,9 @@
  *
  *   1. **substitution** — every non-keep original value is gone from its
  *      field AND from every other field of the same record (TRANSVERSAL
- *      leak: e.g. a license plate typed into a "brand" free-text field);
+ *      leak: e.g. a license plate typed into a "brand" free-text field) —
+ *      but for a kept field, and for the record type's own name the
+ *      dataset carries in `RecordTypeId`;
  *   2. **clear-empty** — fields under the `clear` generator hold zero
  *      residue (present values must be `''`; absence/null are acceptable
  *      because tree exports omit null fields);
@@ -107,6 +109,12 @@ export class NonReidentificationControl {
       'no-residual-id': [],
     };
 
+    // The names of each record type, by its source id: what `RecordTypeId`
+    // holds in the dataset, on purpose.
+    const recordTypeNames = new Map(
+      extracted.recordTypeMap.map((entry) => [entry.id, [entry.name, entry.developerName]]),
+    );
+
     // Objects the anonymizer left out whole — files the rules do not keep —
     // are absent on purpose: the manifest names them, and nothing of theirs
     // reached the dataset for the other checks to examine.
@@ -124,12 +132,14 @@ export class NonReidentificationControl {
           });
           continue;
         }
+        const recordType = sourceRecord.fields.RecordTypeId;
         this.checkSubstitution(
           objectData.objectApiName,
           sourceRecord,
           target.record,
           rules,
           violations.substitution,
+          new Set(typeof recordType === 'string' ? (recordTypeNames.get(recordType) ?? []) : []),
         );
       }
     }
@@ -170,13 +180,20 @@ export class NonReidentificationControl {
     };
   }
 
-  /** Check 1 — effective substitution, transversal leak included. */
+  /**
+   * Check 1 — effective substitution, transversal leak included.
+   *
+   * @param recordTypeNames - The name and developer name of the record's own
+   *   record type: platform metadata the dataset keeps on purpose in
+   *   `RecordTypeId`, and no leak of a field that repeats it.
+   */
   private checkSubstitution(
     objectApiName: string,
     source: ExtractedRecord,
     frozen: FrozenRecord,
     rules: PseudonymRulesFile,
     violations: ControlViolation[],
+    recordTypeNames: ReadonlySet<string>,
   ): void {
     for (const [field, original] of Object.entries(source.fields)) {
       if (field === 'Id' || original === null || original === undefined || original === '') {
@@ -199,7 +216,8 @@ export class NonReidentificationControl {
         continue;
       }
       // Transversal leak: the original value must not appear in ANY other
-      // field of the same record — except human-approved keep fields.
+      // field of the same record — except kept fields, which hold their own
+      // value and say nothing of this one, and the record type's name.
       if (typeof original === 'string' && original.length >= TRANSVERSAL_MIN_LENGTH) {
         for (const [otherField, otherValue] of Object.entries(frozen.fields)) {
           if (otherField === field || typeof otherValue !== 'string' || otherValue !== original) {
@@ -207,6 +225,13 @@ export class NonReidentificationControl {
           }
           const otherGenerator = resolveGenerator(rules, objectApiName, otherField);
           if (otherGenerator === 'keep') {
+            continue;
+          }
+          // A text field that mirrors the record type — its developer name
+          // kept for formulas, its label for reports — holds what the dataset
+          // carries in `RecordTypeId` by design. Run against a real org, three
+          // such fields made fifty "leaks" and refused the extraction.
+          if (otherField === 'RecordTypeId' && recordTypeNames.has(otherValue)) {
             continue;
           }
           violations.push({

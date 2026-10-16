@@ -9,6 +9,7 @@ import {
   callsEstimateOf,
   gapFieldOf,
   gapLines,
+  readActiveValidationRules,
   validationFormulaSoql,
   validationRulesSoql,
   type GapField,
@@ -236,6 +237,60 @@ async function readGaps(
 function ofKind(read: ForgeTargetGaps, kind: ForgeGap['kind']): ForgeGap[] {
   return read.gaps.filter((gap) => gap.kind === kind);
 }
+
+describe('readActiveValidationRules', () => {
+  it('lists the active rules of the objects named, in their order, with what each says', async () => {
+    const asked: string[] = [];
+    const rules = await readActiveValidationRules(
+      async (soql) => {
+        asked.push(soql);
+        return [
+          rule(ruleId(1), 'Siret_Format', 'Account', 'Siret__c'),
+          rule(ruleId(2), 'Phone_Format', 'contact', 'Contact.Phone'),
+          {
+            ...rule(ruleId(3), 'Type_By_Profile', 'Account', 'Haut de la page'),
+            NamespacePrefix: 'pkg',
+          },
+          rule(ruleId(4), 'Elsewhere', 'Lead'),
+        ];
+      },
+      ['Contact', 'Account', 'Contact'],
+    );
+
+    expect(asked).toEqual([validationRulesSoql(['Contact', 'Account'])]);
+    expect(rules).toEqual([
+      {
+        objectApiName: 'Contact',
+        name: 'Phone_Format',
+        message: 'Phone_Format message',
+        field: 'Phone',
+      },
+      {
+        objectApiName: 'Account',
+        name: 'pkg__Type_By_Profile',
+        message: 'Type_By_Profile message',
+      },
+      {
+        objectApiName: 'Account',
+        name: 'Siret_Format',
+        message: 'Siret_Format message',
+        field: 'Siret__c',
+      },
+    ]);
+  });
+
+  it('asks nothing for no object, nor for a name a query cannot hold', async () => {
+    const asked: string[] = [];
+    const query = async (soql: string) => {
+      asked.push(soql);
+      return [];
+    };
+
+    expect(await readActiveValidationRules(query, [])).toEqual([]);
+    expect(await readActiveValidationRules(query, ["Account' OR Id != '"])).toEqual([]);
+    expect(asked).toEqual([]);
+  });
+});
 
 describe('TargetGapReader — validation rules', () => {
   it('reads the active rules of the objects the run writes, one gap each, from the target', async () => {

@@ -23,6 +23,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>Case.Trap_Record_Type_Label__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>Case.Trap_Subcategory__c</field>
         <readable>true</readable>
     </fieldPermissions>

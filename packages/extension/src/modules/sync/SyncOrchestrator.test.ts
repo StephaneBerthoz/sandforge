@@ -1189,6 +1189,58 @@ describe('a simulation reads as the run does and writes nothing', () => {
 
     expect(result.error).toContain('look records up in the target');
   });
+
+  it("lists beside each object it writes the target's validation rules, which it cannot evaluate", async () => {
+    // Run against a real target, a simulation predicted 652 accounts written
+    // and the run wrote 21: the rest were refused by validation rules.
+    const deps = simulatedDeps();
+    deps.readValidationRules = vi.fn().mockResolvedValue([
+      {
+        objectApiName: 'Account',
+        name: 'Type_By_Profile',
+        message: 'Wrong account type for your profile',
+      },
+      {
+        objectApiName: 'Account',
+        name: 'Siret_Format',
+        message: 'SIRET: 14 digits',
+        field: 'Siret__c',
+      },
+      { objectApiName: 'Case', name: 'Never_Deleted', message: 'Cases are kept' },
+    ]);
+    const config = createConfig({
+      objects: [
+        createObjectConfig({ objectApiName: 'Account', externalIdField: 'Ext_Id__c' }),
+        createObjectConfig({ objectApiName: 'Case', operation: 'delete', insertOrder: 2 }),
+      ],
+    });
+
+    const result = await new SyncOrchestrator(deps).simulate(config);
+
+    // A delete saves nothing, and meets no rule.
+    expect(deps.readValidationRules).toHaveBeenCalledWith(['Account']);
+    expect(result.objects[0].validationRules).toEqual([
+      { name: 'Type_By_Profile', message: 'Wrong account type for your profile' },
+      { name: 'Siret_Format', message: 'SIRET: 14 digits', field: 'Siret__c' },
+    ]);
+    expect(result.objects[1].validationRules).toBeUndefined();
+    expect(result.validationRulesUnread).toBeUndefined();
+  });
+
+  it('says why the validation rules went unlisted when the target refuses to list them', async () => {
+    const deps = simulatedDeps();
+    deps.readValidationRules = vi
+      .fn()
+      .mockRejectedValue(new Error('INSUFFICIENT_ACCESS: View Setup and Configuration'));
+
+    const result = await new SyncOrchestrator(deps).simulate(upsertOnKey());
+
+    expect(result.validationRulesUnread).toBe('INSUFFICIENT_ACCESS: View Setup and Configuration');
+    expect(result.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', insert: 1, update: 1 }),
+    ]);
+    expect(result.objects[0].validationRules).toBeUndefined();
+  });
 });
 
 describe('a paused run writes nothing until it is resumed', () => {

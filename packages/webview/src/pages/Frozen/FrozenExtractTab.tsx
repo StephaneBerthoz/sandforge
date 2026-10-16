@@ -589,6 +589,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 filesLeftOut={extractMutation.data.manifest.coverage?.filesLeftOut}
                 leftToThePlatform={extractMutation.data.manifest.coverage?.leftToThePlatform}
                 exclusionCosts={extractMutation.data.manifest.coverage?.exclusionCosts}
+                requiredLeftEmpty={extractMutation.data.manifest.coverage?.requiredLeftEmpty}
                 testId="frozen-extract-coverage"
               />
             </>

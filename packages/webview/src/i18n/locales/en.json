@@ -1216,6 +1216,9 @@
       "conflictFields": "Fields that differ: {{fields}}.",
       "nothingWritten": "Nothing was written. The counts compare what the run would send with what the target holds now.",
       "notChecked": "A simulation does not run the target's validation rules, duplicate rules, required fields or automations: a record one of them would refuse is counted as the run would send it.",
+      "validationRules_one": "{{count}} active validation rule of the target, which a simulation cannot evaluate: a record it refuses is counted as written.",
+      "validationRules_other": "{{count}} active validation rules of the target, which a simulation cannot evaluate: a record one of them refuses is counted as written.",
+      "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted as written.",
       "stoppedAt": "The simulation stopped at {{object}}: {{error}}. A run would stop there too.",
       "runNow": "Run the sync now"
     },
@@ -4194,7 +4197,8 @@
       "unbounded": "Read without the date bound, having no CreatedDate: {{objects}}",
       "filesLeftOut": "Left out — their files cannot be pseudonymized without an approved keep rule: {{objects}}",
       "leftToThePlatform": "Left out — the platform writes these records, or what they depend on, itself: {{objects}}",
-      "exclusionCosts": "Cannot be loaded as they are — they need an object excludedObjects leaves out: {{objects}}"
+      "exclusionCosts": "Cannot be loaded as they are — they need an object excludedObjects leaves out: {{objects}}",
+      "requiredLeftEmpty": "Required by the source and left empty by the rules — a load will ask a value for each: {{fields}}"
     },
     "loadPhase": {
       "guards": "Entry guards",

@@ -7,6 +7,7 @@ import type {
   SyncObjectResult,
   SyncObjectSimulation,
   SyncSimulationResult,
+  SyncValidationRule,
   GrappeConfig,
 } from '@sandforge/shared';
 import { sanitizeSoqlObjectName } from '@sandforge/shared';
@@ -181,6 +182,15 @@ export interface SyncOrchestratorDeps {
    * share their ids take.
    */
   recordTypes?: () => Promise<SyncRecordTypes>;
+  /**
+   * For {@link SyncOrchestrator.simulate}: the target's active validation
+   * rules on the objects named, as Forge's pre-flight reads them
+   * (`readActiveValidationRules`). A simulation cannot evaluate a rule, so it
+   * lists each beside the object it predicts for. Without it, none is listed.
+   */
+  readValidationRules?: (
+    objectApiNames: readonly string[],
+  ) => Promise<ReadonlyArray<SyncValidationRule & { objectApiName: string }>>;
   /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -843,6 +853,12 @@ export class SyncOrchestrator {
     const objects: SyncObjectSimulation[] = [];
     const ordered = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
     let filePlan: SyncFilePlan | undefined;
+    // What the simulation cannot evaluate, said beside what it predicts: the
+    // target's validation rules on each object the run writes. Run against a
+    // real target, a simulation predicted 652 accounts written and the run
+    // wrote 21, the rest refused by rules on the running user's profile and
+    // on company registration numbers.
+    const validation = await this.validationRulesOf(ordered);
     const answer = (ending: Partial<SyncSimulationResult> = {}): SyncSimulationResult => ({
       configId: config.id,
       operationId: `sync-simulation-${startTime}`,
@@ -852,6 +868,7 @@ export class SyncOrchestrator {
       duration: Date.now() - startTime,
       timestamp: new Date().toISOString(),
       ...(filePlan ? { files: filePlan.storage } : {}),
+      ...(validation.unread !== undefined ? { validationRulesUnread: validation.unread } : {}),
       ...ending,
     });
 
@@ -875,15 +892,15 @@ export class SyncOrchestrator {
       try {
         const simulated = await this.simulateObject(config, objectConfig, deltaLoad, run);
         const files = filePlan?.objects.get(objectConfig.objectApiName);
-        objects.push(
-          files
-            ? {
-                ...simulated,
-                files: files.outcome,
-                notes: [...simulated.notes, ...files.notes],
-              }
-            : simulated,
-        );
+        const rules =
+          objectConfig.operation === 'delete'
+            ? []
+            : (validation.byObject.get(objectConfig.objectApiName) ?? []);
+        objects.push({
+          ...simulated,
+          ...(files ? { files: files.outcome, notes: [...simulated.notes, ...files.notes] } : {}),
+          ...(rules.length > 0 ? { validationRules: rules } : {}),
+        });
       } catch (err: unknown) {
         // A lookup the cancel cut short is the cancel, not an error of the read.
         if (this.deps.signal?.aborted) return answer({ cancelled: true });
@@ -894,6 +911,30 @@ export class SyncOrchestrator {
       }
     }
     return answer();
+  }
+
+  /**
+   * The target's active validation rules on the objects a run of `ordered`
+   * writes, by object, or why the target would not list them. A run that
+   * only deletes meets none: a validation rule is checked as a record is
+   * saved.
+   */
+  private async validationRulesOf(ordered: readonly SyncObjectConfig[]): Promise<{
+    byObject: ReadonlyMap<string, SyncValidationRule[]>;
+    unread?: string;
+  }> {
+    const read = this.deps.readValidationRules;
+    const written = ordered.filter((o) => o.operation !== 'delete').map((o) => o.objectApiName);
+    const byObject = new Map<string, SyncValidationRule[]>();
+    if (!read || written.length === 0) return { byObject };
+    try {
+      for (const { objectApiName, ...rule } of await read(written)) {
+        byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), rule]);
+      }
+      return { byObject };
+    } catch (err: unknown) {
+      return { byObject, unread: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**

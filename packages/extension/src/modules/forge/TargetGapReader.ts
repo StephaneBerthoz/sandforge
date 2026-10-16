@@ -382,6 +382,59 @@ function fieldKey(field: string | undefined): { field?: string } {
   return field ? { field } : {};
 }
 
+/** An active validation rule of the target, as a read that does not evaluate it lists it. */
+export interface ActiveValidationRule {
+  /** The object the rule is on, as the caller named it. */
+  objectApiName: string;
+  /** The rule's name, after its package's namespace for a packaged one. */
+  name: string;
+  /** What the rule says when it refuses a record. */
+  message: string;
+  /** The field it shows its error on; absent for the top of the page. */
+  field?: string;
+}
+
+/**
+ * The active validation rules of the objects named, in the order they are
+ * named and then by name, read as {@link TargetGapReader} reads them — the same
+ * query, the same names — without their formulas: a reader that cannot
+ * evaluate a rule, as a simulation cannot, lists it beside what it predicts.
+ *
+ * @param toolingQuery - A SOQL query on the target's Tooling API, every page of it.
+ * @param objectApiNames - The objects whose rules are read; one the query
+ *   could not name safely is left out.
+ */
+export async function readActiveValidationRules(
+  toolingQuery: (soql: string) => Promise<Row[]>,
+  objectApiNames: readonly string[],
+): Promise<ActiveValidationRule[]> {
+  const queryable = [...new Set(objectApiNames)].filter((name) => API_NAME_RE.test(name));
+  if (queryable.length === 0) return [];
+  const wanted = new Map(queryable.map((name) => [name.toLowerCase(), name]));
+  const order = new Map(queryable.map((name, index) => [name, index]));
+  const rows = await toolingQuery(validationRulesSoql(queryable));
+  return rows
+    .flatMap((row): ActiveValidationRule[] => {
+      const named = entityName(row.EntityDefinition);
+      const objectApiName = named === undefined ? undefined : wanted.get(named.toLowerCase());
+      const name = text(row.ValidationName);
+      if (!objectApiName || !name) return [];
+      return [
+        {
+          objectApiName,
+          name: withNamespace(text(row.NamespacePrefix), name),
+          message: text(row.ErrorMessage),
+          ...fieldKey(displayFieldOf(row.ErrorDisplayField, undefined)),
+        },
+      ];
+    })
+    .sort(
+      (a, b) =>
+        (order.get(a.objectApiName) ?? 0) - (order.get(b.objectApiName) ?? 0) ||
+        a.name.localeCompare(b.name),
+    );
+}
+
 /**
  * Reads, from the target org's metadata, what will refuse or surprise a run.
  */

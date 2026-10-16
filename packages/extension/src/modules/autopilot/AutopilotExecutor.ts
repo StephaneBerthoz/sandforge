@@ -22,6 +22,7 @@ import {
   STANDARD_PRICEBOOK_SOQL,
   isPlatformRequiredField,
   isPricebookEntry,
+  sanitizeSoqlObjectName,
   splitStandardPricebookEntries,
 } from '@sandforge/shared';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
@@ -82,12 +83,44 @@ import { logger } from '../../logger.js';
 /** Local alias matching the autopilot domain name. */
 type AnonymizationRule = AutopilotAnonymizationRule;
 
-/** Function to query records from source org */
+/**
+ * Function to read a page of an object's records from the source org: at most
+ * `limit` of them, in the order of their ids, those whose id comes after
+ * `afterId` — from the first when it is undefined. See {@link pageSoql}.
+ */
 export type QueryFn = (
   objectApiName: string,
-  offset: number,
+  afterId: string | undefined,
   limit: number,
 ) => Promise<Record<string, unknown>[]>;
+
+/** A 15- or 18-character record id, as one goes into a query. */
+const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * The statement a page of an object's table is read with: every field, in
+ * the order of the ids, after the last id the read reached.
+ *
+ * Paged by `OFFSET`, a read stopped at the two thousandth row: the platform
+ * refuses an offset past 2 000 (`NUMBER_OUTSIDE_VALID_RANGE`), and an object of
+ * some 2 200 records failed partway. A query locator is not kept either: it
+ * lapses after fifteen minutes of a paused run, an org keeps ten at a time for
+ * a user while the objects of a wave are read together, and a `FIELDS(ALL)`
+ * statement holds no more than 200 rows for one to follow. An id is a key of
+ * every table, and the next page starts after it whatever came before.
+ */
+export function pageSoql(
+  objectApiName: string,
+  afterId: string | undefined,
+  limit: number,
+): string {
+  const object = sanitizeSoqlObjectName(objectApiName);
+  if (afterId !== undefined && !RECORD_ID.test(afterId)) {
+    throw new Error(`Not a record id to read after: "${afterId}".`);
+  }
+  const after = afterId === undefined ? '' : ` WHERE Id > '${afterId}'`;
+  return `SELECT FIELDS(ALL) FROM ${object}${after} ORDER BY Id LIMIT ${Math.trunc(limit)}`;
+}
 
 /**
  * Function to read records of the source org by id: every field of each, as
@@ -1194,6 +1227,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     };
 
     let offset = 0;
+    // The last id a page of the table ended on: where the next page starts.
+    let after: string | undefined;
     const standardBook = this.standardPricebook;
     if (isPricebookEntry(objectApiName) && standardBook) {
       // A custom price is refused for a product with no standard one, and
@@ -1207,13 +1242,20 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           state.notSent = totalRecords;
           return finish();
         }
-        const { rows: batch, advance } = await this.readPage(objectApiName, offset);
+        const {
+          rows: batch,
+          advance,
+          next,
+          last,
+        } = await this.readPage(objectApiName, offset, after);
         state.apiCallsUsed++;
         if (advance === 0) break;
         offset += advance;
+        after = next;
         const kept = this.leaveToThePlatform(objectApiName, batch, edges);
         this.deps.anonymizer.anonymize(kept, rules, objectApiName);
         rows.push(...kept);
+        if (last) break;
       }
       const { standard, custom } = splitStandardPricebookEntries(rows, standardBook.source);
       let processed = 0;
@@ -1240,12 +1282,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }
 
       // 1. Query from source: a page of the table, or the next ids of a parent
-      const { rows: read, advance } = await this.readPage(objectApiName, offset);
+      const { rows: read, advance, next, last } = await this.readPage(objectApiName, offset, after);
       state.apiCallsUsed++;
 
       if (advance === 0) {
         break;
       }
+      after = next;
 
       // What the platform writes itself never goes further than the read.
       const batch = this.leaveToThePlatform(objectApiName, read, edges);
@@ -1260,28 +1303,51 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
       // 4. Emit node-progress
       progress(offset);
+      if (last) break;
     }
 
     return finish();
   }
 
   /**
-   * The next records of an object from `offset`: a page of its table, or —
-   * for a parent the plan reads by id — the records of its next ids, with how
-   * far that moves the read. An id whose record is gone moves it all the same.
+   * The next records of an object: a page of its table after the id the last
+   * page ended on, or — for a parent the plan reads by id — the records of its
+   * ids from `offset`, with how far that moves the read and the id the next
+   * page of the table starts after. An id whose record is gone moves it all
+   * the same.
    */
   private async readPage(
     objectApiName: ApiName,
     offset: number,
-  ): Promise<{ rows: Record<string, unknown>[]; advance: number }> {
+    after: string | undefined,
+  ): Promise<{
+    rows: Record<string, unknown>[];
+    advance: number;
+    next: string | undefined;
+    /** No page can follow this one. */
+    last: boolean;
+  }> {
     const ids = this.parentIds.get(objectApiName);
     if (ids && this.deps.queryByIds) {
       const chunk = ids.slice(offset, offset + Math.min(this.batchSize, IDS_PER_READ));
-      if (chunk.length === 0) return { rows: [], advance: 0 };
-      return { rows: await this.deps.queryByIds(objectApiName, chunk), advance: chunk.length };
+      if (chunk.length === 0) return { rows: [], advance: 0, next: after, last: true };
+      return {
+        rows: await this.deps.queryByIds(objectApiName, chunk),
+        advance: chunk.length,
+        next: after,
+        last: false,
+      };
     }
-    const rows = await this.deps.query(objectApiName, offset, this.batchSize);
-    return { rows, advance: rows.length };
+    const rows = await this.deps.query(objectApiName, after, this.batchSize);
+    const lastId = rows.at(-1)?.['Id'];
+    // A page whose last row carries no id gives the next nowhere to start:
+    // read again from the first, it would write the same rows twice.
+    return {
+      rows,
+      advance: rows.length,
+      next: typeof lastId === 'string' ? lastId : after,
+      last: rows.length > 0 && typeof lastId !== 'string',
+    };
   }
 
   /**

@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { PIIDetector } from '../../core/precheck/PIIDetector.js';
+import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
+import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
+import { NonReidentificationControl } from './NonReidentificationControl.js';
 import {
+  keptWithoutARule,
   parsePseudonymRules,
+  requiredFieldsLeftEmpty,
   resolveGenerator,
   RulesFileError,
   serializePseudonymRules,
+  withSchemaDefaults,
+  type RuleSchemaField,
 } from './rulesFile.js';
+import { to18 } from './salesforceId.js';
+import type { ExtractedDataset } from './types.js';
 
 describe('parsePseudonymRules', () => {
   it('parses a valid versioned rules file', () => {
@@ -99,6 +109,309 @@ describe('resolveGenerator', () => {
       rules: { 'FeedItem.Type': { generator: 'clear' } },
     });
     expect(resolveGenerator(file, 'FeedItem', 'Type')).toBe('clear');
+  });
+});
+
+/** The detector every module reads personal fields with. */
+const detector = new PIIDetector();
+
+describe('the platform settings an empty rules file keeps', () => {
+  const required = { nillable: false, createable: true, defaultedOnCreate: false };
+  const schema = new Map<string, RuleSchemaField[]>([
+    [
+      'BusinessHours',
+      [
+        { name: 'Name', type: 'string', ...required },
+        { name: 'TimeZoneSidKey', type: 'picklist', restrictedPicklist: true, ...required },
+        { name: 'MondayStartTime', type: 'time', nillable: true },
+        { name: 'MondayEndTime', type: 'time', nillable: true },
+      ],
+    ],
+    [
+      'OperatingHours',
+      [
+        { name: 'Name', type: 'string', ...required },
+        { name: 'TimeZone', type: 'picklist', restrictedPicklist: true, ...required },
+      ],
+    ],
+    [
+      'Account',
+      [
+        { name: 'Name', type: 'string', ...required },
+        { name: 'Type__c', type: 'picklist', restrictedPicklist: true, ...required },
+        { name: 'VAT_Rate__c', type: 'picklist', restrictedPicklist: true, nillable: true },
+        { name: 'Origin__c', type: 'picklist', restrictedPicklist: false, nillable: true },
+        { name: 'Interests__c', type: 'multipicklist', restrictedPicklist: true, nillable: true },
+        { name: 'CurrencyIsoCode', type: 'picklist', restrictedPicklist: true, ...required },
+        {
+          name: 'BillingStateCode',
+          type: 'picklist',
+          restrictedPicklist: true,
+          nillable: true,
+          compoundFieldName: 'BillingAddress',
+        },
+        { name: 'OwnerId', type: 'reference', referenceTo: ['User'], ...required },
+        { name: 'Siret__c', type: 'string', ...required, createable: false },
+      ],
+    ],
+  ]);
+  const extracted: Pick<ExtractedDataset, 'objects'> = {
+    objects: [
+      {
+        objectApiName: 'BusinessHours',
+        records: [
+          {
+            referenceId: 'BusinessHours-000001',
+            sourceId: to18('01mA00000000001'),
+            fields: {
+              Name: 'Agence de Lyon',
+              TimeZoneSidKey: 'Europe/Paris',
+              MondayStartTime: '08:00:00.000Z',
+              MondayEndTime: '18:00:00.000Z',
+            },
+          },
+        ],
+      },
+      {
+        objectApiName: 'OperatingHours',
+        records: [
+          {
+            referenceId: 'OperatingHours-000001',
+            sourceId: to18('0OHA00000000001'),
+            fields: { Name: 'Tournée de Lyon', TimeZone: 'Europe/Paris' },
+          },
+        ],
+      },
+      {
+        objectApiName: 'Account',
+        records: [
+          {
+            referenceId: 'Account-000001',
+            sourceId: to18('001A00000000001'),
+            fields: {
+              Name: 'Jeanne Martin',
+              Type__c: 'Particulier',
+              VAT_Rate__c: '20',
+              Origin__c: 'Salon de Lyon',
+              Interests__c: 'Golf;Voile',
+              CurrencyIsoCode: 'EUR',
+              BillingStateCode: '69',
+            },
+          },
+        ],
+      },
+    ],
+  };
+  const empty = parsePseudonymRules({ rulesVersion: '1.0.0', rules: {} });
+
+  it('keeps the time zones, the week hours and restricted picklist values, and clears the names', () => {
+    const rules = withSchemaDefaults(empty, schema, detector);
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted: {
+        ...extracted,
+        asOf: '2026-10-01T00:00:00Z',
+        recordTypeMap: [],
+        unboundedObjects: [],
+        fileFields: {},
+      },
+      rules,
+      pseudonymizer: new DeterministicPseudonymizer('settings-salt'),
+      datasetVersion: '1.0.0',
+    });
+    const fieldsOf = (objectApiName: string) =>
+      frozen.objects.find((o) => o.objectApiName === objectApiName)?.records[0].fields;
+
+    expect(fieldsOf('BusinessHours')).toEqual({
+      Name: '',
+      TimeZoneSidKey: 'Europe/Paris',
+      MondayStartTime: '08:00:00.000Z',
+      MondayEndTime: '18:00:00.000Z',
+    });
+    expect(fieldsOf('OperatingHours')).toEqual({ Name: '', TimeZone: 'Europe/Paris' });
+    expect(fieldsOf('Account')).toEqual({
+      Name: '',
+      Type__c: 'Particulier',
+      VAT_Rate__c: '20',
+      // Any value an API writes, several of a person's on one record, and a
+      // part of where someone lives.
+      Origin__c: '',
+      Interests__c: '',
+      CurrencyIsoCode: 'EUR',
+      BillingStateCode: '',
+    });
+  });
+
+  it('passes the non-reidentification control with what it keeps', () => {
+    const rules = withSchemaDefaults(empty, schema, detector);
+    const full: ExtractedDataset = {
+      ...extracted,
+      asOf: '2026-10-01T00:00:00Z',
+      recordTypeMap: [],
+      unboundedObjects: [],
+      fileFields: {},
+    };
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted: full,
+      rules,
+      pseudonymizer: new DeterministicPseudonymizer('settings-salt'),
+      datasetVersion: '1.0.0',
+    });
+
+    expect(new NonReidentificationControl().run(full, frozen, rules).passed).toBe(true);
+  });
+
+  it('lets a declared rule clear a restricted picklist that says something of a person', () => {
+    const declared = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'Account.Type__c': { generator: 'clear' } },
+    });
+    const rules = withSchemaDefaults(declared, schema, detector);
+
+    expect(resolveGenerator(rules, 'Account', 'Type__c')).toBe('clear');
+    expect(resolveGenerator(rules, 'Account', 'VAT_Rate__c')).toBe('keep');
+  });
+
+  it('keeps the settings named alike on every object without a describe', () => {
+    for (const field of [
+      'TimeZoneSidKey',
+      'LocaleSidKey',
+      'LanguageLocaleKey',
+      'CurrencyIsoCode',
+    ]) {
+      expect(resolveGenerator(empty, 'User', field)).toBe('keep');
+    }
+    expect(resolveGenerator(empty, 'BusinessHours', 'SundayEndTime')).toBe('keep');
+    expect(resolveGenerator(empty, 'BusinessHours', 'Name')).toBe('clear');
+    expect(resolveGenerator(empty, 'Account', 'Type__c')).toBe('clear');
+  });
+
+  it('names the required fields the rules leave empty, lookups and defaulted fields aside', () => {
+    expect(
+      requiredFieldsLeftEmpty(extracted, withSchemaDefaults(empty, schema, detector), schema),
+    ).toEqual(['Account.Name', 'BusinessHours.Name', 'OperatingHours.Name']);
+  });
+
+  it('names a required restricted picklist too, when no describe said it was restricted', () => {
+    expect(requiredFieldsLeftEmpty(extracted, empty, schema)).toEqual([
+      'Account.Name',
+      'Account.Type__c',
+      'BusinessHours.Name',
+      'OperatingHours.Name',
+    ]);
+  });
+
+  it('lists the fields it kept that no rule declares', () => {
+    expect(keptWithoutARule(extracted, withSchemaDefaults(empty, schema, detector))).toEqual([
+      'Account.CurrencyIsoCode',
+      'Account.Type__c',
+      'Account.VAT_Rate__c',
+      'BusinessHours.MondayEndTime',
+      'BusinessHours.MondayStartTime',
+      'BusinessHours.TimeZoneSidKey',
+      'OperatingHours.TimeZone',
+    ]);
+  });
+});
+
+describe('a restricted picklist that says what a person is', () => {
+  const restricted = { type: 'picklist', restrictedPicklist: true, nillable: true };
+  const schema = new Map<string, RuleSchemaField[]>([
+    [
+      'Contact',
+      [
+        { name: 'GenderIdentity', label: 'Gender Identity', ...restricted },
+        { name: 'MaritalStatus__c', label: 'Marital Status', ...restricted },
+        // A French org's label, on a custom name that says nothing.
+        { name: 'Situation__c', label: 'Situation familiale', ...restricted },
+      ],
+    ],
+    [
+      'Case',
+      [
+        { name: 'Status', label: 'Status', ...restricted },
+        { name: 'Origin', label: 'Case Origin', ...restricted },
+      ],
+    ],
+  ]);
+  const extracted: ExtractedDataset = {
+    asOf: '2026-10-01T00:00:00Z',
+    recordTypeMap: [],
+    unboundedObjects: [],
+    fileFields: {},
+    objects: [
+      {
+        objectApiName: 'Contact',
+        records: [
+          {
+            referenceId: 'Contact-000001',
+            sourceId: to18('003A00000000001'),
+            fields: {
+              GenderIdentity: 'Female',
+              MaritalStatus__c: 'Married',
+              Situation__c: 'Veuve',
+            },
+          },
+        ],
+      },
+      {
+        objectApiName: 'Case',
+        records: [
+          {
+            referenceId: 'Case-000001',
+            sourceId: to18('500A00000000001'),
+            fields: { Status: 'New', Origin: 'Web' },
+          },
+        ],
+      },
+    ],
+  };
+  const empty = parsePseudonymRules({ rulesVersion: '1.0.0', rules: {} });
+
+  /** What the dataset holds of the first record of an object. */
+  function frozenFields(rules: ReturnType<typeof withSchemaDefaults>, objectApiName: string) {
+    return new FrozenDatasetAnonymizer()
+      .anonymize({
+        extracted,
+        rules,
+        pseudonymizer: new DeterministicPseudonymizer('attributes-salt'),
+        datasetVersion: '1.0.0',
+      })
+      .objects.find((o) => o.objectApiName === objectApiName)?.records[0].fields;
+  }
+
+  it("clears a contact's gender identity and marital status, and keeps a case's status and origin", () => {
+    const rules = withSchemaDefaults(empty, schema, detector);
+
+    expect(frozenFields(rules, 'Contact')).toEqual({
+      GenderIdentity: '',
+      MaritalStatus__c: '',
+      Situation__c: '',
+    });
+    expect(frozenFields(rules, 'Case')).toEqual({ Status: 'New', Origin: 'Web' });
+    expect(keptWithoutARule(extracted, rules)).toEqual(['Case.Origin', 'Case.Status']);
+  });
+
+  it('passes the non-reidentification control with what it clears', () => {
+    const rules = withSchemaDefaults(empty, schema, detector);
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted,
+      rules,
+      pseudonymizer: new DeterministicPseudonymizer('attributes-salt'),
+      datasetVersion: '1.0.0',
+    });
+
+    expect(new NonReidentificationControl().run(extracted, frozen, rules).passed).toBe(true);
+  });
+
+  it('keeps one a rule approves keeping, and lists no field it named among those kept without a rule', () => {
+    const approved = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'Contact.MaritalStatus__c': { generator: 'keep', approved: true } },
+    });
+    const rules = withSchemaDefaults(approved, schema, detector);
+
+    expect(frozenFields(rules, 'Contact')).toMatchObject({ MaritalStatus__c: 'Married' });
+    expect(keptWithoutARule(extracted, rules)).toEqual(['Case.Origin', 'Case.Status']);
   });
 });
 

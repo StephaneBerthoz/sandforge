@@ -95,6 +95,7 @@ import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
+import { readActiveValidationRules } from '../src/modules/forge/TargetGapReader.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -548,6 +549,25 @@ export function simulationLines(simulation: SyncSimulationResult): string[] {
       );
     }
     for (const note of o.notes) lines.push(`      ${note}`);
+    // What the counts above cannot say: a record one of these refuses is
+    // counted as written.
+    if (o.validationRules && o.validationRules.length > 0) {
+      lines.push(
+        `      ${o.validationRules.length} active validation rule(s) of the target, which a ` +
+          'simulation cannot evaluate — a record one of them refuses is counted as written:',
+      );
+      for (const rule of o.validationRules) {
+        lines.push(
+          `        ${rule.name}${rule.field ? ` (${rule.field})` : ''}: ${rule.message || '(no message)'}`,
+        );
+      }
+    }
+  }
+  if (simulation.validationRulesUnread) {
+    lines.push(
+      `  the target's validation rules could not be listed (${simulation.validationRulesUnread}): ` +
+        'any of them may refuse a record counted as written',
+    );
   }
   if (simulation.cancelled) lines.push('  stopped by a cancel before its last object');
   if (simulation.error) {
@@ -764,6 +784,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
     }),
     describeTargetFields,
+    // What a simulation cannot evaluate, listed beside what it predicts: the
+    // target's validation rules, as the panel reads them.
+    readValidationRules: async (objectApiNames) =>
+      readActiveValidationRules(
+        async (soql) =>
+          (
+            await queryAllPages<Record<string, unknown>>(
+              {
+                query: async (q) => targetConn.tooling.query<Record<string, unknown>>(q),
+                queryMore: async (url) =>
+                  targetConn.tooling.queryMore<Record<string, unknown>>(url),
+              },
+              soql,
+            )
+          ).records,
+        objectApiNames,
+      ),
     // Both orgs' record types, as the panel reads them: a record's type is
     // mapped to the target's of the same object and API name.
     recordTypes: () =>

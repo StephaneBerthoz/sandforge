@@ -127,11 +127,21 @@ export class FakerFallback {
     }
 
     const records: Record<string, unknown>[] = [];
+    // Each phone field of a record draws a number of its own: drawn from the
+    // record's index alone, a contact's Phone and MobilePhone were the same
+    // number. The k-th of n phone fields of record i takes the number i·n + k
+    // of the locale's fictional range — still the same for the same template,
+    // whatever the seed of the run, and one field alone draws as before.
+    const phones = fieldRules.filter(
+      (rule) => resolveFakerMethod(rule.config.fakerMethod ?? 'lorem') === 'phone',
+    );
 
     for (let i = 0; i < count; i++) {
       const record: Record<string, unknown> = {};
       for (const rule of fieldRules) {
-        record[rule.fieldApiName] = this.generateFieldValue(rule, i);
+        const phone = phones.indexOf(rule);
+        const draw = phone >= 0 ? i * phones.length + phone : i;
+        record[rule.fieldApiName] = this.generateFieldValue(rule, draw);
       }
       records.push(record);
     }

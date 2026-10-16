@@ -78,7 +78,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
         { SmartAnonymizer },
         { ExecutionPlanGenerator },
         { RecordIdRemapper },
-        { AutopilotExecutor },
+        { AutopilotExecutor, pageSoql },
         { AutopilotGrappeAdapter },
         { AutopilotOrchestrator },
       ]) => {
@@ -177,11 +177,11 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             // connections of an in-flight executor.
             const { source, target } = connections;
             return new AutopilotExecutor({
-              query: async (objectApiName, offset, limit) => {
+              // A page of the table after the last id read, never past an
+              // OFFSET the platform caps at 2 000: see `pageSoql`.
+              query: async (objectApiName, afterId, limit) => {
                 const safeObj = sanitizeSoqlObjectName(objectApiName);
-                // OFFSET pagination mirrors the executor's offset-based design
-                // (SOQL caps OFFSET at 2000 — larger objects fail per-node).
-                const soql = `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${limit} OFFSET ${offset}`;
+                const soql = pageSoql(safeObj, afterId, limit);
                 return queryWithFieldsFallback<Record<string, unknown>>(source, safeObj, soql);
               },
               // The parents a plan reads by id: only the records its selected

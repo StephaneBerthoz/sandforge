@@ -107,4 +107,16 @@ describe('FrozenCoverageNotes', () => {
     expect(text).toContain('Cannot be loaded as they are');
     expect(text).toContain('OpportunityLineItem (3) → PricebookEntry, Order (2) → PricebookEntry');
   });
+
+  it('names the required fields the rules leave empty, as the dataset is frozen', () => {
+    render(
+      <FrozenCoverageNotes
+        requiredLeftEmpty={['BusinessHours.Name', 'OperatingHours.Name']}
+        testId="coverage"
+      />,
+    );
+    const text = screen.getByTestId('coverage').textContent ?? '';
+    expect(text).toContain('left empty by the rules');
+    expect(text).toContain('BusinessHours.Name, OperatingHours.Name');
+  });
 });

@@ -162,6 +162,39 @@ describe('DeterministicPseudonymizer — formats', () => {
     expect(shifted).toMatch(/^\d{4}-\d{2}-\d{2}T08:30:00\.000Z$/);
   });
 
+  it('dateShift shifts a datetime as the REST API writes it, with its +0000 offset', () => {
+    // The org's own form: a Z-only pattern cleared every one of them.
+    const written = '2026-10-01T08:00:00.000+0000';
+    const shifted = String(pA.pseudonymize('dateShift', written));
+
+    expect(shifted).toMatch(/^\d{4}-\d{2}-\d{2}T08:00:00\.000Z$/);
+    expect(Date.parse('2026-10-01T08:00:00.000Z') - Date.parse(shifted)).toBe(
+      pA.dateShiftDays * 86_400_000,
+    );
+  });
+
+  it('dateShift takes every offset the platform writes or accepts, as the same instant', () => {
+    const utc = String(pA.pseudonymize('dateShift', '2026-10-01T13:00:00.000Z'));
+    for (const written of [
+      '2026-10-01T13:00:00.000+0000',
+      '2026-10-01T13:00:00+00:00',
+      '2026-10-01T08:00:00.000-0500',
+      '2026-10-01T08:00:00-05:00',
+      '2026-10-01T15:00:00.000+0200',
+    ]) {
+      expect(pA.pseudonymize('dateShift', written)).toBe(utc);
+    }
+  });
+
+  it('dateShift still clears what is no datetime', () => {
+    expect(pA.pseudonymize('dateShift', '01/10/2026 08:00')).toBe('');
+    expect(pA.pseudonymize('dateShift', '2026-10-01T08:00:00.000+00')).toBe('');
+  });
+
+  it('dateMonthStart snaps a datetime written with an offset', () => {
+    expect(pA.pseudonymize('dateMonthStart', '1985-06-23T10:30:00.000+0000')).toBe('1985-06-01');
+  });
+
   it('geoRound1 rounds to ~11 km (1 decimal), preserving type', () => {
     const num = pA.pseudonymize('geoRound1', 48.8566);
     expect(num).toBe(48.9);

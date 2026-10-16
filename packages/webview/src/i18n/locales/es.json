@@ -1216,6 +1216,9 @@
       "conflictFields": "Campos que difieren: {{fields}}.",
       "nothingWritten": "No se escribió nada. Las cifras comparan lo que la ejecución enviaría con lo que el destino contiene ahora.",
       "notChecked": "Una simulación no ejecuta las reglas de validación, las reglas de duplicados, los campos obligatorios ni las automatizaciones del destino: un registro que alguna de ellas rechazaría se cuenta tal como la ejecución lo enviaría.",
+      "validationRules_one": "{{count}} regla de validación activa del destino, que una simulación no puede evaluar: un registro que rechace se cuenta como escrito.",
+      "validationRules_other": "{{count}} reglas de validación activas del destino, que una simulación no puede evaluar: un registro que una de ellas rechace se cuenta como escrito.",
+      "validationRulesUnread": "No se pudieron listar las reglas de validación del destino ({{reason}}): cualquiera de ellas puede rechazar un registro contado como escrito.",
       "stoppedAt": "La simulación se detuvo en {{object}}: {{error}}. Una ejecución también se detendría ahí.",
       "runNow": "Ejecutar la sincronización ahora"
     },
@@ -4194,7 +4197,8 @@
       "unbounded": "Leídos sin el límite de fecha, por no tener CreatedDate: {{objects}}",
       "filesLeftOut": "Excluidos — sus archivos no se pueden seudonimizar sin una regla keep aprobada: {{objects}}",
       "leftToThePlatform": "Excluidos — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
-      "exclusionCosts": "No se pueden cargar tal cual — necesitan un objeto que excludedObjects deja fuera: {{objects}}"
+      "exclusionCosts": "No se pueden cargar tal cual — necesitan un objeto que excludedObjects deja fuera: {{objects}}",
+      "requiredLeftEmpty": "Obligatorios en el origen y dejados vacíos por las reglas — una carga pedirá un valor para cada uno: {{fields}}"
     },
     "loadPhase": {
       "guards": "Controles de entrada",

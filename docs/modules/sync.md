@@ -245,7 +245,13 @@ Before execution, the Review step shows:
 - A simulation checks the field types of both orgs as a run does, and stops at
   an object whose read fails, where a run would stop. It does not run the
   target's validation rules, duplicate rules or automations: a record one of
-  them would refuse is counted as the run would send it.
+  them would refuse is counted as the run would send it. It lists, beside each
+  object the run inserts, updates or upserts, the target's active validation
+  rules on it -- name, the field each shows its error on, its message -- read
+  from the target's Tooling API as Forge's pre-flight reads them, and says
+  when the target would not list them; on the results step and on the command
+  line (`--dry-run`) alike. A rule on the running user's profile or on a
+  registration number's format refuses rows a simulation counts as written.
 - It writes nothing to the target, to the audit trail or to the sync history.
   Like a run it is listed in Live Operations, and its Cancel -- or the page's
   -- stops it before its next object. Each lookup is an API request: about one

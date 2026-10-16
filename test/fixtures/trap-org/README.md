@@ -93,7 +93,10 @@ API answers the field's active values for it.
 `seed` fills the source: 40 business accounts (10 repeat a name, 10 an external id; half are
 Prospects; a quarter in USD where multi-currency is on), 10 person accounts where they are on,
 1 200 contacts through Bulk API 2.0 (one in 25 without email, phones in shapes the target
-refuses), 40 cases across both record types, 40 items and 20 leads in pairs that share an email.
+refuses), 40 cases across both record types, each with its record type's label repeated in a
+text field (`Trap_Record_Type_Label__c`, source only, as client orgs keep one for formulas and
+reports: what a frozen dataset carries in `RecordTypeId`), 40 items and 20 leads in pairs that
+share an email.
 `TRAP_CONTACTS` changes the number of contacts: a Developer Edition holds 5 MB, about 2 500
 records, and 1 200 still outnumber the 500 rows a DataOps backup reads outside a sandbox. The
 target gets 3 accounts and 2 leads that collide with source records: a duplicate rule compares a

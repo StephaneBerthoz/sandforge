@@ -45,6 +45,47 @@ function simulation(overrides: Partial<SyncSimulationResult> = {}): SyncSimulati
 }
 
 describe('SyncSimulationResults', () => {
+  it("lists beside an object the target's validation rules, which a simulation cannot evaluate", () => {
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        simulation={{
+          ...base,
+          objects: [
+            {
+              ...base.objects[0],
+              validationRules: [
+                { name: 'Type_By_Profile', message: 'One account type for this profile' },
+                { name: 'Siret_Format', message: 'SIRET: 14 digits', field: 'Siret__c' },
+              ],
+            },
+            base.objects[1],
+          ],
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    const rules = screen.getByTestId('sync-simulation-rules-Account');
+    expect(rules.textContent).toContain('2 active validation rules of the target');
+    expect(rules.textContent).toContain('Type_By_Profile — One account type for this profile');
+    expect(rules.textContent).toContain('Siret_Format (Siret__c) — SIRET: 14 digits');
+    expect(screen.queryByTestId('sync-simulation-rules-Contact')).toBeNull();
+  });
+
+  it("says when the target's validation rules could not be listed", () => {
+    render(
+      <SyncSimulationResults
+        simulation={simulation({ validationRulesUnread: 'INSUFFICIENT_ACCESS' })}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-rules-unread').textContent).toContain(
+      'could not be listed (INSUFFICIENT_ACCESS)',
+    );
+  });
+
   it('adds up what the run would do and says that nothing was written', () => {
     render(<SyncSimulationResults simulation={simulation()} onRun={vi.fn()} />);
 

@@ -434,10 +434,23 @@ export interface SyncObjectResult {
 }
 
 /**
+ * An active validation rule of the target on an object a run writes: what a
+ * simulation cannot evaluate, listed beside what it predicts.
+ */
+export interface SyncValidationRule {
+  /** The rule's name, after its package's namespace for a packaged one. */
+  name: string;
+  /** What the rule says when it refuses a record. */
+  message: string;
+  /** The field it shows its error on; absent for the top of the page. */
+  field?: string;
+}
+
+/**
  * What a sync run would do with one object, as a simulation found it: both
  * orgs read and compared, nothing written. The target's validation rules,
  * duplicate rules and automations are not run, so a record they would refuse
- * is counted as the run would send it.
+ * is counted as the run would send it; the validation rules are listed.
  */
 export interface SyncObjectSimulation {
   objectApiName: ApiName;
@@ -472,6 +485,13 @@ export interface SyncObjectSimulation {
   delta?: SyncDeltaOutcome;
   /** On a configuration that copies files: the files a run would copy, and those it would skip. */
   files?: SyncFilesOutcome;
+  /**
+   * The target's active validation rules on the object, which the simulation
+   * cannot evaluate: a record one of them refuses is counted as written.
+   * Absent when the object has none, when the run only deletes, or when they
+   * could not be read (`SyncSimulationResult.validationRulesUnread`).
+   */
+  validationRules?: SyncValidationRule[];
 }
 
 /** What a sync run would do, object by object, as a simulation found it. */
@@ -492,6 +512,11 @@ export interface SyncSimulationResult {
   failedObject?: ApiName;
   /** On a configuration that copies files: what they would take of the target's file storage. */
   files?: SyncFilesStorage;
+  /**
+   * Why the target's validation rules could not be listed, when the org
+   * refused to say: any of them may still refuse a record counted as written.
+   */
+  validationRulesUnread?: string;
 }
 
 /** Conflict record needing resolution */

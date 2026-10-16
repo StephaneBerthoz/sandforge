@@ -1216,6 +1216,9 @@
       "conflictFields": "Campos que diferem: {{fields}}.",
       "nothingWritten": "Nada foi gravado. Os números comparam o que a execução enviaria com o que o destino contém agora.",
       "notChecked": "Uma simulação não executa as regras de validação, as regras de duplicidade, os campos obrigatórios nem as automações do destino: um registro que uma delas recusaria é contado como a execução o enviaria.",
+      "validationRules_one": "{{count}} regra de validação ativa do destino, que uma simulação não consegue avaliar: um registro que ela recuse é contado como gravado.",
+      "validationRules_other": "{{count}} regras de validação ativas do destino, que uma simulação não consegue avaliar: um registro que uma delas recuse é contado como gravado.",
+      "validationRulesUnread": "Não foi possível listar as regras de validação do destino ({{reason}}): qualquer uma delas pode recusar um registro contado como gravado.",
       "stoppedAt": "A simulação parou em {{object}}: {{error}}. Uma execução também pararia ali.",
       "runNow": "Executar a sincronização agora"
     },
@@ -4194,7 +4197,8 @@
       "unbounded": "Lidos sem o limite de data, por não terem CreatedDate: {{objects}}",
       "filesLeftOut": "Deixados de fora — seus arquivos não podem ser pseudonimizados sem uma regra keep aprovada: {{objects}}",
       "leftToThePlatform": "Deixados de fora — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",
-      "exclusionCosts": "Não podem ser carregados como estão — precisam de um objeto que excludedObjects deixa de fora: {{objects}}"
+      "exclusionCosts": "Não podem ser carregados como estão — precisam de um objeto que excludedObjects deixa de fora: {{objects}}",
+      "requiredLeftEmpty": "Obrigatórios na origem e deixados vazios pelas regras — um carregamento pedirá um valor para cada um: {{fields}}"
     },
     "loadPhase": {
       "guards": "Verificações de entrada",

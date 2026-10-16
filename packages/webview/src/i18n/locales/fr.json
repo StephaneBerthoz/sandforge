@@ -1216,6 +1216,9 @@
       "conflictFields": "Champs qui diffèrent : {{fields}}.",
       "nothingWritten": "Rien n'a été écrit. Les chiffres comparent ce que l'exécution enverrait avec ce que la cible contient maintenant.",
       "notChecked": "Une simulation n'exécute ni les règles de validation, ni les règles de doublons, ni les champs obligatoires, ni les automatisations de la cible : un enregistrement que l'une d'elles refuserait est compté tel que l'exécution l'enverrait.",
+      "validationRules_one": "{{count}} règle de validation active de la cible, qu'une simulation ne peut pas évaluer : un enregistrement qu'elle refuse est compté comme écrit.",
+      "validationRules_other": "{{count}} règles de validation actives de la cible, qu'une simulation ne peut pas évaluer : un enregistrement que l'une d'elles refuse est compté comme écrit.",
+      "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté comme écrit.",
       "stoppedAt": "La simulation s'est arrêtée sur {{object}} : {{error}}. Une exécution s'y arrêterait aussi.",
       "runNow": "Lancer la synchronisation maintenant"
     },
@@ -4194,7 +4197,8 @@
       "unbounded": "Lus sans la borne de date, faute de CreatedDate : {{objects}}",
       "filesLeftOut": "Laissés de côté — leurs fichiers ne peuvent pas être pseudonymisés sans règle keep approuvée : {{objects}}",
       "leftToThePlatform": "Laissés de côté — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
-      "exclusionCosts": "Ne peuvent pas être chargés tels quels — il leur faut un objet qu'excludedObjects laisse de côté : {{objects}}"
+      "exclusionCosts": "Ne peuvent pas être chargés tels quels — il leur faut un objet qu'excludedObjects laisse de côté : {{objects}}",
+      "requiredLeftEmpty": "Obligatoires dans la source et laissés vides par les règles — un chargement demandera une valeur pour chacun : {{fields}}"
     },
     "loadPhase": {
       "guards": "Garde-fous",

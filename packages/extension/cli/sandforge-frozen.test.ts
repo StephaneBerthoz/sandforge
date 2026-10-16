@@ -832,4 +832,36 @@ describe('messageLines', () => {
         'PricebookEntry their PricebookEntryId names, which excludedObjects leaves out',
     );
   });
+
+  it('names at extraction the required fields the rules leave empty, and what it kept without a rule', () => {
+    const lines = messageLines({
+      type: 'frozen:extract:response',
+      payload: {
+        recordCount: 2,
+        datasetDir: '/sas/dataset',
+        manifest: {
+          version: '1.0.0',
+          volumetry: { measured: { BusinessHours: 1, OperatingHours: 1 } },
+          coverage: {
+            objects: 2,
+            truncated: false,
+            maxNodes: 50,
+            unboundedObjects: [],
+            filesLeftOut: [],
+            requiredLeftEmpty: ['BusinessHours.Name', 'OperatingHours.Name'],
+            keptWithoutARule: ['BusinessHours.TimeZoneSidKey', 'OperatingHours.TimeZone'],
+          },
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'required in the source and left empty by the rules — a load will ask a value for each: ' +
+        'BusinessHours.Name, OperatingHours.Name',
+    );
+    expect(lines).toContain(
+      "kept without a rule, the platform's own words: BusinessHours.TimeZoneSidKey, " +
+        'OperatingHours.TimeZone',
+    );
+  });
 });

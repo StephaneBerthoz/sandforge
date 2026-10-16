@@ -110,8 +110,13 @@ interface Writes {
  * Both orgs: the source holds two accounts, the target the first of them by
  * its External ID. Every query each org is asked is recorded.
  */
-function mockOrgs(): { queries: Record<string, string[]>; writes: Writes } {
+function mockOrgs(validationRules: Array<Record<string, unknown>> = []): {
+  queries: Record<string, string[]>;
+  writes: Writes;
+  tooling: string[];
+} {
   const queries: Record<string, string[]> = { 'src-org': [], 'tgt-org': [] };
+  const tooling: string[] = [];
   const writes: Writes = {
     create: vi.fn(),
     upsert: vi.fn(),
@@ -138,10 +143,18 @@ function mockOrgs(): { queries: Record<string, string[]>; writes: Writes } {
       queryMore: vi.fn(),
       describe: vi.fn(async () => ({ fields: ACCOUNT_FIELDS })),
       sobject: vi.fn(() => writes),
+      // The target's validation rules, as its Tooling API lists them.
+      tooling: {
+        query: vi.fn(async (soql: string) => {
+          tooling.push(`${orgId} ${soql}`);
+          return { done: true, totalSize: validationRules.length, records: validationRules };
+        }),
+        queryMore: vi.fn(),
+      },
       limitInfo: undefined,
     } as never;
   });
-  return { queries, writes };
+  return { queries, writes, tooling };
 }
 
 /** Every message the handler posted, of one type. */
@@ -206,6 +219,30 @@ describe('sync:simulate', () => {
     expect(writes.upsert).not.toHaveBeenCalled();
     expect(writes.update).not.toHaveBeenCalled();
     expect(writes.destroy).not.toHaveBeenCalled();
+  });
+
+  it("lists the target's active validation rules on the object it would write", async () => {
+    const { tooling } = mockOrgs([
+      {
+        Id: '03d000000000001AAA',
+        ValidationName: 'Siret_Format',
+        NamespacePrefix: null,
+        ErrorDisplayField: 'Siret__c',
+        ErrorMessage: 'SIRET: 14 digits',
+        EntityDefinition: { QualifiedApiName: 'Account' },
+      },
+    ]);
+
+    await simulate(handler, 'sim-rules', upsertConfig());
+
+    const result = posted(deps, 'sync:simulate:response')[0]
+      .payload as unknown as SyncSimulationResult;
+    expect(result.objects[0].validationRules).toEqual([
+      { name: 'Siret_Format', message: 'SIRET: 14 digits', field: 'Siret__c' },
+    ]);
+    // Read from the target, the org the run writes to.
+    expect(tooling).toHaveLength(1);
+    expect(tooling[0]).toMatch(/^tgt-org SELECT .* FROM ValidationRule WHERE Active = true/);
   });
 
   it('leaves no trace of a write: no audit entry, a completion that says it was simulated', async () => {

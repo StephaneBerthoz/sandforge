@@ -86,6 +86,14 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         <SyncFilesStorageLine storage={simulation.files} testId="sync-simulation-files-storage" />
       )}
 
+      {simulation.validationRulesUnread && (
+        <p className="text-xs text-status-warning" data-testid="sync-simulation-rules-unread">
+          {t('sync.simulation.validationRulesUnread', {
+            reason: simulation.validationRulesUnread,
+          })}
+        </p>
+      )}
+
       {simulation.error && (
         <p className="text-xs text-status-error" role="alert" data-testid="sync-simulation-error">
           {t('sync.simulation.stoppedAt', {
@@ -167,6 +175,25 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                   </li>
                 ))}
               </ul>
+            )}
+            {/* What the counts above cannot say: run against a real target, a
+                simulation predicted 652 accounts and the run wrote 21, the
+                rest refused by rules no simulation evaluates. */}
+            {o.validationRules && o.validationRules.length > 0 && (
+              <div className="mt-2" data-testid={`sync-simulation-rules-${o.objectApiName}`}>
+                <p className="text-xs text-status-warning">
+                  {t('sync.simulation.validationRules', { count: o.validationRules.length })}
+                </p>
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {o.validationRules.map((rule) => (
+                    <li key={rule.name} className="text-[10px] text-text-secondary">
+                      <code>{rule.name}</code>
+                      {rule.field ? ` (${rule.field})` : ''}
+                      {rule.message ? ` — ${rule.message}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </CardBody>
         </Card>

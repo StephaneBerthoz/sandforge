@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
 import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
 import { NonReidentificationControl } from './NonReidentificationControl.js';
-import { parsePseudonymRules, type PseudonymRulesFile } from './rulesFile.js';
+import { parsePseudonymRules, withSchemaDefaults, type PseudonymRulesFile } from './rulesFile.js';
 import { to18 } from './salesforceId.js';
 import type { ExtractedDataset, FrozenDataset } from './types.js';
 
@@ -193,6 +194,128 @@ describe('NonReidentificationControl — one failure per check', () => {
     expect(noResidualId.passed).toBe(false);
     expect(noResidualId.violations.some((v) => v.field === 'Free__c')).toBe(true);
     expect(report.checks.filter((c) => !c.passed).map((c) => c.name)).toEqual(['no-residual-id']);
+  });
+});
+
+describe('NonReidentificationControl — what a record keeps on purpose', () => {
+  const RECORD_TYPE = to18('012A00000000001');
+  const OTHER_TYPE = to18('012A00000000002');
+  const empty = parsePseudonymRules({ rulesVersion: '1.0.0', rules: {} });
+
+  /** An account of a record type whose name is its developer name, with fields that mirror it. */
+  function mirrored(fields: Record<string, unknown>): ExtractedDataset {
+    return {
+      asOf: '2026-08-01T00:00:00Z',
+      unboundedObjects: [],
+      fileFields: {},
+      recordTypeMap: [
+        {
+          id: RECORD_TYPE,
+          sobjectType: 'Account',
+          developerName: 'Particulier',
+          name: 'Particulier',
+        },
+        { id: OTHER_TYPE, sobjectType: 'Account', developerName: 'Societe', name: 'Société' },
+      ],
+      objects: [
+        {
+          objectApiName: 'Account',
+          records: [
+            {
+              referenceId: 'Account-000001',
+              sourceId: SRC_ACCOUNT,
+              fields: { Id: SRC_ACCOUNT, RecordTypeId: RECORD_TYPE, ...fields },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("does not count a field that mirrors the record type's name as a leak into RecordTypeId", () => {
+    // Run against a real org, three such fields made fifty "leaks".
+    const extracted = mirrored({
+      TECH_RecordTypeDeveloperName__c: 'Particulier',
+      RecordtypeName__c: 'Particulier',
+      LastName: 'Martin',
+    });
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted,
+      rules: empty,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    expect(frozen.objects[0].records[0].fields.RecordTypeId).toBe('Particulier');
+    const report = control.run(extracted, frozen, empty, { now: () => NOW });
+    expect(checkByName(report, 'substitution').violations).toEqual([]);
+    expect(report.passed).toBe(true);
+  });
+
+  it('does not count a value a kept picklist holds as a leak of a field that repeats it', () => {
+    const extracted = mirrored({ Segment_Text__c: 'Premium', Segment__c: 'Premium' });
+    const rules = withSchemaDefaults(
+      empty,
+      new Map([['Account', [{ name: 'Segment__c', type: 'picklist', restrictedPicklist: true }]]]),
+      new PIIDetector(),
+    );
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted,
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    expect(frozen.objects[0].records[0].fields.Segment__c).toBe('Premium');
+    expect(control.run(extracted, frozen, rules, { now: () => NOW }).passed).toBe(true);
+  });
+
+  it('still fails a cleared personal value found in another field', () => {
+    const rules = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'Account.Description': { generator: 'contractNumber' } },
+    });
+    const report = control.run(
+      mirrored({ LastName: 'Martin', Description: 'Dossier' }),
+      frozenWith({ RecordTypeId: 'Particulier', LastName: '', Description: 'Martin' }),
+      rules,
+      { now: () => NOW },
+    );
+
+    expect(report.passed).toBe(false);
+    expect(checkByName(report, 'substitution').violations).toEqual([
+      expect.objectContaining({
+        field: 'Description',
+        detail: 'transversal leak: original value of "LastName" found in "Description"',
+      }),
+    ]);
+  });
+
+  it("still fails a personal value found in RecordTypeId that is not the record type's name", () => {
+    const report = control.run(
+      mirrored({ LastName: 'Martin', RecordtypeName__c: 'Société' }),
+      frozenWith({ RecordTypeId: 'Martin', LastName: '', RecordtypeName__c: '' }),
+      empty,
+      { now: () => NOW },
+    );
+
+    expect(checkByName(report, 'substitution').violations).toEqual([
+      expect.objectContaining({
+        field: 'RecordTypeId',
+        detail: 'transversal leak: original value of "LastName" found in "RecordTypeId"',
+      }),
+    ]);
+  });
+
+  it("still fails the name of another record type than the record's own in RecordTypeId", () => {
+    const report = control.run(
+      mirrored({ RecordtypeName__c: 'Société' }),
+      frozenWith({ RecordTypeId: 'Société', RecordtypeName__c: '' }),
+      empty,
+      { now: () => NOW },
+    );
+
+    expect(report.passed).toBe(false);
   });
 });
 

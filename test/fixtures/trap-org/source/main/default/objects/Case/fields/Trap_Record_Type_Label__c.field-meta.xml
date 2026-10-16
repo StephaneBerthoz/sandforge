@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Record_Type_Label__c</fullName>
+    <description>The label of the case's record type, kept as text as client orgs keep one for formulas and reports: what a frozen dataset carries in RecordTypeId on purpose, which its non-reidentification control once took for a leak.</description>
+    <label>Trap Record Type Label</label>
+    <length>80</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

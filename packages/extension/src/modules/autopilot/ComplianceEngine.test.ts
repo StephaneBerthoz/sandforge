@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import type { PIIFieldDetection, AnonymizationOverride, ApiName } from '@sandforge/shared';
 
 import { ComplianceEngine } from './ComplianceEngine.js';
+import { SmartAnonymizer } from './SmartAnonymizer.js';
 
 /** Helper to create a PII detection fixture. */
 function makePiiDetection(overrides: Partial<PIIFieldDetection> = {}): PIIFieldDetection {
@@ -25,6 +26,29 @@ describe('ComplianceEngine', () => {
 
   beforeEach(() => {
     engine = new ComplianceEngine();
+  });
+
+  it('gives each rule its field type, so a fake value is one the field takes', () => {
+    const detections: PIIFieldDetection[] = [
+      makePiiDetection({ fieldApiName: 'Backup_Email__c', fieldType: 'email' }),
+      makePiiDetection({ fieldApiName: 'Astreinte__c', fieldType: 'phone' }),
+    ];
+    const overrides: AnonymizationOverride[] = [
+      { objectApiName: 'Contact' as ApiName, fieldApiName: 'Astreinte__c', method: 'fake' },
+    ];
+
+    const rules = engine.generateRules(engine.buildProfile('gdpr', detections, overrides));
+    const records = [
+      { Id: '003xx000001', Backup_Email__c: 'jeanne@source.test', Astreinte__c: '0612345678' },
+    ];
+    new SmartAnonymizer(undefined, 'gdpr-salt').anonymize(records, rules, 'Contact' as ApiName);
+
+    expect(rules.map((r) => [r.fieldApiName, r.fieldType])).toEqual([
+      ['Backup_Email__c', 'email'],
+      ['Astreinte__c', 'phone'],
+    ]);
+    expect(records[0].Backup_Email__c).toMatch(/@example\.invalid$/);
+    expect(records[0].Astreinte__c).toMatch(/^\+3363998\d{4}$/);
   });
 
   // ─── 1. GDPR profile ──────────────────────────────────────────

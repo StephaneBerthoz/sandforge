@@ -112,6 +112,7 @@ export class ComplianceEngine {
           piiCategory: detection.piiCategory,
           aiConfidence: detection.confidence,
           userOverridden: true,
+          fieldType: detection.fieldType,
         });
         continue;
       }
@@ -130,6 +131,8 @@ export class ComplianceEngine {
         piiCategory: detection.piiCategory,
         aiConfidence: detection.confidence,
         userOverridden: false,
+        // What a value invented for the field has to be: see SmartAnonymizer.
+        fieldType: detection.fieldType,
       });
     }
 

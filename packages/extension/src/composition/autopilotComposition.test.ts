@@ -207,8 +207,11 @@ describe('autopilotComposition', () => {
 
     expect(result.totalSuccess).toBe(1);
     expect(result.completedObjects).toContain('Account');
-    // The executor queries the source with FIELDS(ALL) + LIMIT/OFFSET pagination.
-    expect(source.query).toHaveBeenCalledWith('SELECT FIELDS(ALL) FROM Account LIMIT 200 OFFSET 0');
+    // The executor reads the source a page at a time in id order: an OFFSET
+    // past 2 000 is refused.
+    expect(source.query).toHaveBeenCalledWith(
+      'SELECT FIELDS(ALL) FROM Account ORDER BY Id LIMIT 200',
+    );
     // The insert path strips the source Id and jsforce attributes before create.
     expect(target.create).toHaveBeenCalledTimes(1);
     expect(target.create).toHaveBeenCalledWith([{ Name: 'Acme' }], expect.anything());
@@ -395,12 +398,16 @@ function fakeDataOrg(
     if (count) {
       return { totalSize: objects[count[1]]?.rows?.length ?? 0, done: true, records: [] };
     }
-    const page = /^SELECT FIELDS\(ALL\) FROM (\w+) LIMIT (\d+) OFFSET (\d+)$/.exec(soql);
+    // A page of a table after the id given, the rows listed in id order.
+    const page =
+      /^SELECT FIELDS\(ALL\) FROM (\w+)(?: WHERE Id > '(\w+)')? ORDER BY Id LIMIT (\d+)$/.exec(
+        soql,
+      );
     if (page) {
-      const [, name, limit, offset] = page;
-      const records = (objects[name]?.rows ?? [])
-        .slice(Number(offset), Number(offset) + Number(limit))
-        .map((row) => ({ ...row }));
+      const [, name, after, limit] = page;
+      const rows = objects[name]?.rows ?? [];
+      const start = after === undefined ? 0 : rows.findIndex((row) => row['Id'] === after) + 1;
+      const records = rows.slice(start, start + Number(limit)).map((row) => ({ ...row }));
       return { totalSize: records.length, done: true, records };
     }
     const paged = options.pages?.(soql);

@@ -262,6 +262,55 @@ describe('SmartAnonymizer', () => {
       expect(second).toStrictEqual(first);
     });
 
+    it('writes an address under a domain nobody receives mail at into an email field it has no persona value for', () => {
+      // A token alone is refused by an email field: INVALID_EMAIL_ADDRESS.
+      const records = [{ Id: '003xx000001', Backup_Email__c: 'jeanne.martin@source.test' }];
+      const rules = [
+        makeRule({ fieldApiName: 'Backup_Email__c', method: 'fake', fieldType: 'email' }),
+      ];
+
+      anonymizer.anonymize(records, rules, 'Contact' as ApiName);
+
+      expect(records[0].Backup_Email__c).toMatch(/^fake_[0-9a-f]{8}@example\.invalid$/);
+    });
+
+    it('writes a number of the range kept for fiction into a phone field it has no persona value for', () => {
+      const records = [
+        { Id: '003xx000001', Astreinte__c: '06 12 34 56 78' },
+        { Id: '003xx000002', Astreinte__c: '06 98 76 54 32' },
+      ];
+      const rules = [
+        makeRule({ fieldApiName: 'Astreinte__c', method: 'fake', fieldType: 'phone' }),
+      ];
+
+      anonymizer.anonymize(records, rules, 'Contact' as ApiName);
+
+      for (const record of records) expect(record.Astreinte__c).toMatch(/^\+3363998\d{4}$/);
+    });
+
+    it('empties a picklist whatever the method, rather than make up a value it refuses', () => {
+      for (const method of ['fake', 'hash', 'mask', 'redact', 'shuffle'] as const) {
+        const records = [{ Id: '003xx000001', GenderIdentity: 'Female', Interests__c: 'A;B' }];
+        const rules = [
+          makeRule({ fieldApiName: 'GenderIdentity', method, fieldType: 'picklist' }),
+          makeRule({ fieldApiName: 'Interests__c', method, fieldType: 'multipicklist' }),
+        ];
+
+        anonymizer.anonymize(records, rules, 'Contact' as ApiName);
+
+        expect(records[0]).toEqual({ Id: '003xx000001', GenderIdentity: null, Interests__c: null });
+      }
+    });
+
+    it('leaves the token of a rule that does not say its field type, as Forge sends them', () => {
+      const records = [{ Id: '003xx000001', Backup_Email__c: 'ops@source.test' }];
+      const rules = [makeRule({ fieldApiName: 'Backup_Email__c', method: 'fake' })];
+
+      anonymizer.anonymize(records, rules, 'Contact' as ApiName);
+
+      expect(records[0].Backup_Email__c).toMatch(/^fake_[0-9a-f]{8}$/);
+    });
+
     it('keys the unmapped-field fallback with the salt', () => {
       const rules = [makeRule({ fieldApiName: 'CustomField__c', method: 'fake' })];
       const withSaltA = [{ Id: '003xx000001', CustomField__c: 'secret data' }];

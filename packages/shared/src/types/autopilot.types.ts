@@ -371,6 +371,12 @@ export interface AutopilotAnonymizationRule extends BaseAnonymizationRule {
   readonly aiConfidence: number;
   /** Whether the user manually overrode the AI suggestion */
   readonly userOverridden: boolean;
+  /**
+   * The field's Salesforce type, as the scan described it: what a value
+   * invented for it has to be — an address for an email field, a number for a
+   * phone. Absent, the value is a token.
+   */
+  readonly fieldType?: string;
 }
 
 /** User override for an anonymization rule */

@@ -441,12 +441,12 @@ gen_cases() {
     END {
       split("Hardware,Software,Software,Hardware", category, ",")
       split("Laptop,Laptop,Bug,License", subcategory, ",")
-      print "RecordTypeId,Subject,Status,Origin,Trap_Reason__c,Trap_Late__c,Trap_Category__c,Trap_Subcategory__c,AccountId"
+      print "RecordTypeId,Subject,Status,Origin,Trap_Reason__c,Trap_Late__c,Trap_Category__c,Trap_Subcategory__c,AccountId,Trap_Record_Type_Label__c"
       for (i = 1; i <= 40; i++) {
         k = (i - 1) % 4 + 1
-        printf "%s,Trap Case %02d,New,Web,%s,%s,%s,%s,%s\n", (i % 2 ? main : empty), i,
+        printf "%s,Trap Case %02d,New,Web,%s,%s,%s,%s,%s,%s\n", (i % 2 ? main : empty), i,
           substr("ABC", (i - 1) % 3 + 1, 1), substr("XYZ", int((i - 1) / 2) % 3 + 1, 1),
-          category[k], subcategory[k], ids[(i - 1) % n + 1]
+          category[k], subcategory[k], ids[(i - 1) % n + 1], (i % 2 ? "Trap Main" : "Trap Empty")
       }
     }' "$WORK/parents.tsv"
 }
@@ -780,6 +780,8 @@ verify_source() {
   fi
   note source S3 'cases on Trap_Main / Trap_Empty' \
     "$(count "$org" "SELECT COUNT() FROM Case WHERE RecordType.DeveloperName = 'Trap_Main'") / $(count "$org" "SELECT COUNT() FROM Case WHERE RecordType.DeveloperName = 'Trap_Empty'")"
+  note source S3b 'cases whose text field repeats their record type label' \
+    "$(count "$org" "SELECT COUNT() FROM Case WHERE Trap_Record_Type_Label__c != null")"
   note source S4 'cases with Trap_Reason__c C / Trap_Late__c X / pairs the target refuses' \
     "$(count "$org" "SELECT COUNT() FROM Case WHERE Trap_Reason__c = 'C'") / $(count "$org" "SELECT COUNT() FROM Case WHERE Trap_Late__c = 'X'") / $(count "$org" "SELECT COUNT() FROM Case WHERE (Trap_Category__c = 'Software' AND Trap_Subcategory__c IN ('Laptop', 'Printer')) OR (Trap_Category__c = 'Hardware' AND Trap_Subcategory__c IN ('License', 'Bug'))")"
   note source S5 'trap items' "$(count "$org" 'SELECT COUNT() FROM Trap_Item__c')"

@@ -46,6 +46,7 @@ import { ExecutionPlanGenerator } from '../src/modules/autopilot/ExecutionPlanGe
 import { RecordIdRemapper } from '../src/modules/autopilot/RecordIdRemapper.js';
 import {
   AutopilotExecutor,
+  pageSoql,
   type ExecutionResult,
 } from '../src/modules/autopilot/AutopilotExecutor.js';
 import { AutopilotGrappeAdapter } from '../src/modules/autopilot/AutopilotGrappeAdapter.js';
@@ -271,9 +272,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     remapper: new RecordIdRemapper(),
     createExecutor: () =>
       new AutopilotExecutor({
-        query: async (objectApiName, offset, limit) => {
+        // A page of the table after the last id read, as the panel reads it:
+        // an OFFSET past 2 000 is refused.
+        query: async (objectApiName, afterId, limit) => {
           const result = await sourceConn.query<Record<string, unknown>>(
-            `SELECT FIELDS(ALL) FROM ${objectApiName} LIMIT ${limit} OFFSET ${offset}`,
+            pageSoql(objectApiName, afterId, limit),
           );
           return result.records;
         },

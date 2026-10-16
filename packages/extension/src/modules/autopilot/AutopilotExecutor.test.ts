@@ -11,6 +11,7 @@ import type {
 import { STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
 import {
   AutopilotExecutor,
+  pageSoql,
   type AutopilotExecutionFailedEvent,
   type AutopilotExecutorDeps,
   type QueryFn,
@@ -290,7 +291,7 @@ describe('AutopilotExecutor', () => {
     expect(result.totalSkipped).toBe(5);
     expect(result.completedObjects).toContain('Account');
     // query should only be called for Account
-    expect(deps.query).not.toHaveBeenCalledWith('Lead', expect.anything(), expect.anything());
+    expect(vi.mocked(deps.query).mock.calls.map(([object]) => object)).not.toContain('Lead');
   });
 
   // ── Test 5: Insert failure emits node-failed ──────────────────────────────
@@ -698,11 +699,16 @@ describe('AutopilotExecutor — a record type the running user cannot use', () =
   });
 });
 
-/** A source whose objects hold the given rows, read a page at a time. */
+/**
+ * A source whose objects hold the given rows, listed in the order of their
+ * ids, read a page at a time after the last id read.
+ */
 function sourceOf(rows: Record<string, Record<string, unknown>[]>): QueryFn {
-  return vi.fn(async (objectApiName: string, offset: number, limit: number) =>
-    (rows[objectApiName] ?? []).slice(offset, offset + limit).map((row) => ({ ...row })),
-  );
+  return vi.fn(async (objectApiName: string, afterId: string | undefined, limit: number) => {
+    const list = rows[objectApiName] ?? [];
+    const start = afterId === undefined ? 0 : list.findIndex((row) => row['Id'] === afterId) + 1;
+    return list.slice(start, start + limit).map((row) => ({ ...row }));
+  });
 }
 
 /** Record counts for the rows of {@link sourceOf}. */
@@ -1343,13 +1349,104 @@ function lookup(name: string, referenceTo: string[], flags: Partial<DescribedLoo
   return { name, referenceTo, createable: true, updateable: true, ...flags };
 }
 
+describe('AutopilotExecutor — an object past the 2 000 rows an OFFSET reaches', () => {
+  /** 2 500 contacts, their ids in the order the org sorts them. */
+  const table = Array.from({ length: 2_500 }, (_, i) => ({
+    Id: `003A${String(i).padStart(11, '0')}`,
+    LastName: `Contact ${i}`,
+  }));
+
+  /**
+   * The org: a page of the table in id order, after the id it is given. Given
+   * an offset instead, as the run used to page, it refuses one past 2 000.
+   */
+  function org(statements: string[]): QueryFn {
+    return vi.fn(async (objectApiName: string, after: string | undefined, limit: number) => {
+      const offset: unknown = after;
+      if (typeof offset === 'number') {
+        if (offset > 2_000) {
+          throw new Error('NUMBER_OUTSIDE_VALID_RANGE: Maximum SOQL offset allowed is 2000');
+        }
+        return table.slice(offset, offset + limit).map((row) => ({ ...row }));
+      }
+      statements.push(pageSoql(objectApiName, after, limit));
+      return table
+        .filter((row) => after === undefined || row.Id > after)
+        .slice(0, limit)
+        .map((row) => ({ ...row }));
+    });
+  }
+
+  it('reads and writes every record, each page after the last id read, never by OFFSET', async () => {
+    // Paged by OFFSET, an object of some 2 200 records failed partway.
+    const statements: string[] = [];
+    let n = 0;
+    const insert = vi.fn(async (_object: string, records: Record<string, unknown>[]) =>
+      written(...records.map(() => `003T${String(n++).padStart(11, '0')}`)),
+    );
+    const deps = makeDeps({ query: org(statements), insert, batchSize: 200 });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      makePlan([{ order: 0, objects: ['Contact'], dependsOn: [] }], 2_500),
+      [],
+      [],
+      new Map([['Contact', 2_500]]),
+    );
+
+    expect(result.failedObjects).toEqual([]);
+    expect(result.totalSuccess).toBe(2_500);
+    const sent = insert.mock.calls.flatMap(([, records]) => records.map((r) => r['LastName']));
+    expect(new Set(sent).size).toBe(2_500);
+    expect(statements).toHaveLength(13);
+    expect(statements.some((soql) => /OFFSET/i.test(soql))).toBe(false);
+    expect(statements[0]).toBe('SELECT FIELDS(ALL) FROM Contact ORDER BY Id LIMIT 200');
+    expect(statements[12]).toBe(
+      `SELECT FIELDS(ALL) FROM Contact WHERE Id > '${table[2_399].Id}' ORDER BY Id LIMIT 200`,
+    );
+  });
+
+  it('writes no row twice when a page ends on a row without an id', async () => {
+    const query = vi.fn<QueryFn>().mockResolvedValue([{ LastName: 'No id' }]);
+    const insert = vi.fn(async (_object: string, records: Record<string, unknown>[]) =>
+      written(...records.map((_, i) => `003T0000000000${i}`)),
+    );
+    const deps = makeDeps({ query, insert });
+
+    await new AutopilotExecutor(deps).execute(
+      makePlan([{ order: 0, objects: ['Contact'], dependsOn: [] }], 5),
+      [],
+      [],
+      new Map([['Contact', 5]]),
+    );
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(insert).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('pageSoql', () => {
+  it('reads a page of the table in id order, after the id given', () => {
+    expect(pageSoql('Contact', undefined, 200)).toBe(
+      'SELECT FIELDS(ALL) FROM Contact ORDER BY Id LIMIT 200',
+    );
+    expect(pageSoql('Trap_Item__c', 'a0B000000000001AAA', 200)).toBe(
+      "SELECT FIELDS(ALL) FROM Trap_Item__c WHERE Id > 'a0B000000000001AAA' ORDER BY Id LIMIT 200",
+    );
+  });
+
+  it('refuses what is no record id, or no object name, before it goes into a query', () => {
+    expect(() => pageSoql('Contact', "x' OR Name != '", 200)).toThrow('Not a record id');
+    expect(() => pageSoql('Contact; DELETE', undefined, 200)).toThrow();
+  });
+});
+
 describe('AutopilotExecutor — objects of one wave that point at each other', () => {
   /** A source that answers late for one object, so a racing write would overtake it. */
   function slowFor(slow: string, rows: Record<string, Record<string, unknown>[]>): QueryFn {
     const read = sourceOf(rows);
-    return vi.fn(async (objectApiName: string, offset: number, limit: number) => {
+    return vi.fn(async (objectApiName: string, afterId: string | undefined, limit: number) => {
       if (objectApiName === slow) await new Promise((resolve) => setTimeout(resolve, 5));
-      return read(objectApiName, offset, limit);
+      return read(objectApiName, afterId, limit);
     });
   }
 
@@ -1481,10 +1578,12 @@ describe('AutopilotExecutor — objects of one wave that point at each other', (
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const query = vi.fn(async (objectApiName: string, offset: number, limit: number) => {
-      if (objectApiName === 'Account') await held;
-      return read(objectApiName, offset, limit);
-    });
+    const query = vi.fn(
+      async (objectApiName: string, afterId: string | undefined, limit: number) => {
+        if (objectApiName === 'Account') await held;
+        return read(objectApiName, afterId, limit);
+      },
+    );
     const deps = makeDeps({ query, insert: insertAs({ Account: '001T', Lead: '00QT' }) });
 
     const run = new AutopilotExecutor(deps).execute(
@@ -1494,7 +1593,7 @@ describe('AutopilotExecutor — objects of one wave that point at each other', (
       countsOf(rows),
     );
 
-    await vi.waitFor(() => expect(query).toHaveBeenCalledWith('Lead', 0, 2));
+    await vi.waitFor(() => expect(query).toHaveBeenCalledWith('Lead', undefined, 2));
     release();
     expect((await run).completedObjects.sort()).toEqual(['Account', 'Lead']);
   });
@@ -2263,9 +2362,10 @@ describe('AutopilotExecutor — a run stopped part way', () => {
   it('answers and counts the batch in flight, then writes no further batch', async () => {
     const controller = new AbortController();
     const deps = makeDeps({ update: vi.fn<UpdateFn>().mockResolvedValue([]) });
-    vi.mocked(deps.query).mockImplementation(async (_object, offset) => [
-      { Id: `a${String(offset)}` },
-      { Id: `a${String(offset + 1)}` },
+    let read = 0;
+    vi.mocked(deps.query).mockImplementation(async () => [
+      { Id: `a${String(read++)}` },
+      { Id: `a${String(read++)}` },
     ]);
     // The stop comes while the first batch is with the target.
     vi.mocked(deps.insert).mockImplementation(async (_object, records) => {
@@ -2314,7 +2414,7 @@ describe('AutopilotExecutor — a run stopped part way', () => {
     expect(result.stopped).toBe(true);
     expect(result.completedObjects).toEqual(['Account']);
     expect(result.stoppedObjects).toEqual(['Contact']);
-    expect(deps.query).not.toHaveBeenCalledWith('Contact', expect.anything(), expect.anything());
+    expect(vi.mocked(deps.query).mock.calls.map(([object]) => object)).not.toContain('Contact');
     expect(deps.insert).toHaveBeenCalledTimes(1);
   });
 

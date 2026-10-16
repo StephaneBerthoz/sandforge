@@ -31,7 +31,127 @@ interface NamePattern {
   label: string;
   /** The field types the pattern holds for; every type when absent. */
   types?: ReadonlySet<string>;
+  /**
+   * Read on the words of the API name — split at underscores and capitals,
+   * its suffix left out (`apiNameWords`) — rather than on the name run
+   * together, and on the label: `GenderIdentity` and `Marital_Status__pc` read
+   * "gender identity" and "marital status".
+   */
+  words?: true;
 }
+
+/**
+ * One of the phrases given, standing as words of their own in a lowercased
+ * label or in the words of an API name. A letter on either side, accented
+ * ones included, makes it part of another word: `Unisex__c` and Essex hold no
+ * sex, and a word boundary would not see past an accented letter.
+ */
+function wordsRegex(...phrases: string[]): RegExp {
+  return new RegExp(`(?<![a-z\u00e0-\u00ff])(?:${phrases.join('|')})(?![a-z\u00e0-\u00ff])`);
+}
+
+/**
+ * What a field says a person is, rather than how to reach them: their
+ * gender, their marital status, their nationality — and, kept apart as
+ * sensitive, what the GDPR names special categories (article 9): their
+ * ethnic origin, religion, sexual orientation, political opinions, union
+ * membership, and a disability, which is health data. In the English of
+ * standard and custom API names, and in the French of labels and of custom
+ * names in French orgs. A word that means something else as often stays out:
+ * "genre", which is a kind; "origin", a case's own field; "disabled", a
+ * record switched off; "union" alone.
+ *
+ * A restricted picklist of these looked like the schema's own words, and a
+ * dataset kept it: no pattern named one.
+ */
+const PERSONAL_ATTRIBUTES: readonly NamePattern[] = [
+  {
+    regex: wordsRegex('sexual orientation', 'sexual preference', 'orientation sexuelle'),
+    classification: 'Confidential',
+    confidence: 0.85,
+    label: 'sexual_orientation',
+    words: true,
+  },
+  {
+    regex: wordsRegex(
+      'gender identity',
+      'gender',
+      'sexe?',
+      'pronouns?',
+      'pronoms?',
+      'identit[e\u00e9] de genre',
+    ),
+    classification: 'PII',
+    confidence: 0.85,
+    label: 'gender',
+    words: true,
+  },
+  {
+    regex: wordsRegex('marital status', 'marital', 'situation familiale', 'situation matrimoniale'),
+    classification: 'PII',
+    confidence: 0.85,
+    label: 'marital_status',
+    words: true,
+  },
+  {
+    regex: wordsRegex(
+      'nationality',
+      'nationalities',
+      'citizenship',
+      'nationalit[e\u00e9]s?',
+      'citoyennet[e\u00e9]',
+    ),
+    classification: 'PII',
+    confidence: 0.85,
+    label: 'nationality',
+    words: true,
+  },
+  {
+    regex: wordsRegex('ethnicity', 'ethnic', 'race', 'racial', 'ethnie', 'ethnique'),
+    classification: 'Confidential',
+    confidence: 0.85,
+    label: 'ethnic_origin',
+    words: true,
+  },
+  {
+    regex: wordsRegex('religion', 'religions', 'religious', 'religieux', 'religieuse'),
+    classification: 'Confidential',
+    confidence: 0.85,
+    label: 'religion',
+    words: true,
+  },
+  {
+    regex: wordsRegex(
+      'political (?:opinion|affiliation|party|view)s?',
+      'opinions? politiques?',
+      'parti politique',
+    ),
+    classification: 'Confidential',
+    confidence: 0.85,
+    label: 'political_opinion',
+    words: true,
+  },
+  {
+    regex: wordsRegex(
+      'trade union',
+      'labou?r union',
+      'union member(?:ship)?',
+      'syndicat',
+      'syndicale?',
+    ),
+    classification: 'Confidential',
+    confidence: 0.85,
+    label: 'union_membership',
+    words: true,
+  },
+  {
+    regex: wordsRegex('disability', 'disabilities', 'handicaps?'),
+    classification: 'PHI',
+    confidence: 0.85,
+    label: 'disability',
+    words: true,
+  },
+];
 
 /**
  * A person's name or a part of it, in a lowercased API name or label: first,
@@ -244,12 +364,14 @@ export class PIIDetector {
   /** Check a field's API name and label against known PII name patterns */
   private detectByName(field: FieldDescribe, detected: Map<string, PIIField>): void {
     const nameToCheck = field.apiName.toLowerCase().replace(/__c$/i, '');
+    const wordsToCheck = apiNameWords(field.apiName).join(' ');
     const labelToCheck = field.label.toLowerCase();
     const typeToCheck = field.type.toLowerCase();
 
     for (const pattern of this.namePatterns) {
       if (pattern.types && !pattern.types.has(typeToCheck)) continue;
-      if (pattern.regex.test(nameToCheck) || pattern.regex.test(labelToCheck)) {
+      const name = pattern.words ? wordsToCheck : nameToCheck;
+      if (pattern.regex.test(name) || pattern.regex.test(labelToCheck)) {
         this.addDetection(detected, field, {
           classification: pattern.classification,
           detectionMethod: 'name_pattern',
@@ -425,6 +547,7 @@ function buildNamePatterns(): NamePattern[] {
       label: 'person_name',
       types: NAME_TYPES,
     },
+    ...PERSONAL_ATTRIBUTES,
   ];
 }
 

@@ -178,7 +178,25 @@ const COMPANY_SUFFIXES = [
 const SIV_LETTERS = 'ABCDEFGHJKLMNPRSTUVWXYZ';
 
 const DATE_ONLY_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
-const ISO_DATETIME_REGEX = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?Z$/;
+/**
+ * A datetime as Salesforce writes one, or as it takes one: UTC with a `Z`, or
+ * with an offset, with or without its colon. The REST API answers
+ * `2026-10-01T08:00:00.000+0000`; a `Z`-only pattern took that for no date at
+ * all, and a datetime under a date rule that is no date is cleared — run
+ * against a real org, every service appointment's start and due dates came out
+ * empty, and the load refused them.
+ */
+const ISO_DATETIME_REGEX =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?(Z|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * The instant a datetime matched by {@link ISO_DATETIME_REGEX} names. An offset
+ * written without its colon is given one: the form the ECMAScript date format
+ * defines, which every engine parses.
+ */
+function instantOf(value: string): number {
+  return Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+}
 
 const MS_PER_DAY = 86_400_000;
 
@@ -390,8 +408,10 @@ export class DeterministicPseudonymizer {
   /**
    * Uniform shift of the whole dataset by `dateShiftDays` BACKWARD.
    * Date-only values stay date-only; ISO datetimes shift as instants
-   * (time-of-day preserved). Durations are preserved because the offset
-   * is identical for every value of every field.
+   * (time-of-day preserved), whatever offset the org wrote them with, and are
+   * written in UTC with a `Z`, a form every Salesforce API takes. Durations
+   * are preserved because the offset is identical for every value of every
+   * field.
    */
   private dateShift(value: unknown): unknown {
     if (typeof value === 'string' && DATE_ONLY_REGEX.test(value)) {
@@ -399,8 +419,8 @@ export class DeterministicPseudonymizer {
       return shifted.toISOString().slice(0, 10);
     }
     if (typeof value === 'string' && ISO_DATETIME_REGEX.test(value)) {
-      const shifted = new Date(Date.parse(value) - this.dateShiftDays * MS_PER_DAY);
-      return shifted.toISOString();
+      const at = instantOf(value);
+      if (Number.isFinite(at)) return new Date(at - this.dateShiftDays * MS_PER_DAY).toISOString();
     }
     // Unparseable date under a date rule: never leak — clear.
     return '';

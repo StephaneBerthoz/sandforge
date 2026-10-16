@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildFrozenManifest,
+  FrozenDatasetAnonymizer,
   FrozenDatasetExtractor,
   FrozenDatasetLoader,
   FrozenLoadCancelledError,
@@ -14,6 +15,7 @@ import {
   serializeManifest,
   writeCountingContract,
   writeSelectionToSas,
+  type FrozenDataset,
 } from '../../modules/frozendataset/index.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
@@ -154,7 +156,12 @@ function posted(
  * root object, counts are org-wide — which is the property the first health
  * check was built without.
  */
-function fakeOrg(withFeed = false): { conn: unknown; soqls: string[] } {
+/**
+ * @param withFeed - The full opportunity has a post and a tracked change.
+ * @param restrictedStage - The org holds `StageName` to its own values, as a
+ *   real org does.
+ */
+function fakeOrg(withFeed = false, restrictedStage = false): { conn: unknown; soqls: string[] } {
   const created = '2026-01-01T00:00:00.000Z';
   const rows: Record<string, Array<Record<string, unknown>>> = {
     Opportunity: [
@@ -192,8 +199,13 @@ function fakeOrg(withFeed = false): { conn: unknown; soqls: string[] } {
       fields: [
         { name: 'Id', type: 'id', nillable: false },
         { name: 'Name', type: 'string', nillable: false },
-        { name: 'StageName', type: 'picklist', nillable: false },
-        { name: 'CreatedDate', type: 'datetime', nillable: false },
+        {
+          name: 'StageName',
+          type: 'picklist',
+          nillable: false,
+          restrictedPicklist: restrictedStage,
+        },
+        { name: 'CreatedDate', type: 'datetime', nillable: false, createable: false },
       ],
       childRelationships: [
         {
@@ -227,7 +239,7 @@ function fakeOrg(withFeed = false): { conn: unknown; soqls: string[] } {
           nillable: false,
           cascadeDelete: true,
         },
-        { name: 'CreatedDate', type: 'datetime', nillable: false },
+        { name: 'CreatedDate', type: 'datetime', nillable: false, createable: false },
       ],
       childRelationships: [],
     },
@@ -244,7 +256,7 @@ function fakeOrg(withFeed = false): { conn: unknown; soqls: string[] } {
           cascadeDelete: true,
         },
         { name: 'Quantity', type: 'double', nillable: false },
-        { name: 'CreatedDate', type: 'datetime', nillable: false },
+        { name: 'CreatedDate', type: 'datetime', nillable: false, createable: false },
       ],
       childRelationships: [],
     },
@@ -2470,7 +2482,42 @@ describe('FrozenDatasetHandler', () => {
         maxNodes: 10,
         unboundedObjects: [],
         filesLeftOut: [],
+        // Said as the dataset is frozen, not at the load that would ask.
+        requiredLeftEmpty: ['Opportunity.StageName', 'OpportunityLineItem.Quantity'],
       });
+    });
+
+    it("keeps a restricted picklist's value with no rule, says so, and no longer asks a value for it", async () => {
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const real = FrozenDatasetAnonymizer.prototype.anonymize;
+      let frozen: FrozenDataset | undefined;
+      const anonymize = vi
+        .spyOn(FrozenDatasetAnonymizer.prototype, 'anonymize')
+        .mockImplementation(function (this: FrozenDatasetAnonymizer, options) {
+          frozen = real.call(this, options);
+          return frozen;
+        });
+      onTestFinished(() => anonymize.mockRestore());
+      const { conn } = fakeOrg(false, true);
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig();
+      await readyToExtract(config);
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+      const opportunity = frozen?.objects.find((o) => o.objectApiName === 'Opportunity');
+      expect(opportunity?.records[0].fields.StageName).toBe('Won');
+      expect(posted(deps, 'frozen:control:result')[0].payload.report).toMatchObject({
+        passed: true,
+      });
+      const manifest = posted(deps, 'frozen:extract:response')[0].payload.manifest as {
+        coverage: { requiredLeftEmpty?: string[]; keptWithoutARule?: string[] };
+      };
+      expect(manifest.coverage.requiredLeftEmpty).toEqual(['OpportunityLineItem.Quantity']);
+      expect(manifest.coverage.keptWithoutARule).toEqual(['Opportunity.StageName']);
     });
 
     it('records in the manifest the tracked change it left out, which no load could write', async () => {

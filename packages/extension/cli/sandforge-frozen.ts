@@ -465,6 +465,8 @@ export function messageLines(message: Posted): string[] {
           unboundedObjects: string[];
           leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
           exclusionCosts?: Array<{ objectApiName: string; note: string }>;
+          requiredLeftEmpty?: string[];
+          keptWithoutARule?: string[];
         };
       };
       return [
@@ -480,6 +482,19 @@ export function messageLines(message: Posted): string[] {
         // In the dataset, and not loadable as they are: excludedObjects left
         // out what they need.
         ...(m.coverage?.exclusionCosts ?? []).map((cost) => `${cost.objectApiName}: ${cost.note}`),
+        // Said now, not at the load that would ask a value for each.
+        ...((m.coverage?.requiredLeftEmpty ?? []).length > 0
+          ? [
+              `required in the source and left empty by the rules — a load will ask a value ` +
+                `for each: ${(m.coverage?.requiredLeftEmpty ?? []).join(', ')}`,
+            ]
+          : []),
+        ...((m.coverage?.keptWithoutARule ?? []).length > 0
+          ? [
+              `kept without a rule, the platform's own words: ` +
+                (m.coverage?.keptWithoutARule ?? []).join(', '),
+            ]
+          : []),
         ...Object.entries(m.volumetry.measured)
           .filter(([, n]) => n > 0)
           .map(([name, n]) => `  ${name}: ${n}`),

@@ -492,6 +492,63 @@ describe('the read of an object', () => {
 });
 
 describe('what a dry run prints', () => {
+  it("lists beside the prediction the target's validation rules, which it cannot evaluate", () => {
+    const lines = simulationLines({
+      configId: 'cli-1',
+      operationId: 'sync-simulation-1',
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      objects: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          read: 652,
+          insert: 652,
+          update: 0,
+          delete: 0,
+          skipped: 0,
+          refused: 0,
+          conflicts: 0,
+          conflictFields: [],
+          notes: [],
+          validationRules: [
+            { name: 'Type_By_Profile', message: 'This profile creates one account type only' },
+            { name: 'Siret_Format', message: 'SIRET: 14 digits', field: 'Siret__c' },
+          ],
+        },
+      ],
+      duration: 5,
+      timestamp: '2026-10-16T00:00:00.000Z',
+    });
+
+    expect(lines).toEqual([
+      '\nsimulation: 1 object(s), nothing written',
+      '  Account (insert): 652 read, would insert 652, update 0, delete 0, skip 0, refuse 0',
+      '      2 active validation rule(s) of the target, which a simulation cannot evaluate — ' +
+        'a record one of them refuses is counted as written:',
+      '        Type_By_Profile: This profile creates one account type only',
+      '        Siret_Format (Siret__c): SIRET: 14 digits',
+    ]);
+  });
+
+  it("says when the target's validation rules could not be listed", () => {
+    const lines = simulationLines({
+      configId: 'cli-1',
+      operationId: 'sync-simulation-1',
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      objects: [],
+      duration: 5,
+      timestamp: '2026-10-16T00:00:00.000Z',
+      validationRulesUnread: 'INSUFFICIENT_ACCESS',
+    });
+
+    expect(lines).toContain(
+      "  the target's validation rules could not be listed (INSUFFICIENT_ACCESS): any of them " +
+        'may refuse a record counted as written',
+    );
+  });
+
   it('says per object what the run would do, and that nothing was written', () => {
     const lines = simulationLines({
       configId: 'cli-1',

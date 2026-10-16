@@ -3,7 +3,7 @@ import { FakerFallback, generateByMethod } from './FakerFallback';
 import type { FieldRule } from '@sandforge/shared';
 import { resolveFakerMethod } from '@sandforge/shared';
 import { GEO_DATA } from './GeoCoherentGenerator';
-import { LOCALE_DATA, isReservedEmailDomain } from './LocaleData';
+import { LOCALE_DATA, isReservedEmailDomain, isReservedPhone, reservedPhone } from './LocaleData';
 
 function createFakerRule(method: string, fieldName?: string): FieldRule {
   return {
@@ -274,6 +274,35 @@ describe('FakerFallback', () => {
       const result = frFaker.generate(rules, 1);
       const phone = result[0]['Phone'] as string;
       expect(phone).toMatch(/^\+33/);
+    });
+
+    it('draws a number of its own for each phone field of a record, every one fictional', () => {
+      // Drawn from the record's index alone, a contact's Phone and
+      // MobilePhone were the same number.
+      const rules = [
+        createFakerRule('phone', 'Phone'),
+        createFakerRule('lastName', 'LastName'),
+        createFakerRule('phone', 'MobilePhone'),
+      ];
+      const result = new FakerFallback('fr_FR').generate(rules, 50);
+      const numbers = result.flatMap((record) => [record['Phone'], record['MobilePhone']]);
+
+      for (const record of result) expect(record['MobilePhone']).not.toBe(record['Phone']);
+      expect(new Set(numbers).size).toBe(numbers.length);
+      for (const number of numbers) expect(isReservedPhone(String(number), 'fr_FR')).toBe(true);
+    });
+
+    it('draws the same numbers again for the same template, and one phone field as before', () => {
+      const rules = [createFakerRule('phone', 'Phone'), createFakerRule('phone', 'MobilePhone')];
+
+      expect(new FakerFallback('fr_FR').generate(rules, 5)).toEqual(
+        new FakerFallback('fr_FR').generate(rules, 5),
+      );
+      expect(
+        new FakerFallback('fr_FR')
+          .generate([createFakerRule('phone', 'Phone')], 3)
+          .map((record) => record['Phone']),
+      ).toEqual([0, 1, 2].map((index) => reservedPhone('fr_FR', index)));
     });
 
     it('should support per-rule fakerLocale override', () => {

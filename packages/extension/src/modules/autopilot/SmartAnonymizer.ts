@@ -16,6 +16,15 @@ import type {
 /** Local alias matching the autopilot domain name. */
 type AnonymizationRule = AutopilotAnonymizationRule;
 
+/** Where an address invented for an email field goes: a domain no mail is ever delivered to. */
+const UNDELIVERABLE_DOMAIN = '@example.invalid';
+
+/** The French numbers kept for fiction, +33 6 39 98 XX XX, in E.164. */
+const FICTION_PHONE_PREFIX = '+3363998';
+
+/** The field types that hold a choice among the schema's values. */
+const CHOICE_TYPES: ReadonlySet<string> = new Set(['picklist', 'multipicklist']);
+
 /** Field name mapping from Salesforce API names to persona properties */
 export const PERSONA_FIELD_MAP: Record<string, keyof AnonymizedPersona> = {
   FirstName: 'firstName',
@@ -392,12 +401,20 @@ export class SmartAnonymizer {
         if (value === null || value === undefined) {
           continue;
         }
-        record[rule.fieldApiName] = this.applyMethod(
-          rule.method,
-          String(value),
-          rule.fieldApiName,
-          recordId,
-        );
+        // A picklist takes the schema's values and nothing else: a value any
+        // method makes up is refused by a restricted one, with the record that
+        // carries it, and no method can draw one of a set it does not read.
+        // Emptied, the field says nothing of the person — a gender, a marital
+        // status the detector names.
+        record[rule.fieldApiName] = CHOICE_TYPES.has(rule.fieldType?.toLowerCase() ?? '')
+          ? null
+          : this.applyMethod(
+              rule.method,
+              String(value),
+              rule.fieldApiName,
+              recordId,
+              rule.fieldType,
+            );
       }
     }
 
@@ -410,10 +427,11 @@ export class SmartAnonymizer {
     value: string,
     fieldApiName: string,
     recordId: string,
+    fieldType: string | undefined,
   ): unknown {
     switch (method) {
       case 'fake':
-        return this.applyFake(value, fieldApiName, recordId);
+        return this.applyFake(value, fieldApiName, recordId, fieldType);
       case 'mask':
         return this.applyMask(value);
       case 'hash':
@@ -439,9 +457,22 @@ export class SmartAnonymizer {
 
   /**
    * Fake: use PersonaRegistry, match field name to persona property.
-   * Falls back to generic fake string if field not mapped.
+   * Falls back to a token if the field is not mapped — one its type takes:
+   * under a domain no address is delivered to for an email field, in the
+   * range kept for fiction for a phone field.
+   *
+   * A token alone is no address: run for real, a custom email field of a
+   * contact took `fake_…` and the target refused the record
+   * (`INVALID_EMAIL_ADDRESS`). A rule that does not say its field's type —
+   * Forge's, which puts each address it writes under `.invalid` itself — gets
+   * the token as it was.
    */
-  private applyFake(_value: string, fieldApiName: string, recordId: string): string {
+  private applyFake(
+    _value: string,
+    fieldApiName: string,
+    recordId: string,
+    fieldType: string | undefined,
+  ): string {
     const persona = this.personaRegistry.getPersona(recordId);
     const personaKey = PERSONA_FIELD_MAP[fieldApiName];
     if (personaKey) {
@@ -452,7 +483,16 @@ export class SmartAnonymizer {
     const token = createHmac('sha256', this.hashSalt)
       .update(`fake:${fieldApiName}:${recordId}`)
       .digest('hex');
-    return `fake_${token.slice(0, 8)}`;
+    switch (fieldType?.toLowerCase()) {
+      case 'email':
+        return `fake_${token.slice(0, 8)}${UNDELIVERABLE_DOMAIN}`;
+      case 'phone':
+        // ARCEP's range for fiction, +33 6 39 98 XX XX: it neither calls nor
+        // is called, the range the rest of the product writes.
+        return `${FICTION_PHONE_PREFIX}${String(parseInt(token.slice(0, 8), 16) % 10_000).padStart(4, '0')}`;
+      default:
+        return `fake_${token.slice(0, 8)}`;
+    }
   }
 
   /**

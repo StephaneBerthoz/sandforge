@@ -207,6 +207,16 @@ export interface FrozenManifestCoverage extends FrozenGraphCoverage {
    * written before it was recorded.
    */
   exclusionCosts?: FrozenExclusionCost[];
+  /**
+   * The fields, as `Object.Field`, the source requires and the rules leave
+   * empty: each a value a load of the dataset will ask for. Absent when none is.
+   */
+  requiredLeftEmpty?: string[];
+  /**
+   * The fields, as `Object.Field`, kept in clear text though the rules declare
+   * no generator for them: the platform's own words. Absent when none is.
+   */
+  keptWithoutARule?: string[];
 }
 
 /**
