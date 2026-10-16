@@ -473,6 +473,29 @@ describe('useMessageResponse', () => {
       expect(result.current.error).toBe('org unreachable');
     });
 
+    it.each([
+      ['AUTOPILOT_STORAGE_EXCEEDED', 'common.refusal.autopilotStorageExceeded'],
+      ['AUTOPILOT_WRITE_DECLINED', 'common.refusal.autopilotWriteDeclined'],
+      ['AUTOPILOT_CONFIRMATION_UNAVAILABLE', 'common.refusal.autopilotConfirmationUnavailable'],
+    ])(
+      'says an Autopilot run its write gate stopped (%s) in the interface language',
+      (code, key) => {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => {
+          simulateResponse('org:error', { message: 'Nothing was written.', code }, 'req-1');
+        });
+
+        expect(result.current.errorCode).toBe(code);
+        expect(result.current.error).toBe(i18n.t(key));
+        expect(result.current.error).not.toBe('Nothing was written.');
+      },
+    );
+
     it('should use a generic message when the error payload has no message string', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
 

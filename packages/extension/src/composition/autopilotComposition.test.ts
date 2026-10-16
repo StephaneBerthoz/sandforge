@@ -408,8 +408,24 @@ function fakeDataOrg(
       pending = paged;
       return pageOf(0);
     }
-    const records = options.soql?.(soql) ?? [];
-    return { totalSize: records.length, done: true, records };
+    const answered = options.soql?.(soql);
+    if (answered) return { totalSize: answered.length, done: true, records: answered };
+    // What the scan reads of a selected object's lookups, and of a parent by
+    // id — and what the run reads of a parent, by id.
+    const byId = /^SELECT .+? FROM (\w+) WHERE Id IN \(([^)]*)\)(?: LIMIT \d+)?$/.exec(soql);
+    if (byId) {
+      const ids = byId[2].split(',').map((id) => id.trim().replace(/^'|'$/g, ''));
+      const records = (objects[byId[1]]?.rows ?? [])
+        .filter((row) => ids.includes(String(row['Id'])))
+        .map((row) => ({ ...row }));
+      return { totalSize: records.length, done: true, records };
+    }
+    const table = /^SELECT [\w, ]+ FROM (\w+)$/.exec(soql);
+    if (table && objects[table[1]]) {
+      const records = (objects[table[1]]?.rows ?? []).map((row) => ({ ...row }));
+      return { totalSize: records.length, done: true, records };
+    }
+    return { totalSize: 0, done: true, records: [] };
   });
   /** The pages of the answer being read, and one of them as the API gives it. */
   let pending: Record<string, unknown>[][] = [];
@@ -457,13 +473,22 @@ async function compose(
   const { handlers, getOrchestrator } = createFakeHandlers();
   await initAutopilotComposition({ handlers, log: vi.fn() });
   const orchestrator = getOrchestrator();
+  // Standard objects followed, as the panel asks; their records read by id.
   const scanResult = await orchestrator.scanSchemas(source, target, {
     selectedObjects: selected as ApiName[],
-    includeStandardObjects: false,
+    includeStandardObjects: true,
   });
   const graph = orchestrator.buildGraph(scanResult);
   const plan = orchestrator.generatePlan(graph, 'none', []);
-  const result = await orchestrator.executePlan(plan, graph, [], scanResult.recordCounts);
+  const result = await orchestrator.executePlan(
+    plan,
+    graph,
+    [],
+    scanResult.recordCounts,
+    undefined,
+    undefined,
+    scanResult.parentIds,
+  );
   return { plan, result };
 }
 

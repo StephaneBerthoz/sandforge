@@ -32,6 +32,18 @@ import type {
   SchemaScanResult,
 } from '../../modules/autopilot/SchemaScanner.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { PIIDetector } from '../../core/precheck/PIIDetector.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+import {
+  DEFAULT_CONFIRM_ABOVE_RECORDS,
+  readDataStorage,
+  type DataStorage,
+} from '../../modules/forge/ForgeRunGate.js';
+import {
+  autopilotWritePlan,
+  gateAutopilotWrite,
+} from '../../modules/autopilot/AutopilotRunGate.js';
+import { detectPersonalFields } from '../../modules/autopilot/personalFields.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
@@ -50,6 +62,20 @@ const AUTOPILOT_TYPES = new Set([
 
 /** Max tracked operations; oldest non-executing entries are evicted beyond this. */
 const MAX_TRACKED_OPERATIONS = 10;
+
+/** How long the target's `/limits` may take to say what data storage it has left. */
+const LIMITS_TIMEOUT_MS = 30_000;
+
+/**
+ * The codes a run's write gate stops it with on the error channel, each
+ * worded by the page in the interface language: Forge's gate codes, under
+ * Autopilot's name so neither page reads the other's.
+ */
+export const AUTOPILOT_GATE_CODES = {
+  STORAGE_EXCEEDED: 'AUTOPILOT_STORAGE_EXCEEDED',
+  WRITE_DECLINED: 'AUTOPILOT_WRITE_DECLINED',
+  CONFIRMATION_UNAVAILABLE: 'AUTOPILOT_CONFIRMATION_UNAVAILABLE',
+} as const;
 
 /**
  * How a request is refused while the Autopilot module has not reached the
@@ -265,9 +291,14 @@ export class AutopilotHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       )) as unknown as AutopilotConnection;
+      // How far the walk to the parents goes: what the request says, the
+      // scanner's bounds — Forge's — otherwise. Unbounded, a plan for two
+      // objects held six hundred.
       const scanResult = await this.orchestrator.scanSchemas(sourceConn, targetConn, {
         selectedObjects: payload.selectedObjects,
         includeStandardObjects: payload.includeStandardObjects,
+        ...(payload.maxDepth !== undefined ? { maxDepth: payload.maxDepth } : {}),
+        ...(payload.maxObjects !== undefined ? { maxObjects: payload.maxObjects } : {}),
       });
       operation.scanResult = scanResult;
       const graph = this.orchestrator.buildGraph(scanResult);
@@ -316,13 +347,28 @@ export class AutopilotHandler implements DomainHandler {
     const payload = parsed;
 
     try {
-      const { profile, rules } = this.orchestrator.buildCompliance(payload.complianceFramework, []);
+      // The personal fields the detector names, whenever the framework
+      // anonymizes: the panel has no AI scan to hand the profile, and with
+      // none a GDPR plan anonymized nothing.
+      const detected =
+        payload.complianceFramework !== 'none' && operation.scanResult
+          ? detectPersonalFields(
+              this.deps.infraServices?.piiDetector ?? new PIIDetector(),
+              operation.scanResult.objectDescribes,
+            )
+          : [];
+      const { profile, rules } = this.orchestrator.buildCompliance(
+        payload.complianceFramework,
+        [],
+        detected,
+      );
       operation.profile = profile;
       operation.rules = rules;
       const plan = this.orchestrator.generatePlan(
         operation.graph,
         payload.complianceFramework,
         rules,
+        operation.scanResult?.scope,
       );
       operation.plan = plan;
       const response = buildResponse(this.deps, msg, 'autopilot:plan-ready', {
@@ -461,6 +507,35 @@ export class AutopilotHandler implements DomainHandler {
       return;
     }
 
+    // The plan's records against the setting and the target's data storage,
+    // as Forge's gate holds a clone: refused past the storage, asked about
+    // past the setting or near the storage, before anything is written.
+    const gate = await gateAutopilotWrite({
+      plan: autopilotWritePlan(plan, scanResult.recordCounts),
+      storage: await this.readTargetDataStorage(operation.targetOrgId),
+      confirmAboveRecords: this.confirmAboveRecords(),
+      org: targetOrg?.alias ?? operation.targetOrgId,
+      orgTier: guardRequest.orgTier,
+      confirm: (question) => guard.confirmRun(question),
+    });
+    if (!gate.go) {
+      recordWriteRun(this.deps, {
+        action: 'autopilot_execute',
+        module: 'autopilot',
+        operationId: msg.id,
+        orgId: operation.targetOrgId,
+        outcome: 'stopped',
+        guard: guardDecision,
+        code: gate.code,
+      });
+      const stop = new Error(gate.message);
+      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, stop, {
+        code: AUTOPILOT_GATE_CODES[gate.code],
+      });
+      settle(stop);
+      return;
+    }
+
     this.liveTracker?.register(msg.id, 'autopilot', 'Autopilot run', totalRecords);
     this.executingOperations.add(operation.id);
     /** Per object, what the run wrote, as each node settles. */
@@ -563,6 +638,9 @@ export class AutopilotHandler implements DomainHandler {
           }
         },
         abortController.signal,
+        // Of an object that was not selected, only the records the selection
+        // references: read by id, as the scan found them.
+        scanResult.parentIds,
       );
 
       // Send node-progress 'completed' or 'failed' per node based on execution result
@@ -716,6 +794,35 @@ export class AutopilotHandler implements DomainHandler {
       );
     } finally {
       this.executingOperations.delete(operation.id);
+    }
+  }
+
+  /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks before it writes; 0 never asks. */
+  private confirmAboveRecords(): number {
+    const value = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'safety.confirmAboveRecords',
+      DEFAULT_CONFIRM_ABOVE_RECORDS,
+    );
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : DEFAULT_CONFIRM_ABOVE_RECORDS;
+  }
+
+  /** The data storage the target has, or why it could not be read. */
+  private async readTargetDataStorage(
+    targetOrgId: string,
+  ): Promise<DataStorage | { unread: string }> {
+    try {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      return await new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('autopilot:limits', () =>
+        readDataStorage(conn),
+      );
+    } catch (err: unknown) {
+      return { unread: extractErrorMessage(err) };
     }
   }
 

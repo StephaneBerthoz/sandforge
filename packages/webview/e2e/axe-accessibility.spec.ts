@@ -5058,6 +5058,62 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Autopilot review saying what the plan copies, the lookups it leaves empty, and the personal data no rule covers', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: {
+          ...MOCK_PLAN,
+          anonymizationSummary: {
+            ...MOCK_PLAN.anonymizationSummary,
+            notCovered: [{ objectApiName: 'Contact', missing: ['phone'] }],
+          },
+          scope: {
+            maxDepth: 5,
+            maxObjects: 50,
+            selected: ['Contact'],
+            parents: [{ objectApiName: 'Account', records: 12 }],
+            leftEmpty: [
+              {
+                objectApiName: 'Account',
+                fieldApiName: 'OperatingHoursId',
+                target: 'OperatingHours',
+                reason: 'standard',
+              },
+              {
+                objectApiName: 'Account',
+                fieldApiName: 'Region__c',
+                target: 'Region__c',
+                reason: 'objects',
+                required: true,
+              },
+            ],
+            standardNeeded: [{ objectApiName: 'Account', neededBy: 'Contact.AccountId' }],
+          },
+        },
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step4-scope').waitFor({ state: 'visible', timeout: 5000 });
+      const review = await checkAccessibility(page);
+      expectNoViolations(review);
+      for (const testId of ['step4-scope', 'step4-not-covered']) {
+        expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
+          0,
+        );
+      }
+    });
+
     test('Autopilot graph fitted clear of its minimap, legend and controls, on the run and from its fit button', async ({
       page,
     }) => {
@@ -7910,6 +7966,49 @@ for (const theme of STATE_THEMES) {
         { timeout: 10_000 },
       );
 
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen selection saying the step it is at, then where it stopped and what it kept', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('frozen-select-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-select-run').click();
+      const request = await bridge.waitForMessage('frozen:select', { timeout: 10_000 });
+      await bridge.respond(
+        'frozen:select:progress',
+        { phase: 'candidate', combinationKey: 'origin=Email', candidate: 2, candidates: 3 },
+        request.id as string,
+      );
+      await page.getByTestId('frozen-select-progress').waitFor({ timeout: 10_000 });
+      await expectReadable(page, theme);
+
+      await bridge.respond(
+        'frozen:select:response',
+        {
+          selection: {
+            combinations: [{ combinationKey: 'origin=Chat', axisValues: { origin: 'Chat' } }],
+            uncovered: [],
+            volumetry: { measured: { Case: 3 }, total: 3, budgetMax: 400, summed: true },
+            selectedAt: '2026-10-16T09:00:00.000Z',
+            selectionPath: '/home/qa/.sandforge-sas/selection.json',
+            stopped: {
+              reason: 'timeout',
+              during: 'combination',
+              combinationKey: 'origin=Email',
+              candidate: 2,
+              candidates: 3,
+              notProbed: ['origin=Phone', 'origin=Web'],
+            },
+          },
+        },
+        request.id as string,
+      );
+      await page.getByTestId('frozen-selection-stopped').waitFor({ timeout: 10_000 });
+      await page.getByTestId('frozen-selection-summed').waitFor({ timeout: 10_000 });
       await expectReadable(page, theme);
     });
 

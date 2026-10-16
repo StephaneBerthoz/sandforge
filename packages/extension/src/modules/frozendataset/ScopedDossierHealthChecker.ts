@@ -51,6 +51,8 @@ export class ScopedDossierHealthChecker implements DossierHealthChecker {
         return { healthy: false, reason: `no ${expected} record in this dossier` };
       }
     }
-    return { healthy: true };
+    // Kept with the verdict: a selection stopped before its final measure
+    // says what it kept by these.
+    return { healthy: true, measured };
   }
 }

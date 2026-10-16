@@ -14,11 +14,18 @@ import type {
   PIIFieldDetection,
   ComplianceProfile,
   ComplianceReport,
+  AutopilotPlanScope,
   GrappeConfig,
   AutopilotNodeCompletedEvent,
   AutopilotNodeFailedEvent,
 } from '@sandforge/shared';
-import type { SchemaScanner, AutopilotConnection, SchemaScanResult } from './SchemaScanner.js';
+import type {
+  SchemaScanner,
+  AutopilotConnection,
+  SchemaScanResult,
+  ScanOptions,
+} from './SchemaScanner.js';
+import { personalDataNotCovered, withAiDetections } from './personalFields.js';
 import type {
   DependencyGraphBuilder,
   GraphObjectDescribe,
@@ -143,13 +150,19 @@ export class AutopilotOrchestrator {
    * Step 1: Scan schemas on source and target orgs.
    * @param sourceConn - Connection to the source org.
    * @param targetConn - Connection to the target org.
-   * @param config - Object selection (empty = auto-detect all) and standard-object flag.
+   * @param config - Object selection (empty = auto-detect all), standard-object
+   *   flag, and how far the walk to the parents goes.
+   * @param onProgress - Told what the scan is doing, for whoever waits on it.
    * @returns Schema scan result with describes, dependencies, and record counts.
    */
   async scanSchemas(
     sourceConn: AutopilotConnection,
     targetConn: AutopilotConnection,
-    config: Pick<AutopilotConfig, 'selectedObjects' | 'includeStandardObjects'>,
+    config: Pick<
+      AutopilotConfig,
+      'selectedObjects' | 'includeStandardObjects' | 'maxDepth' | 'maxObjects'
+    >,
+    onProgress?: ScanOptions['onProgress'],
   ): Promise<SchemaScanResult> {
     this.emitEvent({ type: 'scan-started', timestamp: new Date().toISOString() });
     const result = await this.deps.schemaScanner.scan(
@@ -157,6 +170,11 @@ export class AutopilotOrchestrator {
       targetConn,
       config.selectedObjects,
       config.includeStandardObjects,
+      {
+        ...(config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {}),
+        ...(config.maxObjects !== undefined ? { maxObjects: config.maxObjects } : {}),
+        ...(onProgress ? { onProgress } : {}),
+      },
     );
     this.emitEvent({ type: 'scan-completed', timestamp: new Date().toISOString() });
     return result;
@@ -189,14 +207,22 @@ export class AutopilotOrchestrator {
   /**
    * Step 3: Build compliance profile and generate anonymization rules.
    * @param framework - The compliance framework to apply.
-   * @param piiDetections - PII fields detected by the AI scanner.
+   * @param piiDetections - PII fields detected by the AI scanner, when one ran.
+   * @param detected - PII fields the deterministic detector named
+   *   (`detectPersonalFields`). The scanner's add to them and never replace
+   *   them: without an AI scan, a profile built from its detections alone had
+   *   none, and a GDPR plan anonymized nothing.
    * @returns Profile and rules for anonymization.
    */
   buildCompliance(
     framework: ComplianceFrameworkType,
     piiDetections: PIIFieldDetection[],
+    detected: readonly PIIFieldDetection[] = [],
   ): { profile: ComplianceProfile; rules: AnonymizationRule[] } {
-    const profile = this.deps.complianceEngine.buildProfile(framework, piiDetections);
+    const profile = this.deps.complianceEngine.buildProfile(
+      framework,
+      withAiDetections(detected, piiDetections),
+    );
     const rules = this.deps.complianceEngine.generateRules(profile);
     return { profile, rules };
   }
@@ -206,15 +232,27 @@ export class AutopilotOrchestrator {
    * @param graph - The dependency graph.
    * @param framework - The compliance framework.
    * @param rules - Anonymization rules to include in the plan.
+   * @param scope - What the scan copies of each object and leaves out, said
+   *   with the plan.
    * @returns A complete execution plan with waves and estimates.
    */
   generatePlan(
     graph: AutopilotGraph,
     framework: ComplianceFrameworkType,
     rules: AnonymizationRule[],
+    scope?: AutopilotPlanScope,
   ): ExecutionPlan {
-    const summary = this.deps.complianceEngine.buildSummary(rules);
-    const plan = this.deps.planGenerator.generate(graph, framework, summary);
+    const notCovered = personalDataNotCovered(
+      framework,
+      graph.nodes.map((node) => node.objectApiName),
+      rules,
+    );
+    const summary = {
+      ...this.deps.complianceEngine.buildSummary(rules),
+      ...(notCovered.length > 0 ? { notCovered } : {}),
+    };
+    const generated = this.deps.planGenerator.generate(graph, framework, summary);
+    const plan = scope ? { ...generated, scope } : generated;
     this.emitEvent({ type: 'plan-generated', timestamp: new Date().toISOString() });
     return plan;
   }
@@ -249,6 +287,12 @@ export class AutopilotOrchestrator {
      * which objects it did not write.
      */
     signal?: AbortSignal,
+    /**
+     * The objects read by id, with the ids — the scan's `parentIds`: of an
+     * object that was not selected, only the records the selection
+     * references are copied.
+     */
+    parentIds?: ReadonlyMap<string, readonly string[]>,
   ): Promise<ExecutionResult> {
     const totalRecords = Array.from(recordCounts.values()).reduce((s, c) => s + c, 0);
     const grappeActive = this.isGrappeActive(totalRecords);
@@ -288,7 +332,7 @@ export class AutopilotOrchestrator {
     this.runningExecutors.push(executor);
     let result: ExecutionResult;
     try {
-      result = await executor.execute(plan, graph.edges, rules, recordCounts, signal);
+      result = await executor.execute(plan, graph.edges, rules, recordCounts, signal, parentIds);
     } finally {
       this.runningExecutors.splice(this.runningExecutors.indexOf(executor), 1);
       offCompleted();

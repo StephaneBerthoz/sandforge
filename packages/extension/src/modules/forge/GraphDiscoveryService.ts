@@ -119,6 +119,9 @@ const SECONDS_PER_RECORD = 0.01;
 /** Default maximum number of nodes to discover. */
 export const DEFAULT_MAX_NODES = 50;
 
+/** How many levels a discovery of depth `full` walks from its root. */
+export const FULL_DEPTH = 5;
+
 /**
  * How far past the node cap discovery may go to reach a required parent.
  *
@@ -135,7 +138,7 @@ export const DEFAULT_MAX_NODES = 50;
  * that can go: a graph still stops, it just stops after the things it needs
  * rather than before them.
  */
-const REQUIRED_PARENT_CEILING_FACTOR = 2;
+export const REQUIRED_PARENT_CEILING_FACTOR = 2;
 
 /**
  * How many objects discovery may describe in all, empty tables included, per
@@ -781,7 +784,7 @@ export class GraphDiscoveryService {
       case 'direct':
         return 1;
       case 'full':
-        return 5;
+        return FULL_DEPTH;
       case 'custom':
         // Hard upper bound 10 — beyond this BFS hammers the org's API
         // governor limits without producing a usable graph (depth 10 of

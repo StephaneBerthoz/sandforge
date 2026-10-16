@@ -175,7 +175,68 @@ export interface ExecutionPlan {
   readonly anonymizationSummary: AnonymizationSummary;
   /** Cycle resolutions */
   readonly cycleResolutions: CycleResolution[];
+  /**
+   * What the plan copies of the objects it reached and what it leaves out:
+   * see {@link AutopilotPlanScope}. Absent from a plan built without a scan
+   * that says.
+   */
+  readonly scope?: AutopilotPlanScope;
 }
+
+/**
+ * Why a lookup the plan reached is left empty: the object it points at is
+ * further than the walk goes (`depth`), past the most objects a plan holds
+ * (`objects`), or a standard object the run was not asked to take
+ * (`standard`).
+ */
+export type AutopilotLeftOutReason = 'depth' | 'objects' | 'standard';
+
+/** A lookup of a planned object whose parents the plan does not copy. */
+export interface AutopilotLookupLeftEmpty {
+  /** The object holding the lookup. */
+  readonly objectApiName: ApiName;
+  /** The lookup. */
+  readonly fieldApiName: string;
+  /** The object it points at, which the plan leaves out. */
+  readonly target: ApiName;
+  readonly reason: AutopilotLeftOutReason;
+  /**
+   * Set when a record cannot be written without it: the platform refuses
+   * those records, where an optional lookup is only left empty.
+   */
+  readonly required?: true;
+}
+
+/**
+ * What a selection means: the selected objects' records, and of every other
+ * object only the records they reference, read by id, as far as the bounds
+ * go.
+ *
+ * Run for real, a plan for two objects walked every lookup of every object it
+ * reached and counted their whole tables: six hundred objects, 2.6 million
+ * records, a postcode table of sixty thousand rows among them — through a
+ * lead's converted account, into the whole org.
+ */
+export interface AutopilotPlanScope {
+  /** Lookups followed from a selected object, at most. */
+  readonly maxDepth: number;
+  /** Objects a plan holds, the selected ones included; a required parent raises it, to twice. */
+  readonly maxObjects: number;
+  /** The objects asked for: their records are copied whole. */
+  readonly selected: ApiName[];
+  /** The other objects: only the records the selection references, read by id. */
+  readonly parents: Array<{ readonly objectApiName: ApiName; readonly records: number }>;
+  /** Lookups left empty, and why. */
+  readonly leftEmpty: AutopilotLookupLeftEmpty[];
+  /**
+   * Standard objects taken although standard objects were not asked for: a
+   * record cannot be written without them. Each with the lookup that needs it.
+   */
+  readonly standardNeeded: Array<{ readonly objectApiName: ApiName; readonly neededBy: string }>;
+}
+
+/** What a compliance framework expects anonymized on a person's record. */
+export type ExpectedPersonalData = 'name' | 'email' | 'phone';
 
 /** Summary of anonymization to be performed */
 export interface AnonymizationSummary {
@@ -187,6 +248,15 @@ export interface AnonymizationSummary {
   readonly methodBreakdown: Record<AnonymizationMethod, number>;
   /** Objects with PII */
   readonly objectsWithPii: ApiName[];
+  /**
+   * The person objects of the plan — contacts, leads — on which a framework
+   * that anonymizes found no rule for what it expects there: their names,
+   * emails or phones would be copied as they are. Absent when none is.
+   */
+  readonly notCovered?: Array<{
+    readonly objectApiName: ApiName;
+    readonly missing: ExpectedPersonalData[];
+  }>;
 }
 
 /** Autopilot configuration provided by the user */
@@ -207,6 +277,10 @@ export interface AutopilotConfig {
   readonly includeStandardObjects: boolean;
   /** Grappe parallel threshold */
   readonly grappeThreshold: number;
+  /** Lookups followed from a selected object, at most: see {@link AutopilotPlanScope}. */
+  readonly maxDepth?: number;
+  /** Objects a plan holds, at most: see {@link AutopilotPlanScope}. */
+  readonly maxObjects?: number;
 }
 
 /** Events emitted during autopilot execution */

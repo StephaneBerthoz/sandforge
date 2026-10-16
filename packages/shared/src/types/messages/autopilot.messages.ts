@@ -16,6 +16,10 @@ export interface AutopilotScanSchemaRequest extends BaseMessage {
     targetOrgId: string;
     selectedObjects: string[];
     includeStandardObjects: boolean;
+    /** Lookups followed from a selected object, at most: Forge's full depth (5) unless said. */
+    maxDepth?: number;
+    /** Objects the plan holds, the selected ones included: Forge's object cap (50) unless said. */
+    maxObjects?: number;
   };
 }
 

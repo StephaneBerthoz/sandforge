@@ -26,6 +26,7 @@
  * {@link VolumetryBudgetExceededError}.
  */
 
+import type { FrozenSelectProgress, FrozenSelectionStop } from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { renderQueryTemplate } from './queryTemplates.js';
 
@@ -66,6 +67,12 @@ export interface DossierHealth {
   healthy: boolean;
   /** Why the dossier is lame, when it is. */
   reason?: string;
+  /**
+   * The records of the candidate's own scope, per object, when the check
+   * measured them: what a selection that stops before its final measure adds
+   * up for the roots it kept.
+   */
+  measured?: Record<string, number>;
 }
 
 /** Injected per-dossier health check. */
@@ -124,9 +131,59 @@ export interface CoverageSelectionResult {
     measured: Record<string, number>;
     total: number;
     budgetMax: number;
+    /**
+     * Set when the roots were not measured together — the selection stopped
+     * first — and the figures are each kept root's own measure, added up.
+     */
+    summed?: true;
   };
   /** ISO timestamp of the selection (decision date for the manifest). */
   selectedAt: string;
+  /** Set when the selection stopped short: where, and what it never reached. */
+  stopped?: FrozenSelectionStop;
+}
+
+/** What a selection is told as it runs, and what stops it. */
+export interface SelectionRunOptions {
+  /**
+   * Stops the selection at its next step, and stops waiting on the call in
+   * flight: what it decided is kept and returned. `timeout` as the abort's
+   * reason says the time ran out; anything else, that it was cancelled.
+   */
+  signal?: AbortSignal;
+  /** Told each step as it starts. */
+  onProgress?: (step: FrozenSelectProgress) => void;
+}
+
+/** Raised inside a selection when its signal fires. */
+class SelectionStopped extends Error {
+  constructor() {
+    super('Selection stopped');
+    this.name = 'SelectionStopped';
+  }
+}
+
+/** Wait for `work`, or stop waiting as soon as `signal` fires. */
+function untilStopped<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) {
+    work.catch(() => {});
+    return Promise.reject(new SelectionStopped());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new SelectionStopped());
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** Default volumetry ceiling. */
@@ -178,21 +235,111 @@ export class CoverageMatrixSelector {
     this.deps = deps;
   }
 
-  /** Run the selection. Throws {@link VolumetryBudgetExceededError} over budget. */
-  async select(config: CoverageMatrixConfig): Promise<CoverageSelectionResult> {
+  /**
+   * Run the selection. Throws {@link VolumetryBudgetExceededError} over budget.
+   *
+   * Stopped by `options.signal` — its time ran out, or it was cancelled — it
+   * keeps the combinations it decided and returns them with where it was
+   * (`stopped`). Run for real on a large org, a selection died on the
+   * handler's timeout after ten minutes with nothing kept and no word on the
+   * combination it was probing.
+   */
+  async select(
+    config: CoverageMatrixConfig,
+    options: SelectionRunOptions = {},
+  ): Promise<CoverageSelectionResult> {
     const budgetMax = config.budgetMaxRecords ?? DEFAULT_BUDGET_MAX_RECORDS;
     const candidateLimit = config.candidatesPerCombination ?? DEFAULT_CANDIDATES_PER_COMBINATION;
     const rootObject = assertSoqlIdentifier(config.rootObject);
+    const { signal } = options;
+    const tell = (step: FrozenSelectProgress): void => options.onProgress?.(step);
+    const roots: SelectedRoot[] = [];
+    const uncovered: UncoveredCombination[] = [];
+    /** Each kept root's own measure, as its health check took it. */
+    const ownMeasures: Array<Record<string, number>> = [];
+    /** Where the selection is, for a stop to say. */
+    const at: {
+      during: FrozenSelectionStop['during'];
+      combinationKey?: string;
+      candidate?: number;
+      pending: string[];
+    } = { during: 'axes', pending: [] };
+    const stoppedAt = (): CoverageSelectionResult => {
+      const measured: Record<string, number> = {};
+      for (const own of ownMeasures) {
+        for (const [name, count] of Object.entries(own))
+          measured[name] = (measured[name] ?? 0) + count;
+      }
+      const total = Object.values(measured).reduce((sum, n) => sum + n, 0);
+      if (total > budgetMax) throw new VolumetryBudgetExceededError(measured, total, budgetMax);
+      return {
+        roots,
+        uncovered,
+        volumetry: { measured, total, budgetMax, summed: true },
+        selectedAt: (this.deps.now?.() ?? new Date()).toISOString(),
+        stopped: {
+          reason: signal?.reason === 'timeout' ? 'timeout' : 'cancelled',
+          during: at.during,
+          ...(at.combinationKey !== undefined ? { combinationKey: at.combinationKey } : {}),
+          ...(at.candidate !== undefined
+            ? { candidate: at.candidate, candidates: candidateLimit }
+            : {}),
+          notProbed: at.pending,
+        },
+      };
+    };
+
+    try {
+      return await this.run(
+        config,
+        { rootObject, budgetMax, candidateLimit, signal, tell },
+        {
+          roots,
+          uncovered,
+          ownMeasures,
+          at,
+        },
+      );
+    } catch (error) {
+      if (error instanceof SelectionStopped) return stoppedAt();
+      throw error;
+    }
+  }
+
+  /** The steps of {@link select}, which keeps what they decide in `found`. */
+  private async run(
+    config: CoverageMatrixConfig,
+    context: {
+      rootObject: string;
+      budgetMax: number;
+      candidateLimit: number;
+      signal: AbortSignal | undefined;
+      tell: (step: FrozenSelectProgress) => void;
+    },
+    found: {
+      roots: SelectedRoot[];
+      uncovered: UncoveredCombination[];
+      ownMeasures: Array<Record<string, number>>;
+      at: {
+        during: FrozenSelectionStop['during'];
+        combinationKey?: string;
+        candidate?: number;
+        pending: string[];
+      };
+    },
+  ): Promise<CoverageSelectionResult> {
+    const { rootObject, budgetMax, candidateLimit, signal, tell } = context;
+    const { roots, uncovered, ownMeasures, at } = found;
+    const step = <T>(work: Promise<T>): Promise<T> => untilStopped(work, signal);
 
     // 1. Enumerate the observed values of every axis.
     const axisValues = new Map<string, Array<string | null>>();
     for (const axis of config.axes) {
-      axisValues.set(axis.name, await this.enumerateAxisValues(axis, config.tokens));
+      tell({ phase: 'axis', axis: axis.name });
+      axisValues.set(axis.name, await step(this.enumerateAxisValues(axis, config.tokens)));
     }
 
     // 2. Probe every combination of axis values; retain 1 healthy root each.
-    const roots: SelectedRoot[] = [];
-    const uncovered: UncoveredCombination[] = [];
     // An axis observing zero values yields no combination at all; a
     // config without axes probes the whole root object as one combination.
     const combinations =
@@ -204,11 +351,30 @@ export class CoverageMatrixSelector {
               values: axisValues.get(axis.name) ?? [],
             })),
           );
-    for (const combination of combinations) {
-      const combinationKey =
-        combination.length === 0
-          ? 'all'
-          : combination.map((c) => `${c.axis}=${c.value ?? 'NULL'}`).join('|');
+    const keyOf = (combination: Array<{ axis: string; value: string | null }>): string =>
+      combination.length === 0
+        ? 'all'
+        : combination.map((c) => `${c.axis}=${c.value ?? 'NULL'}`).join('|');
+    at.pending = [
+      ...combinations.map(keyOf),
+      ...config.edgeCases.map((edgeCase) => `edge:${edgeCase.name}`),
+    ];
+    const pick = async (key: string, where: string): Promise<PickResult> => {
+      at.during = 'combination';
+      at.combinationKey = key;
+      at.candidate = undefined;
+      at.pending = at.pending.filter((pending) => pending !== key);
+      return this.pickHealthyRoot(rootObject, where, candidateLimit, config.tokens, {
+        step,
+        onCandidate: (candidate) => {
+          at.candidate = candidate;
+          tell({ phase: 'candidate', combinationKey: key, candidate, candidates: candidateLimit });
+        },
+      });
+    };
+    for (const [index, combination] of combinations.entries()) {
+      const combinationKey = keyOf(combination);
+      tell({ phase: 'combination', combinationKey, index: index + 1, of: combinations.length });
       const where = combination
         .map((c) => {
           const field = assertSoqlIdentifier(
@@ -219,33 +385,32 @@ export class CoverageMatrixSelector {
             : `${field} = '${sanitizeSoqlValue(c.value)}'`;
         })
         .join(' AND ');
-      const retained = await this.pickHealthyRoot(rootObject, where, candidateLimit, config.tokens);
+      const retained = await pick(combinationKey, where);
       const axisValuesRecord: Record<string, string | null> = {};
       for (const c of combination) {
         axisValuesRecord[c.axis] = c.value;
       }
       if (retained.id) {
         roots.push({ rootRecordId: retained.id, combinationKey, axisValues: axisValuesRecord });
+        if (retained.measured) ownMeasures.push(retained.measured);
       } else {
         uncovered.push({ combinationKey, reason: uncoveredReason(retained, candidateLimit) });
       }
     }
 
     // 3. One healthy root per declared edge case (marker in data).
-    for (const edgeCase of config.edgeCases) {
-      const retained = await this.pickHealthyRoot(
-        rootObject,
-        `(${edgeCase.whereFragment})`,
-        candidateLimit,
-        config.tokens,
-      );
+    for (const [index, edgeCase] of config.edgeCases.entries()) {
+      const combinationKey = `edge:${edgeCase.name}`;
+      tell({ phase: 'combination', combinationKey, index: index + 1, of: config.edgeCases.length });
+      const retained = await pick(combinationKey, `(${edgeCase.whereFragment})`);
       if (retained.id) {
         roots.push({
           rootRecordId: retained.id,
-          combinationKey: `edge:${edgeCase.name}`,
+          combinationKey,
           axisValues: {},
           edgeCase: edgeCase.name,
         });
+        if (retained.measured) ownMeasures.push(retained.measured);
       } else {
         uncovered.push({
           combinationKey: `edge:${edgeCase.name}`,
@@ -261,8 +426,14 @@ export class CoverageMatrixSelector {
     // Nothing retained is nothing to measure: asked to measure an empty list,
     // the extraction had no root to start from and failed, and the selection
     // died with a discovery error instead of saying what it found.
+    at.during = 'measure';
+    at.combinationKey = undefined;
+    at.candidate = undefined;
+    if (roots.length > 0) tell({ phase: 'measure', roots: roots.length });
     const measured =
-      roots.length === 0 ? {} : await this.deps.measureVolumetry(roots.map((r) => r.rootRecordId));
+      roots.length === 0
+        ? {}
+        : await step(this.deps.measureVolumetry(roots.map((r) => r.rootRecordId)));
     const total = Object.values(measured).reduce((sum, n) => sum + n, 0);
     if (total > budgetMax) {
       throw new VolumetryBudgetExceededError(measured, total, budgetMax);
@@ -313,13 +484,17 @@ export class CoverageMatrixSelector {
     where: string,
     limit: number,
     tokens: Record<string, string> | undefined,
+    run: {
+      step: <T>(work: Promise<T>) => Promise<T>;
+      onCandidate: (candidate: number) => void;
+    },
   ): Promise<PickResult> {
     const template =
       where === ''
         ? `SELECT Id FROM ${rootObject} ORDER BY Id ASC LIMIT ${Math.max(1, Math.floor(limit))}`
         : `SELECT Id FROM ${rootObject} WHERE ${where} ` +
           `ORDER BY Id ASC LIMIT ${Math.max(1, Math.floor(limit))}`;
-    const rows = await this.deps.query(renderQueryTemplate(template, tokens ?? {}));
+    const rows = await run.step(this.deps.query(renderQueryTemplate(template, tokens ?? {})));
     let probed = 0;
     let lastReason: string | undefined;
     for (const row of rows) {
@@ -328,9 +503,10 @@ export class CoverageMatrixSelector {
         continue;
       }
       probed++;
-      const health = await this.deps.checkHealth.check(id);
+      run.onCandidate(probed);
+      const health = await run.step(this.deps.checkHealth.check(id));
       if (health.healthy) {
-        return { id, probed };
+        return { id, probed, ...(health.measured ? { measured: health.measured } : {}) };
       }
       lastReason = health.reason;
     }
@@ -346,6 +522,8 @@ interface PickResult {
   probed: number;
   /** Why the last candidate probed was turned away. */
   lastReason?: string;
+  /** The retained root's own measure, when its check took one. */
+  measured?: Record<string, number>;
 }
 
 /**

@@ -49,7 +49,10 @@
       "guardDeclined": "Production Guard の確認でキャンセルされました。組織では何も変更されていません。",
       "templateNotFound": "マスキングテンプレートが見つかりません。削除された可能性があります。別のテンプレートを選択してください。",
       "guardMissing": "このウィンドウでは Production Guard の準備ができておらず、Production Guard なしでは何も書き込まれません。組織では何も変更されていません。ウィンドウを再読み込み（Developer: Reload Window）してから、もう一度お試しください。",
-      "autopilotNotReady": "このウィンドウではまだ Autopilot が読み込まれていないため、組織では何も変更されていません。数秒待ってから、もう一度お試しください。この状態が続く場合は、ウィンドウを再読み込み（Developer: Reload Window）してください。"
+      "autopilotNotReady": "このウィンドウではまだ Autopilot が読み込まれていないため、組織では何も変更されていません。数秒待ってから、もう一度お試しください。この状態が続く場合は、ウィンドウを再読み込み（Developer: Reload Window）してください。",
+      "autopilotStorageExceeded": "Autopilot の実行は何も書き込む前に拒否されました: そのレコードは、ターゲット組織に残っているデータストレージより多くの容量を使います。選択を絞り込むか、ターゲット組織のデータストレージを空けてください。",
+      "autopilotWriteDeclined": "何も書き込まれる前に Autopilot の実行をキャンセルしました。ターゲット組織には何も書き込まれていません。",
+      "autopilotConfirmationUnavailable": "Autopilot の実行は何も書き込む前に停止しました: 確認が必要でしたが、確認を求めることができませんでした。"
     }
   },
   "status": {
@@ -3602,7 +3605,24 @@
       "source": "ソース",
       "target": "ターゲット",
       "selectedObjects": "選択済みオブジェクト",
-      "executing": "実行中..."
+      "executing": "実行中...",
+      "scope": {
+        "title": "プランがコピーする内容",
+        "selected": "選択どおり丸ごとコピー: {{objects}}",
+        "parents": "選択が参照するレコードだけを ID で読み取り:",
+        "leftEmpty": "空のまま残す参照項目:",
+        "reasonDepth": "選択したオブジェクトから {{depth}} 段を超える参照",
+        "reasonObjects": "プランが含む {{objects}} 個のオブジェクトを超える",
+        "reasonStandard": "実行で取り込むよう指定されていない標準オブジェクト",
+        "required": "これがないとレコードを書き込めません: それらのレコードは拒否されます",
+        "standardNeeded": "標準オブジェクトは指定されていませんが、{{object}} を取り込みます: {{field}} は空にできません。"
+      },
+      "notCovered": "{{object}}: {{missing}} の匿名化ルールがありません。ソースのままコピーされます。",
+      "personal": {
+        "name": "名前",
+        "email": "メール",
+        "phone": "電話"
+      }
     },
     "graph": {
       "title": "依存関係グラフ",
@@ -3782,7 +3802,24 @@
       "axes": "軸の値",
       "edgeCase": "エッジケース",
       "empty": "選択された組み合わせなし",
-      "uncovered_other": "未カバーの組み合わせ {{count}} 件"
+      "uncovered_other": "未カバーの組み合わせ {{count}} 件",
+      "progress": {
+        "discovery": "これまでに検出で到達したオブジェクト: {{objects}}",
+        "axis": "軸 {{axis}} の値を読み取っています…",
+        "combination": "組み合わせ {{index}}/{{of}} を調べています: {{key}}",
+        "candidate": "{{key}}: 候補 {{candidate}}/{{candidates}} を自身のレコードで測定しています",
+        "measure": "保持したルートをまとめて測定しています: {{roots}}"
+      },
+      "stopped": {
+        "timeout": "選択は停止しました: 時間切れです。それまでに決まった組み合わせは保持されます。",
+        "cancelled": "選択は停止しました: キャンセルされました。それまでに決まった組み合わせは保持されます。",
+        "probing": "{{key}} を調べていました。",
+        "probingCandidate": "{{key}} の候補 {{candidate}}/{{candidates}} を調べていました。",
+        "axes": "軸の値を読み取っていました。",
+        "measure": "保持したルートをまとめて測定していました。",
+        "notProbed": "調べていない組み合わせ: {{keys}}"
+      },
+      "summed": "保持した各ルート自身のレコードを合計した値です。ルートはまとめて測定されていないため、2 つのルートが共有するレコードは 2 回数えられます。"
     },
     "extract": {
       "title": "抽出と仮名化",

@@ -1,5 +1,6 @@
 import type { Connection } from 'jsforce';
 import { recordWriteHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
+import { sanitizeSoqlValue } from '../core/common/soqlValidator';
 import type { ApiName } from '@sandforge/shared';
 import { queryAll, queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
 import { toSaveOutcomes } from '../core/common/existingRecordMatch';
@@ -93,12 +94,19 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             targetConn: import('../modules/autopilot/SchemaScanner.js').AutopilotConnection,
             selectedObjects: ApiName[],
             includeStandardObjects: boolean,
+            options?: import('../modules/autopilot/SchemaScanner.js').ScanOptions,
           ): Promise<import('../modules/autopilot/SchemaScanner.js').SchemaScanResult> {
             lastConnections = {
               source: sourceConn as unknown as Connection,
               target: targetConn as unknown as Connection,
             };
-            return super.scan(sourceConn, targetConn, selectedObjects, includeStandardObjects);
+            return super.scan(
+              sourceConn,
+              targetConn,
+              selectedObjects,
+              includeStandardObjects,
+              options,
+            );
           }
         }
 
@@ -174,6 +182,13 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                 // OFFSET pagination mirrors the executor's offset-based design
                 // (SOQL caps OFFSET at 2000 — larger objects fail per-node).
                 const soql = `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${limit} OFFSET ${offset}`;
+                return queryWithFieldsFallback<Record<string, unknown>>(source, safeObj, soql);
+              },
+              // The parents a plan reads by id: only the records its selected
+              // objects reference, never the parent's whole table.
+              queryByIds: async (objectApiName, ids) => {
+                const safeObj = sanitizeSoqlObjectName(objectApiName);
+                const soql = `SELECT FIELDS(ALL) FROM ${safeObj} WHERE Id IN (${idList(ids)}) LIMIT ${ids.length}`;
                 return queryWithFieldsFallback<Record<string, unknown>>(source, safeObj, soql);
               },
               insert: async (objectApiName, records) => {
@@ -280,4 +295,9 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
       },
     )
     .catch((err) => log(`Failed to init Autopilot module: ${String(err)}`));
+}
+
+/** Ids as a SOQL list, each quoted and escaped. */
+function idList(ids: readonly string[]): string {
+  return ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
 }

@@ -184,6 +184,36 @@ export const anonymizationSummarySchema = z.object({
   // breakdown names only the methods a run used.
   methodBreakdown: z.partialRecord(anonymizationMethodSchema, z.number().int().nonnegative()),
   objectsWithPii: z.array(z.string().min(1)),
+  notCovered: z
+    .array(
+      z.object({
+        objectApiName: z.string().min(1),
+        missing: z.array(z.enum(['name', 'email', 'phone'])),
+      }),
+    )
+    .optional(),
+});
+
+/** Zod schema for AutopilotPlanScope */
+export const autopilotPlanScopeSchema = z.object({
+  maxDepth: z.number().int().positive(),
+  maxObjects: z.number().int().positive(),
+  selected: z.array(z.string().min(1)),
+  parents: z.array(
+    z.object({ objectApiName: z.string().min(1), records: z.number().int().nonnegative() }),
+  ),
+  leftEmpty: z.array(
+    z.object({
+      objectApiName: z.string().min(1),
+      fieldApiName: z.string().min(1),
+      target: z.string().min(1),
+      reason: z.enum(['depth', 'objects', 'standard']),
+      required: z.literal(true).optional(),
+    }),
+  ),
+  standardNeeded: z.array(
+    z.object({ objectApiName: z.string().min(1), neededBy: z.string().min(1) }),
+  ),
 });
 
 /** Zod schema for ExecutionPlan */
@@ -195,6 +225,7 @@ export const executionPlanSchema = z.object({
   complianceFramework: complianceFrameworkTypeSchema,
   anonymizationSummary: anonymizationSummarySchema,
   cycleResolutions: z.array(cycleResolutionSchema),
+  scope: autopilotPlanScopeSchema.optional(),
 });
 
 // ─── Config Schema ───────────────────────────────────────────────────────────
@@ -209,6 +240,8 @@ export const autopilotConfigSchema = z.object({
   objectFilters: z.record(z.string(), z.string()),
   includeStandardObjects: z.boolean(),
   grappeThreshold: z.number().int().positive(),
+  maxDepth: z.number().int().positive().optional(),
+  maxObjects: z.number().int().positive().optional(),
 });
 
 // ─── Event Schemas (Discriminated Union) ─────────────────────────────────────

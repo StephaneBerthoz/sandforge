@@ -56,7 +56,10 @@
       "guardDeclined": "Annulé à la confirmation de Production Guard : rien n'a été modifié dans l'org.",
       "templateNotFound": "Le modèle de masquage est introuvable : il a peut-être été supprimé. Choisissez un autre modèle.",
       "guardMissing": "Production Guard n'était pas prêt dans cette fenêtre, et rien ne s'écrit sans lui : rien n'a été modifié dans l'org. Rechargez la fenêtre (Developer: Reload Window), puis réessayez.",
-      "autopilotNotReady": "Autopilot n'est pas encore chargé dans cette fenêtre, et rien n'a été modifié dans l'org. Attendez quelques secondes, puis réessayez ; si cela persiste, rechargez la fenêtre (Developer: Reload Window)."
+      "autopilotNotReady": "Autopilot n'est pas encore chargé dans cette fenêtre, et rien n'a été modifié dans l'org. Attendez quelques secondes, puis réessayez ; si cela persiste, rechargez la fenêtre (Developer: Reload Window).",
+      "autopilotStorageExceeded": "L'exécution Autopilot a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste dans l'org cible. Réduisez la sélection, ou libérez du stockage de données dans l'org cible.",
+      "autopilotWriteDeclined": "Vous avez annulé l'exécution Autopilot avant qu'elle n'écrive quoi que ce soit. Rien n'a été écrit dans l'org cible.",
+      "autopilotConfirmationUnavailable": "L'exécution Autopilot a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée."
     }
   },
   "status": {
@@ -3816,7 +3819,24 @@
       "source": "Source",
       "target": "Cible",
       "selectedObjects": "Objets sélectionnés",
-      "executing": "En cours..."
+      "executing": "En cours...",
+      "scope": {
+        "title": "Ce que le plan copie",
+        "selected": "Copiés en entier, tels que sélectionnés : {{objects}}",
+        "parents": "Seulement les enregistrements que la sélection désigne, lus par Id :",
+        "leftEmpty": "Lookups laissés vides :",
+        "reasonDepth": "à plus de {{depth}} lookups d'un objet sélectionné",
+        "reasonObjects": "au-delà des {{objects}} objets qu'un plan contient",
+        "reasonStandard": "un objet standard que l'exécution n'avait pas à prendre",
+        "required": "un enregistrement ne peut pas être écrit sans lui : ces enregistrements seront refusés",
+        "standardNeeded": "{{object}} est pris bien que les objets standard n'aient pas été demandés : {{field}} ne peut pas rester vide."
+      },
+      "notCovered": "{{object}} : aucune règle d'anonymisation pour {{missing}}. Ces données seraient copiées telles que la source les contient.",
+      "personal": {
+        "name": "le nom",
+        "email": "l'e-mail",
+        "phone": "le téléphone"
+      }
     },
     "graph": {
       "title": "Graphe de Dépendances",
@@ -4002,7 +4022,24 @@
       "edgeCase": "Cas limite",
       "empty": "Aucune combinaison retenue",
       "uncovered_one": "{{count}} combinaison non couverte",
-      "uncovered_other": "{{count}} combinaisons non couvertes"
+      "uncovered_other": "{{count}} combinaisons non couvertes",
+      "progress": {
+        "discovery": "Objets atteints par la découverte jusqu'ici : {{objects}}",
+        "axis": "Lecture des valeurs de l'axe {{axis}}…",
+        "combination": "Examen de la combinaison {{index}} sur {{of}} : {{key}}",
+        "candidate": "{{key}} : mesure du candidat {{candidate}} sur {{candidates}} sur ses propres enregistrements",
+        "measure": "Mesure des racines retenues, ensemble : {{roots}}"
+      },
+      "stopped": {
+        "timeout": "La sélection s'est arrêtée : son temps était écoulé. Les combinaisons décidées avant sont conservées.",
+        "cancelled": "La sélection s'est arrêtée : elle a été annulée. Les combinaisons décidées avant sont conservées.",
+        "probing": "Elle examinait {{key}}.",
+        "probingCandidate": "Elle examinait {{key}}, candidat {{candidate}} sur {{candidates}}.",
+        "axes": "Elle lisait les valeurs des axes.",
+        "measure": "Elle mesurait ensemble les racines retenues.",
+        "notProbed": "Jamais examinées : {{keys}}"
+      },
+      "summed": "Les enregistrements propres à chaque racine retenue, additionnés : les racines n'ont pas été mesurées ensemble, donc un enregistrement que deux d'entre elles partagent est compté deux fois."
     },
     "extract": {
       "title": "Extraction & pseudonymisation",

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../../i18n';
+import i18n from '../../../i18n';
 import { Step4Review } from './Step4_Review';
 
 const defaultProps = {
@@ -77,5 +77,77 @@ describe('Step4_Review', () => {
   it('should disable execute button when executing', () => {
     render(<Step4Review {...defaultProps} isExecuting />);
     expect(screen.getByTestId('execute-button')).toHaveProperty('disabled', true);
+  });
+
+  it('says what the plan copies of each object, and every lookup it leaves empty with why', () => {
+    // A plan for two objects held six hundred, and nothing on the page said
+    // which tables it would copy whole.
+    render(
+      <Step4Review
+        {...defaultProps}
+        scope={{
+          maxDepth: 5,
+          maxObjects: 50,
+          selected: ['Lead', 'Visit__c'],
+          parents: [{ objectApiName: 'PostalCode__c', records: 4 }],
+          leftEmpty: [
+            {
+              objectApiName: 'Visit__c',
+              fieldApiName: 'Case__c',
+              target: 'Case',
+              reason: 'standard',
+            },
+            {
+              objectApiName: 'Visit__c',
+              fieldApiName: 'Region__c',
+              target: 'Region__c',
+              reason: 'objects',
+              required: true,
+            },
+          ],
+          standardNeeded: [{ objectApiName: 'Account', neededBy: 'Visit__c.Account__c' }],
+        }}
+      />,
+    );
+
+    const scope = screen.getByTestId('step4-scope');
+    expect(scope.textContent).toContain(
+      i18n.t('autopilot.step4.scope.selected', { objects: 'Lead, Visit__c' }),
+    );
+    expect(screen.getByTestId('step4-scope-parents').textContent).toContain('PostalCode__c: 4');
+    const leftEmpty = screen.getByTestId('step4-scope-left-empty').textContent ?? '';
+    expect(leftEmpty).toContain(
+      `Visit__c.Case__c → Case: ${i18n.t('autopilot.step4.scope.reasonStandard')}`,
+    );
+    expect(leftEmpty).toContain(i18n.t('autopilot.step4.scope.required'));
+    expect(scope.textContent).toContain(
+      i18n.t('autopilot.step4.scope.standardNeeded', {
+        object: 'Account',
+        field: 'Visit__c.Account__c',
+      }),
+    );
+  });
+
+  it('warns of a person object whose names, emails or phones no rule anonymizes', () => {
+    render(
+      <Step4Review
+        {...defaultProps}
+        notCovered={[{ objectApiName: 'Lead', missing: ['email'] }]}
+      />,
+    );
+
+    expect(screen.getByTestId('step4-not-covered').textContent).toBe(
+      i18n.t('autopilot.step4.notCovered', {
+        object: 'Lead',
+        missing: i18n.t('autopilot.step4.personal.email'),
+      }),
+    );
+  });
+
+  it('shows neither note for a plan that says nothing of them', () => {
+    render(<Step4Review {...defaultProps} />);
+
+    expect(screen.queryByTestId('step4-scope')).toBeNull();
+    expect(screen.queryByTestId('step4-not-covered')).toBeNull();
   });
 });

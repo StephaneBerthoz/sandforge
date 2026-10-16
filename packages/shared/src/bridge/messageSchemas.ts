@@ -564,6 +564,7 @@ const FrozenMessages = [
   msg('frozen:config:save:response'),
   msg('frozen:select'),
   msg('frozen:select:response'),
+  msg('frozen:select:progress'),
   msg('frozen:extract'),
   msg('frozen:extract:response'),
   msg('frozen:control:result'),

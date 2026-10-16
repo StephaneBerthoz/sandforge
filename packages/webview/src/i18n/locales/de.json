@@ -56,7 +56,10 @@
       "guardDeclined": "Bei der Bestätigung von Production Guard abgebrochen: In der Org wurde nichts geändert.",
       "templateNotFound": "Die Maskierungsvorlage wurde nicht gefunden: Sie wurde vielleicht gelöscht. Wählen Sie eine andere Vorlage.",
       "guardMissing": "Production Guard war in diesem Fenster nicht bereit, und ohne ihn wird nichts geschrieben: In der Org wurde nichts geändert. Laden Sie das Fenster neu (Developer: Reload Window) und versuchen Sie es dann erneut.",
-      "autopilotNotReady": "Autopilot ist in diesem Fenster noch nicht geladen, und in der Org wurde nichts geändert. Warten Sie einige Sekunden und versuchen Sie es dann erneut; bleibt es so, laden Sie das Fenster neu (Developer: Reload Window)."
+      "autopilotNotReady": "Autopilot ist in diesem Fenster noch nicht geladen, und in der Org wurde nichts geändert. Warten Sie einige Sekunden und versuchen Sie es dann erneut; bleibt es so, laden Sie das Fenster neu (Developer: Reload Window).",
+      "autopilotStorageExceeded": "Der Autopilot-Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen mehr Datenspeicher, als in der Ziel-Org übrig ist. Grenzen Sie die Auswahl ein oder geben Sie Datenspeicher in der Ziel-Org frei.",
+      "autopilotWriteDeclined": "Sie haben den Autopilot-Lauf abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",
+      "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden."
     }
   },
   "status": {
@@ -3816,7 +3819,24 @@
       "source": "Quelle",
       "target": "Ziel",
       "selectedObjects": "Ausgewählte Objekte",
-      "executing": "Wird ausgeführt..."
+      "executing": "Wird ausgeführt...",
+      "scope": {
+        "title": "Was der Plan kopiert",
+        "selected": "Vollständig kopiert, wie ausgewählt: {{objects}}",
+        "parents": "Nur die Datensätze, auf die die Auswahl verweist, per Id gelesen:",
+        "leftEmpty": "Leer gelassene Lookups:",
+        "reasonDepth": "weiter als {{depth}} Lookups von einem ausgewählten Objekt entfernt",
+        "reasonObjects": "über die {{objects}} Objekte hinaus, die ein Plan enthält",
+        "reasonStandard": "ein Standardobjekt, das der Lauf nicht übernehmen sollte",
+        "required": "ein Datensatz kann ohne ihn nicht geschrieben werden: Diese Datensätze werden abgelehnt",
+        "standardNeeded": "{{object}} wird übernommen, obwohl keine Standardobjekte angefordert wurden: {{field}} darf nicht leer bleiben."
+      },
+      "notCovered": "{{object}}: keine Anonymisierungsregel für {{missing}}. Diese Daten würden so kopiert, wie die Quelle sie enthält.",
+      "personal": {
+        "name": "den Namen",
+        "email": "die E-Mail",
+        "phone": "die Telefonnummer"
+      }
     },
     "graph": {
       "title": "Abhängigkeitsgraph",
@@ -4002,7 +4022,24 @@
       "edgeCase": "Grenzfall",
       "empty": "Keine Kombination ausgewählt",
       "uncovered_one": "{{count}} nicht abgedeckte Kombination",
-      "uncovered_other": "{{count}} nicht abgedeckte Kombinationen"
+      "uncovered_other": "{{count}} nicht abgedeckte Kombinationen",
+      "progress": {
+        "discovery": "Bisher von der Erkennung erreichte Objekte: {{objects}}",
+        "axis": "Werte der Achse {{axis}} werden gelesen…",
+        "combination": "Kombination {{index}} von {{of}} wird geprüft: {{key}}",
+        "candidate": "{{key}}: Kandidat {{candidate}} von {{candidates}} wird an seinen eigenen Datensätzen gemessen",
+        "measure": "Die behaltenen Wurzeln werden gemeinsam gemessen: {{roots}}"
+      },
+      "stopped": {
+        "timeout": "Die Auswahl wurde angehalten: Ihre Zeit war abgelaufen. Die zuvor entschiedenen Kombinationen bleiben erhalten.",
+        "cancelled": "Die Auswahl wurde angehalten: Sie wurde abgebrochen. Die zuvor entschiedenen Kombinationen bleiben erhalten.",
+        "probing": "Sie prüfte gerade {{key}}.",
+        "probingCandidate": "Sie prüfte gerade {{key}}, Kandidat {{candidate}} von {{candidates}}.",
+        "axes": "Sie las gerade die Werte der Achsen.",
+        "measure": "Sie maß gerade die behaltenen Wurzeln gemeinsam.",
+        "notProbed": "Nie geprüft: {{keys}}"
+      },
+      "summed": "Die eigenen Datensätze jeder behaltenen Wurzel, addiert: Die Wurzeln wurden nicht gemeinsam gemessen, daher wird ein Datensatz, den zwei von ihnen teilen, doppelt gezählt."
     },
     "extract": {
       "title": "Extraktion & Pseudonymisierung",

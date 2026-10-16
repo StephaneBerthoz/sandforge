@@ -1,6 +1,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ComplianceFrameworkType } from '@sandforge/shared';
+import type {
+  AnonymizationSummary,
+  AutopilotLookupLeftEmpty,
+  AutopilotPlanScope,
+  ComplianceFrameworkType,
+  ExpectedPersonalData,
+} from '@sandforge/shared';
 import { Button } from '../../../components/ui/Button';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { uiLocale } from '../../../utils/formatters';
@@ -31,6 +37,10 @@ export interface Step4ReviewProps {
   readonly isExecuting: boolean;
   /** Last execution error (e.g. production guard declined), if any */
   readonly error?: string | null;
+  /** What the plan copies of each object and what it leaves out, as the scan found it. */
+  readonly scope?: AutopilotPlanScope;
+  /** The person objects whose names, emails or phones no rule anonymizes. */
+  readonly notCovered?: AnonymizationSummary['notCovered'];
   /** Callback to start execution */
   readonly onExecute: () => void;
 }
@@ -49,9 +59,30 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   complianceFramework,
   isExecuting,
   error,
+  scope,
+  notCovered,
   onExecute,
 }) => {
   const { t } = useTranslation();
+
+  /** Why a lookup is left empty, in the interface language. */
+  const reasonOf = (lookup: AutopilotLookupLeftEmpty): string => {
+    const why =
+      lookup.reason === 'depth'
+        ? t('autopilot.step4.scope.reasonDepth', { depth: scope?.maxDepth ?? 0 })
+        : lookup.reason === 'objects'
+          ? t('autopilot.step4.scope.reasonObjects', { objects: scope?.maxObjects ?? 0 })
+          : t('autopilot.step4.scope.reasonStandard');
+    return lookup.required ? `${why} — ${t('autopilot.step4.scope.required')}` : why;
+  };
+
+  /** What a framework expects anonymized, in the interface language. */
+  const personal = (kind: ExpectedPersonalData): string =>
+    kind === 'name'
+      ? t('autopilot.step4.personal.name')
+      : kind === 'email'
+        ? t('autopilot.step4.personal.email')
+        : t('autopilot.step4.personal.phone');
 
   /** Format numbers with locale separators. */
   const fmt = (n: number): string => n.toLocaleString(uiLocale());
@@ -122,6 +153,66 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           testId="stat-anonymization"
         />
       </div>
+
+      {(notCovered ?? []).length > 0 && (
+        <div role="alert" className="flex flex-col gap-1 text-xs" data-testid="step4-not-covered">
+          {(notCovered ?? []).map((object) => (
+            <p key={object.objectApiName} className="text-status-warning">
+              {t('autopilot.step4.notCovered', {
+                object: object.objectApiName,
+                missing: object.missing.map(personal).join(', '),
+              })}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {scope && (
+        <div
+          className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
+          data-testid="step4-scope"
+        >
+          <span className="text-sm font-medium text-text-primary">
+            {t('autopilot.step4.scope.title')}
+          </span>
+          <p className="text-xs text-text-secondary">
+            {t('autopilot.step4.scope.selected', { objects: scope.selected.join(', ') })}
+          </p>
+          {scope.parents.length > 0 && (
+            <div className="flex flex-col gap-0.5 text-xs text-text-secondary">
+              <span>{t('autopilot.step4.scope.parents')}</span>
+              <ul className="flex flex-col gap-0.5 pl-3" data-testid="step4-scope-parents">
+                {scope.parents.map((parent) => (
+                  <li key={parent.objectApiName}>
+                    {parent.objectApiName}: {fmt(parent.records)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {scope.standardNeeded.map((needed) => (
+            <p key={needed.neededBy} className="text-xs text-text-secondary">
+              {t('autopilot.step4.scope.standardNeeded', {
+                object: needed.objectApiName,
+                field: needed.neededBy,
+              })}
+            </p>
+          ))}
+          {scope.leftEmpty.length > 0 && (
+            <div className="flex flex-col gap-0.5 text-xs text-text-secondary">
+              <span>{t('autopilot.step4.scope.leftEmpty')}</span>
+              <ul className="flex flex-col gap-0.5 pl-3" data-testid="step4-scope-left-empty">
+                {scope.leftEmpty.map((lookup) => (
+                  <li key={`${lookup.objectApiName}.${lookup.fieldApiName}>${lookup.target}`}>
+                    {lookup.objectApiName}.{lookup.fieldApiName} → {lookup.target}:{' '}
+                    {reasonOf(lookup)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)">
         <span className="text-sm font-medium text-text-primary">

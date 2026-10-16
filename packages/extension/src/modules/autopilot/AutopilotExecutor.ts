@@ -25,6 +25,7 @@ import {
   splitStandardPricebookEntries,
 } from '@sandforge/shared';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
+import { IDS_PER_READ } from './SchemaScanner.js';
 import type { RecordIdRemapper, UnresolvedLookup } from './RecordIdRemapper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
@@ -86,6 +87,15 @@ export type QueryFn = (
   objectApiName: string,
   offset: number,
   limit: number,
+) => Promise<Record<string, unknown>[]>;
+
+/**
+ * Function to read records of the source org by id: every field of each, as
+ * {@link QueryFn} reads a page. At most {@link IDS_PER_READ} ids a call.
+ */
+export type QueryByIdsFn = (
+  objectApiName: string,
+  ids: readonly string[],
 ) => Promise<Record<string, unknown>[]>;
 
 /**
@@ -270,6 +280,13 @@ export interface ExecutionResult {
 export interface AutopilotExecutorDeps {
   /** Function to query records from source org */
   query: QueryFn;
+  /**
+   * Function to read records of the source org by id: how a plan reads the
+   * parents its selected objects reference (`execute`'s `parentIds`). A plan
+   * that holds such parents is refused without it, rather than reading their
+   * whole tables.
+   */
+  queryByIds?: QueryByIdsFn;
   /** Function to insert records into target org */
   insert: InsertFn;
   /** Anonymizer for PII fields */
@@ -502,6 +519,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private recordTypeMappings: RecordTypeMapping[] | undefined;
   /** The objects of the plan: the only ones whose records the run writes. */
   private planned: ReadonlySet<string> = new Set();
+  /**
+   * The objects of the plan read by id, and the ids: the parents the selected
+   * objects reference. Every other object is read whole.
+   */
+  private parentIds: ReadonlyMap<string, readonly string[]> = new Map();
   /** Lookups written empty, filled at the end of their wave. */
   private readonly owedLookups: OwedLookup[] = [];
   /** Source record types the target has no match for, reported once each. */
@@ -698,6 +720,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * @param recordCounts - Map of object API name to record count
    * @param signal - Stops the run between two calls: the batch in flight is
    *   answered and counted, and nothing is written after it
+   * @param parentIds - The objects read by id, with the ids: the parents the
+   *   selected objects reference, as the scan found them. Their counts in
+   *   `recordCounts` are those ids.
    * @returns Execution result summary
    */
   async execute(
@@ -706,7 +731,16 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     rules: AnonymizationRule[],
     recordCounts: Map<string, number>,
     signal?: AbortSignal,
+    parentIds: ReadonlyMap<string, readonly string[]> = new Map(),
   ): Promise<ExecutionResult> {
+    // A plan whose parents are read by id, run by a caller that cannot read
+    // by id, would read their whole tables: the plan said otherwise.
+    if (!this.deps.queryByIds && [...parentIds.values()].some((ids) => ids.length > 0)) {
+      throw new Error(
+        'This plan reads the parents its objects reference by id, and the run has no read by id.',
+      );
+    }
+    this.parentIds = parentIds;
     const startTime = Date.now();
     this.signal = signal;
     // A run stopped while paused stops there, rather than waiting for a resume
@@ -1173,10 +1207,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           state.notSent = totalRecords;
           return finish();
         }
-        const batch = await this.deps.query(objectApiName, offset, this.batchSize);
+        const { rows: batch, advance } = await this.readPage(objectApiName, offset);
         state.apiCallsUsed++;
-        if (batch.length === 0) break;
-        offset += batch.length;
+        if (advance === 0) break;
+        offset += advance;
         const kept = this.leaveToThePlatform(objectApiName, batch, edges);
         this.deps.anonymizer.anonymize(kept, rules, objectApiName);
         rows.push(...kept);
@@ -1205,11 +1239,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         break;
       }
 
-      // 1. Query from source
-      const read = await this.deps.query(objectApiName, offset, this.batchSize);
+      // 1. Query from source: a page of the table, or the next ids of a parent
+      const { rows: read, advance } = await this.readPage(objectApiName, offset);
       state.apiCallsUsed++;
 
-      if (read.length === 0) {
+      if (advance === 0) {
         break;
       }
 
@@ -1222,13 +1256,32 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       // 3. Remap, link and insert
       await this.writeBatch(objectApiName, batch, edges, state);
 
-      offset += read.length;
+      offset += advance;
 
       // 4. Emit node-progress
       progress(offset);
     }
 
     return finish();
+  }
+
+  /**
+   * The next records of an object from `offset`: a page of its table, or —
+   * for a parent the plan reads by id — the records of its next ids, with how
+   * far that moves the read. An id whose record is gone moves it all the same.
+   */
+  private async readPage(
+    objectApiName: ApiName,
+    offset: number,
+  ): Promise<{ rows: Record<string, unknown>[]; advance: number }> {
+    const ids = this.parentIds.get(objectApiName);
+    if (ids && this.deps.queryByIds) {
+      const chunk = ids.slice(offset, offset + Math.min(this.batchSize, IDS_PER_READ));
+      if (chunk.length === 0) return { rows: [], advance: 0 };
+      return { rows: await this.deps.queryByIds(objectApiName, chunk), advance: chunk.length };
+    }
+    const rows = await this.deps.query(objectApiName, offset, this.batchSize);
+    return { rows, advance: rows.length };
   }
 
   /**

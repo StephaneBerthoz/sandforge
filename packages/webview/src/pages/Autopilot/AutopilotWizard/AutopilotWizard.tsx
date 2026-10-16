@@ -344,6 +344,8 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
             complianceFramework={complianceFramework}
             isExecuting={isExecuting}
             error={lastError}
+            scope={plan?.scope}
+            notCovered={plan?.anonymizationSummary.notCovered}
             onExecute={onExecute}
           />
         )}

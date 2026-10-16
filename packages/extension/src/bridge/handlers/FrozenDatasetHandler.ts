@@ -14,6 +14,7 @@ import type {
   FrozenManifestInfo,
   FrozenProjectConfig,
   FrozenRemovalResult,
+  FrozenSelectProgress,
   FrozenSelectionSummary,
   FrozenStatusInfo,
   ForgeRunObjectRecords,
@@ -375,6 +376,7 @@ function toSelectionSummary(
     selectedAt: result.selectedAt,
     selectionPath,
     ...(graph ? { graph } : {}),
+    ...(result.stopped ? { stopped: result.stopped } : {}),
   };
 }
 
@@ -573,7 +575,11 @@ export class FrozenDatasetHandler implements DomainHandler {
    */
   private readonly describeCache = new SchemaCache<ObjectDescribe>({
     defaultTtl: 5 * 60_000,
-    maxSize: 50,
+    // As many as a discovery describes — four per place under its cap, the
+    // cap at most five hundred — so the extraction of every candidate finds
+    // the describes the discovery made. Held to fifty, a discovery of a large
+    // org pushed out its own first describes before the extraction asked.
+    maxSize: 2_000,
     maxSizeBytes: 200 * 1024 * 1024,
   });
 
@@ -711,48 +717,49 @@ export class FrozenDatasetHandler implements DomainHandler {
     return loadTokensFromSas(sasDir, TOKENS_FILE_NAME, guard);
   }
 
+  /**
+   * An object of an org as discovery reads it, described once and kept: the
+   * discovery and every extraction of a selection ask for the same objects.
+   */
+  private async describeObject(orgId: string, objectApiName: string): Promise<ObjectDescribe> {
+    const cacheKey = `${orgId}::${objectApiName}`;
+    const cached = this.describeCache.get(cacheKey);
+    if (cached) return cached;
+    const formatted = await new TimeoutManager(30_000).withTimeout(
+      `frozen:describe:${objectApiName}`,
+      async () => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const meta = await conn.describe(objectApiName);
+        return {
+          name: meta.name,
+          fields: meta.fields.map((f) => ({
+            name: f.name,
+            type: f.type,
+            referenceTo: f.referenceTo ?? [],
+            relationshipName: f.relationshipName ?? null,
+            isMasterDetail: f.cascadeDelete === true,
+            nillable: f.nillable !== false,
+            createable: f.createable !== false,
+            updateable: f.updateable !== false,
+          })),
+          childRelationships: (meta.childRelationships ?? []).map((cr) => ({
+            childSObject: cr.childSObject,
+            field: cr.field,
+            relationshipName: cr.relationshipName ?? cr.field,
+            isCascadeDelete: cr.cascadeDelete === true,
+          })),
+        };
+      },
+      30_000,
+    );
+    this.describeCache.set(cacheKey, formatted);
+    return formatted;
+  }
+
   /** Forge discovery service, wired on the same connection helper as Forge. */
   private buildDiscoveryService(): GraphDiscoveryService {
-    const timeouts = new TimeoutManager(30_000);
     return new GraphDiscoveryService({
-      describeObject: async (orgId, objectApiName) => {
-        const cacheKey = `${orgId}::${objectApiName}`;
-        const cached = this.describeCache.get(cacheKey);
-        if (cached) return cached;
-        const formatted = await timeouts.withTimeout(
-          `frozen:describe:${objectApiName}`,
-          async () => {
-            const conn = await getJsforceConnection(
-              orgId,
-              this.deps.orgRegistry,
-              this.deps.orgManager,
-            );
-            const meta = await conn.describe(objectApiName);
-            return {
-              name: meta.name,
-              fields: meta.fields.map((f) => ({
-                name: f.name,
-                type: f.type,
-                referenceTo: f.referenceTo ?? [],
-                relationshipName: f.relationshipName ?? null,
-                isMasterDetail: f.cascadeDelete === true,
-                nillable: f.nillable !== false,
-                createable: f.createable !== false,
-                updateable: f.updateable !== false,
-              })),
-              childRelationships: (meta.childRelationships ?? []).map((cr) => ({
-                childSObject: cr.childSObject,
-                field: cr.field,
-                relationshipName: cr.relationshipName ?? cr.field,
-                isCascadeDelete: cr.cascadeDelete === true,
-              })),
-            };
-          },
-          30_000,
-        );
-        this.describeCache.set(cacheKey, formatted);
-        return formatted;
-      },
+      describeObject: (orgId, objectApiName) => this.describeObject(orgId, objectApiName),
       queryCount: async (orgId, soql) => {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
         const result = await conn.query(soql);
@@ -824,17 +831,25 @@ export class FrozenDatasetHandler implements DomainHandler {
     return { maxNodes: config.maxNodes ?? DEFAULT_MAX_NODES };
   }
 
-  /** Per-object field describes for the extractor's scope-aware queries. */
+  /**
+   * Per-object field describes for the extractor's scope-aware queries, from
+   * the describes discovery made and keeps.
+   *
+   * Each was asked of the org afresh: one describe per object per
+   * extraction, and a selection extracts once per candidate and once more to
+   * measure what it kept. Counted on an org shaped like a large one, half the
+   * calls of a selection were describes of objects discovery had already
+   * described.
+   */
   private async describeScopableFields(
     orgId: string,
     objectApiName: string,
   ): Promise<ScopableField[]> {
-    const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-    const meta = await conn.describe(objectApiName);
-    return meta.fields.map((f) => ({
+    const described = await this.describeObject(orgId, objectApiName);
+    return described.fields.map((f) => ({
       name: f.name,
       type: f.type,
-      referenceTo: f.referenceTo ?? [],
+      referenceTo: f.referenceTo,
       // Which lookups are required: the extractor fetches the parents they
       // name when scope did not reach them, and knows no other way.
       nillable: f.nillable !== false,
@@ -1058,6 +1073,43 @@ export class FrozenDatasetHandler implements DomainHandler {
     const operationId = `frozen-select-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'frozen', 'Running coverage-matrix selection');
 
+    /*
+     * The selection's stop: its time running out, or a cancel — Live
+     * Operations' Cancel, or `execution:abort` with this request's id. Either
+     * stops it at its next step and stops waiting on the call in flight; what
+     * it decided is kept and answered. It used to run under a timeout that
+     * threw it all away: run for real on a large org, ten minutes of probing
+     * ended on `frozen:select timed out after 600000ms`, nothing kept, and no
+     * word on where it was.
+     */
+    const description = 'Coverage-matrix selection';
+    const abortController = new AbortController();
+    const timer = setTimeout(() => abortController.abort('timeout'), SELECT_TIMEOUT_MS);
+    let settle: (err?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (err) => (err === undefined ? resolve() : reject(err));
+    });
+    // The registry attaches its own handlers; this only prevents an unhandled
+    // rejection when no registry has been injected.
+    tracked.catch(() => {});
+    this.registry?.register(msg.id, 'frozen', description, tracked, abortController);
+    this.liveTracker?.register(msg.id, 'frozen', description);
+    /** Say a step to the panel, and to Live Operations. */
+    const tell = (step: FrozenSelectProgress): void => {
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'frozen:select:progress', { ...step }),
+      );
+      if (step.phase === 'combination' && step.index !== undefined && step.of) {
+        this.liveTracker?.updateProgress(
+          msg.id,
+          Math.round(((step.index - 1) / step.of) * 100),
+          step.index - 1,
+          step.of,
+          step.combinationKey ?? '',
+        );
+      }
+    };
+
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
@@ -1066,7 +1118,19 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const query = (soql: string) => queryAll(conn, soql);
+      // One answer per statement for the selection: the record types every
+      // extraction pulls, the standard price book, a parent two candidates
+      // share. Copied as handed out, so no extraction changes another's rows.
+      const answered = new Map<string, Promise<Record<string, unknown>[]>>();
+      const query = async (soql: string): Promise<Record<string, unknown>[]> => {
+        let rows = answered.get(soql);
+        if (!rows) {
+          rows = queryAll(conn, soql);
+          answered.set(soql, rows);
+          rows.catch(() => answered.delete(soql));
+        }
+        return (await rows).map((row) => ({ ...row }));
+      };
       const tokens = await this.loadTokens(sasDir, guard);
       const discovery = this.buildDiscoveryService();
       const discoveryOptions = this.discoveryOptions(config);
@@ -1076,11 +1140,26 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.describeScopableFields(parsed.sourceOrgId, objectApiName),
         keyPrefixes: () => this.keyPrefixes(parsed.sourceOrgId),
       });
+      // One instant for every measure of the selection, so a statement two
+      // candidates' extractions share is the same statement.
+      const asOf = new Date().toISOString();
       // One graph for the run: it is the root object's, whichever root asks.
       let graphOnce: Promise<ForgeGraph> | undefined;
+      let reached = 0;
       const graphFor = (rootRecordId: string): Promise<ForgeGraph> =>
         (graphOnce ??= discovery
-          .discover(this.discoveryConfig(parsed.sourceOrgId, rootRecordId), discoveryOptions)
+          .discover(this.discoveryConfig(parsed.sourceOrgId, rootRecordId), {
+            ...discoveryOptions,
+            signal: abortController.signal,
+            // A line every ten objects: a discovery of a large org reaches
+            // hundreds, and the panel and the command line said nothing.
+            onProgress: (event) => {
+              if (event.phase !== 'object') return;
+              if (event.discoveredCount - reached < 10 && event.queueRemaining > 0) return;
+              reached = event.discoveredCount;
+              tell({ phase: 'discovery', objects: event.discoveredCount });
+            },
+          })
           .then((graph) => withoutExcluded(graph, config.excludedObjects)));
       // Volumetry = real extraction-scope footprint: the probe runs the
       // scope-aware extraction over the retained roots and counts per object.
@@ -1092,7 +1171,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           graph,
           rootObject: config.rootObject,
           rootRecordIds,
-          asOf: new Date().toISOString(),
+          asOf,
           sasDir,
           excludedFields: config.excludedFields,
           // By name as well: an object discovery never reached has no node
@@ -1114,21 +1193,24 @@ export class FrozenDatasetHandler implements DomainHandler {
       );
 
       const selector = new CoverageMatrixSelector({ query, checkHealth, measureVolumetry });
-      const result = await new TimeoutManager(SELECT_TIMEOUT_MS).withTimeout('frozen:select', () =>
-        selector.select({
+      const result = await selector.select(
+        {
           rootObject: config.rootObject,
           axes: config.axes,
           edgeCases: config.edgeCases,
           budgetMaxRecords: config.budgetMaxRecords,
           candidatesPerCombination: config.candidatesPerCombination,
           tokens,
-        }),
+        },
+        { signal: abortController.signal, onProgress: tell },
       );
 
       const selectionPath = await writeSelectionToSas(sasDir, result, guard);
       // A discovery that failed has already said so through every candidate
-      // it turned away; the summary just carries no graph.
-      const graph = graphOnce ? await graphOnce.catch(() => undefined) : undefined;
+      // it turned away; the summary just carries no graph. One still running
+      // when the selection stopped is not waited for.
+      const graph =
+        graphOnce && !result.stopped ? await graphOnce.catch(() => undefined) : undefined;
       const response = buildResponse(this.deps, msg, 'frozen:select:response', {
         selection: toSelectionSummary(
           result,
@@ -1140,12 +1222,20 @@ export class FrozenDatasetHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, {
         roots: result.roots.length,
         total: result.volumetry.total,
+        ...(result.stopped ? { stopped: result.stopped.reason } : {}),
       });
+      if (result.stopped?.reason === 'cancelled') this.liveTracker?.cancel(msg.id);
+      else this.liveTracker?.complete(msg.id);
+      settle();
     } catch (err: unknown) {
+      this.liveTracker?.fail(msg.id, extractErrorMessage(err));
+      settle(err);
       sendHandlerError(this.deps, 'frozen:select', 'frozen:select:error', msg, err, {
         code: this.errorCodeFor(err, 'SELECT_ERROR'),
         retryable: err instanceof TimeoutError,
       });
+    } finally {
+      clearTimeout(timer);
     }
   }
 

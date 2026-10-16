@@ -246,6 +246,56 @@ describe('removalAsks', () => {
   });
 });
 
+describe('messageLines — a selection as it runs', () => {
+  it('prints each step of a selection as it starts', () => {
+    // Run for real on a large org, select printed nothing for ten minutes.
+    const step = (payload: Record<string, unknown>) =>
+      messageLines({ type: 'frozen:select:progress', payload });
+
+    expect(step({ phase: 'discovery', objects: 40 })).toEqual([
+      '  discovery: 40 object(s) reached',
+    ]);
+    expect(step({ phase: 'combination', combinationKey: 'origin=Web', index: 2, of: 4 })).toEqual([
+      '  combination 2/4: origin=Web',
+    ]);
+    expect(
+      step({ phase: 'candidate', combinationKey: 'origin=Web', candidate: 1, candidates: 3 }),
+    ).toEqual(['    candidate 1/3 of origin=Web: measuring its own records…']);
+    expect(step({ phase: 'measure', roots: 3 })).toEqual([
+      '  measuring the 3 root(s) kept, together…',
+    ]);
+  });
+
+  it('says where a selection stopped, that what it decided is kept, and what it never reached', () => {
+    const lines = messageLines({
+      type: 'frozen:select:response',
+      payload: {
+        selection: {
+          combinations: [{ combinationKey: 'origin=Chat' }],
+          uncovered: [],
+          volumetry: { total: 12, budgetMax: 400, measured: { Case: 1 }, summed: true },
+          stopped: {
+            reason: 'timeout',
+            during: 'combination',
+            combinationKey: 'origin=Email',
+            candidate: 2,
+            candidates: 3,
+            notProbed: ['origin=Phone', 'origin=Web'],
+          },
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'selected 1 root(s): origin=Chat',
+      'STOPPED: its time ran out while it probed origin=Email, candidate 2 of 3; the combinations decided before are kept',
+      '  never probed: origin=Phone, origin=Web',
+      "volumetry 12 / 400 record(s) — each kept root's own records added up: they were not measured together",
+      '  Case: 1',
+    ]);
+  });
+});
+
 describe('messageLines', () => {
   it('says what a dry run of a load found, per object, and that nothing was written', () => {
     const lines = messageLines({

@@ -43,6 +43,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Connection } from 'jsforce';
+import type { FrozenSelectProgress, FrozenSelectionStop } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
@@ -362,6 +363,44 @@ function graphLine(graph: { objects: number; truncated: boolean; maxNodes: numbe
 }
 
 /**
+ * One step of a selection as it starts: a selection of a large org runs for
+ * minutes, and the command said nothing until it ended. Exported so it can be
+ * tested.
+ */
+export function selectStepLine(step: FrozenSelectProgress): string {
+  switch (step.phase) {
+    case 'discovery':
+      return `  discovery: ${step.objects ?? 0} object(s) reached`;
+    case 'axis':
+      return `  listing the values of axis ${step.axis ?? '?'}…`;
+    case 'combination':
+      return `  combination ${step.index ?? '?'}/${step.of ?? '?'}: ${step.combinationKey ?? '?'}`;
+    case 'candidate':
+      return `    candidate ${step.candidate ?? '?'}/${step.candidates ?? '?'} of ${step.combinationKey ?? '?'}: measuring its own records…`;
+    case 'measure':
+      return `  measuring the ${step.roots ?? 0} root(s) kept, together…`;
+  }
+}
+
+/** Where a selection stopped short, what it kept and what it never reached. */
+function stopLines(stop: FrozenSelectionStop): string[] {
+  const why = stop.reason === 'timeout' ? 'its time ran out' : 'it was cancelled';
+  const where =
+    stop.during === 'axes'
+      ? 'while it listed the axis values'
+      : stop.during === 'measure'
+        ? 'while it measured the roots it kept'
+        : `while it probed ${stop.combinationKey ?? '?'}` +
+          (stop.candidate !== undefined
+            ? `, candidate ${stop.candidate} of ${stop.candidates ?? '?'}`
+            : '');
+  return [
+    `STOPPED: ${why} ${where}; the combinations decided before are kept`,
+    ...(stop.notProbed.length > 0 ? [`  never probed: ${stop.notProbed.join(', ')}`] : []),
+  ];
+}
+
+/**
  * One line per thing the panel would have shown, for a person reading along.
  * Exported so it can be tested.
  */
@@ -372,18 +411,30 @@ export function messageLines(message: Posted): string[] {
     return [`! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`];
   }
   switch (type) {
+    case 'frozen:select:progress':
+      return [selectStepLine(p as unknown as FrozenSelectProgress)];
     case 'frozen:select:response': {
       const s = p.selection as {
         combinations: Array<{ combinationKey: string }>;
         uncovered: Array<{ combinationKey: string; reason: string }>;
-        volumetry: { total: number; budgetMax: number; measured: Record<string, number> };
+        volumetry: {
+          total: number;
+          budgetMax: number;
+          measured: Record<string, number>;
+          summed?: true;
+        };
         graph?: { objects: number; truncated: boolean; maxNodes: number };
+        stopped?: FrozenSelectionStop;
       };
       return [
         `selected ${s.combinations.length} root(s): ${s.combinations.map((c) => c.combinationKey).join(', ')}`,
         ...s.uncovered.map((u) => `  uncovered ${u.combinationKey}: ${u.reason}`),
+        ...(s.stopped ? stopLines(s.stopped) : []),
         ...(s.graph ? [graphLine(s.graph)] : []),
-        `volumetry ${s.volumetry.total} / ${s.volumetry.budgetMax} record(s)`,
+        `volumetry ${s.volumetry.total} / ${s.volumetry.budgetMax} record(s)` +
+          (s.volumetry.summed
+            ? " — each kept root's own records added up: they were not measured together"
+            : ''),
         ...Object.entries(s.volumetry.measured)
           .filter(([, n]) => n > 0)
           .map(([name, n]) => `  ${name}: ${n}`),

@@ -81,6 +81,14 @@ function guardRefusal(code: string | null, message: string | undefined): string 
   if (code === 'TEMPLATE_NOT_FOUND') return i18n.t('common.refusal.templateNotFound');
   // Autopilot asked before its module reached the host: the host's line is English.
   if (code === 'AUTOPILOT_NOT_READY') return i18n.t('common.refusal.autopilotNotReady');
+  // An Autopilot run its write gate stopped before the first write.
+  if (code === 'AUTOPILOT_STORAGE_EXCEEDED') {
+    return i18n.t('common.refusal.autopilotStorageExceeded');
+  }
+  if (code === 'AUTOPILOT_WRITE_DECLINED') return i18n.t('common.refusal.autopilotWriteDeclined');
+  if (code === 'AUTOPILOT_CONFIRMATION_UNAVAILABLE') {
+    return i18n.t('common.refusal.autopilotConfirmationUnavailable');
+  }
   return undefined;
 }
 

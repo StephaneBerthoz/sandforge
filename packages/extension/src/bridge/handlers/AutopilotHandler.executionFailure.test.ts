@@ -13,6 +13,14 @@ import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
+/**
+ * A connection whose org says it has the data storage a small run fits in:
+ * the run's write gate reads it before the first write.
+ */
+const ROOMY_CONN = {
+  request: vi.fn(async () => ({ DataStorageMB: { Max: 200, Remaining: 150 } })),
+};
+
 /** Plan the mock orchestrator returns: one wave, one object. */
 const PLAN = {
   waves: [{ order: 0, objects: ['Account'], dependsOn: [] }],
@@ -54,7 +62,11 @@ function createMockOrchestrator(
   executePlan: Mock,
 ): Parameters<AutopilotHandler['setOrchestrator']>[0] {
   return {
-    scanSchemas: vi.fn().mockResolvedValue({ recordCounts: new Map(), totalObjectsScanned: 1 }),
+    scanSchemas: vi.fn().mockResolvedValue({
+      objectDescribes: new Map(),
+      recordCounts: new Map(),
+      totalObjectsScanned: 1,
+    }),
     buildGraph: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
     buildCompliance: vi.fn().mockReturnValue({ profile: {}, rules: [] }),
     generatePlan: vi.fn().mockReturnValue(PLAN),
@@ -87,7 +99,7 @@ describe('AutopilotHandler — execution failures', () => {
     orchestrator: Parameters<AutopilotHandler['setOrchestrator']>[0],
   ): Promise<void> {
     handler.setOrchestrator(orchestrator);
-    mockGetConn.mockResolvedValue({} as never);
+    mockGetConn.mockResolvedValue(ROOMY_CONN as never);
     await handler.handle(
       inboundRequest({
         id: 'scan-1',
@@ -225,11 +237,12 @@ describe('AutopilotHandler — what each node came to', () => {
   async function execute(executePlan: Mock): Promise<Array<BaseMessage & { payload: unknown }>> {
     const orchestrator = createMockOrchestrator(executePlan);
     (orchestrator.scanSchemas as Mock).mockResolvedValue({
+      objectDescribes: new Map(),
       recordCounts: new Map([['Account', 5]]),
       totalObjectsScanned: 1,
     });
     handler.setOrchestrator(orchestrator);
-    mockGetConn.mockResolvedValue({} as never);
+    mockGetConn.mockResolvedValue(ROOMY_CONN as never);
     await handler.handle(
       inboundRequest({
         id: 'scan-1',

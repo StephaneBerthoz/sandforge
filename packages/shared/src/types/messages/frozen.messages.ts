@@ -3,6 +3,7 @@ import type {
   FrozenControlReport,
   FrozenLoadPlanInfo,
   FrozenLoadProgress,
+  FrozenSelectProgress,
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
@@ -125,6 +126,16 @@ export interface FrozenConfigGetResponse extends BaseMessage {
 export interface FrozenConfigSaveResponse extends BaseMessage {
   type: 'frozen:config:save:response';
   payload: { success: boolean };
+}
+
+/**
+ * `frozen:select:progress`. Extension -> WebView. Each step of a selection —
+ * the discovery, each combination and candidate, the final measure — as it
+ * starts: a selection of a large org runs for minutes.
+ */
+export interface FrozenSelectProgressMessage extends BaseMessage {
+  type: 'frozen:select:progress';
+  payload: FrozenSelectProgress;
 }
 
 /** `frozen:select:response`. Extension -> WebView (selection summary, IDs redacted). */

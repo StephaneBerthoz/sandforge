@@ -2512,3 +2512,48 @@ describe('AutopilotExecutor — a run stopped part way', () => {
     expect(result.stoppedObjects).toBeUndefined();
   });
 });
+
+describe('AutopilotExecutor — the parents a plan reads by id', () => {
+  it('reads a parent by the ids the selection references, never its table', async () => {
+    // Run for real, a plan copied the whole table of every object it reached:
+    // sixty thousand postcodes for the four the selection named.
+    const query = vi.fn<QueryFn>().mockResolvedValue([]);
+    const queryByIds = vi.fn(async (_objectApiName: string, ids: readonly string[]) =>
+      ids.filter((id) => id !== 'gone').map((Id) => ({ Id, Name: Id })),
+    );
+    const insert = vi.fn<InsertFn>(async (_name, records) =>
+      written(...records.map((_, i) => `new-${i}`)),
+    );
+    const executor = new AutopilotExecutor(makeDeps({ query, queryByIds, insert, batchSize: 2 }));
+
+    const result = await executor.execute(
+      makePlan([{ order: 0, objects: ['PostalCode__c'], dependsOn: [] }]),
+      [],
+      [],
+      new Map([['PostalCode__c', 3]]),
+      undefined,
+      new Map([['PostalCode__c', ['pc1', 'gone', 'pc3']]]),
+    );
+
+    expect(query).not.toHaveBeenCalled();
+    expect(queryByIds.mock.calls.map(([, ids]) => ids)).toEqual([['pc1', 'gone'], ['pc3']]);
+    expect(result.objectOutcomes?.['PostalCode__c']).toMatchObject({ written: 2, failed: 0 });
+  });
+
+  it('refuses a plan of parents read by id from a run that cannot read by id', async () => {
+    const query = vi.fn<QueryFn>().mockResolvedValue([]);
+    const executor = new AutopilotExecutor(makeDeps({ query }));
+
+    await expect(
+      executor.execute(
+        makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }]),
+        [],
+        [],
+        new Map([['Account', 1]]),
+        undefined,
+        new Map([['Account', ['acc1']]]),
+      ),
+    ).rejects.toThrow('no read by id');
+    expect(query).not.toHaveBeenCalled();
+  });
+});

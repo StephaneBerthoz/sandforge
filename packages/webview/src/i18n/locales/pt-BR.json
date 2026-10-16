@@ -56,7 +56,10 @@
       "guardDeclined": "Cancelado na confirmação do Production Guard: nada foi alterado na org.",
       "templateNotFound": "O modelo de mascaramento não foi encontrado: talvez tenha sido excluído. Escolha outro modelo.",
       "guardMissing": "O Production Guard não estava pronto nesta janela, e nada é gravado sem ele: nada foi alterado na org. Recarregue a janela (Developer: Reload Window) e tente novamente.",
-      "autopilotNotReady": "O Autopilot ainda não foi carregado nesta janela, e nada foi alterado na org. Aguarde alguns segundos e tente novamente; se continuar assim, recarregue a janela (Developer: Reload Window)."
+      "autopilotNotReady": "O Autopilot ainda não foi carregado nesta janela, e nada foi alterado na org. Aguarde alguns segundos e tente novamente; se continuar assim, recarregue a janela (Developer: Reload Window).",
+      "autopilotStorageExceeded": "A execução do Autopilot foi recusada antes de gravar qualquer coisa: seus registros ocupam mais armazenamento de dados do que resta na org de destino. Reduza a seleção ou libere armazenamento de dados na org de destino.",
+      "autopilotWriteDeclined": "Você cancelou a execução do Autopilot antes que ela gravasse qualquer coisa. Nada foi gravado na org de destino.",
+      "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la."
     }
   },
   "status": {
@@ -3816,7 +3819,24 @@
       "source": "Origem",
       "target": "Destino",
       "selectedObjects": "Objetos selecionados",
-      "executing": "Executando..."
+      "executing": "Executando...",
+      "scope": {
+        "title": "O que o plano copia",
+        "selected": "Copiados inteiros, como selecionados: {{objects}}",
+        "parents": "Apenas os registros referenciados pela seleção, lidos por Id:",
+        "leftEmpty": "Lookups deixados vazios:",
+        "reasonDepth": "a mais de {{depth}} lookups de um objeto selecionado",
+        "reasonObjects": "além dos {{objects}} objetos que um plano contém",
+        "reasonStandard": "um objeto padrão que a execução não precisava levar",
+        "required": "um registro não pode ser gravado sem ele: esses registros serão recusados",
+        "standardNeeded": "{{object}} é levado embora objetos padrão não tenham sido pedidos: {{field}} não pode ficar vazio."
+      },
+      "notCovered": "{{object}}: nenhuma regra de anonimização para {{missing}}. Esses dados seriam copiados como a origem os contém.",
+      "personal": {
+        "name": "o nome",
+        "email": "o e-mail",
+        "phone": "o telefone"
+      }
     },
     "graph": {
       "title": "Grafo de dependências",
@@ -4002,7 +4022,24 @@
       "edgeCase": "Caso extremo",
       "empty": "Nenhuma combinação retida",
       "uncovered_one": "{{count}} combinação sem cobertura",
-      "uncovered_other": "{{count}} combinações sem cobertura"
+      "uncovered_other": "{{count}} combinações sem cobertura",
+      "progress": {
+        "discovery": "Objetos alcançados pela descoberta até agora: {{objects}}",
+        "axis": "Lendo os valores do eixo {{axis}}…",
+        "combination": "Examinando a combinação {{index}} de {{of}}: {{key}}",
+        "candidate": "{{key}}: medindo o candidato {{candidate}} de {{candidates}} em seus próprios registros",
+        "measure": "Medindo juntas as raízes retidas: {{roots}}"
+      },
+      "stopped": {
+        "timeout": "A seleção parou: o tempo dela acabou. As combinações decididas antes são mantidas.",
+        "cancelled": "A seleção parou: ela foi cancelada. As combinações decididas antes são mantidas.",
+        "probing": "Ela examinava {{key}}.",
+        "probingCandidate": "Ela examinava {{key}}, candidato {{candidate}} de {{candidates}}.",
+        "axes": "Ela lia os valores dos eixos.",
+        "measure": "Ela media juntas as raízes retidas.",
+        "notProbed": "Nunca examinadas: {{keys}}"
+      },
+      "summed": "Os registros próprios de cada raiz retida, somados: as raízes não foram medidas juntas, então um registro que duas delas compartilham é contado duas vezes."
     },
     "extract": {
       "title": "Extração e pseudonimização",

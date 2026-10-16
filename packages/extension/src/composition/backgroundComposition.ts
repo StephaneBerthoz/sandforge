@@ -323,7 +323,17 @@ function readQuestion(question: ReadConfirmation): string[] {
 /** What a run's question says of the rows it is about to write, and their storage. */
 function writeQuestion(question: WriteConfirmation): string[] {
   const lines = [
-    vscode.l10n.t('This clone is about to write {0} records to {1}:', question.total, question.org),
+    question.module === 'autopilot'
+      ? vscode.l10n.t(
+          'This Autopilot run is about to write {0} records to {1}:',
+          question.total,
+          question.org,
+        )
+      : vscode.l10n.t(
+          'This clone is about to write {0} records to {1}:',
+          question.total,
+          question.org,
+        ),
   ];
   // Names and counts alone: nothing in them to translate.
   for (const { objectApiName, rows } of question.objects.slice(0, LISTED_IN_A_QUESTION)) {
@@ -539,7 +549,9 @@ export async function confirmRun(question: RunConfirmation): Promise<boolean> {
   const choice = await vscode.window.showWarningMessage(
     rehearsal
       ? vscode.l10n.t('SandForge: confirm this rehearsal')
-      : vscode.l10n.t('SandForge: confirm this clone'),
+      : question.stage === 'write' && question.module === 'autopilot'
+        ? vscode.l10n.t('SandForge: confirm this Autopilot run')
+        : vscode.l10n.t('SandForge: confirm this clone'),
     { modal: true, detail: runQuestionDetail(question) },
     ...(commands.length > 0 ? [go, copy] : [go]),
   );

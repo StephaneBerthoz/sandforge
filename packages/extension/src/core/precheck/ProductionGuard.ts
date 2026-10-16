@@ -198,6 +198,11 @@ export type WriteConfirmationStorage =
  */
 export interface WriteConfirmation {
   stage: 'write';
+  /**
+   * The module whose run asks: a Forge clone unless said. An Autopilot run
+   * asks the same question of its plan.
+   */
+  module?: 'autopilot';
   /** The org the run writes to, as the user knows it. */
   org: string;
   orgTier: SafetyTier;

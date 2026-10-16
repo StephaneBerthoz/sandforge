@@ -209,6 +209,44 @@ export interface FrozenManifestCoverage extends FrozenGraphCoverage {
   exclusionCosts?: FrozenExclusionCost[];
 }
 
+/**
+ * Where a selection was when it stopped short of its end — its time ran out,
+ * or it was cancelled — and what it had not reached. What it had decided is
+ * kept.
+ */
+export interface FrozenSelectionStop {
+  reason: 'timeout' | 'cancelled';
+  /** What it was doing: listing the axis values, probing a combination, or measuring what it kept. */
+  during: 'axes' | 'combination' | 'measure';
+  /** The combination, or `edge:<name>`, it was probing, when it was. */
+  combinationKey?: string;
+  /** The candidate of that combination it was judging, from 1. */
+  candidate?: number;
+  /** The candidates it would have probed for it at most. */
+  candidates?: number;
+  /** The combinations and edge cases it never reached. */
+  notProbed: string[];
+}
+
+/** One step of a selection, said to the panel and printed by the command line. */
+export interface FrozenSelectProgress {
+  /**
+   * `discovery`: the root object's graph, `objects` reached so far;
+   * `axis`: an axis's observed values listed; `combination`: a combination,
+   * `index` of `of`, being probed; `candidate`: one of its candidates judged
+   * on its own records; `measure`: the kept roots measured together.
+   */
+  phase: 'discovery' | 'axis' | 'combination' | 'candidate' | 'measure';
+  objects?: number;
+  axis?: string;
+  combinationKey?: string;
+  index?: number;
+  of?: number;
+  candidate?: number;
+  candidates?: number;
+  roots?: number;
+}
+
 /** Selection summary returned to the webview (sas IDs redacted). */
 export interface FrozenSelectionSummary {
   /** Retained combinations — exactly one root per combination / edge case. */
@@ -219,7 +257,15 @@ export interface FrozenSelectionSummary {
     measured: Record<string, number>;
     total: number;
     budgetMax: number;
+    /**
+     * Set when the kept roots were not measured together — the selection
+     * stopped first — and the figures are each root's own measure added up:
+     * a record two roots share is counted twice.
+     */
+    summed?: true;
   };
+  /** Set when the selection stopped short: where, and what it had not reached. */
+  stopped?: FrozenSelectionStop;
   /** ISO timestamp of the selection (decision date for the manifest). */
   selectedAt: string;
   /** Sas path of the persisted selection.json. */

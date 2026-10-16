@@ -1,16 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Plus, Save, Trash2 } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import type {
+  BaseMessage,
   FrozenControlCheck,
   FrozenExtractResponse,
   FrozenManifestInfo,
   FrozenProjectConfig,
+  FrozenSelectProgress,
   FrozenSelectResponse,
+  FrozenSelectionStop,
 } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { useMessageListener } from '../../hooks/useMessageBus';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardBody } from '../../components/ui/Card';
@@ -68,6 +73,54 @@ function splitConfig(config: FrozenProjectConfig): {
   };
 }
 
+/** One step of a running selection, in the interface language. */
+function selectStepText(t: TFunction, step: FrozenSelectProgress): string {
+  switch (step.phase) {
+    case 'discovery':
+      return t('frozen.selection.progress.discovery', { objects: step.objects ?? 0 });
+    case 'axis':
+      return t('frozen.selection.progress.axis', { axis: step.axis ?? '' });
+    case 'combination':
+      return t('frozen.selection.progress.combination', {
+        index: step.index ?? 0,
+        of: step.of ?? 0,
+        key: step.combinationKey ?? '',
+      });
+    case 'candidate':
+      return t('frozen.selection.progress.candidate', {
+        key: step.combinationKey ?? '',
+        candidate: step.candidate ?? 0,
+        candidates: step.candidates ?? 0,
+      });
+    case 'measure':
+      return t('frozen.selection.progress.measure', { roots: step.roots ?? 0 });
+  }
+}
+
+/** Where a selection stopped short, and what it never reached, in the interface language. */
+function stopSentences(t: TFunction, stop: FrozenSelectionStop): string[] {
+  const why =
+    stop.reason === 'timeout'
+      ? t('frozen.selection.stopped.timeout')
+      : t('frozen.selection.stopped.cancelled');
+  let where: string;
+  if (stop.during === 'axes') where = t('frozen.selection.stopped.axes');
+  else if (stop.during === 'measure') where = t('frozen.selection.stopped.measure');
+  else if (stop.candidate !== undefined) {
+    where = t('frozen.selection.stopped.probingCandidate', {
+      key: stop.combinationKey ?? '',
+      candidate: stop.candidate,
+      candidates: stop.candidates ?? 0,
+    });
+  } else where = t('frozen.selection.stopped.probing', { key: stop.combinationKey ?? '' });
+  return [
+    `${why} ${where}`,
+    ...(stop.notProbed.length > 0
+      ? [t('frozen.selection.stopped.notProbed', { keys: stop.notProbed.join(', ') })]
+      : []),
+  ];
+}
+
 /** Props for the extract tab. */
 export interface FrozenExtractTabProps {
   /** Refetch the module status after a mutation completed. */
@@ -115,8 +168,22 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
   }, [configQuery.data, setConfig]);
 
   const saveMutation = useFrozenMutation<{ success: boolean }>('frozen:config:save');
+  // Past the host's ten minutes: a selection that runs out of time answers
+  // with what it kept, and the page waits long enough to hear it.
   const selectMutation = useFrozenMutation<FrozenSelectResponse['payload']>('frozen:select', {
-    timeoutMs: 600_000,
+    timeoutMs: 660_000,
+  });
+  /**
+   * The step the running selection is at. A selection of a large org runs
+   * for minutes, and the page showed a spinner and nothing else.
+   */
+  const [selectStep, setSelectStep] = useState<FrozenSelectProgress | null>(null);
+  useMessageListener('frozen:select:progress', (msg: BaseMessage) => {
+    if (selectMutation.requestId === null || msg.correlationId !== selectMutation.requestId) {
+      return;
+    }
+    const payload = (msg as BaseMessage & { payload?: FrozenSelectProgress }).payload;
+    if (payload) setSelectStep(payload);
   });
   const extractMutation = useFrozenMutation<FrozenExtractResponse['payload']>('frozen:extract', {
     timeoutMs: 900_000,
@@ -405,21 +472,52 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               icon={<Play className="w-3 h-3" />}
               loading={selectMutation.loading}
               disabled={!selectedOrgId}
-              onClick={() => selectMutation.mutate({ sourceOrgId: selectedOrgId })}
+              onClick={() => {
+                setSelectStep(null);
+                selectMutation.mutate({ sourceOrgId: selectedOrgId });
+              }}
               data-testid="frozen-select-run"
             >
               {t('frozen.selection.run')}
             </Button>
           </div>
+          {selectMutation.loading && selectStep && (
+            <p
+              role="status"
+              className="text-xs text-text-secondary"
+              data-testid="frozen-select-progress"
+            >
+              {selectStepText(t, selectStep)}
+            </p>
+          )}
           {selectMutation.error && <ErrorBanner message={selectMutation.error} />}
           {selection && (
             <>
+              {selection.stopped && (
+                <div
+                  role="status"
+                  className="flex flex-col gap-0.5 text-xs text-status-warning"
+                  data-testid="frozen-selection-stopped"
+                >
+                  {stopSentences(t, selection.stopped).map((sentence) => (
+                    <p key={sentence}>{sentence}</p>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-text-secondary" data-testid="frozen-selection-volumetry">
                 {t('frozen.selection.volumetry', {
                   total: selection.volumetry.total,
                   budget: selection.volumetry.budgetMax,
                 })}
               </p>
+              {selection.volumetry.summed && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-selection-summed"
+                >
+                  {t('frozen.selection.summed')}
+                </p>
+              )}
               <DataTable
                 columns={[
                   {

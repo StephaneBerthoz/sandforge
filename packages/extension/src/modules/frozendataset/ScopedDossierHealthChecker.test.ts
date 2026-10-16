@@ -6,7 +6,11 @@ describe('ScopedDossierHealthChecker', () => {
     const measure = vi.fn(async () => ({ Opportunity: 1, OpportunityLineItem: 3 }));
     const checker = new ScopedDossierHealthChecker(measure, ['OpportunityLineItem']);
 
-    expect(await checker.check('006000000000001AAA')).toEqual({ healthy: true });
+    // With the measure it was judged on, which a stopped selection adds up.
+    expect(await checker.check('006000000000001AAA')).toEqual({
+      healthy: true,
+      measured: { Opportunity: 1, OpportunityLineItem: 3 },
+    });
     // Measured on that one root: the verdict is about this dossier.
     expect(measure).toHaveBeenCalledWith(['006000000000001AAA']);
   });

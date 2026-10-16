@@ -56,7 +56,10 @@
       "guardDeclined": "Cancelled at Production Guard's confirmation: nothing was changed in the org.",
       "templateNotFound": "The masking template was not found: it may have been deleted. Pick another template.",
       "guardMissing": "Production Guard was not ready in this window, and nothing is written without it: nothing was changed in the org. Reload the window (Developer: Reload Window), then try again.",
-      "autopilotNotReady": "Autopilot is not loaded in this window yet, and nothing was changed in the org. Wait a few seconds, then try again; if it stays like this, reload the window (Developer: Reload Window)."
+      "autopilotNotReady": "Autopilot is not loaded in this window yet, and nothing was changed in the org. Wait a few seconds, then try again; if it stays like this, reload the window (Developer: Reload Window).",
+      "autopilotStorageExceeded": "The Autopilot run was refused before it wrote anything: its records take more data storage than the target org has left. Narrow the selection, or free data storage in the target org.",
+      "autopilotWriteDeclined": "You cancelled the Autopilot run before it wrote anything. Nothing was written to the target org.",
+      "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked."
     }
   },
   "status": {
@@ -3816,7 +3819,24 @@
       "source": "Source",
       "target": "Target",
       "selectedObjects": "Selected Objects",
-      "executing": "Executing..."
+      "executing": "Executing...",
+      "scope": {
+        "title": "What the plan copies",
+        "selected": "Copied whole, as selected: {{objects}}",
+        "parents": "Only the records the selection references, read by id:",
+        "leftEmpty": "Lookups left empty:",
+        "reasonDepth": "further than {{depth}} lookups from a selected object",
+        "reasonObjects": "past the {{objects}} objects a plan holds",
+        "reasonStandard": "a standard object the run was not asked to take",
+        "required": "a record cannot be written without it: those records will be refused",
+        "standardNeeded": "{{object}} is taken although standard objects were not asked for: {{field}} cannot be left empty."
+      },
+      "notCovered": "{{object}}: no anonymization rule for its {{missing}}. They would be copied as the source holds them.",
+      "personal": {
+        "name": "name",
+        "email": "email",
+        "phone": "phone"
+      }
     },
     "graph": {
       "title": "Dependency Graph",
@@ -4002,7 +4022,24 @@
       "edgeCase": "Edge case",
       "empty": "No combination retained",
       "uncovered_one": "{{count}} uncovered combination",
-      "uncovered_other": "{{count}} uncovered combinations"
+      "uncovered_other": "{{count}} uncovered combinations",
+      "progress": {
+        "discovery": "Objects reached by discovery so far: {{objects}}",
+        "axis": "Listing the values of axis {{axis}}…",
+        "combination": "Probing combination {{index}} of {{of}}: {{key}}",
+        "candidate": "{{key}}: measuring candidate {{candidate}} of {{candidates}} on its own records",
+        "measure": "Measuring the roots kept, together: {{roots}}"
+      },
+      "stopped": {
+        "timeout": "The selection stopped: its time ran out. The combinations it decided before are kept.",
+        "cancelled": "The selection stopped: it was cancelled. The combinations it decided before are kept.",
+        "probing": "It was probing {{key}}.",
+        "probingCandidate": "It was probing {{key}}, candidate {{candidate}} of {{candidates}}.",
+        "axes": "It was listing the values of the axes.",
+        "measure": "It was measuring the roots it kept, together.",
+        "notProbed": "Never probed: {{keys}}"
+      },
+      "summed": "Each kept root's own records, added up: the roots were not measured together, so a record two of them share is counted twice."
     },
     "extract": {
       "title": "Extraction & pseudonymization",

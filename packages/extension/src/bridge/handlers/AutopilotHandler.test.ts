@@ -20,6 +20,14 @@ import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker
 const mockGetConn = vi.mocked(getJsforceConnection);
 
 /**
+ * A connection whose org says it has the data storage a small run fits in:
+ * the run's write gate reads it before the first write.
+ */
+const ROOMY_CONN = {
+  request: vi.fn(async () => ({ DataStorageMB: { Max: 200, Remaining: 150 } })),
+};
+
+/**
  * Creates minimal mock deps for AutopilotHandler tests.
  */
 function createMockDeps(): HandlerDeps {
@@ -53,7 +61,11 @@ function createMockOrchestrator(
   overrides: Record<string, unknown> = {},
 ): Parameters<AutopilotHandler['setOrchestrator']>[0] {
   return {
-    scanSchemas: vi.fn().mockResolvedValue({ recordCounts: new Map(), totalObjectsScanned: 5 }),
+    scanSchemas: vi.fn().mockResolvedValue({
+      objectDescribes: new Map(),
+      recordCounts: new Map(),
+      totalObjectsScanned: 5,
+    }),
     buildGraph: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
     buildCompliance: vi.fn().mockReturnValue({ profile: {}, rules: [] }),
     generatePlan: vi.fn().mockReturnValue({ steps: [] }),
@@ -131,7 +143,7 @@ describe('AutopilotHandler', () => {
     const orchestrator = createMockOrchestrator();
     handler.setOrchestrator(orchestrator);
 
-    mockGetConn.mockResolvedValue({} as never);
+    mockGetConn.mockResolvedValue(ROOMY_CONN as never);
 
     const msg: InboundRequest & {
       payload: {
@@ -170,7 +182,7 @@ describe('AutopilotHandler', () => {
     handler.setOrchestrator(orchestrator);
 
     // Must scan schema first to populate graph
-    mockGetConn.mockResolvedValue({} as never);
+    mockGetConn.mockResolvedValue(ROOMY_CONN as never);
     await handler.handle(scanMsg('scan-1'));
 
     // Now generate plan
@@ -198,7 +210,7 @@ describe('AutopilotHandler', () => {
     });
     handler.setOrchestrator(orchestrator);
 
-    mockGetConn.mockResolvedValue({} as never);
+    mockGetConn.mockResolvedValue(ROOMY_CONN as never);
 
     const msg: InboundRequest & {
       payload: {
@@ -319,7 +331,7 @@ describe('AutopilotHandler', () => {
     handler.setOrchestrator(orchestrator);
 
     // Setup: scan-schema -> generate-plan -> execute
-    mockGetConn.mockResolvedValue({} as never);
+    mockGetConn.mockResolvedValue(ROOMY_CONN as never);
     await handler.handle(scanMsg('scan-exec'));
 
     await handler.handle(
@@ -417,7 +429,7 @@ describe('AutopilotHandler', () => {
     it('rejects autopilot:generate-plan with INVALID_PAYLOAD on unknown framework', async () => {
       const orchestrator = createMockOrchestrator();
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
       await handler.handle(scanMsg('scan-val'));
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
@@ -444,7 +456,7 @@ describe('AutopilotHandler', () => {
     it('rejects autopilot:execute with INVALID_PAYLOAD on negative threshold', async () => {
       const orchestrator = createMockOrchestrator();
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
       await handler.handle(scanMsg('scan-val-exec'));
       await handler.handle(
         inboundRequest({
@@ -503,10 +515,12 @@ describe('AutopilotHandler', () => {
   describe('concurrency', () => {
     it('keeps concurrent scans isolated: each response carries its own graph', async () => {
       const scanA = {
+        objectDescribes: new Map(),
         recordCounts: new Map([['Account', 5]]),
         totalObjectsScanned: 1,
       };
       const scanB = {
+        objectDescribes: new Map(),
         recordCounts: new Map([['Contact', 99]]),
         totalObjectsScanned: 1,
       };
@@ -523,7 +537,7 @@ describe('AutopilotHandler', () => {
         buildGraph: vi.fn().mockImplementation((sr: unknown) => (sr === scanA ? graphA : graphB)),
       });
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
 
       const pA = handler.handle(scanMsg('scan-A'));
       const pB = handler.handle(scanMsg('scan-B'));
@@ -546,10 +560,12 @@ describe('AutopilotHandler', () => {
 
     it('does not let a concurrent scan clobber an in-flight execution', async () => {
       const scan1 = {
+        objectDescribes: new Map(),
         recordCounts: new Map([['Account', 5]]),
         totalObjectsScanned: 1,
       };
       const scan2 = {
+        objectDescribes: new Map(),
         recordCounts: new Map([['Contact', 99]]),
         totalObjectsScanned: 1,
       };
@@ -581,7 +597,7 @@ describe('AutopilotHandler', () => {
         executePlan: vi.fn().mockImplementation(() => dExec.promise),
       });
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
 
       await handler.handle(scanMsg('scan-1'));
       await handler.handle(
@@ -638,6 +654,7 @@ describe('AutopilotHandler', () => {
         scanSchemas: vi
           .fn()
           .mockResolvedValueOnce({
+            objectDescribes: new Map(),
             recordCounts: new Map(),
             totalObjectsScanned: 1,
           })
@@ -645,7 +662,7 @@ describe('AutopilotHandler', () => {
         buildGraph: vi.fn().mockReturnValue(graph1),
       });
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
 
       await handler.handle(scanMsg('scan-ok'));
       await handler.handle(scanMsg('scan-ko'));
@@ -730,7 +747,7 @@ describe('AutopilotHandler', () => {
         executePlan: vi.fn().mockImplementation(() => dExec.promise),
       });
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
 
       await handler.handle(scanMsg('scan-ctl'));
       await handler.handle(
@@ -827,7 +844,7 @@ describe('AutopilotHandler', () => {
       handler.setOrchestrator(
         createMockOrchestrator({ generatePlan: vi.fn().mockReturnValue(PLAN), executePlan }),
       );
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
       await handler.handle(scanMsg('scan-audit'));
       await handler.handle(
         inboundRequest({
@@ -970,7 +987,7 @@ describe('AutopilotHandler', () => {
       handler.setOrchestrator(
         createMockOrchestrator({ generatePlan: vi.fn().mockReturnValue(plan), executePlan }),
       );
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
       await handler.handle(scanMsg('scan-stop'));
       await handler.handle(
         inboundRequest({
@@ -1244,7 +1261,7 @@ describe('AutopilotHandler', () => {
     /** Runs scan → generate-plan so the operation is ready for execute. */
     async function scanAndPlan(orchestrator: ReturnType<typeof createMockOrchestrator>) {
       handler.setOrchestrator(orchestrator);
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
       await handler.handle(scanMsg('scan-guard'));
       await handler.handle(
         inboundRequest({
@@ -1444,6 +1461,211 @@ describe('AutopilotHandler', () => {
       expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
       const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
       expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe('write gate', () => {
+    const PLAN = {
+      waves: [{ order: 0, objects: ['Lead'], dependsOn: [] }],
+      totalRecords: 3_000,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 2,
+      complianceFramework: 'none',
+      anonymizationSummary: { totalRules: 0, rulesByType: {} },
+      cycleResolutions: [],
+    };
+
+    /** Scan, plan and execute a plan of 3 000 leads into a target with `remainingMB` left. */
+    async function run(options: {
+      remainingMB: number;
+      confirmAboveRecords?: number;
+      answer?: 'confirmed' | 'declined';
+    }) {
+      const confirmRun = vi.fn(async () => options.answer ?? 'confirmed');
+      const guard = new ProductionGuard({
+        requestRunConfirmation: async () => (await confirmRun()) === 'confirmed',
+      });
+      const asked = vi.spyOn(guard, 'confirmRun');
+      deps.infraServices = { productionGuard: guard } as unknown as HandlerDeps['infraServices'];
+      deps.services = {
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          (key === 'safety.confirmAboveRecords' && options.confirmAboveRecords !== undefined
+            ? options.confirmAboveRecords
+            : fallback) as T,
+      } as unknown as HandlerDeps['services'];
+      (deps.orgManager.getOrg as Mock).mockReturnValue({ orgType: 'Sandbox', alias: 'TGT' });
+      const orchestrator = createMockOrchestrator({
+        scanSchemas: vi.fn().mockResolvedValue({
+          objectDescribes: new Map(),
+          recordCounts: new Map([['Lead', 3_000]]),
+          parentIds: new Map(),
+          totalObjectsScanned: 1,
+        }),
+        generatePlan: vi.fn().mockReturnValue(PLAN),
+      });
+      handler.setOrchestrator(orchestrator);
+      mockGetConn.mockResolvedValue({
+        request: vi.fn(async () => ({
+          DataStorageMB: { Max: 200, Remaining: options.remainingMB },
+        })),
+      } as never);
+      await handler.handle(scanMsg('scan-gate'));
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-gate',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'none' },
+        } as BaseMessage),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 'exec-gate',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0 },
+        } as BaseMessage),
+      );
+      const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error') as Array<
+        BaseMessage & { payload: { code?: string; message: string } }
+      >;
+      return { orchestrator, asked, errors };
+    }
+
+    it("refuses a plan past the target's data storage before anything is written", async () => {
+      // 3 000 records take about 5.9 MB; the target has 1 MB left.
+      const { orchestrator, asked, errors } = await run({ remainingMB: 1 });
+
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      expect(asked).not.toHaveBeenCalled();
+      expect(errors.map((e) => e.payload.code)).toEqual(['AUTOPILOT_STORAGE_EXCEEDED']);
+      expect(errors[0].payload.message).toContain('Nothing was written.');
+    });
+
+    it('asks past sandforge.safety.confirmAboveRecords with the counts of the plan, then runs', async () => {
+      const { orchestrator, asked, errors } = await run({ remainingMB: 150 });
+
+      expect(asked).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'write',
+          module: 'autopilot',
+          org: 'TGT',
+          objects: [{ objectApiName: 'Lead', rows: 3_000 }],
+          aboveRecords: 2_000,
+          counted: true,
+        }),
+      );
+      expect(errors).toEqual([]);
+      expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes nothing when the question is declined', async () => {
+      const { orchestrator, errors } = await run({ remainingMB: 150, answer: 'declined' });
+
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      expect(errors.map((e) => e.payload.code)).toEqual(['AUTOPILOT_WRITE_DECLINED']);
+    });
+
+    it('asks nothing of a plan under the setting that fits', async () => {
+      const { orchestrator, asked } = await run({ remainingMB: 150, confirmAboveRecords: 5_000 });
+
+      expect(asked).not.toHaveBeenCalled();
+      expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the bounds of the walk', () => {
+    it('hands the scan the bounds a request names, and none of its own otherwise', async () => {
+      const orchestrator = createMockOrchestrator();
+      handler.setOrchestrator(orchestrator);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
+      const scan = (id: string, extra: Record<string, unknown>) =>
+        handler.handle(
+          inboundRequest({
+            id,
+            type: 'autopilot:scan-schema',
+            timestamp: Date.now(),
+            payload: {
+              sourceOrgId: 'src',
+              targetOrgId: 'tgt',
+              selectedObjects: ['Lead'],
+              includeStandardObjects: true,
+              ...extra,
+            },
+          } as BaseMessage),
+        );
+
+      await scan('scan-bounded', { maxDepth: 2, maxObjects: 12 });
+      await scan('scan-default', {});
+      await scan('scan-unbounded', { maxObjects: 100_000 });
+
+      const configs = (orchestrator.scanSchemas as Mock).mock.calls.map((call) => call[2]);
+      expect(configs[0]).toEqual({
+        selectedObjects: ['Lead'],
+        includeStandardObjects: true,
+        maxDepth: 2,
+        maxObjects: 12,
+      });
+      expect(configs[1]).toEqual({ selectedObjects: ['Lead'], includeStandardObjects: true });
+      // Past Forge's own limit, refused before any scan.
+      expect(configs).toHaveLength(2);
+    });
+  });
+
+  describe('personal fields', () => {
+    it("hands the compliance profile the detector's fields when a framework anonymizes", async () => {
+      // Without an AI scan the profile had no detection at all, and a GDPR
+      // plan anonymized nothing.
+      const contact = {
+        name: 'Contact',
+        label: 'Contact',
+        custom: false,
+        keyPrefix: '003',
+        recordTypeInfos: [],
+        fields: ['FirstName', 'LastName', 'Email'].map((name) => ({
+          name,
+          label: name,
+          type: name === 'Email' ? 'email' : 'string',
+          nillable: true,
+          createable: true,
+          updateable: true,
+          unique: false,
+          externalId: false,
+          referenceTo: [],
+          relationshipName: null,
+          defaultValue: null,
+        })),
+      };
+      const orchestrator = createMockOrchestrator({
+        scanSchemas: vi.fn().mockResolvedValue({
+          objectDescribes: new Map([['Contact', contact]]),
+          recordCounts: new Map([['Contact', 1]]),
+          parentIds: new Map(),
+          totalObjectsScanned: 1,
+        }),
+      });
+      handler.setOrchestrator(orchestrator);
+      mockGetConn.mockResolvedValue(ROOMY_CONN as never);
+      await handler.handle(scanMsg('scan-pii'));
+      for (const complianceFramework of ['gdpr', 'none']) {
+        await handler.handle(
+          inboundRequest({
+            id: `plan-${complianceFramework}`,
+            type: 'autopilot:generate-plan',
+            timestamp: Date.now(),
+            payload: { complianceFramework },
+          } as BaseMessage),
+        );
+      }
+
+      const calls = (orchestrator.buildCompliance as Mock).mock.calls;
+      expect(calls[0][0]).toBe('gdpr');
+      expect(calls[0][2].map((d: { fieldApiName: string }) => d.fieldApiName).sort()).toEqual([
+        'Email',
+        'FirstName',
+        'LastName',
+      ]);
+      expect(calls[1]).toEqual(['none', [], []]);
     });
   });
 });

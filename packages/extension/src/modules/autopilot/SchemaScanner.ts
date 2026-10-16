@@ -1,13 +1,27 @@
 /**
  * SchemaScanner — Scans source and target org schemas for the Autopilot module.
- * Discovers selected objects + their lookup dependencies recursively,
- * verifies target org compatibility, and counts source records.
+ * Discovers the selected objects and the parents their records reference, as
+ * far as the bounds go, verifies target org compatibility, and counts the
+ * records a run copies: every record of a selected object, and of every other
+ * object only those the selection references.
  */
 
-import type { ApiName } from '@sandforge/shared';
-import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import type {
+  ApiName,
+  AutopilotLeftOutReason,
+  AutopilotLookupLeftEmpty,
+  AutopilotPlanScope,
+} from '@sandforge/shared';
+import { isRequiredLookup, isSettableField } from '@sandforge/shared';
+import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { excludedByDescribe, isNeverCopied } from '../forge/excludedObjects.js';
+import {
+  DEFAULT_MAX_NODES,
+  FULL_DEPTH,
+  REQUIRED_PARENT_CEILING_FACTOR,
+} from '../forge/GraphDiscoveryService.js';
+import { queryAllPages } from '../forge/queryAllPages.js';
 import { logger } from '../../logger.js';
 
 /** Abstraction over Salesforce describe API for testability. */
@@ -16,8 +30,13 @@ export interface AutopilotConnection {
   describe(objectName: string): Promise<ObjectDescribeResult>;
   /** Describe all objects available in the org. */
   describeGlobal(): Promise<GlobalDescribeResult>;
-  /** Execute a SOQL query. */
+  /** Execute a SOQL query: its first page. */
   query(soql: string): Promise<QueryResult>;
+  /**
+   * The next page of a query, by the locator its last page gave. A jsforce
+   * connection has it; without it, a read stops at its first page.
+   */
+  queryMore?(nextRecordsUrl: string): Promise<QueryResult>;
   /**
    * The org's Tooling API, when the connection has one — a jsforce
    * connection does. The objects it serves are metadata, deployed rather
@@ -41,6 +60,8 @@ export interface GlobalSObjectDescribe {
   name: string;
   label: string;
   custom: boolean;
+  /** The three characters every id of the object begins with. */
+  keyPrefix?: string | null;
   queryable: boolean;
   createable: boolean;
   deletable: boolean;
@@ -89,6 +110,8 @@ export interface QueryResult {
   totalSize: number;
   done: boolean;
   records: Record<string, unknown>[];
+  /** The locator of the next page, while there is one. */
+  nextRecordsUrl?: string;
 }
 
 /** Result of scanning both source and target orgs. */
@@ -99,16 +122,72 @@ export interface SchemaScanResult {
   autoDiscoveredObjects: ApiName[];
   /** Objects that exist in source but not in target. */
   missingInTarget: ApiName[];
-  /** Record counts per object (source org). */
+  /**
+   * Records per object a run copies: a selected object's table, and of every
+   * other object the records the selection references.
+   */
   recordCounts: Map<ApiName, number>;
   /** Total objects scanned. */
   totalObjectsScanned: number;
+  /**
+   * Of the objects that were not selected, the ids of the records the
+   * selection references: a run reads those, by id, and no other record of
+   * the object.
+   */
+  parentIds: Map<ApiName, string[]>;
+  /** What the plan copies and what it leaves out: see `AutopilotPlanScope`. */
+  scope: AutopilotPlanScope;
+}
+
+/** How far a scan walks from the selected objects, and what it says as it goes. */
+export interface ScanOptions {
+  /**
+   * Lookups followed from a selected object, at most: {@link DEFAULT_SCAN_DEPTH}
+   * unless said. A lookup a record cannot be written without is followed
+   * past it.
+   */
+  maxDepth?: number;
+  /**
+   * Objects a plan holds, the selected ones included: {@link DEFAULT_SCAN_OBJECTS}
+   * unless said. Each parent a record cannot be written without raises it by
+   * one, to twice it.
+   */
+  maxObjects?: number;
+  /** Told what the scan is doing, for whoever waits on it. */
+  onProgress?: (line: string) => void;
+}
+
+/** How many levels of lookups a scan follows unless told: Forge's full depth. */
+export const DEFAULT_SCAN_DEPTH = FULL_DEPTH;
+
+/** How many objects a plan holds unless told: Forge's object cap. */
+export const DEFAULT_SCAN_OBJECTS = DEFAULT_MAX_NODES;
+
+/**
+ * Ids one read by id carries: well inside a query URI, and the most a
+ * `FIELDS(ALL)` read of the run may ask for.
+ */
+export const IDS_PER_READ = 200;
+
+/**
+ * Rounds of parents read by id past the depth, for the lookups a record
+ * cannot be written without: a chain of them settles in two or three. Frozen
+ * Dataset fetches its required parents by the same bound.
+ */
+const MAX_REQUIRED_ROUNDS = 10;
+
+/** A lookup of a planned object to another, as the walk of the records follows it. */
+interface PlannedLookup {
+  field: string;
+  targets: ApiName[];
+  required: boolean;
 }
 
 /**
  * Scans source and target org schemas for the Autopilot module.
- * Discovers all selected objects + their lookup dependencies recursively.
- * Checks target org compatibility and counts records.
+ * Discovers the selected objects and the parents their records reference,
+ * within the bounds; checks target org compatibility; counts the records a
+ * run copies.
  */
 export class SchemaScanner {
   private readonly maxConcurrent: number;
@@ -124,14 +203,18 @@ export class SchemaScanner {
    * Scan schemas on source and target orgs.
    *
    * 1. If selectedObjects is empty, auto-detect all queryable+creatable custom objects.
-   * 2. Recursively discover lookup dependencies.
+   * 2. Walk from the selected objects' records to the records they
+   *    reference, as far as `options` lets it: a selected object's table is
+   *    copied, and of every other object the records the selection
+   *    references, read by id.
    * 3. Verify objects exist on target org.
-   * 4. Count records on source org.
    *
    * @param sourceConn - Connection to the source org.
    * @param targetConn - Connection to the target org.
    * @param selectedObjects - Objects explicitly selected by the user (empty = auto-detect).
-   * @param includeStandardObjects - Whether to include standard objects in auto-detection.
+   * @param includeStandardObjects - Whether standard objects are auto-detected,
+   *   and taken when the walk reaches one a record can be written without.
+   * @param options - How far the walk goes, and who hears of its progress.
    * @returns Schema scan result with describes, dependencies, and record counts.
    */
   async scan(
@@ -139,12 +222,20 @@ export class SchemaScanner {
     targetConn: AutopilotConnection,
     selectedObjects: ApiName[],
     includeStandardObjects: boolean,
+    options: ScanOptions = {},
   ): Promise<SchemaScanResult> {
+    const maxDepth = wholeOr(options.maxDepth, DEFAULT_SCAN_DEPTH);
+    const maxObjects = wholeOr(options.maxObjects, DEFAULT_SCAN_OBJECTS);
+    const say = options.onProgress ?? ((): void => {});
+
+    // What the source says of each object: whether it is custom, and the key
+    // prefix that tells which object a polymorphic lookup's id belongs to.
+    const sourceGlobal = await sourceConn.describeGlobal();
+
     // Step 1: Determine which objects to scan
     let rootObjects: ApiName[];
     if (selectedObjects.length === 0) {
-      const globalResult = await sourceConn.describeGlobal();
-      rootObjects = globalResult.sobjects
+      rootObjects = sourceGlobal.sobjects
         .filter((s) => s.queryable && s.createable)
         /*
          * `createable` is the platform's answer to "can the API create one",
@@ -193,22 +284,27 @@ export class SchemaScanner {
     rootObjects = rootObjects.filter((name) => !leftOut(name));
 
     // Step 2: Describe all root objects on source
+    say(`describing ${rootObjects.length} selected object(s)…`);
     const objectDescribes = await this.describeAll(sourceConn, rootObjects);
+    const selected = new Set(objectDescribes.keys());
 
-    // Step 3: Recursively discover lookup dependencies
-    const autoDiscoveredObjects: ApiName[] = [];
-    const visited = new Set<ApiName>(objectDescribes.keys());
-    let newReferences = this.findNewReferences(objectDescribes, visited, leftOut);
-
-    while (newReferences.length > 0) {
-      const newDescribes = await this.describeAll(sourceConn, newReferences);
-      for (const [name, desc] of newDescribes) {
-        objectDescribes.set(name, desc);
-        autoDiscoveredObjects.push(name);
-        visited.add(name);
-      }
-      newReferences = this.findNewReferences(objectDescribes, visited, leftOut);
-    }
+    // Step 3: Walk the records to the parents they reference, within the bounds
+    const custom = new Map(sourceGlobal.sobjects.map((s) => [s.name, s.custom]));
+    const keyPrefixes = new Map<string, ApiName>();
+    for (const s of sourceGlobal.sobjects) if (s.keyPrefix) keyPrefixes.set(s.keyPrefix, s.name);
+    const walk = await this.walkRecords(sourceConn, objectDescribes, selected, {
+      isStandard: (name) =>
+        custom.get(name) === false || (!custom.has(name) && !name.includes('__')),
+      includeStandardObjects,
+      leftOut,
+      keyPrefixes,
+      maxDepth,
+      maxObjects,
+      // Nothing was selected: every object a copy may write is in, and none
+      // is walked to. Its tables are counted, as they always were.
+      follow: selectedObjects.length > 0,
+      say,
+    });
 
     // Step 4: Verify objects exist on target org
     const targetObjectNames = new Set(targetGlobal.sobjects.map((s) => s.name));
@@ -216,16 +312,289 @@ export class SchemaScanner {
       (name) => !targetObjectNames.has(name),
     );
 
-    // Step 5: Count records on source org
-    const recordCounts = await this.countRecords(sourceConn, [...objectDescribes.keys()]);
-
     return {
       objectDescribes,
-      autoDiscoveredObjects,
+      autoDiscoveredObjects: walk.added,
       missingInTarget,
-      recordCounts,
+      recordCounts: walk.recordCounts,
       totalObjectsScanned: objectDescribes.size,
+      parentIds: walk.parentIds,
+      scope: {
+        maxDepth,
+        maxObjects,
+        selected: [...selected],
+        parents: walk.added.map((objectApiName) => ({
+          objectApiName,
+          records: walk.parentIds.get(objectApiName)?.length ?? 0,
+        })),
+        leftEmpty: walk.leftEmpty,
+        standardNeeded: walk.standardNeeded,
+      },
     };
+  }
+
+  /**
+   * Walk from the selected objects' records to the records they reference,
+   * level by level: an object enters the plan when a record the plan copies
+   * points at one of its records, and of it the plan copies those records
+   * alone, read by id — as Forge reads the parents a record requires outside
+   * its graph.
+   *
+   * Run for real, the walk followed every lookup of every object it reached,
+   * with no bound, and counted their whole tables: a lead's converted
+   * account, the account's operating hours, a custom object's postcode table
+   * of sixty thousand rows, and on until six hundred objects of a client
+   * sandbox and 2.6 million records were in a plan for two objects.
+   * `includeStandardObjects` filtered the objects found when none were
+   * selected, never those the walk reached.
+   *
+   * A lookup is followed while the record holding it is fewer than `maxDepth`
+   * levels from a selected one, while the plan holds fewer than `maxObjects`
+   * objects, and to a standard object only when standard objects were asked
+   * for. A lookup a record cannot be written without is followed past all
+   * three — the record would be refused otherwise — and raises the object
+   * bound by one, to twice it, as Forge's discovery does for a required
+   * parent. A lookup that holds values and is not followed is listed with
+   * why: the run leaves it empty. One that holds none takes nothing into the
+   * plan, so a polymorphic lookup's hundred possible objects cost nothing
+   * unless a record names one of them.
+   */
+  private async walkRecords(
+    conn: AutopilotConnection,
+    describes: Map<ApiName, ObjectDescribeResult>,
+    selected: ReadonlySet<ApiName>,
+    bounds: {
+      isStandard: (name: ApiName) => boolean;
+      includeStandardObjects: boolean;
+      leftOut: (name: ApiName) => boolean;
+      keyPrefixes: ReadonlyMap<string, ApiName>;
+      maxDepth: number;
+      maxObjects: number;
+      /** Whether the selected objects' records are walked to their parents at all. */
+      follow: boolean;
+      say: (line: string) => void;
+    },
+  ): Promise<{
+    added: ApiName[];
+    leftEmpty: AutopilotLookupLeftEmpty[];
+    standardNeeded: AutopilotPlanScope['standardNeeded'];
+    recordCounts: Map<ApiName, number>;
+    parentIds: Map<ApiName, string[]>;
+  }> {
+    const planned = new Set<ApiName>(selected);
+    const unreadable = new Set<ApiName>();
+    let budget = bounds.maxObjects;
+    const ceiling = bounds.maxObjects * REQUIRED_PARENT_CEILING_FACTOR;
+    const leftEmpty = new Map<string, AutopilotLookupLeftEmpty>();
+    const standardNeeded: AutopilotPlanScope['standardNeeded'] = [];
+    const added: ApiName[] = [];
+    const recordCounts = new Map<ApiName, number>();
+    /** Of each object read by id, the ids of the records read. */
+    const read = new Map<ApiName, Set<string>>();
+    /** The lookups of an object a copy writes, to objects a copy may write. */
+    const lookups = (name: ApiName): PlannedLookup[] => {
+      const describe = describes.get(name);
+      if (!describe) return [];
+      return lookupsOf(name, describe)
+        .map((lookup) => ({
+          ...lookup,
+          targets: lookup.targets.filter((t) => !bounds.leftOut(t) && !unreadable.has(t)),
+        }))
+        .filter((lookup) => lookup.targets.length > 0);
+    };
+    /** The fields a read of an object asks for: its id and its lookups. */
+    const fieldsOf = (name: ApiName): string =>
+      ['Id', ...new Set(lookups(name).map((lookup) => lookup.field))]
+        .map(assertSoqlIdentifier)
+        .join(', ');
+    const noteLeftEmpty = (
+      via: { objectApiName: ApiName; field: string; required: boolean },
+      target: ApiName,
+      reason: AutopilotLeftOutReason,
+    ): void => {
+      const key = `${via.objectApiName}.${via.field}>${target}`;
+      if (leftEmpty.has(key)) return;
+      leftEmpty.set(key, {
+        objectApiName: via.objectApiName,
+        fieldApiName: via.field,
+        target,
+        reason,
+        ...(via.required ? { required: true as const } : {}),
+      });
+    };
+
+    /** Per object a record of the current level points at: the ids, and through which lookups. */
+    type Met = {
+      ids: Set<string>;
+      required: boolean;
+      via: Array<{ objectApiName: ApiName; field: string; required: boolean }>;
+    };
+    let met = new Map<ApiName, Met>();
+    /** Note the parents the rows of `objectApiName` name, as far as their level allows. */
+    const meet = (objectApiName: ApiName, rows: Record<string, unknown>[], level: number): void => {
+      const own = lookups(objectApiName);
+      for (const row of rows) {
+        for (const lookup of own) {
+          const value = row[lookup.field];
+          if (typeof value !== 'string' || value === '') continue;
+          const target = ownerOf(value, lookup.targets, bounds.keyPrefixes);
+          // A selected object is copied whole: its records are there already.
+          if (!target || selected.has(target)) continue;
+          const via = { objectApiName, field: lookup.field, required: lookup.required };
+          if (level >= bounds.maxDepth && !lookup.required) {
+            if (!planned.has(target)) noteLeftEmpty(via, target, 'depth');
+            continue;
+          }
+          if (read.get(target)?.has(value)) continue;
+          const entry = met.get(target) ?? { ids: new Set<string>(), required: false, via: [] };
+          entry.ids.add(value);
+          entry.required ||= lookup.required;
+          if (
+            !entry.via.some((v) => v.objectApiName === objectApiName && v.field === lookup.field)
+          ) {
+            entry.via.push(via);
+          }
+          met.set(target, entry);
+        }
+      }
+    };
+
+    // The selected objects, whole: their lookups read where any leads to an
+    // object that was not selected, counted otherwise.
+    const counted: ApiName[] = [];
+    for (const name of selected) {
+      const onward = lookups(name).filter((lookup) =>
+        lookup.targets.some((target) => !selected.has(target)),
+      );
+      if (!bounds.follow || onward.length === 0) {
+        counted.push(name);
+        continue;
+      }
+      bounds.say(`reading the lookups of ${name}…`);
+      try {
+        const fields = ['Id', ...new Set(onward.map((lookup) => lookup.field))]
+          .map(assertSoqlIdentifier)
+          .join(', ');
+        const rows = await this.readAll(
+          conn,
+          `SELECT ${fields} FROM ${assertSoqlIdentifier(name)}`,
+        );
+        recordCounts.set(name, rows.length);
+        meet(name, rows, 0);
+      } catch (err) {
+        logger.warn('Autopilot could not read the lookups of a selected object', {
+          objectApiName: name,
+          error: extractErrorMessage(err),
+        });
+        counted.push(name);
+      }
+    }
+    for (const [name, count] of await this.countRecords(conn, counted)) {
+      recordCounts.set(name, count);
+    }
+
+    const rounds = bounds.maxDepth + MAX_REQUIRED_ROUNDS;
+    for (let level = 1; met.size > 0 && level <= rounds; level++) {
+      const current = met;
+      met = new Map();
+
+      // The objects the level's records point at that the plan does not
+      // hold yet: taken in, or left out with why.
+      const fresh: ApiName[] = [];
+      for (const [target, entry] of current) {
+        if (planned.has(target)) continue;
+        const standard = bounds.isStandard(target);
+        let reason: AutopilotLeftOutReason | undefined;
+        if (standard && !bounds.includeStandardObjects && !entry.required) {
+          reason = 'standard';
+        } else if (planned.size >= budget) {
+          if (entry.required && budget < ceiling) budget++;
+          else reason = 'objects';
+        }
+        if (reason) {
+          for (const via of entry.via) noteLeftEmpty(via, target, reason);
+          current.delete(target);
+          continue;
+        }
+        planned.add(target);
+        fresh.push(target);
+        if (standard && !bounds.includeStandardObjects) {
+          const first = entry.via[0];
+          standardNeeded.push({
+            objectApiName: target,
+            neededBy: `${first.objectApiName}.${first.field}`,
+          });
+        }
+      }
+      if (fresh.length > 0) {
+        bounds.say(`describing ${fresh.length} parent object(s) at depth ${level}…`);
+        const described = await this.describeAll(conn, fresh);
+        for (const name of fresh) {
+          const describe = described.get(name);
+          if (describe) {
+            describes.set(name, describe);
+            added.push(name);
+          } else {
+            // Not described, so not copied: the lookups at it stay empty.
+            planned.delete(name);
+            unreadable.add(name);
+            current.delete(name);
+          }
+        }
+      }
+
+      // The records the level names, read by id with the lookups that lead on.
+      for (const [name, entry] of current) {
+        const ids = [...entry.ids].filter((id) => !read.get(name)?.has(id));
+        if (ids.length === 0) continue;
+        bounds.say(`reading ${ids.length} ${name} record(s) by id…`);
+        const kept = read.get(name) ?? new Set<string>();
+        read.set(name, kept);
+        for (const chunk of this.chunk(ids, IDS_PER_READ)) {
+          const where = chunk.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+          const answer = await conn.query(
+            `SELECT ${fieldsOf(name)} FROM ${assertSoqlIdentifier(name)} WHERE Id IN (${where})`,
+          );
+          const rows = answer.records.filter((row) => typeof row['Id'] === 'string');
+          for (const row of rows) kept.add(row['Id'] as string);
+          meet(name, rows, level);
+        }
+      }
+    }
+
+    const parentIds = new Map<ApiName, string[]>();
+    for (const name of added) {
+      const ids = [...(read.get(name) ?? [])];
+      parentIds.set(name, ids);
+      recordCounts.set(name, ids.length);
+    }
+    return {
+      added,
+      // Left empty from one object, and taken in through another: not left out.
+      leftEmpty: [...leftEmpty.values()].filter((lookup) => !planned.has(lookup.target)),
+      standardNeeded,
+      recordCounts,
+      parentIds,
+    };
+  }
+
+  /** Every page of a read, when the connection can turn them; its first otherwise. */
+  private async readAll(
+    conn: AutopilotConnection,
+    soql: string,
+  ): Promise<Record<string, unknown>[]> {
+    const { queryMore } = conn;
+    if (!queryMore) return (await conn.query(soql)).records;
+    const pages = await queryAllPages<Record<string, unknown>>(
+      { query: (q) => conn.query(q), queryMore: (url) => queryMore.call(conn, url) },
+      soql,
+    );
+    if (pages.truncated) {
+      logger.warn('Autopilot read the lookups of a selected object to its bound only', {
+        records: pages.records.length,
+      });
+    }
+    return pages.records;
   }
 
   /**
@@ -245,43 +614,6 @@ export class SchemaScanner {
       });
       return [];
     }
-  }
-
-  /**
-   * Find referenced objects that have not yet been described.
-   *
-   * @param describes - Already-described objects.
-   * @param visited - Set of already-visited object names.
-   * @param leftOut - Whether the copy leaves an object out.
-   * @returns Array of new object names to describe.
-   */
-  private findNewReferences(
-    describes: Map<ApiName, ObjectDescribeResult>,
-    visited: Set<ApiName>,
-    leftOut: (name: ApiName) => boolean,
-  ): ApiName[] {
-    const newRefs = new Set<ApiName>();
-    for (const desc of describes.values()) {
-      for (const ref of this.extractReferences(desc)) {
-        // The same rule as the roots, and for the same reason: an object a
-        // copy cannot create is no more copyable for having been reached
-        // through a lookup than for having been asked for. Filtering only the
-        // entrance let the whole set back in through the walk —
-        // `Account.OwnerId` reaches `User`, `User.ProfileId` reaches
-        // `Profile`, and a plan asked for two objects came back with twenty,
-        // `UserLicense` first among them. The second list refuses what a copy
-        // has no business walking into at all — history, feeds, shares, a
-        // managed package's catalogue — which is how an `OpportunityHistory`
-        // reached a plan and the platform answered "entity type cannot be
-        // inserted". The third is the org's own: its metadata, and what its
-        // data API will not create.
-        if (leftOut(ref)) continue;
-        if (!visited.has(ref)) {
-          newRefs.add(ref);
-        }
-      }
-    }
-    return [...newRefs];
   }
 
   /**
@@ -308,16 +640,6 @@ export class SchemaScanner {
     }
 
     return results;
-  }
-
-  /**
-   * Extract referenced object names from a describe result's fields.
-   *
-   * @param describe - Object describe result to extract references from.
-   * @returns Array of referenced object API names.
-   */
-  private extractReferences(describe: ObjectDescribeResult): ApiName[] {
-    return describe.fields.filter((f) => f.referenceTo.length > 0).flatMap((f) => f.referenceTo);
   }
 
   /**
@@ -365,4 +687,39 @@ export class SchemaScanner {
     }
     return result;
   }
+}
+
+/** A positive whole number, or `fallback`. */
+function wholeOr(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * The lookups of an object a copy writes, each with what it may point at and
+ * whether a record can be written without it. A lookup no insert or update
+ * sets — a converted lead's account — is the platform's to fill, and leads
+ * nowhere.
+ */
+function lookupsOf(objectApiName: ApiName, describe: ObjectDescribeResult): PlannedLookup[] {
+  return describe.fields
+    .filter((f) => f.referenceTo.length > 0 && isSettableField(f))
+    .map((f) => ({
+      field: f.name,
+      targets: [...f.referenceTo],
+      required: isRequiredLookup(objectApiName, f.name, f.nillable),
+    }));
+}
+
+/**
+ * The object an id a lookup holds belongs to: the lookup's one target, or the
+ * one whose key prefix the id begins with.
+ */
+function ownerOf(
+  id: string,
+  targets: readonly ApiName[],
+  keyPrefixes: ReadonlyMap<string, ApiName>,
+): ApiName | undefined {
+  if (targets.length === 1) return targets[0];
+  const owner = keyPrefixes.get(id.slice(0, 3));
+  return owner !== undefined && targets.includes(owner) ? owner : undefined;
 }

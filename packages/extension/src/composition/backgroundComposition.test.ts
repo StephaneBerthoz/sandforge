@@ -506,6 +506,27 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it("asks an Autopilot run's question as its own, of records counted and not yet read", async () => {
+    const autopilot: WriteConfirmation = { ...write, module: 'autopilot', counted: true };
+    expect(runQuestionDetail(autopilot).split('\n')).toEqual([
+      'This Autopilot run is about to write 2401 records to DEV:',
+      '• Contact: 2400',
+      '• Account: 1',
+      'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Execute' as never);
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+    await expect(productionGuard.confirmRun(autopilot)).resolves.toBe('confirmed');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call[0]).toBe('SandForge: confirm this Autopilot run');
+  });
+
   it('says what it does not count, and that rows only counted have not been read yet', () => {
     expect(
       runQuestionDetail({

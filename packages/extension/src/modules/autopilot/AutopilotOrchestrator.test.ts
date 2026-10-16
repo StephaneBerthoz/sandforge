@@ -74,6 +74,15 @@ function mockScanResult(): SchemaScanResult {
     missingInTarget: [],
     recordCounts,
     totalObjectsScanned: 2,
+    parentIds: new Map(),
+    scope: {
+      maxDepth: 5,
+      maxObjects: 50,
+      selected: ['Account', 'Contact'],
+      parents: [],
+      leftEmpty: [],
+      standardNeeded: [],
+    },
   };
 }
 
@@ -337,6 +346,26 @@ describe('AutopilotOrchestrator', () => {
         conn,
         config.selectedObjects,
         config.includeStandardObjects,
+        {},
+      );
+    });
+
+    it('hands the scanner the bounds of the walk and who hears of its progress', async () => {
+      const conn = mockConnection();
+      const onProgress = vi.fn();
+      await orchestrator.scanSchemas(
+        conn as unknown as Parameters<typeof orchestrator.scanSchemas>[0],
+        conn as unknown as Parameters<typeof orchestrator.scanSchemas>[1],
+        { ...mockConfig(), maxDepth: 2, maxObjects: 7 },
+        onProgress,
+      );
+
+      expect(deps.schemaScanner.scan).toHaveBeenCalledWith(
+        conn,
+        conn,
+        mockConfig().selectedObjects,
+        mockConfig().includeStandardObjects,
+        { maxDepth: 2, maxObjects: 7, onProgress },
       );
     });
   });
@@ -407,6 +436,98 @@ describe('AutopilotOrchestrator', () => {
       expect(deps.complianceEngine.buildSummary).toHaveBeenCalledWith(rules);
       expect(deps.planGenerator.generate).toHaveBeenCalled();
     });
+
+    it('says the scope the scan found, and the person objects whose data no rule covers', () => {
+      const scope = {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Contact'],
+        parents: [{ objectApiName: 'Account', records: 3 }],
+        leftEmpty: [
+          {
+            objectApiName: 'Account',
+            fieldApiName: 'OperatingHoursId',
+            target: 'OperatingHours',
+            reason: 'standard' as const,
+          },
+        ],
+        standardNeeded: [],
+      };
+      const graph = {
+        ...mockGraph(),
+        nodes: [{ objectApiName: 'Contact' }, { objectApiName: 'Account' }],
+      } as unknown as AutopilotGraph;
+
+      const plan = orchestrator.generatePlan(
+        graph,
+        'gdpr',
+        [
+          {
+            objectApiName: 'Contact',
+            fieldApiName: 'Email',
+            method: 'fake',
+            piiCategory: 'PII',
+            aiConfidence: 0.95,
+            userOverridden: false,
+          },
+        ],
+        scope,
+      );
+
+      expect(plan.scope).toEqual(scope);
+      expect(deps.planGenerator.generate).toHaveBeenCalledWith(
+        graph,
+        'gdpr',
+        expect.objectContaining({
+          notCovered: [{ objectApiName: 'Contact', missing: ['name', 'phone'] }],
+        }),
+      );
+    });
+
+    it('says nothing is left uncovered under no framework', () => {
+      const graph = {
+        ...mockGraph(),
+        nodes: [{ objectApiName: 'Lead' }],
+      } as unknown as AutopilotGraph;
+
+      const plan = orchestrator.generatePlan(graph, 'none', []);
+
+      expect(deps.planGenerator.generate).toHaveBeenCalledWith(
+        graph,
+        'none',
+        expect.not.objectContaining({ notCovered: expect.anything() }),
+      );
+      expect(plan.scope).toBeUndefined();
+    });
+  });
+
+  describe('buildCompliance with the detector', () => {
+    /** A detection of one field. */
+    const detection = (
+      fieldApiName: string,
+      detectionMethod: PIIFieldDetection['detectionMethod'],
+    ): PIIFieldDetection => ({
+      objectApiName: 'Contact',
+      fieldApiName,
+      fieldLabel: fieldApiName,
+      fieldType: 'string',
+      piiCategory: 'PII',
+      detectionMethod,
+      confidence: 0.9,
+      suggestedMethod: 'fake',
+    });
+
+    it("builds the profile from the detector's fields, with the AI scan's added, never in their place", () => {
+      const detected = [detection('Email', 'field_name')];
+      const ai = [detection('Email', 'ai'), detection('Notes__c', 'ai')];
+
+      orchestrator.buildCompliance('gdpr', ai, detected);
+
+      expect(deps.complianceEngine.buildProfile).toHaveBeenCalledWith('gdpr', [
+        detection('Email', 'field_name'),
+        detection('Notes__c', 'ai'),
+      ]);
+    });
   });
 
   describe('pause/resume/skip', () => {
@@ -450,6 +571,7 @@ describe('AutopilotOrchestrator', () => {
         [],
         new Map(),
         controller.signal,
+        undefined,
       );
     });
 

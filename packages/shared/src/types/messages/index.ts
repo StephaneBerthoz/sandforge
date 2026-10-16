@@ -475,6 +475,7 @@ import type {
   FrozenConfigGetResponse,
   FrozenConfigSaveResponse,
   FrozenSelectResponse,
+  FrozenSelectProgressMessage,
   FrozenExtractResponse,
   FrozenControlResultMessage,
   FrozenManifestGetResponse,
@@ -947,6 +948,7 @@ export type ExtensionToWebViewMessage =
   | FrozenConfigGetResponse
   | FrozenConfigSaveResponse
   | FrozenSelectResponse
+  | FrozenSelectProgressMessage
   | FrozenExtractResponse
   | FrozenControlResultMessage
   | FrozenManifestGetResponse

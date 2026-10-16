@@ -974,6 +974,10 @@ export const autopilotScanSchemaPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   selectedObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST),
   includeStandardObjects: z.boolean(),
+  // The walk to the parents: Forge's bounds unless said, within Forge's own
+  // limits (a custom depth of ten at most, five hundred objects).
+  maxDepth: z.number().int().min(1).max(10).optional(),
+  maxObjects: z.number().int().min(1).max(500).optional(),
 });
 
 /** Plan request: the framework is the only field the handler consumes. */

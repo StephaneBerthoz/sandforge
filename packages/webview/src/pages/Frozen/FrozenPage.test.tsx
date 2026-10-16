@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import i18n from '../../i18n';
 import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
@@ -26,13 +26,16 @@ vi.mock('../../stores/useAppStore', () => ({
 
 /** Per-request-type mutation spy: records (requestType, payload) calls. */
 const mockMutate = vi.fn();
+/** The request types whose mutation is in flight, each under the id `req-<type>`. */
+const mockLoading = new Set<string>();
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (requestType: string) => ({
     mutate: (payload?: Record<string, unknown>) => mockMutate(requestType, payload),
     data: null,
-    loading: false,
+    loading: mockLoading.has(requestType),
     error: null,
     reset: vi.fn(),
+    requestId: mockLoading.has(requestType) ? `req-${requestType}` : null,
   }),
 }));
 
@@ -105,6 +108,7 @@ describe('FrozenPage', () => {
     };
     mockNavigate.mockClear();
     mockMutate.mockClear();
+    mockLoading.clear();
     resetStore();
   });
 
@@ -185,6 +189,61 @@ describe('FrozenPage', () => {
     // 'type=RC' appears both as combination key and as axis value summary
     expect(screen.getAllByText('type=RC').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId('frozen-selection-uncovered')).toBeDefined();
+  });
+
+  it('says the step a running selection is at, from its own request only', async () => {
+    mockLoading.add('frozen:select');
+    render(<FrozenPage />);
+    const push = (correlationId: string, payload: Record<string, unknown>) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { type: 'frozen:select:progress', correlationId, timestamp: 1, payload },
+          }),
+        );
+      });
+
+    push('req-another-panel', { phase: 'measure', roots: 9 });
+    expect(screen.queryByTestId('frozen-select-progress')).toBeNull();
+
+    push('req-frozen:select', {
+      phase: 'combination',
+      combinationKey: 'origin=Web',
+      index: 2,
+      of: 4,
+    });
+    expect(screen.getByTestId('frozen-select-progress').textContent).toBe(
+      i18n.t('frozen.selection.progress.combination', { index: 2, of: 4, key: 'origin=Web' }),
+    );
+  });
+
+  it('says where a stopped selection was, that what it decided is kept, and that its figures are added up', () => {
+    useFrozenStore.setState({
+      selection: {
+        combinations: [{ combinationKey: 'origin=Chat', axisValues: { origin: 'Chat' } }],
+        uncovered: [],
+        volumetry: { measured: { Case: 1 }, total: 1, budgetMax: 2500, summed: true },
+        selectedAt: '2026-08-01T09:00:00Z',
+        selectionPath: '/tmp/sas/selection.json',
+        stopped: {
+          reason: 'timeout',
+          during: 'combination',
+          combinationKey: 'origin=Email',
+          notProbed: ['origin=Phone'],
+        },
+      },
+    });
+    render(<FrozenPage />);
+
+    const stopped = screen.getByTestId('frozen-selection-stopped');
+    expect(stopped.textContent).toContain(i18n.t('frozen.selection.stopped.timeout'));
+    expect(stopped.textContent).toContain(
+      i18n.t('frozen.selection.stopped.probing', { key: 'origin=Email' }),
+    );
+    expect(stopped.textContent).toContain(
+      i18n.t('frozen.selection.stopped.notProbed', { keys: 'origin=Phone' }),
+    );
+    expect(screen.getByTestId('frozen-selection-summed')).toBeDefined();
   });
 
   it('renders the 4-point control result with per-check badges', () => {

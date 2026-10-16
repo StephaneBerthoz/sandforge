@@ -10,10 +10,10 @@
  * Seed's.
  *
  * It drives the same `AutopilotOrchestrator` the panel drives, through the
- * same executor, scanner, graph builder, plan generator and remapper. What it
- * leaves out is what the panel adds around a run: events posted to a webview,
- * grappe partitioning, and the anonymizer's rules beyond the compliance
- * profile asked for.
+ * same executor, scanner, graph builder, plan generator and remapper, the
+ * same personal-field detector and the same write gate. What it leaves out is
+ * what the panel adds around a run: events posted to a webview and grappe
+ * partitioning.
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-autopilot.ts \
@@ -24,11 +24,20 @@
  */
 
 import type { Connection } from 'jsforce';
-import type { AutopilotRefusal, ComplianceFrameworkType } from '@sandforge/shared';
+import type {
+  AutopilotPlanScope,
+  AutopilotRefusal,
+  ComplianceFrameworkType,
+  ExecutionPlan,
+} from '@sandforge/shared';
 import { recordWriteHeaders } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { AutopilotOrchestrator } from '../src/modules/autopilot/AutopilotOrchestrator.js';
-import { SchemaScanner } from '../src/modules/autopilot/SchemaScanner.js';
+import {
+  DEFAULT_SCAN_DEPTH,
+  DEFAULT_SCAN_OBJECTS,
+  SchemaScanner,
+} from '../src/modules/autopilot/SchemaScanner.js';
 import type { AutopilotConnection } from '../src/modules/autopilot/SchemaScanner.js';
 import { DependencyGraphBuilder } from '../src/modules/autopilot/DependencyGraphBuilder.js';
 import { ComplianceEngine } from '../src/modules/autopilot/ComplianceEngine.js';
@@ -50,6 +59,19 @@ import {
 import { describedLookups, type DescribedLookup } from '../src/core/metadata/describedLookups.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { leftToThePlatformNote } from '../src/core/common/platformRecords.js';
+import { sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
+import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
+import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
+import { detectPersonalFields } from '../src/modules/autopilot/personalFields.js';
+import { autopilotWritePlan } from '../src/modules/autopilot/AutopilotRunGate.js';
+import {
+  DEFAULT_MAX_TOTAL,
+  readDataStorage,
+  storageCheckOf,
+  storageRefusal,
+  writePlanLines,
+  type DataStorage,
+} from '../src/modules/forge/ForgeRunGate.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
 
@@ -65,6 +87,13 @@ Required:
 
 Options:
   --standard-objects     include standard objects the scan finds  (default: off)
+                         A standard object a record cannot be written without
+                         is taken either way, and said.
+  --max-depth <n>        lookups followed from a selected object  (default: 5)
+  --max-objects <n>      objects the plan holds, the selected ones included;
+                         each parent a record needs raises it, to twice
+                                                                   (default: 50)
+  --max-total <n>        most records the run may write in all    (default: 10000)
   --compliance <name>    none | gdpr | ccpa | hipaa | pci_dss      (default: none)
   --batch-size <n>       records per write call                   (default: 200)
   --plan-only            scan, graph and plan, then stop          (default: off)
@@ -72,8 +101,13 @@ Options:
                          of every record the run created          (default: off)
   --help                 this text
 
+A selected object is copied whole. Of any other object, only the records the
+selection references are read, by id; a lookup past the bounds is left empty,
+and the plan says which. Before it writes, the run is held to --max-total and
+to the data storage the target has left: past either, nothing is written.
+
 Exit codes: 0 the run finished (read the summary for per-object failures),
-1 the run could not be started, 2 a bad command line.
+1 the run could not be started or was refused, 2 a bad command line.
 `;
 
 /** Everything the command line settled. */
@@ -84,6 +118,9 @@ interface CliArgs {
   includeStandardObjects: boolean;
   compliance: ComplianceFrameworkType;
   batchSize: number;
+  maxDepth: number;
+  maxObjects: number;
+  maxTotal: number;
   planOnly: boolean;
   json: boolean;
 }
@@ -136,6 +173,18 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--batch-size takes a whole number between 1 and 10000.\n');
     process.exit(2);
   }
+  /** A whole number of 1 or more given to `flag`, or its default. */
+  const whole = (flag: string, fallback: number): number => {
+    const value = Number(get(flag, String(fallback)) ?? fallback);
+    if (!Number.isInteger(value) || value < 1) {
+      process.stderr.write(`${flag} takes a whole number, 1 or more.\n`);
+      process.exit(2);
+    }
+    return value;
+  };
+  const maxDepth = whole('--max-depth', DEFAULT_SCAN_DEPTH);
+  const maxObjects = whole('--max-objects', DEFAULT_SCAN_OBJECTS);
+  const maxTotal = whole('--max-total', DEFAULT_MAX_TOTAL);
 
   return {
     source,
@@ -144,6 +193,9 @@ export function parseArgs(argv: string[]): CliArgs {
     includeStandardObjects: args.includes('--standard-objects'),
     compliance,
     batchSize,
+    maxDepth,
+    maxObjects,
+    maxTotal,
     planOnly: args.includes('--plan-only'),
     json: args.includes('--json'),
   };
@@ -225,6 +277,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           );
           return result.records;
         },
+        // A parent of the selection, by the ids its records reference.
+        queryByIds: async (objectApiName, ids) => {
+          const list = ids.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+          const result = await sourceConn.query<Record<string, unknown>>(
+            `SELECT FIELDS(ALL) FROM ${objectApiName} WHERE Id IN (${list}) LIMIT ${ids.length}`,
+          );
+          return result.records;
+        },
         insert: async (objectApiName, records) => {
           // The same stripping the panel does: Salesforce refuses a create
           // carrying a source Id or jsforce's own envelope.
@@ -284,35 +344,89 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const scan = await orchestrator.scanSchemas(
     sourceConn as unknown as AutopilotConnection,
     targetConn as unknown as AutopilotConnection,
-    { selectedObjects: args.objects, includeStandardObjects: args.includeStandardObjects },
+    {
+      selectedObjects: args.objects,
+      includeStandardObjects: args.includeStandardObjects,
+      maxDepth: args.maxDepth,
+      maxObjects: args.maxObjects,
+    },
+    (line) => log(`  ${line}`),
   );
   const graph = orchestrator.buildGraph(scan, args.batchSize);
   log(`graph: ${graph.nodes.length} node(s), ${graph.edges.length} edge(s)`);
 
-  // No rules of its own: what a framework implies is the compliance engine's
-  // to say, and asking for one here would be a second opinion.
-  const rules: Parameters<typeof orchestrator.generatePlan>[2] = [];
-  const plan = orchestrator.generatePlan(graph, args.compliance, rules);
+  // The personal fields the detector names, whenever the framework
+  // anonymizes: the compliance engine maps them to its rules. Without them a
+  // GDPR plan anonymized nothing.
+  const detected =
+    args.compliance === 'none' ? [] : detectPersonalFields(new PIIDetector(), scan.objectDescribes);
+  const { rules } = orchestrator.buildCompliance(args.compliance, [], detected);
+  const plan = orchestrator.generatePlan(graph, args.compliance, rules, scan.scope);
   log(`plan: ${plan.waves.length} wave(s), ${plan.totalRecords} record(s)`);
   plan.waves.forEach((wave, index) => {
     log(`  wave ${index + 1}: ${wave.objects.join(', ')}`);
   });
-
-  if (args.planOnly) {
-    if (args.json) {
-      process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-autopilot', planOnly: true, graph, plan }, null, 2)}\n`,
-      );
-    }
-    return;
-  }
+  for (const line of scopeLines(scan.scope)) log(line);
+  for (const line of anonymizationLines(plan)) log(line);
 
   const recordCounts = new Map<string, number>(
     graph.nodes.map((node) => [node.objectApiName, node.recordCount]),
   );
 
+  // The records the plan writes and the data storage they take, held to
+  // --max-total and to what the target has left, as a clone is. With
+  // --plan-only, what a real run would meet there.
+  const writePlan = autopilotWritePlan(plan, recordCounts);
+  let storage: DataStorage | { unread: string };
+  try {
+    storage = await readDataStorage(targetConn);
+  } catch (err: unknown) {
+    storage = { unread: extractErrorMessage(err) };
+  }
+  const check = storageCheckOf(writePlan, storage);
+  log('');
+  for (const line of writePlanLines(writePlan, check, args.target)) log(line);
+  const refusals = [
+    writePlan.totalRows > args.maxTotal
+      ? `The run would write ${writePlan.totalRows} records, more than --max-total ` +
+        `${args.maxTotal}: narrow it (--object, --max-depth, --max-objects), or raise --max-total.`
+      : undefined,
+    storageRefusal(check, args.target),
+  ].filter((reason): reason is string => reason !== undefined);
+
+  if (args.planOnly) {
+    for (const reason of refusals) log(`  a real run would be refused: ${reason}`);
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            tool: 'sandforge-autopilot',
+            planOnly: true,
+            graph,
+            plan,
+            writeGate: { records: writePlan.totalRows, storage: check, refusals },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    }
+    return;
+  }
+  if (refusals.length > 0) {
+    throw new Error(`${refusals.join(' ')} Nothing was written.`);
+  }
+
   log('\nexecuting… (REAL)');
-  const result = await orchestrator.executePlan(plan, graph, rules, recordCounts);
+  const result = await orchestrator.executePlan(
+    plan,
+    graph,
+    rules,
+    recordCounts,
+    undefined,
+    undefined,
+    scan.parentIds,
+  );
   const elapsedMs = Date.now() - t0;
 
   if (args.json) {
@@ -330,6 +444,66 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (result.fatalError) log(`  the run died with: ${result.fatalError}`);
   for (const line of outcomeLines(result)) log(line);
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+/**
+ * What the plan copies of each object and what it leaves out: the selected
+ * objects whole, the others by the records the selection references, and
+ * each lookup left empty with why. Exported so it can be tested.
+ */
+export function scopeLines(scope: AutopilotPlanScope): string[] {
+  const lines = [
+    `scope: depth ${scope.maxDepth}, at most ${scope.maxObjects} object(s)`,
+    `  copied whole, as selected: ${scope.selected.join(', ') || '(none)'}`,
+  ];
+  if (scope.parents.length > 0) {
+    lines.push('  read by id, only the records the selection references:');
+    for (const parent of scope.parents) {
+      lines.push(`    ${parent.objectApiName.padEnd(40)}${String(parent.records).padStart(8)}`);
+    }
+  }
+  for (const needed of scope.standardNeeded) {
+    lines.push(
+      `  ${needed.objectApiName} taken though standard objects are off: ` +
+        `${needed.neededBy} cannot be left empty`,
+    );
+  }
+  const why: Record<AutopilotPlanScope['leftEmpty'][number]['reason'], string> = {
+    depth: `further than ${scope.maxDepth} lookup(s)`,
+    objects: `past ${scope.maxObjects} object(s)`,
+    standard: 'a standard object (--standard-objects to take it)',
+  };
+  if (scope.leftEmpty.length > 0) {
+    lines.push(`  left empty (${scope.leftEmpty.length} lookup(s)):`);
+    for (const lookup of scope.leftEmpty) {
+      lines.push(
+        `    ${lookup.objectApiName}.${lookup.fieldApiName} -> ${lookup.target}: ` +
+          `${why[lookup.reason]}` +
+          (lookup.required ? ' — required: its records will be refused' : ''),
+      );
+    }
+  }
+  return lines;
+}
+
+/**
+ * What the plan anonymizes, and on which person objects it finds no rule for
+ * a name, an email or a phone. Exported so it can be tested.
+ */
+export function anonymizationLines(plan: ExecutionPlan): string[] {
+  if (plan.complianceFramework === 'none') return [];
+  const summary = plan.anonymizationSummary;
+  const lines = [
+    `anonymization (${plan.complianceFramework}): ${summary.totalFieldsToAnonymize} field(s) ` +
+      `on ${summary.objectsWithPii.join(', ') || 'no object'}`,
+  ];
+  for (const object of summary.notCovered ?? []) {
+    lines.push(
+      `  ${object.objectApiName}: no rule for its ${object.missing.join(', ')} — ` +
+        'copied as the source holds them',
+    );
+  }
+  return lines;
 }
 
 /**
