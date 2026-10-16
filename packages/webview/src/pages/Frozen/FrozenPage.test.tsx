@@ -571,6 +571,36 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-excluded')).toBeNull();
   });
 
+  it('says which records a load left out for a parent excludedObjects leaves out', () => {
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        heldForExcludedParents: [
+          { objectApiName: 'InsurancePolicyParticipant', count: 2, note: '2 left out' },
+        ],
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    const held = screen.getByTestId('frozen-report-held-for-excluded');
+    expect(held.textContent).toContain('excludedObjects leaves out');
+    expect(held.textContent).toContain('InsurancePolicyParticipant (2)');
+  });
+
   it('says why records failed: per object, each status code and message, with how many', () => {
     // The report counted the failed records and never said why: the reasons
     // were in the report the page held, and nowhere on it.
@@ -1053,6 +1083,26 @@ describe('FrozenPage', () => {
     expect(screen.getByTestId('frozen-verify-result')).toBeDefined();
     expect(screen.getByText('stability')).toBeDefined();
     expect(screen.getByText('counts')).toBeDefined();
+  });
+
+  it('calls partial the verdict of a load that wrote part of the dataset, and says what it did not write', () => {
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      verdict: {
+        status: 'partial',
+        checks: [
+          { name: 'counts', passed: true, detail: 'All object counts match the counting contract' },
+          { name: 'load', passed: false, detail: '1 record(s) not loaded' },
+        ],
+        attempts: 2,
+        measuredAt: '2026-08-01T11:05:00Z',
+      },
+    });
+    render(<FrozenPage />);
+    const result = screen.getByTestId('frozen-verify-result');
+    expect(within(result).getByText('Partial')).toBeDefined();
+    expect(within(result).getByText('1 record(s) not loaded')).toBeDefined();
   });
 
   describe('last verification', () => {

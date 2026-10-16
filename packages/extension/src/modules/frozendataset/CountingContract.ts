@@ -35,6 +35,14 @@ export interface CountingContractEntry {
    * and from contracts written before a refused record was written again.
    */
   writtenWithout?: Record<string, string[]>;
+  /**
+   * Per lookup, the referenceIds of the records the load wrote with it left
+   * empty because the record it names was not loaded — refused, skipped or
+   * left out: in the target without that parent, which the verification
+   * counts beside the orphans of the mandatory lookups. Absent when there
+   * were none, and from contracts written before it was recorded.
+   */
+  parentNotLoaded?: Record<string, string[]>;
 }
 
 /** The counting contract consumed by the PostLoadVerifier. */

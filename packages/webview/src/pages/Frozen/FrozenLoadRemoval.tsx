@@ -1,7 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Trash2 } from 'lucide-react';
-import type { FrozenLoadRecordsInfo, FrozenRemovalResult } from '@sandforge/shared';
+import type {
+  ForgeSweepListing,
+  FrozenLoadRecordsInfo,
+  FrozenRemovalResult,
+} from '@sandforge/shared';
 import { formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -15,6 +19,7 @@ import {
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
+import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
 
 /**
  * How long a removal may keep the page waiting: Production Guard may wait on
@@ -22,11 +27,80 @@ import { useOperationCancel } from '../../hooks/useOperationCancel';
  */
 const REMOVAL_TIMEOUT_MS = 1_800_000;
 
+/** How long the read of what a sweep would take may take: the target's automation, then one read per object. */
+const SWEEP_READ_TIMEOUT_MS = 150_000;
+
 /** What `frozen:remove` answers. */
 interface RemoveAnswer {
   result: FrozenRemovalResult;
   operationId: string;
 }
+
+/** What `frozen:remove:sweep` answers. */
+interface SweepAnswer {
+  loadedAt: string;
+  listing: ForgeSweepListing;
+}
+
+/** Props for {@link FrozenRemovalSweep}. */
+interface FrozenRemovalSweepProps {
+  /** The org the load wrote to, registered. */
+  orgId: string;
+  /** When the load wrote its last record: which load. */
+  loadedAt: string;
+  /** The org as the user knows it. */
+  org: string;
+}
+
+/**
+ * What a sweep asked with the removal would take, read as the confirmation's
+ * sweep is ticked and listed before the user types the org's name: what the
+ * target's automation created during the load, as its user, that the load's
+ * mapping does not hold — Forge's sweep, listed as Forge lists it. Read only;
+ * the sweep runs before the load's records go, and finds again what is there.
+ */
+const FrozenRemovalSweep: React.FC<FrozenRemovalSweepProps> = ({ orgId, loadedAt, org }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const read = useBridgeMutation<SweepAnswer>('frozen:remove:sweep', {
+    responseType: 'frozen:remove:sweep:response',
+    errorType: 'frozen:remove:sweep:error',
+    timeoutMs: SWEEP_READ_TIMEOUT_MS,
+  });
+  const { mutate } = read;
+  useEffect(() => {
+    mutate({ targetOrgId: orgId, loadedAt });
+  }, [orgId, loadedAt, mutate]);
+
+  let body: React.ReactNode;
+  if (read.error) {
+    body = (
+      <p data-testid="frozen-sweep-error" className="text-status-warning">
+        {t('frozen.removal.sweepError', { org, reason: read.error })}
+      </p>
+    );
+  } else if (!read.data || read.data.loadedAt !== loadedAt) {
+    body = (
+      <p data-testid="frozen-sweep-loading" className="text-text-secondary">
+        {t('frozen.removal.sweepLoading', { org })}
+      </p>
+    );
+  } else {
+    body = <ForgeSweepListingView listing={read.data.listing} />;
+  }
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="frozen-removal-sweep"
+      className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
+    >
+      <h4 id={headingId} className="text-[11px] font-semibold">
+        {t('frozen.removal.sweepTitle', { org })}
+      </h4>
+      {body}
+    </section>
+  );
+};
 
 /** Props for {@link FrozenLoadRemoval}. */
 export interface FrozenLoadRemovalProps {
@@ -69,6 +143,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   const orgs = useOrgStore((s) => s.orgs);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
+  const [sweep, setSweep] = useState(false);
   const removal = useBridgeMutation<RemoveAnswer>('frozen:remove', {
     responseType: 'frozen:remove:response',
     errorType: 'frozen:remove:error',
@@ -117,6 +192,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
       targetOrgId: records.orgId,
       loadedAt: records.loadedAt,
       ...(includeChanged ? { includeChanged: true } : {}),
+      ...(sweep ? { sweep: true } : {}),
     });
     setConfirming(false);
   };
@@ -159,6 +235,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         disabled={removal.loading || busy}
         onClick={() => {
           setIncludeChanged(false);
+          setSweep(false);
           setConfirming(true);
         }}
         data-testid="frozen-removal-remove"
@@ -247,6 +324,19 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
           />
           {t('frozen.removal.includeChanged')}
         </label>
+        {/* Never ticked unasked: a sweep deletes records the load did not write. */}
+        <label className="flex items-center gap-2 mt-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={sweep}
+            onChange={(e) => setSweep(e.target.checked)}
+            data-testid="frozen-removal-sweep-toggle"
+          />
+          {t('frozen.removal.sweep')}
+        </label>
+        {sweep && confirming && (
+          <FrozenRemovalSweep orgId={records.orgId} loadedAt={records.loadedAt} org={org ?? ''} />
+        )}
       </DangerConfirm>
     </Card>
   );

@@ -432,6 +432,13 @@ export class FrozenDatasetExtractor {
         // Only a catalog row the extraction reached from above — a root, or
         // a row read under a parent in scope — brings what is under it.
         catalog: CATALOG_OBJECTS,
+        // And so does every parent: the dossier goes down from the roots, and
+        // up only to the records its rows name, read by id. Read as parents
+        // in scope, the account a case named brought every policy, asset and
+        // feed item of that account, and a parent the territories share
+        // brought them all: run for real, three cases measured sixty thousand
+        // records, and it took fourteen exclusions to load anything.
+        fromAboveOnly: true,
       });
       if (!built.scoped) {
         // Unscoped node (no path to the root) — nothing to pull.
@@ -510,6 +517,16 @@ export class FrozenDatasetExtractor {
       }
     }
 
+    await this.readWhatNamedStatusesNeed({
+      nodes,
+      edges: graph.edges,
+      cache,
+      recordsByObject,
+      describe,
+      asOfWhere,
+      excludedFields: options.excludedFields,
+      leftToThePlatform,
+    });
     await this.completeRequiredParents(
       { ...options, graph },
       recordsByObject,
@@ -695,6 +712,79 @@ export class FrozenDatasetExtractor {
       const parent = row[child.lookup];
       return typeof parent === 'string' && pastDraft.has(parent);
     });
+  }
+
+  /**
+   * The rows a record past Draft cannot be given its status back without — an
+   * order's items — under the records of its object the dossier only names.
+   *
+   * Read by the id a row names, as every parent is, such a record brings
+   * nothing under it (`fromAboveOnly`): an activated order a case names would
+   * go in as a draft without a product, and the platform activates no order
+   * without one. Its rows are read under it alone, once every node is read,
+   * and only under the records past Draft as the source has them. An object
+   * the graph leaves out, or `excludedObjects` names, has no node among
+   * `nodes` and is not read: what that costs is said (`exclusionCosts`).
+   */
+  private async readWhatNamedStatusesNeed(context: {
+    nodes: readonly ForgeGraphNode[];
+    edges: readonly ForgeGraphEdge[];
+    cache: RecordScopeCache;
+    recordsByObject: Map<string, Map<string, Record<string, unknown>>>;
+    describe: (objectApiName: string) => Promise<ScopableField[]>;
+    asOfWhere: string;
+    excludedFields: Record<string, readonly string[]> | undefined;
+    leftToThePlatform: RowsLeftToThePlatform;
+  }): Promise<void> {
+    for (const [parent, child] of Object.entries(STATUS_NEEDS_CHILDREN)) {
+      const node = context.nodes.find((n) => n.objectApiName === child.object);
+      const parents = context.recordsByObject.get(parent);
+      const lifecycle = STATUS_LIFECYCLES[parent];
+      if (!node || !parents || parents.size === 0 || !lifecycle) continue;
+      const reached = context.cache.reachedOf(parent);
+      const named = [...parents].filter(([recordId]) => !reached?.has(recordId));
+      if (named.length === 0) continue;
+      const categories = await statusCategories((soql) => this.deps.query(soql), lifecycle);
+      if (!categories) continue;
+      const pastDraft = named
+        .filter(([, row]) => draftStartOf(row.Status, categories))
+        .map(([recordId]) => recordId);
+      if (pastDraft.length === 0) continue;
+      const fields = await context.describe(child.object);
+      // A scope of those records alone, which the read goes under.
+      const only = new RecordScopeCache();
+      only.addRead(parent, pastDraft);
+      const built = this.soqlBuilder.build({
+        node,
+        fields,
+        selectFields: this.selectFields(child.object, fields, context.excludedFields),
+        edges: context.edges,
+        cache: only,
+        rootObjectApiName: `__frozen_root_${parent}__`,
+        rootRecordId: pastDraft[0],
+        extraWhere: fields.some((f) => f.name === 'CreatedDate') ? context.asOfWhere : undefined,
+        under: new Set([parent]),
+      });
+      if (!built.scoped) continue;
+      let bucket = context.recordsByObject.get(child.object);
+      if (!bucket) {
+        bucket = new Map();
+        context.recordsByObject.set(child.object, bucket);
+      }
+      const lookups = requiredLookupsOf(child.object, fields);
+      for (const soql of built.statements) {
+        const rows = context.leftToThePlatform.keep(
+          child.object,
+          await this.deps.query(soql),
+          lookups,
+        );
+        for (const row of rows) {
+          if (typeof row.Id === 'string' && !bucket.has(row.Id)) {
+            bucket.set(row.Id, withoutEnvelope(row));
+          }
+        }
+      }
+    }
   }
 
   /**

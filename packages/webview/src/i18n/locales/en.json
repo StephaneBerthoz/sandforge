@@ -4098,6 +4098,7 @@
       "notSent": "Not sent",
       "toPurge": "To purge",
       "toDeactivate": "To deactivate",
+      "heldForExcludedParents": "Would be left out, not sent — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; no placeholder is asked for it: {{objects}}",
       "placeholders": "Placeholders to create, and the records each fills: {{fields}}",
       "defaults": "Declared defaults, and the records each fills: {{fields}}",
       "personContacts_one": "{{count}} person account's contact goes in with its account, counted apart: linked to the contact the platform writes with it, or sent as one of its own where the target holds the account as a business account.",
@@ -4114,6 +4115,7 @@
       "status": {
         "passed": "Passed",
         "failed": "Failed",
+        "partial": "Partial",
         "unstable": "Unstable"
       }
     },
@@ -4139,6 +4141,7 @@
       "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}",
       "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}",
       "excludedObjects": "Objects not loaded",
+      "heldForExcludedParents": "Left out at load — a lookup these records cannot go in without names an object excludedObjects leaves out, or they depend on such records; declare a placeholder in requiredLookupPlaceholders to load them: {{objects}}",
       "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}",
       "failedReasons": "Why records failed",
       "statusCode": "Status code",
@@ -4175,6 +4178,10 @@
       "removeTitle": "Remove this load's records from {{org}}",
       "removeDescription": "Deletes from {{org}} the records this load created, children before their parents; they go to its recycle bin. After a reload, these include the records earlier loads created that the reload found again and kept as its own. Records the load linked to or reused, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the load, or one that records added since depend on, is kept unless you include it below.",
       "includeChanged": "Also remove the records changed since the load, and what was added to them since",
+      "sweep": "Sweep first: also take back what the target's automation created during the load, as its user — then such a record keeps none of the load's records back",
+      "sweepTitle": "What the sweep takes from {{org}}",
+      "sweepLoading": "Reading what {{org}}'s automation created during the load…",
+      "sweepError": "What the sweep would take from {{org}} could not be read: {{reason}}",
       "removing": "Removing the records this load created…",
       "cancel": "Stop the removal",
       "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",

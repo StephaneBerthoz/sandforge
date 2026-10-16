@@ -547,6 +547,9 @@ export class ExtensionHandlers {
    */
   setForgeOrchestrator(orchestrator: ForgeOrchestrator, services?: ForgeServices): void {
     this.forgeHandler.setForgeOrchestrator(orchestrator, services);
+    // The sweep of a Frozen load's removal reads the target's automation as Forge's does.
+    if (services?.targetAutomation)
+      this.frozenHandler.setTargetAutomation(services.targetAutomation);
   }
 
   /**
@@ -846,6 +849,7 @@ export class ExtensionHandlers {
         'frozen:load:preview',
         'frozen:verify',
         'frozen:remove',
+        'frozen:remove:sweep',
         'frozen:status',
       ],
       this.frozenHandler,

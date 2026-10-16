@@ -94,6 +94,29 @@ describe('parseArgs', () => {
         .includeChanged,
     ).toBe(true);
   });
+
+  it('reads a removal with a sweep, or the listing of one, and sweeps nothing unasked', () => {
+    expect(parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT'))).toMatchObject({
+      sweep: false,
+      sweepList: false,
+    });
+    expect(
+      parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT', '--sweep')).sweep,
+    ).toBe(true);
+    expect(
+      parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT', '--sweep-list')).sweepList,
+    ).toBe(true);
+  });
+
+  it('refuses a sweep and its listing together, and a sweep with another step', () => {
+    expect(
+      refuse('remove', '--config', 'f.json', '--target', 'TGT', '--sweep', '--sweep-list'),
+    ).toMatchObject({ code: 2, message: expect.stringContaining('give one of them') });
+    expect(refuse('load', '--config', 'f.json', '--target', 'TGT', '--sweep')).toMatchObject({
+      code: 2,
+      message: expect.stringContaining('go with remove'),
+    });
+  });
 });
 
 describe('typeOrg', () => {
@@ -448,6 +471,101 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('says what the sweep asked with a removal did, before what the removal did', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        operationId: 'frozen-remove-1',
+        result: {
+          status: 'success',
+          includeChanged: false,
+          finishedAt: '2026-10-16T11:00:00.000Z',
+          sweep: {
+            status: 'success',
+            objects: [
+              {
+                objectApiName: 'Task',
+                found: 3,
+                deleted: 3,
+                alreadyGone: 0,
+                keptChanged: 0,
+                refused: 0,
+                reasons: [],
+              },
+            ],
+            unread: [],
+            handWork: [],
+          },
+          objects: [
+            {
+              objectApiName: 'Contact',
+              planned: 3,
+              deleted: 3,
+              alreadyGone: 0,
+              keptChanged: 0,
+              keptDependents: 0,
+              refused: 0,
+              heldBy: [],
+              unchecked: [],
+              reasons: [],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'sweep: SUCCESS',
+      '  Task: 3 deleted of 3',
+      'removal: SUCCESS',
+      '  Contact: 3 deleted of 3',
+    ]);
+  });
+
+  it('lists what a sweep would delete, per object', () => {
+    const lines = messageLines({
+      type: 'frozen:remove:sweep:response',
+      payload: {
+        loadedAt: '2026-10-16T10:05:00.000Z',
+        listing: {
+          window: { from: '2026-10-16T09:59:59Z', to: '2026-10-16T10:06:01Z' },
+          looked: ['Contact', 'Task'],
+          found: [{ objectApiName: 'Task', count: 3, names: ['Call'], overBound: false }],
+          unread: [],
+          handWork: [],
+        },
+      },
+    });
+
+    expect(lines).toContain('it would delete 3 record(s), children first:');
+    expect(lines).toContain('  Task: 3 (Call, …)');
+  });
+
+  it('says a verification that found the load wrote part of the dataset partial', () => {
+    const lines = messageLines({
+      type: 'frozen:verify:result',
+      payload: {
+        verdict: {
+          status: 'partial',
+          attempts: 2,
+          measuredAt: '2026-10-16T11:00:00.000Z',
+          checks: [
+            {
+              name: 'load',
+              passed: false,
+              detail: '1 record(s) not loaded: 1 refused by the target org.',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'verification: PARTIAL',
+      '  FAIL load: 1 record(s) not loaded: 1 refused by the target org.',
+    ]);
+  });
+
   it('names the files attached to the records a removal deleted, which stay in the org', () => {
     const lines = messageLines({
       type: 'frozen:remove:response',
@@ -616,6 +734,33 @@ describe('messageLines', () => {
       '  FeedItem: 1 feed item left out: the dataset does not carry its type',
       'pass 2: 0 resolved, 0 unresolved',
     ]);
+  });
+
+  it('names the records a load left out for a parent excludedObjects leaves out', () => {
+    const lines = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 5,
+          alignment: { excludedObjects: [], removals: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+          heldForExcludedParents: [
+            {
+              objectApiName: 'FeedComment',
+              note: '2 left out: FeedItemId names a FeedItem record, which excludedObjects leaves out',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      '  FeedComment: 2 left out: FeedItemId names a FeedItem record, which excludedObjects leaves out',
+    );
   });
 
   it('says what a reload purged, and what it left of a load that did not say what it created', () => {

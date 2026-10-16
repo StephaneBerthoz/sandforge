@@ -71,6 +71,19 @@ export interface LargeOrgOptions {
   rowsPerCase?: number;
   /** Leads, a third of them converted. */
   leads?: number;
+  /**
+   * Field service beside the cases, left out unless asked: a work order under
+   * each case, booked in one territory of a tree that shares its operating
+   * hours with every account, and assets under each account. Run for real, a
+   * dossier of three cases took 39 540 territories and every asset of the
+   * cases' accounts.
+   */
+  fieldService?: {
+    /** Assets under each account, and under nothing of a case. */
+    assetsPerAccount: number;
+    /** Territories beside the one each work order is booked in, under the same parent. */
+    territories: number;
+  };
 }
 
 /** Key prefixes of the standard objects. */
@@ -87,6 +100,10 @@ const STANDARD_PREFIXES: Readonly<Record<string, string>> = {
   EmailMessage: '02s',
   OperatingHours: '0OH',
   Case: '500',
+  Asset: '02i',
+  WorkOrder: '0WO',
+  ServiceAppointment: '08p',
+  ServiceTerritory: '0Hh',
 };
 
 /** A field with every attribute the describes read. */
@@ -227,6 +244,29 @@ export function largeOrg(options: LargeOrgOptions = {}): LargeOrg {
     lookup('WhoId', ['Contact', 'Lead']),
   ]);
   add('PostalCode__c', true, [...base(), field('Code__c', 'string')], 'a0P');
+  if (options.fieldService) {
+    add('Asset', false, [
+      ...base(),
+      lookup('AccountId', ['Account']),
+      lookup('ContactId', ['Contact']),
+    ]);
+    add('ServiceTerritory', false, [
+      ...base(),
+      lookup('ParentTerritoryId', ['ServiceTerritory']),
+      lookup('OperatingHoursId', ['OperatingHours'], true),
+    ]);
+    add('WorkOrder', false, [
+      ...base(false),
+      lookup('CaseId', ['Case']),
+      lookup('AccountId', ['Account']),
+      lookup('ServiceTerritoryId', ['ServiceTerritory']),
+    ]);
+    add('ServiceAppointment', false, [
+      ...base(false),
+      lookup('ParentRecordId', ['WorkOrder'], true),
+      lookup('ServiceTerritoryId', ['ServiceTerritory']),
+    ]);
+  }
 
   for (let i = 1; i <= customCount; i++) {
     const fields = [...base()];
@@ -327,6 +367,7 @@ export function largeOrg(options: LargeOrgOptions = {}): LargeOrg {
     Name: `750${String(i).padStart(2, '0')}`,
     CreatedDate: created,
   }));
+  if (options.fieldService) addFieldService(org, options.fieldService, created);
   // Tables nobody selected, as large as a real org has them: counted, never read.
   org.counts.PostalCode__c = 61_635;
   org.counts.OperatingHours = 8_169;
@@ -335,6 +376,54 @@ export function largeOrg(options: LargeOrgOptions = {}): LargeOrg {
     if (!org.rows[name]) org.counts[name] = 1_000 + i;
   }
   return org;
+}
+
+/**
+ * The rows of {@link LargeOrgOptions.fieldService}: one set of operating
+ * hours every account and territory names, a territory tree whose top holds
+ * the one each work order is booked in and `territories` more, a work order
+ * and an appointment under each case, and assets under each account.
+ */
+function addFieldService(
+  org: LargeOrg,
+  shape: NonNullable<LargeOrgOptions['fieldService']>,
+  created: string,
+): void {
+  const hours = fakeId(org, 'OperatingHours', 1);
+  org.rows.OperatingHours = [{ Id: hours, Name: 'Office hours', CreatedDate: created }];
+  for (const account of org.rows.Account ?? []) account.OperatingHoursId = hours;
+  const top = fakeId(org, 'ServiceTerritory', 1);
+  // The territory the work orders are booked in is the second; its siblings follow.
+  org.rows.ServiceTerritory = Array.from({ length: shape.territories + 2 }, (_, i) => ({
+    Id: fakeId(org, 'ServiceTerritory', i + 1),
+    Name: `Territory ${i + 1}`,
+    ParentTerritoryId: i === 0 ? null : top,
+    OperatingHoursId: hours,
+    CreatedDate: created,
+  }));
+  const booked = fakeId(org, 'ServiceTerritory', 2);
+  org.rows.WorkOrder = (org.rows.Case ?? []).map((row, i) => ({
+    Id: fakeId(org, 'WorkOrder', i + 1),
+    CaseId: row.Id,
+    AccountId: row.AccountId,
+    ServiceTerritoryId: booked,
+    CreatedDate: created,
+  }));
+  org.rows.ServiceAppointment = org.rows.WorkOrder.map((row, i) => ({
+    Id: fakeId(org, 'ServiceAppointment', i + 1),
+    ParentRecordId: row.Id,
+    ServiceTerritoryId: booked,
+    CreatedDate: created,
+  }));
+  org.rows.Asset = (org.rows.Account ?? []).flatMap((account, a) =>
+    Array.from({ length: shape.assetsPerAccount }, (_, i) => ({
+      Id: fakeId(org, 'Asset', a * shape.assetsPerAccount + i + 1),
+      Name: `Asset ${a + 1}-${i + 1}`,
+      AccountId: account.Id,
+      ContactId: null,
+      CreatedDate: created,
+    })),
+  );
 }
 
 /** Every call the fake connection answered, by kind. */

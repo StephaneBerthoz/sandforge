@@ -18,6 +18,8 @@ import type {
   FrozenSelectionSummary,
   FrozenStatusInfo,
   ForgeRunObjectRecords,
+  ForgeSweepResult,
+  ForgeTargetAutomation,
   GuardDecision,
 } from '@sandforge/shared';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -28,6 +30,17 @@ import {
 } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import {
+  listSweep,
+  sweepAuditDetails,
+  sweepAuditObjects,
+  sweepAutomationOf,
+  sweepFoundCount,
+  sweepFoundObjects,
+  sweepRunRecords,
+  type SweepInput,
+} from '../../modules/forge/ForgeRunSweep.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
 import {
   removalAuditObjects,
@@ -59,6 +72,7 @@ import {
   frozenExtractPayloadSchema,
   frozenLoadPayloadSchema,
   frozenRemovePayloadSchema,
+  frozenRemoveSweepPayloadSchema,
   frozenVerifyPayloadSchema,
 } from '../validatePayload.js';
 import { logger } from '../../logger.js';
@@ -109,6 +123,7 @@ import {
   datasetRecordCount,
   keptWithoutARule,
   leftToThePlatformCoverage,
+  loadCreatedRecords,
   loadRecordsInfo,
   loadRecordsLeft,
   loadToRemove,
@@ -166,6 +181,7 @@ const FROZEN_TYPES = new Set([
   'frozen:load:preview',
   'frozen:verify',
   'frozen:remove',
+  'frozen:remove:sweep',
   'frozen:status',
 ]);
 
@@ -212,6 +228,12 @@ const DEFAULT_DATASET_VERSION = '0.1.0';
 /** Selection / extraction timeouts (long, but bounded — probes + full pull). */
 const SELECT_TIMEOUT_MS = 10 * 60_000;
 const EXTRACT_TIMEOUT_MS = 15 * 60_000;
+
+/** How long the read of what the target's flows create may take, for a sweep: as Forge's. */
+const SWEEP_AUTOMATION_TIMEOUT_MS = 60_000;
+
+/** How long listing what a sweep would take may take: the automation read, then one read per object. */
+const SWEEP_LIST_TIMEOUT_MS = 120_000;
 
 /** Violations per check sent to the webview (cap + see sanitizeViolationDetail). */
 const MAX_VIOLATIONS_PER_CHECK = 50;
@@ -431,6 +453,9 @@ export function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo
     purge: report.purge,
     ...(report.leftToThePlatform ? { leftToThePlatform: report.leftToThePlatform } : {}),
     ...(report.untypedFeedItems ? { untypedFeedItems: report.untypedFeedItems } : {}),
+    ...(report.heldForExcludedParents
+      ? { heldForExcludedParents: report.heldForExcludedParents }
+      : {}),
     mappingPath: report.mappingPath,
     contractPath: report.contractPath,
   };
@@ -560,6 +585,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   private registry?: BackgroundOperationRegistry;
   /** What the Monitor's Live Operations panel lists, with a Cancel for each run. */
   private liveTracker?: LiveOperationTracker;
+  /** Reads what the target's flows create, for the sweep of a load's removal: Forge's reader. */
+  private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
 
   /** The mappings whose load is being removed, by file: one removal at a time each. */
   private readonly removing = new Set<string>();
@@ -623,6 +650,15 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
+   * Inject what reads the target's automation — Forge's, which its sweep
+   * reads too: the objects the target's flows create as a load's records are
+   * written, which the sweep of a load's removal looks at.
+   */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /**
    * Handle an incoming bridge message.
    *
    * @param msg - The typed base message from the webview.
@@ -660,6 +696,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         return true;
       case 'frozen:remove':
         await this.handleRemove(msg);
+        return true;
+      case 'frozen:remove:sweep':
+        await this.handleRemoveSweep(msg);
         return true;
       case 'frozen:status':
         await this.handleStatus(msg);
@@ -989,6 +1028,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       identityKeys: config.identityKeys,
       undeletableObjects: config.undeletableObjects,
       requiredLookupPlaceholders: config.requiredLookupPlaceholders,
+      excludedObjects: config.excludedObjects,
       requiredFieldDefaults: config.requiredFieldDefaults,
       picklistRules: config.picklistRules,
       defaultPicklistRule: config.defaultPicklistRule,
@@ -2279,6 +2319,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         load,
         plan,
         includeChanged: parsed.includeChanged === true,
+        sweep: parsed.sweep === true,
         pending,
       });
     } finally {
@@ -2306,11 +2347,13 @@ export class FrozenDatasetHandler implements DomainHandler {
       load: RecordedLoad;
       plan: ForgeRunObjectRecords[];
       includeChanged: boolean;
+      /** Sweep first what the target's automation created during the load: see `sweepBeforeRemoval`. */
+      sweep: boolean;
       /** The hold a cancel of the removal before it started reaches. */
       pending?: PendingStart;
     },
   ): Promise<void> {
-    const { store, load, plan, includeChanged, pending } = args;
+    const { store, load, plan, includeChanged, sweep, pending } = args;
     const orgId = load.orgId;
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     const refuse = (message: string, code: string): void => this.refuseRemove(msg, message, code);
@@ -2467,6 +2510,16 @@ export class FrozenDatasetHandler implements DomainHandler {
       const span = load.writtenBetween;
       const began = load.startedAt === undefined ? Number.NaN : Date.parse(load.startedAt);
       const ended = Date.parse(load.endedAt);
+      const sweepResult = sweep
+        ? await this.sweepBeforeRemoval({
+            conn,
+            load,
+            includeChanged,
+            signal: abortController.signal,
+            guard: productionGuard,
+            operationId,
+          })
+        : undefined;
       const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
         ...(span
           ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
@@ -2498,6 +2551,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         objects: outcome.objects,
         finishedAt: new Date().toISOString(),
         ...(leftBy ? { leftBy } : {}),
+        ...(sweepResult ? { sweep: sweepResult } : {}),
       };
 
       recordWriteRun(this.deps, {
@@ -2542,7 +2596,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         operationId,
       });
       this.deps.broker.postToWebview(response);
-      if (result.status === 'cancelled') {
+      if (result.status === 'cancelled' || sweepResult?.status === 'cancelled') {
         sendOperationCompleted(this.deps, operationId, { aborted: true });
         this.liveTracker?.cancel(operationId);
       } else {
@@ -2572,6 +2626,189 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.liveTracker?.fail(operationId, extractErrorMessage(error));
     } finally {
       settle(runError);
+    }
+  }
+
+  /**
+   * The sweep of a load's removal: what the target's automation created
+   * during the load, as its user, that the load's mapping does not hold —
+   * Forge's sweep (`sweepRunRecords`), judged by Production Guard as a delete
+   * before its first one, recorded in the audit trail beside the removal as a
+   * `cleanup_delete` with a `sweep` detail, whatever it ended on.
+   *
+   * It runs before the load's records go, where Forge sweeps after a run's: a
+   * record the automation hung under one of the load's would otherwise hold
+   * it back as a record that stays. Run for real, a removal kept eight
+   * appointments and seven work orders for the feed items the target's
+   * automation created under them during the load.
+   */
+  private async sweepBeforeRemoval(context: {
+    conn: Parameters<typeof removalOrg>[0];
+    load: RecordedLoad;
+    includeChanged: boolean;
+    signal: AbortSignal;
+    guard: ProductionGuard;
+    operationId: string;
+  }): Promise<ForgeSweepResult> {
+    const { conn, load, guard } = context;
+    let guardDecision: GuardDecision | undefined;
+    let result: ForgeSweepResult;
+    try {
+      const input = await this.sweepInputOfLoad(load, context.signal);
+      result = await sweepRunRecords(removalOrg(conn, 'frozen:remove sweep'), input, {
+        includeChanged: context.includeChanged,
+        removalSpans: load.removalSpans,
+        approve: async (listing) => {
+          const { check, decision } = await consultProductionGuard(guard, {
+            orgId: load.orgId,
+            orgTier: this.targetTier(load.orgId),
+            operation: 'delete',
+            objectName: sweepFoundObjects(listing).join(', '),
+            recordCount: sweepFoundCount(listing),
+            module: 'frozen',
+          });
+          guardDecision = decision;
+          if (decision === 'refused') {
+            return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
+          }
+          if (decision === 'declined') {
+            return 'Operation cancelled by user (production confirmation declined).';
+          }
+          return undefined;
+        },
+      });
+    } catch (err: unknown) {
+      result = {
+        status: 'failure',
+        refusal: extractErrorMessage(err),
+        objects: [],
+        unread: [],
+        handWork: [],
+      };
+    }
+    const details = sweepAuditDetails(result, '');
+    delete details.forgeId;
+    recordWriteRun(this.deps, {
+      action: 'cleanup_delete',
+      module: 'frozen',
+      operationId: `${context.operationId}-sweep`,
+      orgId: load.orgId,
+      outcome: result.status === 'refused' ? 'stopped' : result.status,
+      ...(guardDecision ? { guard: guardDecision } : {}),
+      ...(result.status === 'refused'
+        ? { code: guardDecision ? 'GUARD_BLOCKED' : 'SWEEP_REFUSED' }
+        : {}),
+      objects: sweepAuditObjects(result),
+      details: { ...details, loadedAt: load.endedAt },
+    });
+    return result;
+  }
+
+  /**
+   * What a sweep of a load's removal is told of the load, from its mapping:
+   * when the target dated its writes, what it created, every record the
+   * mapping holds — created, linked or reused, never swept — and what the
+   * target's automation creates as the load's objects are written, read now.
+   */
+  private async sweepInputOfLoad(load: RecordedLoad, signal?: AbortSignal): Promise<SweepInput> {
+    const created = loadCreatedRecords(load);
+    const remap = new Set([...load.mapping.values()].map((recordId) => recordId.slice(0, 15)));
+    const reader = this.targetAutomation;
+    let automation: ForgeTargetAutomation | { error: string };
+    if (!reader) {
+      automation = { error: 'Target automation reader not configured' };
+    } else {
+      try {
+        automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
+          'frozen:remove sweep automation',
+          () =>
+            reader.read(
+              load.orgId,
+              created.map((object) => object.objectApiName),
+            ),
+        );
+      } catch (err: unknown) {
+        automation = { error: extractErrorMessage(err) };
+      }
+    }
+    return {
+      writtenBetween: load.writtenBetween,
+      created,
+      remap,
+      automation: sweepAutomationOf(automation),
+      ...(signal ? { signal } : {}),
+    };
+  }
+
+  /**
+   * Read what a sweep asked with the removal of a load would take, for the
+   * removal's confirmation to list before the user types the org's name — and
+   * for the command line's `--sweep-list`: per object, what the load's user
+   * created during the load that its mapping does not hold, a few of each by
+   * name, what could not be looked at, and why a sweep would be refused. The
+   * load is named, never records. Read only.
+   */
+  private async handleRemoveSweep(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      frozenRemoveSweepPayloadSchema,
+      msg,
+      'frozen:remove:sweep:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const config = this.requireConfig(msg, 'frozen:remove:sweep:error');
+    if (!config) return;
+    const refuse = (message: string, code: string): void =>
+      sendHandlerError(
+        this.deps,
+        'frozen:remove:sweep',
+        'frozen:remove:sweep:error',
+        msg,
+        new Error(message),
+        { code },
+      );
+    try {
+      const guard = new SasPathGuard();
+      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const load = loadToRemove(await store.recordedLoads());
+      if (!load) {
+        refuse(
+          'No load into this org was recorded in this sas: there is nothing to sweep.',
+          'NO_LOAD',
+        );
+        return;
+      }
+      if (load.orgId !== parsed.targetOrgId || load.endedAt !== parsed.loadedAt) {
+        refuse(
+          'Another load was recorded since this one was shown: check what a removal takes now.',
+          'LOAD_CHANGED',
+        );
+        return;
+      }
+      const listing = await new TimeoutManager(SWEEP_LIST_TIMEOUT_MS).withTimeout(
+        'frozen:remove:sweep',
+        async () => {
+          const input = await this.sweepInputOfLoad(load);
+          const conn = await getJsforceConnection(
+            load.orgId,
+            this.deps.orgRegistry,
+            this.deps.orgManager,
+          );
+          return listSweep(removalOrg(conn, 'frozen:remove:sweep'), input);
+        },
+      );
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'frozen:remove:sweep:response', {
+          loadedAt: load.endedAt,
+          listing,
+        }),
+      );
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'frozen:remove:sweep', 'frozen:remove:sweep:error', msg, err, {
+        code: err instanceof TimeoutError ? 'TIMEOUT' : this.errorCodeFor(err, 'SWEEP_ERROR'),
+        retryable: true,
+      });
     }
   }
 

@@ -191,17 +191,50 @@ export const DEFAULT_BUDGET_MAX_RECORDS = 2_500;
 
 const DEFAULT_CANDIDATES_PER_COMBINATION = 3;
 
-/** Thrown when the measured volumetry exceeds the configured budget. */
+/** How many of the heaviest objects a refused budget names. */
+const HEAVIEST_NAMED = 5;
+
+/**
+ * The heaviest objects of a measure, the root's object aside, with their
+ * counts: those a refused budget suggests leaving out.
+ */
+function heaviestObjects(
+  measured: Record<string, number>,
+  rootObject?: string,
+): Array<{ objectApiName: string; count: number }> {
+  return Object.entries(measured)
+    .filter(([objectApiName, count]) => objectApiName !== rootObject && count > 0)
+    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+    .slice(0, HEAVIEST_NAMED)
+    .map(([objectApiName, count]) => ({ objectApiName, count }));
+}
+
+/**
+ * Thrown when the measured volumetry exceeds the configured budget.
+ *
+ * It names the heaviest objects and suggests leaving them out. Run for real
+ * on a large org, a refusal that said only to narrow the axes or raise the
+ * budget left the person to read the per-object counts, and it took fourteen
+ * `excludedObjects` found that way to load anything.
+ */
 export class VolumetryBudgetExceededError extends Error {
   constructor(
     readonly measured: Record<string, number>,
     readonly total: number,
     readonly budgetMax: number,
+    rootObject?: string,
   ) {
+    const heaviest = heaviestObjects(measured, rootObject);
+    const named =
+      heaviest.length > 0
+        ? `The heaviest: ${heaviest.map((h) => `${h.objectApiName} ${h.count}`).join(', ')}. ` +
+          `Leave out those the dataset does not need with excludedObjects ` +
+          `(${JSON.stringify(heaviest.map((h) => h.objectApiName))}), narrow the coverage ` +
+          `axes/edge cases, or raise budgetMaxRecords explicitly. `
+        : `Narrow the coverage axes/edge cases or raise budgetMaxRecords explicitly. `;
     super(
       `Volumetry budget exceeded: ${total} records measured for a budget of ${budgetMax}. ` +
-        `Narrow the coverage axes/edge cases or raise budgetMaxRecords explicitly. ` +
-        `Per-object counts: ${JSON.stringify(measured)}`,
+        `${named}Per-object counts: ${JSON.stringify(measured)}`,
     );
     this.name = 'VolumetryBudgetExceededError';
   }
@@ -271,7 +304,9 @@ export class CoverageMatrixSelector {
           measured[name] = (measured[name] ?? 0) + count;
       }
       const total = Object.values(measured).reduce((sum, n) => sum + n, 0);
-      if (total > budgetMax) throw new VolumetryBudgetExceededError(measured, total, budgetMax);
+      if (total > budgetMax) {
+        throw new VolumetryBudgetExceededError(measured, total, budgetMax, rootObject);
+      }
       return {
         roots,
         uncovered,
@@ -436,7 +471,7 @@ export class CoverageMatrixSelector {
         : await step(this.deps.measureVolumetry(roots.map((r) => r.rootRecordId)));
     const total = Object.values(measured).reduce((sum, n) => sum + n, 0);
     if (total > budgetMax) {
-      throw new VolumetryBudgetExceededError(measured, total, budgetMax);
+      throw new VolumetryBudgetExceededError(measured, total, budgetMax, rootObject);
     }
 
     return {

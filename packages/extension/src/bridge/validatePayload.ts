@@ -961,6 +961,13 @@ export const frozenRemovePayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   loadedAt: z.string().min(1).max(64),
   includeChanged: z.boolean().optional(),
+  // Sweep too what the target's automation created during the load, as its user.
+  sweep: z.boolean().optional(),
+});
+// What a sweep asked with a load's removal would take: the load, named as for its removal.
+export const frozenRemoveSweepPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  loadedAt: z.string().min(1).max(64),
 });
 
 // ── autopilot:* payload schemas ─────────────────────────────────────────────

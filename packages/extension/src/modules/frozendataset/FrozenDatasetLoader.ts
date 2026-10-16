@@ -52,9 +52,11 @@ import {
   SELLING_MODEL_OPTION_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   isPricebookEntry,
+  isRequiredLookup,
 } from '@sandforge/shared';
 import type {
   ForgeWrittenBetween,
+  FrozenLeftToThePlatform,
   FrozenLoadPlanInfo,
   FrozenLoadPlanObject,
   FrozenRefusedField,
@@ -84,6 +86,7 @@ import {
   STATUS_LIFECYCLES,
   TASK,
   draftStartOf,
+  emailOnACase,
   emailWriteEdges,
   existingActivityRelations,
   existingSellingModelOptions,
@@ -96,6 +99,7 @@ import {
   standardPriceIds,
   statusCategories,
   type LeftToThePlatform,
+  type RowsLeftOut,
   type PlatformWrittenRows,
   tasksWrittenWithEmails,
   waitsForItsTask,
@@ -143,6 +147,7 @@ import {
   type SchemaAlignObjectResult,
   type SchemaAlignmentReport,
   type SkippedDuplicate,
+  type TargetObjectDescribe,
   type TargetOrgAccess,
 } from './loadTypes.js';
 
@@ -402,6 +407,12 @@ interface PreparedLoad {
   leftToThePlatform: RowsLeftToThePlatform;
   /** The feed items whose type the dataset does not carry, left out. */
   untypedFeedItems: RowsLeftToThePlatform;
+  /**
+   * The records that cannot be loaded without a record of an object
+   * `excludedObjects` leaves out, and what cannot go in without them, left
+   * out: see {@link heldForAnExcludedParent}.
+   */
+  heldForExclusions: RowsLeftToThePlatform;
   /** The dataset without the records left out. */
   loading: FrozenDataset;
   /** What the target already holds of the dataset, by referenceId: found, never written. */
@@ -1244,6 +1255,8 @@ export class FrozenDatasetLoader {
      * Unknown until the accounts are described.
      */
     let targetHasPersonAccounts: boolean | undefined;
+    /** Per object, its required lookups at an object `excludedObjects` names: see `heldForAnExcludedParent`. */
+    const lookupsAtExcluded = new Map<string, ExcludedParentLookup[]>();
     for (const objectData of loading.objects) {
       const objectApiName = objectData.objectApiName;
       // An extraction writes a file for every object of the graph, and most
@@ -1316,6 +1329,8 @@ export class FrozenDatasetLoader {
         objectApiName,
         new Set(describe.fields.filter((f) => f.updateable === false).map((f) => f.name)),
       );
+      const atExcluded = lookupsAtExcludedObjects(objectApiName, describe, this.config);
+      if (atExcluded.length > 0) lookupsAtExcluded.set(objectApiName, atExcluded);
       requiredLookups.set(
         objectApiName,
         new Set(
@@ -1352,7 +1367,28 @@ export class FrozenDatasetLoader {
     }
     emit({ phase: 'align', status: 'done', progress: 20, message: 'Schema aligned' });
     running.endOpenLine = undefined;
-    leaveWhatHangsFrom(alignedByObject, requiredLookups, [leftToThePlatform, untypedFeedItems]);
+    // A record the target will not take without a parent the configuration
+    // excludes cannot be loaded: left out, with what hangs from it, rather
+    // than asked a placeholder for. Run for real, the extraction said
+    // "cannot be loaded without the InsurancePolicy, which excludedObjects
+    // leaves out", and the load then refused to start until a placeholder
+    // was declared for every such lookup.
+    const heldForExclusions = new RowsLeftToThePlatform(heldForAnExcludedParent(lookupsAtExcluded));
+    leaveWhatHangsFrom(alignedByObject, requiredLookups, [
+      leftToThePlatform,
+      untypedFeedItems,
+      heldForExclusions,
+    ]);
+    // What a record left out leaves empty is asked of no one: a required
+    // field is missing only while a record the load writes still leaves it so.
+    for (const result of alignment.objectResults) {
+      const written = (alignedByObject.get(result.objectApiName) ?? []).filter(
+        (r) => !reused.has(r.referenceId),
+      );
+      result.missingRequired = result.missingRequired.filter((missing) =>
+        written.some((r) => leftEmpty(r.fields[missing.field])),
+      );
+    }
 
     // 6. Placeholders for required lookups absent from the dataset.
     emit({
@@ -1392,6 +1428,7 @@ export class FrozenDatasetLoader {
       groupOrder,
       leftToThePlatform,
       untypedFeedItems,
+      heldForExclusions,
       loading,
       mapping,
       reused,
@@ -1429,6 +1466,7 @@ export class FrozenDatasetLoader {
       groupOrder,
       leftToThePlatform,
       untypedFeedItems,
+      heldForExclusions,
       mapping,
       reused,
       recordTypeIssues,
@@ -1863,6 +1901,9 @@ export class FrozenDatasetLoader {
         ...untypedFeedItems
           .counts(objectApiName)
           .map(({ why, count }) => untypedFeedItemNote(count, why)),
+        ...heldForExclusions
+          .counts(objectApiName)
+          .map(({ why, count }) => heldForExclusionNote(count, why)),
       ]
         .map((note) => `, ${note}`)
         .join('');
@@ -2044,6 +2085,7 @@ export class FrozenDatasetLoader {
           duplicatePatterns,
           created,
           writtenWithout,
+          refusedIn(perObject),
           (result) => {
             soFar.result = result;
           },
@@ -2238,6 +2280,7 @@ export class FrozenDatasetLoader {
           duplicatePatterns,
           created,
           writtenWithout,
+          refusedIn(perObject),
           keepOnFailure,
         );
       // A custom price is refused for a product with no standard one, so the
@@ -2476,6 +2519,7 @@ export class FrozenDatasetLoader {
     await persistMapping();
     const leftOut = leftToThePlatform.counts();
     const untyped = untypedFeedItems.counts();
+    const heldForExcluded = heldForExclusions.counts();
     const contractPath = this.writeContract(
       options,
       working,
@@ -2497,9 +2541,15 @@ export class FrozenDatasetLoader {
           count,
           reason: 'untyped-feed-item',
         })),
+        ...heldForExcluded.map(({ objectApiName, count }) => ({
+          objectApiName,
+          count,
+          reason: 'excluded-parent',
+        })),
       ],
       personContactsNotSent.size,
       writtenWithout,
+      pass2.unresolved.filter((link) => link.cause === 'target-not-loaded'),
     );
     emit({ phase: 'persist', status: 'done', progress: 98, message: 'Sas artifacts written' });
 
@@ -2533,6 +2583,9 @@ export class FrozenDatasetLoader {
               note: untypedFeedItemNote(count, why),
             })),
           }
+        : {}),
+      ...(heldForExcluded.length > 0
+        ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
         : {}),
       mappingPath: this.deps.mappingStore.filePath,
       contractPath,
@@ -3788,6 +3841,7 @@ export class FrozenDatasetLoader {
     duplicatePatterns: readonly string[],
     created: CreatedKeys,
     writtenWithout: WrittenWithout,
+    refusedRecords: ReadonlyMap<string, string>,
     keepOnFailure?: (soFar: PerObjectLoadResult) => void,
   ): Promise<PerObjectLoadResult> {
     const result: PerObjectLoadResult = {
@@ -3798,8 +3852,22 @@ export class FrozenDatasetLoader {
       skippedDuplicates: [] as SkippedDuplicate[],
       failed: [] as FailedRecord[],
     };
-    const toInsert = aligned.filter((r) => !reused.has(r.referenceId));
-    result.reused = aligned.length - toInsert.length;
+    const unlinked = aligned.filter((r) => !reused.has(r.referenceId));
+    result.reused = aligned.length - unlinked.length;
+    // A record whose parent this load could not write is held back, and so,
+    // in its turn, is what names it: written without the parent, it stands in
+    // the target as what it is not. Run for real, the account a validation
+    // rule refused left 130 contacts written as private contacts, and the
+    // target then refused every relation of theirs: "You can't associate a
+    // private contact with an account". A lookup the dataset leaves empty is
+    // no parent, and stays empty.
+    const toInsert: typeof unlinked = [];
+    for (const record of unlinked) {
+      const held = parentRefused(objectApiName, record.fields, refIndex, refusedRecords);
+      if (held)
+        result.failed.push({ objectApiName, referenceId: record.referenceId, errors: [held] });
+      else toInsert.push(record);
+    }
     if (toInsert.length === 0) {
       return result;
     }
@@ -4548,7 +4616,19 @@ export class FrozenDatasetLoader {
     leftOut: ReadonlyArray<{ objectApiName: string; count: number; reason: string }>,
     personContactsNotSent = 0,
     writtenWithout: WrittenWithout = new Map(),
+    parentNotLoaded: ReadonlyArray<{
+      objectApiName: string;
+      referenceId: string;
+      field: string;
+    }> = [],
   ): string {
+    /** Per object and lookup, the records written without the parent it names. */
+    const withoutParent = new Map<string, Record<string, string[]>>();
+    for (const { objectApiName, referenceId, field } of parentNotLoaded) {
+      const fields = withoutParent.get(objectApiName) ?? {};
+      fields[field] = [...(fields[field] ?? []), referenceId];
+      withoutParent.set(objectApiName, fields);
+    }
     const leftOf = new Map<string, Record<string, number>>();
     for (const { objectApiName, count, reason } of leftOut) {
       const reasons = leftOf.get(objectApiName) ?? {};
@@ -4576,9 +4656,13 @@ export class FrozenDatasetLoader {
         exclusionReasons['duplicate-skipped'] = result.skippedDuplicates.length;
       }
       const notSent = result.objectApiName === CONTACT ? personContactsNotSent : 0;
-      if (result.failed.length > notSent) {
+      // Held back for a parent the load could not write, apart from what the
+      // target refused: the verification names both.
+      const heldBack = result.failed.filter((f) => isParentRefused(f.errors)).length;
+      if (heldBack > 0) exclusionReasons['parent-refused'] = heldBack;
+      if (result.failed.length - heldBack > notSent) {
         const reason = lost.has(result.objectApiName) ? 'object-not-loaded' : 'dml-failed';
-        exclusionReasons[reason] = result.failed.length - notSent;
+        exclusionReasons[reason] = result.failed.length - heldBack - notSent;
       }
       if (notSent > 0) exclusionReasons['person-contact-not-sent'] = notSent;
       let left = 0;
@@ -4591,6 +4675,7 @@ export class FrozenDatasetLoader {
         (p) => p.placeholderObjectApiName === result.objectApiName,
       ).length;
       const without = writtenWithout.get(result.objectApiName);
+      const parentsNotLoaded = withoutParent.get(result.objectApiName);
       objects[result.objectApiName] = {
         fromFiles: result.fromFiles,
         exclusionReasons,
@@ -4598,6 +4683,7 @@ export class FrozenDatasetLoader {
         added,
         expected: result.inserted + result.reused + added,
         ...(without && without.size > 0 ? { writtenWithout: Object.fromEntries(without) } : {}),
+        ...(parentsNotLoaded ? { parentNotLoaded: parentsNotLoaded } : {}),
       };
     }
     return writeCountingContract(this.sasGuard, options.sasDir, {
@@ -4622,6 +4708,55 @@ export class FrozenDatasetLoader {
   contractPath(sasDir: string, orgId: string): string {
     return countingContractPath(this.sasGuard, sasDir, orgId);
   }
+}
+
+/**
+ * The records this load could not write, by referenceId, each with its
+ * object: those the target refused, those held back for a parent it refused
+ * in turn, and those of an object the load could not send. A duplicate the
+ * target skipped is none of them: it holds the record already.
+ */
+function refusedIn(perObject: readonly PerObjectLoadResult[]): Map<string, string> {
+  const refused = new Map<string, string>();
+  for (const result of perObject) {
+    for (const failed of result.failed) refused.set(failed.referenceId, result.objectApiName);
+  }
+  return refused;
+}
+
+/**
+ * Why a record is held back for a parent this load could not write — Forge's
+ * `parent_refused`, Sync's `PARENT_REFUSED` — or nothing when no lookup of it
+ * names one. Any lookup the dataset gave a value counts, required or not; a
+ * lookup the platform fills itself (an email's task) does not.
+ */
+function parentRefused(
+  objectApiName: string,
+  fields: Record<string, unknown>,
+  refIndex: ReadonlyMap<string, string>,
+  refused: ReadonlyMap<string, string>,
+): string | undefined {
+  if (refused.size === 0) return undefined;
+  const filled = new Set(
+    objectApiName === EMAIL_MESSAGE && !emailOnACase(fields, (id) => refIndex.get(id))
+      ? ['ActivityId']
+      : [],
+  );
+  for (const [field, value] of Object.entries(fields)) {
+    if (typeof value !== 'string' || filled.has(field) || !refIndex.has(value)) continue;
+    const parent = refused.get(value);
+    if (parent === undefined) continue;
+    return (
+      `PARENT_REFUSED: the ${parent} record its ${field} names was refused in this load, and ` +
+      `written without it this record would stand without its ${parent}.`
+    );
+  }
+  return undefined;
+}
+
+/** Whether a record failed for being held back behind a parent the load refused ({@link parentRefused}). */
+function isParentRefused(errors: readonly string[]): boolean {
+  return errors.length === 1 && errors[0].startsWith('PARENT_REFUSED:');
 }
 
 /** Whether a field of a record holds no value: what a placeholder or a default fills. */
@@ -4696,6 +4831,7 @@ function loadPlanOf(
   const emptyIn = (objectApiName: string, field: string): number =>
     written(objectApiName).filter((r) => leftEmpty(r.fields[field])).length;
   const leftUnrecorded = purge?.leftUnrecorded ?? {};
+  const heldForExcluded = prepared.heldForExclusions.counts();
   return {
     orgId: context.orgId,
     mode: context.mode,
@@ -4731,6 +4867,9 @@ function loadPlanOf(
     personContacts,
     earlierLoads: prepared.previousLoads.length,
     ...(Object.keys(leftUnrecorded).length > 0 ? { leftUnrecorded } : {}),
+    ...(heldForExcluded.length > 0
+      ? { heldForExcludedParents: heldForExcludedParentsOf(heldForExcluded) }
+      : {}),
   };
 }
 
@@ -4757,6 +4896,77 @@ function leaveWhatHangsFrom(
       changed = true;
     }
   }
+}
+
+/** A lookup of an object's records the target will not take empty, at an object the configuration excludes. */
+interface ExcludedParentLookup {
+  field: string;
+  excludedObject: string;
+}
+
+/**
+ * The lookups of `objectApiName` the target will not take empty — required
+ * as its describe says, or as the platform has it (`isRequiredLookup`) —
+ * that name only objects `excludedObjects` leaves out, and for which no
+ * placeholder is declared: a declared one is the configuration offering it.
+ */
+function lookupsAtExcludedObjects(
+  objectApiName: string,
+  describe: TargetObjectDescribe,
+  config: FrozenLoadConfig,
+): ExcludedParentLookup[] {
+  const excluded = new Set(config.excludedObjects ?? []);
+  if (excluded.size === 0) return [];
+  const lookups: ExcludedParentLookup[] = [];
+  for (const field of describe.fields) {
+    const targets = field.referenceTo ?? [];
+    if (targets.length === 0 || !targets.every((target) => excluded.has(target))) continue;
+    if (!field.createable || field.defaultedOnCreate) continue;
+    if (!isRequiredLookup(objectApiName, field.name, field.nillable)) continue;
+    if (config.requiredLookupPlaceholders?.[`${objectApiName}.${field.name}`]) continue;
+    lookups.push({ field: field.name, excludedObject: targets[0] });
+  }
+  return lookups;
+}
+
+/**
+ * The rows a load leaves out for a parent the configuration excludes: a row
+ * that leaves empty a lookup of {@link lookupsAtExcludedObjects} — the
+ * dataset holds no record of an excluded object, so every such lookup is
+ * empty. The rows' `noun` names the object excluded.
+ */
+function heldForAnExcludedParent(
+  lookups: ReadonlyMap<string, readonly ExcludedParentLookup[]>,
+): (objectApiName: string, row: Record<string, unknown>) => PlatformWrittenRows | undefined {
+  return (objectApiName, row) => {
+    for (const { field, excludedObject } of lookups.get(objectApiName) ?? []) {
+      if (leftEmpty(row[field])) return { field, value: '', noun: excludedObject };
+    }
+    return undefined;
+  };
+}
+
+/**
+ * What a load says of `count` records of one object it left out for a parent
+ * the configuration excludes: `3 left out: InsurancePolicyId names an
+ * InsurancePolicy record, which excludedObjects leaves out — declare a
+ * placeholder …`, or for records that hang from those, `1 left out: ParentId
+ * names a record left out for the InsurancePolicy excludedObjects leaves out`.
+ */
+function heldForExclusionNote(count: number, why: LeftToThePlatform): string {
+  if (why.through) {
+    return `${count} left out: ${why.through} names a record left out for the ${why.rows.noun} excludedObjects leaves out`;
+  }
+  return `${count} left out: ${why.rows.field ?? 'a lookup'} names ${/^[AEIOU]/i.test(why.rows.noun) ? 'an' : 'a'} ${why.rows.noun} record, which excludedObjects leaves out — declare a placeholder in requiredLookupPlaceholders to load them`;
+}
+
+/** The records a load left out for a parent the configuration excludes, per object and reason, as its report says them. */
+function heldForExcludedParentsOf(counts: readonly RowsLeftOut[]): FrozenLeftToThePlatform[] {
+  return counts.map(({ objectApiName, why, count }) => ({
+    objectApiName,
+    count,
+    note: heldForExclusionNote(count, why),
+  }));
 }
 
 /**

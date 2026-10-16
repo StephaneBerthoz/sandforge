@@ -230,3 +230,46 @@ describe('a selection on an org shaped like a large one', () => {
     });
   });
 });
+
+describe('a dossier on an org shaped like a large one', () => {
+  /** The records the selection measured for the one case it kept, per object. */
+  async function measuredDossier(): Promise<Record<string, number>> {
+    const org = largeOrg({
+      customObjects: 8,
+      cases: 4,
+      fieldService: { assetsPerAccount: 2_000, territories: 3_000 },
+    });
+    const { conn } = countingConnection(org);
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    const deps = depsWith(caseSelection(1, 1, { maxNodes: 50 }));
+
+    await new FrozenDatasetHandler(deps).handle(selectMsg());
+
+    expect(posted(deps, 'frozen:select:error')).toEqual([]);
+    const [{ selection }] = posted<{ selection: FrozenSelectionSummary }>(
+      deps,
+      'frozen:select:response',
+    );
+    expect(selection.combinations).toHaveLength(1);
+    return selection.volumetry.measured;
+  }
+
+  it('takes a case and what hangs under it, with the account it names and none of the account’s other children', async () => {
+    // Run for real, the account a case named brought every policy, asset and
+    // feed item of that account: thousands of records for one case.
+    const measured = await measuredDossier();
+
+    expect(measured).toMatchObject({ Case: 1, WorkOrder: 1, ServiceAppointment: 1, Account: 1 });
+    expect(measured.Asset ?? 0).toBe(0);
+  });
+
+  it('takes the territory its appointment is booked in, and none of the tree it belongs to', async () => {
+    // Here the territories share their operating hours with every account:
+    // read as a parent in scope, a record they share brings the whole tree.
+    // Run for real, three cases took 39 540 territories.
+    const measured = await measuredDossier();
+
+    expect(measured.ServiceTerritory).toBe(1);
+    expect(measured.OperatingHours).toBe(1);
+  });
+});

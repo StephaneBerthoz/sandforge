@@ -20,6 +20,7 @@
 import type {
   ForgeFieldRefusal,
   ForgeRefusedField,
+  ForgeSweepResult,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
@@ -527,6 +528,13 @@ export interface FrozenLoadReportInfo {
    * dataset loads them. Absent when none was.
    */
   untypedFeedItems?: FrozenLeftToThePlatform[];
+  /**
+   * Records the dataset carries and the load left out, by object: a lookup
+   * the target will not take empty names an object `excludedObjects` leaves
+   * out, and no placeholder is declared for it — or they cannot go in without
+   * such a record. Absent when none was.
+   */
+  heldForExcludedParents?: FrozenLeftToThePlatform[];
   mappingPath: string;
   contractPath: string;
 }
@@ -609,6 +617,13 @@ export interface FrozenLoadPlanInfo {
   /** How many loads into the target the sas mapping records: what a reload judges. */
   earlierLoads: number;
   /**
+   * The records the load would leave out because a lookup the target will
+   * not take empty names an object `excludedObjects` leaves out, with what
+   * cannot go in without them: per object and reason, counted among the
+   * records not sent. Absent when none would be.
+   */
+  heldForExcludedParents?: FrozenLeftToThePlatform[];
+  /**
    * On a reload, per object, records of a load recorded before loads kept
    * what they created that the purge would leave in place: that load may have
    * linked them. Absent when none would be.
@@ -665,14 +680,18 @@ export interface FrozenLoadProgress {
 
 /** One post-load verification check outcome. */
 export interface FrozenPostLoadCheck {
-  name: 'stability' | 'counts' | 'orphans' | 'personcontact' | 'presence';
+  name: 'stability' | 'counts' | 'load' | 'orphans' | 'personcontact' | 'presence';
   passed: boolean;
   detail: string;
 }
 
-/** Final post-load verdict. */
+/**
+ * Final post-load verdict: `partial` when the load wrote part of the dataset —
+ * records of an object refused or held back, none of an object whole, or
+ * lookups left empty for a parent it did not load — and nothing else is amiss.
+ */
 export interface FrozenVerifyVerdict {
-  status: 'passed' | 'failed' | 'unstable';
+  status: 'passed' | 'partial' | 'failed' | 'unstable';
   checks: FrozenPostLoadCheck[];
   /** Measurements taken (2 identical snapshots stop the loop early). */
   attempts: number;
@@ -741,6 +760,12 @@ export interface FrozenRemovalResult {
    * when that one ended, ISO 8601. It set out to take only those records.
    */
   leftBy?: string;
+  /**
+   * What the sweep asked with the removal did, before the load's records
+   * went: what the target's automation created during the load, as its user.
+   * Absent when none was asked.
+   */
+  sweep?: ForgeSweepResult;
 }
 
 /** The verdict of the last verification of a load into a target org. */

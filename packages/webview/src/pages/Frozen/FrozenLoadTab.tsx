@@ -487,6 +487,18 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   </ul>
                 </div>
               )}
+              {(plan.heldForExcludedParents?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-preview-held-for-excluded"
+                >
+                  {t('frozen.preview.heldForExcludedParents', {
+                    objects: (plan.heldForExcludedParents ?? [])
+                      .map((held) => `${held.objectApiName} (${held.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
               {plan.placeholders.length > 0 && (
                 <p
                   className="text-[11px] text-text-secondary"
@@ -876,6 +888,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   })}
                 </p>
               )}
+              {/* Never sent: what they cannot go in without, excludedObjects leaves out. */}
+              {(loadReport.heldForExcludedParents?.length ?? 0) > 0 && (
+                <p
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-report-held-for-excluded"
+                >
+                  {t('frozen.report.heldForExcludedParents', {
+                    objects: (loadReport.heldForExcludedParents ?? [])
+                      .map((held) => `${held.objectApiName} (${held.count})`)
+                      .join(', '),
+                  })}
+                </p>
+              )}
               {loadReport.statuses &&
                 loadReport.statuses.restored + loadReport.statuses.refused.length > 0 && (
                   <div data-testid="frozen-report-statuses">
@@ -915,7 +940,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   variant={
                     verdict.status === 'passed'
                       ? 'success'
-                      : verdict.status === 'unstable'
+                      : verdict.status === 'unstable' || verdict.status === 'partial'
                         ? 'warning'
                         : 'error'
                   }

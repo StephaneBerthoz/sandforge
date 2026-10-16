@@ -1,4 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
+import type { ForgeSweepListing } from '../forge.types.js';
 import type {
   FrozenControlReport,
   FrozenLoadPlanInfo,
@@ -104,6 +105,28 @@ export interface FrozenRemoveRequest extends BaseMessage {
      * them since; they are kept otherwise.
      */
     includeChanged?: boolean;
+    /**
+     * Sweep, before the load's records go, what the target's automation
+     * created during the load as its user that the load's mapping does not
+     * hold (Forge's sweep, `ForgeRunSweep`): such a record then holds none of
+     * the load's records back as one that stays.
+     */
+    sweep?: boolean;
+  };
+}
+
+/**
+ * `frozen:remove:sweep`. WebView -> Extension. What a sweep asked with the
+ * removal of a load would take — per object, a few names, never ids — read
+ * only, for the confirmation to list before the user types the org's name.
+ */
+export interface FrozenRemoveSweepRequest extends BaseMessage {
+  type: 'frozen:remove:sweep';
+  payload: {
+    /** The org the load wrote to. */
+    targetOrgId: string;
+    /** When the load wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+    loadedAt: string;
   };
 }
 
@@ -217,6 +240,12 @@ export interface FrozenRemoveResponse extends BaseMessage {
   payload: { result: FrozenRemovalResult; operationId: string };
 }
 
+/** `frozen:remove:sweep:response`. Extension -> WebView. What a sweep of the load's removal would take. */
+export interface FrozenRemoveSweepResponse extends BaseMessage {
+  type: 'frozen:remove:sweep:response';
+  payload: { loadedAt: string; listing: ForgeSweepListing };
+}
+
 // ─── Frozen error channels (Extension -> WebView, via sendHandlerError) ─────
 
 /**
@@ -278,5 +307,14 @@ export interface FrozenVerifyErrorMessage extends BaseMessage {
  */
 export interface FrozenRemoveErrorMessage extends BaseMessage {
   type: 'frozen:remove:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:remove:sweep:error`. Extension -> WebView. What a sweep would take
+ * could not be read: no load recorded, another load since, or a read that failed.
+ */
+export interface FrozenRemoveSweepErrorMessage extends BaseMessage {
+  type: 'frozen:remove:sweep:error';
   payload: { message: string; code: string; retryable: boolean };
 }

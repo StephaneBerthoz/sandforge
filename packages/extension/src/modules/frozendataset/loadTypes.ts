@@ -168,8 +168,21 @@ export interface FrozenLoadConfig {
    * instead of deleted.
    */
   undeletableObjects?: Record<string, string>;
-  /** Placeholder specs keyed `Object.field` for required lookups missing from the dataset. */
+  /**
+   * Placeholder specs keyed `Object.field` for required lookups missing from the dataset.
+   * One declared for a lookup at an object `excludedObjects` names is the
+   * configuration offering it: the records that leave the lookup empty are
+   * pointed at the placeholder rather than left out.
+   */
   requiredLookupPlaceholders?: Record<string, RequiredLookupPlaceholder>;
+  /**
+   * Objects the dataset leaves out by name (`FrozenProjectConfig.excludedObjects`).
+   * A record whose lookup the target will not take empty names one of them
+   * cannot be loaded as it is: it is left out of the load, counted and said,
+   * with what cannot go in without it, unless a placeholder is declared for
+   * that lookup. No placeholder is asked for such a parent.
+   */
+  excludedObjects?: string[];
   /** Declared default values keyed `Object.field` for required scalar fields missing from the dataset. */
   requiredFieldDefaults?: Record<string, unknown>;
   /** Picklist rules keyed `Object.field` for values rejected by the target. */
@@ -434,6 +447,13 @@ export interface FrozenLoadReport {
    * item. Extracted again, the dataset loads them. Absent when none was.
    */
   untypedFeedItems?: FrozenLeftToThePlatform[];
+  /**
+   * Records the dataset carries and the load left out, by object, because a
+   * lookup the target will not take empty names an object `excludedObjects`
+   * leaves out, and no placeholder is declared for it — or they cannot go in
+   * without such a record. Absent when none was.
+   */
+  heldForExcludedParents?: FrozenLeftToThePlatform[];
   /** Sas path of the persisted referenceId→Id mapping. */
   mappingPath: string;
   /** Sas path of the counting contract consumed by the PostLoadVerifier. */

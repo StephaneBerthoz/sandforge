@@ -43,8 +43,14 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Connection } from 'jsforce';
-import type { FrozenSelectProgress, FrozenSelectionStop } from '@sandforge/shared';
+import type {
+  ForgeSweepListing,
+  ForgeSweepResult,
+  FrozenSelectProgress,
+  FrozenSelectionStop,
+} from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
+import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
@@ -79,6 +85,19 @@ Options:
                          would insert, link, drop, rewrite and purge — and write nothing
   --include-changed      remove also the records changed since the load, and what
                          was added to them since (kept otherwise)
+  --sweep                with remove: before the load's records go, delete too what
+                         the target's automation created during the load, as the
+                         load's user, that the load's mapping does not hold — in the
+                         objects the load wrote, tasks, events, feed, email
+                         messages, notes, case comments, and the objects the
+                         target's flows create; the window is the load's writes,
+                         from a second before the first to a minute after the
+                         last. Refused when that user created records in the
+                         window on objects neither the load nor the automation
+                         reaches (hand work, likely). Such records then keep none
+                         of the load's records as records that stay (off otherwise)
+  --sweep-list           with remove: list what --sweep would delete, per object
+                         with a few names, and delete nothing
   --yes                  do not ask before a load writes or a removal deletes
   --json                 emit what the panel would receive
   --help                 this text
@@ -105,6 +124,10 @@ interface CliArgs {
   /** With load: what the load would do, and nothing written. */
   dryRun: boolean;
   includeChanged: boolean;
+  /** With remove: sweep first what the target's automation created during the load. */
+  sweep: boolean;
+  /** With remove: list what a sweep would delete, and delete nothing. */
+  sweepList: boolean;
   yes: boolean;
   json: boolean;
 }
@@ -141,6 +164,16 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write(`${step} works on the target org: give --target.\n`);
     process.exit(2);
   }
+  if (args.includes('--sweep') && args.includes('--sweep-list')) {
+    process.stderr.write(
+      '--sweep deletes and --sweep-list only lists: give one of them. Run with --help.\n',
+    );
+    process.exit(2);
+  }
+  if ((args.includes('--sweep') || args.includes('--sweep-list')) && step !== 'remove') {
+    process.stderr.write('--sweep and --sweep-list go with remove. Run with --help.\n');
+    process.exit(2);
+  }
 
   return {
     step,
@@ -153,6 +186,8 @@ export function parseArgs(argv: string[]): CliArgs {
     reload: args.includes('--reload'),
     dryRun: args.includes('--dry-run'),
     includeChanged: args.includes('--include-changed'),
+    sweep: args.includes('--sweep'),
+    sweepList: args.includes('--sweep-list'),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -212,7 +247,11 @@ export async function typeOrg(conn: Pick<Connection, 'query'>): Promise<TypedOrg
  * Every guard of the load reads the type, and the edition, the panel gives an
  * org it connects. A runner that guessed them would be testing its guess.
  */
-async function registerOrg(alias: string, orgs: Map<string, KnownOrg>): Promise<string> {
+async function registerOrg(
+  alias: string,
+  orgs: Map<string, KnownOrg>,
+  conns?: Map<string, Connection>,
+): Promise<string> {
   const session = await loadOrg(alias);
   const conn = makeConn(session);
   let typed: TypedOrg;
@@ -231,6 +270,7 @@ async function registerOrg(alias: string, orgs: Map<string, KnownOrg>): Promise<
     },
     credentials: { accessToken: session.accessToken, instanceUrl: session.instanceUrl },
   });
+  conns?.set(typed.id, conn);
   return typed.id;
 }
 
@@ -549,6 +589,7 @@ export function messageLines(message: Posted): string[] {
         };
         leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
         untypedFeedItems?: Array<{ objectApiName: string; note: string }>;
+        heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
       };
       const lines = [
         `load: ${r.status} in ${r.durationMs}ms — ${r.alignment.excludedObjects.length} object(s) ` +
@@ -571,7 +612,13 @@ export function messageLines(message: Posted): string[] {
       }
       // Never sent: no load could write them, or this dataset cannot say
       // which of them the platform writes itself.
-      for (const left of [...(r.leftToThePlatform ?? []), ...(r.untypedFeedItems ?? [])]) {
+      // Nor sent either: what they cannot go in without is an object
+      // excludedObjects leaves out.
+      for (const left of [
+        ...(r.leftToThePlatform ?? []),
+        ...(r.untypedFeedItems ?? []),
+        ...(r.heldForExcludedParents ?? []),
+      ]) {
         lines.push(`  ${left.objectApiName}: ${left.note}`);
       }
       // Refused by a validation rule on the fields it named, or by a
@@ -688,6 +735,7 @@ export function messageLines(message: Posted): string[] {
         personContacts: number;
         earlierLoads: number;
         leftUnrecorded?: Record<string, number>;
+        heldForExcludedParents?: Array<{ objectApiName: string; note: string }>;
       };
       const sum = (pick: (o: (typeof plan.perObject)[number]) => number): number =>
         plan.perObject.reduce((total, o) => total + pick(o), 0);
@@ -717,6 +765,9 @@ export function messageLines(message: Posted): string[] {
       }
       for (const excluded of plan.excludedObjects) {
         lines.push(`  ${excluded.objectApiName}: not loaded — ${excluded.reason}`);
+      }
+      for (const held of plan.heldForExcludedParents ?? []) {
+        lines.push(`  ${held.objectApiName}: ${held.note}`);
       }
       for (const placeholder of plan.placeholders) {
         lines.push(
@@ -757,6 +808,7 @@ export function messageLines(message: Posted): string[] {
       const r = p.result as {
         status: string;
         leftBy?: string;
+        sweep?: ForgeSweepResult;
         objects: Array<{
           objectApiName: string;
           planned: number;
@@ -773,6 +825,8 @@ export function messageLines(message: Posted): string[] {
       };
       const unchecked = [...new Set(r.objects.flatMap((o) => o.unchecked))];
       return [
+        // The sweep ran first, before the load's records went.
+        ...(r.sweep ? sweepLines(r.sweep) : []),
         `removal: ${r.status.toUpperCase()}` +
           (r.leftBy ? ` — of what the removal of ${r.leftBy} left` : ''),
         ...r.objects.flatMap((o) => [
@@ -785,6 +839,8 @@ export function messageLines(message: Posted): string[] {
           : []),
       ];
     }
+    case 'frozen:remove:sweep:response':
+      return sweepListingLines(p.listing as ForgeSweepListing, 'the target org');
     case 'frozen:status:response':
       return [JSON.stringify(p.status, null, 2)];
     default:
@@ -807,8 +863,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const configStore = fileConfigStore(args.storePath ?? join(sasDir, 'cli-store.json'));
 
   const orgs = new Map<string, KnownOrg>();
+  const conns = new Map<string, Connection>();
   const sourceOrgId = args.source ? await registerOrg(args.source, orgs) : undefined;
-  const targetOrgId = args.target ? await registerOrg(args.target, orgs) : undefined;
+  const targetOrgId = args.target ? await registerOrg(args.target, orgs, conns) : undefined;
 
   // What the panel would have received, printed instead of posted — but for
   // what a step reads for itself.
@@ -833,6 +890,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // Built rather than stubbed: every message the handler posts carries one.
     nextId: () => `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   } as never);
+
+  // What the target's flows create, which a sweep looks at: read as the panel
+  // reads it, through Forge's reader.
+  const targetConn = targetOrgId ? conns.get(targetOrgId) : undefined;
+  if (targetConn) handler.setTargetAutomation(targetAutomationReader(targetConn));
 
   const send = (type: string, payload: Record<string, unknown>): Promise<boolean> =>
     handler.handle({ id: `cli-${type}-${Date.now()}`, type, payload } as never);
@@ -902,7 +964,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         process.exitCode = 1;
         return;
       }
+      if (args.sweepList) {
+        // What a sweep would delete, read and said; nothing is deleted, the
+        // load's own records included.
+        log(`reading what a sweep of ${args.target} would take…`);
+        await send('frozen:remove:sweep', { targetOrgId, loadedAt: records.loadedAt });
+        break;
+      }
       for (const line of removalPlanLines(records, args.target ?? '')) log(line);
+      if (args.sweep) {
+        log(
+          "before them, a sweep deletes what the target's automation created during the load, " +
+            "as the load's user — run with --sweep-list to see what",
+        );
+      }
       if (!args.yes && removalAsks(records)) {
         // Typed, as the panel asks it: the name of the org the records leave.
         const answer = await typed(`Type ${args.target} to delete them:`);
@@ -916,6 +991,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         targetOrgId,
         loadedAt: records.loadedAt,
         ...(args.includeChanged ? { includeChanged: true } : {}),
+        ...(args.sweep ? { sweep: true } : {}),
       });
       break;
     }

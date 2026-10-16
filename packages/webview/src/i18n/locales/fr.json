@@ -4098,6 +4098,7 @@
       "notSent": "Non envoyés",
       "toPurge": "À purger",
       "toDeactivate": "À désactiver",
+      "heldForExcludedParents": "Seraient laissés de côté, non envoyés — un lookup sans lequel ces enregistrements ne peuvent pas entrer désigne un objet que excludedObjects laisse de côté, ou ils dépendent de tels enregistrements ; aucun enregistrement technique n'est demandé pour lui : {{objects}}",
       "placeholders": "Placeholders à créer, et les enregistrements que chacun remplit : {{fields}}",
       "defaults": "Valeurs par défaut déclarées, et les enregistrements que chacune remplit : {{fields}}",
       "personContacts_one": "{{count}} contact de compte personnel entre avec son compte, compté à part : lié au contact que la plateforme écrit avec lui, ou envoyé comme contact à part entière là où la cible tient le compte pour un compte professionnel.",
@@ -4114,6 +4115,7 @@
       "status": {
         "passed": "Réussie",
         "failed": "Échouée",
+        "partial": "Partielle",
         "unstable": "Instable"
       }
     },
@@ -4139,6 +4141,7 @@
       "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}",
       "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
       "excludedObjects": "Objets non chargés",
+      "heldForExcludedParents": "Laissés de côté au chargement — un lookup sans lequel ces enregistrements ne peuvent pas entrer désigne un objet que excludedObjects laisse de côté, ou ils dépendent de tels enregistrements ; déclarez un enregistrement technique dans requiredLookupPlaceholders pour les charger : {{objects}}",
       "untypedFeedItems": "Laissés de côté au chargement — le jeu de données ne porte pas le type de ces éléments de fil, ou de ceux dont ils dépendent : une modification suivie ne se distingue pas d'une publication ; extrayez à nouveau le jeu de données pour les charger : {{objects}}",
       "failedReasons": "Pourquoi des enregistrements ont échoué",
       "statusCode": "Code de statut",
@@ -4175,6 +4178,10 @@
       "removeTitle": "Supprimer de {{org}} les enregistrements de ce chargement",
       "removeDescription": "Supprime de {{org}} les enregistrements créés par ce chargement, les enfants avant leurs parents ; ils vont dans sa corbeille. Après un rechargement, ils comprennent les enregistrements que des chargements antérieurs ont créés et que le rechargement a retrouvés et gardés comme les siens. Les enregistrements auxquels le chargement s'est lié ou qu'il a réutilisés, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis le chargement, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
       "includeChanged": "Supprimer aussi les enregistrements modifiés depuis le chargement, et ce qui leur a été ajouté depuis",
+      "sweep": "Balayer d'abord : reprendre aussi ce que l'automatisation de la cible a créé pendant le chargement, au nom de son utilisateur — un tel enregistrement ne retient alors plus aucun enregistrement du chargement",
+      "sweepTitle": "Ce que le balayage reprend dans {{org}}",
+      "sweepLoading": "Lecture de ce que l'automatisation de {{org}} a créé pendant le chargement…",
+      "sweepError": "Ce que le balayage reprendrait dans {{org}} n'a pas pu être lu : {{reason}}",
       "removing": "Suppression des enregistrements créés par ce chargement…",
       "cancel": "Arrêter la suppression",
       "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a reçu sa réponse. Ce qu'elle a supprimé d'ici là est listé ; le reste demeure dans l'org, et une suppression le reprendra plus tard.",

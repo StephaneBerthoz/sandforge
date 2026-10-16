@@ -4098,6 +4098,7 @@
       "notSent": "Nicht gesendet",
       "toPurge": "Zu bereinigen",
       "toDeactivate": "Zu deaktivieren",
+      "heldForExcludedParents": "Würden ausgelassen, nicht gesendet — ein Lookup, ohne den diese Datensätze nicht geladen werden können, verweist auf ein Objekt, das excludedObjects auslässt, oder sie hängen von solchen Datensätzen ab; dafür wird kein Platzhalter verlangt: {{objects}}",
       "placeholders": "Anzulegende Platzhalter und die Datensätze, die jeder füllt: {{fields}}",
       "defaults": "Deklarierte Standardwerte und die Datensätze, die jeder füllt: {{fields}}",
       "personContacts_one": "{{count}} Kontakt eines Personenkontos kommt mit seinem Konto hinein, gesondert gezählt: mit dem Kontakt verknüpft, den die Plattform mit ihm schreibt, oder als eigener Kontakt gesendet, wo das Ziel das Konto als Geschäftskonto führt.",
@@ -4114,6 +4115,7 @@
       "status": {
         "passed": "Bestanden",
         "failed": "Fehlgeschlagen",
+        "partial": "Teilweise",
         "unstable": "Instabil"
       }
     },
@@ -4139,6 +4141,7 @@
       "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}",
       "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",
       "excludedObjects": "Nicht geladene Objekte",
+      "heldForExcludedParents": "Beim Laden ausgelassen — ein Lookup, ohne den diese Datensätze nicht geladen werden können, verweist auf ein Objekt, das excludedObjects auslässt, oder sie hängen von solchen Datensätzen ab; deklarieren Sie einen Platzhalter in requiredLookupPlaceholders, um sie zu laden: {{objects}}",
       "untypedFeedItems": "Beim Laden ausgelassen — der Datensatz enthält den Typ dieser Feed-Elemente oder derer, von denen sie abhängen, nicht, sodass sich eine nachverfolgte Änderung nicht von einem Beitrag unterscheiden lässt; extrahieren Sie den Datensatz erneut, um sie zu laden: {{objects}}",
       "failedReasons": "Warum Datensätze fehlgeschlagen sind",
       "statusCode": "Statuscode",
@@ -4175,6 +4178,10 @@
       "removeTitle": "Datensätze dieses Ladevorgangs aus {{org}} entfernen",
       "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Ladevorgang erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Nach einem Neuladen gehören dazu auch die Datensätze, die frühere Ladevorgänge erstellt haben und die das Neuladen wiedergefunden und als seine eigenen behalten hat. Datensätze, mit denen der Ladevorgang verknüpft hat oder die er wiederverwendet hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ladevorgang geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
       "includeChanged": "Auch die seit dem Ladevorgang geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",
+      "sweep": "Zuerst aufräumen: auch zurücknehmen, was die Automatisierung des Ziels während des Ladens als dessen Benutzer erstellt hat — ein solcher Datensatz hält dann keinen Datensatz des Ladens mehr zurück",
+      "sweepTitle": "Was das Aufräumen aus {{org}} nimmt",
+      "sweepLoading": "Lesen, was die Automatisierung von {{org}} während des Ladens erstellt hat…",
+      "sweepError": "Was das Aufräumen aus {{org}} nehmen würde, konnte nicht gelesen werden: {{reason}}",
       "removing": "Die von diesem Ladevorgang erstellten Datensätze werden entfernt…",
       "cancel": "Entfernen anhalten",
       "stopping": "Wird angehalten: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, ist aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",

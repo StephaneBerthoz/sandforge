@@ -902,6 +902,9 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
     { objectApiName: 'FeedItem', count: 2, note: '2 feed items left out' },
     { objectApiName: 'FeedComment', count: 1, note: '1 left out' },
   ],
+  heldForExcludedParents: [
+    { objectApiName: 'InsurancePolicyParticipant', count: 2, note: '2 left out' },
+  ],
   mappingPath: '/home/qa/.sandforge-sas/referenceid-mapping.json',
   contractPath: '/home/qa/.sandforge-sas/counting-contract.json',
 };
@@ -5564,6 +5567,31 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Frozen load removal confirmation with a sweep ticked, listing what it would take', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme);
+      await page.getByTestId('frozen-removal-remove').click();
+      await page.getByTestId('frozen-removal-sweep-toggle').check();
+      await bridge.waitForMessage('frozen:remove:sweep', { timeout: 10_000 });
+      await answerAll(page, 'frozen:remove:sweep', 'frozen:remove:sweep:response', {
+        loadedAt: FROZEN_LAST_LOAD_RECORDS.loadedAt,
+        listing: {
+          window: { from: '2026-09-24T09:59:59Z', to: '2026-09-24T10:06:01Z' },
+          looked: ['Contact', 'Account', 'Task', 'FeedItem'],
+          found: [
+            { objectApiName: 'Task', count: 3, names: ['Follow-up'], overBound: false },
+            { objectApiName: 'FeedItem', count: 2, names: [], overBound: false },
+          ],
+          unread: [],
+          handWork: [],
+        },
+      });
+      await page.getByTestId('forge-sweep-found-Task').waitFor({ timeout: 10_000 });
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Frozen load removal result, per object, with what the org refused', async ({ page }) => {
       await openFrozenLastLoad(bridge, page, theme);
       await page.getByTestId('frozen-removal-remove').click();
@@ -7735,6 +7763,10 @@ for (const theme of STATE_THEMES) {
       });
       await page
         .getByTestId('frozen-report-untyped-feed-items')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      // The records it left out for a parent excludedObjects leaves out.
+      await page
+        .getByTestId('frozen-report-held-for-excluded')
         .waitFor({ state: 'visible', timeout: 10_000 });
       // The links it could not make: the lookups left empty, per object, and
       // the one that went with a contact the target refused.

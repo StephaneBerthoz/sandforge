@@ -192,6 +192,40 @@ describe('CoverageMatrixSelector', () => {
     await expect(selector.select(baseConfig)).rejects.toThrow(/2505.*2500/);
   });
 
+  it('names the heaviest objects past the budget, the root aside, and suggests leaving them out', async () => {
+    // Run for real, the refusal said only to narrow the axes or raise the
+    // budget, and the objects to leave out had to be read off the counts.
+    const selector = new CoverageMatrixSelector({
+      query: buildQuery(org),
+      checkHealth: healthChecker(new Set()),
+      measureVolumetry: async () => ({
+        Dossier__c: 5,
+        ServiceTerritory: 39_540,
+        OrderForm__c: 10_281,
+        Offer__c: 6_840,
+        Coverage__c: 2_624,
+        PolicyCoverage__c: 831,
+        Note__c: 12,
+        Empty__c: 0,
+      }),
+      now: () => NOW,
+    });
+
+    const refusal = await selector.select(baseConfig).then(
+      () => new Error('the selection was not refused'),
+      (err: unknown) => err as Error,
+    );
+
+    expect(refusal).toBeInstanceOf(VolumetryBudgetExceededError);
+    expect(refusal.message).toContain(
+      'The heaviest: ServiceTerritory 39540, OrderForm__c 10281, Offer__c 6840, ' +
+        'Coverage__c 2624, PolicyCoverage__c 831. Leave out those the dataset does not need ' +
+        'with excludedObjects (["ServiceTerritory","OrderForm__c","Offer__c","Coverage__c",' +
+        '"PolicyCoverage__c"])',
+    );
+    expect(refusal.message).not.toContain('Dossier__c 5');
+  });
+
   it('defaults the budget to 2 500 records', async () => {
     const selector = new CoverageMatrixSelector({
       query: buildQuery(org),

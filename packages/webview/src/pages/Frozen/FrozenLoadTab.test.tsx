@@ -266,6 +266,25 @@ describe('FrozenLoadTab', () => {
       );
     });
 
+    it('says which records the load would leave out for a parent excludedObjects leaves out', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            heldForExcludedParents: [
+              { objectApiName: 'FeedComment', count: 4, note: '4 left out' },
+            ],
+          },
+        },
+      };
+
+      render(tab());
+
+      expect(screen.getByTestId('frozen-preview-held-for-excluded').textContent).toContain(
+        'no placeholder is asked for it: FeedComment (4)',
+      );
+    });
+
     it('leaves out the purge of a load that is not a reload', () => {
       answers['frozen:load:preview'] = {
         data: { plan: { ...PLAN, mode: { pilot: false, reload: false } } },

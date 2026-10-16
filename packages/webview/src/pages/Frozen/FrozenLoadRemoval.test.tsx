@@ -205,6 +205,46 @@ describe('FrozenLoadRemoval', () => {
     });
   });
 
+  it('offers a sweep never ticked unasked, and lists what it would take once ticked', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    const toggle = screen.getByTestId('frozen-removal-sweep-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(sent('frozen:remove:sweep')).toBeUndefined();
+
+    fireEvent.click(toggle);
+    expect(sent('frozen:remove:sweep')?.payload).toEqual({
+      targetOrgId: 'org-dev',
+      loadedAt: '2026-09-24T10:05:00.000Z',
+    });
+    expect(screen.getByTestId('frozen-sweep-loading').textContent).toBe(
+      "Reading what DEV-SANDBOX's automation created during the load…",
+    );
+    answer('frozen:remove:sweep', 'frozen:remove:sweep:response', {
+      loadedAt: '2026-09-24T10:05:00.000Z',
+      listing: {
+        looked: ['Contact', 'Task'],
+        found: [{ objectApiName: 'Task', count: 3, names: ['Call'], overBound: false }],
+        unread: [],
+        handWork: [],
+      },
+    });
+
+    expect(screen.getByTestId('forge-sweep-found-Task').textContent).toContain('Task: 3 records');
+  });
+
+  it('asks for the sweep with the removal when it is ticked', () => {
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    fireEvent.click(screen.getByTestId('frozen-removal-sweep-toggle'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(sent('frozen:remove')?.payload).toMatchObject({ sweep: true });
+  });
+
   it('asks for the records changed since the load too when the box is ticked', () => {
     render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 

@@ -35,14 +35,20 @@ export const DEFAULT_ORPHAN_SAMPLE_SIZE = 10;
 
 /** One verification check outcome. */
 export interface PostLoadCheck {
-  name: 'stability' | 'counts' | 'orphans' | 'personcontact' | 'presence';
+  name: 'stability' | 'counts' | 'load' | 'orphans' | 'personcontact' | 'presence';
   passed: boolean;
   detail: string;
 }
 
-/** Final post-load verdict. */
+/**
+ * Final post-load verdict. `partial` when all that is wrong is that the load
+ * did not write part of the dataset — some records of an object refused or
+ * held back, none of them whole, or lookups it left empty because the record
+ * they name was not loaded — and `failed` when it wrote none of an object, or
+ * the org does not hold what the load says it wrote.
+ */
 export interface PostLoadVerdict {
-  status: 'passed' | 'failed' | 'unstable';
+  status: 'passed' | 'partial' | 'failed' | 'unstable';
   checks: PostLoadCheck[];
   /** Measurements taken (2 identical snapshots stop the loop early). */
   attempts: number;
@@ -148,8 +154,7 @@ export class PostLoadVerifier {
       stableSnapshot !== null,
     );
     const verdict: PostLoadVerdict = {
-      status:
-        stableSnapshot === null ? 'unstable' : checks.every((c) => c.passed) ? 'passed' : 'failed',
+      status: verdictOf(checks, contract, stableSnapshot),
       checks,
       attempts,
       measuredAt: now().toISOString(),
@@ -229,8 +234,13 @@ export class PostLoadVerifier {
     const loaded = options.mapping ? loadedIdsByObject(options.mapping) : undefined;
     for (const [objectApiName, fields] of Object.entries(options.mandatoryLookups ?? {})) {
       for (const field of fields) {
+        // Counted apart, beside the orphans: the load left the lookup empty
+        // because the record it names was not loaded, and says so.
         const leftEmpty = new Set(
-          writtenWithout(contract, objectApiName, field).flatMap((referenceId) => {
+          [
+            ...writtenWithout(contract, objectApiName, field),
+            ...namedIn(contract.objects[objectApiName]?.parentNotLoaded, field),
+          ].flatMap((referenceId) => {
             const id = options.mapping?.get(referenceId);
             return id === undefined ? [] : [id];
           }),
@@ -399,14 +409,39 @@ export class PostLoadVerifier {
           : `Count mismatches — ${countMismatches.join('; ')}`,
     });
 
+    // What the load did not write. The counts are of what it wrote, and
+    // matched them: run for real, a load that failed a third of the dataset —
+    // the accounts refused by a validation rule, every contract for want of
+    // its account — was verified PASSED.
+    const notLoaded = notLoadedOf(contract);
+    checks.push({
+      name: 'load',
+      passed: notLoaded.records === 0,
+      detail: notLoadedDetail(notLoaded),
+    });
+
     const orphanEntries = Object.entries(snapshot.orphans).filter(([, ids]) => ids.length > 0);
+    const withoutParent = parentsNotLoadedOf(contract);
+    const orphanParts = [
+      ...(orphanEntries.length > 0
+        ? [
+            `Orphans — ${orphanEntries.map(([edge, ids]) => `${edge} (${ids.length}: ${ids.join(', ')})`).join('; ')}`,
+          ]
+        : []),
+      ...(withoutParent.length > 0
+        ? [
+            'Lookups the load left empty because the record they name was not loaded — ' +
+              withoutParent.map(({ link, count }) => `${link} (${count})`).join('; '),
+          ]
+        : []),
+    ];
     checks.push({
       name: 'orphans',
-      passed: orphanEntries.length === 0,
+      passed: orphanParts.length === 0,
       detail:
-        orphanEntries.length === 0
+        orphanParts.length === 0
           ? 'No orphans on the mandatory lookups of the graph'
-          : `Orphans — ${orphanEntries.map(([edge, ids]) => `${edge} (${ids.length}: ${ids.join(', ')})`).join('; ')}`,
+          : orphanParts.join('; '),
     });
 
     if ((options.dataset?.personContactSidecar?.length ?? 0) > 0 && options.mapping) {
@@ -480,10 +515,128 @@ function writtenWithout(
   objectApiName: string,
   field: string,
 ): string[] {
-  const named: unknown = contract.objects[objectApiName]?.writtenWithout?.[field];
+  return namedIn(contract.objects[objectApiName]?.writtenWithout, field);
+}
+
+/** The referenceIds a contract entry's per-field list names under `field`: none when it names none there. */
+function namedIn(byField: Record<string, unknown> | undefined, field: string): string[] {
+  const named = byField?.[field];
   return Array.isArray(named)
     ? named.filter((referenceId): referenceId is string => typeof referenceId === 'string')
     : [];
+}
+
+/**
+ * Why the records the load did not write went unwritten, as its contract
+ * counts them: refused by the target, of an object the load could not send,
+ * held back for a parent it refused, or a person account's contact whose
+ * account it did not write. A duplicate the target skipped is none of them —
+ * the target holds it — nor is a record the dataset leaves to the platform or
+ * holds for an object `excludedObjects` leaves out: the load said so before
+ * it wrote anything.
+ */
+const NOT_LOADED_REASONS = {
+  refused: ['dml-failed', 'object-not-loaded', 'person-contact-not-sent'],
+  heldBack: ['parent-refused'],
+} as const;
+
+/** What a load did not write, per object and in all, from its contract. */
+interface NotLoaded {
+  /** Objects of which it wrote no record, though it had some to write. */
+  whole: Array<{ objectApiName: string; notLoaded: number }>;
+  /** Objects of which it wrote part. */
+  part: Array<{ objectApiName: string; notLoaded: number; of: number }>;
+  /** Records refused, or of an object it could not send. */
+  refused: number;
+  /** Records held back for a parent it refused. */
+  heldBack: number;
+  records: number;
+}
+
+/** What the load whose contract this is did not write. */
+function notLoadedOf(contract: CountingContract): NotLoaded {
+  const notLoaded: NotLoaded = { whole: [], part: [], refused: 0, heldBack: 0, records: 0 };
+  for (const [objectApiName, entry] of Object.entries(contract.objects).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    const count = (reasons: readonly string[]): number =>
+      reasons.reduce((sum, reason) => sum + (entry.exclusionReasons[reason] ?? 0), 0);
+    const refused = count(NOT_LOADED_REASONS.refused);
+    const heldBack = count(NOT_LOADED_REASONS.heldBack);
+    const missed = refused + heldBack;
+    if (missed === 0) continue;
+    notLoaded.refused += refused;
+    notLoaded.heldBack += heldBack;
+    notLoaded.records += missed;
+    if (entry.expected === 0) notLoaded.whole.push({ objectApiName, notLoaded: missed });
+    else notLoaded.part.push({ objectApiName, notLoaded: missed, of: missed + entry.expected });
+  }
+  return notLoaded;
+}
+
+/** What the `load` check says of what the load did not write. */
+function notLoadedDetail(notLoaded: NotLoaded): string {
+  if (notLoaded.records === 0) return 'Every record the load had to write went in';
+  const parts = [
+    ...(notLoaded.whole.length > 0
+      ? [
+          'Objects the load wrote none of — ' +
+            notLoaded.whole.map((o) => `${o.objectApiName} (${o.notLoaded} not loaded)`).join(', '),
+        ]
+      : []),
+    ...(notLoaded.part.length > 0
+      ? [
+          'Objects it wrote part of — ' +
+            notLoaded.part
+              .map((o) => `${o.objectApiName} (${o.notLoaded} of ${o.of} not loaded)`)
+              .join(', '),
+        ]
+      : []),
+  ];
+  const why = [
+    ...(notLoaded.refused > 0 ? [`${notLoaded.refused} refused by the target org`] : []),
+    ...(notLoaded.heldBack > 0
+      ? [`${notLoaded.heldBack} held back for a parent the target org refused`]
+      : []),
+  ];
+  return `${notLoaded.records} record(s) not loaded: ${why.join(', ')}. ${parts.join('; ')}`;
+}
+
+/** Per lookup, how many records the load wrote with it left empty because the record it named was not loaded. */
+function parentsNotLoadedOf(contract: CountingContract): Array<{ link: string; count: number }> {
+  const links: Array<{ link: string; count: number }> = [];
+  for (const [objectApiName, entry] of Object.entries(contract.objects).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    for (const field of Object.keys(entry.parentNotLoaded ?? {}).sort()) {
+      const count = namedIn(entry.parentNotLoaded, field).length;
+      if (count > 0) links.push({ link: `${objectApiName}.${field}`, count });
+    }
+  }
+  return links;
+}
+
+/**
+ * The verdict of a verification: `unstable` without two identical readings,
+ * `passed` when every check passed, `partial` when all that failed is that
+ * the load wrote part of an object or left lookups empty for a parent it did
+ * not load — none of an object refused whole, nothing the org was asked about
+ * amiss — and `failed` otherwise.
+ */
+function verdictOf(
+  checks: readonly PostLoadCheck[],
+  contract: CountingContract,
+  stable: VerificationSnapshot | null,
+): PostLoadVerdict['status'] {
+  if (stable === null) return 'unstable';
+  const failing = checks.filter((c) => !c.passed);
+  if (failing.length === 0) return 'passed';
+  const measuredOrphans = Object.values(stable.orphans).some((ids) => ids.length > 0);
+  const partOnly =
+    failing.every((c) => c.name === 'load' || c.name === 'orphans') &&
+    !measuredOrphans &&
+    notLoadedOf(contract).whole.length === 0;
+  return partOnly ? 'partial' : 'failed';
 }
 
 /** Ids per SOQL `IN` list: short enough for any statement to stay well inside the limit. */

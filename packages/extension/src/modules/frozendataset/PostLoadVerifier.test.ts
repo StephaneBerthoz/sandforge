@@ -616,3 +616,151 @@ describe('PostLoadVerifier — manifest consignation', () => {
     expect(consigned.controls.dryRunLoad?.detail).toContain('verdict=unstable');
   });
 });
+
+describe('PostLoadVerifier — what the load did not write', () => {
+  /**
+   * A load that wrote 372 records and failed 334, as one did for real: no
+   * account went in, nor any contract for want of its account; the contacts
+   * were held back behind their account, and those of another went in.
+   */
+  const FAILED_LOAD: CountingContract['objects'] = {
+    Account: {
+      fromFiles: 3,
+      exclusionReasons: { 'dml-failed': 3 },
+      excluded: 3,
+      added: 0,
+      expected: 0,
+    },
+    Contract: {
+      fromFiles: 125,
+      exclusionReasons: { 'dml-failed': 125 },
+      excluded: 125,
+      added: 0,
+      expected: 0,
+    },
+    Contact: {
+      fromFiles: 140,
+      exclusionReasons: { 'parent-refused': 130 },
+      excluded: 130,
+      added: 0,
+      expected: 10,
+    },
+  };
+
+  /** Every count matching what the contract expects of the records the load wrote. */
+  const matchingCounts = makeQuery([
+    { match: 'FROM Account', responses: [[{ cnt: 0 }]] },
+    { match: 'FROM Contract', responses: [[{ cnt: 0 }]] },
+    { match: 'FROM Contact', responses: [[{ cnt: 10 }]] },
+  ]);
+
+  it('fails a load that wrote none of an object, naming it and what held its children back', async () => {
+    // Run for real, such a load was verified PASSED: its counts matched the
+    // counting contract, which counts only what the load wrote.
+    const contractPath = writeContract(makeTmpDir(), FAILED_LOAD);
+    const { deps, options } = makeOptions(contractPath, matchingCounts);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('failed');
+    expect(verdict.checks.find((c) => c.name === 'counts')?.passed).toBe(true);
+    const load = verdict.checks.find((c) => c.name === 'load');
+    expect(load?.passed).toBe(false);
+    expect(load?.detail).toBe(
+      '258 record(s) not loaded: 128 refused by the target org, 130 held back for a parent ' +
+        'the target org refused. Objects the load wrote none of — Account (3 not loaded), ' +
+        'Contract (125 not loaded); Objects it wrote part of — Contact (130 of 140 not loaded)',
+    );
+  });
+
+  it('calls a load partial when it wrote part of an object and none of it is refused whole', async () => {
+    const contractPath = writeContract(makeTmpDir(), {
+      Account: {
+        fromFiles: 3,
+        exclusionReasons: { 'dml-failed': 1 },
+        excluded: 1,
+        added: 0,
+        expected: 2,
+      },
+    });
+    const query = makeQuery([{ match: 'FROM Account', responses: [[{ cnt: 2 }]] }]);
+    const { deps, options } = makeOptions(contractPath, query);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('partial');
+    expect(verdict.checks.find((c) => c.name === 'load')?.detail).toContain(
+      'Account (1 of 3 not loaded)',
+    );
+  });
+
+  it('counts the lookups left empty for a parent not loaded beside the orphans, and not as orphans', async () => {
+    // 130 contacts went in without the account the target refused, and the
+    // verification said "No orphans on the mandatory lookups of the graph".
+    const contractPath = writeContract(makeTmpDir(), {
+      Account: {
+        fromFiles: 1,
+        exclusionReasons: {},
+        excluded: 0,
+        added: 0,
+        expected: 1,
+      },
+      Contact: {
+        fromFiles: 2,
+        exclusionReasons: {},
+        excluded: 0,
+        added: 0,
+        expected: 2,
+        parentNotLoaded: { AccountId: ['Contact-000002'] },
+      },
+    });
+    const sent: string[] = [];
+    const query = vi.fn(async (_org: string, soql: string) => {
+      sent.push(soql);
+      return soql.startsWith('SELECT COUNT()')
+        ? [{ cnt: soql.includes('FROM Contact') ? 2 : 1 }]
+        : [];
+    });
+    const { deps, options } = makeOptions(contractPath, query, {
+      mapping: new Map([
+        ['Account-000001', '001XX0000000001AAA'],
+        ['Contact-000001', '003XX0000000001AAA'],
+        ['Contact-000002', '003XX0000000002AAA'],
+      ]),
+      mandatoryLookups: { Contact: ['AccountId'] },
+    });
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('partial');
+    expect(verdict.checks.find((c) => c.name === 'orphans')).toEqual({
+      name: 'orphans',
+      passed: false,
+      detail:
+        'Lookups the load left empty because the record they name was not loaded — ' +
+        'Contact.AccountId (1)',
+    });
+    // The contact counted apart is not asked about again as an orphan.
+    const orphanReads = sent.filter((soql) => soql.includes('AccountId = null'));
+    expect(orphanReads.length).toBeGreaterThan(0);
+    for (const soql of orphanReads) expect(soql).not.toContain('003XX0000000002AAA');
+  });
+
+  it('passes a load that wrote every record it had to, its duplicates skipped aside', async () => {
+    const contractPath = writeContract(makeTmpDir(), ACCOUNT_CONTRACT);
+    const query = makeQuery([
+      { match: 'FROM Account', responses: [[{ cnt: 2 }]] },
+      { match: 'FROM Contact', responses: [[{ cnt: 2 }]] },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.checks.find((c) => c.name === 'load')).toEqual({
+      name: 'load',
+      passed: true,
+      detail: 'Every record the load had to write went in',
+    });
+  });
+});

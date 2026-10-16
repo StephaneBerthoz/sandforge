@@ -751,10 +751,47 @@ describe('FrozenDatasetExtractor — an object reached two ways', () => {
   const SECOND_ORDER = to18('801A00000000or2');
   const OTHER_ORDER = to18('801A00000000or3');
 
-  it('reads the contacts of the account as well as the one the opportunity names', async () => {
-    // The opportunity's contact lookup put one contact in scope before
-    // Contact was read, and read by that id alone, the account's other
-    // contacts were never asked for.
+  it('reads the contacts of a root account as well as the one it names', async () => {
+    // The account's contact lookup put one contact in scope before Contact
+    // was read, and read by that id alone, the account's other contacts were
+    // never asked for.
+    const dir = makeTmpDir();
+    const extractor = extractorOver(
+      {
+        Account: [
+          { Id: ACCOUNT, Primary__c: NAMED_CONTACT },
+          { Id: OTHER_ACCOUNT, Primary__c: null },
+        ],
+        Contact: [
+          { Id: NAMED_CONTACT, AccountId: ACCOUNT },
+          { Id: SIBLING_CONTACT, AccountId: ACCOUNT },
+          { Id: STRANGER_CONTACT, AccountId: OTHER_ACCOUNT },
+        ],
+      },
+      {
+        Account: [id, lookup('Primary__c', ['Contact'])],
+        Contact: [id, lookup('AccountId', ['Account'])],
+      },
+    );
+
+    const dataset = await extractor.extract({
+      ...makeOptions(dir, []),
+      rootObject: 'Account',
+      rootRecordIds: [ACCOUNT],
+      graph: graphOf(
+        [makeNode('Account', 0), makeNode('Contact', 1)],
+        [edge('Contact', 'Account', 'Accounts'), edge('Account', 'Contact', 'Contacts')],
+      ),
+    });
+
+    expect(sourceIdsOf(dataset, 'Contact')).toEqual([NAMED_CONTACT, SIBLING_CONTACT].sort());
+  });
+
+  it('reads the account an opportunity names and none of its other contacts', async () => {
+    // The account is the opportunity's parent: read by the id the
+    // opportunity names, it brings nothing under it. Read as a parent in
+    // scope, a case's account brought every policy, asset and feed item of
+    // that account into the dossier.
     const dir = makeTmpDir();
     const extractor = extractorOver(
       {
@@ -786,7 +823,7 @@ describe('FrozenDatasetExtractor — an object reached two ways', () => {
       ),
     });
 
-    expect(sourceIdsOf(dataset, 'Contact')).toEqual([NAMED_CONTACT, SIBLING_CONTACT].sort());
+    expect(sourceIdsOf(dataset, 'Contact')).toEqual([NAMED_CONTACT]);
     expect(sourceIdsOf(dataset, 'Account')).toEqual([ACCOUNT]);
   });
 
@@ -909,12 +946,11 @@ describe('FrozenDatasetExtractor — an object reached two ways', () => {
     expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([NAMED_PRICE]);
   });
 
-  it('leaves out the line items of an opportunity met through a quote of the account', async () => {
-    // The account's quotes are its children and stay in the dataset, another
-    // opportunity's among them. That opportunity's id, met once Opportunity
-    // had been read, is no parent in scope: read under it, its line items
-    // came in, and with them the opportunity itself, fetched as the parent
-    // they require.
+  it("takes the quotes of the opportunity and none of its account's other quotes", async () => {
+    // The account is the opportunity's parent, read by the id the
+    // opportunity names: its quotes are other sales'. Read as a parent in
+    // scope, it brought another opportunity's quote, and once that
+    // opportunity's lines were read under it, the opportunity itself.
     const dir = makeTmpDir();
     const OTHER_OPPORTUNITY = to18('006A00000000oth');
     const OWN_QUOTE = to18('0Q0A00000000own');
@@ -964,7 +1000,7 @@ describe('FrozenDatasetExtractor — an object reached two ways', () => {
       ),
     });
 
-    expect(sourceIdsOf(dataset, 'Quote')).toEqual([OWN_QUOTE, OTHER_QUOTE].sort());
+    expect(sourceIdsOf(dataset, 'Quote')).toEqual([OWN_QUOTE]);
     expect(sourceIdsOf(dataset, 'OpportunityLineItem')).toEqual([OWN_LINE]);
     expect(sourceIdsOf(dataset, 'Opportunity')).toEqual([OPPORTUNITY]);
   });
@@ -1835,6 +1871,7 @@ describe('FrozenDatasetExtractor — the items an order past Draft needs', () =>
   }
   const fields: Record<string, ScopableField[]> = {
     Opportunity: [id, lookup('Pricebook2Id', ['Pricebook2'])],
+    Case: [id, lookup('Order__c', ['Order'])],
     Order: [
       id,
       lookup('OpportunityId', ['Opportunity']),
@@ -1910,6 +1947,36 @@ describe('FrozenDatasetExtractor — the items an order past Draft needs', () =>
     expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
     expect(sourceIdsOf(dataset, 'Product2')).toEqual([PRODUCT]);
     expect(sourceIdsOf(dataset, 'Pricebook2')).toEqual([BOOK, STANDARD_BOOK].sort());
+  });
+
+  it('carries the items of an activated order the roots only name, and none of a draft they name', async () => {
+    // An order a case names is its parent, read by that id and bringing
+    // nothing under it: the activated one would have gone in as a draft
+    // without a product, which the platform never activates.
+    const NAMES_ACTIVATED = to18('500A00000000act');
+    const NAMES_DRAFT = to18('500A00000000drf');
+    const rows = {
+      ...tables(),
+      Case: [
+        { Id: NAMES_ACTIVATED, Order__c: ACTIVATED },
+        { Id: NAMES_DRAFT, Order__c: DRAFT },
+      ],
+    };
+    const { extractor } = extractorOverOrders(rows);
+
+    const dataset = await extractor.extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Case',
+      rootRecordIds: [NAMES_ACTIVATED, NAMES_DRAFT],
+      graph: graphOf(
+        [makeNode('Case', 0), makeNode('Order', 1), makeNode('OrderItem', 2)],
+        [edge('Order', 'Case', 'Cases'), edge('Order', 'OrderItem', 'OrderItems')],
+      ),
+    });
+
+    expect(sourceIdsOf(dataset, 'Order')).toEqual([ACTIVATED, DRAFT].sort());
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([ACTIVATED_ITEM]);
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toContain(PRICE);
   });
 
   it('brings no item when no order it reads is past Draft', async () => {

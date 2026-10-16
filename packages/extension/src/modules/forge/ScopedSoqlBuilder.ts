@@ -120,6 +120,19 @@ export interface ScopedSoqlBuildOpts {
    */
   catalog?: ReadonlySet<string>;
   /**
+   * Every parent brings the rows under it as a row of the catalog does: only
+   * the rows the run reached from above — the root, or a row read under a
+   * parent in scope (`RecordScopeCache.addReached`). A row read because a row
+   * read before names it — the account a case names, the territory its
+   * appointment is booked in — is read so that what points at it can be
+   * written, and brings none of its other children. Left off, a parent in
+   * scope brings every row under it, however it was reached.
+   *
+   * The required parents a row is held to are not touched: they narrow a read
+   * as they did (see `readObjects`).
+   */
+  fromAboveOnly?: boolean;
+  /**
    * The root's object is read a second time, for the rows of it the records
    * read since name: by the IDs cached for it, the root's among them, rather
    * than by the root's ID alone. By ID only, as the root is: no row of the
@@ -233,10 +246,12 @@ export class ScopedSoqlBuilder {
       if (edge.sourceObject === edge.targetObject) continue;
       // The parent's scope, not every ID met for it: one met after the parent
       // was read names a row no read fetches, and its children are not ours.
-      // Of a catalog parent, only the rows the run reached from above.
-      const parentIds = opts.catalog?.has(edge.sourceObject)
-        ? opts.cache.reachedOf(edge.sourceObject)
-        : opts.cache.scopeOf(edge.sourceObject);
+      // Of a catalog parent, only the rows the run reached from above; of
+      // every parent, with `fromAboveOnly`.
+      const parentIds =
+        opts.fromAboveOnly || opts.catalog?.has(edge.sourceObject)
+          ? opts.cache.reachedOf(edge.sourceObject)
+          : opts.cache.scopeOf(edge.sourceObject);
       if (!parentIds || parentIds.size === 0) continue;
 
       const fkFields = opts.fields.filter(

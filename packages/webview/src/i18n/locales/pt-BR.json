@@ -4098,6 +4098,7 @@
       "notSent": "Não enviados",
       "toPurge": "A purgar",
       "toDeactivate": "A desativar",
+      "heldForExcludedParents": "Seriam deixados de fora, sem envio — um lookup sem o qual estes registros não podem entrar aponta para um objeto que excludedObjects deixa de fora, ou eles dependem de tais registros; nenhum marcador é pedido para ele: {{objects}}",
       "placeholders": "Marcadores a criar, e os registros que cada um preenche: {{fields}}",
       "defaults": "Valores padrão declarados, e os registros que cada um preenche: {{fields}}",
       "personContacts_one": "{{count}} contato de conta pessoal entra com sua conta, contado à parte: vinculado ao contato que a plataforma grava com ela, ou enviado como contato próprio onde o destino tem a conta como conta comercial.",
@@ -4114,6 +4115,7 @@
       "status": {
         "passed": "Aprovada",
         "failed": "Falhou",
+        "partial": "Parcial",
         "unstable": "Instável"
       }
     },
@@ -4139,6 +4141,7 @@
       "statuses": "Status aplicados após a inserção: {{restored}} — recusados: {{refused}}",
       "leftToThePlatform": "Deixados de fora no carregamento — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",
       "excludedObjects": "Objetos não carregados",
+      "heldForExcludedParents": "Deixados de fora no carregamento — um lookup sem o qual estes registros não podem entrar aponta para um objeto que excludedObjects deixa de fora, ou eles dependem de tais registros; declare um marcador em requiredLookupPlaceholders para carregá-los: {{objects}}",
       "untypedFeedItems": "Deixados de fora no carregamento — o conjunto de dados não traz o tipo destes itens de feed, ou daqueles de que dependem, então uma alteração rastreada não se distingue de uma publicação; extraia novamente o conjunto de dados para carregá-los: {{objects}}",
       "failedReasons": "Por que os registros falharam",
       "statusCode": "Código de status",
@@ -4175,6 +4178,10 @@
       "removeTitle": "Remover de {{org}} os registros desta carga",
       "removeDescription": "Exclui de {{org}} os registros que esta carga criou, os filhos antes dos pais; eles vão para a lixeira dela. Após uma recarga, eles incluem os registros que cargas anteriores criaram e que a recarga reencontrou e manteve como seus. Os registros aos quais a carga se vinculou ou que reutilizou, que {{org}} já tinha, são mantidos, assim como um registro do qual dependem registros que ficam em {{org}}. Um registro alterado desde a carga, ou do qual dependem registros adicionados desde então, é mantido, a menos que você o inclua abaixo.",
       "includeChanged": "Remover também os registros alterados desde a carga, e o que foi adicionado a eles desde então",
+      "sweep": "Varrer primeiro: recuperar também o que a automação do destino criou durante o carregamento, como o usuário dele — assim esse registro não retém mais nenhum registro do carregamento",
+      "sweepTitle": "O que a varredura recupera de {{org}}",
+      "sweepLoading": "Lendo o que a automação de {{org}} criou durante o carregamento…",
+      "sweepError": "Não foi possível ler o que a varredura recuperaria de {{org}}: {{reason}}",
       "removing": "Removendo os registros que esta carga criou…",
       "cancel": "Parar a remoção",
       "stopping": "Parando: a remoção termina assim que a chamada em andamento for respondida. O que ela removeu até lá aparece na lista; o resto fica na org, e uma remoção posterior o retoma.",

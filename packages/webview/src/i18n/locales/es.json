@@ -4098,6 +4098,7 @@
       "notSent": "No enviados",
       "toPurge": "Por purgar",
       "toDeactivate": "Por desactivar",
+      "heldForExcludedParents": "Se dejarían fuera, sin enviar — un lookup sin el cual estos registros no pueden entrar apunta a un objeto que excludedObjects deja fuera, o dependen de tales registros; no se pide ningún marcador para él: {{objects}}",
       "placeholders": "Marcadores por crear, y los registros que llena cada uno: {{fields}}",
       "defaults": "Valores predeterminados declarados, y los registros que llena cada uno: {{fields}}",
       "personContacts_one": "{{count}} contacto de cuenta personal entra con su cuenta, contado aparte: vinculado al contacto que la plataforma escribe con ella, o enviado como contacto propio donde el destino tiene la cuenta como cuenta empresarial.",
@@ -4114,6 +4115,7 @@
       "status": {
         "passed": "Superada",
         "failed": "Fallida",
+        "partial": "Parcial",
         "unstable": "Inestable"
       }
     },
@@ -4139,6 +4141,7 @@
       "statuses": "Estados aplicados tras la inserción: {{restored}} — rechazados: {{refused}}",
       "leftToThePlatform": "Excluidos en la carga — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
       "excludedObjects": "Objetos no cargados",
+      "heldForExcludedParents": "Excluidos en la carga — un lookup sin el cual estos registros no pueden entrar apunta a un objeto que excludedObjects deja fuera, o dependen de tales registros; declare un marcador en requiredLookupPlaceholders para cargarlos: {{objects}}",
       "untypedFeedItems": "Excluidos en la carga — el conjunto de datos no incluye el tipo de estos elementos de noticias, o de aquellos de los que dependen, así que un cambio registrado no se distingue de una publicación; extraiga de nuevo el conjunto de datos para cargarlos: {{objects}}",
       "failedReasons": "Por qué fallaron los registros",
       "statusCode": "Código de estado",
@@ -4175,6 +4178,10 @@
       "removeTitle": "Eliminar de {{org}} los registros de esta carga",
       "removeDescription": "Elimina de {{org}} los registros que creó esta carga, los hijos antes que sus padres; van a su papelera de reciclaje. Tras una recarga, entre ellos están los registros que crearon cargas anteriores y que la recarga volvió a encontrar y conservó como suyos. Los registros a los que se vinculó la carga o que reutilizó, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde la carga, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
       "includeChanged": "Eliminar también los registros modificados desde la carga, y lo que se les añadió desde entonces",
+      "sweep": "Barrer primero: recuperar también lo que la automatización del destino creó durante la carga, como su usuario — así ese registro ya no retiene ningún registro de la carga",
+      "sweepTitle": "Lo que el barrido recupera de {{org}}",
+      "sweepLoading": "Leyendo lo que la automatización de {{org}} creó durante la carga…",
+      "sweepError": "No se pudo leer lo que el barrido recuperaría de {{org}}: {{reason}}",
       "removing": "Eliminando los registros que creó esta carga…",
       "cancel": "Detener la eliminación",
       "stopping": "Deteniendo: la eliminación termina en cuanto se responde la llamada en curso. Lo que eliminó hasta entonces aparece en la lista; el resto queda en la org, y una eliminación posterior lo retoma.",
