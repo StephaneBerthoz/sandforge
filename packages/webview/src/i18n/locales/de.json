@@ -2310,6 +2310,8 @@
       "sweepAutomation1540Desc": "Eine Forge-Entfernung kann jetzt auch zurücknehmen, was die Automatisierung des Ziels während des Laufs erstellt hat, zuerst aufgelistet und erfragt. Der Automatisierungsbericht liest die Startbedingung jedes Flows, und die Überprüfung zählt ein vom Ziel geleertes Lookup nicht mehr als defekt.",
       "scaleTested1550": "Sync, Seed, Autopilot und Frozen halten im großen Maßstab",
       "scaleTested1550Desc": "Auf einer großen Org getestet: Sync ordnet Datensatztypen zu und hält zurück, was das Ziel ablehnen würde, und seine Simulation sagt es vorher. Autopilot kopiert nur die Datensätze, auf die Ihre Auswahl verweist, und prüft zuerst den Speicher des Ziels. Seed kann einen Lauf zurücknehmen, und Frozen wählt mit weit weniger API-Aufrufen aus.",
+      "frozenScale1560": "Frozen Dataset hält auf einer großen Org",
+      "frozenScale1560Desc": "Ein Dossier bleibt ein Dossier: Kinder werden nur unter dem gelesen, was seine Wurzel erreicht, und ein genannter Elterndatensatz bringt nicht mehr alle Geschwister mit. Ein Laden hält zurück, was ein abgelehnter Elterndatensatz verwaisen ließe, und meldet ein Scheitern, wenn es eines gab; eine Entfernung kann aufräumen, was die Automatisierung des Ziels erstellt hat. Persönliche Merkmale wie Geschlecht oder Anrede bleiben geleert.",
       "exactResume1530": "Genau dort fortsetzen, wo der Lauf anhielt",
       "exactResume1530Desc": "Ein fortgesetzter Forge-Lauf kopiert jetzt die noch fehlenden Dateien, gibt keinen Status zweimal zurück und wird nicht mehr abgelehnt, wenn sich eine leere Tabelle inzwischen geändert hat. Das Entfernen eines großen Laufs liest sein Journal seitenweise.",
       "undoSync1520": "Zurücknehmen, was ein Sync-Lauf erstellt hat",

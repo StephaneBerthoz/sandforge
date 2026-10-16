@@ -5,6 +5,34 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.56.0] - 2026-10-16
+
+Frozen Dataset tested on a large org: a dossier stays a dossier, a load says what it could not write, and personal attributes stay cleared.
+
+### Added
+
+- **Frozen removal**: can first sweep what the target's automation created during the load (`--sweep`, `--sweep-list`).
+- **Frozen extraction**: lists the required fields the rules leave empty, and the fields kept without a rule.
+- **Sync simulation**: lists the target's active validation rules, which it cannot evaluate.
+
+### Changed
+
+- **Frozen scope**: a dossier reads children only under the records reached from its root, not every sibling of a parent it names.
+- **Frozen budget**: a refusal names the heaviest objects to leave out.
+- **Frozen load**: records whose required parent the configuration excludes are left out, not asked a placeholder.
+- **Frozen verification**: says failed or partial when objects were refused or held back.
+- **Frozen defaults**: platform settings and restricted picklists are kept without a rule, never a personal attribute.
+- **Personal-data detection**: names gender, salutation, marital status, nationality, religion and other personal attributes, in English and French.
+- **Autopilot**: reads a table page by page past 2 000 rows.
+
+### Fixed
+
+- **Frozen**: datetimes with an offset are shifted, no longer cleared.
+- **Frozen**: the control no longer takes a record type's own name for a leak.
+- **Frozen**: children of a refused parent are held back, never written without it.
+- **Autopilot**: fictitious values fit email and phone fields, and a personal picklist is emptied.
+- **Seed**: a record's phone and mobile numbers differ.
+
 ## [1.55.0] - 2026-10-16
 
 Sync, Seed, Autopilot and Frozen tested on a large org: each writes what it says it will, within bounds.

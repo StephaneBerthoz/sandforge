@@ -2310,6 +2310,8 @@
       "sweepAutomation1540Desc": "Una eliminación de Forge ahora también puede deshacer lo que la automatización del destino creó durante la ejecución, primero listado y preguntado. El informe de automatización lee la condición de inicio de cada Flow, y la verificación ya no cuenta como roto un lookup que vació el destino.",
       "scaleTested1550": "Sync, Seed, Autopilot y Frozen aguantan a gran escala",
       "scaleTested1550Desc": "Probados en una org grande: Sync asigna los tipos de registro y retiene lo que el destino rechazaría, y su simulación lo dice antes. Autopilot copia solo los registros a los que hace referencia su selección y comprueba primero el almacenamiento del destino. Seed puede deshacer una ejecución, y Frozen selecciona con muchas menos llamadas a la API.",
+      "frozenScale1560": "Frozen Dataset aguanta en una org grande",
+      "frozenScale1560Desc": "Un expediente sigue siendo un expediente: los hijos solo se leen bajo lo que alcanza su raíz, y un padre que nombra ya no trae a todos sus hermanos. Una carga retiene lo que un padre rechazado dejaría huérfano y dice que falló cuando falló, y una eliminación puede barrer lo que creó la automatización del destino. Los atributos personales como el género o el tratamiento siguen vacíos.",
       "exactResume1530": "Reanudar exactamente donde se detuvo",
       "exactResume1530Desc": "Una ejecución de Forge reanudada ahora copia los archivos pendientes, nunca devuelve un estado dos veces y ya no se rechaza cuando una tabla vacía cambió entretanto. Eliminar una ejecución grande lee su diario página por página.",
       "undoSync1520": "Deshacer lo que creó una ejecución de Sync",
