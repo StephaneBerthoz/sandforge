@@ -714,6 +714,7 @@ describe('cleanNodeRecords', () => {
 
     const [person] = cleanNodeRecords(
       makeInput({
+        objectApiName: 'Account',
         records: [{ Id: '001C', Name: 'Jane Roe', IsPersonAccount: 1, Custom__pc: 'y' }],
         fieldInfos: fields,
         creatableFields,
@@ -724,6 +725,7 @@ describe('cleanNodeRecords', () => {
     const [business] = cleanNodeRecords(
       makeInput({
         // An org without Person Accounts enabled returns no value at all.
+        objectApiName: 'Account',
         records: [{ Id: '001D', Name: 'Globex', IsPersonAccount: null, Custom__pc: 'y' }],
         fieldInfos: fields,
         creatableFields,
@@ -743,6 +745,7 @@ describe('cleanNodeRecords', () => {
     const creatableFields = new Set(['Name', 'PersonEmail', 'Custom__pc']);
     const [business] = cleanNodeRecords(
       makeInput({
+        objectApiName: 'Account',
         records: [{ Id: '001A', Name: 'Acme', IsPersonAccount: false, Custom__pc: 'x' }],
         fieldInfos: fields,
         creatableFields,
@@ -753,6 +756,7 @@ describe('cleanNodeRecords', () => {
     const [person] = cleanNodeRecords(
       makeInput({
         // jsforce SOAP-normalized string 'true' must still count as person account.
+        objectApiName: 'Account',
         records: [{ Id: '001B', Name: 'John Doe', IsPersonAccount: 'true', Custom__pc: 'x' }],
         fieldInfos: fields,
         creatableFields,

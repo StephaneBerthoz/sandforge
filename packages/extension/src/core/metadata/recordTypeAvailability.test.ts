@@ -7,7 +7,6 @@ import {
   parseRecordTypeCounts,
   recordTypeBlockedMessage,
   recordTypeCountSoql,
-  recordTypeFallbackNote,
   unavailableRecordTypeUses,
 } from './recordTypeAvailability.js';
 
@@ -180,23 +179,6 @@ describe('messages', () => {
       'RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Legacy_Account (Legacy Account), ' +
         'which is inactive in the target org. Activate record type Legacy_Account on Account in ' +
         'the target org, or map it to an active one the running user has.',
-    );
-  });
-
-  it('says which default the records took instead, and how to keep the original', () => {
-    const fallback = defaultRecordTypeOf(parseRecordTypeInfos(ACCOUNT_RECORD_TYPE_INFOS));
-
-    expect(recordTypeFallbackNote(partner, fallback)).toBe(
-      '2 Account records written without record type Partner_Account (Partner Account), which ' +
-        "the running user cannot use in the target org: a new record took the running user's " +
-        'default record type (Customer_Account), an existing one kept its own. Give the running ' +
-        'user access to record type Partner_Account on Account to keep it.',
-    );
-    expect(recordTypeFallbackNote(legacy, undefined)).toBe(
-      '1 Account record written without record type Legacy_Account (Legacy Account), which is ' +
-        "inactive in the target org: a new record took the running user's default record type, " +
-        'an existing one kept its own. Activate record type Legacy_Account on Account in the ' +
-        'target org to keep it.',
     );
   });
 });

@@ -24,6 +24,13 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 - **Real-Time and Conflicts tabs** -- Besides Sync, History and Schedules, the page offers Real-Time, which follows the change events (Change Data Capture) the source org publishes and writes each change to the target as it comes, and Conflicts, which lists the real-time changes held for a decision. See [Real-Time](#real-time)
 - **Four conflict strategies, all of which act** -- Source wins, target wins, newest wins (the target record only when both sides carry a readable `LastModifiedDate` and the target's is later; the source whenever either side has no readable `LastModifiedDate`, or the two are equal), or a field-level merge that starts from the target record and takes the source value of every conflicting field that has one. A strategy is read on a bidirectional run, the pass that reads the matching target records before writing. Manual review is not offered for a run: no run shows its conflicts to anyone before it writes, so a configuration asking for it is refused before it runs, with the four it can pick from. A wizard draft saved when it was still offered reopens on target wins -- the strategy that writes no source value over a different target value -- and the page says so until a strategy is picked. The Conflicts tab lists only real-time changes
 
+### What a run writes
+
+- **The fields the target takes** -- each record goes with the fields the target lets the running user write, read from its describe once a run. An account goes with the fields of its kind, as Forge sends it: a business account without the fields only a person account holds (`FirstName`, `LastName`, `Salutation`, the `Person…` fields, the `__pc` fields), a person account without the `Name` the platform computes, and a person account the target takes as a business one -- it has no person accounts, or the record type it gets there is a business account's -- with its name and without the person fields
+- **Record types** -- a record's `RecordTypeId` is mapped to the target's record type of the same object and API name, from both orgs' active record types, read once a run before the first object whose records carry one. A record whose type has no active counterpart in the target, or one the running user may not use there, is held back with the reason (`RECORD_TYPE_UNMAPPED`, `RECORD_TYPE_UNAVAILABLE`), as Forge holds them back: written without it, it would take the running user's default, a business account's type for a person account
+- **Lookups at records the run wrote** -- a lookup at a record an earlier object of the run wrote names its copy in the target. A record whose lookup names a record the run set out to create -- an insert, or an upsert -- and the target refused, or the run held back, is held back too, counted and said once per lookup ("`PARENT_REFUSED`: 1 260 Contact records held back, not sent: the Account record their AccountId names was refused in this run"), never written without its parent; its own children are held back in turn. A record an update did not reach is the target's already, and its children name it as they did. Held-back records count as failed, and removing the run has nothing of them to remove
+- **Written again without a field** -- a record the target refused for a lookup holding an id it does not have -- the owner, a record no object of the run wrote -- is written once more without those lookups, never without one the run settled at a record it wrote, nor its record type; one refused on fields a validation rule or a restricted picklist named is written once more without them, as Forge and Frozen send it. The target names one refusal at a time, so a record goes again once for each of the two kinds, never twice for the same one, and one refused again is reported with the target's last refusal. The results say which fields, for how many records, and why
+
 ### Files
 
 - **Copy the files of these records** (off unless ticked) -- once an object's records are written, the latest version of each Salesforce File linked to one of them, and the legacy attachments under them, are copied and linked to the records' copies in the target: a file is published on the first of its records the run wrote and linked to the others, an attachment written under its record. A file linked only to records the run did not write -- outside the filter, or refused by the target -- is not copied, and the results say how many. Files are read and written one call each way, as Forge copies them; a file kept outside Salesforce is skipped and counted
@@ -158,8 +165,9 @@ Before execution, the Review step shows:
 - **Watched or written** -- A ticked object's changes appear in the feed as
   they come. Tick _Auto-Sync_ for it and they are also written to the target,
   through the path a Sync run writes with: only the fields the target lets the
-  running user write, a record type the user cannot use left to the platform,
-  a lookup the target cannot take dropped rather than the record. A session
+  running user write, a change of a record type the user cannot use not
+  written and said why, a lookup the target cannot take dropped rather than
+  the record. A session
   that writes asks the Production Guard first, a deletion counting as
   destructive.
 - **How the target record is found** -- by an external id of the target object,
@@ -226,10 +234,18 @@ Before execution, the Review step shows:
   that decides. **Run the sync now** runs the configuration just simulated;
   change the configuration and the findings are put away, since they no
   longer say what a run would do.
+- It counts as refused what the run then refuses before the target decides
+  anything, from the same preparation: the records of a record type with no
+  counterpart in the target or closed to the running user, and the records
+  under one it counts refused. And what the target refuses on every record
+  that carries it, known from its describe, as Forge's simulation finds it: a
+  field the target requires left empty on a record it would create, a text
+  longer than its field, a number larger than its field takes. Each is said
+  once per object, with how many records it refuses.
 - A simulation checks the field types of both orgs as a run does, and stops at
   an object whose read fails, where a run would stop. It does not run the
-  target's validation rules, duplicate rules, required fields or automations:
-  a record one of them would refuse is counted as the run would send it.
+  target's validation rules, duplicate rules or automations: a record one of
+  them would refuse is counted as the run would send it.
 - It writes nothing to the target, to the audit trail or to the sync history.
   Like a run it is listed in Live Operations, and its Cancel -- or the page's
   -- stops it before its next object. Each lookup is an API request: about one

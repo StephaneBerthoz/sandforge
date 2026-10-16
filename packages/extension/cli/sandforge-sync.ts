@@ -85,6 +85,7 @@ import { ConflictResolver } from '../src/modules/sync/ConflictResolver.js';
 import { FieldMappingService } from '../src/modules/sync/FieldMapping.js';
 import { TransformPipeline } from '../src/modules/sync/TransformPipeline.js';
 import { targetLookup } from '../src/modules/sync/SyncSimulation.js';
+import { readSyncRecordTypes } from '../src/modules/sync/syncRecordTypes.js';
 import {
   cannotCopyMessage,
   syncCannotCopy,
@@ -555,6 +556,21 @@ export function simulationLines(simulation: SyncSimulationResult): string[] {
   return lines;
 }
 
+/** A line of an object's result on what its write held back or sent without a field. */
+const SAID_ONCE =
+  /^(PARENT_REFUSED|RECORD_TYPE_UNAVAILABLE|RECORD_TYPE_UNMAPPED):|^\d+ record\(s\) written (again )?without /;
+
+/**
+ * The lines the command prints of an object's errors: its first three, and
+ * each line on what the write held back or wrote without a field — said once
+ * for every record it is about, after the refusals of each record.
+ */
+export function objectErrorLines(errors: readonly string[]): string[] {
+  const lines = errors.slice(0, 3);
+  for (const error of errors.slice(3)) if (SAID_ONCE.test(error)) lines.push(error);
+  return lines;
+}
+
 /** How an object of a delta configuration was read, as the line the command prints. */
 export function deltaLine(delta: SyncDeltaOutcome): string {
   const read =
@@ -748,6 +764,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
     }),
     describeTargetFields,
+    // Both orgs' record types, as the panel reads them: a record's type is
+    // mapped to the target's of the same object and API name.
+    recordTypes: () =>
+      readSyncRecordTypes(
+        {
+          query: async (q) => sourceConn.query<Record<string, unknown>>(q),
+          queryMore: async (url) => sourceConn.queryMore<Record<string, unknown>>(url),
+        },
+        {
+          query: async (q) => targetConn.query<Record<string, unknown>>(q),
+          queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+        },
+      ),
   });
 
   if (args.dryRun) {
@@ -811,9 +840,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         `${String(entry.success ?? 0)} succeeded, ${failed} failed, ` +
         `${String(entry.skipped ?? 0)} skipped`,
     );
-    // `errors` is a list of strings on SyncObjectResult, not of objects.
-    const errors = (entry.errors as string[] | undefined) ?? [];
-    for (const error of errors.slice(0, 3)) log(`      ${error}`);
+    // `errors` is a list of strings on SyncObjectResult, not of objects: the
+    // first refusals, and every line on what the run held back or wrote
+    // without a field, which a refusal per record would push out of sight.
+    for (const line of objectErrorLines((entry.errors as string[] | undefined) ?? [])) {
+      log(`      ${line}`);
+    }
     const files = entry.files as
       { copied?: number; versions?: number; failed?: number } | undefined;
     if (files) {
@@ -1034,14 +1066,20 @@ export async function typeTarget(conn: Connection): Promise<TypedTarget> {
  * nobody's business — is not refused, as the clone command removes from both
  * and the panel's removal takes one for a development org. The command has
  * no guard to ask, and takes the org's own word for what it is.
+ *
+ * @param tool - The command that refuses: the seed command removes as this one does.
  */
-export function removalRefusal(alias: string, org: TypedTarget): string | undefined {
+export function removalRefusal(
+  alias: string,
+  org: TypedTarget,
+  tool = 'sandforge-sync',
+): string | undefined {
   if (org.sandbox || isDeveloperEdition(org.edition)) return undefined;
   const said = org.edition
     ? `IsSandbox false, edition ${org.edition}`
     : 'IsSandbox false, and no edition';
   return (
-    `${alias} is a production org (its Organization record says ${said}): sandforge-sync ` +
+    `${alias} is a production org (its Organization record says ${said}): ${tool} ` +
     'removes records from sandboxes and Developer Edition orgs only. Nothing was deleted.'
   );
 }

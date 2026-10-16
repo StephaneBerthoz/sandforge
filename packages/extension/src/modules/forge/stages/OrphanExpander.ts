@@ -43,7 +43,9 @@ import { isExcludedFromCopy } from '../excludedObjects.js';
 import {
   ACCOUNT,
   CONTACT,
+  accountKindOf,
   isPersonAccountRow,
+  leftOutForAccountKind,
   type RowsLeftToThePlatform,
 } from '../../../core/common/platformRecords.js';
 import type { IdRemapper } from '../IdRemapper.js';
@@ -53,12 +55,7 @@ import {
   type RecordTypeMapper,
   type RecordTypeMapping,
 } from '../../sync/RecordTypeMapper.js';
-import {
-  intersect,
-  isPersonAccountField,
-  targetFieldSetsOf,
-  type TargetFieldSets,
-} from './RecordCleaner.js';
+import { intersect, targetFieldSetsOf, type TargetFieldSets } from './RecordCleaner.js';
 import {
   checkRowPicklists,
   recordTypeValuesOf,
@@ -534,6 +531,8 @@ export class OrphanExpander {
       (input.businessAccountsAmong
         ? (await input.businessAccountsAmong([r], recordTypeWritten)).has(r)
         : personAccounts === false);
+    // What the kind of account it goes in as leaves out: see `leftOutForAccountKind`.
+    const kind = accountKindOf(r, asBusiness);
     const cleaned: Record<string, unknown> = {};
     for (const field of fields) {
       const key = field.name;
@@ -551,11 +550,7 @@ export class OrphanExpander {
         continue;
       }
       if (!effectiveCreatable.has(key)) continue;
-      if (key.endsWith('__pc') && !isPerson) continue;
-      if (asBusiness && isPersonAccountField(key)) continue;
-      // Computed by the platform for a person account — and for none it takes
-      // as a business account, which it refuses without its name.
-      if (key === 'Name' && isPerson && !asBusiness) continue;
+      if (leftOutForAccountKind(objectName, key, kind)) continue;
       cleaned[key] = value;
     }
     input.contactPoints?.forObject(objectName, fields, rename)?.(cleaned);

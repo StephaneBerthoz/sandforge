@@ -11,7 +11,10 @@ import {
   existingActivityRelations,
   existingSellingModelOptions,
   giveLinkedRelationsTheirFlags,
+  accountKindOf,
+  isPersonAccountField,
   isPersonAccountRow,
+  leftOutForAccountKind,
   leftToThePlatformNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
@@ -287,6 +290,63 @@ describe('person accounts', () => {
       expect(isPersonAccountRow({ IsPersonAccount: false })).toBe(false);
       expect(isPersonAccountRow({ IsPersonAccount: null })).toBe(false);
       expect(isPersonAccountRow({ Name: 'Acme' })).toBe(false);
+    });
+  });
+
+  describe('leftOutForAccountKind', () => {
+    /** The fields an Account of an org with person accounts lets a write carry. */
+    const FIELDS = [
+      'Name',
+      'Phone',
+      'Region__c',
+      'Region__pc',
+      'FirstName',
+      'LastName',
+      'Salutation',
+      'PersonEmail',
+      'PersonHasOptedOutOfEmail',
+      'RecordTypeId',
+    ];
+    const sent = (objectApiName: string, row: Record<string, unknown>, asBusiness = false) =>
+      FIELDS.filter(
+        (field) => !leftOutForAccountKind(objectApiName, field, accountKindOf(row, asBusiness)),
+      );
+
+    it('sends a business account without any field only a person account holds', () => {
+      expect(sent('Account', { IsPersonAccount: false })).toEqual([
+        'Name',
+        'Phone',
+        'Region__c',
+        'RecordTypeId',
+      ]);
+    });
+
+    it('sends a person account without the name the platform computes', () => {
+      expect(sent('Account', { IsPersonAccount: true })).toEqual(
+        FIELDS.filter((field) => field !== 'Name'),
+      );
+    });
+
+    it('sends a person account the target takes as a business one with its name and without the person fields', () => {
+      expect(sent('Account', { IsPersonAccount: 'true' }, true)).toEqual([
+        'Name',
+        'Phone',
+        'Region__c',
+        'RecordTypeId',
+      ]);
+    });
+
+    it('leaves the fields of any other object alone, a contact’s names included', () => {
+      expect(sent('Contact', { IsPersonAccount: false })).toEqual(FIELDS);
+      expect(sent('Contact', { IsPersonAccount: true })).toEqual(FIELDS);
+    });
+
+    it('takes the name parts, the Person fields and the __pc fields for a person account’s alone', () => {
+      expect(isPersonAccountField('MiddleName')).toBe(true);
+      expect(isPersonAccountField('PersonMailingCity')).toBe(true);
+      expect(isPersonAccountField('Hobby__pc')).toBe(true);
+      expect(isPersonAccountField('Personal_Note__c')).toBe(false);
+      expect(isPersonAccountField('Name')).toBe(false);
     });
   });
 

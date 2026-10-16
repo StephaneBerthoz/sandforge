@@ -257,30 +257,3 @@ export function defaultRecordTypeOf(
 ): RecordTypeAvailability | undefined {
   return infos.find((info) => info.defaultRecordTypeMapping && info.available);
 }
-
-/**
- * What became of records a module wrote without their record type: the
- * platform gives a new record the running user's default, and leaves an
- * existing one's as it is.
- *
- * @param use - The record type the records carried.
- * @param fallback - The default the describe names for the running user, when it names one.
- */
-export function recordTypeFallbackNote(
-  use: UnavailableRecordTypeUse,
-  fallback: RecordTypeAvailability | undefined,
-): string {
-  const given = fallback
-    ? `the running user's default record type (${fallback.developerName})`
-    : `the running user's default record type`;
-  const reason = use.inactive
-    ? 'which is inactive in the target org'
-    : 'which the running user cannot use in the target org';
-  const keep = use.inactive
-    ? `Activate record type ${use.developerName} on ${use.objectApiName} in the target org to keep it.`
-    : `Give the running user access to record type ${use.developerName} on ${use.objectApiName} to keep it.`;
-  return (
-    `${countOf(use)} written without record type ${titleOf(use)}, ${reason}: a new record ` +
-    `took ${given}, an existing one kept its own. ${keep}`
-  );
-}

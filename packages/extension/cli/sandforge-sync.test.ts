@@ -6,9 +6,31 @@ import {
   buildQueryFn,
   cliFileDeps,
   deltaLine,
+  objectErrorLines,
   readSavedConfig,
   simulationLines,
 } from './sandforge-sync.js';
+
+describe('what a run prints of an object', () => {
+  it('prints the first refusals, and every line on what it held back or wrote without a field', () => {
+    const refusal = 'REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c]';
+    const held =
+      'PARENT_REFUSED: 4 Contact records held back, not sent: the Account record their ' +
+      'AccountId names was refused in this run, and written without it they would stand ' +
+      'without their Account.';
+    const without =
+      '2 record(s) written without OwnerId: the lookup held an id from the source org that ' +
+      'the target does not have.';
+
+    expect(objectErrorLines([refusal, refusal, refusal, refusal, refusal, held, without])).toEqual([
+      refusal,
+      refusal,
+      refusal,
+      held,
+      without,
+    ]);
+  });
+});
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {

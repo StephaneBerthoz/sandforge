@@ -597,13 +597,22 @@ describe('DataSync — a record type the running user cannot use', () => {
       );
   }
 
-  it('writes the records without the closed record type instead of losing them', async () => {
+  /** What the result says of the two Partner accounts it held back. */
+  const HELD_TWO =
+    'RECORD_TYPE_UNAVAILABLE: 2 Account records use record type Partner, which the running ' +
+    'user cannot use in the target org. Give the running user access to record type Partner ' +
+    'on Account, or map it to one they have. Held back, not sent.';
+
+  it('holds back the records of a closed record type, as Forge holds them, and writes the others', async () => {
+    // Written without it, an account took the running user's default record
+    // type — a business account's for a person account — and nothing but
+    // the record said so.
     const insert = writesAll();
     const sync = new DataSync(
       createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
     );
 
-    const result = await sync.sync(
+    const { outcomes, notes } = await sync.write(
       createConfig({ operation: 'insert', externalIdField: undefined }),
       [
         { Name: 'Acme', RecordTypeId: PARTNER },
@@ -613,16 +622,17 @@ describe('DataSync — a record type the running user cannot use', () => {
     );
 
     expect(insert).toHaveBeenCalledTimes(1);
-    expect(insert.mock.calls[0][1]).toEqual([
-      { Name: 'Acme' },
-      { Name: 'Globex', RecordTypeId: CUSTOMER },
-      { Name: 'Initech' },
+    expect(insert.mock.calls[0][1]).toEqual([{ Name: 'Globex', RecordTypeId: CUSTOMER }]);
+    expect(outcomes.map((o) => [o.success, o.heldBack === true])).toEqual([
+      [false, true],
+      [true, false],
+      [false, true],
     ]);
-    expect(result.success).toBe(3);
-    expect(result.failed).toBe(0);
+    expect(outcomes[0].errors[0]).toMatch(/^RECORD_TYPE_UNAVAILABLE: record type Partner/);
+    expect(notes).toEqual([HELD_TWO]);
   });
 
-  it('names the record type it set aside, how many records, the default they took and what to grant', async () => {
+  it('counts the records held back as failed, and says why once, with how many', async () => {
     const insert = writesAll();
     const sync = new DataSync(
       createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
@@ -636,42 +646,20 @@ describe('DataSync — a record type the running user cannot use', () => {
       ],
     );
 
-    expect(result.errors).toEqual([
-      '2 Account records written without record type Partner, which the running user cannot ' +
-        "use in the target org: a new record took the running user's default record type " +
-        '(Customer), an existing one kept its own. Give the running user access to record type ' +
-        'Partner on Account to keep it.',
-    ]);
+    expect(insert).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ processed: 2, success: 0, failed: 2 });
+    expect(result.errors).toEqual([HELD_TWO]);
   });
 
-  it('counts in the note only the records that were written', async () => {
-    const insert = vi.fn().mockResolvedValue([
-      { id: '001NEW0', success: true, errors: [] },
-      { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
-    ]);
-    const sync = new DataSync(
-      createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
-    );
-
-    const result = await sync.sync(
-      createConfig({ operation: 'insert', externalIdField: undefined }),
-      [{ Name: 'Acme', RecordTypeId: PARTNER }, { RecordTypeId: PARTNER }],
-    );
-
-    expect(result.errors[0]).toBe('REQUIRED_FIELD_MISSING: Name');
-    expect(result.errors[1]).toMatch(/^1 Account record written without record type Partner/);
-  });
-
-  it('says the record type it set aside for the records written before a cancel stopped the write', async () => {
+  it('says what it held back with the records written before a cancel stopped the write', async () => {
     // A cancel between two batches stops the write after the records before
-    // it went in. Thrown on as it was, the run counted them, and nothing said
-    // they had been written without their record type.
-    const insert = vi.fn().mockRejectedValue(
-      new WriteCancelledError('Account', [
-        { id: '001NEW0', success: true, errors: [] },
-        { id: '001NEW1', success: true, errors: [] },
-      ]),
-    );
+    // it went in. Thrown on with those alone, the run would have counted them
+    // and never said which records it had kept back.
+    const insert = vi
+      .fn()
+      .mockRejectedValue(
+        new WriteCancelledError('Account', [{ id: '001NEW0', success: true, errors: [] }]),
+      );
     const sync = new DataSync(
       createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
     );
@@ -680,7 +668,7 @@ describe('DataSync — a record type the running user cannot use', () => {
       .sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
         { Name: 'Acme', RecordTypeId: PARTNER },
         { Name: 'Globex', RecordTypeId: CUSTOMER },
-        { Name: 'Initech', RecordTypeId: PARTNER },
+        { Name: 'Hooli', RecordTypeId: CUSTOMER },
       ])
       .then(
         () => undefined,
@@ -688,17 +676,14 @@ describe('DataSync — a record type the running user cannot use', () => {
       );
 
     expect(stopped).toBeInstanceOf(WriteCancelledError);
-    expect((stopped as WriteCancelledError).written).toHaveLength(2);
-    // Initech was never sent: one record of the type went in without it.
+    // Acme was held, Globex written, Hooli never reached.
+    expect((stopped as WriteCancelledError).written.map((o) => o.success)).toEqual([false, true]);
     expect((stopped as WriteCancelledError).notes).toEqual([
-      '1 Account record written without record type Partner, which the running user cannot ' +
-        "use in the target org: a new record took the running user's default record type " +
-        '(Customer), an existing one kept its own. Give the running user access to record type ' +
-        'Partner on Account to keep it.',
+      expect.stringMatching(/^RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Partner/),
     ]);
   });
 
-  it('keeps the record type it set aside, and the lookup it dropped, when a cancel stops the second try', async () => {
+  it('keeps what it held back said, and the lookup it dropped, when a cancel stops the second try', async () => {
     const insert = vi
       .fn()
       .mockResolvedValueOnce([
@@ -707,7 +692,6 @@ describe('DataSync — a record type the running user cannot use', () => {
           success: false,
           errors: ['insufficient access rights on cross-reference id: 003000000000042AAA'],
         },
-        { id: '001NEW1', success: true, errors: [] },
       ])
       .mockRejectedValueOnce(
         new WriteCancelledError('Account', [{ id: '001NEW0', success: true, errors: [] }]),
@@ -725,8 +709,8 @@ describe('DataSync — a record type the running user cannot use', () => {
 
     const stopped = await sync
       .sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
-        { Name: 'Acme', RecordTypeId: PARTNER, Key_Contact__c: '003000000000042AAA' },
-        { Name: 'Globex', RecordTypeId: CUSTOMER },
+        { Name: 'Acme', RecordTypeId: PARTNER },
+        { Name: 'Globex', RecordTypeId: CUSTOMER, Key_Contact__c: '003000000000042AAA' },
       ])
       .then(
         () => undefined,
@@ -734,22 +718,24 @@ describe('DataSync — a record type the running user cannot use', () => {
       );
 
     expect(stopped).toBeInstanceOf(WriteCancelledError);
-    expect((stopped as WriteCancelledError).written.map((o) => o.id)).toEqual([
+    expect((stopped as WriteCancelledError).written.map((o) => o.id ?? '')).toEqual([
+      '',
       '001NEW0',
-      '001NEW1',
     ]);
+    // The record type the user may use went with the row tried again: only
+    // the lookup the target does not have was dropped.
+    expect(insert.mock.calls[1][1]).toEqual([{ Name: 'Globex', RecordTypeId: CUSTOMER }]);
     expect((stopped as WriteCancelledError).notes).toEqual([
-      expect.stringMatching(/^1 Account record written without record type Partner/),
+      expect.stringMatching(/^RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Partner/),
       '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
         'that the target does not have.',
     ]);
   });
 
-  it('keeps the record type it set aside for the records written when the second try fails', async () => {
+  it('keeps what it held back said when the second try fails', async () => {
     const insert = vi
       .fn()
       .mockResolvedValueOnce([
-        { id: '001NEW0', success: true, errors: [] },
         {
           id: '',
           success: false,
@@ -776,10 +762,10 @@ describe('DataSync — a record type the running user cannot use', () => {
       ],
     );
 
-    expect(result).toMatchObject({ processed: 2, success: 1, failed: 1 });
+    expect(result).toMatchObject({ processed: 2, success: 0, failed: 2 });
     expect(result.errors).toEqual([
       'insufficient access rights on cross-reference id: 003000000000042AAA',
-      expect.stringMatching(/^1 Account record written without record type Partner/),
+      expect.stringMatching(/^RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Partner/),
       '1 record(s) the target refused for a lookup it does not have could not be written ' +
         'again without Key_Contact__c: REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
     ]);

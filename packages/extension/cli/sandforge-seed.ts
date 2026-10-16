@@ -13,18 +13,34 @@
  * around a run: progress posted to a webview, the AI field generator (the
  * faker fallback covers every rule on its own) and grappe partitioning.
  *
+ * A run's draws are seeded: the summary prints the seed, and `--seed` takes it
+ * back, so a dry run and the run after it plan and write the same numbers. A
+ * run printed with `--json` and saved to a file can be taken back: `--remove`
+ * deletes from the org the records it created, with the removal Sync, Forge
+ * and Frozen run, from the summary alone.
+ *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \
  *     --target TGT --template prebuilt-minimal-demo
  *   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \
  *     --target TGT --object Account:3 --object Contact:1 \
  *     --relation Contact.AccountId=Account --per-parent 3
+ *   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \
+ *     --remove <summary.json> --target TGT [--include-changed] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
  */
 
-import type { SeedRelation, SeedTemplate } from '@sandforge/shared';
+import { randomInt } from 'node:crypto';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { z } from 'zod';
+import type {
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
+  SeedRelation,
+  SeedTemplate,
+} from '@sandforge/shared';
 import {
   PREBUILT_SEED_TEMPLATES,
   SEED_RELATION_LIMITS,
@@ -33,8 +49,28 @@ import {
   integerDigitsOf,
   plannedChildCount,
 } from '@sandforge/shared';
+import { leftOutForAccountKind } from '../src/core/common/platformRecords.js';
+import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
+import { LOCALE_DATA } from '../src/modules/seed/LocaleData.js';
+import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
+import {
+  readRemovalState,
+  syncRemovalPlan,
+  type SyncRunKept,
+  type SyncRunRemovalState,
+} from '../src/modules/sync/SyncRunCreations.js';
+import {
+  removalRefusal,
+  removalSummaryLines,
+  removalsPathOf,
+  typeTarget,
+} from './sandforge-sync.js';
 import { loadOrg, makeConn } from './sfSession.js';
-import { SeedOrchestrator } from '../src/modules/seed/SeedOrchestrator.js';
+import {
+  SeedOrchestrator,
+  type SeedOrchestratorDependencies,
+} from '../src/modules/seed/SeedOrchestrator.js';
 import { SeedValidator } from '../src/modules/seed/SeedValidator.js';
 import { DataPlanBuilder } from '../src/modules/seed/DataPlanBuilder.js';
 import { FieldMapper } from '../src/modules/seed/FieldMapper.js';
@@ -42,6 +78,9 @@ import { ReferenceLinker } from '../src/modules/seed/ReferenceLinker.js';
 import { FakerFallback } from '../src/modules/seed/FakerFallback.js';
 import { AIDataGenerator } from '../src/modules/seed/AIDataGenerator.js';
 import { readExistingParentIds } from '../src/modules/seed/existingParents.js';
+
+/** The locales the faker draws in. */
+const SUPPORTED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
 
 const HELP = `sandforge-seed — fill an org from a seed template, without the editor.
 
@@ -61,8 +100,43 @@ Options:
   --list-templates       name the built-in templates, then stop
   --batch-size <n>       records per write call            (default: 200)
   --dry-run              build and map, write nothing      (default: off)
+  --seed <n>             draw as the run that printed this seed did: the
+                         same command with the same seed plans and writes
+                         the same numbers. Every run prints its seed
+                                                           (default: drawn)
+  --locale <xx_XX>       the names, addresses and phone numbers drawn:
+                         ${SUPPORTED_LOCALES.join(', ')}    (default: en_US)
+  --record-type <Object>=<Name>[,<Name>]
+                         with --object, give that object's records this
+                         record type, by API name; several take turns at
+                         random. One the running user may not use is
+                         refused. Without it, records take the running
+                         user's default, and the run names the others
   --json                 emit the run summary as JSON      (default: off)
+                         Saved to a file, it is what --remove takes the
+                         run back from: it names what the run created.
   --help                 this text
+
+Contact points: an object's standard email and phone fields are filled, with
+addresses under domains no mailbox can be at (example.com, .example, .test)
+and numbers from ranges nobody holds: nobody can be reached.
+
+Remove what a run created:
+  pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
+    --remove <summary.json> --target <alias> [--include-changed] [--json]
+
+  --remove <file>        the summary a run printed with --json, saved to a
+                         file. Deletes from the org the records the run
+                         created, the last object written first, into the
+                         recycle bin.
+  --target <alias>       the org the run wrote to, and no other. It must be a
+                         sandbox or a Developer Edition org.
+  --include-changed      remove also the records changed since the run, which
+                         are kept otherwise
+  --json                 print the removal as JSON
+
+  What the removal left on the run's records is kept beside the summary, in
+  <summary>.removals.json, and the next --remove of that summary reads it.
 
 Relations (with --object; the options after a --relation apply to it):
   --relation <Child>.<Lookup>=<Parent>
@@ -79,8 +153,10 @@ Relations (with --object; the options after a --relation apply to it):
                          (implies --existing)
   --parent-limit <n>     the most records --existing reads (default: 10)
 
-Exit codes: 0 the run finished (read the summary for per-object failures),
-1 the run could not be started, 2 a bad command line.
+Exit codes: 0 the run finished (read the summary for per-object failures), or
+the removal took every record it set out to; 1 the run or the removal could
+not be started; 2 a bad command line, or a summary --remove cannot take a run
+back from; 3 the removal left records of the run in the org.
 `;
 
 /** Everything the command line settled. */
@@ -93,10 +169,36 @@ interface CliArgs {
   batchSize: number;
   dryRun: boolean;
   json: boolean;
+  /** What the run's draws are seeded with; absent, one is drawn and printed. */
+  seed?: number;
+  /** The locale the faker draws in. */
+  locale?: string;
+  /** Per object, the record types its records take, by API name. */
+  recordTypes: Record<string, string[]>;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/** The largest seed: what a 32-bit draw starts from. */
+const MAX_SEED = 2 ** 32 - 1;
+
+/**
+ * A generator of numbers in [0, 1), the same sequence for the same seed
+ * (mulberry32): what a relation's `--between` draws with, so that the run
+ * after a dry run gives each parent the children the dry run gave it. Drawn
+ * with `Math.random`, a dry run planned 38 contacts and the run wrote 40.
+ */
+export function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 /** `Child.Lookup=Parent`, each part an API name. */
 const RELATION_RE =
@@ -299,6 +401,34 @@ export function parseArgs(argv: string[]): CliArgs {
     refuse('--relation goes with --object: a built-in template carries its own links.');
   }
 
+  let seed: number | undefined;
+  if (args.includes('--seed')) {
+    const raw = get('--seed');
+    seed = Number(raw);
+    if (raw === undefined || !/^\d+$/.test(raw) || !Number.isSafeInteger(seed) || seed > MAX_SEED) {
+      refuse(`--seed takes a whole number from 0 to ${MAX_SEED}, not "${raw ?? ''}".`);
+    }
+  }
+
+  const locale = get('--locale');
+  if (args.includes('--locale') && (locale === undefined || !SUPPORTED_LOCALES.includes(locale))) {
+    refuse(`--locale takes one of ${SUPPORTED_LOCALES.join(', ')}, not "${locale ?? ''}".`);
+  }
+
+  const recordTypes: Record<string, string[]> = {};
+  for (const pair of collect('--record-type')) {
+    const match =
+      /^([A-Za-z][A-Za-z0-9_]{0,79})=([A-Za-z][A-Za-z0-9_]{0,79}(?:,[A-Za-z][A-Za-z0-9_]{0,79})*)$/.exec(
+        pair,
+      );
+    if (!match) refuse(`--record-type wants "Object=Name" or "Object=Name,Other", not "${pair}".`);
+    const [, objectApiName, names] = match as RegExpExecArray;
+    if (!objects.some((object) => object.objectApiName === objectApiName)) {
+      refuse(`--record-type ${objectApiName}: give ${objectApiName} with --object too.`);
+    }
+    recordTypes[objectApiName] = [...new Set(names.split(','))];
+  }
+
   return {
     target,
     templateId,
@@ -307,6 +437,9 @@ export function parseArgs(argv: string[]): CliArgs {
     batchSize,
     dryRun: args.includes('--dry-run'),
     json: args.includes('--json'),
+    ...(seed !== undefined ? { seed } : {}),
+    ...(locale !== undefined ? { locale } : {}),
+    recordTypes,
   };
 }
 
@@ -333,11 +466,16 @@ export function prebuiltTemplate(templateId: string | undefined): SeedTemplate |
  * digits, a percentage within 100. Picking the method alone, as this did,
  * drew numbers up to 1000 for a two-digit field, which the org refuses.
  *
- * Only what the platform insists on, plus `Name`: a seed is meant to make an
- * org usable, not to fill every column it has. A lookup is filled by a
- * relation the command line names, never by a rule of its own. The object
- * decides whose name a name field holds, as in the panel: a person's on a
- * contact, a company's on an account.
+ * What the platform insists on, plus `Name` and the object's standard email
+ * and phone fields: a seed is meant to make an org usable, not to fill every
+ * column it has, and run into a client sandbox, contacts and accounts with
+ * neither an email nor a phone were no use to test anything that reaches a
+ * customer. The faker draws addresses under reserved domains and numbers from
+ * the ranges kept for fiction (`LocaleData`), so nobody is reached. A lookup
+ * is filled by a relation the command line names, never by a rule of its own.
+ * The object decides whose name a name field holds, as in the panel: a
+ * person's on a contact, a company's on an account. An account is written as a
+ * business account, without the fields only a person account holds.
  */
 export function rulesFromDescribe(
   fields: Array<{
@@ -355,7 +493,10 @@ export function rulesFromDescribe(
   objectApiName?: string,
 ): SeedTemplate['objects'][number]['fieldRules'] {
   const wanted = fields.filter(
-    (f) => f.createable && (f.name === 'Name' || (!f.nillable && f.defaultedOnCreate !== true)),
+    (f) =>
+      f.createable &&
+      !leftOutForAccountKind(objectApiName ?? '', f.name, 'business') &&
+      (f.name === 'Name' || isContactPoint(f) || (!f.nillable && f.defaultedOnCreate !== true)),
   );
   const rules: SeedTemplate['objects'][number]['fieldRules'] = [];
   for (const field of wanted) {
@@ -382,6 +523,91 @@ export function rulesFromDescribe(
   return rules;
 }
 
+/**
+ * A standard email or phone field — `Email`, `Phone`, `MobilePhone`, `Fax` —
+ * which a seed fills with a value nobody holds. A custom one is the org's
+ * own, which a validation rule or a duplicate rule may watch: left to a rule.
+ */
+function isContactPoint(field: { name: string; type: string }): boolean {
+  return (field.type === 'email' || field.type === 'phone') && !field.name.includes('__');
+}
+
+/** A record type of the org, as `recordTypeRule` reads it from the describe. */
+type DescribedRecordTypes = Parameters<typeof parseRecordTypeInfos>[0];
+
+/**
+ * The rule that gives an object's records the record types `--record-type`
+ * names, by API name, or why it cannot: a name the object has no active
+ * record type of, or one the running user may not use. One type is given to
+ * every record; several take turns at random.
+ *
+ * @param recordTypeInfos - The object's describe's `recordTypeInfos`.
+ */
+export function recordTypeRule(
+  objectApiName: string,
+  names: readonly string[],
+  recordTypeInfos: DescribedRecordTypes,
+): { rule: SeedTemplate['objects'][number]['fieldRules'][number] } | { refusal: string } {
+  const infos = parseRecordTypeInfos(recordTypeInfos).filter((info) => !info.master);
+  const open = infos.filter((info) => info.active && info.available);
+  const ids: string[] = [];
+  for (const name of names) {
+    const info = infos.find((i) => i.developerName === name);
+    if (!info || !info.active || !info.available) {
+      const offered = open.map((i) => i.developerName).join(', ') || 'none';
+      return {
+        refusal:
+          `--record-type ${objectApiName}=${name}: ` +
+          (!info
+            ? `${objectApiName} has no record type ${name}`
+            : !info.active
+              ? `record type ${name} is inactive`
+              : `the running user may not use record type ${name}`) +
+          `. Open to them: ${offered}.`,
+      };
+    }
+    ids.push(info.recordTypeId);
+  }
+  return {
+    rule:
+      ids.length === 1
+        ? {
+            fieldApiName: 'RecordTypeId',
+            fieldType: 'reference',
+            ruleType: 'static',
+            config: { staticValue: ids[0] },
+          }
+        : {
+            fieldApiName: 'RecordTypeId',
+            fieldType: 'reference',
+            ruleType: 'picklist_random',
+            config: { picklistValues: ids },
+          },
+  };
+}
+
+/**
+ * What a run says of an object whose records take the running user's default
+ * record type while others are open to them: which, and how to choose. Nothing
+ * for an object with one record type, or none.
+ */
+export function recordTypeChoiceLine(
+  objectApiName: string,
+  recordTypeInfos: DescribedRecordTypes,
+): string | undefined {
+  const open = parseRecordTypeInfos(recordTypeInfos).filter(
+    (info) => !info.master && info.active && info.available,
+  );
+  if (open.length < 2) return undefined;
+  const fallback = open.find((info) => info.defaultRecordTypeMapping);
+  return (
+    `  ${objectApiName}: ${open.length} record types open to you (` +
+    `${open.map((info) => info.developerName).join(', ')}); the records take ` +
+    `${fallback ? `your default, ${fallback.developerName}` : 'your default'}: ` +
+    `--record-type ${objectApiName}=<Name> chooses`
+  );
+}
+
 /** How a relation spreads its children, in words. */
 export function describeDistribution(distribution: SeedRelation['distribution']): string {
   switch (distribution.mode) {
@@ -394,15 +620,60 @@ export function describeDistribution(distribution: SeedRelation['distribution'])
   }
 }
 
+/**
+ * The orchestrator a run drives, the panel's, with what the command line
+ * gives it: the org's reads and writes, the seed its draws are made with, the
+ * locale the faker draws in. A dry run and a run built with the same seed give
+ * each parent the same children.
+ */
+export function seedOrchestrator(deps: {
+  insert: SeedOrchestratorDependencies['insert'];
+  describeCreateableFields: NonNullable<SeedOrchestratorDependencies['describeCreateableFields']>;
+  readExistingParentIds: NonNullable<SeedOrchestratorDependencies['readExistingParentIds']>;
+  seed: number;
+  locale?: string;
+}): SeedOrchestrator {
+  return new SeedOrchestrator({
+    validator: new SeedValidator(),
+    readExistingParentIds: deps.readExistingParentIds,
+    describeCreateableFields: deps.describeCreateableFields,
+    planBuilder: new DataPlanBuilder(),
+    // An AI generator that refuses. The faker answers every rule the templates
+    // here carry, and a run that needs an API key is a run nobody can
+    // reproduce — but a template written elsewhere may carry an `ai` rule, and
+    // silently filling those with something else would be worse than saying so.
+    fieldMapper: new FieldMapper({
+      aiGenerator: new AIDataGenerator(() => {
+        throw new Error(
+          'This template has an AI field rule. sandforge-seed runs without an ' +
+            'AI key: use the panel for it, or replace the rule with a faker one.',
+        );
+      }),
+      fakerFallback: new FakerFallback(deps.locale),
+    }),
+    referenceLinker: new ReferenceLinker(),
+    insert: deps.insert,
+    generateId: () => `cli-${Math.random().toString(36).slice(2)}`,
+    now: () => new Date().toISOString(),
+    random: seededRandom(deps.seed),
+  });
+}
+
 /** Run one seed from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
+  if (argv.slice(2).includes('--remove')) return removeMain(argv);
   const t0 = Date.now();
   const args = parseArgs(argv);
   const log = (line: string): void => {
     if (!args.json) process.stdout.write(`${line}\n`);
   };
+  // Drawn once and printed, given back with --seed: the same command draws
+  // the same children per parent, a dry run as the run after it.
+  const seed = args.seed ?? randomInt(0, MAX_SEED + 1);
+  const startedAt = new Date().toISOString();
 
   log(`sandforge-seed  -> ${args.target}`);
+  log(`seed: ${seed}  (--seed ${seed} draws the same again)`);
   const conn = makeConn(await loadOrg(args.target));
 
   const now = new Date().toISOString();
@@ -427,6 +698,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         described.fields as unknown as Parameters<typeof rulesFromDescribe>[0],
         spec.objectApiName,
       );
+      // The record types the line chose, or a word on the ones it could choose.
+      const chosen = args.recordTypes[spec.objectApiName];
+      if (chosen) {
+        const typed = recordTypeRule(spec.objectApiName, chosen, described.recordTypeInfos);
+        if ('refusal' in typed) {
+          process.stderr.write(`${typed.refusal}\n`);
+          process.exit(2);
+        }
+        rules.push(typed.rule);
+      } else {
+        const choice = recordTypeChoiceLine(spec.objectApiName, described.recordTypeInfos);
+        if (choice) log(choice);
+      }
       log(`  ${spec.objectApiName}: ${rules.map((r) => r.fieldApiName).join(', ') || '(none)'}`);
       objects.push({
         objectApiName: spec.objectApiName,
@@ -484,8 +768,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const creatableByObject = new Map<string, ReadonlySet<string>>();
 
-  const orchestrator = new SeedOrchestrator({
-    validator: new SeedValidator(),
+  const orchestrator = seedOrchestrator({
     // A relation reads its parents from the org when told to, dry run or not:
     // a read writes nothing.
     readExistingParentIds: (objectApiName, where, limit) =>
@@ -498,33 +781,36 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       creatableByObject.set(objectApiName, names);
       return names;
     },
-    planBuilder: new DataPlanBuilder(),
-    // An AI generator that refuses. The faker answers every rule the templates
-    // here carry, and a run that needs an API key is a run nobody can
-    // reproduce — but a template written elsewhere may carry an `ai` rule, and
-    // silently filling those with something else would be worse than saying so.
-    fieldMapper: new FieldMapper({
-      aiGenerator: new AIDataGenerator(() => {
-        throw new Error(
-          'This template has an AI field rule. sandforge-seed runs without an ' +
-            'AI key: use the panel for it, or replace the rule with a faker one.',
-        );
-      }),
-      fakerFallback: new FakerFallback(),
-    }),
-    referenceLinker: new ReferenceLinker(),
     insert,
-    generateId: () => `cli-${Math.random().toString(36).slice(2)}`,
-    now: () => new Date().toISOString(),
+    seed,
+    ...(args.locale !== undefined ? { locale: args.locale } : {}),
   });
 
   log(args.dryRun ? '\nexecuting… (DRY-RUN)' : '\nexecuting… (REAL)');
   const result = await orchestrator.execute(template, args.target);
   const elapsedMs = Date.now() - t0;
+  const created = result.objectResults.reduce((sum, o) => sum + o.createdIds.length, 0);
+  // The org's own id, so --remove takes the run back from it and no other,
+  // whatever alias names it then.
+  const targetOrgId = !args.dryRun && created > 0 ? await organizationIdOf(conn) : undefined;
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-seed', target: args.target, dryRun: args.dryRun, result, elapsedMs }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          tool: 'sandforge-seed',
+          target: args.target,
+          ...(targetOrgId ? { targetOrgId } : {}),
+          dryRun: args.dryRun,
+          seed,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          result,
+          elapsedMs,
+        },
+        null,
+        2,
+      )}\n`,
     );
     return;
   }
@@ -535,7 +821,338 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     log(`  ${entry.objectApiName}: ${entry.recordsCreated} created, ${entry.recordsFailed} failed`);
     for (const error of (entry.errors ?? []).slice(0, 3)) log(`      ${error}`);
   }
+  log(`seed: ${seed}`);
+  if (!args.dryRun && created > 0) {
+    log(
+      `\ncreated ${created} record(s) in ${args.target}: run with --json and save the summary to ` +
+        'a file, and --remove takes them back from it',
+    );
+  }
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+/** The org's own id, or undefined when it does not say. */
+async function organizationIdOf(conn: ReturnType<typeof makeConn>): Promise<string | undefined> {
+  try {
+    const answer = await conn.query<{ Id?: string }>('SELECT Id FROM Organization LIMIT 1');
+    const id = answer.records[0]?.Id;
+    return typeof id === 'string' ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// ─── --remove ────────────────────────────────────────────────────────────────
+
+/** What `--remove` was given. */
+export interface RemoveArgs {
+  /** The summary a run printed with `--json`, saved to a file. */
+  summaryPath: string;
+  /** sf CLI alias of the org the run wrote to. */
+  target: string;
+  /** Remove also the records changed since the run. */
+  includeChanged: boolean;
+  /** Print the removal as JSON on stdout, every other line on stderr. */
+  json: boolean;
+}
+
+/** The flags a removal reads. */
+const REMOVE_FLAGS: ReadonlySet<string> = new Set([
+  '--remove',
+  '--target',
+  '--include-changed',
+  '--json',
+]);
+const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target']);
+
+/** Read the command line of a removal, or explain why it cannot be read. */
+export function parseRemoveArgs(argv: string[]): RemoveArgs {
+  const args = argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (REMOVE_VALUE_FLAGS.has(arg)) {
+      i++;
+      continue;
+    }
+    if (!REMOVE_FLAGS.has(arg)) {
+      process.stderr.write(
+        `--remove takes --target, --include-changed and --json, not "${arg}". Run with --help.\n`,
+      );
+      process.exit(2);
+    }
+  }
+  const get = (flag: string): string | undefined => {
+    const at = args.indexOf(flag);
+    return at >= 0 && at + 1 < args.length ? args[at + 1] : undefined;
+  };
+  const summaryPath = get('--remove');
+  const target = get('--target');
+  if (!summaryPath || !target || REMOVE_FLAGS.has(summaryPath) || REMOVE_FLAGS.has(target)) {
+    process.stderr.write(
+      '--remove takes the file a run printed its --json summary to, and --target the org the ' +
+        'run wrote to. Run with --help.\n',
+    );
+    process.exit(2);
+  }
+  return {
+    summaryPath,
+    target,
+    includeChanged: args.includes('--include-changed'),
+    json: args.includes('--json'),
+  };
+}
+
+/** A Salesforce id, as every id a summary names is: they end up in deletes. */
+const ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/** The summary a run printed with `--json`, as `--remove` reads it: external input. */
+const runSummarySchema = z
+  .object({
+    tool: z.literal('sandforge-seed'),
+    target: z.string().min(1),
+    targetOrgId: z.string().regex(ID).optional(),
+    dryRun: z.boolean(),
+    startedAt: z.string().min(1).max(40).optional(),
+    finishedAt: z.string().min(1).max(40).optional(),
+    result: z
+      .object({
+        operationId: z.string().min(1).max(200).optional(),
+        status: z.enum(['success', 'partial', 'failure']),
+        objectResults: z.array(
+          z
+            .object({
+              objectApiName: z.string().regex(API_NAME_RE),
+              createdIds: z.array(z.string().regex(ID)),
+              truncated: z.boolean().optional(),
+            })
+            .loose(),
+        ),
+      })
+      .loose(),
+  })
+  .loose();
+
+/** A run summary, as `--remove` reads it. */
+export type SeedRunSummary = z.infer<typeof runSummarySchema>;
+
+/** The summary in `text`, or why `--remove` cannot take a run back from it. */
+export function readRunSummary(text: string): { summary: SeedRunSummary } | { refusal: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { refusal: 'is not JSON: save the output of a run printed with --json.' };
+  }
+  const parsed = runSummarySchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      refusal:
+        `is not the summary of a sandforge-seed run (${issue.path.join('.') || 'summary'}: ` +
+        `${issue.message}).`,
+    };
+  }
+  if (parsed.data.dryRun) {
+    return {
+      refusal: 'is the summary of a dry run, which wrote nothing: there is nothing to remove.',
+    };
+  }
+  if (parsed.data.result.objectResults.some((o) => o.truncated === true)) {
+    return {
+      refusal:
+        'names only the first of the records some object created: the rest cannot be told ' +
+        'apart from the org’s own.',
+    };
+  }
+  return { summary: parsed.data };
+}
+
+/**
+ * The run a summary names, as the removal Sync runs reads it
+ * (`removeSyncRun`): what it created per object, in the order it wrote them,
+ * which the removal takes back the last first.
+ */
+export function runOfSummary(summary: SeedRunSummary, removal?: SyncRunRemovalState): SyncRunKept {
+  const finishedAt = summary.finishedAt ?? new Date().toISOString();
+  return {
+    runId: summary.result.operationId ?? 'sandforge-seed',
+    configId: 'sandforge-seed',
+    configName: 'sandforge-seed',
+    sourceOrgId: summary.target,
+    targetOrgId: summary.target,
+    startedAt: summary.startedAt ?? finishedAt,
+    end: { at: finishedAt, status: summary.result.status },
+    lastWrittenAt: finishedAt,
+    created: summary.result.objectResults
+      .filter((object) => object.createdIds.length > 0)
+      .map((object) => ({ objectApiName: object.objectApiName, ids: [...object.createdIds] })),
+    ...(removal ? { removal } : {}),
+  };
+}
+
+/** The exit code of a removal that left records of the run in the org. */
+const RECORDS_LEFT_EXIT = 3;
+
+/**
+ * Remove from the org what a run created, from the summary the run printed
+ * with `--json`: the removal Sync runs (`removeSyncRun`), which is Forge's and
+ * Frozen's — every object read before anything is deleted, a record changed
+ * since the run kept unless `--include-changed`, children before their
+ * parents, into the recycle bin, refusals counted with their reasons. The
+ * summary and what earlier removals of it kept beside it are read and checked
+ * before any org is contacted; then the org is typed, and refused unless it is
+ * a sandbox or a Developer Edition org, and the org the run wrote to.
+ */
+export async function removeMain(argv: string[] = process.argv): Promise<void> {
+  const t0 = Date.now();
+  const args = parseRemoveArgs(argv);
+  // In --json mode stdout carries the outcome alone, for a parser to read.
+  const say = (line: string): void => {
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
+  };
+
+  let text: string;
+  try {
+    text = readFileSync(args.summaryPath, 'utf8');
+  } catch (err: unknown) {
+    process.stderr.write(
+      `--remove ${args.summaryPath} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(2);
+  }
+  const read = readRunSummary(text);
+  if ('refusal' in read) {
+    process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
+    process.exit(2);
+  }
+  const { summary } = read;
+  if (summary.targetOrgId === undefined && summary.target !== args.target) {
+    process.stderr.write(
+      `The run wrote to ${summary.target}, and what it created is removed from that org only: ` +
+        `give --target ${summary.target}.\n`,
+    );
+    process.exit(2);
+  }
+
+  // What earlier removals of this summary left on the run's records.
+  const removalsFile = removalsPathOf(args.summaryPath);
+  const runId = summary.result.operationId ?? 'sandforge-seed';
+  let earlier: SyncRunRemovalState | undefined;
+  let removalsText: string | undefined;
+  try {
+    removalsText = readFileSync(removalsFile, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+      process.stderr.write(
+        `${removalsFile} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(2);
+    }
+  }
+  if (removalsText !== undefined) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(removalsText);
+    } catch {
+      raw = undefined;
+    }
+    const ofRun = (raw as { runId?: unknown } | undefined)?.runId;
+    earlier = ofRun === runId ? readRemovalState(raw) : undefined;
+    if (ofRun !== runId) {
+      say(`${removalsFile} is of another run: it is not read, and this removal's takes its place`);
+    } else if (!earlier) {
+      process.stderr.write(`${removalsFile} does not read as what earlier removals did.\n`);
+      process.exit(2);
+    }
+  }
+  const run = runOfSummary(summary, earlier);
+
+  const output = (status: ForgeUndoStatus, objects: ForgeUndoObjectResult[], planned: number) => {
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            tool: 'sandforge-seed',
+            action: 'remove',
+            summary: args.summaryPath,
+            target: args.target,
+            includeChanged: args.includeChanged,
+            result: { status, planned, objects },
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return;
+    }
+    for (const line of removalSummaryLines(status, objects)) say(line);
+    say(`\ndone in ${Date.now() - t0}ms`);
+  };
+
+  const plan = syncRemovalPlan(run);
+  if (plan.length === 0) {
+    say(
+      earlier?.undo
+        ? `what the run created was removed already, on ${earlier.undo.removedAt}`
+        : 'The run created nothing: there is nothing of it to remove.',
+    );
+    output('success', [], 0);
+    return;
+  }
+
+  const conn = makeConn(await loadOrg(args.target));
+  const org = await typeTarget(conn);
+  const refusal = removalRefusal(args.target, org, 'sandforge-seed');
+  if (refusal) {
+    process.stderr.write(`${refusal}\n`);
+    process.exit(1);
+  }
+  if (
+    summary.targetOrgId !== undefined &&
+    summary.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
+  ) {
+    process.stderr.write(
+      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and what it ` +
+        'created is removed from that org only. Nothing was deleted.\n',
+    );
+    process.exit(1);
+  }
+  say(`sandforge-seed --remove  ${args.summaryPath}  from ${args.target}`);
+  for (const { objectApiName, ids } of plan) say(`  ${objectApiName}: ${ids.length} to remove`);
+
+  // Ctrl-C stops the removal before its next call to the org.
+  const stop = new AbortController();
+  const interrupt = (): void => stop.abort();
+  process.once('SIGINT', interrupt);
+  let state: SyncRunRemovalState = earlier ?? {};
+  let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
+  try {
+    outcome = await removeSyncRun({
+      run,
+      org: removalOrg(conn, 'sandforge-seed --remove'),
+      includeChanged: args.includeChanged,
+      signal: stop.signal,
+      store: {
+        // Kept beside the summary whatever the removal ended on, written
+        // whole through a file renamed over it.
+        updateRemoval: async (_runId, change) => {
+          state = change(state);
+          const written = `${removalsFile}.${process.pid}.tmp`;
+          writeFileSync(
+            written,
+            `${JSON.stringify({ version: 1, runId: run.runId, ...state }, null, 2)}\n`,
+          );
+          renameSync(written, removalsFile);
+        },
+      },
+    });
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
+  for (const note of outcome.notes) process.stderr.write(`${note}\n`);
+  output(outcome.result.status, outcome.result.objects, outcome.planned);
+  if (outcome.result.status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

@@ -9,9 +9,19 @@
  * key each record would be written on. That answer is what an upsert, an
  * update or a delete does, so it is what decides each record's line here.
  *
- * What it cannot ask is everything the target decides as it saves: a
- * validation rule, a duplicate rule, a required field, a trigger. A record
- * one of those would refuse is counted as the run would send it.
+ * What the write holds back before it sends anything — a record type it
+ * cannot write, a row under a parent the run refused — the simulation holds
+ * back too, from the same preparation (`prepareSyncRows`); and what the target
+ * refuses on every row that carries it, known from its describe, it counts as
+ * refused, as Forge's simulation finds it (`rowGapsOf`): a field the target
+ * requires left empty, a text longer than its field, a number past its field's
+ * places; and a value of a field the target keeps unique that it holds
+ * already, or that a record sent before holds. A row it refuses is the
+ * refused parent of the rows under it.
+ *
+ * What it cannot ask is the rest of what the target decides as it saves: a
+ * validation rule, a duplicate rule, a trigger. A record one of those would
+ * refuse is counted as the run would send it.
  */
 
 import type { ConflictRecord, SyncObjectConfig, SyncObjectSimulation } from '@sandforge/shared';
@@ -19,6 +29,8 @@ import { sanitizeSoqlObjectName } from '@sandforge/shared';
 import { leftToThePlatformNote, type RowsLeftOut } from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { queryAllPages, type PagedQuerySource } from '../forge/queryAllPages.js';
+import type { FieldInfo } from '../forge/ForgeExecutor.js';
+import { SimulationGaps, rowGapsOf } from '../forge/stages/SimulationGaps.js';
 
 /** Most fields named as differing on an object's conflicts. */
 const MAX_CONFLICT_FIELDS = 10;
@@ -200,12 +212,49 @@ function writtenConflictFields(
   );
 }
 
+/**
+ * What the write would do with one record, as a simulation tells it from the
+ * key it carries and what the target holds of it: create it, update or delete
+ * the one record its key finds, refuse it — no key, a key the target does not
+ * hold, or one it holds more than once — or, for a delete, leave it out.
+ */
+export type SimulatedRecord =
+  'insert' | 'update' | 'delete' | 'noKey' | 'notInTarget' | 'notSent' | 'ambiguous';
+
+/** The kinds of {@link SimulatedRecord} the target refuses. */
+export const REFUSED_BY_THE_TARGET: ReadonlySet<SimulatedRecord> = new Set([
+  'noKey',
+  'notInTarget',
+  'ambiguous',
+]);
+
+/** What the write would do with one record: see {@link SimulatedRecord}. */
+export function simulateRecord(
+  objectConfig: SyncObjectConfig,
+  record: Record<string, unknown>,
+  inTarget: ReadonlyMap<string, number>,
+): SimulatedRecord {
+  const operation = objectConfig.operation;
+  const keyField = targetKeyOf(objectConfig);
+  if (keyField === null) return 'insert';
+  const key = simulationKey(record[keyField]);
+  // A delete sends ids alone: a record without one is not sent at all.
+  if (key === null) return operation === 'delete' ? 'notSent' : 'noKey';
+  const held = inTarget.get(key) ?? 0;
+  if (operation === 'upsert') {
+    if (held === 0) return 'insert';
+    return held === 1 ? 'update' : 'ambiguous';
+  }
+  if (held === 0) return 'notInTarget';
+  return operation === 'update' ? 'update' : 'delete';
+}
+
 /** One object's line of a simulation, from what was read of both orgs. */
 export function simulateObjectOutcome(input: ObjectSimulationInput): SyncObjectSimulation {
   const { objectConfig, records, inTarget } = input;
   const operation = objectConfig.operation;
   const keyField = targetKeyOf(objectConfig);
-  const counts = {
+  const counts: Record<SimulatedRecord, number> = {
     insert: 0,
     update: 0,
     delete: 0,
@@ -219,37 +268,9 @@ export function simulateObjectOutcome(input: ObjectSimulationInput): SyncObjectS
   const written = new Set<number>();
 
   records.forEach((record, index) => {
-    if (keyField === null) {
-      counts.insert++;
-      written.add(index);
-      return;
-    }
-    const key = simulationKey(record[keyField]);
-    if (key === null) {
-      // A delete sends ids alone: a record without one is not sent at all.
-      if (operation === 'delete') counts.notSent++;
-      else counts.noKey++;
-      return;
-    }
-    const held = inTarget.get(key) ?? 0;
-    if (operation === 'upsert') {
-      if (held === 0) {
-        counts.insert++;
-        written.add(index);
-      } else if (held === 1) {
-        counts.update++;
-        written.add(index);
-      } else {
-        counts.ambiguous++;
-      }
-    } else if (held === 0) {
-      counts.notInTarget++;
-    } else if (operation === 'update') {
-      counts.update++;
-      written.add(index);
-    } else {
-      counts.delete++;
-    }
+    const simulated = simulateRecord(objectConfig, record, inTarget);
+    counts[simulated]++;
+    if (simulated === 'insert' || simulated === 'update') written.add(index);
   });
 
   const notes = input.leftOut.map(({ why, count }) => leftToThePlatformNote(count, why));
@@ -318,4 +339,144 @@ export function simulateObjectOutcome(input: ObjectSimulationInput): SyncObjectS
     conflictFields,
     notes,
   };
+}
+
+/** One payload a write would send, as the row checks read it. */
+export interface PayloadToCheck {
+  /** What is sent. */
+  readonly payload: Readonly<Record<string, unknown>>;
+  /** The row as the source read it: whether it is a person account's. */
+  readonly source: Readonly<Record<string, unknown>>;
+  /**
+   * Whether the write creates the record: only a record created is refused
+   * for a field the target requires left out, an update keeping its value.
+   */
+  readonly creates: boolean;
+}
+
+/** How a gap the target refuses rows for reads, counted. */
+function refusalNote(gap: {
+  kind: string;
+  field?: string;
+  rows: number;
+  detail?: Record<string, unknown>;
+}): string | undefined {
+  const field = gap.field ?? '';
+  switch (gap.kind) {
+    case 'required_field_missing':
+      return (
+        `${gap.rows} record(s) leave ${field} empty, which the target requires: it refuses ` +
+        `them (REQUIRED_FIELD_MISSING).`
+      );
+    case 'value_too_long':
+      return (
+        `${gap.rows} record(s) hold a ${field} longer than the ${String(gap.detail?.length)} ` +
+        `characters the target's field takes (the longest, ${String(gap.detail?.longest)}): it ` +
+        `refuses them (STRING_TOO_LONG).`
+      );
+    case 'number_out_of_range':
+      return (
+        `${gap.rows} record(s) hold a ${field} larger than the target's field takes: it refuses ` +
+        `them (NUMBER_OUTSIDE_VALID_RANGE).`
+      );
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Of the payloads a write would send, those the target refuses whatever else
+ * they hold, as Forge's simulation finds them against the target's describe
+ * (`rowGapsOf`): a field it requires left empty, a text longer than its field,
+ * a number past its field's places. The target refuses those on every row, so
+ * the simulation says so rather than count them written, and says each kind
+ * once, with how many rows it refuses.
+ *
+ * @returns The positions of the payloads refused, and the notes.
+ */
+export function refusedOnTheirFields(
+  objectApiName: string,
+  rows: readonly PayloadToCheck[],
+  fields: readonly FieldInfo[],
+): { refused: Set<number>; notes: string[] } {
+  const refused = new Set<number>();
+  const found = new SimulationGaps();
+  rows.forEach(({ payload, source, creates }, position) => {
+    const ofRow = new SimulationGaps();
+    rowGapsOf(
+      {
+        objectApiName,
+        rows: [{ payload, source, typed: true }],
+        targetFields: fields,
+        picklistValuesByField: null,
+        picklistFields: new Map(),
+      },
+      ofRow,
+    );
+    const blocking = ofRow
+      .list(new Set())
+      .filter(
+        (gap) => gap.severity === 'blocking' && (creates || gap.kind !== 'required_field_missing'),
+      );
+    if (blocking.length === 0) return;
+    refused.add(position);
+    // Its id and source are given again by the collector.
+    for (const gap of blocking) found.add(gap);
+  });
+  const notes = found.list(new Set()).flatMap((gap) => {
+    const note = refusalNote(gap);
+    return note ? [note] : [];
+  });
+  return { refused, notes };
+}
+
+/**
+ * Of the records a write would create, in the order it sends them, those a
+ * field the target keeps unique refuses (`DUPLICATE_VALUE`), as Forge's
+ * simulation finds a unique value the target holds already: a value the
+ * target holds, or one a record sent before it in the run holds. Run against
+ * a target that keeps an external id unique where the source does not, the
+ * second of two accounts sharing one was refused, and what hung from it with
+ * it, while the simulation had counted both written.
+ *
+ * @param rows - The payloads the write would create, in the order sent.
+ * @param heldByField - Per unique field, how many target records hold each
+ *   value the rows carry, by the value as {@link simulationKey} gives it.
+ * @returns The positions of the rows refused, and a note per field.
+ */
+export function refusedOnUniqueValues(
+  rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
+  heldByField: ReadonlyMap<string, ReadonlyMap<string, number>>,
+): { refused: Set<number>; notes: string[] } {
+  const refused = new Set<number>();
+  const notes: string[] = [];
+  for (const [field, held] of heldByField) {
+    const seen = new Set<string>();
+    let inTarget = 0;
+    let twice = 0;
+    rows.forEach((payload, position) => {
+      const key = simulationKey(payload[field]);
+      if (key === null) return;
+      if ((held.get(key) ?? 0) > 0) {
+        inTarget++;
+        refused.add(position);
+      } else if (seen.has(key)) {
+        twice++;
+        refused.add(position);
+      }
+      seen.add(key);
+    });
+    if (inTarget + twice === 0) continue;
+    notes.push(
+      `${inTarget + twice} record(s) hold a ${field} the target keeps unique, which ` +
+        [
+          inTarget > 0 ? `the target holds already (${inTarget})` : '',
+          twice > 0 ? `a record sent before them holds (${twice})` : '',
+        ]
+          .filter(Boolean)
+          .join(' or ') +
+        `: it refuses them (DUPLICATE_VALUE).`,
+    );
+  }
+  return { refused, notes };
 }

@@ -1,0 +1,397 @@
+/**
+ * What a Sync write sends of each row, and the rows it holds back before the
+ * write: one preparation, read by the write (`DataSync`) and by the simulation
+ * that says what the write would do (`SyncOrchestrator.simulate`), so the two
+ * cannot tell different stories.
+ *
+ * Run into a large client sandbox with person accounts and record types per
+ * profile, a Sync of accounts and contacts was simulated as 654 accounts and
+ * 1 274 contacts inserted, none refused, and wrote no account and 12 contacts:
+ *
+ * - every business account went with the fields only a person account holds,
+ *   empty, and was refused for them (`leftOutForAccountKind`, Forge's rule);
+ * - every row went with the source's `RecordTypeId`, an id the target does not
+ *   hold: it is now the target's type of the same object and API name, as
+ *   Forge maps it, and a row whose type has no counterpart there, or one the
+ *   running user may not use, is held back with the reason, as Forge holds it;
+ * - the contacts went with their `AccountId` pointing at accounts the target
+ *   had just refused, and twelve were written without it to get them in. A
+ *   lookup at a record the run wrote now names its copy in the target; a row
+ *   whose lookup names a record the run set out to create and could not is
+ *   held back ("parent refused", as Forge's rehearsal says it), never written
+ *   without its parent.
+ */
+
+import type { AddOnField, FieldMapping, SyncObjectConfig } from '@sandforge/shared';
+import {
+  accountKindOf,
+  isPersonAccountRow,
+  leftOutForAccountKind,
+} from '../../core/common/platformRecords.js';
+import {
+  defaultRecordTypeOf,
+  recordTypeBlockedMessage,
+  type RecordTypeAvailability,
+} from '../../core/metadata/recordTypeAvailability.js';
+import type { SyncRecordTypes } from './syncRecordTypes.js';
+import type { TargetWriteFields } from './targetWriteFields.js';
+
+/** A Salesforce id, as a lookup holds one. */
+const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * The master record type: an object with no record type of its own stores
+ * this id, the same in every org, and it is never in a mapping.
+ */
+const MASTER_RECORD_TYPE = /^012000000000000(AAA)?$/;
+
+/** An id by its first fifteen characters: the case-sensitive id both forms share. */
+function idKey(id: string): string {
+  return id.slice(0, 15);
+}
+
+/**
+ * What a run has written and refused so far, by the source id of each row:
+ * what the rows of the objects written after read their lookups against.
+ *
+ * A record is refused when the run set out to create it — an insert, or an
+ * upsert — and the target did not take it, or the run held it back. A record
+ * an update or a delete did not reach is the target's already: its children's
+ * lookups name it as they did.
+ */
+export class SyncRunLinks {
+  private readonly written = new Map<string, string>();
+  private readonly refused = new Map<string, string>();
+
+  /** A source record the run wrote, and the id of its copy in the target. */
+  noteWritten(sourceId: string, targetId: string): void {
+    this.written.set(idKey(sourceId), targetId);
+    this.refused.delete(idKey(sourceId));
+  }
+
+  /** A source record of `objectApiName` the run set out to create and did not. */
+  noteRefused(sourceId: string, objectApiName: string): void {
+    if (this.written.has(idKey(sourceId))) return;
+    this.refused.set(idKey(sourceId), objectApiName);
+  }
+
+  /** The copy in the target of a source record the run wrote, if it wrote it. */
+  targetOf(sourceId: string): string | undefined {
+    return this.written.get(idKey(sourceId));
+  }
+
+  /** The object of a source record the run refused, if it refused it. */
+  refusedObjectOf(sourceId: string): string | undefined {
+    return this.refused.get(idKey(sourceId));
+  }
+}
+
+/** What a write is handed beside the records, from the run it is part of. */
+export interface SyncWriteRun {
+  /** What the run wrote and refused before this object. */
+  links: SyncRunLinks;
+  /**
+   * Each record as the source read it, in the order of the records: its id,
+   * which the run's links are kept by, and whether it is a person account's.
+   */
+  sources: ReadonlyArray<Record<string, unknown> | undefined>;
+  /** The record types of both orgs; absent, `RecordTypeId` goes as it was read. */
+  recordTypes?: SyncRecordTypes;
+}
+
+/** A row held back before the write. */
+export interface HeldRow {
+  /** Its place among the records handed over. */
+  index: number;
+  /** Why, as the row's own outcome says it. */
+  reason: string;
+}
+
+/** What a write of one object sends, and what it holds back. */
+export interface PreparedSyncRows {
+  /** The payloads to send, in the order of the records they come from. */
+  payloads: Record<string, unknown>[];
+  /** For each payload, the place of its record among those handed over. */
+  sentAt: number[];
+  /**
+   * For each payload, the lookups the run settled — at a record it wrote, or
+   * a record type it mapped: a retry never sends the row without them.
+   */
+  settled: ReadonlySet<string>[];
+  /** The rows held back, each with its reason. */
+  held: HeldRow[];
+  /** What was held back, one line per reason, counted. */
+  notes: string[];
+}
+
+/** What {@link prepareSyncRows} reads. */
+export interface PrepareSyncRowsInput {
+  readonly config: SyncObjectConfig;
+  readonly records: readonly Record<string, unknown>[];
+  /** The target's describe of the object; `null` when it could not be read. */
+  readonly target: TargetWriteFields | null;
+  /** The run the write is part of; absent for a write on its own (Real-time). */
+  readonly run?: SyncWriteRun;
+}
+
+/**
+ * The field a write finds its record by, which has to reach the org whatever
+ * the target lets anyone create: `Id` is never creatable, so a filter on the
+ * creatable fields alone sent an update without the id it updates, and handed
+ * a delete no id at all. An insert is addressed by nothing.
+ */
+export function addressedBy(config: SyncObjectConfig): string | null {
+  switch (config.operation) {
+    case 'insert':
+      return null;
+    case 'upsert':
+      return config.externalIdField ?? 'Id';
+    case 'update':
+    case 'delete':
+      return 'Id';
+  }
+}
+
+/**
+ * Apply field mappings and add-on fields to a single source record, and keep
+ * the fields the target lets a write carry.
+ */
+export function applyMappingsAndAddOns(
+  record: Record<string, unknown>,
+  mappings: FieldMapping[],
+  addOns: AddOnField[],
+  creatable: ReadonlySet<string> | null,
+  key: string | null,
+): Record<string, unknown> {
+  let result: Record<string, unknown>;
+
+  if (mappings.length === 0) {
+    result = { ...record };
+  } else {
+    result = {};
+    for (const mapping of mappings) {
+      if (mapping.type === 'exclude') {
+        continue;
+      }
+      result[mapping.targetField] = record[mapping.sourceField];
+    }
+  }
+
+  // Add-ons are set by the person running the sync, so they are applied
+  // before the filter rather than after: an add-on naming a field the target
+  // will not take is a mistake worth surfacing, not one to hide.
+  for (const addOn of addOns) {
+    const fieldExists = addOn.fieldApiName in result;
+    if (!fieldExists || addOn.overwriteExisting) {
+      result[addOn.fieldApiName] = addOn.value;
+    }
+  }
+
+  if (!creatable) return result;
+
+  // `attributes` is jsforce's own envelope and is never a field.
+  const filtered: Record<string, unknown> = {};
+  for (const field of Object.keys(result)) {
+    if (field === 'attributes') continue;
+    if (creatable.has(field) || field === key) filtered[field] = result[field];
+  }
+  return filtered;
+}
+
+/** What one reason held back, counted, to be said once. */
+interface HeldGroup {
+  count: number;
+  say: (count: number) => string;
+}
+
+/** `1 Contact record`, `12 Contact records`. */
+function recordsOf(count: number, objectApiName: string): string {
+  return `${count} ${objectApiName} record${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * The record type a row goes in with in the target, or why it cannot go.
+ *
+ * Mapped from the source's by object and API name when the run read both
+ * orgs' record types; a value the target's describe knows already — two orgs
+ * that share their ids — goes as it is. A type the target has no counterpart
+ * of, or one the running user may not use there, holds the row back, as Forge
+ * holds back the rows of a record type it cannot write: written without it,
+ * the row would take the running user's default — a business account's type
+ * for a person account, an unrelated one for any other — and nothing would
+ * say so but the record itself.
+ */
+function recordTypeOf(
+  value: string,
+  infos: readonly RecordTypeAvailability[],
+  recordTypes: SyncRecordTypes | undefined,
+):
+  | { sent: string; info?: RecordTypeAvailability }
+  | { unmapped: string }
+  | { unavailable: RecordTypeAvailability } {
+  const known = (id: string): RecordTypeAvailability | undefined =>
+    infos.find((info) => idKey(info.recordTypeId) === idKey(id));
+  let sent = value;
+  if (!known(value) && recordTypes) {
+    const mapped = recordTypes.mappings.find((m) => idKey(m.sourceId) === idKey(value));
+    if (!mapped) {
+      const named = recordTypes.source.find((t) => idKey(t.id) === idKey(value));
+      return { unmapped: named?.developerName ?? '' };
+    }
+    sent = mapped.targetId;
+  }
+  const info = known(sent);
+  if (info && !info.available && !info.master) return { unavailable: info };
+  return info ? { sent, info } : { sent };
+}
+
+/**
+ * Whether the target takes a person account's row as a business account, as
+ * Forge tells it (`takenAsBusinessAccounts`): it has no person accounts, or
+ * the record type the row goes in with — the one it carries, or the running
+ * user's default when it carries none — is no person account's.
+ */
+function takenAsBusiness(
+  target: TargetWriteFields | null,
+  recordTypeId: string | undefined,
+  personTypes: ReadonlySet<string> | undefined,
+): boolean {
+  if (target?.personAccounts === false) return true;
+  if (!personTypes) return false;
+  const type = recordTypeId ?? defaultRecordTypeOf(target?.recordTypes ?? [])?.recordTypeId;
+  return type !== undefined && !personTypes.has(idKey(type));
+}
+
+/**
+ * The payloads a write of one object sends, and the rows it holds back, with
+ * why: see the module's comment. A delete sends ids alone, and is left as it
+ * was mapped.
+ */
+export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
+  const { config, records, target, run } = input;
+  const objectApiName = config.objectApiName;
+  const key = addressedBy(config);
+  const infos = target?.recordTypes ?? [];
+  const references = target?.references ?? new Set<string>();
+  const prepared: PreparedSyncRows = { payloads: [], sentAt: [], settled: [], held: [], notes: [] };
+  const groups = new Map<string, HeldGroup>();
+  const hold = (index: number, group: string, reason: string, say: HeldGroup['say']): void => {
+    prepared.held.push({ index, reason });
+    const known = groups.get(group);
+    if (known) known.count++;
+    else groups.set(group, { count: 1, say });
+  };
+
+  records.forEach((record, index) => {
+    const payload = applyMappingsAndAddOns(
+      record,
+      config.fieldMappings,
+      config.addOnFields,
+      target?.creatable ?? null,
+      key,
+    );
+    if (config.operation === 'delete') {
+      prepared.payloads.push(payload);
+      prepared.sentAt.push(index);
+      prepared.settled.push(new Set());
+      return;
+    }
+    const settled = new Set<string>();
+
+    // A lookup at a record the run wrote names its copy; one at a record the
+    // run set out to create and could not holds the row back.
+    if (run) {
+      for (const field of Object.keys(payload)) {
+        const value = payload[field];
+        if (field === 'RecordTypeId' || !references.has(field)) continue;
+        if (typeof value !== 'string' || !RECORD_ID.test(value)) continue;
+        const copy = run.links.targetOf(value);
+        if (copy) {
+          payload[field] = copy;
+          settled.add(field);
+          continue;
+        }
+        const parent = run.links.refusedObjectOf(value);
+        if (parent === undefined) continue;
+        hold(
+          index,
+          `parent:${field}:${parent}`,
+          `PARENT_REFUSED: the ${parent} record its ${field} names was refused in this run.`,
+          (count) =>
+            `PARENT_REFUSED: ${recordsOf(count, objectApiName)} held back, not sent: the ` +
+            `${parent} record their ${field} names was refused in this run, and written ` +
+            `without it they would stand without their ${parent}.`,
+        );
+        return;
+      }
+    }
+
+    // The record type the row goes in with, mapped to the target's.
+    const value = payload['RecordTypeId'];
+    let recordTypeSent: string | undefined;
+    if (typeof value === 'string' && RECORD_ID.test(value) && !MASTER_RECORD_TYPE.test(value)) {
+      const type = recordTypeOf(value, infos, run?.recordTypes);
+      if ('unmapped' in type) {
+        const name = type.unmapped;
+        hold(
+          index,
+          `unmapped:${name}`,
+          `RECORD_TYPE_UNMAPPED: its record type has no counterpart in the target org.`,
+          (count) =>
+            `RECORD_TYPE_UNMAPPED: ${recordsOf(count, objectApiName)} held back, not sent: ` +
+            (name
+              ? `their record type ${name} has no active ${objectApiName} record type of that ` +
+                `API name in the target org. Create or activate record type ${name} on ` +
+                `${objectApiName} in the target org.`
+              : `their record type is inactive in the source org, and has no counterpart in ` +
+                `the target org.`),
+        );
+        return;
+      }
+      if ('unavailable' in type) {
+        const info = type.unavailable;
+        hold(
+          index,
+          `unavailable:${info.recordTypeId}`,
+          `RECORD_TYPE_UNAVAILABLE: record type ${info.developerName} is closed to the running user in the target org.`,
+          (count) =>
+            `${recordTypeBlockedMessage({
+              objectApiName,
+              recordTypeId: info.recordTypeId,
+              developerName: info.developerName,
+              name: info.name,
+              inactive: !info.active,
+              recordCount: count,
+            })} Held back, not sent.`,
+        );
+        return;
+      }
+      payload['RecordTypeId'] = type.sent;
+      recordTypeSent = type.sent;
+      if (type.info) settled.add('RecordTypeId');
+    }
+
+    // What the kind of account the row goes in as leaves out.
+    const source = run?.sources[index] ?? record;
+    if (isPersonAccountRow(source)) {
+      const kind = accountKindOf(
+        source,
+        takenAsBusiness(target, recordTypeSent, run?.recordTypes?.personTypes),
+      );
+      for (const field of Object.keys(payload)) {
+        if (leftOutForAccountKind(objectApiName, field, kind)) delete payload[field];
+      }
+    } else {
+      for (const field of Object.keys(payload)) {
+        if (leftOutForAccountKind(objectApiName, field, 'business')) delete payload[field];
+      }
+    }
+
+    prepared.payloads.push(payload);
+    prepared.sentAt.push(index);
+    prepared.settled.push(settled);
+  });
+
+  prepared.notes = [...groups.values()].map(({ count, say }) => say(count));
+  return prepared;
+}

@@ -19,7 +19,18 @@ import type { PauseGate } from './PauseGate.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
 import { SyncRunFailure } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
-import { simulateObjectOutcome, simulationKey, targetKeyOf } from './SyncSimulation.js';
+import {
+  REFUSED_BY_THE_TARGET,
+  refusedOnTheirFields,
+  refusedOnUniqueValues,
+  simulateObjectOutcome,
+  simulateRecord,
+  simulationKey,
+  targetKeyOf,
+  type SimulatedRecord,
+} from './SyncSimulation.js';
+import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPreparation.js';
+import type { SyncRecordTypes } from './syncRecordTypes.js';
 import {
   changedSinceLiteral,
   deletionKeyOf,
@@ -163,6 +174,14 @@ export interface SyncOrchestratorDeps {
    */
   creations?: SyncCreationRecorder;
   /**
+   * The record types of both orgs, read once a run before its first object
+   * (`readSyncRecordTypes`): what a record's `RecordTypeId` is mapped with,
+   * from the source's type to the target's of the same object and API name.
+   * Without it, `RecordTypeId` goes as it was read, which only two orgs that
+   * share their ids take.
+   */
+  recordTypes?: () => Promise<SyncRecordTypes>;
+  /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
@@ -172,6 +191,39 @@ export interface SyncOrchestratorDeps {
 
 /** What {@link SyncOrchestrator.syncObject} answers for an object a cancel stopped before its write. */
 const NOT_WRITTEN: unique symbol = Symbol('not written');
+
+/**
+ * What the objects of one run, or of one simulation, share as it goes: what
+ * it wrote and refused, by source id, and both orgs' record types, read the
+ * first time an object's records carry one.
+ */
+interface RunContext {
+  links: SyncRunLinks;
+  recordTypes: () => Promise<SyncRecordTypes | undefined>;
+}
+
+/** The master record type, the same in every org, which no mapping holds. */
+const MASTER_RECORD_TYPE = /^012000000000000(AAA)?$/;
+
+/** Whether a record carries a record type of its own, which the write maps. */
+function carriesARecordType(record: Record<string, unknown>): boolean {
+  const value = record['RecordTypeId'];
+  return typeof value === 'string' && value.length >= 15 && !MASTER_RECORD_TYPE.test(value);
+}
+
+/**
+ * What the write of one object is handed beside its records: the run's
+ * links, the rows as the source read them, and both orgs' record types when
+ * a record carries one.
+ */
+async function writeRunOf(
+  run: RunContext,
+  records: readonly Record<string, unknown>[],
+  sources: Record<string, unknown>[],
+): Promise<SyncWriteRun> {
+  const recordTypes = records.some(carriesARecordType) ? await run.recordTypes() : undefined;
+  return { links: run.links, sources, ...(recordTypes ? { recordTypes } : {}) };
+}
 
 /**
  * One object's source read as it happened: asked from `changedSince` on a
@@ -202,6 +254,11 @@ interface PreparedObject {
   records: Record<string, unknown>[];
   /** The source id of each of `records`, in the same order: what a record's files are found by. */
   sourceIds: Array<string | undefined>;
+  /**
+   * Each of `records` as the source read it, in the same order: what the
+   * write reads a record's kind of account and its source id from.
+   */
+  sources: Record<string, unknown>[];
   /** On a bidirectional run: the records both orgs hold with different values. */
   conflicts: ConflictRecord[];
   /** The records before the strategy settled those conflicts. */
@@ -270,6 +327,12 @@ export class SyncOrchestrator {
         files: filePlan.storage,
       });
     }
+
+    // What the run wrote and refused, by source id, as it goes: the lookups
+    // of each object read it. Both orgs' record types are read once, before
+    // the first object whose records carry one is written.
+    const links = new SyncRunLinks();
+    const recordTypes = this.recordTypesOnce();
 
     // What the run creates, kept as it writes it, for its removal to take
     // back: see `creations`.
@@ -405,6 +468,7 @@ export class SyncOrchestrator {
           config,
           objectConfig,
           leftOut,
+          { links, recordTypes },
           plan ? read : undefined,
           written,
           recorder ? (outcomes) => noteCreated(objectConfig, outcomes) : undefined,
@@ -584,6 +648,27 @@ export class SyncOrchestrator {
 
     await recorder?.flush();
     return finish(buildResult(config.id, operationId, objectResults, startTime, status));
+  }
+
+  /**
+   * Both orgs' record types, read the first time a run asks and kept for the
+   * rest of it (`recordTypes`); nothing when the run was given no way to read
+   * them. A read the orgs refuse fails the object that asked, before any of
+   * its records is sent: sent with the source's ids, the target refuses them.
+   */
+  private recordTypesOnce(): () => Promise<SyncRecordTypes | undefined> {
+    let read: Promise<SyncRecordTypes | undefined> | undefined;
+    return () => {
+      const asked = this.deps.recordTypes;
+      if (!asked) return Promise.resolve(undefined);
+      read ??= asked().catch((err: unknown) => {
+        throw new Error(
+          `The record types of the two orgs could not be read, so none of these records was ` +
+            `sent: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+      return read;
+    };
   }
 
   /**
@@ -780,11 +865,15 @@ export class SyncOrchestrator {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
       return answer({ error: err instanceof Error ? err.message : String(err) });
     }
+    // What the run would write and refuse, object by object: the rows under
+    // a record it would refuse are held back as the run holds them, and
+    // record types are mapped as the run maps them, from the same read.
+    const run: RunContext = { links: new SyncRunLinks(), recordTypes: this.recordTypesOnce() };
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
       this.deps.onSimulationProgress?.(index, ordered.length, objectConfig.objectApiName);
       try {
-        const simulated = await this.simulateObject(config, objectConfig, deltaLoad);
+        const simulated = await this.simulateObject(config, objectConfig, deltaLoad, run);
         const files = filePlan?.objects.get(objectConfig.objectApiName);
         objects.push(
           files
@@ -812,11 +901,21 @@ export class SyncOrchestrator {
    * object is read as the run would read it — from its watermark, or whole
    * for the same reason — and the deletions a run would carry are counted,
    * tied to their target records as a run ties them.
+   *
+   * The rows the write would hold back — a record type it cannot write, a
+   * record under one the run would refuse — are held back from the same
+   * preparation (`prepareSyncRows`), and the rows the target refuses for a
+   * field of theirs it knows of (`refusedOnTheirFields`) are counted refused:
+   * both are added to what the run would refuse, for the objects after.
+   *
+   * @param run - What the simulation found the run would write and refuse
+   *   before this object, and both orgs' record types.
    */
   private async simulateObject(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
     deltaLoad: SyncDeltaLoad | null | undefined,
+    run: RunContext,
   ): Promise<SyncObjectSimulation> {
     const find = this.deps.findInTarget;
     if (!find) throw new Error('A simulation needs to look records up in the target org.');
@@ -829,11 +928,31 @@ export class SyncOrchestrator {
     };
     const prepared = await this.prepare(config, objectConfig, leftOut, plan ? read : undefined);
 
+    // What the target lets a write carry, the describe the write reads too.
+    let target: TargetWriteFields | null = null;
+    if (prepared.records.length > 0 && this.deps.describeTargetFields) {
+      try {
+        const described = await this.deps.describeTargetFields(objectConfig.objectApiName);
+        target = described.creatable.size > 0 ? described : null;
+      } catch {
+        target = null;
+      }
+    }
+
+    // What the write would send, and the rows it would hold back.
+    const rows = prepareSyncRows({
+      config: { ...objectConfig, fieldMappings: [], addOnFields: [] },
+      records: prepared.records,
+      target,
+      run: await writeRunOf(run, prepared.records, prepared.sources),
+    });
+    const sentRecords = rows.sentAt.map((at) => prepared.records[at]);
+
     const keyField = targetKeyOf(objectConfig);
     let inTarget: ReadonlyMap<string, number> = new Map();
     if (keyField !== null) {
       const keys = new Map<string, string | number | boolean>();
-      for (const record of prepared.records) {
+      for (const record of sentRecords) {
         const value = record[keyField];
         const key = simulationKey(value);
         if (key !== null) keys.set(key, value as string | number | boolean);
@@ -843,38 +962,110 @@ export class SyncOrchestrator {
       }
     }
 
-    // What the write would carry decides which conflicts are worth a word: a
-    // field the target does not let anyone write is never written.
-    let writable: ReadonlySet<string> | null = null;
-    if (prepared.conflicts.length > 0 && this.deps.describeTargetFields) {
-      try {
-        const described = await this.deps.describeTargetFields(objectConfig.objectApiName);
-        writable = described.creatable.size > 0 ? described.creatable : null;
-      } catch {
-        writable = null;
-      }
-    }
+    // What the write would do with each record sent, and of those it would
+    // write, the ones the target refuses for a field of theirs: a field it
+    // requires is asked only of a record it would create.
+    const simulated: SimulatedRecord[] = sentRecords.map((record) =>
+      simulateRecord(objectConfig, record, inTarget),
+    );
+    const writes = simulated.flatMap((kind, k) =>
+      kind === 'insert' || kind === 'update' ? [k] : [],
+    );
+    const checked =
+      target?.fields !== undefined && writes.length > 0
+        ? refusedOnTheirFields(
+            objectConfig.objectApiName,
+            writes.map((k) => ({
+              payload: rows.payloads[k],
+              source: prepared.sources[rows.sentAt[k]] ?? {},
+              creates: simulated[k] === 'insert',
+            })),
+            target.fields,
+          )
+        : { refused: new Set<number>(), notes: [] };
+    const refusedAt = new Set([...checked.refused].map((position) => writes[position]));
 
+    // Of the records an insert would create, those a field the target keeps
+    // unique refuses: a value it holds already, asked of it as a key is, or
+    // one a record sent before holds.
+    const creating = writes.filter((k) => simulated[k] === 'insert' && !refusedAt.has(k));
+    const uniques =
+      objectConfig.operation === 'insert'
+        ? (target?.fields ?? []).filter((f) => f.unique === true && f.createable)
+        : [];
+    const heldByField = new Map<string, ReadonlyMap<string, number>>();
+    for (const field of uniques) {
+      const values = new Map<string, string | number | boolean>();
+      for (const k of creating) {
+        const value = rows.payloads[k][field.name];
+        const key = simulationKey(value);
+        if (key !== null) values.set(key, value as string | number | boolean);
+      }
+      if (values.size === 0) continue;
+      heldByField.set(
+        field.name,
+        await find(config.targetOrgId, objectConfig, field.name, [...values.values()]),
+      );
+    }
+    const unique = refusedOnUniqueValues(
+      creating.map((k) => rows.payloads[k]),
+      heldByField,
+    );
+    for (const position of unique.refused) refusedAt.add(creating[position]);
+
+    // The records left to the target's say, as the run would send them.
+    const kept = sentRecords.flatMap((_, k) => (refusedAt.has(k) ? [] : [k]));
+    const keptAt = new Set(kept.map((k) => rows.sentAt[k]));
+    const unsettled = prepared.unsettled.filter((_, at) => keptAt.has(at));
     const outcome = simulateObjectOutcome({
       objectConfig,
       read: prepared.read,
-      records: prepared.records,
+      records: kept.map((k) => sentRecords[k]),
       leftOut: leftOut.counts(objectConfig.objectApiName),
       inTarget,
       conflicts: prepared.conflicts,
-      unsettled: prepared.unsettled,
+      unsettled,
       matchField: prepared.matchField,
-      writable,
+      writable: target?.creatable ?? null,
     });
-    if (!plan) return outcome;
+
+    // What the run would write and refuse, by source id, for the objects after.
+    const creates = objectConfig.operation === 'insert' || objectConfig.operation === 'upsert';
+    const idOf = (at: number): string | undefined => {
+      const id = prepared.sources[at]?.['Id'];
+      return typeof id === 'string' && id !== '' ? id : undefined;
+    };
+    if (objectConfig.operation !== 'delete') {
+      for (const { index } of rows.held) {
+        const id = idOf(index);
+        if (id && creates) run.links.noteRefused(id, objectConfig.objectApiName);
+      }
+      rows.sentAt.forEach((at, k) => {
+        const id = idOf(at);
+        if (!id) return;
+        if (refusedAt.has(k) || REFUSED_BY_THE_TARGET.has(simulated[k])) {
+          if (creates) run.links.noteRefused(id, objectConfig.objectApiName);
+        } else {
+          // Nothing is written: the record stands for its copy.
+          run.links.noteWritten(id, id);
+        }
+      });
+    }
+
+    const withHeld: SyncObjectSimulation = {
+      ...outcome,
+      refused: outcome.refused + rows.held.length + refusedAt.size,
+      notes: [...outcome.notes, ...rows.notes, ...checked.notes, ...unique.notes],
+    };
+    if (!plan) return withHeld;
 
     // The deletions a run would carry: tied as a run ties them, deleted by none.
     if (plan.read === 'delta' && config.propagateDeletes === true && read.changedSince) {
       const tallied = await this.tallyObjectDeletions(objectConfig, read.changedSince);
       if ('error' in tallied) {
         return {
-          ...outcome,
-          notes: [...outcome.notes, tallied.error],
+          ...withHeld,
+          notes: [...withHeld.notes, tallied.error],
           delta: deltaOutcomeOf(plan, read.rows, {
             deleted: 0,
             deleteFailed: 0,
@@ -884,13 +1075,13 @@ export class SyncOrchestrator {
       }
       const wouldDelete = tallied.tally.ids.length;
       return {
-        ...outcome,
-        delete: outcome.delete + wouldDelete,
-        notes: [...outcome.notes, ...tallied.notes],
+        ...withHeld,
+        delete: withHeld.delete + wouldDelete,
+        notes: [...withHeld.notes, ...tallied.notes],
         delta: deltaOutcomeOf(plan, read.rows, { deleted: wouldDelete, deleteFailed: 0 }),
       };
     }
-    return { ...outcome, delta: deltaOutcomeOf(plan, read.rows) };
+    return { ...withHeld, delta: deltaOutcomeOf(plan, read.rows) };
   }
 
   /**
@@ -898,6 +1089,8 @@ export class SyncOrchestrator {
    * cancel came while it was being read, before anything of it was written.
    *
    * @param leftOut - Receives the rows the read leaves to the platform.
+   * @param run - What the run wrote and refused before this object, and both
+   *   orgs' record types: what the write maps and holds back by.
    * @param read - On a delta configuration: how the source is read, filled in
    *   with what the read returned.
    * @param written - Receives the records the write took, source id to target id.
@@ -908,15 +1101,17 @@ export class SyncOrchestrator {
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
     leftOut: RowsLeftToThePlatform,
+    run: RunContext,
     read?: ObjectRead,
     written?: Map<string, string>,
     onWritten?: (outcomes: readonly OperationOutcome[]) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const { records, sourceIds } = await this.prepare(config, objectConfig, leftOut, read);
+    const { records, sourceIds, sources } = await this.prepare(config, objectConfig, leftOut, read);
 
     if (records.length === 0) {
       return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
     }
+    const writeRun = await writeRunOf(run, records, sources);
 
     // Reading a large object takes a while: a pause or a cancel that came
     // meanwhile is honoured before its first record is written.
@@ -945,6 +1140,7 @@ export class SyncOrchestrator {
         const { outcomes, notes } = await this.deps.dataSync.write(
           { ...objectConfig, fieldMappings: [], addOnFields: [] },
           records,
+          writeRun,
         );
         note(outcomes);
         return withRowsLeftOut(
@@ -960,6 +1156,7 @@ export class SyncOrchestrator {
       await this.deps.dataSync.sync(
         { ...objectConfig, fieldMappings: [], addOnFields: [] },
         records,
+        writeRun,
       ),
       leftOut,
     );
@@ -1008,6 +1205,7 @@ export class SyncOrchestrator {
         read: read.length,
         records: [],
         sourceIds: [],
+        sources: [],
         conflicts: [],
         unsettled: [],
         matchField,
@@ -1064,6 +1262,7 @@ export class SyncOrchestrator {
       sourceIds: sourceRecords.map((record) =>
         typeof record.Id === 'string' ? record.Id : undefined,
       ),
+      sources: sourceRecords,
       conflicts,
       unsettled: recordsWithAddOns,
       matchField,

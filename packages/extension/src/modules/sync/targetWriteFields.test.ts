@@ -37,4 +37,74 @@ describe('targetWriteFieldsOf', () => {
       targetWriteFieldsOf({ fields: [{ name: 'Name', createable: true }] }).recordTypes,
     ).toEqual([]);
   });
+
+  it('says of the account whether the target has person accounts, and of no other object', () => {
+    const withPersons = targetWriteFieldsOf({
+      name: 'Account',
+      fields: [
+        { name: 'Name', createable: true, type: 'string' },
+        { name: 'PersonContactId', createable: false, type: 'reference' },
+      ],
+    });
+    const without = targetWriteFieldsOf({
+      name: 'Account',
+      fields: [{ name: 'Name', createable: true, type: 'string' }],
+    });
+    const contact = targetWriteFieldsOf({
+      name: 'Contact',
+      fields: [{ name: 'LastName', createable: true, type: 'string' }],
+    });
+
+    expect(withPersons.personAccounts).toBe(true);
+    expect(without.personAccounts).toBe(false);
+    expect(contact.personAccounts).toBeUndefined();
+  });
+
+  it('keeps what a simulation checks a row against: what is required, how long, how many places', () => {
+    const fields = targetWriteFieldsOf({
+      name: 'Account',
+      fields: [
+        {
+          name: 'Region__c',
+          createable: true,
+          type: 'string',
+          nillable: false,
+          defaultedOnCreate: false,
+          length: 20,
+        },
+        { name: 'Score__c', createable: true, type: 'double', precision: 4, scale: 1 },
+        { name: 'ParentId', createable: true, type: 'reference', referenceTo: ['Account'] },
+      ],
+    }).fields;
+
+    expect(fields).toEqual([
+      {
+        name: 'Region__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        type: 'string',
+        length: 20,
+        nillable: false,
+        defaultedOnCreate: false,
+      },
+      {
+        name: 'Score__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        type: 'double',
+        precision: 4,
+        scale: 1,
+      },
+      {
+        name: 'ParentId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        type: 'reference',
+        referenceTo: ['Account'],
+      },
+    ]);
+  });
 });

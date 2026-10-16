@@ -20,7 +20,8 @@ import type { IdRemapper } from '../IdRemapper.js';
 import { exclusiveFieldsToDrop } from '@sandforge/shared';
 import { lookupsAtObjectsLeftOut } from '../excludedObjects.js';
 import {
-  isPersonAccountRow,
+  accountKindOf,
+  leftOutForAccountKind,
   lookupsThePlatformFills,
 } from '../../../core/common/platformRecords.js';
 import {
@@ -234,7 +235,7 @@ export interface CleanNodeRecordsInput {
    * account's (`takenAsBusinessAccounts` in the executor). Taken so, a row
    * keeps its name — the platform computes none for it, and refused it
    * without one — and goes without the fields only a person account holds
-   * (`isPersonAccountField`). Absent, every person account goes in as one,
+   * (`leftOutForAccountKind`). Absent, every person account goes in as one,
    * its computed name left out.
    */
   businessAccounts?: ReadonlySet<Record<string, unknown>>;
@@ -253,31 +254,6 @@ export interface CleanNodeRecordsInput {
    * @param recordTypeId - The row's `RecordTypeId` as it was read.
    */
   decide?: (row: Record<string, unknown>, recordTypeId: string | undefined) => void;
-}
-
-/** The name parts only a person account holds; `Salutation` "is available on person accounts". */
-const PERSON_NAME_FIELDS: ReadonlySet<string> = new Set([
-  'FirstName',
-  'LastName',
-  'MiddleName',
-  'Suffix',
-  'Salutation',
-]);
-
-/**
- * Whether only a person account holds a field of an account: its name parts,
- * the standard fields named `Person…`, and the custom fields of its contact
- * (`__pc`). "If the IsPersonAccount field has the value false, the following
- * fields have a null value and can't be modified" (Object Reference for the
- * Salesforce Platform, Account, IsPersonAccount Fields): sent with a business
- * account, they were refused with it.
- */
-export function isPersonAccountField(name: string): boolean {
-  return (
-    PERSON_NAME_FIELDS.has(name) ||
-    name.endsWith('__pc') ||
-    (name.startsWith('Person') && !name.includes('__'))
-  );
 }
 
 /**
@@ -441,12 +417,12 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       remapped['OwnerId'] = ownerMappings[sourceOwner];
       ownerResolved = true;
     }
-    // Read as every stage reads it: jsforce sometimes returns the flag as a
-    // boolean, sometimes as the SOAP-normalized string 'true', and a strict
-    // `=== true` stripped the `__pc` fields of real person accounts.
-    const isPersonAccount = isPersonAccountRow(remapped);
-    // A person account the target takes as a business account goes in as one.
-    const asBusiness = isPersonAccount && businessAccounts?.has(r) === true;
+    // Read as every stage reads it (`isPersonAccountRow`): jsforce sometimes
+    // returns the flag as a boolean, sometimes as the SOAP-normalized string
+    // 'true', and a strict `=== true` stripped the `__pc` fields of real person
+    // accounts. A person account the target takes as a business account goes
+    // in as one.
+    const kind = accountKindOf(remapped, businessAccounts?.has(r) === true);
     const cleaned: Record<string, unknown> = {};
     // Written under a rename: the field map answers for what the target takes.
     const renamed = new Set<string>();
@@ -496,17 +472,10 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       ) {
         continue;
       }
-      // Person Account `__pc` fields are not valid on Business Accounts.
-      if (key.endsWith('__pc') && !isPersonAccount) continue;
-      // Nor is any field only a person account holds, on one the target
-      // takes as a business account.
-      if (asBusiness && isPersonAccountField(key)) continue;
-      // Person Account `Name` is auto-computed from FirstName/LastName.
-      // Salesforce rejects an explicit `Name` value with
-      // INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: Name.
-      // Taken as a business account, the row gets no computed name, and the
-      // target refuses it without one.
-      if (key === 'Name' && isPersonAccount && !asBusiness) continue;
+      // A field only a person account holds goes with none else, and a
+      // person account's computed `Name` with no write: see
+      // `leftOutForAccountKind`.
+      if (leftOutForAccountKind(objectApiName, key, kind)) continue;
       const value = remapped[key];
       if (value === null) continue;
       cleaned[key] = value;

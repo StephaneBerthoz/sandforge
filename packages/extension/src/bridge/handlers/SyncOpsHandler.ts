@@ -109,6 +109,7 @@ import {
   type SyncFileStore,
 } from '../../modules/sync/SyncFiles.js';
 import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
+import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
 export type UnattendedSyncOrigin = Extract<
@@ -313,6 +314,8 @@ interface SyncReaders {
   queryTarget: OrchestratorQueryFn;
   countSource: OrchestratorCountFn;
   describeTargetFields: (objectApiName: string) => Promise<TargetWriteFields>;
+  /** Both orgs' record types, what `RecordTypeId` is mapped with: see `readSyncRecordTypes`. */
+  recordTypes: () => Promise<SyncRecordTypes>;
   findInTarget: OrchestratorFindFn;
   /** What a delta configuration asks both orgs: see `SyncDelta`. */
   deltaReads: SyncDeltaReads;
@@ -916,6 +919,8 @@ export class SyncOpsHandler implements DomainHandler {
         signal: abortController.signal,
         findInTarget: readers.findInTarget,
         describeTargetFields: readers.describeTargetFields,
+        // Mapped as the run maps them.
+        recordTypes: readers.recordTypes,
         // Read as the run reads them; a simulation records no watermark.
         deltaStore: this.deltaStoreFor(),
         deltaReads: readers.deltaReads,
@@ -1305,6 +1310,13 @@ export class SyncOpsHandler implements DomainHandler {
         : {}),
     };
 
+    // Both orgs' record types, read by the run before its first object: a
+    // record's type is mapped to the target's of the same object and API name.
+    const recordTypes = async (): Promise<SyncRecordTypes> => {
+      const { readSyncRecordTypes } = await import('../../modules/sync/syncRecordTypes.js');
+      return readSyncRecordTypes(fileOrg(sourceConn).pages, fileOrg(targetConn).pages);
+    };
+
     return {
       sourceConn,
       targetConn,
@@ -1312,6 +1324,7 @@ export class SyncOpsHandler implements DomainHandler {
       queryTarget: buildQueryFn(targetConn, config.targetOrgId),
       countSource,
       describeTargetFields,
+      recordTypes,
       findInTarget,
       deltaReads,
       files,
@@ -1769,6 +1782,8 @@ export class SyncOpsHandler implements DomainHandler {
         grappeConfig: readGrappeConfig(this.deps.services),
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
         countSource: readers.countSource,
+        // Both orgs' record types, a record's mapped to the target's.
+        recordTypes: readers.recordTypes,
         // The controller the registry aborts: Live Operations' Cancel, and
         // the Sync page's.
         signal: abortController.signal,

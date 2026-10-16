@@ -559,6 +559,75 @@ export function isPersonAccountRow(row: Record<string, unknown>): boolean {
   return flag === true || flag === 'true' || flag === 1;
 }
 
+/** The name parts only a person account holds; `Salutation` "is available on person accounts". */
+const PERSON_NAME_FIELDS: ReadonlySet<string> = new Set([
+  'FirstName',
+  'LastName',
+  'MiddleName',
+  'Suffix',
+  'Salutation',
+]);
+
+/**
+ * Whether only a person account holds a field of an account: its name parts,
+ * the standard fields named `Person…`, and the custom fields of its contact
+ * (`__pc`). "If the IsPersonAccount field has the value false, the following
+ * fields have a null value and can't be modified" (Object Reference for the
+ * Salesforce Platform, Account, IsPersonAccount Fields): sent with a business
+ * account, they were refused with it.
+ */
+export function isPersonAccountField(name: string): boolean {
+  return (
+    PERSON_NAME_FIELDS.has(name) ||
+    name.endsWith('__pc') ||
+    (name.startsWith('Person') && !name.includes('__'))
+  );
+}
+
+/**
+ * How the target takes a row of an account it is sent: a business account, a
+ * person account, or a person account it takes as a business one — it has no
+ * person accounts, or the record type the row gets there is a business
+ * account's.
+ */
+export type AccountKind = 'business' | 'person' | 'personAsBusiness';
+
+/**
+ * The kind a row of an account goes in as.
+ *
+ * @param row - The row as the source holds it, `IsPersonAccount` included.
+ * @param asBusiness - Whether the target takes a person account's row as a business account.
+ */
+export function accountKindOf(row: Record<string, unknown>, asBusiness: boolean): AccountKind {
+  if (!isPersonAccountRow(row)) return 'business';
+  return asBusiness ? 'personAsBusiness' : 'person';
+}
+
+/**
+ * Whether a row goes without a field for the kind of account it is, as every
+ * module that writes accounts leaves it out.
+ *
+ * A business account goes without every field only a person account holds
+ * (`isPersonAccountField`): run into an org with person accounts, a Sync sent
+ * them, empty, with each of its 630 business accounts, and the target refused
+ * every one — "INVALID_FIELD_FOR_INSERT_UPDATE: bad field names on
+ * insert/update call: …__pc, FirstName, LastName". So does a person account the
+ * target takes as a business one, which keeps its name: the platform computes
+ * none for it, and refused it without one. A person account goes without its
+ * `Name`, which the platform computes from its first and last names and
+ * refuses from a write ("Unable to create/update fields: Name"). A row of any
+ * other object keeps every field.
+ */
+export function leftOutForAccountKind(
+  objectApiName: string,
+  field: string,
+  kind: AccountKind,
+): boolean {
+  if (objectApiName !== ACCOUNT) return false;
+  if (kind === 'person') return field === 'Name';
+  return isPersonAccountField(field);
+}
+
 /**
  * The order accounts and contacts are written in, as an edge between the
  * objects a run writes, when the source describes person accounts: the

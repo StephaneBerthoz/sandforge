@@ -597,11 +597,11 @@ describe('a cancel stops the run before what it has not reached', () => {
     });
   });
 
-  it('says what the write set aside for the records it wrote before the cancel stopped it', async () => {
-    // A record type closed to the running user is taken off the records and
-    // said beside the outcomes. Built from the outcomes the cancel carried,
-    // the object's result counted the record written without its type, and
-    // said nothing of the type.
+  it('says what the write held back with the records it wrote before the cancel stopped it', async () => {
+    // A record of a type closed to the running user is held back and said
+    // beside the outcomes. Built from the outcomes the cancel carried alone,
+    // the object's result would have counted the record written, and said
+    // nothing of the one it held.
     const CUSTOMER = '012Fk00000RtAbCIAV';
     const PARTNER = '012Fk00000RtDeFIAV';
     const recordType = (developerName: string, recordTypeId: string, available: boolean) => ({
@@ -639,19 +639,29 @@ describe('a cancel stops the run before what it has not reached', () => {
     });
     deps.querySource = vi.fn().mockResolvedValue([
       { Name: 'Acme', RecordTypeId: PARTNER },
-      { Name: 'Initech', RecordTypeId: PARTNER },
+      { Name: 'Initech', RecordTypeId: CUSTOMER },
     ]);
 
     const result = await new SyncOrchestrator(deps).execute(
       createConfig({ objects: [createObjectConfig({ operation: 'insert' })] }),
     );
 
-    expect(result).toMatchObject({ cancelled: true, totalProcessed: 1, totalSuccess: 1 });
+    expect(write.mock.calls[0]).toEqual([
+      'Account',
+      [{ Name: 'Initech', RecordTypeId: CUSTOMER }],
+      200,
+    ]);
+    expect(result).toMatchObject({ cancelled: true, totalProcessed: 2, totalSuccess: 1 });
     expect(result.objectResults).toEqual([
       expect.objectContaining({
         objectApiName: 'Account',
-        processed: 1,
-        errors: [expect.stringMatching(/^1 Account record written without record type Partner/)],
+        processed: 2,
+        failed: 1,
+        errors: [
+          expect.stringMatching(
+            /^RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Partner/,
+          ),
+        ],
       }),
     ]);
   });
