@@ -242,8 +242,14 @@ export const ForgeExecution: React.FC = () => {
     setShowAbortConfirm(false);
     requestStop();
     addLog(forgeLogEntry('warn', t('forge.aborted')));
-    // Routed through the broker: the envelope is mandatory since 1.5.0.
-    sendBridgeMessage('forge:abort');
+    // Routed through the broker: the envelope is mandatory since 1.5.0. The
+    // stop names the run on screen by its request: one that named nothing
+    // stopped every Forge operation of the window, the discovery of another
+    // panel with it — or, Production Guard still asking, a run of another
+    // panel already writing.
+    const requestId = useForgeStore.getState().executionRequestId;
+    if (requestId === null) sendBridgeMessage('forge:abort');
+    else sendBridgeMessage<{ requestId: string }>('forge:abort', { requestId });
   }, [t, addLog, requestStop]);
 
   return (

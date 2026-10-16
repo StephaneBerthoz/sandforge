@@ -370,6 +370,8 @@ const AutomationMessages = [
   msg('forge:discover:response'),
   msg('forge:discover:progress'),
   msg('forge:discover:error'),
+  // A stop that named nothing while several Forge operations were under way.
+  msg('forge:abort:error'),
   msg('forge:execute:response'),
   msg('forge:progress'),
   msg('forge:execute:error'),

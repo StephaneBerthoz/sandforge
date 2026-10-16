@@ -2731,6 +2731,8 @@
     "elapsed": "Decorrido",
     "discovery": "Descoberta do grafo",
     "discoveryProgress": "Descobrindo… {{discovered}} objetos analisados, {{queued}} na fila",
+    "discoveryStopped": "A descoberta foi interrompida antes de terminar. Inicie-a novamente para ver o grafo.",
+    "discoverySuperseded": "A descoberta foi interrompida para dar lugar a uma mais recente, deste painel ou de outro: uma janela percorre apenas algumas de cada vez. Inicie-a novamente para ver o grafo.",
     "executeForge": "Executar Forge",
     "executeFailed": "A execução do Forge falhou",
     "runStoppedOn": "A execução foi interrompida antes do fim: {{message}}",

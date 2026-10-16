@@ -320,6 +320,7 @@ import type {
   ForgeDiscoverResponse,
   ForgeDiscoverProgressMessage,
   ForgeDiscoverErrorMessage,
+  ForgeAbortErrorMessage,
   ForgeExecuteResponse,
   ForgeProgressMessage,
   ForgeExecuteErrorMessage,
@@ -842,6 +843,7 @@ export type ExtensionToWebViewMessage =
   | ForgeDiscoverResponse
   | ForgeDiscoverProgressMessage
   | ForgeDiscoverErrorMessage
+  | ForgeAbortErrorMessage
   | ForgeExecuteResponse
   | ForgeProgressMessage
   | ForgeExecuteErrorMessage

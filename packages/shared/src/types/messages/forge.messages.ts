@@ -75,9 +75,25 @@ export interface ForgeResumeRequest extends BaseMessage {
   type: 'forge:resume';
 }
 
-/** `forge:abort`. WebView -> Extension. Abort the running forge operation (no payload). */
+/**
+ * `forge:abort`. WebView -> Extension. Stop one Forge operation: a discovery,
+ * or a run — one waiting on Production Guard's question included.
+ *
+ * One handler serves every panel, and a run and a discovery can be under way
+ * at once: a stop that named nothing stopped all of them, the run of another
+ * panel with the discovery of this one. A stop names what it stops, by the id
+ * of the request that started it.
+ */
 export interface ForgeAbortRequest extends BaseMessage {
   type: 'forge:abort';
+  payload?: {
+    /**
+     * The `forge:discover`, `forge:execute` or `forge:resume-run` request of
+     * the operation to stop. Absent, the stop takes the one operation under
+     * way, and is refused (`forge:abort:error`) when several are.
+     */
+    requestId?: string;
+  };
 }
 
 /** `forge:templates:list`. WebView -> Extension. List saved forge templates (no payload). */
@@ -343,9 +359,27 @@ export interface ForgeDiscoverProgressMessage extends BaseMessage {
   payload: Record<string, unknown>;
 }
 
-/** `forge:discover:error`. Extension -> WebView (emitted via sendHandlerError). */
+/**
+ * `forge:discover:error`. Extension -> WebView (emitted via sendHandlerError).
+ *
+ * A discovery that was stopped answers here too, so that its page leaves the
+ * waiting state: `DISCOVERY_STOPPED` for one a stop named (the page, Live
+ * Operations), `DISCOVERY_SUPERSEDED` for one stopped to make way for a newer
+ * discovery past the number walked at once.
+ */
 export interface ForgeDiscoverErrorMessage extends BaseMessage {
   type: 'forge:discover:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `forge:abort:error`. Extension -> WebView (emitted via sendHandlerError).
+ * A stop that was refused, and why: one that named nothing while several
+ * Forge operations were under way (`FORGE_STOP_AMBIGUOUS`), or whose payload
+ * was not one (`INVALID_PAYLOAD`). Nothing was stopped.
+ */
+export interface ForgeAbortErrorMessage extends BaseMessage {
+  type: 'forge:abort:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

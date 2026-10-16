@@ -57,6 +57,8 @@ let mockApiCallsSoFar: number | null = null;
 let mockReviewSkipped = false;
 /** Whether the run on screen is a simulation. */
 let mockSimulation = false;
+/** The request the run on screen was started by. */
+let mockExecutionRequestId: string | null = null;
 // The store's own moves, as it makes them: the screen draws what they leave.
 const mockPauseRun = vi.fn(() => {
   if (mockRunClock) mockRunClock = { ...mockRunClock, pausedSince: Date.now() };
@@ -185,6 +187,7 @@ vi.mock('../../stores/useForgeStore', async (importOriginal) => {
     apiCallsSoFar: mockApiCallsSoFar,
     reviewSkipped: mockReviewSkipped,
     simulation: mockSimulation,
+    executionRequestId: mockExecutionRequestId,
     setPhase: mockSetPhase,
     setStoppedAt: mockSetStoppedAt,
     addLog: mockAddLog,
@@ -237,6 +240,7 @@ describe('ForgeExecution', () => {
     mockApiCallsSoFar = null;
     mockReviewSkipped = false;
     mockSimulation = false;
+    mockExecutionRequestId = 'wv-run-1';
     useForgeViewStore.setState({ setting: 'auto', choice: null });
   });
 
@@ -473,6 +477,23 @@ describe('ForgeExecution', () => {
     const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
     expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(envelope.payload.type).toBe('forge:abort');
+  });
+
+  it('names the run on screen in its abort, by the request that started it', () => {
+    // Named nothing, the stop took every Forge operation of the window: the
+    // discovery of another panel, or a run of another panel already writing
+    // while this one waited on Production Guard.
+    render(<ForgeExecution />);
+
+    fireEvent.click(screen.getByTestId('forge-abort-button'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+    expect(envelope.payload).toMatchObject({
+      type: 'forge:abort',
+      payload: { requestId: 'wv-run-1' },
+    });
   });
 
   it('stays on its screen once the abort is sent, saying the run is stopping, until it answers', () => {

@@ -2591,6 +2591,8 @@
     "elapsed": "経過時間",
     "discovery": "グラフ検出",
     "discoveryProgress": "検出中… {{discovered}} オブジェクトをスキャン済み、{{queued}} 件待機中",
+    "discoveryStopped": "検出は完了前に停止されました。グラフを表示するには、もう一度検出してください。",
+    "discoverySuperseded": "より新しい検出のために、この検出は停止されました（このパネルまたは別のパネルから）。1 つのウィンドウで同時に実行できる検出はわずかです。グラフを表示するには、もう一度検出してください。",
     "executeForge": "Forgeを実行",
     "executeFailed": "Forge の実行に失敗しました",
     "runStoppedOn": "実行は完了前に停止しました：{{message}}",

@@ -2731,6 +2731,8 @@
     "elapsed": "Transcurrido",
     "discovery": "Descubrimiento de grafo",
     "discoveryProgress": "Descubriendo… {{discovered}} objetos analizados, {{queued}} en cola",
+    "discoveryStopped": "El descubrimiento se detuvo antes de terminar. Vuelva a iniciarlo para ver el grafo.",
+    "discoverySuperseded": "El descubrimiento se detuvo para dar paso a uno más reciente, de este panel o de otro: una ventana solo recorre unos pocos a la vez. Vuelva a iniciarlo para ver el grafo.",
     "executeForge": "Ejecutar Forge",
     "executeFailed": "La ejecución de Forge ha fallado",
     "runStoppedOn": "La ejecución se detuvo antes de terminar: {{message}}",

@@ -1048,3 +1048,51 @@ test.describe('Forge — a discovery that answers while its screen is not there'
     await expect(page.getByTestId('stat-objects')).toHaveText('2');
   });
 });
+
+/*
+ * One handler serves every panel. A newer discovery stopped any other and
+ * answered it nothing: the page of the other panel span for good. And a stop
+ * named nothing, so Back on one panel stopped a run of another.
+ */
+test.describe('Forge — a discovery that was stopped, and the stop that names it', () => {
+  let bridge: MockBridge;
+
+  test.beforeEach(async ({ page }) => {
+    bridge = await openForge(page);
+    await page.waitForSelector('[data-testid="forge-page"]', { timeout: 10_000 });
+    await pickOrg(page, 'forge-target-org', 'org-tgt-1');
+    await enterRecordIdAndSettlePreview(page, bridge, RECORD_ID, ACCOUNT_PREVIEW);
+  });
+
+  test('leaves the spinner for a discovery stopped to make way for a newer one, says so, and offers it again', async ({
+    page,
+  }) => {
+    await page.getByTestId('forge-discover-btn').click();
+    await expect(page.getByTestId('forge-discovery-loading')).toBeVisible({ timeout: 10_000 });
+
+    await respondToAll(page, 'forge:discover', 'forge:discover:error', {
+      message: 'The discovery was stopped to make way for a newer one.',
+      code: 'DISCOVERY_SUPERSEDED',
+      retryable: true,
+    });
+
+    await expect(page.getByTestId('forge-discovery-loading')).toHaveCount(0);
+    await expect(page.getByTestId('forge-discovery-empty')).toContainText(
+      'The discovery was stopped to make way for a newer one, from this panel or another',
+    );
+    await expect(page.getByTestId('forge-retry-discovery')).toBeVisible();
+  });
+
+  test('stops the discovery it leaves by its request, and no other', async ({ page }) => {
+    await page.getByTestId('forge-discover-btn').click();
+    await expect(page.getByTestId('forge-discovery-loading')).toBeVisible({ timeout: 10_000 });
+    const [discovery] = await outgoing(page, 'forge:discover');
+
+    await page.getByTestId('forge-discovery-cancel').click();
+
+    await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
+    const stops = await outgoing(page, 'forge:abort');
+    expect(stops).toHaveLength(1);
+    expect(stops[0].payload).toEqual({ requestId: discovery.id });
+  });
+});

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { adoptDiscoveredGraph, sendDiscovery } from './directRun';
+import i18n from '../../i18n';
 
 const mockSendBridgeMessage = vi.fn((type: string, payload?: unknown) => {
   void payload;
@@ -113,6 +114,20 @@ describe('directRun — the answer to a Clone directly, page or no page', () => 
     expect(useForgeStore.getState().graph).toBeNull();
   });
 
+  it('starts nothing for a Clone directly whose discovery was superseded, and says why', () => {
+    extensionSays('forge:discover:error', {
+      message: 'The discovery was stopped (English, from the extension).',
+      code: 'DISCOVERY_SUPERSEDED',
+      retryable: true,
+    });
+    extensionSays('forge:discover:response', { graph: DISCOVERED });
+
+    const state = useForgeStore.getState();
+    expect(state.directDiscoveryId).toBeNull();
+    expect(state.directDiscoveryError).toBe(i18n.t('forge.discoverySuperseded'));
+    expect(executed()).toBeUndefined();
+  });
+
   it('keeps the error its discovery ended on for the screen, and starts nothing', () => {
     extensionSays('forge:discover:error', { message: 'INVALID_SESSION_ID: session expired' });
     extensionSays('forge:discover:response', { graph: DISCOVERED });
@@ -182,6 +197,27 @@ describe('directRun — the answer to the discovery the screen waits on, page or
     expect(state.discoveryId).toBeNull();
     expect(state.graph).toBeNull();
   });
+
+  it.each([
+    ['DISCOVERY_SUPERSEDED', 'forge.discoverySuperseded'],
+    ['DISCOVERY_STOPPED', 'forge.discoveryStopped'],
+  ])(
+    'says in the user’s language that its discovery was stopped (%s), and stops waiting on it',
+    (code, key) => {
+      // Stopped for a newer discovery, or from Live Operations, it answered
+      // nothing, and the screen waited on it for good.
+      extensionSays('forge:discover:error', {
+        message: 'The discovery was stopped (English, from the extension).',
+        code,
+        retryable: true,
+      });
+
+      const state = useForgeStore.getState();
+      expect(state.discoveryId).toBeNull();
+      expect(state.discoveryError).toBe(i18n.t(key));
+      expect(state.discoveryError).not.toContain('English');
+    },
+  );
 
   it('takes no answer or error of another discovery, nor an answer with no graph', () => {
     extensionSays('forge:discover:response', { graph: DISCOVERED }, 'wv-discover-other');
@@ -257,9 +293,30 @@ describe('sendDiscovery', () => {
     expect(useForgeStore.getState().directDiscoveryId).toBeNull();
 
     sendDiscovery(send, CONFIG, true);
-    const [direct] = send.mock.calls[1] as [{ id: string }];
+    const [direct] = send.mock.calls.at(-1) as [{ id: string }];
     expect(useForgeStore.getState().directDiscoveryId).toBe(direct.id);
     expect(useForgeStore.getState().discoveryId).toBeNull();
+  });
+
+  it('stops the discovery it still waited on, by its request, before it sends the next', () => {
+    // The extension no longer stops a discovery for a newer one — that
+    // silenced another panel's — and the replaced one's answer is not taken.
+    const send = vi.fn();
+    sendDiscovery(send, CONFIG);
+    const [first] = send.mock.calls[0] as [{ id: string }];
+
+    sendDiscovery(send, CONFIG);
+
+    const sent = send.mock.calls.slice(1).map(([m]) => m as { type: string; payload: unknown });
+    expect(sent.map((m) => m.type)).toEqual(['forge:abort', 'forge:discover']);
+    expect(sent[0].payload).toEqual({ requestId: first.id });
+  });
+
+  it('sends no stop when no discovery waits', () => {
+    const send = vi.fn();
+    sendDiscovery(send, CONFIG);
+
+    expect(send.mock.calls.map(([m]) => (m as { type: string }).type)).toEqual(['forge:discover']);
   });
 });
 

@@ -2731,6 +2731,8 @@
     "elapsed": "Vergangen",
     "discovery": "Graph-Ermittlung",
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
+    "discoveryStopped": "Die Ermittlung wurde vor ihrem Ende gestoppt. Starten Sie sie erneut, um den Graph zu sehen.",
+    "discoverySuperseded": "Die Ermittlung wurde für eine neuere gestoppt, aus diesem oder einem anderen Panel: Ein Fenster führt nur wenige Ermittlungen gleichzeitig aus. Starten Sie sie erneut, um den Graph zu sehen.",
     "executeForge": "Forge ausführen",
     "executeFailed": "Forge-Ausführung fehlgeschlagen",
     "runStoppedOn": "Der Lauf wurde vor seinem Ende angehalten: {{message}}",

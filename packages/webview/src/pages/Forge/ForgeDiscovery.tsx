@@ -153,13 +153,17 @@ export const ForgeDiscovery: React.FC = () => {
    * left with its discovery starts no run.
    */
   const handleBack = useCallback(() => {
-    if (discovering) {
-      sendMessage(buildMessage('forge:abort'));
+    // Named by its request: a stop that named nothing stopped every Forge
+    // operation of the window, a run of another panel with it.
+    const { discoveryId, directDiscoveryId } = useForgeStore.getState();
+    const requestId = discoveryId ?? directDiscoveryId;
+    if (requestId !== null) {
+      sendMessage(buildMessage<{ requestId: string }>('forge:abort', { requestId }));
     }
     settleDiscovery();
     settleDirectRun();
     setPhase('input');
-  }, [discovering, sendMessage, setPhase, settleDiscovery, settleDirectRun]);
+  }, [sendMessage, setPhase, settleDiscovery, settleDirectRun]);
 
   /** Advance to review phase. */
   const handleExecute = useCallback(() => {

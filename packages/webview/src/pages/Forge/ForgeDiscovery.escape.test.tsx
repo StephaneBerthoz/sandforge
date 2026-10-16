@@ -78,7 +78,12 @@ describe('ForgeDiscovery — escaping a running discovery', () => {
     fireEvent.click(screen.getByTestId('forge-discovery-cancel'));
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage.mock.calls[0][0]).toMatchObject({ type: 'forge:abort' });
+    // Named by its request: a stop that named nothing took every Forge
+    // operation of the window, a run of another panel with it.
+    expect(mockSendMessage.mock.calls[0][0]).toMatchObject({
+      type: 'forge:abort',
+      payload: { requestId: DISCOVERY },
+    });
   });
 
   it('stops the BFS of a second discovery too, the first one’s graph still in the store', () => {
@@ -90,7 +95,10 @@ describe('ForgeDiscovery — escaping a running discovery', () => {
     fireEvent.click(screen.getByTestId('forge-discovery-cancel'));
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    expect(mockSendMessage.mock.calls[0][0]).toMatchObject({ type: 'forge:abort' });
+    expect(mockSendMessage.mock.calls[0][0]).toMatchObject({
+      type: 'forge:abort',
+      payload: { requestId: 'wv-discover-2' },
+    });
     expect(useForgeStore.getState().discoveryId).toBeNull();
   });
 
@@ -109,6 +117,49 @@ describe('ForgeDiscovery — escaping a running discovery', () => {
     emitDiscoveryResponse();
     expect(useForgeStore.getState().graph).toBe(graph);
     expect(screen.getByTestId('forge-discovery')).toBeDefined();
+  });
+
+  it('leaves the spinner for a discovery stopped to make way for a newer one, and says so', () => {
+    // A newer discovery, of another panel, stopped this one: answered
+    // nothing, the screen span for good.
+    useForgeStore.getState().setConfig({
+      inputMode: 'record',
+      recordId: '001000000000001AAA',
+      depth: 'direct',
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    });
+    // A new config is a new run, which waits on no discovery until it sends one.
+    useForgeStore.getState().awaitDiscovery(DISCOVERY);
+    render(<ForgeDiscovery />);
+    expect(screen.getByTestId('forge-discovery-loading')).toBeDefined();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'ext-stopped',
+            type: 'forge:discover:error',
+            timestamp: Date.now(),
+            correlationId: DISCOVERY,
+            payload: {
+              message: 'The discovery was stopped to make way for a newer one.',
+              code: 'DISCOVERY_SUPERSEDED',
+              retryable: true,
+            },
+          },
+        }),
+      );
+    });
+
+    expect(screen.queryByTestId('forge-discovery-loading')).toBeNull();
+    expect(screen.getByTestId('forge-discovery-empty').textContent).toContain(
+      'The discovery was stopped to make way for a newer one, from this panel or another',
+    );
+    expect(screen.getByTestId('forge-retry-discovery')).toBeDefined();
   });
 
   it('ignores a graph that lands after the user walked back to input', () => {

@@ -3,12 +3,17 @@ import type { BaseMessage, ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { startForgeRun } from './startForgeRun';
+import i18n from '../../i18n';
 
 /**
  * Send the discovery of `config` through `send`, as the one the flow waits on
  * from now on: only its answer and its error are taken, here, page or no
  * page. With `direct`, it is a Clone directly's, and its answer starts the
  * run.
+ *
+ * A discovery the flow still waited on is stopped first, by its request: the
+ * extension no longer stops a discovery for a newer one — that silenced the
+ * discovery of another panel — and this one's answer would not be taken.
  */
 export function sendDiscovery(
   send: (message: BaseMessage) => void,
@@ -17,10 +22,24 @@ export function sendDiscovery(
 ): void {
   const request = buildMessage<{ config: ForgeConfig }>('forge:discover', { config });
   const store = useForgeStore.getState();
+  const replaced = store.discoveryId ?? store.directDiscoveryId;
+  if (replaced !== null) {
+    send(buildMessage<{ requestId: string }>('forge:abort', { requestId: replaced }));
+  }
   if (direct) store.awaitDirectRun(request.id);
   else store.awaitDiscovery(request.id);
   send(request);
 }
+
+/**
+ * What the discovery screen says of a discovery that was stopped, by the code
+ * it was answered with: the extension's sentence is English, and the screen
+ * speaks the user's language.
+ */
+const STOPPED_DISCOVERY_KEYS: ReadonlyMap<string, string> = new Map([
+  ['DISCOVERY_STOPPED', 'forge.discoveryStopped'],
+  ['DISCOVERY_SUPERSEDED', 'forge.discoverySuperseded'],
+]);
 
 /**
  * Put the graph a discovery answered with in the store, as the discovery
@@ -86,8 +105,17 @@ function takeDiscoveryMessage(event: MessageEvent): void {
   // No discovery waits: no answer is this listener's.
   if (typeof store.discoveryId !== 'string' && typeof store.directDiscoveryId !== 'string') return;
   if (data.type === 'forge:discover:error') {
-    const payload = (data.payload ?? {}) as { message?: unknown };
-    const message = typeof payload.message === 'string' ? payload.message : '';
+    const payload = (data.payload ?? {}) as { message?: unknown; code?: unknown };
+    // A discovery that was stopped — from Live Operations, or for a newer one
+    // past the number walked at once — answers too: unanswered, its screen
+    // waited on it for good.
+    const stoppedKey =
+      typeof payload.code === 'string' ? STOPPED_DISCOVERY_KEYS.get(payload.code) : undefined;
+    const message = stoppedKey
+      ? i18n.t(stoppedKey)
+      : typeof payload.message === 'string'
+        ? payload.message
+        : '';
     // One discovery is waited on at a time, a Clone directly's or the
     // screen's: each takes only the error of its own request.
     store.failDirectDiscovery(data.correlationId, message);

@@ -34,6 +34,7 @@ import { LineageStore } from '../../modules/audit/lineage.js';
 import { logger } from '../../logger.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
+import { MAX_DISCOVERIES } from '../../modules/forge/ForgeStops.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -255,6 +256,28 @@ describe('ForgeHandler', () => {
   });
 
   describe('forge:discover', () => {
+    /** A discovery request under its own id: two built in the same millisecond share one. */
+    function discoverRequest(id: string): InboundRequest {
+      return inboundRequest({
+        id,
+        type: 'forge:discover',
+        timestamp: Date.now(),
+        payload: { config: createMockConfig() },
+      } as BaseMessage);
+    }
+
+    /** The answers and errors posted for request `id`. */
+    function answersTo(id: string): Array<BaseMessage & { payload?: Record<string, unknown> }> {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { payload?: Record<string, unknown> })
+        .filter(
+          (m) =>
+            m.correlationId === id &&
+            (m.type === 'forge:discover:response' || m.type === 'forge:discover:error'),
+        );
+    }
+
     it('calls orchestrator.discover and posts response with correlationId', async () => {
       const config = createMockConfig();
       const graph = createMockGraph();
@@ -341,7 +364,9 @@ describe('ForgeHandler', () => {
       expect(progressResponse.correlationId).toBe(msg.id);
     });
 
-    it('aborts a discovery still running when a new one starts', async () => {
+    it('leaves a discovery of another request walking when a new one starts, and a stop naming one reaches it alone', async () => {
+      // A newer discovery stopped every other: the page of another panel
+      // waited for an answer that never came.
       const signals: AbortSignal[] = [];
       const resolvers: Array<(graph: ForgeGraph) => void> = [];
       vi.mocked(orchestrator.discover).mockImplementation(
@@ -352,26 +377,24 @@ describe('ForgeHandler', () => {
           }),
       );
 
-      const first = handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
-      const second = handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
+      const first = handler.handle(discoverRequest('first-discover'));
+      const second = handler.handle(discoverRequest('second-discover'));
       await vi.waitFor(() => expect(signals).toHaveLength(2));
 
-      expect(signals[0].aborted).toBe(true);
+      expect(signals[0].aborted).toBe(false);
       expect(signals[1].aborted).toBe(false);
 
-      // The superseded BFS settles while its replacement is still running. It
-      // must not clear the live one's controller, or forge:abort could no
-      // longer reach the discovery on screen.
-      resolvers[0](createMockGraph());
-      await first;
-      await handler.handle(buildMsg('forge:abort'));
+      await handler.handle(buildMsg('forge:abort', { requestId: 'second-discover' }));
+      expect(signals[0].aborted).toBe(false);
       expect(signals[1].aborted).toBe(true);
 
+      resolvers[0](createMockGraph());
       resolvers[1](createMockGraph());
-      await second;
+      await Promise.all([first, second]);
+      expect(answersTo('first-discover').map((m) => m.type)).toEqual(['forge:discover:response']);
     });
 
-    it('posts nothing for a discovery that was cancelled or superseded', async () => {
+    it('answers a discovery a stop took as stopped, never with the partial graph it reached', async () => {
       const resolvers: Array<(graph: ForgeGraph) => void> = [];
       vi.mocked(orchestrator.discover).mockImplementation(
         () =>
@@ -380,72 +403,63 @@ describe('ForgeHandler', () => {
           }),
       );
 
-      const firstMsg = buildMsg('forge:discover', { config: createMockConfig() });
-      const first = handler.handle(firstMsg);
+      const first = handler.handle(discoverRequest('stopped-discover'));
       await vi.waitFor(() => expect(resolvers).toHaveLength(1));
-      await handler.handle(buildMsg('forge:abort'));
+      await handler.handle(buildMsg('forge:abort', { requestId: 'stopped-discover' }));
       // The aborted BFS hands back the partial graph it had reached.
       resolvers[0]({ ...createMockGraph(), nodes: [] });
       await first;
 
-      const answers = vi
-        .mocked(deps.broker.postToWebview)
-        .mock.calls.map((call) => call[0] as BaseMessage & { correlationId?: string })
-        .filter(
-          (m) =>
-            m.correlationId === firstMsg.id &&
-            (m.type === 'forge:discover:response' || m.type === 'forge:discover:error'),
-        );
-      expect(answers).toEqual([]);
+      expect(answersTo('stopped-discover')).toEqual([
+        expect.objectContaining({
+          type: 'forge:discover:error',
+          payload: expect.objectContaining({ code: 'DISCOVERY_STOPPED', retryable: true }),
+        }),
+      ]);
     });
 
     it.each([
-      ['cancelled', 'forge:abort'],
-      ['superseded', 'forge:discover'],
-    ])('posts no error for a discovery that fails after it was %s', async (_label, next) => {
-      const rejecters: Array<(error: Error) => void> = [];
-      const resolvers: Array<(graph: ForgeGraph) => void> = [];
-      vi.mocked(orchestrator.discover).mockImplementation(
-        () =>
-          new Promise<ForgeGraph>((resolve, reject) => {
-            resolvers.push(resolve);
-            rejecters.push(reject);
-          }),
-      );
-
-      const firstMsg = buildMsg('forge:discover', { config: createMockConfig() });
-      const first = handler.handle(firstMsg);
-      await vi.waitFor(() => expect(rejecters).toHaveLength(1));
-      const second = handler.handle(
-        next === 'forge:abort'
-          ? buildMsg('forge:abort')
-          : // Its own id: two messages built in the same millisecond share one.
-            inboundRequest({
-              id: 'live-discover',
-              type: 'forge:discover',
-              timestamp: Date.now(),
-              payload: { config: createMockConfig() },
-            } as BaseMessage),
-      );
-      if (next === 'forge:discover') {
-        await vi.waitFor(() => expect(rejecters).toHaveLength(2));
-      }
-      // A cancelled walk can still throw: a describe cut short, a timeout.
-      rejecters[0](new Error('describeGlobal failed'));
-      await first;
-      resolvers[1]?.(createMockGraph());
-      await second;
-
-      const answers = vi
-        .mocked(deps.broker.postToWebview)
-        .mock.calls.map((call) => call[0] as BaseMessage & { correlationId?: string })
-        .filter(
-          (m) =>
-            m.correlationId === firstMsg.id &&
-            (m.type === 'forge:discover:response' || m.type === 'forge:discover:error'),
+      ['stopped', 'DISCOVERY_STOPPED'],
+      ['superseded', 'DISCOVERY_SUPERSEDED'],
+    ])(
+      'answers a discovery that fails after it was %s as such, not with its failure',
+      async (label, code) => {
+        const rejecters: Array<(error: Error) => void> = [];
+        const resolvers: Array<(graph: ForgeGraph) => void> = [];
+        vi.mocked(orchestrator.discover).mockImplementation(
+          () =>
+            new Promise<ForgeGraph>((resolve, reject) => {
+              resolvers.push(resolve);
+              rejecters.push(reject);
+            }),
         );
-      expect(answers).toEqual([]);
-    });
+
+        const first = handler.handle(discoverRequest('failing-discover'));
+        await vi.waitFor(() => expect(rejecters).toHaveLength(1));
+        // Stopped by name, or superseded past the number walked at once.
+        const newer =
+          label === 'stopped'
+            ? [handler.handle(buildMsg('forge:abort', { requestId: 'failing-discover' }))]
+            : Array.from({ length: MAX_DISCOVERIES }, (_unused, i) =>
+                handler.handle(discoverRequest(`newer-discover-${i}`)),
+              );
+        if (label === 'superseded') {
+          await vi.waitFor(() => expect(rejecters).toHaveLength(MAX_DISCOVERIES + 1));
+        }
+        // A cancelled walk can still throw: a describe cut short, a timeout.
+        rejecters[0](new Error('describeGlobal failed'));
+        await first;
+        for (const resolve of resolvers.slice(1)) resolve(createMockGraph());
+        await Promise.all(newer);
+
+        expect(answersTo('failing-discover')).toEqual([
+          expect.objectContaining({
+            type: 'forge:discover:error',
+            payload: expect.objectContaining({ code }),
+          }),
+        ]);
+      },
+    );
   });
 
   describe('forge:execute record type translation', () => {
@@ -1590,7 +1604,7 @@ describe('ForgeHandler', () => {
       expect(orchestrator.abort).not.toHaveBeenCalled();
     });
 
-    it('records a discovery a newer one replaced as aborted, not as completed', async () => {
+    it('records a discovery a newer one superseded as aborted, not as completed', async () => {
       // Stopped by its controller alone, the replaced walk settled with no
       // error, and the registry listed it completed: Live Operations said it
       // had finished, and "forge completed" popped up with no panel open.
@@ -1605,16 +1619,19 @@ describe('ForgeHandler', () => {
       const first = handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
       await vi.waitFor(() => expect(registry.getRunning()).toHaveLength(1));
       const [replaced] = registry.getRunning().map((o) => o.operationId);
-      const second = handler.handle(
-        // Its own id: two messages built in the same millisecond share one.
-        inboundRequest({
-          id: 'newer-discover',
-          type: 'forge:discover',
-          timestamp: Date.now(),
-          payload: { config: createMockConfig() },
-        } as BaseMessage),
+      // Past the number walked at once, the oldest is superseded.
+      const newer = Array.from({ length: MAX_DISCOVERIES }, (_unused, i) =>
+        handler.handle(
+          // Its own id: two messages built in the same millisecond share one.
+          inboundRequest({
+            id: `newer-discover-${i}`,
+            type: 'forge:discover',
+            timestamp: Date.now(),
+            payload: { config: createMockConfig() },
+          } as BaseMessage),
+        ),
       );
-      await vi.waitFor(() => expect(resolvers).toHaveLength(2));
+      await vi.waitFor(() => expect(resolvers).toHaveLength(MAX_DISCOVERIES + 1));
 
       // The replaced walk hands back the partial graph it had reached.
       resolvers[0]({ ...createMockGraph(), nodes: [] });
@@ -1624,12 +1641,12 @@ describe('ForgeHandler', () => {
         [replaced, 'started'],
         [replaced, 'aborted'],
       ]);
-      // The newer discovery is the one still running.
+      // The newer discoveries are the ones still running.
       expect(registry.getRunning().map((o) => o.operationId)).not.toContain(replaced);
-      expect(registry.getRunning()).toHaveLength(1);
+      expect(registry.getRunning()).toHaveLength(MAX_DISCOVERIES);
 
-      resolvers[1](createMockGraph());
-      await second;
+      for (const resolve of resolvers.slice(1)) resolve(createMockGraph());
+      await Promise.all(newer);
     });
 
     describe('the end of a run, as the recent operations read it', () => {
@@ -4460,12 +4477,14 @@ describe('ForgeHandler', () => {
       abortSpy.mockRestore();
     });
 
-    it('delegates to orchestrator.abort', async () => {
+    it('tells the executor nothing when nothing is under way', async () => {
+      // The executor is shared: told to abort with no run of its own, it
+      // stopped whatever had it next, a run of another panel among them.
       const msg = buildMsg('forge:abort');
       const handled = await handler.handle(msg);
 
       expect(handled).toBe(true);
-      expect(orchestrator.abort).toHaveBeenCalledOnce();
+      expect(orchestrator.abort).not.toHaveBeenCalled();
     });
 
     it('returns true even when no active execution', async () => {

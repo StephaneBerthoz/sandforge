@@ -2731,6 +2731,8 @@
     "elapsed": "Écoulé",
     "discovery": "Découverte du graphe",
     "discoveryProgress": "Découverte… {{discovered}} objets analysés, {{queued}} en file",
+    "discoveryStopped": "La découverte a été arrêtée avant la fin. Relancez-la pour voir le graphe.",
+    "discoverySuperseded": "La découverte a été arrêtée pour laisser place à une plus récente, de ce panneau ou d'un autre : une fenêtre n'en parcourt que quelques-unes à la fois. Relancez-la pour voir le graphe.",
     "executeForge": "Exécuter le Forge",
     "executeFailed": "L'exécution du Forge a échoué",
     "runStoppedOn": "L'exécution s'est arrêtée avant sa fin : {{message}}",

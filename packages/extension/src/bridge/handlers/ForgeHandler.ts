@@ -189,6 +189,8 @@ import {
 } from '../../modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
 import { forgeRunFingerprint, sameRunSetup } from '../../modules/forge/runFingerprint.js';
+import { ForgeStops, MAX_DISCOVERIES } from '../../modules/forge/ForgeStops.js';
+import type { DiscoveryStop, LiveDiscovery } from '../../modules/forge/ForgeStops.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Strict Salesforce record/org ID format. */
@@ -297,6 +299,29 @@ const ABORTED_BEFORE_START_MESSAGE =
 
 /** Why a run was stopped before it started: another one had the executor. */
 const FORGE_RUNNING = 'FORGE_RUNNING';
+
+/** Why a stop was refused: it named nothing, and several operations were under way. */
+const FORGE_STOP_AMBIGUOUS = 'FORGE_STOP_AMBIGUOUS';
+
+/** How a discovery that was stopped answers its page, by why: the code and what it says. */
+const DISCOVERY_STOPPED_ANSWERS: Record<DiscoveryStop, { code: string; message: string }> = {
+  stopped: {
+    code: 'DISCOVERY_STOPPED',
+    message: 'The discovery was stopped before it finished. Discover again to see the graph.',
+  },
+  superseded: {
+    code: 'DISCOVERY_SUPERSEDED',
+    message:
+      `The discovery was stopped to make way for a newer one: ${MAX_DISCOVERIES} discoveries at ` +
+      'most are walked at once in this window. Discover again to see the graph.',
+  },
+};
+
+// The request of the operation to stop, as the page sent it; absent, the one
+// operation under way.
+const abortPayloadSchema = z
+  .object({ requestId: z.string().min(1).max(200).optional() })
+  .optional();
 
 const saveTemplatePayloadSchema = z.object({ template: forgeTemplateSchema });
 // The entry is named, never its records: what is removed is what this
@@ -911,19 +936,19 @@ function rehearsalAuditDetails(rehearsal: ForgeRehearsal): Record<string, number
  * open; history in ConfigStore. Both survive an extension reload.
  */
 export class ForgeHandler implements DomainHandler {
-  private discoverAbortController: AbortController | null = null;
   private abortController: AbortController | null = null;
-  /* The runs waiting on Production Guard, by the controller each is to run
-     under. Their confirmation waits on a person, and the run's controller was
-     set only once the guard had answered: an Abort sent meanwhile found no run
-     to stop, and the run went ahead once confirmed while the page read
+  /* The discoveries, the runs waiting on Production Guard and the run under
+     way, by the request of each, which a stop names (see `ForgeStops`). A run
+     waiting on the guard is kept from before the guard is asked: its
+     confirmation waits on a person, and the run's controller was set only
+     once the guard had answered, so an Abort sent meanwhile found no run to
+     stop, and the run went ahead once confirmed while the page read
      STOPPING... until it answered. */
-  private readonly runsAwaitingGuard = new Set<AbortController>();
-  /* The operations the registry is tracking for this handler. Stop has to
-     reach the registry, not just the controllers: a run whose promise simply
-     settles is recorded as completed, so a clone the user stopped was listed
-     as finished in Live Operations and announced as one. */
-  private discoverOperationId: string | null = null;
+  private readonly stops = new ForgeStops();
+  /* The run the registry is tracking for this handler. Stop has to reach the
+     registry, not just the controllers: a run whose promise simply settles is
+     recorded as completed, so a clone the user stopped was listed as finished
+     in Live Operations and announced as one. A discovery's is kept with it. */
   private executeOperationId: string | null = null;
   private orchestrator?: ForgeOrchestrator;
   private planGenerator?: ForgePlanGenerator;
@@ -1105,10 +1130,10 @@ export class ForgeHandler implements DomainHandler {
    *
    * The registry aborts a controller of its own, which the run then follows:
    * the walk through its own signal, and — for a write run only — the executor
-   * by being told, because jsforce cannot cancel a request it has sent. Only
-   * `handleAbort` stops everything at once; cancelling one run from Live
-   * Operations must not take the other Forge run in flight with it, and the
-   * orchestrator is shared by both.
+   * by being told, because jsforce cannot cancel a request it has sent.
+   * Cancelling one run from Live Operations must not take the other Forge
+   * run in flight with it, and the orchestrator is shared by both; nor does
+   * `handleAbort`, which stops the one operation its request names.
    *
    * @param operationId - Id the run reports progress under.
    * @param description - What the Live Operations panel shows.
@@ -1454,22 +1479,17 @@ export class ForgeHandler implements DomainHandler {
     const parsed = parsePayload(discoverPayloadSchema, msg, 'forge:discover:error', this.deps);
     if (!parsed) return;
     const { config } = parsed;
-    // A discovery still running belongs to a screen the user has left (Back,
-    // then Discover again). Overwriting its controller without aborting it
-    // left that BFS running beside the new one with nothing able to stop it.
-    // Stopped through the registry first, as forge:abort stops one: stopped
-    // by its controller alone, it settled with no error and the registry
-    // recorded the replaced walk as completed.
-    if (this.discoverOperationId) {
-      this.deps.infraServices?.backgroundRegistry?.abort(this.discoverOperationId);
-    }
-    this.discoverAbortController?.abort();
+    // Kept under its request, beside the discoveries of other panels: a newer
+    // discovery stopped any other, and the page that had asked for the other
+    // waited for an answer that never came. The page that replaces its own
+    // discovery stops it by name (Back, Discover again); past the number
+    // walked at once, the oldest is stopped here, and answered as such.
     const controller = new AbortController();
-    this.discoverAbortController = controller;
     const operationId = `forge-discover-${this.deps.nextId()}`;
+    const { discovery, superseded } = this.stops.beginDiscovery(msg.id, controller, operationId);
+    for (const old of superseded) this.stopDiscovery(old);
     sendOperationStarted(this.deps, operationId, 'forge', 'Discovering object graph');
     const releaseRun = this.trackRun(operationId, 'Discovering object graph', controller);
-    this.discoverOperationId = operationId;
     /** What the walk failed on, so the registry lists the run as failed. */
     let runError: unknown;
 
@@ -1495,10 +1515,11 @@ export class ForgeHandler implements DomainHandler {
       });
       throttledProgress.flush();
       if (controller.signal.aborted) {
-        // Cancelled from the wizard or replaced by a newer discovery. The BFS
-        // hands back the partial graph it had reached; answering with it would
-        // land that truncated graph in whichever discovery screen is open now.
+        // Stopped, or superseded by a newer discovery. The BFS hands back the
+        // partial graph it had reached, which is no answer: the page is told
+        // the discovery stopped, and why, under its own request.
         sendOperationCompleted(this.deps, operationId, { aborted: true });
+        this.answerStoppedDiscovery(msg, discovery);
         return;
       }
       const response = buildResponse(this.deps, msg, 'forge:discover:response', { graph });
@@ -1513,11 +1534,11 @@ export class ForgeHandler implements DomainHandler {
       // the latest queue state before the error response arrives. Without
       // this, an abort mid-BFS leaves the wizard frozen on stale counts.
       throttledProgress.flush();
-      // A cancelled or replaced walk can still throw on its way out. Its error
-      // would stop the spinner of the discovery screen open now, whose own walk
-      // is still running.
+      // A stopped or replaced walk can still throw on its way out: a describe
+      // cut short, a timeout. What its page is told is that it was stopped.
       if (controller.signal.aborted) {
         sendOperationCompleted(this.deps, operationId, { aborted: true });
+        this.answerStoppedDiscovery(msg, discovery);
         return;
       }
       // Dual channel, single display, as for every other module:
@@ -1533,14 +1554,35 @@ export class ForgeHandler implements DomainHandler {
       sendOperationFailed(this.deps, operationId, extractErrorMessage(error), true);
     } finally {
       releaseRun(runError);
-      if (this.discoverOperationId === operationId) this.discoverOperationId = null;
-      // Only release the controller this call owns: a superseded discovery
-      // settles after its replacement started, and nulling the field then cut
-      // the live one off from forge:abort.
-      if (this.discoverAbortController === controller) {
-        this.discoverAbortController = null;
-      }
+      this.stops.endDiscovery(discovery);
     }
+  }
+
+  /**
+   * Stop a discovery a stop took, or a newer one superseded: through the
+   * registry first, as Live Operations stops one — stopped by its controller
+   * alone, it settled with no error and the registry recorded the walk as
+   * completed.
+   */
+  private stopDiscovery(discovery: LiveDiscovery): void {
+    this.deps.infraServices?.backgroundRegistry?.abort(discovery.operationId);
+    discovery.controller.abort();
+  }
+
+  /**
+   * Answer the page of a discovery that was stopped, under its request, so it
+   * leaves the waiting state: unanswered, a page whose discovery another
+   * panel's had stopped, or that Live Operations had cancelled, waited on it
+   * for good. Every panel hears it, and only the page that sent the request
+   * takes it. A walk with no stop of its own was cancelled from Live
+   * Operations, through the registry.
+   */
+  private answerStoppedDiscovery(msg: InboundRequest, discovery: LiveDiscovery): void {
+    const { code, message } = DISCOVERY_STOPPED_ANSWERS[discovery.stop ?? 'stopped'];
+    sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', msg, new Error(message), {
+      code,
+      retryable: true,
+    });
   }
 
   /**
@@ -1698,18 +1740,17 @@ export class ForgeHandler implements DomainHandler {
       ...guardedWrites(graph, config),
       module: 'forge',
     };
-    // Made before the guard is asked, where forge:abort reaches it while the
-    // guard waits on a person.
+    // Made before the guard is asked, and kept under the run's request, where
+    // a forge:abort naming it reaches it while the guard waits on a person —
+    // and reaches no other run, one of another panel writing meanwhile.
     const runController = new AbortController();
-    this.runsAwaitingGuard.add(runController);
+    const guardAnswered = this.stops.awaitGuard(msg.id, runController);
     // A simulation asks no one: the guard's verdict alone, which still
     // refuses what it refuses.
     const { check, decision } = dryRun
       ? verdictWithoutConfirmation(guard, guardRequest)
-      : await consultProductionGuard(guard, guardRequest).finally(() =>
-          this.runsAwaitingGuard.delete(runController),
-        );
-    if (dryRun) this.runsAwaitingGuard.delete(runController);
+      : await consultProductionGuard(guard, guardRequest).finally(guardAnswered);
+    if (dryRun) guardAnswered();
     /**
      * What the guard decided, recorded with the run it let through: made
      * `confirmed` by a person's answer to a question of the run's gate.
@@ -1867,12 +1908,26 @@ export class ForgeHandler implements DomainHandler {
     // through the registry, as a Sync or a Seed run is.
     this.liveTracker?.register(operationId, 'forge', operationLabel);
     this.executeOperationId = operationId;
+    this.stops.beginRun(msg.id, runController);
     /** When the executor was handed the run: a run it stopped is recorded from then. */
     let startedAt = Date.now();
     /** The journal of what the run writes, reads and owes, while it runs; see `ForgeRunJournal`. */
     let journalId: string | undefined;
     /** The store the run writes its journal through; see `ForgeRunStore`. */
     let store: ForgeRunStore | undefined;
+    /**
+     * Let the journal's file go, once. Closed as the executor settles and
+     * again as the run ends, a file on disk refused the second close (EBADF)
+     * when the run had thrown — stopped or failed — and the end of the run
+     * stopped there: the journal never told how the run ended, and the window
+     * kept the run as under way, refusing the next one.
+     */
+    let storeClosed = false;
+    const closeStore = (): void => {
+      if (storeClosed || !store) return;
+      storeClosed = true;
+      store.close();
+    };
     /**
      * What becomes of the journal once the run is over: dropped, the history
      * holding what the run created — or kept, with how the part ended, for the
@@ -2111,7 +2166,7 @@ export class ForgeHandler implements DomainHandler {
           }),
         })
         // Every line of the journal written before the run's end is said.
-        .finally(() => store?.close());
+        .finally(closeStore);
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
       const counted = withCallsBefore(executed, lookup.requests);
@@ -2332,7 +2387,7 @@ export class ForgeHandler implements DomainHandler {
       if (journalId) {
         const id = journalId;
         const after = journalAfter;
-        store?.close();
+        closeStore();
         await (
           after.keep
             ? this.runJournal?.stop(id, after.status, after.forgeId)
@@ -2346,6 +2401,7 @@ export class ForgeHandler implements DomainHandler {
       }
       releaseRun(runError);
       if (this.executeOperationId === operationId) this.executeOperationId = null;
+      this.stops.endRun(msg.id);
       // Unsubscribe BEFORE flushing so the flush's terminal event
       // doesn't trigger any progress listeners that we're about to remove.
       // Then flush so the last queued progress event reaches the webview
@@ -2529,25 +2585,56 @@ export class ForgeHandler implements DomainHandler {
     logger.info('Forge resumed');
   }
 
-  private handleAbort(_msg: BaseMessage): void {
-    // Signal abort, then null the refs so a stale post-abort signal
-    // can't leak between sequential operations (e.g. abort during discover
-    // followed by an immediate execute). The handler functions reset the
-    // refs on entry, but defensive nulling here closes the race window.
-    // The registry first: it stamps the run aborted and stops it through the
-    // handle it was registered with. Settling the tracked promise instead
-    // would record the stopped run as completed.
-    const registry = this.deps.infraServices?.backgroundRegistry;
-    if (this.discoverOperationId) registry?.abort(this.discoverOperationId);
-    if (this.executeOperationId) registry?.abort(this.executeOperationId);
-    // A run still waiting on Production Guard never starts once it answers.
-    for (const run of this.runsAwaitingGuard) run.abort();
-    this.discoverAbortController?.abort();
-    this.discoverAbortController = null;
-    this.abortController?.abort();
-    this.abortController = null;
-    this.orchestrator?.abort();
-    logger.info('Forge aborted');
+  /**
+   * Stop the operation a `forge:abort` names by its request: a discovery, a
+   * run waiting on Production Guard, or the run under way — that one alone.
+   * A stop that names nothing takes the one operation under way, and is
+   * refused, with a message that says so, when several are: it stopped every
+   * one of them, the run of one panel with the discovery of another.
+   */
+  private handleAbort(msg: InboundRequest): void {
+    const parsed = parsePayload(abortPayloadSchema, msg, 'forge:abort:error', this.deps);
+    if (parsed === null) return;
+    const resolution = this.stops.resolve(parsed?.requestId);
+    if ('refused' in resolution) {
+      if (resolution.refused === 'none') {
+        // What it named has ended, or nothing runs: nothing to stop.
+        logger.info('Forge stop: no operation under way answers it');
+        return;
+      }
+      sendHandlerError(
+        this.deps,
+        'forge:abort',
+        'forge:abort:error',
+        msg,
+        new Error(
+          `${resolution.live} Forge operations are under way in this window, and the stop did ` +
+            'not say which one it was for: nothing was stopped. Stop it from its own screen, ' +
+            'or from Live Operations.',
+        ),
+        { code: FORGE_STOP_AMBIGUOUS },
+      );
+      return;
+    }
+    const target = resolution.stops;
+    if (target.kind === 'discovery') {
+      this.stopDiscovery(target.discovery);
+    } else if (target.kind === 'awaiting-guard') {
+      // Never starts once the guard answers, and writes nothing.
+      target.controller.abort();
+    } else {
+      // The registry first: it stamps the run aborted and stops it through
+      // the handle it was registered with. Settling the tracked promise
+      // instead would record the stopped run as completed. The executor is
+      // told as well, for a handler with no registry.
+      if (this.executeOperationId) {
+        this.deps.infraServices?.backgroundRegistry?.abort(this.executeOperationId);
+      }
+      this.abortController?.abort();
+      this.abortController = null;
+      this.orchestrator?.abort();
+    }
+    logger.info('Forge stopped', { what: target.kind });
   }
 
   /**

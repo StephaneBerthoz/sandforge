@@ -2731,6 +2731,8 @@
     "elapsed": "Elapsed",
     "discovery": "Graph Discovery",
     "discoveryProgress": "Discovering… {{discovered}} objects scanned, {{queued}} queued",
+    "discoveryStopped": "The discovery was stopped before it finished. Discover again to see the graph.",
+    "discoverySuperseded": "The discovery was stopped to make way for a newer one, from this panel or another: a window walks only a few discoveries at once. Discover again to see the graph.",
     "executeForge": "Execute Forge",
     "executeFailed": "Forge execution failed",
     "runStoppedOn": "The run stopped before its end: {{message}}",
