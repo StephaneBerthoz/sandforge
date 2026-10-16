@@ -2305,6 +2305,8 @@
       "results1430Desc": "Ouvrez un enregistrement créé dans l'org cible, enregistrez les résultats en CSV ou JSON, supprimez le run sur place, et relancez les objets sautés. Les modèles s'exportent et s'importent en fichiers JSON.",
       "sweepAutomation1540": "Balayer ce que l'automatisation de la cible a créé",
       "sweepAutomation1540Desc": "Une suppression Forge peut désormais retirer aussi ce que l'automatisation de la cible a créé pendant le run, listé et demandé d'abord. Le rapport d'automatisation lit la condition de chaque Flow, et la vérification ne compte plus comme cassé un lookup que la cible a vidé.",
+      "scaleTested1550": "Sync, Seed, Autopilot et Frozen tiennent à grande échelle",
+      "scaleTested1550Desc": "Testés sur une grande org : Sync associe les types d'enregistrement et retient ce que la cible refuserait, et sa simulation le dit à l'avance. Autopilot ne copie que les enregistrements que votre sélection référence et vérifie d'abord le stockage de la cible. Seed peut annuler un run, et Frozen sélectionne avec bien moins d'appels API.",
       "exactResume1530": "Reprendre exactement là où le run s'est arrêté",
       "exactResume1530Desc": "Un run Forge repris copie désormais les fichiers restants, ne rend jamais un statut deux fois et n'est plus refusé quand une table vide a changé entre-temps. La suppression d'un gros run lit son journal page par page.",
       "undoSync1520": "Défaire ce qu'un run Sync a créé",

@@ -5,6 +5,37 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.0] - 2026-10-16
+
+Sync, Seed, Autopilot and Frozen tested on a large org: each writes what it says it will, within bounds.
+
+### Added
+
+- **Seed command line**: `--remove` takes a run back from its summary; `--seed` makes a dry run predict the run; `--locale` and `--record-type`.
+- **Autopilot write gate**: a run past the target's data storage is refused, a large one asked first (`--max-total`, `--max-depth`, `--max-objects`).
+- **Frozen selection**: says each step, and keeps what it decided when it times out or is stopped.
+- **Sync page**: Save sits next to the reason Run waits for a configuration that copies files.
+
+### Changed
+
+- **Autopilot scope**: copies the selected objects and only the parent records they reference, within Forge's bounds, not whole tables.
+- **Autopilot compliance**: personal fields are found without AI; AI findings add to them.
+- **Sync record types**: mapped by API name; a type the target lacks or closes to the user holds the row back.
+- **Sync simulation**: predicts person-account fields, record types, refused parents, required fields, lengths and unique values.
+- **Forge stops**: each names the discovery or run it stops; a discovery no longer silences another panel's.
+- **Forge history**: a run keeps at most 2 000 ids in memory; the rest are read from its journal.
+- **Frozen selection**: asks each describe once, with far fewer API calls on a large org.
+
+### Fixed
+
+- **Sync**: no person-account fields on business accounts.
+- **Sync**: children of a refused parent are held back, never written without it.
+- **Seed**: emails and phones get fictitious values.
+- **Forge**: a stopped run no longer blocks the next one in the same window.
+- **Forge graph**: background visible in a light theme.
+- **Automation**: a scheduled pipeline with a step no release runs records the missed start.
+- **Sync delta**: says how many changed legacy attachments it left as copied.
+
 ## [1.54.0] - 2026-10-15
 
 Forge tested on a large org: what its automation creates can be swept, and its report reads every flow.
