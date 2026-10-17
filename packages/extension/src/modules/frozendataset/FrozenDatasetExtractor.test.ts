@@ -592,24 +592,34 @@ describe('FrozenDatasetExtractor — required parents scope reached late', () =>
   });
 
   it('leaves an optional lookup to what scope reached', async () => {
+    // A contact read under the account names another contact, once the
+    // contacts are read: optional, the lookup is left empty rather than
+    // fetched. (A parent of the root object a root names is read: see below.)
     const dir = makeTmpDir();
     const queries: string[] = [];
+    const CONTACT = to18('003A00000000con');
     const extractor = new FrozenDatasetExtractor({
       query: async (soql) => {
         queries.push(soql);
-        if (soql.includes('FROM Account'))
-          return [{ Id: ACCOUNT, Parent__c: to18('001A0000000prnt') }];
+        if (soql.includes('FROM Account')) return [{ Id: ACCOUNT }];
+        if (soql.includes('FROM Contact')) {
+          return [{ Id: CONTACT, AccountId: ACCOUNT, Referrer__c: to18('003A0000000refr') }];
+        }
         return [];
       },
-      describeFields: async () => [
-        { name: 'Id', type: 'id', referenceTo: [] },
-        { name: 'Parent__c', type: 'reference', referenceTo: ['Account'], nillable: true },
-      ],
+      describeFields: async (objectApiName) =>
+        objectApiName === 'Contact'
+          ? [
+              { name: 'Id', type: 'id', referenceTo: [] },
+              { name: 'AccountId', type: 'reference', referenceTo: ['Account'], nillable: true },
+              { name: 'Referrer__c', type: 'reference', referenceTo: ['Contact'], nillable: true },
+            ]
+          : [{ name: 'Id', type: 'id', referenceTo: [] }],
     });
 
     await extractor.extract({ ...makeOptions(dir, []), rootRecordIds: [ACCOUNT] });
 
-    expect(queries.filter((q) => q.includes('FROM Account'))).toHaveLength(1);
+    expect(queries.filter((q) => q.includes('FROM Contact'))).toHaveLength(1);
   });
 });
 
@@ -2086,6 +2096,70 @@ describe('FrozenDatasetExtractor — the items an order past Draft needs', () =>
 
     expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([ACTIVATED_ITEM, DRAFT_ITEM].sort());
     expect(sent).not.toContain(ORDER_STATUSES);
+  });
+});
+
+describe('FrozenDatasetExtractor — a parent of the root object a root names', () => {
+  const ROOT_CASE = to18('500A00000000roo');
+  const PARENT_CASE = to18('500A00000000par');
+  const GRANDPARENT_CASE = to18('500A00000000gra');
+  const OTHER_CASE = to18('500A00000000oth');
+  const ROOT_ACCOUNT = to18('001A00000000roo');
+  const PARENT_ACCOUNT = to18('001A00000000par');
+  const ROOT_COMMENT = to18('00aA00000000roo');
+  const PARENT_COMMENT = to18('00aA00000000par');
+
+  /** A root case whose parent case names an account of its own and has a comment. */
+  async function extracted(): Promise<ExtractedDataset> {
+    const extractor = extractorOver(
+      {
+        Case: [
+          { Id: ROOT_CASE, ParentId: PARENT_CASE, AccountId: ROOT_ACCOUNT },
+          { Id: PARENT_CASE, ParentId: GRANDPARENT_CASE, AccountId: PARENT_ACCOUNT },
+          { Id: GRANDPARENT_CASE, ParentId: null, AccountId: null },
+          { Id: OTHER_CASE, ParentId: PARENT_CASE, AccountId: null },
+        ],
+        Account: [{ Id: ROOT_ACCOUNT }, { Id: PARENT_ACCOUNT }],
+        CaseComment: [
+          { Id: ROOT_COMMENT, ParentId: ROOT_CASE },
+          { Id: PARENT_COMMENT, ParentId: PARENT_CASE },
+        ],
+      },
+      {
+        Case: [id, lookup('ParentId', ['Case']), lookup('AccountId', ['Account'])],
+        CaseComment: [id, lookup('ParentId', ['Case'], false)],
+      },
+    );
+    return extractor.extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Case',
+      rootRecordIds: [ROOT_CASE],
+      graph: graphOf(
+        [makeNode('Case', 0), makeNode('Account', 1), makeNode('CaseComment', 1)],
+        [edge('Account', 'Case', 'Cases'), edge('Case', 'CaseComment', 'CaseComments')],
+      ),
+    });
+  }
+
+  it('reads the parent case a root case names, by its id', async () => {
+    // The root object is read once, by the selection: the parent case was in
+    // no read, and the root case went in pointing at a case the dataset did
+    // not hold.
+    const dataset = await extracted();
+
+    expect(sourceIdsOf(dataset, 'Case')).toEqual([PARENT_CASE, ROOT_CASE].sort());
+  });
+
+  it('reads none of what is under that parent, and what it names as any parent', async () => {
+    const dataset = await extracted();
+
+    // Not its comment, nor the case beside the root under it.
+    expect(sourceIdsOf(dataset, 'CaseComment')).toEqual([ROOT_COMMENT]);
+    expect(sourceIdsOf(dataset, 'Case')).not.toContain(OTHER_CASE);
+    // Its account, read with the accounts, by the id it names.
+    expect(sourceIdsOf(dataset, 'Account')).toEqual([PARENT_ACCOUNT, ROOT_ACCOUNT].sort());
+    // A parent of a parent is read no more than for any other object.
+    expect(sourceIdsOf(dataset, 'Case')).not.toContain(GRANDPARENT_CASE);
   });
 });
 

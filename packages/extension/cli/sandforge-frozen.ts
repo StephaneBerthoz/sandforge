@@ -46,6 +46,7 @@ import type { Connection } from 'jsforce';
 import type {
   ForgeSweepListing,
   ForgeSweepResult,
+  FrozenDiscoveryOrigin,
   FrozenSelectProgress,
   FrozenSelectionStop,
 } from '@sandforge/shared';
@@ -105,7 +106,13 @@ Options:
 The salt that makes pseudonyms repeatable is read from SANDFORGE_FROZEN_SALT,
 and only from there.
 
-Exit codes: 0 the step finished, 1 it failed or could not start, 2 a bad command line.
+The graph a selection or an extraction discovers is kept in the sas
+(discovery.json) and reused by the next one while the source's schema has not
+changed and a day has not gone by: each says "graph reused from <step>" or
+"rediscovered: <why>".
+
+Exit codes: 0 the step finished — a removal with nothing to take included —, 1 it
+failed or could not start, 2 a bad command line.
 `;
 
 const STEPS = ['select', 'extract', 'load', 'verify', 'remove', 'status'] as const;
@@ -426,6 +433,16 @@ function graphLine(graph: { objects: number; truncated: boolean; maxNodes: numbe
 }
 
 /**
+ * Where a step's graph came from: the one an earlier step kept in the sas, or
+ * a discovery of its own, and why. Exported so it can be tested.
+ */
+export function discoveryLine(origin: FrozenDiscoveryOrigin): string {
+  return 'reusedFrom' in origin
+    ? `graph reused from ${origin.reusedFrom} (discovered ${origin.discoveredAt}): the source's schema has not changed since`
+    : `rediscovered: ${origin.rediscovered}`;
+}
+
+/**
  * One step of a selection as it starts: a selection of a large org runs for
  * minutes, and the command said nothing until it ended. Exported so it can be
  * tested.
@@ -464,12 +481,39 @@ function stopLines(stop: FrozenSelectionStop): string[] {
 }
 
 /**
+ * The refusals of a removal that say it has nothing to take: no load recorded
+ * into the org, its records removed already, or none a removal takes.
+ */
+const NOTHING_TO_REMOVE_CODES: ReadonlySet<string> = new Set([
+  'NO_LOAD',
+  'ALREADY_REMOVED',
+  'NOTHING_TO_REMOVE',
+]);
+
+/**
+ * Whether a message the handler posts fails the step: an error, but for a
+ * removal's refusal that it has nothing to take. Run again after a removal,
+ * the command ended on exit 1 for a removal there was no need of, and a
+ * script took it for a failure. Exported so it can be tested.
+ */
+export function failsTheStep(message: Posted): boolean {
+  const type = String(message.type ?? '');
+  if (!type.endsWith(':error')) return false;
+  return !(
+    type === 'frozen:remove:error' && NOTHING_TO_REMOVE_CODES.has(String(message.payload?.code))
+  );
+}
+
+/**
  * One line per thing the panel would have shown, for a person reading along.
  * Exported so it can be tested.
  */
 export function messageLines(message: Posted): string[] {
   const type = String(message.type ?? '');
   const p = message.payload ?? {};
+  if (type === 'frozen:remove:error' && !failsTheStep(message)) {
+    return [`nothing to remove: ${String(p.message ?? '')}`];
+  }
   if (type.endsWith(':error')) {
     return [`! ${type}: ${String(p.message ?? '')}${p.code ? ` [${String(p.code)}]` : ''}`];
   }
@@ -488,11 +532,13 @@ export function messageLines(message: Posted): string[] {
         };
         graph?: { objects: number; truncated: boolean; maxNodes: number };
         stopped?: FrozenSelectionStop;
+        discovery?: FrozenDiscoveryOrigin;
       };
       return [
         `selected ${s.combinations.length} root(s): ${s.combinations.map((c) => c.combinationKey).join(', ')}`,
         ...s.uncovered.map((u) => `  uncovered ${u.combinationKey}: ${u.reason}`),
         ...(s.stopped ? stopLines(s.stopped) : []),
+        ...(s.discovery ? [discoveryLine(s.discovery)] : []),
         ...(s.graph ? [graphLine(s.graph)] : []),
         `volumetry ${s.volumetry.total} / ${s.volumetry.budgetMax} record(s)` +
           (s.volumetry.summed
@@ -532,8 +578,10 @@ export function messageLines(message: Posted): string[] {
           keptWithoutARule?: string[];
         };
       };
+      const discovery = p.discovery as FrozenDiscoveryOrigin | undefined;
       return [
         `frozen ${String(p.recordCount)} record(s) as version ${m.version} in ${String(p.datasetDir)}`,
+        ...(discovery ? [discoveryLine(discovery)] : []),
         ...(m.coverage ? [graphLine(m.coverage)] : []),
         ...(m.coverage && m.coverage.unboundedObjects.length > 0
           ? [`read without the time bound: ${m.coverage.unboundedObjects.join(', ')}`]
@@ -759,9 +807,16 @@ export function messageLines(message: Posted): string[] {
           toPurge: number;
           toDeactivate: number;
           validationRules?: Array<{ name: string; message: string; field?: string }>;
+          validationRulesOnChange?: string[];
         }>;
         excludedObjects: Array<{ objectApiName: string; reason: string }>;
-        placeholders: Array<{ objectApiName: string; field: string; affectedRecords: number }>;
+        placeholders: Array<{
+          objectApiName: string;
+          field: string;
+          placeholderObjectApiName: string;
+          affectedRecords: number;
+          validationRules?: Array<{ name: string; message: string; field?: string }>;
+        }>;
         requiredDefaults: Array<{
           objectApiName: string;
           field: string;
@@ -839,17 +894,39 @@ export function messageLines(message: Posted): string[] {
       }
       // What a preview cannot evaluate, beside what it counts: run on a client
       // sandbox, three loads in a row were each refused by the next rule.
+      const ruleLine = (rule: { name: string; message: string; field?: string }): string =>
+        `  ${rule.name}${rule.field ? ` (${rule.field})` : ''}${rule.message ? ` — ${rule.message}` : ''}`;
       const ruled = plan.perObject.filter((o) => (o.validationRules?.length ?? 0) > 0);
       for (const o of ruled) {
         lines.push(
           `${o.objectApiName}: ${o.validationRules?.length ?? 0} active validation rule(s) of the ` +
             'target, which a preview cannot evaluate — a record one of them refuses is counted to insert:',
         );
-        for (const rule of o.validationRules ?? []) {
-          lines.push(
-            `  ${rule.name}${rule.field ? ` (${rule.field})` : ''}${rule.message ? ` — ${rule.message}` : ''}`,
-          );
-        }
+        for (const rule of o.validationRules ?? []) lines.push(ruleLine(rule));
+      }
+      // Named, not listed: run on a large client sandbox, the preview listed
+      // fourteen rules of one object, most of them guards no insert meets.
+      for (const o of plan.perObject) {
+        const onChange = o.validationRulesOnChange ?? [];
+        if (onChange.length === 0) continue;
+        lines.push(
+          `${o.objectApiName}: ${onChange.length} rule(s) left out — their formula holds only on a ` +
+            'change of a record (ISCHANGED, PRIORVALUE, NOT(ISNEW())), which an insert never is: ' +
+            onChange.join(', '),
+        );
+      }
+      // A placeholder goes in with its name alone, and one refused stops the load.
+      const placeholderRules = new Map(
+        plan.placeholders
+          .filter((p) => (p.validationRules?.length ?? 0) > 0)
+          .map((p) => [p.placeholderObjectApiName, p.validationRules ?? []]),
+      );
+      for (const [objectApiName, rules] of placeholderRules) {
+        lines.push(
+          `placeholder of ${objectApiName}: ${rules.length} active validation rule(s) of the target, ` +
+            'which a preview cannot evaluate — a placeholder one of them refuses stops the load:',
+        );
+        for (const rule of rules) lines.push(ruleLine(rule));
       }
       if (plan.validationRulesUnread) {
         lines.push(
@@ -946,7 +1023,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       postToWebview: (message: Posted) => {
         if (message.type === 'frozen:load:progress') return;
         posted.push(message);
-        if (String(message.type ?? '').endsWith(':error')) failed = true;
+        if (failsTheStep(message)) failed = true;
         if (quiet) return;
         for (const line of messageLines(message)) log(line);
       },
@@ -1031,8 +1108,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         ?.status as { loadRecords?: LoadRecords[] } | undefined;
       const records = status?.loadRecords?.find((load) => load.orgId === targetOrgId);
       if (!records) {
+        // Nothing to do is no failure.
         log(`No load into ${args.target} is recorded in this sas: nothing to remove.`);
-        process.exitCode = 1;
         return;
       }
       if (args.sweepList) {

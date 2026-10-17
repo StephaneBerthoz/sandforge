@@ -258,7 +258,11 @@ Before execution, the Review step shows:
   from the target's Tooling API as Forge's pre-flight reads them, the field by
   its API name where a French org answers its label, and says
   when the target would not list them; on the results step and on the command
-  line (`--dry-run`) alike. A rule on the running user's profile or on a
+  line (`--dry-run`) alike. Each rule's formula is read too, five a request: a
+  rule whose formula holds only on a change of a record (`ISCHANGED`,
+  `PRIORVALUE`, a `NOT(ISNEW())` guard) is left out beside an object the run
+  only inserts, and a note names it; an update or an upsert meets it, and it
+  stays listed there, as does a rule whose formula cannot be read. A rule on the running user's profile or on a
   registration number's format refuses rows a simulation counts as written.
 - It writes nothing to the target, to the audit trail or to the sync history.
   Like a run it is listed in Live Operations, and its Cancel -- or the page's

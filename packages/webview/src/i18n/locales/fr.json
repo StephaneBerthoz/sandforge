@@ -4111,7 +4111,11 @@
       "recordTypeIssues_other": "{{count}} références de type d'enregistrement que la cible ne résout pas",
       "validationRules_one": "{{object}} : {{count}} règle de validation active de la cible, qu'un aperçu ne peut pas évaluer — un enregistrement qu'elle refuse est compté parmi ceux à insérer.",
       "validationRules_other": "{{object}} : {{count}} règles de validation actives de la cible, qu'un aperçu ne peut pas évaluer — un enregistrement que l'une d'elles refuse est compté parmi ceux à insérer.",
-      "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté parmi ceux à insérer."
+      "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté parmi ceux à insérer.",
+      "validationRulesOnChange_one": "{{object}} : {{count}} règle laissée de côté — sa formule ne vaut que lors d'une modification d'un enregistrement ({{functions}}), ce qu'une insertion n'est jamais : {{rules}}",
+      "validationRulesOnChange_other": "{{object}} : {{count}} règles laissées de côté — leur formule ne vaut que lors d'une modification d'un enregistrement ({{functions}}), ce qu'une insertion n'est jamais : {{rules}}",
+      "placeholderValidationRules_one": "Placeholder de {{object}} : {{count}} règle de validation active de la cible, qu'un aperçu ne peut pas évaluer — un placeholder qu'elle refuse arrête le chargement.",
+      "placeholderValidationRules_other": "Placeholder de {{object}} : {{count}} règles de validation actives de la cible, qu'un aperçu ne peut pas évaluer — un placeholder que l'une d'elles refuse arrête le chargement."
     },
     "verify": {
       "run": "Re-vérifier",

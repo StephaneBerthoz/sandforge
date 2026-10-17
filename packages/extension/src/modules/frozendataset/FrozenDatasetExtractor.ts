@@ -515,6 +515,19 @@ export class FrozenDatasetExtractor {
           }
         }
       }
+      if (node.objectApiName === options.rootObject) {
+        await this.readWhatTheRootsName({
+          rootObject: options.rootObject,
+          fields,
+          selectFields,
+          bucket,
+          cache,
+          owners,
+          recordsByObject,
+          leftToThePlatform,
+          extraWhere: hasCreatedDate ? asOfWhere : undefined,
+        });
+      }
     }
 
     await this.readWhatNamedStatusesNeed({
@@ -677,6 +690,64 @@ export class FrozenDatasetExtractor {
       graph: { ...graph, nodes: [...graph.nodes, ...nodes], edges: [...graph.edges, ...edges] },
       added,
     };
+  }
+
+  /**
+   * The records of the root object the roots name — a root case's parent
+   * case — read by id, as a parent of any other object is read, and without
+   * the records under them.
+   *
+   * Every other object is read once its parents are, and its read takes the
+   * ids the rows read before it name. The root object is read first, by the
+   * selection alone: the case a root case names as its parent was in no read,
+   * and the root case went into the dataset pointing at a case it did not
+   * hold. Their own lookups are followed as a parent's are: what they name of
+   * an object read later is read with it.
+   */
+  private async readWhatTheRootsName(context: {
+    rootObject: string;
+    fields: readonly ScopableField[];
+    selectFields: string[];
+    bucket: Map<string, Record<string, unknown>>;
+    cache: RecordScopeCache;
+    owners: KeyPrefixOwners;
+    recordsByObject: ReadonlyMap<string, ReadonlyMap<string, Record<string, unknown>>>;
+    leftToThePlatform: RowsLeftToThePlatform;
+    extraWhere: string | undefined;
+  }): Promise<void> {
+    const { rootObject, bucket, cache } = context;
+    const named = new Set([...(cache.get(rootObject) ?? [])].filter((id) => !bucket.has(id)));
+    if (named.size === 0) return;
+    const rows: Record<string, unknown>[] = [];
+    for (const soql of this.soqlBuilder.buildById({
+      objectApiName: rootObject,
+      selectFields: context.selectFields,
+      ids: named,
+      extraWhere: context.extraWhere,
+    })) {
+      rows.push(...(await this.deps.query(soql)));
+    }
+    const kept = context.leftToThePlatform.keep(
+      rootObject,
+      rows,
+      requiredLookupsOf(rootObject, context.fields),
+    );
+    for (const row of kept) {
+      if (typeof row.Id === 'string' && !bucket.has(row.Id)) {
+        bucket.set(row.Id, withoutEnvelope(row));
+      }
+    }
+    context.owners.learnFrom(context.recordsByObject);
+    for (const field of context.fields) {
+      if (field.type !== 'reference') continue;
+      for (const row of kept) {
+        const value = row[field.name];
+        if (typeof value !== 'string' || value === '') continue;
+        for (const target of await context.owners.objectsOf(value, field.referenceTo)) {
+          cache.add(target, [value]);
+        }
+      }
+    }
   }
 
   /**

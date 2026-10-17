@@ -99,7 +99,10 @@ import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
-import { toolingValidationRules } from '../src/modules/forge/TargetGapReader.js';
+import {
+  toolingQueriesOver,
+  toolingValidationRules,
+} from '../src/modules/forge/TargetGapReader.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -842,7 +845,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     describeTargetFields,
     // What a simulation cannot evaluate, listed beside what it predicts: the
     // target's validation rules, as the panel reads them, each with its field
-    // read back from the label a French org answers.
+    // read back from the label a French org answers, and its formula, so an
+    // insert's caveat leaves out the rules that refuse only a change.
     readValidationRules: toolingValidationRules(
       async (soql) =>
         (
@@ -854,6 +858,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             soql,
           )
         ).records,
+      toolingQueriesOver(targetConn),
     ),
     // Both orgs' record types, as the panel reads them: a record's type is
     // mapped to the target's of the same object and API name.

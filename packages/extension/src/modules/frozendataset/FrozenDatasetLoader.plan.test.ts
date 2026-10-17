@@ -459,8 +459,9 @@ describe('FrozenDatasetLoader — the validation rules a preview cannot evaluate
     }).planLoad(options(s.dataset, sasDir));
 
     // Asked of what it inserts only: not the price book it links, nor the
-    // error log the target takes no insert of.
-    expect(readValidationRules).toHaveBeenCalledWith(['Account', 'Contact']);
+    // error log the target takes no insert of — and of the object its
+    // placeholder goes in.
+    expect(readValidationRules).toHaveBeenCalledWith(['Account', 'Contact', 'Owner__c']);
     const rulesOf = (objectApiName: string) =>
       plan.perObject.find((o) => o.objectApiName === objectApiName)?.validationRules;
     expect(rulesOf('Account')).toEqual([
@@ -476,6 +477,104 @@ describe('FrozenDatasetLoader — the validation rules a preview cannot evaluate
     ]);
     expect(rulesOf('Pricebook2')).toBeUndefined();
     expect(plan).not.toHaveProperty('validationRulesUnread');
+  });
+
+  it('leaves out a rule that refuses only a change of a record, and names it apart', async () => {
+    // Run on a large client sandbox, the preview listed fourteen rules of the
+    // invoices as what might refuse their inserts, most of them ISCHANGED and
+    // PRIORVALUE guards: no insert meets them.
+    const s = scenario();
+    const sasDir = makeTmpDir();
+
+    const plan = await new FrozenDatasetLoader({
+      ...makeDeps(refusingWriter(), sasDir, s),
+      readValidationRules: vi.fn(async () => [
+        { objectApiName: 'Account', name: 'Country_Required', message: 'A country is required.' },
+        {
+          objectApiName: 'Account',
+          name: 'NoChangeFromStatusApproved',
+          message: 'An approved account cannot change.',
+          onChangeOnly: true as const,
+        },
+        {
+          objectApiName: 'Contact',
+          name: 'Locked_Once_Sent',
+          message: 'Locked.',
+          onChangeOnly: true as const,
+        },
+      ]),
+    }).planLoad(options(s.dataset, sasDir));
+
+    const account = plan.perObject.find((o) => o.objectApiName === 'Account');
+    const contact = plan.perObject.find((o) => o.objectApiName === 'Contact');
+    expect(account?.validationRules).toEqual([
+      { name: 'Country_Required', message: 'A country is required.' },
+    ]);
+    expect(account?.validationRulesOnChange).toEqual(['NoChangeFromStatusApproved']);
+    expect(contact).not.toHaveProperty('validationRules');
+    expect(contact?.validationRulesOnChange).toEqual(['Locked_Once_Sent']);
+    // The flag stays this side of the bridge.
+    expect(JSON.stringify(plan)).not.toContain('onChangeOnly');
+  });
+
+  it('lists the rules of an object that receives only a placeholder with the placeholder', async () => {
+    // A placeholder goes in with its name alone, and one refused stops the
+    // load: its object's rules were not listed, as no record of the dataset
+    // is inserted into it.
+    const s = scenario();
+    const sasDir = makeTmpDir();
+
+    const rules = [
+      { objectApiName: 'Owner__c', name: 'Code_Required', message: 'A code is required.' },
+      {
+        objectApiName: 'Owner__c',
+        name: 'Code_Locked',
+        message: 'The code cannot change.',
+        onChangeOnly: true as const,
+      },
+      { objectApiName: 'Contact', name: 'Trap_Email_Required', message: 'An email is required.' },
+    ];
+
+    const plan = await new FrozenDatasetLoader({
+      ...makeDeps(refusingWriter(), sasDir, s),
+      // The target lists the rules of the objects it is asked about.
+      readValidationRules: vi.fn(async (names: readonly string[]) =>
+        rules.filter((rule) => names.includes(rule.objectApiName)),
+      ),
+    }).planLoad(options(s.dataset, sasDir));
+
+    expect(plan.placeholders).toEqual([
+      expect.objectContaining({
+        placeholderObjectApiName: 'Owner__c',
+        validationRules: [{ name: 'Code_Required', message: 'A code is required.' }],
+      }),
+    ]);
+    expect(plan.perObject.map((o) => o.objectApiName)).not.toContain('Owner__c');
+  });
+
+  it('lists the rules of a placeholder object it inserts records of once, with the object', async () => {
+    const s = scenario();
+    // The contacts' required owner is an account here: the placeholder goes
+    // in beside the accounts the load inserts.
+    s.describes.Contact.fields = s.describes.Contact.fields.map((f) =>
+      f.name === 'Owner__c' ? { ...f, referenceTo: ['Account'] } : f,
+    );
+    const sasDir = makeTmpDir();
+
+    const plan = await new FrozenDatasetLoader({
+      ...makeDeps(refusingWriter(), sasDir, s),
+      readValidationRules: vi.fn(async () => [
+        { objectApiName: 'Account', name: 'Country_Required', message: 'A country is required.' },
+      ]),
+    }).planLoad(options(s.dataset, sasDir));
+
+    expect(plan.placeholders.map((p) => p.placeholderObjectApiName)).toEqual(['Account']);
+    expect(plan.placeholders[0]).not.toHaveProperty('validationRules');
+    expect(
+      plan.perObject
+        .find((o) => o.objectApiName === 'Account')
+        ?.validationRules?.map((r) => r.name),
+    ).toEqual(['Country_Required']);
   });
 
   it('says why the target would not list them, and answers the plan all the same', async () => {

@@ -4111,7 +4111,11 @@
       "recordTypeIssues_other": "{{count}} Datensatztyp-Verweise, die das Ziel nicht auflöst",
       "validationRules_one": "{{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Vorschau nicht auswerten kann — ein Datensatz, den sie ablehnt, wird als einzufügen gezählt.",
       "validationRules_other": "{{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Vorschau nicht auswerten kann — ein Datensatz, den eine von ihnen ablehnt, wird als einzufügen gezählt.",
-      "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als einzufügen gezählten Datensatz ablehnen."
+      "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als einzufügen gezählten Datensatz ablehnen.",
+      "validationRulesOnChange_one": "{{object}}: {{count}} Regel ausgelassen — ihre Formel gilt nur bei einer Änderung eines Datensatzes ({{functions}}), und ein Einfügen ist nie eine: {{rules}}",
+      "validationRulesOnChange_other": "{{object}}: {{count}} Regeln ausgelassen — ihre Formel gilt nur bei einer Änderung eines Datensatzes ({{functions}}), und ein Einfügen ist nie eine: {{rules}}",
+      "placeholderValidationRules_one": "Platzhalter von {{object}}: {{count}} aktive Validierungsregel des Ziels, die eine Vorschau nicht auswerten kann — ein Platzhalter, den sie ablehnt, hält das Laden an.",
+      "placeholderValidationRules_other": "Platzhalter von {{object}}: {{count}} aktive Validierungsregeln des Ziels, die eine Vorschau nicht auswerten kann — ein Platzhalter, den eine von ihnen ablehnt, hält das Laden an."
     },
     "verify": {
       "run": "Erneut prüfen",

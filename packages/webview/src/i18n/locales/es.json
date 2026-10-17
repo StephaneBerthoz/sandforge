@@ -4111,7 +4111,11 @@
       "recordTypeIssues_other": "{{count}} referencias de tipo de registro que el destino no resuelve",
       "validationRules_one": "{{object}}: {{count}} regla de validación activa del destino, que una vista previa no puede evaluar — un registro que rechace se cuenta para insertar.",
       "validationRules_other": "{{object}}: {{count}} reglas de validación activas del destino, que una vista previa no puede evaluar — un registro que una de ellas rechace se cuenta para insertar.",
-      "validationRulesUnread": "No se pudieron listar las reglas de validación del destino ({{reason}}): cualquiera de ellas puede rechazar un registro contado para insertar."
+      "validationRulesUnread": "No se pudieron listar las reglas de validación del destino ({{reason}}): cualquiera de ellas puede rechazar un registro contado para insertar.",
+      "validationRulesOnChange_one": "{{object}}: {{count}} regla omitida — su fórmula solo se cumple al cambiar un registro ({{functions}}), y una inserción nunca lo es: {{rules}}",
+      "validationRulesOnChange_other": "{{object}}: {{count}} reglas omitidas — su fórmula solo se cumple al cambiar un registro ({{functions}}), y una inserción nunca lo es: {{rules}}",
+      "placeholderValidationRules_one": "Marcador de {{object}}: {{count}} regla de validación activa del destino, que una vista previa no puede evaluar — un marcador que rechace detiene la carga.",
+      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} reglas de validación activas del destino, que una vista previa no puede evaluar — un marcador que una de ellas rechace detiene la carga."
     },
     "verify": {
       "run": "Volver a verificar",

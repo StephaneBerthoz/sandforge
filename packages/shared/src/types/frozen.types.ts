@@ -171,6 +171,24 @@ export interface FrozenGraphCoverage {
 }
 
 /**
+ * Where the graph of a selection or an extraction came from: the one an
+ * earlier step discovered, kept in the sas and reused — its source's schema
+ * unchanged since — or a discovery of its own, and why the kept one would not
+ * do.
+ */
+export type FrozenDiscoveryOrigin =
+  | {
+      /** The step that discovered the graph reused. */
+      reusedFrom: 'select' | 'extract';
+      /** When that step discovered it, ISO 8601. */
+      discoveredAt: string;
+    }
+  | {
+      /** Why the graph was discovered again: no graph kept, another org, the schema changed… */
+      rediscovered: string;
+    };
+
+/**
  * Records of one object a frozen dataset leaves out because the platform
  * writes them itself and refuses one from a copy — a tracked change — or they
  * cannot go in without one it does.
@@ -294,6 +312,8 @@ export interface FrozenSelectionSummary {
   selectionPath: string;
   /** How far discovery reached while the dossiers were measured. */
   graph?: FrozenGraphCoverage;
+  /** Where that graph came from: kept in the sas by an earlier step, or discovered again. */
+  discovery?: FrozenDiscoveryOrigin;
 }
 
 /** The four non-reidentification check names. */
@@ -602,8 +622,17 @@ export interface FrozenLoadPlanObject {
    * cannot evaluate: a record one of them refuses is counted to insert.
    * Listed for an object the load inserts records of; absent when it has none,
    * or when they could not be read (`FrozenLoadPlanInfo.validationRulesUnread`).
+   * A rule whose formula holds only on a change of a record is not listed
+   * here: see `validationRulesOnChange`.
    */
   validationRules?: SyncValidationRule[];
+  /**
+   * The names of the target's active rules on the object that a preview
+   * leaves out of what may refuse its inserts: their formula holds only on a
+   * change of a record (`ISCHANGED`, `PRIORVALUE`, a `NOT(ISNEW())` guard),
+   * which an insert never is. Absent when none is.
+   */
+  validationRulesOnChange?: string[];
 }
 
 /**
@@ -629,6 +658,14 @@ export interface FrozenLoadPlanInfo {
     placeholderObjectApiName: string;
     placeholderName: string;
     affectedRecords: number;
+    /**
+     * The target's active validation rules on the placeholder's object, which
+     * may refuse it — a placeholder goes in with its name alone, and a refused
+     * one stops the load. Listed here when the object's line in `perObject`
+     * does not list them: when the load inserts no other record of it. Absent
+     * when it has none, or when they could not be read.
+     */
+    validationRules?: SyncValidationRule[];
   }>;
   /** The declared defaults the load would give required fields, and the records each fills. */
   requiredDefaults: Array<{

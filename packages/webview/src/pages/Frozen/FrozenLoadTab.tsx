@@ -616,6 +616,56 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     </ul>
                   </div>
                 ))}
+              {/* Named, not listed: run on a large client sandbox, the preview
+                  listed fourteen rules of one object, most of them guards no
+                  insert meets. */}
+              {plan.perObject
+                .filter((o) => (o.validationRulesOnChange?.length ?? 0) > 0)
+                .map((o) => (
+                  <p
+                    key={o.objectApiName}
+                    className="text-[11px] text-text-secondary"
+                    data-testid={`frozen-preview-rules-on-change-${o.objectApiName}`}
+                  >
+                    {t('frozen.preview.validationRulesOnChange', {
+                      object: o.objectApiName,
+                      count: o.validationRulesOnChange?.length ?? 0,
+                      rules: (o.validationRulesOnChange ?? []).join(', '),
+                      // The formula's own words, the same in every language.
+                      functions: 'ISCHANGED, PRIORVALUE, NOT(ISNEW())',
+                    })}
+                  </p>
+                ))}
+              {/* A placeholder goes in with its name alone, and one refused
+                  stops the load. */}
+              {[
+                ...new Map(
+                  plan.placeholders
+                    .filter((p) => (p.validationRules?.length ?? 0) > 0)
+                    .map((p) => [p.placeholderObjectApiName, p.validationRules ?? []]),
+                ),
+              ].map(([objectApiName, rules]) => (
+                <div
+                  key={objectApiName}
+                  data-testid={`frozen-preview-placeholder-rules-${objectApiName}`}
+                >
+                  <p className="text-[11px] text-status-warning">
+                    {t('frozen.preview.placeholderValidationRules', {
+                      object: objectApiName,
+                      count: rules.length,
+                    })}
+                  </p>
+                  <ul className="mt-1 flex flex-col gap-0.5">
+                    {rules.map((rule) => (
+                      <li key={rule.name} className="text-[10px] text-text-secondary">
+                        <code>{rule.name}</code>
+                        {rule.field ? ` (${rule.field})` : ''}
+                        {rule.message ? ` — ${rule.message}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           </CardBody>
         </Card>

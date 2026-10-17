@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Lead_Source_Locked</fullName>
+    <active>true</active>
+    <description>Refuses a change only: on an insert ISCHANGED is false and PRIORVALUE gives the value itself, so no insert meets it, and what lists the rules that may refuse an insert leaves it out.</description>
+    <errorConditionFormula>AND(
+    ISCHANGED(LeadSource),
+    NOT(ISBLANK(TEXT(PRIORVALUE(LeadSource)))),
+    NOT($Permission.Trap_Bypass_VR)
+)</errorConditionFormula>
+    <errorDisplayField>LeadSource</errorDisplayField>
+    <errorMessage>The lead source cannot change once set.</errorMessage>
+</ValidationRule>

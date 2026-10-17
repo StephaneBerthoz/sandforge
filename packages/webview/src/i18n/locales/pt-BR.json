@@ -4111,7 +4111,11 @@
       "recordTypeIssues_other": "{{count}} referências de tipo de registro que o destino não resolve",
       "validationRules_one": "{{object}}: {{count}} regra de validação ativa do destino, que uma prévia não consegue avaliar — um registro que ela recuse é contado para inserir.",
       "validationRules_other": "{{object}}: {{count}} regras de validação ativas do destino, que uma prévia não consegue avaliar — um registro que uma delas recuse é contado para inserir.",
-      "validationRulesUnread": "Não foi possível listar as regras de validação do destino ({{reason}}): qualquer uma delas pode recusar um registro contado para inserir."
+      "validationRulesUnread": "Não foi possível listar as regras de validação do destino ({{reason}}): qualquer uma delas pode recusar um registro contado para inserir.",
+      "validationRulesOnChange_one": "{{object}}: {{count}} regra deixada de fora — sua fórmula só vale na alteração de um registro ({{functions}}), e uma inserção nunca é uma: {{rules}}",
+      "validationRulesOnChange_other": "{{object}}: {{count}} regras deixadas de fora — sua fórmula só vale na alteração de um registro ({{functions}}), e uma inserção nunca é uma: {{rules}}",
+      "placeholderValidationRules_one": "Marcador de {{object}}: {{count}} regra de validação ativa do destino, que uma prévia não consegue avaliar — um marcador que ela recuse interrompe o carregamento.",
+      "placeholderValidationRules_other": "Marcador de {{object}}: {{count}} regras de validação ativas do destino, que uma prévia não consegue avaliar — um marcador que uma delas recuse interrompe o carregamento."
     },
     "verify": {
       "run": "Verificar novamente",

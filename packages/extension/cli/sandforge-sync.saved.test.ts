@@ -253,6 +253,52 @@ describe('sandforge-sync --config-file', () => {
     ]);
   });
 
+  it('reads each rule formula on the target, and marks a rule that refuses only a change', async () => {
+    vi.mocked(makeConn).mockReturnValue({
+      query: vi.fn(async () => ({ records: [{ Id: '00D000000000002AAA' }], totalSize: 1 })),
+      queryMore: vi.fn(),
+      version: '66.0',
+      request: vi.fn(async () => ({
+        compositeResponse: [
+          {
+            referenceId: 'q0',
+            httpStatusCode: 200,
+            body: { records: [{ Metadata: { errorConditionFormula: 'NOT(ISNEW())' } }] },
+          },
+        ],
+      })),
+      tooling: {
+        query: vi.fn(async (soql: string) => ({
+          done: true,
+          totalSize: 1,
+          records: soql.includes('FROM FieldDefinition')
+            ? []
+            : [
+                {
+                  Id: '03d000000000001AAA',
+                  ValidationName: 'Locked_Once_Created',
+                  ErrorMessage: 'Locked.',
+                  EntityDefinition: { QualifiedApiName: 'Contact' },
+                },
+              ],
+        })),
+        queryMore: vi.fn(),
+      },
+    } as unknown as Connection);
+    engine.run = async (_deps, config) => answered(config);
+
+    await run();
+
+    await expect(engine.deps[0].readValidationRules?.(['Contact'])).resolves.toEqual([
+      {
+        objectApiName: 'Contact',
+        name: 'Locked_Once_Created',
+        message: 'Locked.',
+        onChangeOnly: true,
+      },
+    ]);
+  });
+
   it('keeps in the store which record of the target each record a run wrote became, for the next run', async () => {
     const orgs = { sourceOrgId: 'SRC', targetOrgId: 'TGT' };
     const seen: Array<ReadonlyMap<string, string> | null | undefined> = [];

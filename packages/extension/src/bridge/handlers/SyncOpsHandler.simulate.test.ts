@@ -113,6 +113,8 @@ interface Writes {
 function mockOrgs(
   validationRules: Array<Record<string, unknown>> = [],
   fieldLabels: Array<Record<string, unknown>> = [],
+  /** Each rule's formula by its id, which a Tooling composite reads. */
+  formulas: Record<string, string> = {},
 ): {
   queries: Record<string, string[]>;
   writes: Writes;
@@ -157,6 +159,26 @@ function mockOrgs(
         }),
         queryMore: vi.fn(),
       },
+      // The rules' formulas, five a Tooling composite.
+      version: '66.0',
+      request: vi.fn(async (request: { url: string; body: string }) => {
+        tooling.push(`${orgId} ${request.url}`);
+        const asked = (JSON.parse(request.body) as { compositeRequest: Array<{ url: string }> })
+          .compositeRequest;
+        return {
+          compositeResponse: asked.map((sub, index) => {
+            const id = /Id%20%3D%20'([^']+)'/.exec(sub.url)?.[1] ?? '';
+            const formula = formulas[id];
+            return {
+              referenceId: `q${index}`,
+              httpStatusCode: 200,
+              body: {
+                records: formula ? [{ Metadata: { errorConditionFormula: formula } }] : [],
+              },
+            };
+          }),
+        };
+      }),
       limitInfo: undefined,
     } as never;
   });
@@ -248,6 +270,41 @@ describe('sync:simulate', () => {
     ]);
     // Read from the target, the org the run writes to.
     expect(tooling[0]).toMatch(/^tgt-org SELECT .* FROM ValidationRule WHERE Active = true/);
+  });
+
+  it('reads each rule formula on the target, and leaves out of an insert a rule that refuses only a change', async () => {
+    const rule = (n: number, name: string) => ({
+      Id: `03d00000000000${n}AAA`,
+      ValidationName: name,
+      NamespacePrefix: null,
+      ErrorDisplayField: null,
+      ErrorMessage: `${name} message`,
+      EntityDefinition: { QualifiedApiName: 'Account' },
+    });
+    const { tooling } = mockOrgs(
+      [rule(1, 'Siret_Format'), rule(2, 'NoChangeFromStatusApproved')],
+      [],
+      {
+        '03d000000000001AAA': 'NOT(REGEX(Siret__c, "[0-9]{14}"))',
+        '03d000000000002AAA':
+          'AND(ISCHANGED(Status__c), ISPICKVAL(PRIORVALUE(Status__c), "Approved"))',
+      },
+    );
+    const config = upsertConfig();
+    const [account] = config.objects as Array<Record<string, unknown>>;
+
+    await simulate(handler, 'sim-insert-rules', {
+      ...config,
+      objects: [{ ...account, operation: 'insert', externalIdField: undefined }],
+    });
+
+    const result = posted(deps, 'sync:simulate:response')[0]
+      .payload as unknown as SyncSimulationResult;
+    expect(result.objects[0].validationRules).toEqual([
+      { name: 'Siret_Format', message: 'Siret_Format message' },
+    ]);
+    expect(result.objects[0].notes.join('\n')).toContain('NoChangeFromStatusApproved');
+    expect(tooling).toContain('tgt-org /tooling/composite');
   });
 
   it("names the field of a rule a French target answers by its label, as Frozen's preview does", async () => {

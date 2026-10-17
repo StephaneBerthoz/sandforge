@@ -20,6 +20,7 @@ export * from './queryTemplates.js';
 export * from './CoverageMatrixSelector.js';
 export * from './ScopedDossierHealthChecker.js';
 export * from './selectionStore.js';
+export * from './discoveryStore.js';
 export * from './FrozenDatasetExtractor.js';
 export * from './FrozenDatasetAnonymizer.js';
 export * from './NonReidentificationControl.js';

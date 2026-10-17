@@ -772,6 +772,71 @@ describe('FrozenDatasetHandler', () => {
         expect(toolingQueryMore).toHaveBeenCalledWith('/next');
       });
 
+      it('reads each rule formula in Tooling composites, and marks a rule that refuses only a change', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        const rule = (n: number, name: string) => ({
+          Id: `03d00000000000${n}AAA`,
+          ValidationName: name,
+          ErrorMessage: `${name}.`,
+          EntityDefinition: { QualifiedApiName: 'Invoice__c' },
+        });
+        const request = vi.fn(async () => ({
+          compositeResponse: [
+            {
+              referenceId: 'q0',
+              httpStatusCode: 200,
+              body: { records: [{ Metadata: { errorConditionFormula: 'ISBLANK(Amount__c)' } }] },
+            },
+            {
+              referenceId: 'q1',
+              httpStatusCode: 200,
+              body: {
+                records: [
+                  {
+                    Metadata: {
+                      errorConditionFormula:
+                        'AND(ISCHANGED(Status__c), ISPICKVAL(PRIORVALUE(Status__c), "Approved"))',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }));
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          version: '66.0',
+          request,
+          tooling: {
+            query: vi.fn(async (soql: string) => ({
+              done: true,
+              totalSize: 2,
+              records: soql.includes('FROM FieldDefinition')
+                ? []
+                : [rule(1, 'Amount_Required'), rule(2, 'NoChangeFromStatusApproved')],
+            })),
+            queryMore: vi.fn(),
+          },
+        } as never);
+        loaderPlan.mockResolvedValueOnce(PLAN);
+
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        const [loaderDeps] = vi.mocked(FrozenDatasetLoader).mock.calls.at(-1) ?? [];
+        await expect(loaderDeps?.readValidationRules?.(['Invoice__c'])).resolves.toEqual([
+          { objectApiName: 'Invoice__c', name: 'Amount_Required', message: 'Amount_Required.' },
+          {
+            objectApiName: 'Invoice__c',
+            name: 'NoChangeFromStatusApproved',
+            message: 'NoChangeFromStatusApproved.',
+            onChangeOnly: true,
+          },
+        ]);
+        expect(request).toHaveBeenCalledWith(
+          expect.objectContaining({ method: 'POST', url: '/tooling/composite' }),
+        );
+      });
+
       it('is refused, saying why, by the entry guard that would refuse the load', async () => {
         const { config } = writeDataset();
         wire(config);

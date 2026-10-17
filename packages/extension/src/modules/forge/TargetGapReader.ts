@@ -64,9 +64,14 @@ import {
   permissionKey,
   permissionsNamed,
   readBypassGrants,
+  readInComposites,
   switchesNamed,
+  toolingAnswersOf,
+  toolingCompositeBody,
   type QueryAnswer,
+  type ToolingAnswer,
 } from './TargetAutomationReader.js';
+import { holdsOnlyOnChange } from './validationRuleFormula.js';
 
 /**
  * The most validation rule formulas a read reads. The org gives a rule's
@@ -74,6 +79,13 @@ import {
  * a clone would otherwise cost as many requests before Review shows anything.
  */
 export const FORMULAS_BOUND = 25;
+
+/**
+ * The most requests a list of the active rules sends for their formulas, in
+ * Tooling composites of five queries each: a hundred rules. Run on a large
+ * client sandbox, one object of a Frozen preview had fourteen rules.
+ */
+export const FORMULA_REQUESTS_BOUND = 20;
 
 /**
  * Requests in flight at a time. Review reads the target's automation and
@@ -405,13 +417,98 @@ export interface ActiveValidationRule {
   message: string;
   /** The field it shows its error on; absent for the top of the page. */
   field?: string;
+  /**
+   * Set when the rule's formula was read and holds only on a change of a
+   * record (`holdsOnlyOnChange`): the rule refuses an update, never an insert.
+   * Absent for a rule whose formula may hold on an insert, or was not read.
+   */
+  onChangeOnly?: true;
+}
+
+/**
+ * Several queries of one page each on a Tooling API, in one request — a
+ * Tooling composite of {@link TOOLING_QUERIES_PER_REQUEST} at most — each
+ * answered on its own, in the order asked.
+ */
+export type ToolingQueries = (soqls: readonly string[]) => Promise<ToolingAnswer[]>;
+
+/**
+ * {@link ToolingQueries} over a jsforce connection: `POST /tooling/composite`,
+ * as Forge's reader of the target's automation sends it.
+ *
+ * @param conn - The org's connection.
+ */
+export function toolingQueriesOver(conn: {
+  version: string;
+  request: (request: {
+    method: 'POST';
+    url: string;
+    body: string;
+    headers: Record<string, string>;
+  }) => Promise<unknown>;
+}): ToolingQueries {
+  return async (soqls) =>
+    toolingAnswersOf(
+      await conn.request({
+        method: 'POST',
+        url: '/tooling/composite',
+        body: JSON.stringify(toolingCompositeBody(`/services/data/v${conn.version}`, soqls)),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      soqls.length,
+    );
+}
+
+/**
+ * Mark, among `rules`, those whose formula holds only on a change of a record,
+ * the formulas read in Tooling composites — {@link FORMULA_REQUESTS_BOUND}
+ * requests at most, a query the org halts sent again among them. A rule whose
+ * formula is not read — past the bound, refused, or with no id a query can
+ * hold — is left as it is: one that may refuse an insert.
+ */
+async function markChangeOnlyRules(
+  rules: ReadonlyArray<{ id: string; rule: ActiveValidationRule }>,
+  toolingQueries: ToolingQueries,
+): Promise<void> {
+  const readable = rules.filter(({ id }) => SF_ID_RE.test(id));
+  if (readable.length === 0) return;
+  await readInComposites(
+    toolingQueries,
+    [
+      {
+        queries: readable.map(({ id, rule }) => ({
+          soql: validationFormulaSoql(id),
+          take: (records) => {
+            const metadata = records[0]?.Metadata;
+            const formula =
+              typeof metadata === 'object' && metadata !== null
+                ? (metadata as { errorConditionFormula?: unknown }).errorConditionFormula
+                : undefined;
+            if (typeof formula === 'string' && holdsOnlyOnChange(formula)) {
+              rule.onChangeOnly = true;
+            }
+          },
+          // Unread, the rule stays one that may refuse an insert.
+          refused: () => undefined,
+        })),
+        requests: FORMULA_REQUESTS_BOUND,
+      },
+    ],
+    REQUESTS_IN_FLIGHT,
+  );
 }
 
 /**
  * The active validation rules of the objects named, in the order they are
  * named and then by name, read as {@link TargetGapReader} reads them — the same
- * query, the same names — without their formulas: a reader that cannot
- * evaluate a rule, as a simulation cannot, lists it beside what it predicts.
+ * query, the same names: a reader that cannot evaluate a rule, as a simulation
+ * cannot, lists it beside what it predicts.
+ *
+ * Given a way to send Tooling composites, it reads each rule's formula too,
+ * and marks the rules whose formula holds only on a change of a record
+ * (`onChangeOnly`): the caveat of an insert leaves those out. Run on a large
+ * client sandbox, a Frozen preview listed fourteen rules of one object, most
+ * of them `ISCHANGED` and `PRIORVALUE` guards no insert meets.
  *
  * The field a rule shows its error on comes back as the org names it, which
  * may be the field's label in the org's language: read on a French Developer
@@ -428,11 +525,15 @@ export interface ActiveValidationRule {
  *   field definitions give them (`fieldLabelsSoql`) — a describe's can differ;
  *   an object whose fields cannot be read has its rules listed with the fields
  *   that are API names alone.
+ * @param toolingQueries - Tooling composites on the same org, which the
+ *   formulas are read through; without it, no formula is read and no rule is
+ *   marked.
  */
 export async function readActiveValidationRules(
   toolingQuery: (soql: string) => Promise<Row[]>,
   objectApiNames: readonly string[],
   fieldsOf?: (objectApiName: string) => Promise<ReadonlyArray<{ name: string; label?: string }>>,
+  toolingQueries?: ToolingQueries,
 ): Promise<ActiveValidationRule[]> {
   const queryable = [...new Set(objectApiNames)].filter((name) => API_NAME_RE.test(name));
   if (queryable.length === 0) return [];
@@ -459,28 +560,33 @@ export async function readActiveValidationRules(
     );
   };
   const listed = await Promise.all(
-    rows.map(async (row): Promise<ActiveValidationRule[]> => {
+    rows.map(async (row): Promise<Array<{ id: string; rule: ActiveValidationRule }>> => {
       const named = entityName(row.EntityDefinition);
       const objectApiName = named === undefined ? undefined : wanted.get(named.toLowerCase());
       const name = text(row.ValidationName);
       if (!objectApiName || !name) return [];
       return [
         {
-          objectApiName,
-          name: withNamespace(text(row.NamespacePrefix), name),
-          message: text(row.ErrorMessage),
-          ...fieldKey(await shownOn(objectApiName, row.ErrorDisplayField)),
+          id: text(row.Id),
+          rule: {
+            objectApiName,
+            name: withNamespace(text(row.NamespacePrefix), name),
+            message: text(row.ErrorMessage),
+            ...fieldKey(await shownOn(objectApiName, row.ErrorDisplayField)),
+          },
         },
       ];
     }),
   );
-  return listed
+  const sorted = listed
     .flat()
     .sort(
       (a, b) =>
-        (order.get(a.objectApiName) ?? 0) - (order.get(b.objectApiName) ?? 0) ||
-        a.name.localeCompare(b.name),
+        (order.get(a.rule.objectApiName) ?? 0) - (order.get(b.rule.objectApiName) ?? 0) ||
+        a.rule.name.localeCompare(b.rule.name),
     );
+  if (toolingQueries) await markChangeOnlyRules(sorted, toolingQueries);
+  return sorted.map(({ rule }) => rule);
 }
 
 /**
@@ -492,9 +598,12 @@ export async function readActiveValidationRules(
  * name — while the load preview named it.
  *
  * @param toolingQuery - A SOQL query on the target's Tooling API, every page of it.
+ * @param toolingQueries - Tooling composites on the target, which each rule's
+ *   formula is read through, to mark the rules that refuse an update only.
  */
 export function toolingValidationRules(
   toolingQuery: (soql: string) => Promise<Row[]>,
+  toolingQueries?: ToolingQueries,
 ): (objectApiNames: readonly string[]) => Promise<ActiveValidationRule[]> {
   // The field a rule shows its error on comes back as its label in the org's
   // language, read back to its API name by the labels the org's field
@@ -513,7 +622,8 @@ export function toolingValidationRules(
           ]
         : [],
     );
-  return (objectApiNames) => readActiveValidationRules(toolingQuery, objectApiNames, fieldsOf);
+  return (objectApiNames) =>
+    readActiveValidationRules(toolingQuery, objectApiNames, fieldsOf, toolingQueries);
 }
 
 /**

@@ -200,11 +200,13 @@ export interface SyncOrchestratorDeps {
    * For {@link SyncOrchestrator.simulate}: the target's active validation
    * rules on the objects named, as Forge's pre-flight reads them
    * (`readActiveValidationRules`). A simulation cannot evaluate a rule, so it
-   * lists each beside the object it predicts for. Without it, none is listed.
+   * lists each beside the object it predicts for — but, for an object it only
+   * inserts, a rule marked `onChangeOnly`, which no insert meets. Without it,
+   * none is listed.
    */
   readValidationRules?: (
     objectApiNames: readonly string[],
-  ) => Promise<ReadonlyArray<SyncValidationRule & { objectApiName: string }>>;
+  ) => Promise<ReadonlyArray<SyncValidationRule & { objectApiName: string; onChangeOnly?: true }>>;
   /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -224,6 +226,38 @@ const NOT_WRITTEN: unique symbol = Symbol('not written');
 interface RunContext {
   links: SyncRunLinks;
   recordTypes: () => Promise<SyncRecordTypes | undefined>;
+}
+
+/** An active validation rule of the target as the simulation reads it. */
+type ReadRule = SyncValidationRule & { onChangeOnly?: true };
+
+/**
+ * The rules a simulation lists beside an object, by what the run does with
+ * it, and the names of those it leaves out: a run that only inserts meets no
+ * rule whose formula holds only on a change of a record (`onChangeOnly`); one
+ * that updates or upserts meets them all; one that deletes, none.
+ */
+function rulesFor(
+  operation: SyncObjectConfig['operation'],
+  read: readonly ReadRule[],
+): { rules: SyncValidationRule[]; onChange: string[] } {
+  if (operation === 'delete') return { rules: [], onChange: [] };
+  const rules: SyncValidationRule[] = [];
+  const onChange: string[] = [];
+  for (const { onChangeOnly, ...rule } of read) {
+    if (onChangeOnly && operation === 'insert') onChange.push(rule.name);
+    else rules.push(rule);
+  }
+  return { rules, onChange };
+}
+
+/** What a simulation says of the rules it leaves out of an insert's caveat. */
+function changeOnlyRulesNote(names: readonly string[]): string {
+  return (
+    `${names.length} active validation rule(s) of the target left out of what may refuse ` +
+    'these inserts: their formula holds only on a change of a record (ISCHANGED, ' +
+    `PRIORVALUE, NOT(ISNEW())), which an insert never is — ${names.join(', ')}`
+  );
 }
 
 /** The master record type, the same in every org, which no mapping holds. */
@@ -980,13 +1014,19 @@ export class SyncOrchestrator {
       try {
         const simulated = await this.simulateObject(config, objectConfig, deltaLoad, run);
         const files = filePlan?.objects.get(objectConfig.objectApiName);
-        const rules =
-          objectConfig.operation === 'delete'
-            ? []
-            : (validation.byObject.get(objectConfig.objectApiName) ?? []);
+        const { rules, onChange } = rulesFor(
+          objectConfig.operation,
+          validation.byObject.get(objectConfig.objectApiName) ?? [],
+        );
+        const notes = [
+          ...simulated.notes,
+          ...(files?.notes ?? []),
+          ...(onChange.length > 0 ? [changeOnlyRulesNote(onChange)] : []),
+        ];
         objects.push({
           ...simulated,
-          ...(files ? { files: files.outcome, notes: [...simulated.notes, ...files.notes] } : {}),
+          ...(files ? { files: files.outcome } : {}),
+          notes,
           ...(rules.length > 0 ? { validationRules: rules } : {}),
         });
       } catch (err: unknown) {
@@ -1008,12 +1048,12 @@ export class SyncOrchestrator {
    * saved.
    */
   private async validationRulesOf(ordered: readonly SyncObjectConfig[]): Promise<{
-    byObject: ReadonlyMap<string, SyncValidationRule[]>;
+    byObject: ReadonlyMap<string, ReadRule[]>;
     unread?: string;
   }> {
     const read = this.deps.readValidationRules;
     const written = ordered.filter((o) => o.operation !== 'delete').map((o) => o.objectApiName);
-    const byObject = new Map<string, SyncValidationRule[]>();
+    const byObject = new Map<string, ReadRule[]>();
     if (!read || written.length === 0) return { byObject };
     try {
       for (const { objectApiName, ...rule } of await read(written)) {

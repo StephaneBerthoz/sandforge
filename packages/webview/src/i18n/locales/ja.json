@@ -3884,7 +3884,9 @@
       "personContacts_other": "個人取引先の取引先責任者 {{count}} 件は取引先とともに入り、別に数えます。プラットフォームが取引先とともに書き込む取引先責任者にリンクされるか、ターゲットがその取引先を法人取引先として扱う場合は独自の取引先責任者として送信されます。",
       "recordTypeIssues_other": "ターゲットが解決できないレコードタイプ参照 {{count}} 件",
       "validationRules_other": "{{object}}: ターゲットの有効な入力規則 {{count}} 件。プレビューでは評価できません。いずれかが拒否するレコードも挿入対象として数えられます。",
-      "validationRulesUnread": "ターゲットの入力規則を一覧できませんでした ({{reason}})。いずれも、挿入対象として数えたレコードを拒否する可能性があります。"
+      "validationRulesUnread": "ターゲットの入力規則を一覧できませんでした ({{reason}})。いずれも、挿入対象として数えたレコードを拒否する可能性があります。",
+      "validationRulesOnChange_other": "{{object}}: 除外した入力規則 {{count}} 件。数式はレコードの変更時にのみ成立し ({{functions}})、挿入が該当することはありません: {{rules}}",
+      "placeholderValidationRules_other": "{{object}} のプレースホルダー: ターゲットの有効な入力規則 {{count}} 件。プレビューでは評価できません。いずれかがプレースホルダーを拒否すると、読み込みは止まります。"
     },
     "verify": {
       "run": "再検証",

@@ -4111,7 +4111,11 @@
       "recordTypeIssues_other": "{{count}} record type references the target does not resolve",
       "validationRules_one": "{{object}}: {{count}} active validation rule of the target, which a preview cannot evaluate — a record it refuses is counted to insert.",
       "validationRules_other": "{{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a record one of them refuses is counted to insert.",
-      "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted to insert."
+      "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted to insert.",
+      "validationRulesOnChange_one": "{{object}}: {{count}} rule left out — its formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
+      "validationRulesOnChange_other": "{{object}}: {{count}} rules left out — their formula holds only on a change of a record ({{functions}}), which an insert never is: {{rules}}",
+      "placeholderValidationRules_one": "Placeholder of {{object}}: {{count}} active validation rule of the target, which a preview cannot evaluate — a placeholder it refuses stops the load.",
+      "placeholderValidationRules_other": "Placeholder of {{object}}: {{count}} active validation rules of the target, which a preview cannot evaluate — a placeholder one of them refuses stops the load."
     },
     "verify": {
       "run": "Re-verify",

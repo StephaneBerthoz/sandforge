@@ -208,12 +208,12 @@ export interface FrozenDatasetLoaderDeps {
    * For {@link FrozenDatasetLoader.planLoad}: the target's active validation
    * rules on the objects named, as Forge's pre-flight reads them
    * (`readActiveValidationRules`). A preview cannot evaluate a rule, so it
-   * lists each beside the object it would insert records of. Without it,
-   * none is listed.
+   * lists each beside the object it would insert records of — but for a rule
+   * marked `onChangeOnly`, which no insert meets. Without it, none is listed.
    */
   readValidationRules?: (
     objectApiNames: readonly string[],
-  ) => Promise<ReadonlyArray<SyncValidationRule & { objectApiName: string }>>;
+  ) => Promise<ReadonlyArray<SyncValidationRule & { objectApiName: string; onChangeOnly?: true }>>;
 }
 
 /** Options of one load run. */
@@ -1050,24 +1050,52 @@ export class FrozenDatasetLoader {
    * accounts, one after the other — a required business family, then a
    * country, then an industry — each fixed rule showing the next: a preview
    * cannot evaluate them, but it can name them all before the first load.
+   *
+   * Every record it lists them for is inserted: a rule whose formula holds
+   * only on a change of a record is named apart, not listed — run on a large
+   * client sandbox, the preview listed fourteen rules of the invoices, most of
+   * them `ISCHANGED` and `PRIORVALUE` guards. And the objects that receive
+   * only a placeholder have theirs listed with it: a placeholder goes in with
+   * its name alone, and one refused stops the load.
    */
   private async withValidationRules(plan: FrozenLoadPlanInfo): Promise<FrozenLoadPlanInfo> {
     const read = this.deps.readValidationRules;
     const inserted = plan.perObject.filter((o) => o.toInsert > 0).map((o) => o.objectApiName);
-    if (!read || inserted.length === 0) return plan;
+    const asked = [
+      ...new Set([...inserted, ...plan.placeholders.map((p) => p.placeholderObjectApiName)]),
+    ];
+    if (!read || asked.length === 0) return plan;
     const byObject = new Map<string, SyncValidationRule[]>();
+    const onChange = new Map<string, string[]>();
     try {
-      for (const { objectApiName, ...rule } of await read(inserted)) {
-        byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), rule]);
+      for (const { objectApiName, onChangeOnly, ...rule } of await read(asked)) {
+        if (onChangeOnly) {
+          onChange.set(objectApiName, [...(onChange.get(objectApiName) ?? []), rule.name]);
+        } else {
+          byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), rule]);
+        }
       }
     } catch (err: unknown) {
       return { ...plan, validationRulesUnread: extractErrorMessage(err) };
     }
+    const listedWithTheirObject = new Set(inserted);
     return {
       ...plan,
       perObject: plan.perObject.map((o) => {
-        const rules = o.toInsert > 0 ? byObject.get(o.objectApiName) : undefined;
-        return rules && rules.length > 0 ? { ...o, validationRules: rules } : o;
+        if (o.toInsert === 0) return o;
+        const rules = byObject.get(o.objectApiName) ?? [];
+        const leftOut = onChange.get(o.objectApiName) ?? [];
+        return {
+          ...o,
+          ...(rules.length > 0 ? { validationRules: rules } : {}),
+          ...(leftOut.length > 0 ? { validationRulesOnChange: leftOut } : {}),
+        };
+      }),
+      placeholders: plan.placeholders.map((p) => {
+        const rules = listedWithTheirObject.has(p.placeholderObjectApiName)
+          ? []
+          : (byObject.get(p.placeholderObjectApiName) ?? []);
+        return rules.length > 0 ? { ...p, validationRules: rules } : p;
       }),
     };
   }

@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   BaseMessage,
+  FrozenDiscoveryOrigin,
   FrozenProjectConfig,
   FrozenSelectProgress,
   FrozenSelectionSummary,
@@ -228,6 +229,143 @@ describe('a selection on an org shaped like a large one', () => {
       reason: 'cancelled',
       combinationKey: 'origin=Email',
     });
+  });
+});
+
+describe('the graph a step keeps in the sas for the next, on an org shaped like a large one', () => {
+  /** The extraction request. */
+  function extractMsg(): InboundRequest {
+    return inboundRequest({
+      id: 'extract-1',
+      type: 'frozen:extract',
+      timestamp: Date.now(),
+      payload: { sourceOrgId: 'org-1' },
+    } as BaseMessage);
+  }
+
+  /**
+   * A counting connection to `org` that gives the org's clock and says
+   * whether its schema changed since the date asked (`If-Modified-Since` on
+   * the list of objects): it changed at `schema.changedAt`, and each such
+   * question is counted in `schema.checks`.
+   */
+  function withSchemaClock(
+    org: ReturnType<typeof largeOrg>,
+    schema: { changedAt: number; checks: number },
+  ) {
+    const counting = countingConnection(org);
+    const conn = {
+      ...counting.conn,
+      soap: { getServerTimestamp: async () => ({ timestamp: new Date().toISOString() }) },
+      request: async (request: { url?: string; headers?: Record<string, string> }) => {
+        if (request.url !== '/sobjects') return counting.conn.request();
+        schema.checks++;
+        const since = Date.parse(request.headers?.['If-Modified-Since'] ?? '');
+        // Not modified: the org answers with no body.
+        return schema.changedAt > since ? counting.conn.describeGlobal() : '';
+      },
+    };
+    return { ...counting, conn };
+  }
+
+  /** A selection of two origins, run by a handler of its own; the rules an extraction reads. */
+  async function selected(
+    org: ReturnType<typeof largeOrg>,
+    schema: { changedAt: number; checks: number },
+    extra: Partial<FrozenProjectConfig> = {},
+  ) {
+    vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+    const step = withSchemaClock(org, schema);
+    vi.mocked(getJsforceConnection).mockResolvedValue(step.conn as never);
+    const config = caseSelection(2, 1, extra);
+    const deps = depsWith(config);
+    await new FrozenDatasetHandler(deps).handle(selectMsg());
+    fs.writeFileSync(
+      path.join(config.sasDir, 'rules.json'),
+      JSON.stringify({ rulesVersion: '1.0.0', rules: {} }),
+    );
+    const [{ selection }] = posted<{ selection: FrozenSelectionSummary }>(
+      deps,
+      'frozen:select:response',
+    );
+    return { config, selection, calls: step.calls };
+  }
+
+  /** The extraction, as the next process runs it: nothing held of the org. */
+  async function extracted(
+    org: ReturnType<typeof largeOrg>,
+    schema: { changedAt: number; checks: number },
+    config: FrozenProjectConfig,
+  ) {
+    const step = withSchemaClock(org, schema);
+    vi.mocked(getJsforceConnection).mockResolvedValue(step.conn as never);
+    const deps = depsWith(config);
+    await new FrozenDatasetHandler(deps).handle(extractMsg());
+    expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+    const [answer] = posted<{ discovery: FrozenDiscoveryOrigin }>(deps, 'frozen:extract:response');
+    return { discovery: answer.discovery, calls: step.calls };
+  }
+
+  /** The counts discovery sends, a whole table each. */
+  const counts = (queries: readonly string[]) =>
+    queries.filter((soql) => /^SELECT COUNT\(\) FROM \w+$/.test(soql));
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('makes an extraction after a selection reuse the graph it kept, with no discovery call', async () => {
+    // Every step of the command line is a process of its own: run on the
+    // Developer Edition source, the selection sent 420 requests and the
+    // extraction after it 409, the same two hundred describes and counts twice.
+    const org = largeOrg({ cases: 12 });
+    const schema = { changedAt: 0, checks: 0 };
+    const select = await selected(org, schema);
+    expect(select.selection.discovery).toEqual({ rediscovered: 'no graph kept in the sas' });
+    expect(select.calls.describes.length).toBeGreaterThan(10);
+    expect(counts(select.calls.queries).length).toBeGreaterThan(10);
+
+    const extract = await extracted(org, schema, select.config);
+
+    expect(extract.discovery).toEqual({ reusedFrom: 'select', discoveredAt: expect.any(String) });
+    expect(extract.calls.describes).toEqual([]);
+    expect(extract.calls.describeGlobals).toBe(0);
+    expect(counts(extract.calls.queries)).toEqual([]);
+    // The one question that lets it reuse the graph: has the schema changed?
+    expect(schema.checks).toBe(1);
+  });
+
+  it('discovers again when the source schema changed since, and says why', async () => {
+    const org = largeOrg({ cases: 12 });
+    const schema = { changedAt: 0, checks: 0 };
+    const select = await selected(org, schema);
+    // A field deployed after the selection began.
+    schema.changedAt = Date.now() + 2_000;
+
+    const extract = await extracted(org, schema, select.config);
+
+    expect(extract.discovery).toEqual({
+      rediscovered: expect.stringContaining("the source's schema changed since the graph kept"),
+    });
+    expect(extract.calls.describes.length).toBeGreaterThan(10);
+    // Kept again, by the extraction that discovered it.
+    const kept = JSON.parse(
+      fs.readFileSync(path.join(select.config.sasDir, 'discovery.json'), 'utf8'),
+    ) as { step: string };
+    expect(kept.step).toBe('extract');
+  });
+
+  it('discovers again a graph kept at another cap, and says so', async () => {
+    const org = largeOrg({ cases: 12 });
+    const schema = { changedAt: 0, checks: 0 };
+    const select = await selected(org, schema);
+
+    const extract = await extracted(org, schema, { ...select.config, maxNodes: 40 });
+
+    expect(extract.discovery).toEqual({
+      rediscovered: 'the graph kept was discovered at a cap of 30, not 40',
+    });
+    expect(schema.checks).toBe(0);
   });
 });
 

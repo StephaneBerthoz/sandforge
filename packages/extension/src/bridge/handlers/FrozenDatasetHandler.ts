@@ -7,6 +7,7 @@ import type {
   ForgeConfig,
   ForgeGraph,
   FrozenControlReport,
+  FrozenDiscoveryOrigin,
   FrozenGraphCoverage,
   FrozenLastVerifyInfo,
   FrozenLoadRecordsInfo,
@@ -89,7 +90,10 @@ import {
   GraphDiscoveryService,
 } from '../../modules/forge/GraphDiscoveryService.js';
 import { holdsAPlace } from '../../modules/forge/GraphDiscoveryService.js';
-import type { ObjectDescribe } from '../../modules/forge/GraphDiscoveryService.js';
+import type {
+  DiscoveryOptions,
+  ObjectDescribe,
+} from '../../modules/forge/GraphDiscoveryService.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import { readPicklistFieldValues } from '../../core/metadata/recordTypePicklists.js';
 import type { ScopableField } from '../../modules/forge/ScopedSoqlBuilder.js';
@@ -134,11 +138,17 @@ import {
   parseManifest,
   parsePseudonymRules,
   readCountingContract,
+  readDiscoveryFromSas,
   readSelectionFromSas,
   requiredFieldsLeftEmpty,
+  schemaStampOf,
+  whyNotReused,
   withSchemaDefaults,
+  writeDiscoveryToSas,
   writeSelectionToSas,
   type ControlViolation,
+  type DiscoveringStep,
+  type KeptDiscovery,
   type CoverageSelectionResult,
   type FrozenDataset,
   type FrozenDmlWriter,
@@ -230,6 +240,26 @@ const DEFAULT_DATASET_VERSION = '0.1.0';
 /** Selection / extraction timeouts (long, but bounded — probes + full pull). */
 const SELECT_TIMEOUT_MS = 10 * 60_000;
 const EXTRACT_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * How long the describes of a graph kept in the sas are held once reused:
+ * past the longest step, so an extraction finds them to its end. The next
+ * step asks the org again whether its schema changed.
+ */
+const KEPT_DESCRIBE_TTL_MS = 30 * 60_000;
+
+/** The graph a step reads, where it came from, and — discovered — how to keep it for the next step. */
+interface StepGraph {
+  /** The graph as discovery answered it, before the configuration's exclusions. */
+  graph: ForgeGraph;
+  origin: FrozenDiscoveryOrigin;
+  /**
+   * Keep the graph in the sas with the describes of its objects and of the
+   * objects named, those the step read beside them. Absent for a graph
+   * reused: it is kept already.
+   */
+  keep?: (described: Iterable<string>) => Promise<void>;
+}
 
 /** How long the read of what the target's flows create may take, for a sweep: as Forge's. */
 const SWEEP_AUTOMATION_TIMEOUT_MS = 60_000;
@@ -890,6 +920,153 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
+   * The graph a selection or an extraction reads: the one an earlier step
+   * kept in the sas, when it is of the same org, root object and cap, less
+   * than a day old, and the org says its schema did not change since — or a
+   * discovery of its own, with why the kept one would not do.
+   *
+   * Each step of the command line is a process of its own, and the describes
+   * a discovery makes went with it: run on the Developer Edition source, the
+   * selection and the extraction after it sent four hundred requests each,
+   * the same two hundred describes and counts twice. Reused, a graph costs
+   * the one request that asks the org whether its schema changed since
+   * (`If-Modified-Since` on its list of objects, which the org answers with
+   * `304 Not Modified` when no object changed); and the describes kept with
+   * it serve the step's reads.
+   */
+  private async graphOfStep(context: {
+    step: DiscoveringStep;
+    sourceOrgId: string;
+    config: FrozenProjectConfig;
+    sasDir: string;
+    guard: SasPathGuard;
+    rootRecordId: string;
+    signal?: AbortSignal;
+    onProgress?: DiscoveryOptions['onProgress'];
+  }): Promise<StepGraph> {
+    const { sourceOrgId, config, sasDir, guard } = context;
+    const { maxNodes } = this.discoveryOptions(config);
+    const wanted = { sourceOrgId, rootObject: config.rootObject, maxNodes };
+    const read = await readDiscoveryFromSas(sasDir, guard);
+    let reason: string;
+    if ('kept' in read) {
+      const kept = read.kept;
+      const notReused =
+        whyNotReused(kept, wanted) ?? (await this.schemaChangeSince(sourceOrgId, kept));
+      if (notReused === undefined) {
+        this.holdKeptDescribes(sourceOrgId, kept);
+        return {
+          graph: kept.graph,
+          origin: { reusedFrom: kept.step, discoveredAt: kept.discoveredAt },
+        };
+      }
+      reason = notReused;
+    } else {
+      reason = read.none;
+    }
+
+    // The org's clock as the discovery begins: what the next step asks the
+    // org whether its schema changed since.
+    let schemaStamp: string | undefined;
+    try {
+      const conn = await getJsforceConnection(
+        sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      schemaStamp = schemaStampOf((await conn.soap.getServerTimestamp()).timestamp);
+    } catch (err: unknown) {
+      this.deps.log(`[WARN] frozen: the source did not give its clock: ${String(err)}`);
+    }
+    const graph = await this.buildDiscoveryService().discover(
+      this.discoveryConfig(sourceOrgId, context.rootRecordId),
+      {
+        maxNodes,
+        ...(context.signal ? { signal: context.signal } : {}),
+        ...(context.onProgress ? { onProgress: context.onProgress } : {}),
+      },
+    );
+    const discoveredAt = new Date().toISOString();
+    return {
+      graph,
+      origin: { rediscovered: reason },
+      keep: async (described) => {
+        const names = new Set([
+          ...graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
+          ...described,
+        ]);
+        const describes: Record<string, ObjectDescribe> = {};
+        for (const name of names) {
+          const held = this.describeCache.get(`${sourceOrgId}::${name}`);
+          if (held) describes[name] = held;
+        }
+        await writeDiscoveryToSas(
+          sasDir,
+          {
+            fileVersion: 1,
+            ...wanted,
+            step: context.step,
+            discoveredAt,
+            ...(schemaStamp ? { schemaStamp } : {}),
+            graph,
+            describes,
+            objects: this.describeGlobalCache.get(sourceOrgId) ?? [],
+          },
+          guard,
+        );
+      },
+    };
+  }
+
+  /**
+   * Whether the source's schema changed since a kept graph was discovered:
+   * `undefined` when the org says no object changed since its stamp, why the
+   * graph is discovered again otherwise. Changed, what is held of the org is
+   * dropped, and its list of objects, which the org sends with its answer,
+   * held in its place.
+   */
+  private async schemaChangeSince(orgId: string, kept: KeptDiscovery): Promise<string | undefined> {
+    if (!kept.schemaStamp) return 'the graph kept carries no stamp of the org';
+    try {
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const answer: unknown = await conn.request({
+        method: 'GET',
+        url: '/sobjects',
+        headers: { 'If-Modified-Since': new Date(kept.schemaStamp).toUTCString() },
+      });
+      const sobjects =
+        typeof answer === 'object' && answer !== null
+          ? (answer as { sobjects?: unknown }).sobjects
+          : undefined;
+      // Not modified: the org answers with no body.
+      if (!Array.isArray(sobjects)) return undefined;
+      this.forgetOrg(orgId);
+      this.describeGlobalCache.set(
+        orgId,
+        sobjects.flatMap((s: unknown) => {
+          const { name, keyPrefix } = (s ?? {}) as { name?: unknown; keyPrefix?: unknown };
+          return typeof name === 'string'
+            ? [{ name, keyPrefix: typeof keyPrefix === 'string' ? keyPrefix : null }]
+            : [];
+        }),
+      );
+      return `the source's schema changed since the graph kept was discovered, on ${kept.discoveredAt}`;
+    } catch (err: unknown) {
+      return `the source could not say whether its schema changed: ${extractErrorMessage(err)}`;
+    }
+  }
+
+  /** Hold the describes and the objects of a kept graph, for the reads of the step that reuses it. */
+  private holdKeptDescribes(orgId: string, kept: KeptDiscovery): void {
+    for (const [name, described] of Object.entries(kept.describes)) {
+      this.describeCache.set(`${orgId}::${name}`, described, KEPT_DESCRIBE_TTL_MS);
+    }
+    if (kept.objects.length > 0) {
+      this.describeGlobalCache.set(orgId, kept.objects, KEPT_DESCRIBE_TTL_MS);
+    }
+  }
+
+  /**
    * Per-object field describes for the extractor's scope-aware queries, from
    * the describes discovery made and keeps.
    *
@@ -1218,35 +1395,44 @@ export class FrozenDatasetHandler implements DomainHandler {
         return (await rows).map((row) => ({ ...row }));
       };
       const tokens = await this.loadTokens(sasDir, guard);
-      const discovery = this.buildDiscoveryService();
       const discoveryOptions = this.discoveryOptions(config);
+      // The objects the extractions describe, kept with the graph for the
+      // next step's reads.
+      const described = new Set<string>();
       const extractor = new FrozenDatasetExtractor({
         query,
-        describeFields: (objectApiName) =>
-          this.describeScopableFields(parsed.sourceOrgId, objectApiName),
+        describeFields: (objectApiName) => {
+          described.add(objectApiName);
+          return this.describeScopableFields(parsed.sourceOrgId, objectApiName);
+        },
         keyPrefixes: () => this.keyPrefixes(parsed.sourceOrgId),
       });
       // One instant for every measure of the selection, so a statement two
       // candidates' extractions share is the same statement.
       const asOf = new Date().toISOString();
       // One graph for the run: it is the root object's, whichever root asks.
-      let graphOnce: Promise<ForgeGraph> | undefined;
+      let graphOnce: Promise<StepGraph> | undefined;
       let reached = 0;
-      const graphFor = (rootRecordId: string): Promise<ForgeGraph> =>
-        (graphOnce ??= discovery
-          .discover(this.discoveryConfig(parsed.sourceOrgId, rootRecordId), {
-            ...discoveryOptions,
-            signal: abortController.signal,
-            // A line every ten objects: a discovery of a large org reaches
-            // hundreds, and the panel and the command line said nothing.
-            onProgress: (event) => {
-              if (event.phase !== 'object') return;
-              if (event.discoveredCount - reached < 10 && event.queueRemaining > 0) return;
-              reached = event.discoveredCount;
-              tell({ phase: 'discovery', objects: event.discoveredCount });
-            },
-          })
-          .then((graph) => withoutExcluded(graph, config.excludedObjects)));
+      const graphFor = async (rootRecordId: string): Promise<ForgeGraph> => {
+        graphOnce ??= this.graphOfStep({
+          step: 'select',
+          sourceOrgId: parsed.sourceOrgId,
+          config,
+          sasDir,
+          guard,
+          rootRecordId,
+          signal: abortController.signal,
+          // A line every ten objects: a discovery of a large org reaches
+          // hundreds, and the panel and the command line said nothing.
+          onProgress: (event) => {
+            if (event.phase !== 'object') return;
+            if (event.discoveredCount - reached < 10 && event.queueRemaining > 0) return;
+            reached = event.discoveredCount;
+            tell({ phase: 'discovery', objects: event.discoveredCount });
+          },
+        });
+        return withoutExcluded((await graphOnce).graph, config.excludedObjects);
+      };
       // Volumetry = real extraction-scope footprint: the probe runs the
       // scope-aware extraction over the retained roots and counts per object.
       // Bounded by the configured budget (default 2 500 records).
@@ -1294,15 +1480,24 @@ export class FrozenDatasetHandler implements DomainHandler {
       const selectionPath = await writeSelectionToSas(sasDir, result, guard);
       // A discovery that failed has already said so through every candidate
       // it turned away; the summary just carries no graph. One still running
-      // when the selection stopped is not waited for.
-      const graph =
+      // when the selection stopped is not waited for, nor kept.
+      const found =
         graphOnce && !result.stopped ? await graphOnce.catch(() => undefined) : undefined;
+      if (found?.keep) {
+        await found.keep(described).catch((err: unknown) => {
+          this.deps.log(`[WARN] frozen: the graph could not be kept in the sas: ${String(err)}`);
+        });
+      }
+      const graph = found ? withoutExcluded(found.graph, config.excludedObjects) : undefined;
       const response = buildResponse(this.deps, msg, 'frozen:select:response', {
-        selection: toSelectionSummary(
-          result,
-          selectionPath,
-          graph ? graphCoverage(graph, discoveryOptions.maxNodes) : undefined,
-        ),
+        selection: {
+          ...toSelectionSummary(
+            result,
+            selectionPath,
+            graph ? graphCoverage(graph, discoveryOptions.maxNodes) : undefined,
+          ),
+          ...(found ? { discovery: found.origin } : {}),
+        },
       });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, {
@@ -1395,19 +1590,24 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const discovery = this.buildDiscoveryService();
       const discoveryOptions = this.discoveryOptions(config);
-      const graph = withoutExcluded(
-        await discovery.discover(
-          this.discoveryConfig(parsed.sourceOrgId, rootRecordIds[0]),
-          discoveryOptions,
-        ),
-        config.excludedObjects,
-      );
+      // The selection's graph, when it kept one the source still matches.
+      const found = await this.graphOfStep({
+        step: 'extract',
+        sourceOrgId: parsed.sourceOrgId,
+        config,
+        sasDir,
+        guard,
+        rootRecordId: rootRecordIds[0],
+      });
+      const graph = withoutExcluded(found.graph, config.excludedObjects);
+      const described = new Set<string>();
       const extractor = new FrozenDatasetExtractor({
         query: (soql) => queryAll(conn, soql),
-        describeFields: (objectApiName) =>
-          this.describeScopableFields(parsed.sourceOrgId, objectApiName),
+        describeFields: (objectApiName) => {
+          described.add(objectApiName);
+          return this.describeScopableFields(parsed.sourceOrgId, objectApiName);
+        },
         keyPrefixes: () => this.keyPrefixes(parsed.sourceOrgId),
       });
 
@@ -1458,6 +1658,13 @@ export class FrozenDatasetHandler implements DomainHandler {
           `[WARN] frozen: the rules leave ${requiredLeftEmpty.length} required field(s) empty, ` +
             `which a load will ask a value for: ${requiredLeftEmpty.join(', ')}`,
         );
+      }
+      // Discovered here, the graph is kept for the next extraction, whatever
+      // the control says of the rules.
+      if (found.keep) {
+        await found.keep(described).catch((err: unknown) => {
+          this.deps.log(`[WARN] frozen: the graph could not be kept in the sas: ${String(err)}`);
+        });
       }
 
       // The 4-point gate result is ALWAYS surfaced (PASS or FAIL).
@@ -1536,6 +1743,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         files: writeResult.files,
         recordCount: datasetRecordCount(frozen),
         manifest: toManifestInfo(manifest),
+        discovery: found.origin,
       });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, {
@@ -2006,10 +2214,13 @@ export class FrozenDatasetHandler implements DomainHandler {
         // target's validation rules, read as Forge's pre-flight and Sync's
         // simulation read them.
         readValidationRules: async (objectApiNames) => {
-          const { toolingValidationRules } = await import('../../modules/forge/TargetGapReader.js');
+          const { toolingQueriesOver, toolingValidationRules } =
+            await import('../../modules/forge/TargetGapReader.js');
           const tooling = conn.tooling;
           // Each rule with the field it shows its error on by its API name,
-          // read back from the label a French org answers.
+          // read back from the label a French org answers; and its formula,
+          // five a request, so a rule that refuses only a change of a record
+          // is left out of what may refuse an insert.
           return toolingValidationRules(
             async (soql) =>
               (
@@ -2021,6 +2232,7 @@ export class FrozenDatasetHandler implements DomainHandler {
                   soql,
                 )
               ).records,
+            toolingQueriesOver(conn),
           )(objectApiNames);
         },
       });

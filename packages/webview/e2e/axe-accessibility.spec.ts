@@ -710,6 +710,8 @@ const FROZEN_RELOAD_PLAN = {
         { name: 'Trap_Email_Required', message: 'Email is required.', field: 'Email' },
         { name: 'Trap_Phone_Format', message: 'Phone must be written +33 X XX XX XX XX.' },
       ],
+      // Named apart: no insert meets a rule that refuses only a change.
+      validationRulesOnChange: ['Trap_Lead_Source_Locked'],
     },
     {
       objectApiName: 'ErrorLog__c',
@@ -733,7 +735,17 @@ const FROZEN_RELOAD_PLAN = {
   removals: [
     { objectApiName: 'Contact', field: 'Legacy__c', reason: 'not-in-target', affectedRecords: 5 },
   ],
-  placeholders: [],
+  placeholders: [
+    {
+      objectApiName: 'Contact',
+      field: 'Owner__c',
+      placeholderObjectApiName: 'Owner__c',
+      placeholderName: 'SANDFORGE-OWNER',
+      affectedRecords: 5,
+      // A placeholder goes in with its name alone, and one refused stops the load.
+      validationRules: [{ name: 'Code_Required', message: 'A code is required.' }],
+    },
+  ],
   requiredDefaults: [
     { objectApiName: 'Account', field: 'Rating', affectedRecords: 1 },
     {
@@ -7958,6 +7970,12 @@ for (const theme of STATE_THEMES) {
       // The target's validation rules and the defaults numbered per record, read too.
       await page
         .getByTestId('frozen-preview-rules-Contact')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('frozen-preview-rules-on-change-Contact')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('frozen-preview-placeholder-rules-Owner__c')
         .waitFor({ state: 'visible', timeout: 10_000 });
       await page
         .getByTestId('frozen-preview-defaults-per-record')

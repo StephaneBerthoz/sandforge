@@ -329,6 +329,44 @@ describe('FrozenLoadTab', () => {
       expect(screen.queryByTestId('frozen-preview-rules-unread')).toBeNull();
     });
 
+    it('names the rules it leaves out of an insert, and lists those of an object that receives only a placeholder', () => {
+      answers['frozen:load:preview'] = {
+        data: {
+          plan: {
+            ...PLAN,
+            perObject: PLAN.perObject.map((o) =>
+              o.objectApiName === 'Account'
+                ? { ...o, validationRulesOnChange: ['NoChangeFromStatusApproved', 'Locked'] }
+                : o,
+            ),
+            placeholders: PLAN.placeholders.map((p) => ({
+              ...p,
+              validationRules: [
+                { name: 'Code_Required', message: 'A code is required.', field: 'Code__c' },
+              ],
+            })),
+          },
+        },
+      };
+
+      render(tab());
+
+      expect(screen.queryByTestId('frozen-preview-rules-Account')).toBeNull();
+      expect(screen.getByTestId('frozen-preview-rules-on-change-Account').textContent).toBe(
+        'Account: 2 rules left out — their formula holds only on a change of a record (ISCHANGED, PRIORVALUE, NOT(ISNEW())), which an insert never is: NoChangeFromStatusApproved, Locked',
+      );
+      const placeholder = PLAN.placeholders[0].placeholderObjectApiName;
+      const rules = screen.getByTestId(`frozen-preview-placeholder-rules-${placeholder}`);
+      expect(rules.textContent).toContain(
+        `Placeholder of ${placeholder}: 1 active validation rule of the target, which a preview cannot evaluate — a placeholder it refuses stops the load.`,
+      );
+      expect(
+        within(rules)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Code_Required (Code__c) — A code is required.']);
+    });
+
     it("says when the target's validation rules could not be listed", () => {
       answers['frozen:load:preview'] = {
         data: { plan: { ...PLAN, validationRulesUnread: 'INSUFFICIENT_ACCESS' } },

@@ -1227,6 +1227,55 @@ describe('a simulation reads as the run does and writes nothing', () => {
     expect(result.validationRulesUnread).toBeUndefined();
   });
 
+  it('leaves out of an insert the rules that refuse only a change, and keeps them for an upsert', async () => {
+    // A rule whose formula holds only on a change of a record — ISCHANGED,
+    // PRIORVALUE, NOT(ISNEW()) — never refuses an insert; an upsert updates
+    // the records the target holds, and meets it.
+    const deps = simulatedDeps();
+    deps.readValidationRules = vi.fn().mockResolvedValue([
+      { objectApiName: 'Account', name: 'Siret_Format', message: 'SIRET: 14 digits' },
+      {
+        objectApiName: 'Account',
+        name: 'NoChangeFromStatusApproved',
+        message: 'Approved accounts are locked',
+        onChangeOnly: true,
+      },
+      {
+        objectApiName: 'Contact',
+        name: 'Locked_Once_Sent',
+        message: 'Locked',
+        onChangeOnly: true,
+      },
+    ]);
+    const config = createConfig({
+      objects: [
+        createObjectConfig({ objectApiName: 'Account', operation: 'insert' }),
+        createObjectConfig({
+          objectApiName: 'Contact',
+          externalIdField: 'Ext_Id__c',
+          insertOrder: 2,
+        }),
+      ],
+    });
+
+    const result = await new SyncOrchestrator(deps).simulate(config);
+
+    const [account, contact] = result.objects;
+    expect(account.validationRules).toEqual([
+      { name: 'Siret_Format', message: 'SIRET: 14 digits' },
+    ]);
+    expect(account.notes).toContainEqual(
+      expect.stringContaining(
+        '1 active validation rule(s) of the target left out of what may refuse these inserts',
+      ),
+    );
+    expect(account.notes.at(-1)).toContain('NoChangeFromStatusApproved');
+    expect(contact.validationRules).toEqual([{ name: 'Locked_Once_Sent', message: 'Locked' }]);
+    expect(contact.notes.join(' ')).not.toContain('left out');
+    // The flag stays this side of the bridge.
+    expect(JSON.stringify(result)).not.toContain('onChangeOnly');
+  });
+
   it('says why the validation rules went unlisted when the target refuses to list them', async () => {
     const deps = simulatedDeps();
     deps.readValidationRules = vi

@@ -4,6 +4,7 @@ import { forgeGapId } from '@sandforge/shared';
 import {
   ACTIVE_DUPLICATE_RULES_SOQL,
   FORMULAS_BOUND,
+  FORMULA_REQUESTS_BOUND,
   TargetGapReader,
   bypassesOf,
   callsEstimateOf,
@@ -11,6 +12,7 @@ import {
   gapLines,
   fieldLabelsSoql,
   readActiveValidationRules,
+  toolingQueriesOver,
   toolingValidationRules,
   validationFormulaSoql,
   validationRulesSoql,
@@ -18,7 +20,11 @@ import {
   type GapRunScope,
   type TargetGapDeps,
 } from './TargetGapReader.js';
-import { USER_PERMISSIONS_SOQL, type QueryAnswer } from './TargetAutomationReader.js';
+import {
+  USER_PERMISSIONS_SOQL,
+  type QueryAnswer,
+  type ToolingAnswer,
+} from './TargetAutomationReader.js';
 
 const SOURCE = 'src-org';
 const TARGET = 'tgt-org';
@@ -332,6 +338,148 @@ describe('readActiveValidationRules', () => {
     expect(await readActiveValidationRules(query, [])).toEqual([]);
     expect(await readActiveValidationRules(query, ["Account' OR Id != '"])).toEqual([]);
     expect(asked).toEqual([]);
+  });
+
+  /**
+   * Tooling composites over formulas by rule id: each query answered with the
+   * rule's metadata, a refusal for an id in `refused`, the composites sent
+   * kept in `sent`.
+   */
+  function compositesOver(formulas: Record<string, string>, refused: string[] = []) {
+    const sent: string[][] = [];
+    const toolingQueries = async (soqls: readonly string[]): Promise<ToolingAnswer[]> => {
+      sent.push([...soqls]);
+      return soqls.map((soql) => {
+        const id = /Id = '([^']+)'/.exec(soql)?.[1] ?? '';
+        if (refused.includes(id)) return { refused: 'INSUFFICIENT_ACCESS: no metadata' };
+        const formula = formulas[id];
+        return formula === undefined
+          ? { records: [] }
+          : { records: [{ Metadata: { errorConditionFormula: formula } }] };
+      });
+    };
+    return { sent, toolingQueries };
+  }
+
+  it('marks the rules whose formula holds only on a change, reading five formulas a request', async () => {
+    // Run on a large client sandbox, a Frozen preview listed fourteen rules of
+    // the invoices as what might refuse their inserts, most of them guards no
+    // insert meets.
+    const rows = [
+      rule(ruleId(1), 'NoChangeFromStatusApproved', 'Invoice__c'),
+      rule(ruleId(2), 'Amount_Required', 'Invoice__c'),
+      rule(ruleId(3), 'Locked_After_Send', 'Invoice__c'),
+      rule(ruleId(4), 'Unreadable', 'Invoice__c'),
+      rule(ruleId(5), 'Refused', 'Invoice__c'),
+      rule(ruleId(6), 'Prior_Amount_Lower', 'Invoice__c'),
+      rule('not-an-id', 'No_Id', 'Invoice__c'),
+    ];
+    const { sent, toolingQueries } = compositesOver(
+      {
+        [ruleId(1)]: 'AND(ISCHANGED(Status__c), ISPICKVAL(PRIORVALUE(Status__c), "Approved"))',
+        [ruleId(2)]: 'ISBLANK(Amount__c)',
+        [ruleId(3)]: 'AND(NOT(ISNEW()), ISPICKVAL(Status__c, "Sent"))',
+        [ruleId(4)]: 'AND(ISCHANGED(Status__c)',
+        [ruleId(5)]: 'ISCHANGED(Status__c)',
+        [ruleId(6)]: 'PRIORVALUE(Amount__c) > Amount__c',
+      },
+      [ruleId(5)],
+    );
+
+    const rules = await readActiveValidationRules(
+      async () => rows,
+      ['Invoice__c'],
+      undefined,
+      toolingQueries,
+    );
+
+    expect(Object.fromEntries(rules.map((r) => [r.name, r.onChangeOnly ?? false]))).toEqual({
+      Amount_Required: false,
+      Locked_After_Send: true,
+      NoChangeFromStatusApproved: true,
+      No_Id: false,
+      Prior_Amount_Lower: true,
+      // Kept as what may refuse an insert: a formula it cannot read, one the
+      // org refused, one with no id a query can hold.
+      Refused: false,
+      Unreadable: false,
+    });
+    expect(sent.map((soqls) => soqls.length)).toEqual([5, 1]);
+    expect(sent.flat()).toContain(validationFormulaSoql(ruleId(1)));
+  });
+
+  it(`reads the formulas of ${FORMULA_REQUESTS_BOUND * 5} rules at most, and keeps the others`, async () => {
+    const count = FORMULA_REQUESTS_BOUND * 5 + 3;
+    const rows = Array.from({ length: count }, (_, i) =>
+      rule(ruleId(i + 1), `Rule_${String(i + 1).padStart(3, '0')}`, 'Invoice__c'),
+    );
+    const { sent, toolingQueries } = compositesOver(
+      Object.fromEntries(rows.map((row) => [String(row.Id), 'ISCHANGED(Status__c)'])),
+    );
+
+    const rules = await readActiveValidationRules(
+      async () => rows,
+      ['Invoice__c'],
+      undefined,
+      toolingQueries,
+    );
+
+    expect(sent).toHaveLength(FORMULA_REQUESTS_BOUND);
+    expect(rules.filter((r) => r.onChangeOnly)).toHaveLength(FORMULA_REQUESTS_BOUND * 5);
+    expect(rules.filter((r) => !r.onChangeOnly)).toHaveLength(3);
+  });
+
+  it('reads no formula without a way to send composites, and marks no rule', async () => {
+    const asked: string[] = [];
+    const rules = await readActiveValidationRules(
+      async (soql) => {
+        asked.push(soql);
+        return [rule(ruleId(1), 'Locked', 'Invoice__c')];
+      },
+      ['Invoice__c'],
+    );
+
+    expect(asked).toEqual([validationRulesSoql(['Invoice__c'])]);
+    expect(rules[0]).not.toHaveProperty('onChangeOnly');
+  });
+
+  it('sends the formulas of a Tooling read in composites over a connection', async () => {
+    const requests: Array<{ url: string; body: string }> = [];
+    const queries = toolingQueriesOver({
+      version: '66.0',
+      request: async (request) => {
+        requests.push(request);
+        return {
+          compositeResponse: [
+            {
+              referenceId: 'q0',
+              httpStatusCode: 200,
+              body: { records: [{ Metadata: { errorConditionFormula: 'ISCHANGED(Status__c)' } }] },
+            },
+          ],
+        };
+      },
+    });
+    const read = toolingValidationRules(
+      async (soql) =>
+        soql.includes('FROM FieldDefinition') ? [] : [rule(ruleId(1), 'Locked', 'Invoice__c')],
+      queries,
+    );
+
+    const rules = await read(['Invoice__c']);
+
+    expect(rules).toEqual([
+      {
+        objectApiName: 'Invoice__c',
+        name: 'Locked',
+        message: 'Locked message',
+        onChangeOnly: true,
+      },
+    ]);
+    expect(requests.map((r) => r.url)).toEqual(['/tooling/composite']);
+    expect(JSON.parse(requests[0].body).compositeRequest[0].url).toBe(
+      `/services/data/v66.0/tooling/query?q=${encodeURIComponent(validationFormulaSoql(ruleId(1)))}`,
+    );
   });
 
   it("reads over one Tooling API the rules and the fields' labels a French org names their fields by", async () => {

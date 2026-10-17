@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
+  discoveryLine,
   messageLines,
   parseArgs,
   removalAsks,
@@ -350,6 +351,47 @@ describe('messageLines — a selection as it runs', () => {
   });
 });
 
+describe('messageLines — where the graph of a step came from', () => {
+  it('says a selection rediscovered the graph, and why', () => {
+    const lines = messageLines({
+      type: 'frozen:select:response',
+      payload: {
+        selection: {
+          combinations: [{ combinationKey: 'stage=Won' }],
+          uncovered: [],
+          volumetry: { total: 3, budgetMax: 2500, measured: { Opportunity: 1 } },
+          graph: { objects: 19, truncated: false, maxNodes: 50 },
+          discovery: { rediscovered: 'no graph kept in the sas' },
+        },
+      },
+    });
+
+    expect(lines.slice(1, 3)).toEqual([
+      'rediscovered: no graph kept in the sas',
+      'graph: 19 object(s) at a cap of 50',
+    ]);
+  });
+
+  it('says an extraction reused the graph the selection kept', () => {
+    const lines = messageLines({
+      type: 'frozen:extract:response',
+      payload: {
+        recordCount: 76,
+        datasetDir: '/sas/dataset',
+        discovery: { reusedFrom: 'select', discoveredAt: '2026-10-17T08:00:00.000Z' },
+        manifest: { version: '0.1.0', volumetry: { measured: {} } },
+      },
+    });
+
+    expect(lines[1]).toBe(
+      "graph reused from select (discovered 2026-10-17T08:00:00.000Z): the source's schema has not changed since",
+    );
+    expect(discoveryLine({ rediscovered: "the source's schema changed since" })).toBe(
+      "rediscovered: the source's schema changed since",
+    );
+  });
+});
+
 describe('messageLines', () => {
   it('says what a dry run of a load found, per object, and that nothing was written', () => {
     const lines = messageLines({
@@ -473,6 +515,62 @@ describe('messageLines', () => {
       'Contact: 2 active validation rule(s) of the target, which a preview cannot evaluate — a record one of them refuses is counted to insert:',
       '  Trap_Email_Required (Email) — An email is required.',
       '  Trap_Phone_Format',
+    ]);
+  });
+
+  it('names the rules a preview leaves out of an insert, and lists those of a placeholder', () => {
+    const lines = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          orgId: 'org-dev',
+          mode: { pilot: false, reload: false },
+          plannedAt: '2026-10-17T10:00:00.000Z',
+          perObject: [
+            {
+              objectApiName: 'Invoice__c',
+              fromFiles: 3,
+              toInsert: 3,
+              reusedByKeys: 0,
+              reusedFromCatalog: 0,
+              fieldsDropped: 0,
+              picklistsRewritten: 0,
+              notSent: 0,
+              toPurge: 0,
+              toDeactivate: 0,
+              validationRules: [{ name: 'Amount_Required', message: 'An amount is required.' }],
+              validationRulesOnChange: ['NoChangeFromStatusApproved', 'Locked_After_Send'],
+            },
+          ],
+          excludedObjects: [],
+          removals: [],
+          placeholders: [
+            {
+              objectApiName: 'Invoice__c',
+              field: 'Owner__c',
+              placeholderObjectApiName: 'Owner__c',
+              placeholderName: 'SANDFORGE-OWNER',
+              affectedRecords: 3,
+              validationRules: [
+                { name: 'Code_Required', message: 'A code is required.', field: 'Code__c' },
+              ],
+            },
+          ],
+          requiredDefaults: [],
+          recordTypeIssues: 0,
+          personContacts: 0,
+          earlierLoads: 0,
+        },
+      },
+    });
+
+    expect(lines.slice(2)).toEqual([
+      'placeholder for Invoice__c.Owner__c: 3 record(s)',
+      'Invoice__c: 1 active validation rule(s) of the target, which a preview cannot evaluate — a record one of them refuses is counted to insert:',
+      '  Amount_Required — An amount is required.',
+      'Invoice__c: 2 rule(s) left out — their formula holds only on a change of a record (ISCHANGED, PRIORVALUE, NOT(ISNEW())), which an insert never is: NoChangeFromStatusApproved, Locked_After_Send',
+      'placeholder of Owner__c: 1 active validation rule(s) of the target, which a preview cannot evaluate — a placeholder one of them refuses stops the load:',
+      '  Code_Required (Code__c) — A code is required.',
     ]);
   });
 
