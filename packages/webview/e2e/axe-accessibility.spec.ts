@@ -3787,6 +3787,16 @@ for (const theme of SCANNED_THEMES) {
               replacement: 'default',
             },
           ],
+          currenciesReplaced: [
+            {
+              objectApiName: 'Quote',
+              from: 'GBP',
+              to: 'USD',
+              chosenBy: 'corporate',
+              rows: 1,
+              fields: ['Discount__c'],
+            },
+          ],
           writtenWithoutFields: [
             {
               objectApiName: 'Contact',
@@ -3822,6 +3832,7 @@ for (const theme of SCANNED_THEMES) {
         timeout: 10_000,
       });
       await page.waitForSelector('[data-testid="forge-results-picklists"]', { timeout: 10_000 });
+      await page.waitForSelector('[data-testid="forge-results-currencies"]', { timeout: 10_000 });
       await page.waitForSelector('[data-testid="forge-results-written-without"]', {
         timeout: 10_000,
       });
@@ -3832,6 +3843,9 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-picklists"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-currencies"]'),
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-written-without"]'),
@@ -5151,6 +5165,7 @@ for (const theme of SCANNED_THEMES) {
               },
             ],
             standardNeeded: [{ objectApiName: 'Account', neededBy: 'Contact.AccountId' }],
+            currencies: { notInTarget: ['GBP'], writtenIn: 'USD', objects: ['Account'] },
           },
         },
         graph: MOCK_GRAPH,
@@ -5158,7 +5173,7 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('step4-scope').waitFor({ state: 'visible', timeout: 5000 });
       const review = await checkAccessibility(page);
       expectNoViolations(review);
-      for (const testId of ['step4-scope', 'step4-not-covered']) {
+      for (const testId of ['step4-scope', 'step4-scope-currencies', 'step4-not-covered']) {
         expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
           0,
         );

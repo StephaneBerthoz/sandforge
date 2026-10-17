@@ -33,6 +33,12 @@ import {
   type RecordTypeValues,
 } from './RecordTypePicklists.js';
 import type { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
+import {
+  CURRENCY_FIELD,
+  replaceRowCurrency,
+  type CurrencyChange,
+  type RunCurrencies,
+} from '../../../core/common/recordCurrencies.js';
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
@@ -66,6 +72,11 @@ export interface CleanedRecord {
    * to refuse them. Always set by {@link cleanNodeRecords}; absent, there were none.
    */
   picklistChanges?: PicklistChange[];
+  /**
+   * The currency the payload goes in with, when it is not the one the row was
+   * read in, and what became of its amounts (`core/common/recordCurrencies.ts`).
+   */
+  currencyChange?: CurrencyChange;
 }
 
 /** Field sets derived from the *target* org describe (schema-drift defense). */
@@ -254,7 +265,20 @@ export interface CleanNodeRecordsInput {
    * @param recordTypeId - The row's `RecordTypeId` as it was read.
    */
   decide?: (row: Record<string, unknown>, recordTypeId: string | undefined) => void;
+  /**
+   * Both orgs' currencies, read once a run: a row in a currency the target
+   * does not hold active goes in another, its amounts converted
+   * (`replaceRowCurrency`). Absent, the currency is checked as any picklist
+   * value is: left out, or replaced by the record type's default, its amounts
+   * as read.
+   */
+  currencies?: RunCurrencies;
+  /** The target's currency fields, by the name a row is written with, and their decimals. */
+  currencyFields?: ReadonlyMap<string, number | undefined>;
 }
+
+/** No currency field known. */
+const NO_CURRENCY_FIELDS: ReadonlyMap<string, number | undefined> = new Map();
 
 /**
  * Build cleaned records for insert. Strip non-createable fields, omit
@@ -284,6 +308,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     businessAccounts,
     contactPoints,
     decide,
+    currencies,
+    currencyFields = NO_CURRENCY_FIELDS,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   const neutralize = contactPoints?.forObject(objectApiName, fieldInfos, fieldRename);
@@ -489,6 +515,24 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // What the user decided of the row's values comes first: a value mapped
     // to one the target still refuses is checked as any other.
     decide?.(cleaned, typeof recordTypeId === 'string' ? recordTypeId : undefined);
+    // A currency the target does not hold active goes as another, which the
+    // picklist check then finds the target holds, and the row's amounts are
+    // converted into it: left to the check, the row went in another currency
+    // with its amounts as read.
+    const currencyChange =
+      currencies && !renamed.has(CURRENCY_FIELD)
+        ? replaceRowCurrency(
+            cleaned,
+            {
+              read: r[CURRENCY_FIELD],
+              currencyFields,
+              recordTypeDefault: recordTypeValuesOf(recordTypeValues, recordTypeId)?.picklists.get(
+                CURRENCY_FIELD,
+              )?.defaultValue,
+            },
+            currencies,
+          )
+        : undefined;
     const picklistChanges = checkRowPicklists(
       cleaned,
       picklistValuesByField,
@@ -513,6 +557,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       cleaned,
       nullifiedFks: nullifiedFks.filter((nf) => !filled.includes(nf.field)),
       picklistChanges,
+      ...(currencyChange ? { currencyChange } : {}),
     };
   });
 }

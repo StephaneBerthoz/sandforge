@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Connection } from 'jsforce';
-import { everyPage, outcomeLines } from './sandforge-autopilot';
+import { everyPage, outcomeLines, scopeLines } from './sandforge-autopilot';
 
 describe('sandforge-autopilot — what it asks of the target', () => {
   it('reads every page of the answer, not the first alone', async () => {
@@ -60,6 +60,42 @@ describe('sandforge-autopilot — the run summary', () => {
     expect(lines).toEqual([
       `  ${'Quote'.padEnd(28)} written 1  linked 1  refused 2`,
       `      REQUIRED_FIELD_MISSING [Entity__c] x2: ${missing}`,
+    ]);
+  });
+
+  it('prints the records written in another currency than they were read in, and their amounts converted', () => {
+    const lines = outcomeLines({
+      totalSuccess: 1,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Opportunity'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Opportunity: {
+          written: 1,
+          linked: 0,
+          failed: 0,
+          refusals: [],
+          currenciesReplaced: [
+            {
+              objectApiName: 'Opportunity',
+              from: 'GBP',
+              to: 'USD',
+              chosenBy: 'corporate',
+              rows: 1,
+              fields: ['Amount'],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'Opportunity'.padEnd(28)} written 1  linked 0  refused 0`,
+      "      1 row(s) in GBP written in USD, the target's corporate currency, GBP not being " +
+        "active there: amounts converted at the source's rates (Amount)",
     ]);
   });
 
@@ -193,5 +229,24 @@ describe('sandforge-autopilot — the run summary', () => {
     expect(lines).toEqual([
       `  ${'Account'.padEnd(28)} FAILED: INVALID_SESSION_ID: Session expired or invalid`,
     ]);
+  });
+});
+
+describe('sandforge-autopilot — the plan', () => {
+  it('says the currencies the target does not hold active, the one their records go in and the objects whose amounts are converted', () => {
+    const lines = scopeLines({
+      maxDepth: 5,
+      maxObjects: 50,
+      selected: ['Opportunity'],
+      parents: [],
+      leftEmpty: [],
+      standardNeeded: [],
+      currencies: { notInTarget: ['GBP'], writtenIn: 'USD', objects: ['Account', 'Opportunity'] },
+    });
+
+    expect(lines).toContain(
+      '  currencies the target does not hold active: GBP — a record in one is written in USD, ' +
+        "its corporate currency, its amounts converted at the source's rates (Account, Opportunity)",
+    );
   });
 });

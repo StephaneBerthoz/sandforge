@@ -552,6 +552,106 @@ describe('AutopilotExecutor — what the target will take', () => {
     expect(Object.keys(vi.mocked(deps.insert).mock.calls[0][1][0]).sort()).toEqual(['Id', 'Name']);
   });
 
+  describe('a currency the target does not hold active', () => {
+    /** The source: USD corporate, GBP at 0.79. The target: USD corporate, EUR, no GBP. */
+    const currencyDeps = (sourceQueries: string[] = []) =>
+      makeDeps({
+        describeCreateableFields: async () => new Set(['Name', 'CurrencyIsoCode', 'Amount']),
+        describeCurrencyFields: async () => new Map([['Amount', 2]]),
+        querySource: async (soql) => {
+          sourceQueries.push(soql);
+          return [
+            { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+            { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true, IsCorporate: false },
+          ];
+        },
+        queryTarget: async (soql) =>
+          soql.includes('FROM CurrencyType')
+            ? [
+                { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+                { IsoCode: 'EUR', ConversionRate: 0.9, IsActive: true, IsCorporate: false },
+              ]
+            : [],
+      });
+
+    it("writes the record in the target's corporate currency, its amounts converted at the source's rates", async () => {
+      // Sent as read, the target refused it — "invalid currency code: GBP" —
+      // and the record was lost.
+      const sourceQueries: string[] = [];
+      const deps = currencyDeps(sourceQueries);
+      vi.mocked(deps.query).mockResolvedValueOnce([
+        { Id: 'src1', Name: 'Deal 05', CurrencyIsoCode: 'GBP', Amount: 5000.55 },
+        { Id: 'src2', Name: 'Deal 06', CurrencyIsoCode: 'USD', Amount: 10 },
+      ]);
+      vi.mocked(deps.insert).mockResolvedValue(written('tgt1', 'tgt2'));
+
+      const result = await new AutopilotExecutor(deps).execute(
+        makePlan([{ order: 0, objects: ['Opportunity'], dependsOn: [] }], 2),
+        [],
+        [],
+        new Map([['Opportunity', 2]]),
+      );
+
+      expect(vi.mocked(deps.insert).mock.calls[0][1]).toEqual([
+        { Id: 'src1', Name: 'Deal 05', CurrencyIsoCode: 'USD', Amount: 6329.81 },
+        { Id: 'src2', Name: 'Deal 06', CurrencyIsoCode: 'USD', Amount: 10 },
+      ]);
+      expect(result.objectOutcomes?.['Opportunity']?.currenciesReplaced).toEqual([
+        {
+          objectApiName: 'Opportunity',
+          from: 'GBP',
+          to: 'USD',
+          chosenBy: 'corporate',
+          rows: 1,
+          fields: ['Amount'],
+        },
+      ]);
+      expect(sourceQueries.filter((soql) => soql.includes('FROM CurrencyType'))).toHaveLength(1);
+    });
+
+    it('counts in another currency only the records the target took', async () => {
+      const deps = currencyDeps();
+      vi.mocked(deps.query).mockResolvedValueOnce([
+        { Id: 'src1', Name: 'Deal 05', CurrencyIsoCode: 'GBP', Amount: 79 },
+        { Id: 'src2', Name: 'Deal 07', CurrencyIsoCode: 'GBP', Amount: 158 },
+      ]);
+      vi.mocked(deps.insert).mockResolvedValue([
+        ...written('tgt1'),
+        refused('REQUIRED_FIELD_MISSING', 'Required fields are missing: [StageName]', [
+          'StageName',
+        ]),
+      ]);
+
+      const result = await new AutopilotExecutor(deps).execute(
+        makePlan([{ order: 0, objects: ['Opportunity'], dependsOn: [] }], 2),
+        [],
+        [],
+        new Map([['Opportunity', 2]]),
+      );
+
+      expect(result.objectOutcomes?.['Opportunity']?.currenciesReplaced).toEqual([
+        expect.objectContaining({ from: 'GBP', to: 'USD', rows: 1, fields: ['Amount'] }),
+      ]);
+    });
+
+    it('reads no currency when no record carries one', async () => {
+      const sourceQueries: string[] = [];
+      const deps = currencyDeps(sourceQueries);
+      vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'src1', Name: 'Acme' }]);
+      vi.mocked(deps.insert).mockResolvedValue(written('tgt1'));
+
+      const result = await new AutopilotExecutor(deps).execute(
+        makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1),
+        [],
+        [],
+        new Map([['Account', 1]]),
+      );
+
+      expect(sourceQueries.filter((soql) => soql.includes('FROM CurrencyType'))).toEqual([]);
+      expect(result.objectOutcomes?.['Account']?.currenciesReplaced).toBeUndefined();
+    });
+  });
+
   it('sends everything when the describe answers with nothing', async () => {
     // An empty set means the describe could not say, not that the object
     // takes no field — filtering on it would write a blank row.

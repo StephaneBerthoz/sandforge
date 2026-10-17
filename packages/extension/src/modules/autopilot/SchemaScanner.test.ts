@@ -276,6 +276,63 @@ describe('SchemaScanner', () => {
     expect(result.missingInTarget).not.toContain('Account');
   });
 
+  it('says in the scope the currencies the target does not hold active, the one their records go in and the objects that carry one', async () => {
+    /** An org answering its `CurrencyType` with `rows`, and every other query as `mockConn` does. */
+    const withCurrencies = (
+      conn: AutopilotConnection,
+      rows: Record<string, unknown>[],
+    ): AutopilotConnection => {
+      const query = conn.query.bind(conn);
+      return {
+        ...conn,
+        query: (soql: string) =>
+          soql.includes('FROM CurrencyType')
+            ? Promise.resolve({ totalSize: rows.length, done: true, records: rows })
+            : query(soql),
+      };
+    };
+    const source = withCurrencies(
+      mockConn({
+        describes: {
+          Opportunity: mockDescribe('Opportunity', [
+            mockField({ name: 'CurrencyIsoCode', type: 'picklist' }),
+            mockField({ name: 'Amount', type: 'currency' }),
+          ]),
+        },
+      }),
+      [
+        { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+        { IsoCode: 'EUR', ConversionRate: 0.92, IsActive: true, IsCorporate: false },
+        { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true, IsCorporate: false },
+      ],
+    );
+    const target = withCurrencies(
+      mockConn({ globalSObjects: [mockGlobalSObject('Opportunity')] }),
+      [
+        { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+        { IsoCode: 'EUR', ConversionRate: 0.9, IsActive: true, IsCorporate: false },
+      ],
+    );
+
+    const result = await scanner.scan(source, target, ['Opportunity'], true);
+
+    expect(result.scope.currencies).toEqual({
+      notInTarget: ['GBP'],
+      writtenIn: 'USD',
+      objects: ['Opportunity'],
+    });
+  });
+
+  it('says nothing of currencies when no object of the plan carries one', async () => {
+    const source = mockConn({ describes: { Account: mockDescribe('Account') } });
+    const target = mockConn({ globalSObjects: [mockGlobalSObject('Account')] });
+
+    const result = await scanner.scan(source, target, ['Account'], true);
+
+    expect(result.scope.currencies).toBeUndefined();
+    expect(vi.mocked(source.query).mock.calls.flat().join(' ')).not.toContain('CurrencyType');
+  });
+
   it('should query record counts for each object', async () => {
     const source = mockConn({
       describes: {

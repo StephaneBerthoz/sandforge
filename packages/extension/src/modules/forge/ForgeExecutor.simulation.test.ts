@@ -17,6 +17,7 @@ import type {
 } from '../../core/metadata/recordTypePicklists.js';
 import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
+import { CURRENCY_TYPES_SOQL } from '../../core/common/recordCurrencies.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -190,10 +191,20 @@ function fakeOrgs({ tradeClosed = false }: { tradeClosed?: boolean } = {}) {
       return org === 'tgt' ? TARGET_ORDER_FIELDS : SHARED_FIELDS;
     }),
     queryRecords: vi.fn(async (org: string, soql: string) => {
-      if (org === 'src') return selectRows(SOURCE, soql);
+      // The source holds euros, its corporate currency, and dollars at 1.25
+      // to the euro; the target euros alone.
+      if (org === 'src') {
+        if (soql === CURRENCY_TYPES_SOQL) {
+          return [
+            { IsoCode: 'EUR', ConversionRate: 1, IsActive: true, IsCorporate: true },
+            { IsoCode: 'USD', ConversionRate: 1.25, IsActive: true, IsCorporate: false },
+          ];
+        }
+        return selectRows(SOURCE, soql);
+      }
       targetQueries.push(soql);
-      if (soql === 'SELECT IsoCode FROM CurrencyType WHERE IsActive = true') {
-        return [{ IsoCode: 'EUR' }];
+      if (soql === CURRENCY_TYPES_SOQL) {
+        return [{ IsoCode: 'EUR', ConversionRate: 1, IsActive: true, IsCorporate: true }];
       }
       return soql.includes(' WHERE ') ? selectRows(TARGET, soql) : [];
     }),
@@ -364,7 +375,7 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
     expect(JSON.stringify(summary.gaps)).not.toContain('TAKEN');
   });
 
-  it('says a currency the target does not hold active, read once', async () => {
+  it('says a currency the target does not hold active, read once, with the currency its rows go in and the amounts converted', async () => {
     const { deps, targetQueries } = fakeOrgs();
 
     const { summary } = await run(deps, { ...OPTIONS, dryRun: true });
@@ -375,11 +386,46 @@ describe('ForgeExecutor, a simulation through the write stage', () => {
         forgeGapId('currency_inactive', 'Order__c', 'CurrencyIsoCode', undefined, 'USD'),
       ),
     ).toMatchObject({
-      severity: 'blocking',
+      severity: 'warning',
       rows: 1,
-      defaultDecision: 'leave_empty',
+      detail: { replacement: 'EUR', amountsConverted: ['Amount__c'] },
+      defaultDecision: 'map_value',
     });
     expect(targetQueries.filter((q) => q.includes('FROM CurrencyType'))).toHaveLength(1);
+    expect(summary.currenciesReplaced).toEqual([
+      {
+        objectApiName: 'Order__c',
+        from: 'USD',
+        to: 'EUR',
+        chosenBy: 'corporate',
+        rows: 1,
+        fields: ['Amount__c'],
+      },
+    ]);
+  });
+
+  it("writes a row in a currency the target does not hold active in its corporate currency, its amounts converted at the source's rates, and says so", async () => {
+    const { deps, sent } = fakeOrgs();
+
+    const { summary, events } = await run(deps, OPTIONS);
+
+    // 10 USD at 1.25 to the euro: 8 EUR. The euro rows go as read.
+    const orders = sent.filter((s) => s.object === 'Order__c').map((s) => s.row);
+    expect(orders.map((row) => [row['Name'], row['CurrencyIsoCode'], row['Amount__c']])).toEqual([
+      ['Longer than five', 'EUR', '10'],
+      ['O2', 'EUR', '12345.5'],
+      ['O3', 'EUR', 8],
+    ]);
+    expect(summary.currenciesReplaced).toEqual([
+      expect.objectContaining({ from: 'USD', to: 'EUR', rows: 1, fields: ['Amount__c'] }),
+    ]);
+    expect(events.map((e) => e.message).join('\n')).toContain(
+      "written in another currency: 1 row(s) in USD written in EUR, the target's corporate " +
+        "currency, USD not being active there: amounts converted at the source's rates (Amount__c)",
+    );
+    expect(summary.picklistValuesChanged ?? []).not.toContainEqual(
+      expect.objectContaining({ field: 'CurrencyIsoCode' }),
+    );
   });
 
   it('names a record type the target has no counterpart of by its name in the source', async () => {

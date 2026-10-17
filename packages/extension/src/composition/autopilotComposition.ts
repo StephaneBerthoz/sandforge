@@ -14,6 +14,7 @@ import {
   type RecordTypeAvailability,
 } from '../core/metadata/recordTypeAvailability';
 import { describedLookups, type DescribedLookup } from '../core/metadata/describedLookups';
+import { currencyFieldsOf } from '../core/common/recordCurrencies';
 
 /** Inputs required to wire the Autopilot orchestrator. */
 export interface AutopilotCompositionDeps {
@@ -123,6 +124,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
           recordTypes: RecordTypeAvailability[];
           keyPrefix: string | null;
           lookups: DescribedLookup[];
+          currencyFields: ReadonlyMap<string, number | undefined>;
         };
         const describedByTarget = new WeakMap<Connection, Map<string, TargetDescribe>>();
         const describeTarget = async (
@@ -151,6 +153,9 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
             keyPrefix: typeof described.keyPrefix === 'string' ? described.keyPrefix : null,
             lookups: describedLookups(described.fields),
+            currencyFields: currencyFieldsOf(
+              described.fields as Array<{ name: string; type?: string; scale?: number }>,
+            ),
           };
           byObject.set(objectApiName, answer);
           return answer;
@@ -272,6 +277,10 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               // Asked only when the target has a record type the running user
               // cannot use: the run reads a page at a time and has to know
               // every type its records carry before the first page is written.
+              // From the same describe: what a record's amounts are converted
+              // in when its currency is one the target does not hold active.
+              describeCurrencyFields: async (objectApiName: string) =>
+                (await describeTarget(target, objectApiName)).currencyFields,
               countRecordTypes: async (objectApiName: string) => {
                 const safeObj = sanitizeSoqlObjectName(objectApiName);
                 const counted = await source.query<Record<string, unknown>>(

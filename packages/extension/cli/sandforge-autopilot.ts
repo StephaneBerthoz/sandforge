@@ -60,6 +60,7 @@ import {
 import { describedLookups, type DescribedLookup } from '../src/core/metadata/describedLookups.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { leftToThePlatformNote } from '../src/core/common/platformRecords.js';
+import { currencyFieldsOf, describeCurrencyReplaced } from '../src/core/common/recordCurrencies.js';
 import { sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
@@ -256,6 +257,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       recordTypes: RecordTypeAvailability[];
       keyPrefix: string | null;
       lookups: DescribedLookup[];
+      currencyFields: ReadonlyMap<string, number | undefined>;
     }
   >();
   const describeTarget = async (objectApiName: string) => {
@@ -267,6 +269,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
       keyPrefix: described.keyPrefix ?? null,
       lookups: describedLookups(described.fields),
+      currencyFields: currencyFieldsOf(described.fields),
     };
     targetByObject.set(objectApiName, answer);
     return answer;
@@ -340,6 +343,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           (await describeTarget(objectApiName)).creatable,
         describeRecordTypes: async (objectApiName) =>
           (await describeTarget(objectApiName)).recordTypes,
+        // From the same describe: what a record's amounts are converted in
+        // when its currency is one the target does not hold active.
+        describeCurrencyFields: async (objectApiName) =>
+          (await describeTarget(objectApiName)).currencyFields,
         // The same count the panel asks, for the same reason: every record
         // type an object carries has to be known before its first page.
         countRecordTypes: async (objectApiName) => {
@@ -515,6 +522,16 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
       );
     }
   }
+  // A record in a currency the target does not hold active goes in its
+  // corporate currency, its amounts converted: said before the run.
+  const currencies = scope.currencies;
+  if (currencies) {
+    lines.push(
+      `  currencies the target does not hold active: ${currencies.notInTarget.join(', ')} — a ` +
+        `record in one is written in ${currencies.writtenIn}, its corporate currency, its ` +
+        `amounts converted at the source's rates (${currencies.objects.join(', ')})`,
+    );
+  }
   return lines;
 }
 
@@ -567,6 +584,10 @@ export function outcomeLines(result: ExecutionResult): string[] {
     // Not sent either: rows the platform writes itself, and what hangs from them.
     for (const left of outcome.leftToThePlatform ?? []) {
       lines.push(`      ${leftToThePlatformNote(left.count, left.why)}`);
+    }
+    // Sent in another currency than read: the target does not hold theirs active.
+    for (const entry of outcome.currenciesReplaced ?? []) {
+      lines.push(`      ${describeCurrencyReplaced(entry)}`);
     }
   }
   for (const name of result.failedObjects) {

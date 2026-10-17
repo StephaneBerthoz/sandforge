@@ -1,4 +1,4 @@
-import type { AnonymizationMethod } from './common.types.js';
+import type { AnonymizationMethod, CurrencyReplaced } from './common.types.js';
 
 /** Mode used to specify the input for a Forge operation */
 export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai';
@@ -1573,6 +1573,13 @@ export interface ForgeExecutionResult {
    * why. Absent when there were none, and from runs recorded before it was kept.
    */
   picklistValuesChanged?: ForgePicklistValuesChanged[];
+  /**
+   * Per object, the rows written in another currency than they were read in —
+   * the target does not hold theirs active, or the user mapped it — and
+   * whether their amounts were converted, at the source's rates. Absent when
+   * there were none, and from runs recorded before amounts were converted.
+   */
+  currenciesReplaced?: CurrencyReplaced[];
   /**
    * Per object, the rows written again without the fields the target refused
    * them on: a validation rule's, a restricted picklist's refusing their

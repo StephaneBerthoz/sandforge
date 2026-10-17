@@ -1,4 +1,5 @@
 import type {
+  CurrencyReplaced,
   ForgeContactPointsReport,
   ForgeCreatedRecords,
   ForgeDecisionApplied,
@@ -91,6 +92,13 @@ import {
   type RecordTypeValues,
 } from './stages/RecordTypePicklists.js';
 import type { RecordTypePicklists } from '../../core/metadata/recordTypePicklists.js';
+import {
+  CurrencyReplacementTally,
+  currencyFieldsOf,
+  currencyReplacementsNote,
+  readRunCurrencies,
+  type RunCurrencies,
+} from '../../core/common/recordCurrencies.js';
 import {
   BatchWriter,
   WRITE_API_MAX_BATCH,
@@ -1028,6 +1036,13 @@ export interface ExecutionSummary {
    */
   picklistValuesChanged?: ForgePicklistValuesChanged[];
   /**
+   * Per object, the rows written in another currency than they were read in —
+   * the target does not hold theirs active, or the user mapped it — and what
+   * became of their amounts (`core/common/recordCurrencies.ts`). Absent when
+   * there were none.
+   */
+  currenciesReplaced?: CurrencyReplaced[];
+  /**
    * Per object, the rows the target refused on fields it named — a validation
    * rule, or a restricted picklist refusing their value — that went in once
    * written again without them, and those sent without a value it had refused
@@ -1255,6 +1270,8 @@ interface PageCarry {
   heldWholeRows: number;
   /** The picklist values not written as read. */
   readonly picklists: PicklistChangeTally;
+  /** The rows written in another currency than they were read in. */
+  readonly currencies: CurrencyReplacementTally;
   writtenWithoutFields?: WrittenWithoutFields;
   /** The flags of relations linked to that could not be given back. */
   readonly flagsNotKept: string[];
@@ -1283,6 +1300,7 @@ function emptyPageCarry(): PageCarry {
     held: new Map(),
     heldWholeRows: 0,
     picklists: new PicklistChangeTally(),
+    currencies: new CurrencyReplacementTally(),
     flagsNotKept: [],
   };
 }
@@ -1589,6 +1607,8 @@ interface ExecutionState {
   readonly recordTypePicklists: RecordTypePicklistReads;
   /** The picklist values the run did not write as it read them, by object and field. */
   readonly picklistChanges: PicklistChangeTally;
+  /** The rows the run wrote in another currency than it read them in, by object. */
+  readonly currencyChanges: CurrencyReplacementTally;
   /**
    * Per object, the rows written without the fields the target refused them
    * on. See `ExecutionSummary.writtenWithoutFields`.
@@ -1665,8 +1685,11 @@ interface ExecutionState {
    * of. See `recordTypeGaps`.
    */
   readonly sourceRecordTypes: Map<string, Promise<RecordTypeAvailability[]>>;
-  /** The currencies active in the target, read once a run when a row carries one; unset until then. */
-  activeCurrencies?: Promise<ReadonlySet<string> | undefined>;
+  /**
+   * Both orgs' currencies, read once a run when a row carries one the target
+   * writes; unset until then, and nothing when either org holds one.
+   */
+  currencies?: Promise<RunCurrencies | undefined>;
   successCount: number;
   updatedCount: number;
   linkedCount: number;
@@ -2638,9 +2661,6 @@ const UNIQUE_VALUES_PER_REQUEST = 200;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTER = /[\u0000-\u001f]/;
 
-/** The currencies an org with several holds active; an org with one answers with an error. */
-const ACTIVE_CURRENCIES_SOQL = 'SELECT IsoCode FROM CurrencyType WHERE IsActive = true';
-
 /** The master record type's id, 15 or 18 characters: the same in every org, and in no mapping. */
 const MASTER_RECORD_TYPE = /^012000000000000(AAA)?$/;
 
@@ -3079,6 +3099,7 @@ export class ForgeExecutor {
             readRecordType(targetOrgId, objectApiName, recordTypeId)),
       ),
       picklistChanges: new PicklistChangeTally(),
+      currencyChanges: new CurrencyReplacementTally(),
       writtenWithoutFields: new Map<string, WrittenWithoutFields>(),
       leftEmptyByFilter: new Map(),
       contactsOnTheirOwn: new Set<string>(),
@@ -4373,7 +4394,10 @@ export class ForgeExecutor {
     const onlyAlreadyExists = carry.failed > 0 && carry.alreadyExists === carry.failed;
     const failedNode =
       carry.failed > 0 && !onlyAlreadyExists && (settled === 0 || failureRate > 0.5);
-    const picklists = picklistChangesNote(carry.picklists.list());
+    // The picklist values and the currencies not written as read.
+    const picklists =
+      picklistChangesNote(carry.picklists.list()) +
+      currencyReplacementsNote(carry.currencies.list());
     const withoutFields = writtenWithoutFieldsNote(carry.writtenWithoutFields);
     const readById = readAsParentsNote(state, object);
     const ownNote = ownSentNote(carry.sentOnTheirOwn);
@@ -4437,6 +4461,7 @@ export class ForgeExecutor {
         `${stopped}: ${pagedCounts(state.config, carry, held)}, ${notSent} not sent` +
         `${ownSentNote(carry.sentOnTheirOwn)}${carry.flagsNotKept.map((flags) => `, ${flags}`).join('')}` +
         `${picklistChangesNote(carry.picklists.list())}` +
+        `${currencyReplacementsNote(carry.currencies.list())}` +
         `${writtenWithoutFieldsNote(carry.writtenWithoutFields)}${leftToThePlatformNote(state, object)}`,
     });
   }
@@ -5595,6 +5620,9 @@ export class ForgeExecutor {
         : {}),
       ...(state.picklistChanges.size > 0
         ? { picklistValuesChanged: state.picklistChanges.list() }
+        : {}),
+      ...(state.currencyChanges.size > 0
+        ? { currenciesReplaced: state.currencyChanges.list() }
         : {}),
       ...(state.writtenWithoutFields.size > 0
         ? {
@@ -9394,10 +9422,42 @@ export class ForgeExecutor {
   }
 
   /**
+   * Both orgs' currencies, read once a run from their `CurrencyType` when the
+   * rows carry a currency the target's describe lets the run write: what a
+   * row in one the target does not hold active goes in, and its amounts are
+   * converted with (`core/common/recordCurrencies.ts`). Nothing when either
+   * org holds one currency, which answers the read with an error.
+   *
+   * @param written - Whether the rows are written with a field under its own name.
+   */
+  private currenciesFor(
+    state: ExecutionState,
+    targetFields: readonly FieldInfo[] | undefined,
+    rows: readonly Record<string, unknown>[],
+    written: (field: string) => boolean,
+  ): Promise<RunCurrencies | undefined> {
+    const carried =
+      targetFields?.some((f) => f.name === CURRENCY_FIELD && f.createable) === true &&
+      written(CURRENCY_FIELD) &&
+      rows.some((row) => typeof row[CURRENCY_FIELD] === 'string' && row[CURRENCY_FIELD] !== '');
+    return carried ? this.runCurrencies(state) : Promise.resolve(undefined);
+  }
+
+  /** Both orgs' currencies, read the first time the run asks and kept for the rest of it. */
+  private runCurrencies(state: ExecutionState): Promise<RunCurrencies | undefined> {
+    state.currencies ??= readRunCurrencies(
+      (soql) => this.deps.queryRecords(state.sourceOrgId, soql),
+      (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+    );
+    return state.currencies;
+  }
+
+  /**
    * In a simulation, the currencies the rows carry that the target does not
-   * hold active, read once a run from `CurrencyType` — an org with one
-   * currency answers nothing, and nothing is said. Written without one, a
-   * record takes the running user's currency and keeps its amounts.
+   * hold active, from the currencies the run read once — an org with one
+   * currency answers nothing, and nothing is said. Each gap says the currency
+   * the rows go in instead and the amounts converted into it, as the rows
+   * were cleaned (`CleanedRecord.currencyChange`).
    */
   private async currencyGaps(
     state: ExecutionState,
@@ -9407,24 +9467,36 @@ export class ForgeExecutor {
   ): Promise<void> {
     if (!targetFields.some((f) => f.name === CURRENCY_FIELD && f.createable)) return;
     const codes = new Map<string, number>();
-    for (const { source } of cleanedRecords) {
+    const replaced = new Map<string, { to: Set<string>; fields: Set<string>; kept: boolean }>();
+    for (const { source, currencyChange } of cleanedRecords) {
       const code = source[CURRENCY_FIELD];
-      if (typeof code === 'string' && code !== '') codes.set(code, (codes.get(code) ?? 0) + 1);
+      if (typeof code !== 'string' || code === '') continue;
+      codes.set(code, (codes.get(code) ?? 0) + 1);
+      if (!currencyChange || currencyChange.chosenBy === 'decision') continue;
+      const known = replaced.get(code) ?? { to: new Set(), fields: new Set(), kept: false };
+      known.to.add(currencyChange.to);
+      for (const field of currencyChange.fields) known.fields.add(field);
+      if (currencyChange.notConverted) known.kept = true;
+      replaced.set(code, known);
     }
     if (codes.size === 0) return;
-    state.activeCurrencies ??= this.deps
-      .queryRecords(state.targetOrgId, ACTIVE_CURRENCIES_SOQL)
-      .then(
-        (found) =>
-          new Set(
-            found.flatMap((row) => (typeof row['IsoCode'] === 'string' ? [row['IsoCode']] : [])),
-          ),
-        () => undefined,
-      );
-    const active = await state.activeCurrencies;
+    const active = (await state.currencies)?.target.active;
     if (!active || active.size === 0) return;
     for (const [code, count] of codes) {
-      if (!active.has(code)) state.gaps?.add(currencyGapOf(objectApiName, code, count));
+      if (active.has(code)) continue;
+      const change = replaced.get(code);
+      state.gaps?.add(
+        currencyGapOf(
+          objectApiName,
+          code,
+          count,
+          change && {
+            to: [...change.to].sort(),
+            converted: [...change.fields].sort(),
+            asRead: change.kept,
+          },
+        ),
+      );
     }
   }
 
@@ -9859,6 +9931,8 @@ export class ForgeExecutor {
         onRecordTypeNote: (objectApiName, note) =>
           this.sayRecordTypeNote(state, objectApiName, note),
         picklistChanges: state.picklistChanges,
+        currencies: () => this.runCurrencies(state),
+        currencyChanges: state.currencyChanges,
         onWrittenWithoutFields: (objectApiName, written) =>
           this.countWrittenWithoutFields(state, objectApiName, written),
         linkPersonContacts: (accounts) => this.mapContactsOfPersonAccounts(state, accounts),
@@ -9915,6 +9989,18 @@ export class ForgeExecutor {
                 fieldRename['RecordTypeId'] === undefined,
             )
           : undefined;
+      // Both orgs' currencies, read once a run when these rows carry one the
+      // run writes: a currency the target does not hold active is replaced,
+      // and the amounts converted into the one written.
+      const currencies = await this.currenciesFor(
+        state,
+        targetFields,
+        toWrite,
+        (field) =>
+          effectiveCreatableSet.has(field) &&
+          !excludedFields.has(field) &&
+          fieldRename[field] === undefined,
+      );
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,
         records: toWrite,
@@ -9942,16 +10028,22 @@ export class ForgeExecutor {
             targetRecordTypeOf(config, recordTypeId),
             state.decisionsApplied,
           ),
+        ...(currencies ? { currencies, currencyFields: currencyFieldsOf(targetFields ?? []) } : {}),
       });
-      // The picklist values this write does not send as read: said on the
-      // object's line, and counted for the run's result.
+      // The picklist values and the currencies this write does not send as
+      // read: said on the object's line, and counted for the run's result.
       const changed = new PicklistChangeTally();
-      for (const { picklistChanges = [] } of cleanedRecords) {
+      const currenciesChanged = new CurrencyReplacementTally();
+      for (const { picklistChanges = [], currencyChange } of cleanedRecords) {
         changed.add(node.objectApiName, picklistChanges);
         state.picklistChanges.add(node.objectApiName, picklistChanges);
         page?.picklists.add(node.objectApiName, picklistChanges);
+        currenciesChanged.add(node.objectApiName, currencyChange);
+        state.currencyChanges.add(node.objectApiName, currencyChange);
+        page?.currencies.add(node.objectApiName, currencyChange);
       }
-      const picklists = picklistChangesNote(changed.list());
+      const picklists =
+        picklistChangesNote(changed.list()) + currencyReplacementsNote(currenciesChanged.list());
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
       if (state.recordTypeMapper && config.recordTypeMappings) {
         recordsToInsert = state.recordTypeMapper.apply(

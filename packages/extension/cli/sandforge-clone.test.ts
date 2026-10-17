@@ -866,6 +866,57 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({})).picklistValuesChanged).toBeUndefined();
   });
 
+  it('names, per object, the rows written in another currency and the amounts converted into it', () => {
+    const currenciesReplaced = [
+      {
+        objectApiName: 'Opportunity',
+        from: 'GBP',
+        to: 'USD',
+        chosenBy: 'corporate' as const,
+        rows: 1,
+        fields: ['Amount'],
+      },
+    ];
+
+    const lines = summaryLines(summary({ currenciesReplaced }));
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'written in another currency (1 object(s)):',
+        "  Opportunity  1 row(s) in GBP written in USD, the target's corporate currency, GBP not " +
+          "being active there: amounts converted at the source's rates (Amount)",
+      ]),
+    );
+    expect(jsonResult(summary({ currenciesReplaced })).currenciesReplaced).toEqual(
+      currenciesReplaced,
+    );
+    expect(summaryLines(summary({})).some((line) => line.includes('currency'))).toBe(false);
+    expect(jsonResult(summary({})).currenciesReplaced).toBeUndefined();
+  });
+
+  it('says on a dry run the currency a gap of an inactive currency writes its rows in, and the amounts converted', () => {
+    const gaps: ForgeGap[] = [
+      {
+        id: 'currency_inactive|Opportunity|CurrencyIsoCode||GBP',
+        kind: 'currency_inactive' as const,
+        severity: 'warning' as const,
+        source: 'simulation' as const,
+        objectApiName: 'Opportunity',
+        field: 'CurrencyIsoCode',
+        value: 'GBP',
+        rows: 1,
+        detail: { replacement: 'USD', amountsConverted: ['Amount'] },
+        decisions: ['map_value' as const],
+      },
+    ];
+
+    expect(simulationGapLines(gaps)).toEqual([
+      'gaps the target holds against the rows (1, dry run):',
+      '  [warning] Opportunity.CurrencyIsoCode  currency_inactive "GBP": 1 record(s) ' +
+        '(written as "USD"; amounts converted into it: Amount)',
+    ]);
+  });
+
   it('names each field rows were written again without, what refused it — a validation rule, a restricted picklist or a lookup filter — and why', () => {
     const writtenWithoutFields = [
       {

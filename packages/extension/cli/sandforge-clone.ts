@@ -131,6 +131,7 @@ import {
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { readRecordTypePicklists } from '../src/core/metadata/recordTypePicklists.js';
 import { describePicklistChange } from '../src/modules/forge/stages/RecordTypePicklists.js';
+import { describeCurrencyReplaced } from '../src/core/common/recordCurrencies.js';
 import { ForgeFilesRefusedError } from '../src/modules/forge/stages/FileCopier.js';
 import {
   insertFile,
@@ -1601,6 +1602,16 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       lines.push(`  ${change.objectApiName}  ${describePicklistChange(change)}`);
     }
   }
+  // A row in a currency the target does not hold active goes in another, its
+  // amounts converted into it: said per object, with the currencies.
+  const currencies = summary.currenciesReplaced ?? [];
+  if (currencies.length > 0) {
+    const objects = new Set(currencies.map((entry) => entry.objectApiName)).size;
+    lines.push('', `written in another currency (${objects} object(s)):`);
+    for (const entry of currencies) {
+      lines.push(`  ${entry.objectApiName}  ${describeCurrencyReplaced(entry)}`);
+    }
+  }
   // Refused by a validation rule on the fields it named, by a restricted
   // picklist on their value, or by the lookup filter of a lookup the target
   // lets be empty, and written again without them: in the target, each short
@@ -1665,6 +1676,12 @@ function gapDetail(gap: ForgeGap): string {
   }
   if (typeof detail['replacement'] === 'string')
     parts.push(`written as "${detail['replacement']}"`);
+  const converted = detail['amountsConverted'];
+  if (Array.isArray(converted) && converted.length > 0) {
+    parts.push(`amounts converted into it: ${converted.join(', ')}`);
+  }
+  if (detail['amountsAsRead'] === true)
+    parts.push('amounts written as read, no rate converts them');
   if (typeof detail['colliding'] === 'number') {
     parts.push(`${detail['colliding']} value(s) already in the target`);
   }
@@ -1938,6 +1955,9 @@ export function jsonResult(summary: ExecutionSummary) {
     ...(summary.picklistValuesChanged
       ? { picklistValuesChanged: summary.picklistValuesChanged }
       : {}),
+    // Per object, the rows written in another currency than they were read
+    // in, and their amounts converted or not; only when there were any.
+    ...(summary.currenciesReplaced ? { currenciesReplaced: summary.currenciesReplaced } : {}),
     // Per object, the rows written again without the fields a validation rule
     // or a restricted picklist refused, each field with what refused it
     // (`refusedBy`) and the refusal; only when there were any.

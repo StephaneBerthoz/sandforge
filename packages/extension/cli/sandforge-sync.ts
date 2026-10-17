@@ -90,6 +90,7 @@ import { FieldMappingService } from '../src/modules/sync/FieldMapping.js';
 import { TransformPipeline } from '../src/modules/sync/TransformPipeline.js';
 import { targetLookup } from '../src/modules/sync/SyncSimulation.js';
 import { readSyncRecordTypes } from '../src/modules/sync/syncRecordTypes.js';
+import { readRunCurrencies } from '../src/core/common/recordCurrencies.js';
 import {
   cannotCopyMessage,
   syncCannotCopy,
@@ -860,6 +861,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         ).records,
       toolingQueriesOver(targetConn),
     ),
+    // Both orgs' currencies, as the panel reads them: a row in one the target
+    // does not hold active goes in its corporate currency, its amounts
+    // converted at the source's rates.
+    currencies: () =>
+      readRunCurrencies(
+        async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
+        async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
+      ),
     // Both orgs' record types, as the panel reads them: a record's type is
     // mapped to the target's of the same object and API name.
     recordTypes: () =>

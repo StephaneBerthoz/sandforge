@@ -211,6 +211,15 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
               </ul>
             </div>
           )}
+          {scope.currencies && (
+            <p className="text-xs text-text-secondary" data-testid="step4-scope-currencies">
+              {t('autopilot.step4.scope.currencies', {
+                currencies: scope.currencies.notInTarget.join(', '),
+                writtenIn: scope.currencies.writtenIn,
+                objects: scope.currencies.objects.join(', '),
+              })}
+            </p>
+          )}
         </div>
       )}
 

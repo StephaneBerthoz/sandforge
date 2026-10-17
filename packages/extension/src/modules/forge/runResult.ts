@@ -127,6 +127,9 @@ export function forgeRunResult(
     ...(summary.picklistValuesChanged
       ? { picklistValuesChanged: summary.picklistValuesChanged }
       : {}),
+    // The rows written in another currency than they were read in, and their
+    // amounts converted or not: said on each object's line too.
+    ...(summary.currenciesReplaced ? { currenciesReplaced: summary.currenciesReplaced } : {}),
     // The rows a validation rule or a restricted picklist refused that went in
     // without the fields it named: in the target, each short of a value the
     // source held.

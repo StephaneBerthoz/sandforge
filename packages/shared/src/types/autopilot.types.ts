@@ -233,6 +233,23 @@ export interface AutopilotPlanScope {
    * record cannot be written without them. Each with the lookup that needs it.
    */
   readonly standardNeeded: Array<{ readonly objectApiName: ApiName; readonly neededBy: string }>;
+  /**
+   * The currencies the source holds that the target does not hold active: a
+   * record in one goes in the target's corporate currency, its amounts
+   * converted at the source's rates. Absent when the target holds every one,
+   * or either org holds a single currency.
+   */
+  readonly currencies?: AutopilotCurrencyPlan;
+}
+
+/** What a plan says of the currencies the target does not hold active. */
+export interface AutopilotCurrencyPlan {
+  /** The currencies, sorted. */
+  readonly notInTarget: string[];
+  /** The target's corporate currency, which a record in one of them is written in. */
+  readonly writtenIn: string;
+  /** The objects of the plan that carry a currency, sorted. */
+  readonly objects: ApiName[];
 }
 
 /** What a compliance framework expects anonymized on a person's record. */

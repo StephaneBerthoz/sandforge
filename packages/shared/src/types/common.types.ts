@@ -111,3 +111,42 @@ export interface BaseGraphEdge {
   /** Relationship type */
   readonly type: string;
 }
+
+/**
+ * How the currency rows were written in was chosen, their own being one the
+ * target does not hold active: `record-type-default`, the default the record
+ * type they go in with gives the currency field; `corporate`, the target's
+ * corporate currency; `decision`, the value the user mapped theirs to.
+ */
+export type CurrencyChosenBy = 'record-type-default' | 'corporate' | 'decision';
+
+/**
+ * Rows of one object written in another currency than the one they were read
+ * in, and what became of their amounts: converted at the source's rates, or
+ * written as read when no rate converts one currency into the other.
+ */
+export interface CurrencyReplaced {
+  /** API name of the object. */
+  objectApiName: ApiName;
+  /** The currency the rows were read in. */
+  from: string;
+  /** The currency they were written in. */
+  to: string;
+  /** How `to` was chosen. */
+  chosenBy: CurrencyChosenBy;
+  /** How many rows. */
+  rows: number;
+  /** The currency fields whose amounts were converted, sorted; empty when no row held one. */
+  fields: string[];
+  /**
+   * Set when the amounts were written as read: the source holds no rate for
+   * `from`, or neither org a rate between their corporate currencies.
+   */
+  notConverted?: true;
+  /**
+   * Set when `to` is not the target's corporate currency: the amounts went
+   * into it at the target's rate, after the source's rate of `from` gave
+   * their worth in the corporate currency.
+   */
+  atTargetRate?: true;
+}

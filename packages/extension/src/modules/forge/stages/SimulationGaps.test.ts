@@ -101,7 +101,7 @@ describe('SimulationGaps', () => {
     });
     gaps.add(currencyGapOf('B', 'USD', 1));
 
-    expect(gaps.list(new Set()).map((gap) => gap.severity)).toEqual(['blocking', 'info']);
+    expect(gaps.list(new Set()).map((gap) => gap.severity)).toEqual(['warning', 'info']);
   });
 });
 
@@ -356,17 +356,27 @@ describe('rowGapsOf', () => {
 });
 
 describe('the gaps found against the target itself', () => {
-  it('says a currency the target does not hold active, written without it by default', () => {
+  it('says a currency the target does not hold active, replaced by default, no row refused for it', () => {
     expect(currencyGapOf('Opportunity', 'USD', 3)).toEqual({
       kind: 'currency_inactive',
-      severity: 'blocking',
+      severity: 'warning',
       objectApiName: 'Opportunity',
       field: 'CurrencyIsoCode',
       value: 'USD',
       rows: 3,
       decisions: ['map_value', 'skip_rows', 'exclude_object', 'ignore'],
-      defaultDecision: 'leave_empty',
+      defaultDecision: 'map_value',
     });
+  });
+
+  it('says the currency the rows go in instead and the amounts converted into it', () => {
+    expect(
+      currencyGapOf('Opportunity', 'GBP', 2, { to: ['USD'], converted: ['Amount'], asRead: false })
+        .detail,
+    ).toEqual({ replacement: 'USD', amountsConverted: ['Amount'] });
+    expect(
+      currencyGapOf('Opportunity', 'JPY', 1, { to: ['USD'], converted: [], asRead: true }).detail,
+    ).toEqual({ replacement: 'USD', amountsAsRead: true });
   });
 
   it('says a record type closed to the user under its target name, and one unmapped under its source name', () => {

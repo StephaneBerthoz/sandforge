@@ -25,6 +25,7 @@ export {
   type AutopilotLeftOutReason,
   type AutopilotLookupLeftEmpty,
   type AutopilotPlanScope,
+  type AutopilotCurrencyPlan,
   type ExpectedPersonalData,
   type AnonymizationSummary,
   type AutopilotConfig,

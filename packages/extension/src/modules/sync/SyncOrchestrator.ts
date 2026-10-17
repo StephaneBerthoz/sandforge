@@ -38,6 +38,7 @@ import {
 } from './SyncSimulation.js';
 import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPreparation.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
+import { CURRENCY_FIELD, type RunCurrencies } from '../../core/common/recordCurrencies.js';
 import {
   changedSinceLiteral,
   deletionKeyOf,
@@ -197,6 +198,15 @@ export interface SyncOrchestratorDeps {
    */
   recordTypes?: () => Promise<SyncRecordTypes>;
   /**
+   * Both orgs' currencies (`readRunCurrencies`), read once a run before the
+   * first object whose records carry one: a row in a currency the target
+   * does not hold active is written in its corporate currency, its amounts
+   * converted at the source's rates, in a simulation as in a run
+   * (`prepareSyncRows`). Without it, or when either org holds one currency,
+   * the row goes as read, and the target refuses its currency.
+   */
+  currencies?: () => Promise<RunCurrencies | undefined>;
+  /**
    * For {@link SyncOrchestrator.simulate}: the target's active validation
    * rules on the objects named, as Forge's pre-flight reads them
    * (`readActiveValidationRules`). A simulation cannot evaluate a rule, so it
@@ -226,6 +236,8 @@ const NOT_WRITTEN: unique symbol = Symbol('not written');
 interface RunContext {
   links: SyncRunLinks;
   recordTypes: () => Promise<SyncRecordTypes | undefined>;
+  /** Both orgs' currencies, read the first time an object's records carry one. */
+  currencies: () => Promise<RunCurrencies | undefined>;
 }
 
 /** An active validation rule of the target as the simulation reads it. */
@@ -269,10 +281,16 @@ function carriesARecordType(record: Record<string, unknown>): boolean {
   return typeof value === 'string' && value.length >= 15 && !MASTER_RECORD_TYPE.test(value);
 }
 
+/** Whether a row was read with a currency of its own, in an org with several. */
+function carriesACurrency(record: Record<string, unknown> | undefined): boolean {
+  const value = record?.[CURRENCY_FIELD];
+  return typeof value === 'string' && value !== '';
+}
+
 /**
  * What the write of one object is handed beside its records: the run's
- * links, the rows as the source read them, and both orgs' record types when
- * a record carries one.
+ * links, the rows as the source read them, both orgs' record types when a
+ * record carries one, and both orgs' currencies when a row was read with one.
  */
 async function writeRunOf(
   run: RunContext,
@@ -280,7 +298,16 @@ async function writeRunOf(
   sources: Record<string, unknown>[],
 ): Promise<SyncWriteRun> {
   const recordTypes = records.some(carriesARecordType) ? await run.recordTypes() : undefined;
-  return { links: run.links, sources, ...(recordTypes ? { recordTypes } : {}) };
+  const currencies =
+    sources.some(carriesACurrency) || records.some(carriesACurrency)
+      ? await run.currencies()
+      : undefined;
+  return {
+    links: run.links,
+    sources,
+    ...(recordTypes ? { recordTypes } : {}),
+    ...(currencies ? { currencies } : {}),
+  };
 }
 
 /**
@@ -393,6 +420,7 @@ export class SyncOrchestrator {
     const earlier = await this.earlierLinks(config);
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
+    const currencies = this.currenciesOnce();
 
     // What each write wrote or linked, added to the configuration's pairs as
     // it answers: see `idMap`.
@@ -568,7 +596,7 @@ export class SyncOrchestrator {
           config,
           objectConfig,
           leftOut,
-          { links, recordTypes },
+          { links, recordTypes, currencies },
           plan ? read : undefined,
           written,
           recorder || idMap
@@ -799,6 +827,21 @@ export class SyncOrchestrator {
   }
 
   /**
+   * Both orgs' currencies, read the first time a run asks and kept for the
+   * rest of it (`currencies`); nothing when the run was given no way to read
+   * them, or a read fails: the rows then go as read, as they always did.
+   */
+  private currenciesOnce(): () => Promise<RunCurrencies | undefined> {
+    let read: Promise<RunCurrencies | undefined> | undefined;
+    return () => {
+      const asked = this.deps.currencies;
+      if (!asked) return Promise.resolve(undefined);
+      read ??= asked().catch(() => undefined);
+      return read;
+    };
+  }
+
+  /**
    * The watermarks of a delta configuration: `undefined` for a full one,
    * `null` when none can be kept — a configuration that is not saved, or a
    * run given nowhere to keep them.
@@ -1007,6 +1050,7 @@ export class SyncOrchestrator {
     const run: RunContext = {
       links: new SyncRunLinks(earlier.links),
       recordTypes: this.recordTypesOnce(),
+      currencies: this.currenciesOnce(),
     };
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });

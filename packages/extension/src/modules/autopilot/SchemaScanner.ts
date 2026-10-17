@@ -9,6 +9,7 @@
 
 import type {
   ApiName,
+  AutopilotCurrencyPlan,
   AutopilotLeftOutReason,
   AutopilotLookupLeftEmpty,
   AutopilotObjectListing,
@@ -24,6 +25,7 @@ import {
   REQUIRED_PARENT_CEILING_FACTOR,
 } from '../forge/GraphDiscoveryService.js';
 import { queryAllPages } from '../forge/queryAllPages.js';
+import { CURRENCY_FIELD, readRunCurrencies } from '../../core/common/recordCurrencies.js';
 import { logger } from '../../logger.js';
 
 /** Abstraction over Salesforce describe API for testability. */
@@ -349,6 +351,11 @@ export class SchemaScanner {
       (name) => !targetObjectNames.has(name),
     );
 
+    // Step 5: the currencies the target does not hold active, said by the plan
+    // before anything is written: a record in one goes in the target's
+    // corporate currency, its amounts converted.
+    const currencies = await this.currenciesOf(sourceConn, targetConn, objectDescribes);
+
     return {
       objectDescribes,
       autoDiscoveredObjects: walk.added,
@@ -366,8 +373,38 @@ export class SchemaScanner {
         })),
         leftEmpty: walk.leftEmpty,
         standardNeeded: walk.standardNeeded,
+        ...(currencies ? { currencies } : {}),
       },
     };
+  }
+
+  /**
+   * The currencies the source holds active that the target does not, with
+   * the corporate currency a record in one is written in and the objects of
+   * the plan that carry a currency (`core/common/recordCurrencies.ts`):
+   * nothing when no object carries one, when either org holds a single
+   * currency, or when the target holds every one.
+   */
+  private async currenciesOf(
+    sourceConn: AutopilotConnection,
+    targetConn: AutopilotConnection,
+    describes: ReadonlyMap<ApiName, ObjectDescribeResult>,
+  ): Promise<AutopilotCurrencyPlan | undefined> {
+    const objects = [...describes.values()]
+      .filter((describe) => describe.fields.some((field) => field.name === CURRENCY_FIELD))
+      .map((describe) => describe.name)
+      .sort();
+    if (objects.length === 0) return undefined;
+    const read = await readRunCurrencies(
+      async (soql) => (await sourceConn.query(soql)).records,
+      async (soql) => (await targetConn.query(soql)).records,
+    );
+    const writtenIn = read?.target.corporate;
+    if (!read || writtenIn === undefined) return undefined;
+    const notInTarget = [...read.source.active].filter((code) => !read.target.active.has(code));
+    return notInTarget.length > 0
+      ? { notInTarget: notInTarget.sort(), writtenIn, objects }
+      : undefined;
   }
 
   /**

@@ -6,6 +6,7 @@
 
 import { TypedEventEmitter } from '../../core/common/TypedEventEmitter.js';
 import type {
+  CurrencyReplaced,
   ExecutionPlan,
   AutopilotEvent,
   AutopilotNodeProgressEvent,
@@ -78,6 +79,14 @@ import {
   type RecordTypeAvailability,
   type UnavailableRecordTypeUse,
 } from '../../core/metadata/recordTypeAvailability.js';
+import {
+  CURRENCY_FIELD,
+  CurrencyReplacementTally,
+  readRunCurrencies,
+  replaceRowCurrency,
+  type CurrencyChange,
+  type RunCurrencies,
+} from '../../core/common/recordCurrencies.js';
 import { logger } from '../../logger.js';
 
 /** Local alias matching the autopilot domain name. */
@@ -236,6 +245,12 @@ export interface ObjectOutcome {
    * stop came first. Counted in `notSent` too. Absent when there are none.
    */
   heldForTheirTask?: number;
+  /**
+   * Records written in another currency than they were read in — the target
+   * does not hold theirs active — and their amounts converted or not (see
+   * `core/common/recordCurrencies.ts`). Absent when there are none.
+   */
+  currenciesReplaced?: CurrencyReplaced[];
 }
 
 /**
@@ -387,7 +402,19 @@ export interface AutopilotExecutorDeps {
    * update can set. Without it, lookups are sent as the remapper leaves them.
    */
   describeLookups?: (objectApiName: string) => Promise<readonly DescribedLookup[]>;
-  /** SOQL against the SOURCE org — the standard price book's id there. */
+  /**
+   * The object's currency fields in the TARGET org, from the same describe,
+   * with the decimals each keeps: what a record's amounts are converted in
+   * when its currency is one the target does not hold active. Without it the
+   * currency is replaced and no amount converted.
+   */
+  describeCurrencyFields?: (
+    objectApiName: string,
+  ) => Promise<ReadonlyMap<string, number | undefined>>;
+  /**
+   * SOQL against the SOURCE org — the standard price book's id there, and its
+   * currencies, which a record's amounts are converted at.
+   */
   querySource?: SoqlQuery;
   /**
    * SOQL against the TARGET org: its standard price book, the relations the
@@ -538,6 +565,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private signal: AbortSignal | undefined;
   /** One describe of the target per object, kept for the run. */
   private readonly creatableByObject = new Map<string, ReadonlySet<string> | null>();
+  /** Both orgs' currencies, read the first time a record carries one; nothing when either holds one. */
+  private currencies: Promise<RunCurrencies | undefined> | undefined;
+  /** The records written in another currency than they were read in, by object. */
+  private readonly currencyChanges = new CurrencyReplacementTally();
   /** The target's key prefix per object, kept for the run. */
   private readonly keyPrefixByObject = new Map<string, Promise<string | null | undefined>>();
   /** A lifecycle object's statuses in the target, kept for the run. */
@@ -857,6 +888,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           ...(objResult.notSent !== undefined && objResult.notSent > 0
             ? { notSent: objResult.notSent }
             : {}),
+          ...this.currenciesReplacedOf(objectApiName),
         };
 
         // Cut short by the stop: neither completed nor failed, and said so
@@ -1421,6 +1453,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         })
       : rows;
     payload = this.translateRecordTypes(objectApiName, payload);
+    // A currency the target does not hold active refused the record — "invalid
+    // currency code: GBP" — and it was lost: it goes in the target's corporate
+    // currency, its amounts converted at the source's rates.
+    const currencyChanges = await this.replaceCurrencies(objectApiName, rows, payload, writable);
     // A lookup the platform fills in itself is neither sent nor owed to the
     // second pass: an email's task, unless the email is on a case. Sent with
     // the id read from the source, the email is refused, "you cannot modify
@@ -1510,6 +1546,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }
       if (outcome.success) {
         state.written++;
+        this.currencyChanges.add(objectApiName, currencyChanges.get(record));
         if (sourceId && outcome.id) mappings.push([sourceId, outcome.id]);
         const status = drafts.get(index);
         if (status && outcome.id) {
@@ -1782,6 +1819,52 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         delete record[field];
       }
     }
+  }
+
+  /**
+   * Put each record of a batch whose currency the target does not hold
+   * active in another, its amounts converted into it (`replaceRowCurrency`),
+   * and answer what changed, by record: counted once the target takes it.
+   * Both orgs' currencies are read once a run, the first time a record the
+   * target takes a currency of carries one; a run given no read of either
+   * org, or one with a single currency, sends the currency as read. Changes
+   * `payload` in place, index by index with `rows`.
+   */
+  private async replaceCurrencies(
+    objectApiName: string,
+    rows: readonly Record<string, unknown>[],
+    payload: Record<string, unknown>[],
+    writable: ReadonlySet<string> | null,
+  ): Promise<Map<Record<string, unknown>, CurrencyChange>> {
+    const changed = new Map<Record<string, unknown>, CurrencyChange>();
+    const { querySource, queryTarget } = this.deps;
+    if (!querySource || !queryTarget || (writable && !writable.has(CURRENCY_FIELD))) {
+      return changed;
+    }
+    const carried = payload.some(
+      (record) => typeof record[CURRENCY_FIELD] === 'string' && record[CURRENCY_FIELD] !== '',
+    );
+    if (!carried) return changed;
+    this.currencies ??= readRunCurrencies(querySource, queryTarget);
+    const currencies = await this.currencies;
+    if (!currencies) return changed;
+    const currencyFields =
+      (await this.deps.describeCurrencyFields?.(objectApiName).catch(() => undefined)) ??
+      new Map<string, number | undefined>();
+    payload.forEach((record, index) => {
+      const read = rows[index]?.[CURRENCY_FIELD];
+      const change = replaceRowCurrency(record, { read, currencyFields }, currencies);
+      if (change) changed.set(record, change);
+    });
+    return changed;
+  }
+
+  /** The records of an object written in another currency, as its outcome carries them. */
+  private currenciesReplacedOf(objectApiName: string): Pick<ObjectOutcome, 'currenciesReplaced'> {
+    const entries = this.currencyChanges
+      .list()
+      .filter((entry) => entry.objectApiName === objectApiName);
+    return entries.length > 0 ? { currenciesReplaced: entries } : {};
   }
 
   /** `RecordTypeId` as the target knows it, when the two orgs' record types were matched. */

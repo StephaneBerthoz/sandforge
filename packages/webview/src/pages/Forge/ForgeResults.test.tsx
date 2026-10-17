@@ -2332,6 +2332,33 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-results-picklists')).toBeNull();
   });
 
+  it('names the rows written in another currency and their amounts converted, and nothing for a run that wrote none', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      currenciesReplaced: [
+        {
+          objectApiName: 'Opportunity',
+          from: 'GBP',
+          to: 'USD',
+          chosenBy: 'corporate' as const,
+          rows: 1,
+          fields: ['Amount'],
+        },
+      ],
+    });
+    const { unmount } = render(<ForgeResults />);
+
+    expect(
+      screen.getAllByTestId('forge-results-currencies-row').map((row) => row.textContent),
+    ).toEqual([
+      "Opportunity — 1 row in GBP, written in USD, the target org's corporate currency — amounts converted at the source org's rates: Amount",
+    ]);
+    unmount();
+
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+    expect(screen.queryByTestId('forge-results-currencies')).toBeNull();
+  });
+
   it('lists the decisions the run applied, each with its rows, and none for a run that applied none', () => {
     mockResult = Object.assign(makeMockResult(), {
       decisionsApplied: [

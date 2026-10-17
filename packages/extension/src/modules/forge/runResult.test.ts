@@ -243,6 +243,25 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('picklistValuesChanged');
   });
 
+  it('keeps the rows the run wrote in another currency, for the results and the history', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const currenciesReplaced = [
+      {
+        objectApiName: 'Opportunity',
+        from: 'GBP',
+        to: 'USD',
+        chosenBy: 'corporate' as const,
+        rows: 1,
+        fields: ['Amount'],
+      },
+    ];
+
+    expect(forgeRunResult(summary({ currenciesReplaced }), GRAPH, run).currenciesReplaced).toEqual(
+      currenciesReplaced,
+    );
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('currenciesReplaced');
+  });
+
   it('says which fields the rows a validation rule refused went in without, only for a run that wrote some so', () => {
     const run = { startedAt: Date.now(), status: 'success' as const };
     const writtenWithoutFields = [

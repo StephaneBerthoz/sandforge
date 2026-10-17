@@ -11,6 +11,10 @@ import { RecordTypeMapper } from '../../sync/RecordTypeMapper.js';
 import { PicklistChangeTally, RecordTypePicklistReads } from './RecordTypePicklists.js';
 import type { WrittenWithoutFields } from './BatchWriter.js';
 import { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
+import {
+  CurrencyReplacementTally,
+  orgCurrenciesOf,
+} from '../../../core/common/recordCurrencies.js';
 
 const ORPHAN_ID = '001AP00ORPHAN12'; // 15 alnum — passes SF_RECORD_ID_RE
 
@@ -954,6 +958,68 @@ describe('OrphanExpander', () => {
       expect(vi.mocked(deps.insertRecords).mock.calls[0][2][0]).toMatchObject({
         Tier__c: 'Silver',
       });
+    });
+
+    it("writes a parent in a currency the target does not hold active in its corporate currency, its amounts converted, and counts it in the run's tally", async () => {
+      const currencyFields: FieldInfo[] = [
+        {
+          name: 'CurrencyIsoCode',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'picklist',
+          restrictedPicklist: true,
+          picklistValues: ['USD', 'EUR'],
+        },
+        {
+          name: 'AnnualRevenue',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'currency',
+          precision: 18,
+          scale: 0,
+        },
+      ];
+      const deps = makeDeps({
+        describeFields: vi
+          .fn<ExpanderDeps['describeFields']>()
+          .mockResolvedValue([...PARENT_FIELDS, ...currencyFields]),
+        queryRecords: vi
+          .fn<ExpanderDeps['queryRecords']>()
+          .mockResolvedValue([{ ...PARENT_ROW, CurrencyIsoCode: 'GBP', AnnualRevenue: 790 }]),
+      });
+      const currencyChanges = new CurrencyReplacementTally();
+      const { input } = makeInput(deps, {
+        currencies: async () => ({
+          source: orgCurrenciesOf([
+            { IsoCode: 'USD', ConversionRate: 1, IsCorporate: true },
+            { IsoCode: 'GBP', ConversionRate: 0.79 },
+          ])!,
+          target: orgCurrenciesOf([
+            { IsoCode: 'USD', ConversionRate: 1, IsCorporate: true },
+            { IsoCode: 'EUR', ConversionRate: 0.9 },
+          ])!,
+        }),
+        currencyChanges,
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      expect(vi.mocked(deps.insertRecords).mock.calls[0][2][0]).toMatchObject({
+        CurrencyIsoCode: 'USD',
+        AnnualRevenue: 1000,
+      });
+      expect(currencyChanges.list()).toEqual([
+        {
+          objectApiName: 'Account',
+          from: 'GBP',
+          to: 'USD',
+          chosenBy: 'corporate',
+          rows: 1,
+          fields: ['AnnualRevenue'],
+        },
+      ]);
     });
 
     it('leaves out of a parent a restricted value the target does not hold', async () => {

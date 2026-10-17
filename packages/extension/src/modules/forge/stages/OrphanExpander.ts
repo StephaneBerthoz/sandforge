@@ -70,6 +70,13 @@ import {
   type WrittenWithoutFields,
 } from './BatchWriter.js';
 import type { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
+import {
+  CURRENCY_FIELD,
+  currencyFieldsOf,
+  replaceRowCurrency,
+  type CurrencyReplacementTally,
+  type RunCurrencies,
+} from '../../../core/common/recordCurrencies.js';
 
 /**
  * Strict Salesforce record ID format (15 or 18 alphanumeric characters).
@@ -165,6 +172,15 @@ export interface OrphanExpansionInput {
   onRecordTypeNote?: (objectApiName: string, note: RecordTypeReadNote) => void;
   /** Where the picklist values a parent goes in without, as read, are counted: the run's tally. */
   picklistChanges?: PicklistChangeTally;
+  /**
+   * Both orgs' currencies, read once a run as for the run's own rows: a
+   * parent in a currency the target does not hold active goes in another, its
+   * amounts converted (`replaceRowCurrency`). Absent, its currency is checked
+   * as any picklist value is.
+   */
+  currencies?: () => Promise<RunCurrencies | undefined>;
+  /** Where a parent written in another currency is counted: the run's tally. */
+  currencyChanges?: CurrencyReplacementTally;
   /** Counts a parent written again without the fields the target refused it on. */
   onWrittenWithoutFields?: (objectApiName: string, written: WrittenWithoutFields) => void;
   /**
@@ -649,6 +665,27 @@ export class OrphanExpander {
       : undefined;
     for (const note of reads?.notes ?? []) input.onRecordTypeNote?.(objectName, note);
     const recordTypeId = cleaned['RecordTypeId'];
+    // Its currency, as a row's is, before the picklist check that would leave
+    // a currency the target does not hold active out of it.
+    const read = source[CURRENCY_FIELD];
+    const currencies =
+      input.currencies && written.has(CURRENCY_FIELD) && typeof read === 'string' && read !== ''
+        ? await input.currencies()
+        : undefined;
+    if (currencies) {
+      const change = replaceRowCurrency(
+        cleaned,
+        {
+          read,
+          currencyFields: currencyFieldsOf(sets.fields),
+          recordTypeDefault: recordTypeValuesOf(reads?.byRecordType, recordTypeId)?.picklists.get(
+            CURRENCY_FIELD,
+          )?.defaultValue,
+        },
+        currencies,
+      );
+      input.currencyChanges?.add(objectName, change);
+    }
     const changes = checkRowPicklists(
       cleaned,
       sets.picklistValuesByField,

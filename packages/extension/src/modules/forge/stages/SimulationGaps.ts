@@ -20,6 +20,7 @@ import type { FieldInfo } from '../ForgeExecutor.js';
 import { allowsControllingValue } from '../describeBounds.js';
 import { isPersonAccountRow } from '../../../core/common/platformRecords.js';
 import type { PicklistChange, PicklistField } from './RecordTypePicklists.js';
+import { CURRENCY_FIELD } from '../../../core/common/recordCurrencies.js';
 
 /** A gap as a detector finds it: its id and source are the collector's to give. */
 export type FoundGap = Omit<ForgeGap, 'id' | 'source'>;
@@ -163,8 +164,7 @@ export function picklistGapsOf(
   return found;
 }
 
-/** The field a record's currency is held in, in an org with several. */
-export const CURRENCY_FIELD = 'CurrencyIsoCode';
+export { CURRENCY_FIELD };
 
 /** One row about to be written, as the row checks read it. */
 export interface RowToCheck {
@@ -402,21 +402,51 @@ export function rowGapsOf(input: RowChecksInput, gaps: SimulationGaps): void {
   }
 }
 
+/** What the rows of a currency the target does not hold active go in, as a run writes them. */
+export interface CurrencyGapReplacement {
+  /** The currencies written in its place: the target's corporate one, or a record type's default. */
+  readonly to: readonly string[];
+  /** The currency fields whose amounts are converted into it. */
+  readonly converted: readonly string[];
+  /** Set when no rate converts it: the amounts go as read. */
+  readonly asRead: boolean;
+}
+
 /**
  * The gap of a currency code the target does not hold active, counted on the
- * rows that carry it: written without it, a record takes the running user's
- * currency, its amounts kept as they are.
+ * rows that carry it: the run writes them in another currency — the one
+ * `replacement` names, as the rows were cleaned — and converts their amounts
+ * into it (`core/common/recordCurrencies.ts`). A warning, as no row is
+ * refused for it; by default the value is replaced. Without `replacement` —
+ * a row of it was held back, or the target names no currency to put in its
+ * place — nothing is said of what the rows go in.
  */
-export function currencyGapOf(objectApiName: string, code: string, rows: number): FoundGap {
+export function currencyGapOf(
+  objectApiName: string,
+  code: string,
+  rows: number,
+  replacement?: CurrencyGapReplacement,
+): FoundGap {
   return {
     kind: 'currency_inactive',
-    severity: 'blocking',
+    severity: 'warning',
     objectApiName,
     field: CURRENCY_FIELD,
     value: code,
     rows,
+    ...(replacement && replacement.to.length > 0
+      ? {
+          detail: {
+            replacement: replacement.to.join(', '),
+            ...(replacement.converted.length > 0
+              ? { amountsConverted: [...replacement.converted] }
+              : {}),
+            ...(replacement.asRead ? { amountsAsRead: true } : {}),
+          },
+        }
+      : {}),
     decisions: decisionsOf('currency_inactive'),
-    defaultDecision: 'leave_empty',
+    defaultDecision: 'map_value',
   };
 }
 

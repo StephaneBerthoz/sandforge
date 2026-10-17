@@ -35,6 +35,14 @@ import {
 } from '../../core/metadata/recordTypeAvailability.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
+import {
+  CURRENCY_FIELD,
+  CurrencyReplacementTally,
+  currencyFieldsOf,
+  describeCurrencyReplaced,
+  replaceRowCurrency,
+  type RunCurrencies,
+} from '../../core/common/recordCurrencies.js';
 
 /** A Salesforce id, as a lookup holds one. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -115,6 +123,13 @@ export interface SyncWriteRun {
   sources: ReadonlyArray<Record<string, unknown> | undefined>;
   /** The record types of both orgs; absent, `RecordTypeId` goes as it was read. */
   recordTypes?: SyncRecordTypes;
+  /**
+   * Both orgs' currencies: a row in a currency the target does not hold
+   * active goes in its corporate currency, its amounts converted at the
+   * source's rates (`core/common/recordCurrencies.ts`). Absent, the row's
+   * currency goes as read.
+   */
+  currencies?: RunCurrencies;
 }
 
 /** A row held back before the write. */
@@ -154,7 +169,10 @@ export interface PreparedSyncRows {
   held: HeldRow[];
   /** The lookups at rows of the same write, set by a second write. */
   deferred: DeferredLookup[];
-  /** What was held back, one line per reason, counted. */
+  /**
+   * What was held back, one line per reason, counted; then the rows sent in
+   * another currency than they were read in, one line per currency.
+   */
   notes: string[];
 }
 
@@ -485,11 +503,31 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   prepared.deferred = prepared.deferred.filter(({ index }) => staged.has(index));
   prepared.held.sort((a, b) => a.index - b.index);
 
+  // A row in a currency the target does not hold active was refused for it,
+  // and written again without it, in the running user's currency with its
+  // amounts as read: it goes in the target's corporate currency, its amounts
+  // converted, and the simulation, which prepares the same rows, says so.
+  const currencies = config.operation === 'delete' ? undefined : run?.currencies;
+  const currencyFields =
+    currencies && target?.creatable.has(CURRENCY_FIELD)
+      ? currencyFieldsOf(target.fields ?? [])
+      : undefined;
+  const replaced = new CurrencyReplacementTally();
   for (const [index, { payload, settled }] of [...staged].sort(([a], [b]) => a - b)) {
+    if (currencies && currencyFields) {
+      const read = (run?.sources[index] ?? records[index])?.[CURRENCY_FIELD];
+      replaced.add(
+        objectApiName,
+        replaceRowCurrency(payload, { read, currencyFields }, currencies),
+      );
+    }
     prepared.payloads.push(payload);
     prepared.sentAt.push(index);
     prepared.settled.push(settled);
   }
-  prepared.notes = [...groups.values()].map(({ count, say }) => say(count));
+  prepared.notes = [
+    ...[...groups.values()].map(({ count, say }) => say(count)),
+    ...replaced.list().map((entry) => `${describeCurrencyReplaced(entry)}.`),
+  ];
   return prepared;
 }

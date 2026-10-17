@@ -128,6 +128,35 @@ describe('Step4_Review', () => {
     );
   });
 
+  it('says the currencies the target does not hold active, the one their records go in and the objects whose amounts are converted', () => {
+    render(
+      <Step4Review
+        {...defaultProps}
+        scope={{
+          maxDepth: 5,
+          maxObjects: 50,
+          selected: ['Opportunity'],
+          parents: [{ objectApiName: 'Account', records: 20 }],
+          leftEmpty: [],
+          standardNeeded: [],
+          currencies: {
+            notInTarget: ['GBP'],
+            writtenIn: 'USD',
+            objects: ['Account', 'Opportunity'],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('step4-scope-currencies').textContent).toBe(
+      i18n.t('autopilot.step4.scope.currencies', {
+        currencies: 'GBP',
+        writtenIn: 'USD',
+        objects: 'Account, Opportunity',
+      }),
+    );
+  });
+
   it('warns of a person object whose names, emails or phones no rule anonymizes', () => {
     render(
       <Step4Review

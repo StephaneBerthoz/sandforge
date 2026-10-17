@@ -3530,6 +3530,19 @@
       "replacedFirst": "ersetzt durch {{value}}, den ersten Wert, den der Datensatztyp {{recordType}} zulässt: Das Feld ist ein Pflichtfeld und hat dort keinen Standardwert",
       "leftOut": "weggelassen"
     },
+    "currencies": {
+      "title": "In einer anderen Währung geschrieben",
+      "hint": "Die Ziel-Org hat diese Währungen nicht aktiv, oder eine Entscheidung hat sie einer anderen zugeordnet: Die Zeilen wurden in einer anderen Währung geschrieben und ihre Beträge in diese umgerechnet.",
+      "rows_one": "{{count}} Zeile in {{from}}",
+      "rows_other": "{{count}} Zeilen in {{from}}",
+      "corporate": "in {{to}} geschrieben, der Unternehmenswährung der Ziel-Org",
+      "recordTypeDefault": "in {{to}} geschrieben, dem Standardwert ihres Datensatztyps",
+      "decision": "in {{to}} geschrieben, wie entschieden",
+      "converted": "Beträge zu den Kursen der Quell-Org umgerechnet: {{fields}}",
+      "convertedAtTargetRate": "Beträge zum Kurs der Quell-Org für {{from}} und dem der Ziel-Org für {{to}} umgerechnet: {{fields}}",
+      "notConverted": "Beträge wie gelesen geschrieben: Kein Kurs rechnet {{from}} in {{to}} um",
+      "noAmount": "kein Betrag umzurechnen"
+    },
     "contactPoints": {
       "title": "E-Mails und Telefonnummern",
       "numbersExhausted_one": "{{count}} Telefonnummer leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
@@ -3845,7 +3858,8 @@
         "reasonObjects": "über die {{objects}} Objekte hinaus, die ein Plan enthält",
         "reasonStandard": "ein Standardobjekt, das der Lauf nicht übernehmen sollte",
         "required": "ein Datensatz kann ohne ihn nicht geschrieben werden: Diese Datensätze werden abgelehnt",
-        "standardNeeded": "{{object}} wird übernommen, obwohl keine Standardobjekte angefordert wurden: {{field}} darf nicht leer bleiben."
+        "standardNeeded": "{{object}} wird übernommen, obwohl keine Standardobjekte angefordert wurden: {{field}} darf nicht leer bleiben.",
+        "currencies": "Währungen, die in der Ziel-Org nicht aktiv sind: {{currencies}}. Ein Datensatz in einer davon wird in {{writtenIn}} geschrieben, ihrer Unternehmenswährung, seine Beträge zu den Kursen der Quell-Org umgerechnet ({{objects}})."
       },
       "notCovered": "{{object}}: keine Anonymisierungsregel für {{missing}}. Diese Daten würden so kopiert, wie die Quelle sie enthält.",
       "personal": {

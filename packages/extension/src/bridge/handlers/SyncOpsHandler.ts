@@ -112,6 +112,7 @@ import {
 import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
 import { savedConfigIdMap, type SyncIdMapStore } from '../../modules/sync/SyncIdMap.js';
 import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
+import type { RunCurrencies } from '../../core/common/recordCurrencies.js';
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
 export type UnattendedSyncOrigin = Extract<
@@ -290,6 +291,8 @@ interface SyncReaders {
   describeTargetFields: (objectApiName: string) => Promise<TargetWriteFields>;
   /** Both orgs' record types, what `RecordTypeId` is mapped with: see `readSyncRecordTypes`. */
   recordTypes: () => Promise<SyncRecordTypes>;
+  /** Both orgs' currencies, what a row in one the target lacks is written in: see `readRunCurrencies`. */
+  currencies: () => Promise<RunCurrencies | undefined>;
   findInTarget: OrchestratorFindFn;
   /** What a delta configuration asks both orgs: see `SyncDelta`. */
   deltaReads: SyncDeltaReads;
@@ -920,6 +923,9 @@ export class SyncOpsHandler implements DomainHandler {
         describeTargetFields: readers.describeTargetFields,
         // Mapped as the run maps them.
         recordTypes: readers.recordTypes,
+        // A currency the target does not hold active replaced, and the
+        // amounts converted, as the run does it.
+        currencies: readers.currencies,
         // Read as the run reads them; a simulation records no watermark.
         deltaStore: this.deltaStoreFor(),
         deltaReads: readers.deltaReads,
@@ -1337,6 +1343,15 @@ export class SyncOpsHandler implements DomainHandler {
       const { readSyncRecordTypes } = await import('../../modules/sync/syncRecordTypes.js');
       return readSyncRecordTypes(fileOrg(sourceConn).pages, fileOrg(targetConn).pages);
     };
+    // Both orgs' currencies, read by the run before the first object whose
+    // rows carry one.
+    const currencies = async (): Promise<RunCurrencies | undefined> => {
+      const { readRunCurrencies } = await import('../../core/common/recordCurrencies.js');
+      return readRunCurrencies(
+        async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
+        async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
+      );
+    };
 
     return {
       sourceConn,
@@ -1346,6 +1361,7 @@ export class SyncOpsHandler implements DomainHandler {
       countSource,
       describeTargetFields,
       recordTypes,
+      currencies,
       findInTarget,
       deltaReads,
       files,
@@ -1805,6 +1821,9 @@ export class SyncOpsHandler implements DomainHandler {
         countSource: readers.countSource,
         // Both orgs' record types, a record's mapped to the target's.
         recordTypes: readers.recordTypes,
+        // Both orgs' currencies: a row in one the target does not hold active
+        // goes in its corporate currency, its amounts converted.
+        currencies: readers.currencies,
         // The controller the registry aborts: Live Operations' Cancel, and
         // the Sync page's.
         signal: abortController.signal,

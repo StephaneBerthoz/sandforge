@@ -3,6 +3,7 @@ import type { SyncObjectConfig } from '@sandforge/shared';
 import { SyncRunLinks, prepareSyncRows } from './syncRowPreparation.js';
 import { targetWriteFieldsOf } from './targetWriteFields.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
+import { orgCurrenciesOf, type RunCurrencies } from '../../core/common/recordCurrencies.js';
 
 /** Fake ids of the source org's records. */
 const SOURCE_ACCOUNT_1 = '001000000000001AAA';
@@ -474,6 +475,72 @@ describe('prepareSyncRows — lookups at rows of the same write', () => {
       Id: SOURCE_ACCOUNT_1,
       ParentId: SOURCE_ACCOUNT_2,
     });
+  });
+});
+
+describe('prepareSyncRows — currencies', () => {
+  /** The target's opportunity in an org with several currencies, as its describe gives it. */
+  const OPPORTUNITY_TARGET = targetWriteFieldsOf({
+    name: 'Opportunity',
+    fields: [
+      { name: 'Id', createable: false, type: 'id' },
+      { name: 'Name', createable: true, type: 'string' },
+      { name: 'CurrencyIsoCode', createable: true, type: 'picklist' },
+      { name: 'Amount', createable: true, type: 'currency', precision: 18, scale: 2 },
+      { name: 'ExpectedRevenue', createable: false, type: 'currency', precision: 18, scale: 2 },
+    ],
+  });
+  /** The source holds GBP at 0.79 to its corporate USD; the target USD and EUR, no GBP. */
+  const CURRENCIES: RunCurrencies = {
+    source: orgCurrenciesOf([
+      { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+      { IsoCode: 'EUR', ConversionRate: 0.92, IsActive: true },
+      { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true },
+    ])!,
+    target: orgCurrenciesOf([
+      { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+      { IsoCode: 'EUR', ConversionRate: 0.9, IsActive: true },
+    ])!,
+  };
+  const deal = (n: number, currency: string, amount: number) => ({
+    Id: `006000000000${n}00AAA`,
+    Name: `Deal ${n}`,
+    CurrencyIsoCode: currency,
+    Amount: amount,
+  });
+
+  it("sends a row in a currency the target lacks in its corporate currency, its amounts converted at the source's rates, and says so", () => {
+    const records = [deal(1, 'GBP', 5000.55), deal(2, 'EUR', 100)];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records,
+      target: OPPORTUNITY_TARGET,
+      run: { links: new SyncRunLinks(), sources: records, currencies: CURRENCIES },
+    });
+
+    expect(prepared.payloads).toEqual([
+      { Name: 'Deal 1', CurrencyIsoCode: 'USD', Amount: 6329.81 },
+      { Name: 'Deal 2', CurrencyIsoCode: 'EUR', Amount: 100 },
+    ]);
+    expect(prepared.notes).toEqual([
+      "1 row(s) in GBP written in USD, the target's corporate currency, GBP not being active " +
+        "there: amounts converted at the source's rates (Amount).",
+    ]);
+  });
+
+  it('sends the currency as read when the run has no currencies of the two orgs', () => {
+    const records = [deal(1, 'GBP', 5000.55)];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records,
+      target: OPPORTUNITY_TARGET,
+      run: { links: new SyncRunLinks(), sources: records },
+    });
+
+    expect(prepared.payloads[0]).toMatchObject({ CurrencyIsoCode: 'GBP', Amount: 5000.55 });
+    expect(prepared.notes).toEqual([]);
   });
 });
 

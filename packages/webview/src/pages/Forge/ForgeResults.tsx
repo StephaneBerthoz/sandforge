@@ -56,6 +56,7 @@ import { ForgeSaveTemplate } from './ForgeSaveTemplate';
 import { ForgeDecisionsResult } from './ForgeDecisionsResult';
 import { ForgeFilesResult } from './ForgeFilesResult';
 import { ForgePicklistsResult } from './ForgePicklistsResult';
+import { ForgeCurrenciesResult } from './ForgeCurrenciesResult';
 import { ForgeContactPointsResult } from './ForgeContactPointsResult';
 import { estimatedApiCallsOf } from './forgeApiCalls';
 import { ForgeResultsRemoval } from './ForgeResultsRemoval';
@@ -1241,6 +1242,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           per object and field with why. */}
       {result?.picklistValuesChanged && result.picklistValuesChanged.length > 0 && (
         <ForgePicklistsResult changes={result.picklistValuesChanged} />
+      )}
+      {/* Rows in a currency the target does not hold active went in another,
+          their amounts converted into it: said per object, with the fields. */}
+      {result?.currenciesReplaced && result.currenciesReplaced.length > 0 && (
+        <ForgeCurrenciesResult entries={result.currenciesReplaced} />
       )}
       {/* Refused by a validation rule of the target on the fields it named,
           by a restricted picklist on their value, or by the lookup filter of
