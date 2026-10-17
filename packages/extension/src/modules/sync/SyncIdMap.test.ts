@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import {
   SYNC_LINKS_DIR,
   SyncIdMap,
@@ -166,9 +166,11 @@ function memoryDeps(
     rm: async (filePath) => {
       files.delete(filePath);
     },
+    // The module joins its paths with the platform's separator, as this does:
+    // a `/` here listed nothing on a Windows runner, and nothing was compacted.
     listFiles: async (dirPath) =>
       [...files]
-        .filter(([filePath]) => filePath.startsWith(`${dirPath}/`))
+        .filter(([filePath]) => filePath.startsWith(`${dirPath}${sep}`))
         .map(([filePath, text]) => ({
           name: filePath.slice(dirPath.length + 1),
           size: Buffer.byteLength(text),
