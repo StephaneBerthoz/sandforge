@@ -318,6 +318,13 @@ export interface MissingRequiredField {
    * the field unique, or it is the object's name. Absent otherwise.
    */
   distinct?: 'unique' | 'name';
+  /**
+   * The kind of account the field is required of — a business account's name,
+   * a person account's last name (`accountKindRequiring`): only the records
+   * of that kind are given its default. Absent for a field every record of
+   * the object is required to hold.
+   */
+  accountKind?: 'business' | 'person';
 }
 
 /** Per-object alignment outcome. */

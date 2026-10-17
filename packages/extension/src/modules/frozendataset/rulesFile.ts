@@ -12,6 +12,11 @@
  * explicit review: keeping a field in clear text is never automatic.
  */
 
+import {
+  accountKindOf,
+  accountKindRequiring,
+  heldToAccountKind,
+} from '../../core/common/platformRecords.js';
 import type { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { PSEUDONYM_GENERATORS, type PseudonymGenerator } from './DeterministicPseudonymizer.js';
 import type { ExtractedDataset } from './types.js';
@@ -262,6 +267,13 @@ export function resolveGenerator(
  * nothing that keeps a field without a rule keeps it. A rule the file declares
  * still wins.
  *
+ * A required picklist is kept too, restricted or not: the record cannot be
+ * written without one of its values, and its values are the schema's. Run
+ * into an org with person accounts and multiple currencies, an opportunity's
+ * stage — a standard picklist the platform does not restrict — was cleared,
+ * and the extraction asked a default for it that would have given every
+ * opportunity of the dataset the same stage.
+ *
  * @param schema - The fields of each object the dataset holds, by object.
  * @param detector - The personal data detector the session runs.
  */
@@ -287,7 +299,7 @@ export function withSchemaDefaults(
         personal.add(key);
       } else if (
         field.type === 'picklist' &&
-        field.restrictedPicklist === true &&
+        (field.restrictedPicklist === true || field.nillable === false) &&
         field.compoundFieldName === undefined
       ) {
         kept.add(key);
@@ -334,6 +346,11 @@ export function keptWithoutARule(
  * rules file could have settled before the extraction it took to find them. A
  * lookup is left out: what it points at is settled by the load, which links
  * the record in the dataset or stands a placeholder in for one outside it.
+ *
+ * An account's name is required of a business account and its last name of a
+ * person account, which the describe of an org with person accounts does not
+ * say (`accountKindRequiring`): each is named when a record of that kind holds
+ * a value the rules clear.
  */
 export function requiredFieldsLeftEmpty(
   extracted: Pick<ExtractedDataset, 'objects'>,
@@ -344,10 +361,11 @@ export function requiredFieldsLeftEmpty(
   for (const objectData of extracted.objects) {
     const fields = schema.get(objectData.objectApiName) ?? [];
     for (const field of fields) {
+      const ofKind = accountKindRequiring(objectData.objectApiName, field.name);
       if (
         field.name === 'Id' ||
         field.createable === false ||
-        field.nillable !== false ||
+        (field.nillable !== false && ofKind === undefined) ||
         field.defaultedOnCreate === true ||
         field.type === 'reference' ||
         (field.referenceTo?.length ?? 0) > 0
@@ -356,6 +374,12 @@ export function requiredFieldsLeftEmpty(
       }
       if (resolveGenerator(rules, objectData.objectApiName, field.name) !== 'clear') continue;
       const held = objectData.records.some((record) => {
+        if (
+          ofKind !== undefined &&
+          !heldToAccountKind(ofKind, accountKindOf(record.fields, false))
+        ) {
+          return false;
+        }
         const value = record.fields[field.name];
         return value !== undefined && value !== null && value !== '';
       });

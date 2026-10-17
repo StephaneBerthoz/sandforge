@@ -12,6 +12,8 @@ import {
   existingSellingModelOptions,
   giveLinkedRelationsTheirFlags,
   accountKindOf,
+  accountKindRequiring,
+  heldToAccountKind,
   isPersonAccountField,
   isPersonAccountRow,
   leftOutForAccountKind,
@@ -347,6 +349,24 @@ describe('person accounts', () => {
       expect(isPersonAccountField('Hobby__pc')).toBe(true);
       expect(isPersonAccountField('Personal_Note__c')).toBe(false);
       expect(isPersonAccountField('Name')).toBe(false);
+    });
+  });
+
+  describe('accountKindRequiring', () => {
+    it("requires a business account's name and a person account's last name, and nothing else of one kind", () => {
+      expect(accountKindRequiring('Account', 'Name')).toBe('business');
+      expect(accountKindRequiring('Account', 'LastName')).toBe('person');
+      expect(accountKindRequiring('Account', 'Phone')).toBeUndefined();
+      expect(accountKindRequiring('Contact', 'LastName')).toBeUndefined();
+    });
+
+    it('holds a person account the target takes as a business one to the name, as a business account', () => {
+      expect(heldToAccountKind('business', 'business')).toBe(true);
+      expect(heldToAccountKind('business', 'personAsBusiness')).toBe(true);
+      expect(heldToAccountKind('business', 'person')).toBe(false);
+      expect(heldToAccountKind('person', 'person')).toBe(true);
+      expect(heldToAccountKind('person', 'personAsBusiness')).toBe(false);
+      expect(heldToAccountKind('person', 'business')).toBe(false);
     });
   });
 

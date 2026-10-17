@@ -48,6 +48,20 @@ export const PERSONA_FIELD_MAP: Record<string, keyof AnonymizedPersona> = {
   Company: 'company',
   CompanyName: 'company',
   Name: 'company',
+  // A person account holds its contact's email, phones and mailing address
+  // under these names: made up as a contact's are, an email and an address of
+  // the same persona as the name, where an opaque token would be refused by
+  // an email field.
+  PersonEmail: 'email',
+  PersonMobilePhone: 'phone',
+  PersonHomePhone: 'phone',
+  PersonOtherPhone: 'phone',
+  PersonMailingStreet: 'address',
+  PersonOtherStreet: 'address',
+  PersonMailingCity: 'city',
+  PersonOtherCity: 'city',
+  PersonMailingPostalCode: 'postalCode',
+  PersonOtherPostalCode: 'postalCode',
 };
 
 /**

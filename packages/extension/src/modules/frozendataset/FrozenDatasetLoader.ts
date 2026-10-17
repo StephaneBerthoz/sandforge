@@ -96,6 +96,7 @@ import {
   existingActivityRelations,
   existingSellingModelOptions,
   giveLinkedRelationsTheirFlags,
+  heldToAccountKind,
   isPersonAccountRow,
   leftToThePlatformNote,
   lookupsThePlatformFills,
@@ -109,6 +110,7 @@ import {
   tasksWrittenWithEmails,
   waitsForItsTask,
   withTheRelationItIs,
+  type AccountKind,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
@@ -455,6 +457,8 @@ interface PreparedLoad {
   lostObjects: Map<string, PerObjectLoadResult>;
   /** Whether the target has person accounts; unknown when the dataset holds no account. */
   targetHasPersonAccounts: boolean | undefined;
+  /** The kind each account of the dataset goes in as, by referenceId: see `personAccountsOf`. */
+  accountKindOf: (referenceId: string) => AccountKind;
   /** The placeholders and defaults the required fields take. */
   plans: RequiredFieldPlan[];
 }
@@ -964,6 +968,48 @@ function personContactsOf(
   return contacts;
 }
 
+/**
+ * The person accounts of a dataset, by referenceId: the accounts the sidecar
+ * names with their contact, the accounts the dataset flags a person
+ * account's, and the accounts that hold a last name.
+ *
+ * The flag (`IsPersonAccount`) is cleared by the rules unless one keeps it,
+ * as every field no rule names is: a frozen dataset of an org with person
+ * accounts held it empty on every account. A last name tells them apart all
+ * the same: a business account holds none — null in the source, and null in
+ * the dataset, which leaves nulls as they are — and a person account always
+ * holds one, which the rules clear to an empty value or make up.
+ */
+function personAccountsOf(dataset: FrozenDataset): Set<string> {
+  const persons = new Set<string>();
+  for (const { accountReferenceId } of dataset.personContactSidecar ?? []) {
+    if (accountReferenceId !== '') persons.add(accountReferenceId);
+  }
+  for (const record of dataset.objects.find((o) => o.objectApiName === ACCOUNT)?.records ?? []) {
+    const lastName = record.fields.LastName;
+    if (isPersonAccountRow(record.fields) || (lastName !== null && lastName !== undefined)) {
+      persons.add(record.referenceId);
+    }
+  }
+  return persons;
+}
+
+/**
+ * Of the records of a required field's object, those held to it: all of them,
+ * but for a field required of one kind of account only — a business
+ * account's name, a person account's last name — the accounts of that kind.
+ */
+function heldTo<R extends { referenceId: string }>(
+  missing: MissingRequiredField,
+  records: readonly R[],
+  accountKindOf: (referenceId: string) => AccountKind,
+): R[] {
+  const ofKind = missing.accountKind;
+  return ofKind === undefined
+    ? [...records]
+    : records.filter((r) => heldToAccountKind(ofKind, accountKindOf(r.referenceId)));
+}
+
 export class FrozenDatasetLoader {
   private readonly config: FrozenLoadConfig;
   private readonly sasGuard: SasPathGuard;
@@ -1350,6 +1396,17 @@ export class FrozenDatasetLoader {
      * Unknown until the accounts are described.
      */
     let targetHasPersonAccounts: boolean | undefined;
+    /**
+     * The kind each account of the dataset goes in as: a person account as a
+     * business one where the target has none.
+     */
+    const personAccounts = personAccountsOf(working);
+    const accountKindOf = (referenceId: string): AccountKind =>
+      personAccounts.has(referenceId)
+        ? targetHasPersonAccounts === false
+          ? 'personAsBusiness'
+          : 'person'
+        : 'business';
     /** Per object, its required lookups at an object `excludedObjects` names: see `heldForAnExcludedParent`. */
     const lookupsAtExcluded = new Map<string, ExcludedParentLookup[]>();
     for (const objectData of loading.objects) {
@@ -1448,6 +1505,7 @@ export class FrozenDatasetLoader {
         resolvedRecordTypes,
         ruleFor: (obj, field) => this.picklistRuleFor(obj, field),
         linked: reused,
+        ...(objectApiName === ACCOUNT ? { accountKindOf } : {}),
       });
       alignment.objectResults.push(result);
       alignment.removals.push(...result.removals);
@@ -1498,7 +1556,7 @@ export class FrozenDatasetLoader {
         (r) => !reused.has(r.referenceId),
       );
       result.missingRequired = result.missingRequired.filter((missing) =>
-        written.some((r) => leftEmpty(r.fields[missing.field])),
+        heldTo(missing, written, accountKindOf).some((r) => leftEmpty(r.fields[missing.field])),
       );
     }
 
@@ -1553,6 +1611,7 @@ export class FrozenDatasetLoader {
       fixedAtInsert,
       lostObjects,
       targetHasPersonAccounts,
+      accountKindOf,
       plans,
     };
   }
@@ -1590,6 +1649,7 @@ export class FrozenDatasetLoader {
       fixedAtInsert,
       lostObjects,
       targetHasPersonAccounts,
+      accountKindOf,
       plans,
     } = await this.prepare(options, emit, running);
 
@@ -1853,7 +1913,7 @@ export class FrozenDatasetLoader {
         } else {
           this.applyScalarDefault(
             plan.missing,
-            written(plan.missing.objectApiName),
+            heldTo(plan.missing, written(plan.missing.objectApiName), accountKindOf),
             requiredDefaults,
             ranks,
           );
@@ -3894,7 +3954,8 @@ export class FrozenDatasetLoader {
         const key = `${missing.objectApiName}.${missing.field}`;
         if (!missing.isLookup) {
           if (this.config.requiredFieldDefaults?.[key] === undefined) {
-            gaps.push(`requiredFieldDefaults["${key}"]: a value for this required field`);
+            const of = missing.accountKind ? ` of a ${missing.accountKind} account` : '';
+            gaps.push(`requiredFieldDefaults["${key}"]: a value for this required field${of}`);
           } else {
             plans.push({ kind: 'default', missing });
           }
@@ -5139,7 +5200,11 @@ function loadPlanOf(
   const defaultOf = (
     missing: MissingRequiredField,
   ): FrozenLoadPlanInfo['requiredDefaults'][number] => {
-    const filled = filledIn(missing.objectApiName, missing.field);
+    const filled = heldTo(
+      missing,
+      filledIn(missing.objectApiName, missing.field),
+      prepared.accountKindOf,
+    );
     const declared = context.requiredFieldDefaults[`${missing.objectApiName}.${missing.field}`];
     const perRecord = defaultPerRecord(declared, missing.distinct);
     const first = filled[0];

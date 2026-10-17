@@ -539,11 +539,14 @@ describe('FrozenDatasetLoader, person accounts', () => {
 
   it('says a contact it sent as one of its own and the target refused is in the target neither way', async () => {
     const dataset = personAccountDataset();
+    // A last name of its own: the person account goes in by its last name,
+    // its name being the platform's, and is not the one refused.
+    dataset.objects[1].records[0].fields = { LastName: 'Doe-contact', AccountId: 'Account-000001' };
     const calls: DmlCall[] = [];
     const progress: FrozenLoadProgressEvent[] = [];
     const deps = makeDeps({
       dataset,
-      writer: makeWriter(calls, ['Doe']),
+      writer: makeWriter(calls, ['Doe-contact']),
       queryImpl: platformContacts({}),
     });
 
@@ -572,7 +575,7 @@ describe('FrozenDatasetLoader, person accounts', () => {
       {
         objectApiName: 'Contact',
         referenceId: 'Contact-000001',
-        errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Doe'],
+        errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Doe-contact'],
       },
     ]);
     expect(report.status).toBe('completed-with-errors');
@@ -957,5 +960,180 @@ describe('FrozenDatasetLoader, person accounts', () => {
     const [load] = await recordedLoads(deps.sasDir);
     expect(load.personContacts).toEqual({ 'Contact-000001': 'Account-000001' });
     expect(loadRecordsInfo(load).linked).toBe(0);
+  });
+});
+
+describe('FrozenDatasetLoader, the name of an account of either kind', () => {
+  /**
+   * A business account and a person account as a dataset of an org with
+   * person accounts holds them: the rules cleared every name and the flag
+   * that tells them apart; the business account holds no last name, the
+   * person account one the rules cleared or made up.
+   */
+  function accountsOfBothKinds(person: Record<string, unknown> = {}): FrozenDataset {
+    return {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Account',
+          records: [
+            {
+              referenceId: 'Account-000001',
+              fields: { Name: '', FirstName: null, LastName: null, IsPersonAccount: '' },
+            },
+            {
+              referenceId: 'Account-000002',
+              fields: {
+                Name: '',
+                FirstName: 'Ada',
+                LastName: 'Example',
+                IsPersonAccount: '',
+                ...person,
+              },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    };
+  }
+
+  /**
+   * The accounts of an org with person accounts, as its describe gives them:
+   * neither the name nor the last name required, the flag not createable.
+   */
+  const PERSON_ACCOUNT_TARGET: Record<string, TargetObjectDescribe> = {
+    Account: {
+      name: 'Account',
+      fields: [
+        {
+          name: 'Name',
+          type: 'string',
+          createable: true,
+          nillable: true,
+          defaultedOnCreate: false,
+        },
+        {
+          name: 'FirstName',
+          type: 'string',
+          createable: true,
+          nillable: true,
+          defaultedOnCreate: false,
+        },
+        {
+          name: 'LastName',
+          type: 'string',
+          createable: true,
+          nillable: true,
+          defaultedOnCreate: false,
+        },
+        {
+          name: 'IsPersonAccount',
+          type: 'boolean',
+          createable: false,
+          nillable: false,
+          defaultedOnCreate: true,
+        },
+        {
+          name: 'PersonContactId',
+          type: 'reference',
+          referenceTo: ['Contact'],
+          createable: false,
+          nillable: true,
+          defaultedOnCreate: false,
+        },
+      ],
+    },
+  };
+
+  it("gives a business account whose name the rules cleared the declared default, and a person account none, its name being the platform's", async () => {
+    // Run into an org with person accounts, the describe called no name
+    // required, the declared default was ignored, and every business account
+    // was refused "REQUIRED_FIELD_MISSING: Required fields are missing: [Name]".
+    const dataset = accountsOfBothKinds();
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes: PERSON_ACCOUNT_TARGET,
+      writer: makeWriter(calls),
+      config: { requiredFieldDefaults: { 'Account.Name': 'Frozen account' } },
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(insertedOf(calls, 'Account')).toEqual([
+      { Name: 'Frozen account' },
+      { FirstName: 'Ada', LastName: 'Example' },
+    ]);
+    expect(report.requiredDefaults).toEqual([
+      { objectApiName: 'Account', field: 'Name', value: 'Frozen account', affectedRecords: 1 },
+    ]);
+    expect(report.status).toBe('completed');
+  });
+
+  it('counts in the preview only the business accounts a default for the name fills', async () => {
+    const dataset = accountsOfBothKinds();
+    const deps = makeDeps({
+      dataset,
+      describes: PERSON_ACCOUNT_TARGET,
+      writer: makeWriter([]),
+      config: { requiredFieldDefaults: { 'Account.Name': 'Frozen account' } },
+    });
+
+    const plan = await new FrozenDatasetLoader(deps).planLoad(makeOptions(deps, dataset));
+
+    expect(plan.requiredDefaults).toEqual([
+      { objectApiName: 'Account', field: 'Name', affectedRecords: 1 },
+    ]);
+  });
+
+  it("asks a default for a business account's name and a person account's last name the rules cleared, writing nothing", async () => {
+    const dataset = accountsOfBothKinds({ LastName: '' });
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes: PERSON_ACCOUNT_TARGET,
+      writer: makeWriter(calls),
+    });
+
+    await expect(new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset))).rejects.toThrow(
+      /requiredFieldDefaults\["Account\.Name"\]: a value for this required field of a business account[\s\S]*requiredFieldDefaults\["Account\.LastName"\]: a value for this required field of a person account/,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("gives a person account's last name its default, and a business account none", async () => {
+    const dataset = accountsOfBothKinds({ LastName: '' });
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes: PERSON_ACCOUNT_TARGET,
+      writer: makeWriter(calls),
+      config: {
+        requiredFieldDefaults: { 'Account.Name': 'Frozen account', 'Account.LastName': 'Frozen' },
+      },
+    });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(insertedOf(calls, 'Account')).toEqual([
+      { Name: 'Frozen account' },
+      { FirstName: 'Ada', LastName: 'Frozen' },
+    ]);
+  });
+
+  it('sends a person account without the name a rule made up for it, and a business account with it', async () => {
+    const dataset = accountsOfBothKinds({ Name: 'Made Up Name' });
+    dataset.objects[0].records[0].fields.Name = 'Made Up Company';
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({ dataset, describes: PERSON_ACCOUNT_TARGET, writer: makeWriter(calls) });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(insertedOf(calls, 'Account')).toEqual([
+      { Name: 'Made Up Company' },
+      { FirstName: 'Ada', LastName: 'Example' },
+    ]);
   });
 });

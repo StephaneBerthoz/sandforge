@@ -914,7 +914,7 @@ describe('AutopilotExecutor — a record the target already holds', () => {
     Contact: [{ Id: 'conSrc', LastName: 'Doe', AccountId: 'accSrc' }],
   };
 
-  /** Account refused as the target wills, then its contact written. */
+  /** Account refused as the target wills, then its contact written, unless held back with it. */
   async function runWith(accountOutcome: SaveOutcome) {
     const deps = makeDeps({
       query: sourceOf(rows),
@@ -931,7 +931,7 @@ describe('AutopilotExecutor — a record the target already holds', () => {
       [],
       countsOf(rows),
     );
-    const contactPayload = vi.mocked(deps.insert).mock.calls[1][1][0];
+    const contactPayload = vi.mocked(deps.insert).mock.calls[1]?.[1][0];
     return { result, contactPayload };
   }
 
@@ -964,7 +964,7 @@ describe('AutopilotExecutor — a record the target already holds', () => {
     expect(contactPayload['AccountId']).toBe(ACCOUNT_18);
   });
 
-  it('keeps a duplicate the target hides behind <unknown> refused, and its children unlinked', async () => {
+  it('keeps a duplicate the target hides behind <unknown> refused, and its children held back with it', async () => {
     const { result, contactPayload } = await runWith(
       refused(
         'DUPLICATE_VALUE',
@@ -972,20 +972,22 @@ describe('AutopilotExecutor — a record the target already holds', () => {
       ),
     );
 
-    expect(contactPayload['AccountId']).toBeNull();
+    expect(contactPayload).toBeUndefined();
     expect(result.objectOutcomes?.['Account']).toMatchObject({ linked: 0, failed: 1 });
     expect(result.objectOutcomes?.['Account']?.refusals[0].statusCode).toBe('DUPLICATE_VALUE');
+    expect(result.objectOutcomes?.['Contact']?.refusals[0].statusCode).toBe('PARENT_REFUSED');
   });
 
   it('does not link to a record of another object the refusal names', async () => {
-    const { contactPayload } = await runWith(
+    const { result, contactPayload } = await runWith(
       refused(
         'DUPLICATE_VALUE',
         `duplicate value found: ExternalKey__c duplicates value on record with id: ${CONTACT_18}`,
       ),
     );
 
-    expect(contactPayload['AccountId']).toBeNull();
+    expect(contactPayload).toBeUndefined();
+    expect(result.objectOutcomes?.['Account']).toMatchObject({ linked: 0, failed: 1 });
   });
 
   it('finds a duplicate the target does not name by its natural key', async () => {
@@ -2755,5 +2757,321 @@ describe('AutopilotExecutor — the parents a plan reads by id', () => {
       ),
     ).rejects.toThrow('no read by id');
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('AutopilotExecutor — accounts of both kinds', () => {
+  /** Fake record type ids of the target org. */
+  const PERSON_TYPE = '012Fk00000PeRsNIAV';
+  const BUSINESS_TYPE = '012Fk00000BuSiNIAV';
+
+  /** The target's Account types for the running user: the business one is the default. */
+  const ACCOUNT_TYPES = [
+    {
+      recordTypeId: PERSON_TYPE,
+      developerName: 'PersonAccount',
+      name: 'Person Account',
+      available: true,
+      active: true,
+      master: false,
+      defaultRecordTypeMapping: false,
+    },
+    {
+      recordTypeId: BUSINESS_TYPE,
+      developerName: 'Business',
+      name: 'Business',
+      available: true,
+      active: true,
+      master: false,
+      defaultRecordTypeMapping: true,
+    },
+  ];
+
+  /** What an org with person accounts lets an insert of an account carry. */
+  const CREATABLE = new Set([
+    'Name',
+    'FirstName',
+    'LastName',
+    'Salutation',
+    'PersonEmail',
+    'Phone',
+    'RecordTypeId',
+  ]);
+
+  /** A business account as `SELECT FIELDS(ALL)` reads it in an org with person accounts. */
+  const business = {
+    Id: 'accBusiness',
+    Name: 'Acme',
+    FirstName: null,
+    LastName: null,
+    Salutation: null,
+    PersonEmail: null,
+    Phone: '0100000000',
+    IsPersonAccount: false,
+    RecordTypeId: BUSINESS_TYPE,
+  };
+  /** A person account, with the name the platform computed for it. */
+  const person = {
+    Id: 'accPerson',
+    Name: 'Ada Example',
+    FirstName: 'Ada',
+    LastName: 'Example',
+    Salutation: 'Ms.',
+    PersonEmail: 'ada@example.invalid',
+    Phone: null,
+    IsPersonAccount: true,
+    RecordTypeId: PERSON_TYPE,
+  };
+
+  /** Run one plan of accounts, against a target with person accounts unless told otherwise. */
+  async function sent(
+    rows: Record<string, unknown>[],
+    target: { personAccounts?: boolean } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const insert = vi.fn<InsertFn>(async (_name, records) =>
+      written(...records.map((_, i) => `001T${i}`)),
+    );
+    const deps = makeDeps({
+      query: sourceOf({ Account: rows }),
+      insert,
+      describeCreateableFields: async () => CREATABLE,
+      describeLookups: async () =>
+        target.personAccounts === false
+          ? [lookup('OwnerId', ['User'])]
+          : [
+              lookup('OwnerId', ['User']),
+              lookup('PersonContactId', ['Contact'], { createable: false, updateable: false }),
+            ],
+      describeRecordTypes: async () => ACCOUNT_TYPES,
+      queryTarget: async (soql) =>
+        soql.includes('IsPersonType = true') ? [{ Id: PERSON_TYPE }] : [],
+      batchSize: 200,
+    });
+    await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [],
+      [],
+      countsOf({ Account: rows }),
+    );
+    return vi.mocked(insert).mock.calls.flatMap(([, records]) => records);
+  }
+
+  it('sends a business account without the fields only a person account holds, and a person account without its name', async () => {
+    // Run into an org with person accounts, every business account went with
+    // its empty first and last names and salutation, every person account
+    // with its name, and the target refused all twenty.
+    const [businessSent, personSent] = await sent([business, person]);
+
+    expect(Object.keys(businessSent).sort()).toEqual(['Id', 'Name', 'Phone', 'RecordTypeId']);
+    expect(Object.keys(personSent).sort()).toEqual([
+      'FirstName',
+      'Id',
+      'LastName',
+      'PersonEmail',
+      'Phone',
+      'RecordTypeId',
+      'Salutation',
+    ]);
+  });
+
+  it('sends a person account as a business one, with its name, to a target without person accounts', async () => {
+    const [personSent] = await sent([person], { personAccounts: false });
+
+    expect(personSent['Name']).toBe('Ada Example');
+    expect(personSent).not.toHaveProperty('FirstName');
+    expect(personSent).not.toHaveProperty('PersonEmail');
+  });
+
+  it('sends a person account as a business one when the record type it goes in with is a business type', async () => {
+    const [personSent] = await sent([{ ...person, RecordTypeId: BUSINESS_TYPE }]);
+
+    expect(personSent['Name']).toBe('Ada Example');
+    expect(personSent).not.toHaveProperty('LastName');
+  });
+
+  it("sends a person account as one when the target cannot say which of its types are a person account's", async () => {
+    const insert = vi.fn<InsertFn>(async (_name, records) =>
+      written(...records.map((_, i) => `001T${i}`)),
+    );
+    const deps = makeDeps({
+      query: sourceOf({ Account: [person] }),
+      insert,
+      describeCreateableFields: async () => CREATABLE,
+      describeRecordTypes: async () => ACCOUNT_TYPES,
+      queryTarget: async () => {
+        throw new Error('No such column IsPersonType');
+      },
+      batchSize: 200,
+    });
+
+    await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [],
+      [],
+      countsOf({ Account: [person] }),
+    );
+
+    const personSent = vi.mocked(insert).mock.calls[0][1][0];
+    expect(personSent).not.toHaveProperty('Name');
+    expect(personSent['LastName']).toBe('Example');
+  });
+});
+
+describe('AutopilotExecutor — a record whose parent the run could not write', () => {
+  const accountEdge = makeEdge({
+    from: 'Account' as ApiName,
+    to: 'Opportunity' as ApiName,
+    fieldApiName: 'AccountId',
+  });
+  const lineEdge = makeEdge({
+    from: 'Opportunity' as ApiName,
+    to: 'OpportunityLineItem' as ApiName,
+    fieldApiName: 'OpportunityId',
+    required: true,
+  });
+  const rows = {
+    Account: [
+      { Id: 'accRefused', Name: 'Refused' },
+      { Id: 'accWritten', Name: 'Written' },
+    ],
+    Opportunity: [
+      { Id: 'oppOfRefused', Name: 'Deal A', AccountId: 'accRefused' },
+      { Id: 'oppOfWritten', Name: 'Deal B', AccountId: 'accWritten' },
+      { Id: 'oppAlone', Name: 'Deal C', AccountId: null },
+    ],
+    OpportunityLineItem: [
+      { Id: 'lineOfHeld', OpportunityId: 'oppOfRefused' },
+      { Id: 'lineOfWritten', OpportunityId: 'oppOfWritten' },
+    ],
+  };
+  const accountsAndDeals = { Account: rows.Account, Opportunity: rows.Opportunity };
+
+  /** What was sent of an object, every call together. */
+  function sentOf(insert: InsertFn, name: string): Record<string, unknown>[] {
+    return vi
+      .mocked(insert)
+      .mock.calls.filter(([object]) => object === name)
+      .flatMap(([, records]) => records);
+  }
+
+  it('holds back a child of a refused parent and the records under it, counted and said, and writes the others', async () => {
+    // Run into an org with person accounts, the accounts were refused and
+    // sixteen opportunities went in all the same, each without its account.
+    const insert = vi.fn<InsertFn>(async (name, records) =>
+      records.map((record, i) =>
+        record['Id'] === 'accRefused'
+          ? refused('INVALID_FIELD_FOR_INSERT_UPDATE', 'bad field names', ['LastName'])
+          : { id: `${name.slice(0, 3)}T${i}`, success: true, errors: [] },
+      ),
+    );
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Opportunity', 'OpportunityLineItem'),
+      [accountEdge, lineEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(sentOf(insert, 'Opportunity').map((r) => r['Name'])).toEqual(['Deal B', 'Deal C']);
+    expect(sentOf(insert, 'Opportunity')[0]['AccountId']).toBe('AccT1');
+    expect(sentOf(insert, 'OpportunityLineItem').map((r) => r['Id'])).toEqual(['lineOfWritten']);
+    expect(result.objectOutcomes?.['Opportunity']).toMatchObject({
+      written: 2,
+      failed: 1,
+      refusals: [
+        {
+          statusCode: 'PARENT_REFUSED',
+          fields: ['AccountId'],
+          count: 1,
+          message:
+            'the Account record its AccountId names was refused in this run, and written ' +
+            'without it this record would stand without its Account.',
+        },
+      ],
+    });
+    expect(result.objectOutcomes?.['OpportunityLineItem']).toMatchObject({
+      written: 1,
+      failed: 1,
+      refusals: [expect.objectContaining({ statusCode: 'PARENT_REFUSED', count: 1 })],
+    });
+    expect(result.totalFailure).toBe(3);
+  });
+
+  it('writes a child whose parent the target already held, linked to it', async () => {
+    const ACCOUNT_18 = '001Fk00000AbCdEIAV';
+    const insert = vi.fn<InsertFn>(async (name, records) =>
+      name === 'Account'
+        ? records.map((record, i) =>
+            record['Id'] === 'accRefused'
+              ? refused(
+                  'DUPLICATE_VALUE',
+                  `duplicate value found: Key__c duplicates value on record with id: ${ACCOUNT_18}`,
+                )
+              : { id: `AccT${i}`, success: true, errors: [] },
+          )
+        : written(...records.map((_, i) => `OppT${i}`)),
+    );
+    const deps = makeDeps({
+      query: sourceOf(accountsAndDeals),
+      insert,
+      remapper: new RecordIdRemapper(),
+      describeKeyPrefix: async () => '001',
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Opportunity'),
+      [accountEdge],
+      [],
+      countsOf(accountsAndDeals),
+    );
+
+    expect(sentOf(insert, 'Opportunity')[0]['AccountId']).toBe(ACCOUNT_18);
+    expect(result.objectOutcomes?.['Opportunity']).toMatchObject({ written: 3, failed: 0 });
+  });
+
+  it('holds back the children of an object held back whole for a record type the running user cannot use', async () => {
+    const CLOSED = '012Fk00000RtDeFIAV';
+    const insert = vi.fn<InsertFn>(async (_name, records) =>
+      written(...records.map((_, i) => `OppT${i}`)),
+    );
+    const deps = makeDeps({
+      query: sourceOf(accountsAndDeals),
+      insert,
+      remapper: new RecordIdRemapper(),
+      describeCreateableFields: async () => new Set(['Name', 'RecordTypeId', 'AccountId']),
+      describeRecordTypes: async (name) =>
+        name === 'Account'
+          ? [
+              {
+                recordTypeId: CLOSED,
+                developerName: 'Partner',
+                name: 'Partner',
+                available: false,
+                active: true,
+                master: false,
+                defaultRecordTypeMapping: false,
+              },
+            ]
+          : [],
+      countRecordTypes: async () => new Map([[CLOSED, 2]]),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Opportunity'),
+      [accountEdge],
+      [],
+      countsOf(accountsAndDeals),
+    );
+
+    expect(sentOf(insert, 'Opportunity').map((r) => r['Name'])).toEqual(['Deal C']);
+    expect(result.objectOutcomes?.['Opportunity']).toMatchObject({ written: 1, failed: 2 });
   });
 });

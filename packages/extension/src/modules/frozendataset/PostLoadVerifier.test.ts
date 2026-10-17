@@ -746,6 +746,79 @@ describe('PostLoadVerifier — what the load did not write', () => {
     for (const soql of orphanReads) expect(soql).not.toContain('003XX0000000002AAA');
   });
 
+  it('passes a load whose only records not written are of objects its preview called not loadable, and says them apart', async () => {
+    // Run for real, a load said FAILED for the history rows and the
+    // entitlement process the target takes no insert of, which its preview
+    // had already announced as not loaded.
+    const contractPath = writeContract(makeTmpDir(), {
+      Account: { fromFiles: 3, exclusionReasons: {}, excluded: 0, added: 0, expected: 3 },
+      CaseHistory2: {
+        fromFiles: 2,
+        exclusionReasons: { 'object-not-loaded': 2 },
+        excluded: 2,
+        added: 0,
+        expected: 0,
+      },
+      SlaProcess: {
+        fromFiles: 1,
+        exclusionReasons: { 'object-not-loaded': 1 },
+        excluded: 1,
+        added: 0,
+        expected: 0,
+      },
+    });
+    const query = makeQuery([
+      { match: 'FROM Account', responses: [[{ cnt: 3 }]] },
+      { match: 'FROM CaseHistory2', responses: [[{ cnt: 0 }]] },
+      { match: 'FROM SlaProcess', responses: [[{ cnt: 0 }]] },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('passed');
+    expect(verdict.checks.find((c) => c.name === 'load')).toEqual({
+      name: 'load',
+      passed: true,
+      detail:
+        'Every record the load had to write went in; 3 record(s) not loadable, as the ' +
+        'preview said — CaseHistory2 (2), SlaProcess (1)',
+    });
+  });
+
+  it('still fails a load that wrote none of an object it could send, the objects it could not said apart', async () => {
+    const contractPath = writeContract(makeTmpDir(), {
+      Entitlement: {
+        fromFiles: 1,
+        exclusionReasons: { 'parent-refused': 1 },
+        excluded: 1,
+        added: 0,
+        expected: 0,
+      },
+      SlaProcess: {
+        fromFiles: 1,
+        exclusionReasons: { 'object-not-loaded': 1 },
+        excluded: 1,
+        added: 0,
+        expected: 0,
+      },
+    });
+    const query = makeQuery([
+      { match: 'FROM Entitlement', responses: [[{ cnt: 0 }]] },
+      { match: 'FROM SlaProcess', responses: [[{ cnt: 0 }]] },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.status).toBe('failed');
+    expect(verdict.checks.find((c) => c.name === 'load')?.detail).toBe(
+      '1 record(s) not loaded: 1 held back for a parent the target org refused. Objects the ' +
+        'load wrote none of — Entitlement (1 not loaded); 1 record(s) not loadable, as the ' +
+        'preview said — SlaProcess (1)',
+    );
+  });
+
   it('passes a load that wrote every record it had to, its duplicates skipped aside', async () => {
     const contractPath = writeContract(makeTmpDir(), ACCOUNT_CONTRACT);
     const query = makeQuery([

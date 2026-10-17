@@ -20,6 +20,13 @@
  *     reported for the placeholder pattern; records are never dropped.
  */
 
+import {
+  ACCOUNT,
+  accountKindRequiring,
+  heldToAccountKind,
+  leftOutForAccountKind,
+  type AccountKind,
+} from '../../core/common/platformRecords.js';
 import type { FrozenRecord } from './types.js';
 import type {
   MissingRequiredField,
@@ -49,6 +56,12 @@ export interface SchemaAlignObjectInput {
    * out of the required-field check, which is about what an insert sends.
    */
   linked?: ReadonlySet<string>;
+  /**
+   * For the accounts, the kind each record goes in as, by referenceId: what
+   * it leaves out (`leftOutForAccountKind`) and what it is held to
+   * (`accountKindRequiring`). Absent for any other object.
+   */
+  accountKindOf?: (referenceId: string) => AccountKind;
 }
 
 /**
@@ -73,7 +86,13 @@ export class SchemaAligner {
 
     for (const record of input.records) {
       const out: Record<string, unknown> = {};
+      const kind = input.accountKindOf?.(record.referenceId);
       for (const [field, value] of Object.entries(record.fields)) {
+        // What the kind of account the record goes in as cannot hold is the
+        // platform's, never the dataset's: a person account's name, computed
+        // from its first and last names, and refused from an insert; a
+        // business account's person fields, which it holds empty.
+        if (kind !== undefined && leftOutForAccountKind(ACCOUNT, field, kind)) continue;
         const fd = fieldsByName.get(field);
         if (!fd) {
           this.countRemoval(removalCounts, field, 'not-in-target');
@@ -143,11 +162,25 @@ export class SchemaAligner {
     // object it had nothing to write to.
     if (written.length === 0) return [];
     const missing: MissingRequiredField[] = [];
+    // An account's name is required of a business account and its last name
+    // of a person account, which an org with person accounts does not
+    // describe as required: each is checked on the records of its kind.
+    const kindOf = input.accountKindOf;
+    const writtenKinds = kindOf
+      ? input.records
+          .filter((r) => !input.linked?.has(r.referenceId))
+          .map((r) => kindOf(r.referenceId))
+      : [];
     for (const fd of input.describe.fields) {
-      if (!fd.createable || fd.nillable || fd.defaultedOnCreate) {
+      const ofKind = kindOf ? accountKindRequiring(ACCOUNT, fd.name) : undefined;
+      if (!fd.createable || (fd.nillable && ofKind === undefined) || fd.defaultedOnCreate) {
         continue;
       }
-      const present = written.some((r) => {
+      const held = written.filter(
+        (_, i) => ofKind === undefined || heldToAccountKind(ofKind, writtenKinds[i]),
+      );
+      if (held.length === 0) continue;
+      const present = held.some((r) => {
         const v = r[fd.name];
         return v !== undefined && v !== null && v !== '';
       });
@@ -161,6 +194,7 @@ export class SchemaAligner {
           isLookup: (fd.referenceTo?.length ?? 0) > 0,
           referenceTo: fd.referenceTo ?? [],
           ...(distinct ? { distinct } : {}),
+          ...(ofKind ? { accountKind: ofKind } : {}),
         });
       }
     }

@@ -156,6 +156,19 @@ your own:
   -- so it gives none of them again, nor any of their addresses, until names
   run out. A run stopped before checkpoints kept them is resumed as before,
   and may give again a name that run gave; the output log says so
+- **Person accounts.** On the accounts of an org with person accounts, a
+  template masks a person account's own fields as it masks a contact's: each
+  of its Contact rules applies to the field the person account holds it in
+  -- `FirstName`, `LastName`, `Salutation` and `Phone` under their own names,
+  `PersonEmail` for `Email`, `PersonMailingStreet` for `MailingStreet`, a
+  custom field as `__pc` -- and the fields only a person account holds that
+  the personal data detector names and no rule covers (a mobile or home
+  phone, a birthdate) are overwritten as an erasure overwrites them. Those
+  rules mask person accounts only; a business account keeps its rules, a
+  person account goes without a rule on `Name`, which the platform computes
+  from its first and last names, and an org without person accounts is
+  masked as before. A snapshot keeps each account's kind, and a restore
+  writes each back with the fields its kind holds
 - **Preview before Apply.** **Preview** reads the first five records of each
   object the template masks, in `Id` order -- the ones a run masks first --
   and shows each masked field as the org holds it beside the value Apply

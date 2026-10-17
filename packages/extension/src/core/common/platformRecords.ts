@@ -629,6 +629,38 @@ export function leftOutForAccountKind(
 }
 
 /**
+ * The kind of account a field of an account is required of, where the
+ * platform requires it of one kind only: a business account's `Name`, a
+ * person account's `LastName`. Undefined for any other field, and on any
+ * other object.
+ *
+ * Neither is required by the describe of an org with person accounts: the
+ * platform computes a person account's name, and a business account has no
+ * last name. Read from the describe alone, a frozen load of such an org asked
+ * no default for the names its rules cleared, ignored the one declared, and
+ * every business account was refused "REQUIRED_FIELD_MISSING: Required fields
+ * are missing: [Name]".
+ */
+export function accountKindRequiring(
+  objectApiName: string,
+  field: string,
+): 'business' | 'person' | undefined {
+  if (objectApiName !== ACCOUNT) return undefined;
+  if (field === 'Name') return 'business';
+  if (field === 'LastName') return 'person';
+  return undefined;
+}
+
+/**
+ * Whether a row of an account that goes in as `kind` is held to a field
+ * {@link accountKindRequiring} says `required` of: a person account the target
+ * takes as a business one keeps its name, and is held to it.
+ */
+export function heldToAccountKind(required: 'business' | 'person', kind: AccountKind): boolean {
+  return required === 'person' ? kind === 'person' : kind !== 'person';
+}
+
+/**
  * The order accounts and contacts are written in, as an edge between the
  * objects a run writes, when the source describes person accounts: the
  * accounts first.

@@ -68,6 +68,19 @@ import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
+import {
+  PERSON_ACCOUNT_FLAG,
+  personAccountMasking,
+  personAccountRules,
+  rulesOfRow,
+  type MaskableField,
+} from '../../modules/dataops/personAccountMasking.js';
+import {
+  ACCOUNT,
+  accountKindOf,
+  leftOutForAccountKind,
+} from '../../core/common/platformRecords.js';
+import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
@@ -310,6 +323,29 @@ function rulesOfObject(
   );
 }
 
+/**
+ * The rules a template derives for the person accounts of one object: its
+ * Contact rules on the fields of Account a person account holds them in
+ * (`personAccountRules`); none for any other object. They mask only where the
+ * org has person accounts, on those only.
+ */
+function personRulesOfObject(
+  template: ListedAnonymizationTemplate,
+  objectName: string,
+): AnonymizationTemplateRule[] {
+  return objectName.toLowerCase() === ACCOUNT.toLowerCase()
+    ? personAccountRules(template.rules)
+    : [];
+}
+
+/** Whether a template has anything to mask on an object: a rule of its own, or one for person accounts. */
+function masksObject(template: ListedAnonymizationTemplate, objectName: string): boolean {
+  return (
+    rulesOfObject(template, objectName).length > 0 ||
+    personRulesOfObject(template, objectName).length > 0
+  );
+}
+
 /** A backup kept on this machine, as its metadata records it. */
 interface KeptBackup {
   operationId: string;
@@ -430,6 +466,8 @@ interface MaskingTally {
 interface MaskingWork {
   objectName: string;
   objectRules: AnonymizationTemplateRule[];
+  /** The rules the template derives for the object's person accounts (`personRulesOfObject`). */
+  personRules: AnonymizationTemplateRule[];
   tally: MaskingTally;
   /** What a checkpoint keeps of the object, should the run stop short. */
   progress: MaskingProgress;
@@ -999,18 +1037,31 @@ export class DataOpsHandler implements DomainHandler {
    * it had completed. A field is matched whatever its case, as Salesforce matches
    * it, and a rule written `Contact.email` masks the `Email` the rows carry.
    *
+   * On the accounts of an org with person accounts, the person accounts' own
+   * fields are masked too (`personAccountMasking`), and each row is read with
+   * the flag that tells a person account's: the rules a row is masked by are
+   * those its kind of account can hold (`rulesOf`). A rule derived for person
+   * accounts whose field the org lacks is never said to be missing: the
+   * template does not name it.
+   *
    * @param conn - Connection used for the describe call.
    * @param objectApiName - Already-sanitized SObject API name.
-   * @param rules - The rules the run applies to the object.
+   * @param rules - The template's rules for the object.
+   * @param personRules - The rules the template derives for its person accounts.
    */
   private async maskedFields(
-    conn: { describe: (objectApiName: string) => Promise<{ fields: Array<{ name: string }> }> },
+    conn: { describe: (objectApiName: string) => Promise<{ fields: MaskableField[] }> },
     objectApiName: string,
     rules: readonly DataOpsAnonymizationRule[],
-  ): Promise<{ rules: DataOpsAnonymizationRule[]; select: string; missing: string[] }> {
-    const described = new Map(
-      (await conn.describe(objectApiName)).fields.map((f) => [f.name.toLowerCase(), f.name]),
-    );
+    personRules: readonly DataOpsAnonymizationRule[] = [],
+  ): Promise<{
+    rules: DataOpsAnonymizationRule[];
+    select: string;
+    missing: string[];
+    rulesOf: (row: Record<string, unknown>) => DataOpsAnonymizationRule[];
+  }> {
+    const fields = (await conn.describe(objectApiName)).fields;
+    const described = new Map(fields.map((f) => [f.name.toLowerCase(), f.name]));
     const kept: DataOpsAnonymizationRule[] = [];
     const missing: string[] = [];
     for (const rule of rules) {
@@ -1021,10 +1072,26 @@ export class DataOpsHandler implements DomainHandler {
         missing.push(rule.fieldApiName);
       }
     }
-    const masked = kept
+    const persons = personAccountMasking({
+      objectApiName,
+      fields,
+      kept,
+      derived: personRules,
+      detector: this.deps.infraServices?.piiDetector ?? new PIIDetector(),
+    });
+    const all = persons ? [...kept, ...persons.rules] : kept;
+    const masked = all
       .map((r) => r.fieldApiName)
-      .filter((field, i, all) => field !== 'Id' && all.indexOf(field) === i);
-    return { rules: kept, select: ['Id', ...masked].join(', '), missing };
+      .filter((field, i, list) => field !== 'Id' && list.indexOf(field) === i);
+    const flag = persons && masked.length > 0 && !masked.includes(PERSON_ACCOUNT_FLAG);
+    return {
+      rules: all,
+      select: ['Id', ...masked, ...(flag ? [PERSON_ACCOUNT_FLAG] : [])].join(', '),
+      missing,
+      rulesOf: persons
+        ? (row) => rulesOfRow(objectApiName, row, all, persons.personOnly)
+        : () => all,
+    };
   }
 
   /**
@@ -2247,12 +2314,19 @@ export class DataOpsHandler implements DomainHandler {
         for await (const batch of batches) {
           read += batch.length;
           const cleaned = batch.map((r) => {
+            // An account goes back without what its kind cannot hold, told
+            // by the flag it was kept with: a business account's empty first
+            // and last names, sent back, refuse it whole — "bad field names on
+            // insert/update call: FirstName" — and so does a person
+            // account's name, the platform's to compute.
+            const kind = safeObj === ACCOUNT ? accountKindOf(r, false) : undefined;
             const copy: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(r)) {
               if (key === 'attributes') continue;
               // `Id` is the upsert match key — kept; everything the describe
               // says this org cannot write is dropped.
               if (droppedFields.has(key.toLowerCase())) continue;
+              if (kind !== undefined && leftOutForAccountKind(ACCOUNT, key, kind)) continue;
               copy[key] = value;
             }
             return copy;
@@ -2393,6 +2467,7 @@ export class DataOpsHandler implements DomainHandler {
           conn,
           w.tally.objectApiName,
           this.maskingRules(w.objectName, w.objectRules),
+          this.maskingRules(w.objectName, w.personRules),
         );
         // An object none of whose masked fields it has is written nothing.
         if (select !== 'Id') fields.set(w.tally.objectApiName, select);
@@ -2666,7 +2741,8 @@ export class DataOpsHandler implements DomainHandler {
       // and the ones the org refused.
       for (const objectName of plannedObjects) {
         const objectRules = rulesOfObject(template, objectName);
-        if (objectRules.length === 0) continue;
+        const personRules = personRulesOfObject(template, objectName);
+        if (objectRules.length === 0 && personRules.length === 0) continue;
         const safeObj = sanitizeSoqlObjectName(objectName);
         failure.objectName = safeObj;
         const from = resumed?.objects.find((o) => o.objectApiName === safeObj);
@@ -2710,7 +2786,7 @@ export class DataOpsHandler implements DomainHandler {
           done: total === 0,
         };
         tallies.push(tally);
-        work.push({ objectName, objectRules, tally, progress });
+        work.push({ objectName, objectRules, personRules, tally, progress });
       }
       const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
 
@@ -2854,7 +2930,7 @@ export class DataOpsHandler implements DomainHandler {
         );
       };
 
-      for (const { objectName, objectRules, tally, progress } of work) {
+      for (const { objectName, objectRules, personRules, tally, progress } of work) {
         if (tally.total === 0) continue;
         if (stop.signal.aborted) {
           cancelled = true;
@@ -2864,8 +2940,9 @@ export class DataOpsHandler implements DomainHandler {
         const safeObj = tally.objectApiName;
         failure.objectName = safeObj;
 
-        // Verify CRUD/FLS permissions before update
-        const updateFieldNames = objectRules
+        // Verify CRUD/FLS permissions before update: a field of a person
+        // account the org lacks is not asked about, as any field it lacks.
+        const updateFieldNames = [...objectRules, ...personRules]
           .map((r) =>
             r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern,
           )
@@ -2881,10 +2958,15 @@ export class DataOpsHandler implements DomainHandler {
 
         const templateRules = this.maskingRules(objectName, objectRules);
         const {
-          rules,
           select: fields,
           missing,
-        } = await this.maskedFields(conn, safeObj, templateRules);
+          rulesOf,
+        } = await this.maskedFields(
+          conn,
+          safeObj,
+          templateRules,
+          this.maskingRules(objectName, personRules),
+        );
         if (missing.length > 0) {
           fieldsNotFound.push(
             ...missing.map((fieldApiName) => ({ objectApiName: safeObj, fieldApiName })),
@@ -2914,7 +2996,11 @@ export class DataOpsHandler implements DomainHandler {
             sent: UnconfirmedRow[],
           ) => void,
         ): Promise<boolean> => {
-          const anonymized = engine.anonymize(records, rules);
+          // Each row by the rules its kind of account can hold: see `maskedFields`.
+          const rulesOfEach = records.map(rulesOf);
+          const anonymized = records.map(
+            (record, index) => engine.anonymize([record], rulesOfEach[index])[0],
+          );
 
           // Only the Id and the template's fields that held something go back.
           // Each record used to go back with every field it was read with — its
@@ -2928,7 +3014,7 @@ export class DataOpsHandler implements DomainHandler {
           const payloads: Array<Record<string, unknown>> = [];
           records.forEach((original, index) => {
             const update: Record<string, unknown> = { Id: original.Id };
-            for (const rule of rules) {
+            for (const rule of rulesOfEach[index]) {
               if (isFilledValue(original[rule.fieldApiName])) {
                 update[rule.fieldApiName] = anonymized[index][rule.fieldApiName];
               }
@@ -3310,7 +3396,7 @@ export class DataOpsHandler implements DomainHandler {
       );
       const objects: AnonymizeCoverageObject[] = [];
       for (const objectName of plannedAnonymizeObjects(parsed, template)) {
-        if (rulesOfObject(template, objectName).length === 0) continue;
+        if (!masksObject(template, objectName)) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
         let count: number | null = null;
         try {
@@ -3404,14 +3490,14 @@ export class DataOpsHandler implements DomainHandler {
       const objects: AnonymizePreviewObject[] = [];
       const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
       for (const objectName of plannedAnonymizeObjects(parsed, template)) {
-        const objectRules = rulesOfObject(template, objectName);
-        if (objectRules.length === 0) continue;
+        if (!masksObject(template, objectName)) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
         try {
-          const { rules, select, missing } = await this.maskedFields(
+          const { rules, select, missing, rulesOf } = await this.maskedFields(
             conn,
             objectApiName,
-            this.maskingRules(objectName, objectRules),
+            this.maskingRules(objectName, rulesOfObject(template, objectName)),
+            this.maskingRules(objectName, personRulesOfObject(template, objectName)),
           );
           fieldsNotFound.push(...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })));
           const page = await maskingPage(
@@ -3423,22 +3509,30 @@ export class DataOpsHandler implements DomainHandler {
             filterOf(parsed),
           );
           checkApiLimits(conn.limitInfo, `dataops:anonymize:preview ${objectApiName}`);
-          const masked = engine.anonymize(page.records, rules);
+          // Each row by the rules its kind of account can hold, as Apply masks it.
+          const rulesOfEach = page.records.map(rulesOf);
+          const masked = page.records.map(
+            (record, index) => engine.anonymize([record], rulesOfEach[index])[0],
+          );
           const fields = rules
             .map((r) => r.fieldApiName)
             .filter((field, i, all) => field !== 'Id' && all.indexOf(field) === i);
           objects.push({
             objectApiName,
             fields,
+            methods: Object.fromEntries(rules.map((r) => [r.fieldApiName, r.method])),
             rows: page.records.slice(0, PREVIEW_ROWS).map((original, index) => {
               const before: Record<string, AnonymizePreviewValue> = {};
               const after: Record<string, AnonymizePreviewValue> = {};
+              const applied = new Set(rulesOfEach[index].map((rule) => rule.fieldApiName));
               for (const field of fields) {
                 before[field] = previewValue(original[field]);
-                // An empty field is left as it is: Apply writes nothing into it.
-                after[field] = isFilledValue(original[field])
-                  ? previewValue(masked[index][field])
-                  : before[field];
+                // An empty field is left as it is: Apply writes nothing into it,
+                // nor into a field the row's kind of account cannot hold.
+                after[field] =
+                  isFilledValue(original[field]) && applied.has(field)
+                    ? previewValue(masked[index][field])
+                    : before[field];
               }
               return { id: String(original.Id ?? ''), before, after };
             }),

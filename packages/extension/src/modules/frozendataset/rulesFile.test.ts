@@ -415,6 +415,109 @@ describe('a restricted picklist that says what a person is', () => {
   });
 });
 
+describe("an opportunity's stage and the names of accounts of either kind", () => {
+  /** What an org with person accounts and multiple currencies describes. */
+  const schema = new Map<string, RuleSchemaField[]>([
+    [
+      'Opportunity',
+      [
+        // A standard picklist the platform does not restrict, which every
+        // opportunity requires.
+        { name: 'StageName', label: 'Stage', type: 'picklist', nillable: false, createable: true },
+        { name: 'LeadSource', label: 'Lead Source', type: 'picklist', nillable: true },
+        {
+          name: 'Gender__c',
+          label: 'Gender',
+          type: 'picklist',
+          nillable: false,
+          createable: true,
+        },
+      ],
+    ],
+    [
+      'Account',
+      [
+        // Required of neither kind by the describe: the platform computes a
+        // person account's name, and a business account has no last name.
+        { name: 'Name', label: 'Account Name', type: 'string', nillable: true, createable: true },
+        { name: 'LastName', label: 'Last Name', type: 'string', nillable: true, createable: true },
+        { name: 'IsPersonAccount', label: 'Is Person Account', type: 'boolean', createable: false },
+      ],
+    ],
+  ]);
+  /** A business account and a person account, as the source holds them. */
+  function extracted(accounts: Array<Record<string, unknown>>): Pick<ExtractedDataset, 'objects'> {
+    return {
+      objects: [
+        {
+          objectApiName: 'Opportunity',
+          records: [
+            {
+              referenceId: 'Opportunity-000001',
+              sourceId: to18('006A00000000001'),
+              fields: { StageName: 'Prospecting', LeadSource: 'Web', Gender__c: 'Female' },
+            },
+          ],
+        },
+        {
+          objectApiName: 'Account',
+          records: accounts.map((fields, i) => ({
+            referenceId: `Account-00000${i + 1}`,
+            sourceId: to18(`001A0000000000${i + 1}`),
+            fields,
+          })),
+        },
+      ],
+    };
+  }
+  const business = { Name: 'Acme', LastName: null, IsPersonAccount: false };
+  const person = { Name: 'Ada Example', LastName: 'Example', IsPersonAccount: true };
+  const empty = parsePseudonymRules({ rulesVersion: '1.0.0', rules: {} });
+
+  it('keeps a required picklist the platform does not restrict, and clears an optional one and one that says what a person is', () => {
+    // Run for real, the stage of every opportunity was cleared, and the
+    // extraction asked a default that would give them all the same.
+    const rules = withSchemaDefaults(empty, schema, detector);
+
+    expect(resolveGenerator(rules, 'Opportunity', 'StageName')).toBe('keep');
+    expect(resolveGenerator(rules, 'Opportunity', 'LeadSource')).toBe('clear');
+    expect(resolveGenerator(rules, 'Opportunity', 'Gender__c')).toBe('clear');
+  });
+
+  it("names a business account's name and a person account's last name the rules clear, which the describe does not require", () => {
+    const rules = withSchemaDefaults(empty, schema, detector);
+
+    expect(requiredFieldsLeftEmpty(extracted([business, person]), rules, schema)).toEqual([
+      'Account.LastName',
+      'Account.Name',
+      'Opportunity.Gender__c',
+    ]);
+    expect(requiredFieldsLeftEmpty(extracted([business]), rules, schema)).toEqual([
+      'Account.Name',
+      'Opportunity.Gender__c',
+    ]);
+    expect(requiredFieldsLeftEmpty(extracted([person]), rules, schema)).toEqual([
+      'Account.LastName',
+      'Opportunity.Gender__c',
+    ]);
+  });
+
+  it('names no account name a rule gives a value', () => {
+    const named = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'Account.Name': { generator: 'companyName' } },
+    });
+
+    expect(
+      requiredFieldsLeftEmpty(
+        extracted([business]),
+        withSchemaDefaults(named, schema, detector),
+        schema,
+      ),
+    ).toEqual(['Opportunity.Gender__c']);
+  });
+});
+
 describe('serializePseudonymRules', () => {
   it('round-trips with stable key ordering', () => {
     const file = parsePseudonymRules({

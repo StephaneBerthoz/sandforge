@@ -50,18 +50,23 @@ import {
   type SaveOutcome,
 } from '../../core/common/existingRecordMatch.js';
 import {
+  ACCOUNT,
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
   EMAIL_MESSAGE,
   FLAGS_THE_PLATFORM_LEAVES,
   NATURAL_KEYS,
+  PERSON_CONTACT_FIELD,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
   TASK,
+  accountKindOf,
   directAccountContactRelations,
   draftStartOf,
   existingActivityRelations,
   giveLinkedRelationsTheirFlags,
+  isPersonAccountRow,
+  leftOutForAccountKind,
   lookupsThePlatformFills,
   recordsByNaturalKey,
   statusCategories,
@@ -73,6 +78,7 @@ import {
 } from '../../core/common/platformRecords.js';
 import {
   RECORD_TYPE_UNAVAILABLE,
+  defaultRecordTypeOf,
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
   unavailableRecordTypeUses,
@@ -445,6 +451,17 @@ const NO_REASON_DETAIL: SaveErrorDetail = {
   fields: [],
 };
 
+/** The code of a record held back because a record it names was refused in the run. */
+export const PARENT_REFUSED = 'PARENT_REFUSED';
+
+/** The target's person account record types, as Forge and Sync read them. */
+const PERSON_TYPES_SOQL = `SELECT Id FROM RecordType WHERE SobjectType = '${ACCOUNT}' AND IsPersonType = true`;
+
+/** An id by its first fifteen characters: the case-sensitive id both forms share. */
+function idKey(id: string): string {
+  return id.slice(0, 15);
+}
+
 /**
  * Counts the reasons records were refused, by status code and fields. A
  * record refused for two reasons is counted under both.
@@ -614,6 +631,17 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * reaching, by target id: those that keep a lookup empty, those left a draft.
    */
   private readonly leftByStop = new Map<string, { lookups: Set<string>; statuses: Set<string> }>();
+  /**
+   * The records the run set out to write and did not — the target refused
+   * them, or the run held them back — by the first fifteen characters of
+   * their source id, with their object: what a record naming one is held back
+   * for in turn.
+   */
+  private readonly refusedRecords = new Map<string, string>();
+  /** The objects held back whole before their first page: none of their records is in the target. */
+  private readonly heldWhole = new Set<string>();
+  /** The target's person account record types, read once a run when a person account is written. */
+  private personTypes: Promise<ReadonlySet<string> | undefined> | undefined;
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -1228,6 +1256,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     // with what to change in the target, and nothing of it is written.
     const heldBack = totalRecords > 0 ? await this.recordTypesHeldBack(objectApiName) : [];
     if (heldBack.length > 0) {
+      this.heldWhole.add(objectApiName);
       state.failed = totalRecords;
       state.errors.push(...heldBack.map(recordTypeBlockedMessage));
       for (const use of heldBack) {
@@ -1429,6 +1458,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       rows = batch.filter((record) => record['Id'] !== standardBook.source);
       state.linked += batch.length - rows.length;
     }
+    // A record naming one the run could not write stays out with it.
+    rows = this.holdBehindRefusedParents(objectApiName, rows, edges, state);
     // An email on a case names its task, which the task node still to come
     // would leave without an id in the target: it waits for it. The others go
     // now, and the platform writes their tasks as it takes them.
@@ -1457,6 +1488,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     // currency code: GBP" — and it was lost: it goes in the target's corporate
     // currency, its amounts converted at the source's rates.
     const currencyChanges = await this.replaceCurrencies(objectApiName, rows, payload, writable);
+    if (objectApiName === ACCOUNT) await this.leaveOutForAccountKind(rows, payload);
     // A lookup the platform fills in itself is neither sent nor owed to the
     // second pass: an email's task, unless the email is on a case. Sent with
     // the id read from the source, the email is refused, "you cannot modify
@@ -1541,7 +1573,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const sourceId = typeof record['Id'] === 'string' ? record['Id'] : undefined;
       const outcome = outcomes[index];
       if (!outcome) {
-        this.refuse(state, undefined);
+        this.refuse(objectApiName, sourceId, state, undefined);
         return;
       }
       if (outcome.success) {
@@ -1579,7 +1611,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         byNaturalKey.push({ payload: record, sourceId, outcome });
         return;
       }
-      this.refuse(state, outcome);
+      this.refuse(objectApiName, sourceId, state, outcome);
     });
 
     if (keyFields && queryTarget && byNaturalKey.length > 0) {
@@ -1596,7 +1628,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           mappings.push([duplicate.sourceId, id]);
           return;
         }
-        this.refuse(state, duplicate.outcome);
+        this.refuse(objectApiName, duplicate.sourceId, state, duplicate.outcome);
       });
     }
 
@@ -1908,12 +1940,147 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     return owed;
   }
 
-  /** Record a refused record with why. */
-  private refuse(state: ObjectState, outcome: SaveOutcome | undefined): void {
+  /** Record a refused record with why, and remember it for the records that name it. */
+  private refuse(
+    objectApiName: string,
+    sourceId: string | undefined,
+    state: ObjectState,
+    outcome: SaveOutcome | undefined,
+  ): void {
     state.failed++;
     const details = detailsOf(outcome);
     state.errors.push(outcome?.errors[0] ?? lineOf(details[0]));
     state.refusals.add(details);
+    if (sourceId) this.refusedRecords.set(idKey(sourceId), objectApiName);
+  }
+
+  /**
+   * The records of a page that may go: a record whose lookup names one the
+   * run set out to write and could not — refused by the target, held back by
+   * the run, or of an object held back whole — is held back with it, counted
+   * among the refused under `PARENT_REFUSED`, and the records naming it in
+   * turn, as Forge, Sync and Frozen Dataset hold them.
+   *
+   * Written, such a record stands without its parent. Run into an org with
+   * person accounts, the twenty accounts of a run were refused and the
+   * sixteen opportunities under them went in all the same, each without the
+   * account it belonged to. A lookup the platform fills itself — an email's
+   * task — is no parent of the copy's; a lookup of a record already in the
+   * target is settled, whatever else the run refused.
+   */
+  private holdBehindRefusedParents(
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+    edges: readonly AutopilotEdge[],
+    state: ObjectState,
+  ): Record<string, unknown>[] {
+    if (this.refusedRecords.size === 0 && this.heldWhole.size === 0) return rows;
+    const lookups = edges.filter((edge) => edge.to === objectApiName);
+    if (lookups.length === 0) return rows;
+    // A polymorphic lookup has an edge per object it may point at, and its
+    // value is of one of them: an object held back whole stands for every
+    // record of a lookup that points at nothing else.
+    const parentsOf = new Map<string, number>();
+    for (const edge of lookups) {
+      parentsOf.set(edge.fieldApiName, (parentsOf.get(edge.fieldApiName) ?? 0) + 1);
+    }
+    const kept: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      const filled = lookupsThePlatformFills(objectApiName, row);
+      const refused = lookups.find((edge) => {
+        const value = row[edge.fieldApiName];
+        if (typeof value !== 'string' || value === '' || filled.includes(edge.fieldApiName)) {
+          return false;
+        }
+        if (this.deps.remapper.getTargetId(edge.from, value) !== undefined) return false;
+        if (this.refusedRecords.get(idKey(value)) === edge.from) return true;
+        return this.heldWhole.has(edge.from) && parentsOf.get(edge.fieldApiName) === 1;
+      });
+      if (!refused) {
+        kept.push(row);
+        continue;
+      }
+      const message =
+        `the ${refused.from} record its ${refused.fieldApiName} names was refused in this run, ` +
+        `and written without it this record would stand without its ${refused.from}.`;
+      state.failed++;
+      state.errors.push(`${PARENT_REFUSED}: ${message}`);
+      state.refusals.add([{ statusCode: PARENT_REFUSED, message, fields: [refused.fieldApiName] }]);
+      const id = row['Id'];
+      if (typeof id === 'string' && id !== '') this.refusedRecords.set(idKey(id), objectApiName);
+    }
+    return kept;
+  }
+
+  /**
+   * Take out of each account row the fields the kind of account it goes in as
+   * cannot hold (`leftOutForAccountKind`), as Forge and Sync do: a business
+   * account goes without the fields only a person account holds, a person
+   * account without the name the platform computes for it.
+   *
+   * Autopilot sent every field the target let it create. Run into an org with
+   * person accounts, every business account went with its empty first name,
+   * last name and salutation — "bad field names on insert/update call:
+   * LastName, Salutation, FirstName" — and every person account with its name
+   * — "Unable to create/update fields: Name" — and the target refused all of
+   * them. A person account goes in as a business one, keeping its name, where
+   * the target has no person accounts or the record type it is sent with is a
+   * business account's.
+   *
+   * @param rows - The rows as the source holds them, `IsPersonAccount` included.
+   * @param payload - What is sent of each, in the same order.
+   */
+  private async leaveOutForAccountKind(
+    rows: readonly Record<string, unknown>[],
+    payload: Record<string, unknown>[],
+  ): Promise<void> {
+    const persons = rows.some(isPersonAccountRow);
+    const asBusiness = persons ? await this.takenAsBusiness(payload) : () => false;
+    const kinds = rows.map((row, index) => accountKindOf(row, asBusiness(payload[index])));
+    payload.forEach((record, index) => {
+      for (const field of Object.keys(record)) {
+        if (leftOutForAccountKind(ACCOUNT, field, kinds[index])) delete record[field];
+      }
+    });
+  }
+
+  /**
+   * Whether the target takes a person account's row, as it is sent, as a
+   * business account, as Forge and Sync tell it: the target has no person
+   * accounts — its account has no lookup at a person's contact — or the
+   * record type the row goes in with, or the running user's default when it
+   * goes without one, is a type of the target that is no person account's.
+   * Nothing to say — a describe or a read that fails, a record type the
+   * target does not know — and the row goes in as a person account.
+   */
+  private async takenAsBusiness(
+    payload: readonly Record<string, unknown>[],
+  ): Promise<(record: Record<string, unknown>) => boolean> {
+    const lookups = await this.lookupsOf(ACCOUNT);
+    if (lookups && !lookups.some((lookup) => lookup.name === PERSON_CONTACT_FIELD)) {
+      return () => true;
+    }
+    const target = this.deps.queryTarget;
+    if (!target) return () => false;
+    this.personTypes ??= target(PERSON_TYPES_SOQL).then(
+      (found) =>
+        new Set(found.flatMap((row) => (typeof row['Id'] === 'string' ? [idKey(row['Id'])] : []))),
+      () => undefined,
+    );
+    const personTypes = await this.personTypes;
+    if (!personTypes) return () => false;
+    const infos = await this.deps.describeRecordTypes?.(ACCOUNT).catch(() => undefined);
+    const known = new Set((infos ?? []).map((info) => idKey(info.recordTypeId)));
+    const fallback = payload.some((record) => typeof record['RecordTypeId'] !== 'string')
+      ? defaultRecordTypeOf(infos ?? [])?.recordTypeId
+      : undefined;
+    return (record) => {
+      const sent = record['RecordTypeId'];
+      const type = typeof sent === 'string' && sent !== '' ? sent : fallback;
+      if (type === undefined) return false;
+      const key = idKey(type);
+      return !personTypes.has(key) && known.has(key);
+    };
   }
 
   /** Map source ids to the target records the children will point at. */

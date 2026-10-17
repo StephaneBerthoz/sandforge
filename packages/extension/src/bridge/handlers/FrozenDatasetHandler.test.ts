@@ -2642,7 +2642,9 @@ describe('FrozenDatasetHandler', () => {
         unboundedObjects: [],
         filesLeftOut: [],
         // Said as the dataset is frozen, not at the load that would ask.
-        requiredLeftEmpty: ['Opportunity.StageName', 'OpportunityLineItem.Quantity'],
+        requiredLeftEmpty: ['OpportunityLineItem.Quantity'],
+        // A required picklist holds the schema's words, restricted or not.
+        keptWithoutARule: ['Opportunity.StageName'],
       });
     });
 

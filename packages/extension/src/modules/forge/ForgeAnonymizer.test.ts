@@ -352,8 +352,11 @@ describe('ForgeAnonymizer', () => {
         fields: [{ name: 'PersonEmail', type: 'email' }],
         methods: { email: 'fake' },
       });
-      // `fake` knows Email's persona address, not PersonEmail's.
-      expect(String(redacted['PersonEmail'])).toMatch(/^fake_[0-9a-f]{8}@example\.invalid$/);
+      // `fake` gives a person account's email the persona's address, as it
+      // gives a contact's, under the domain no mail reaches.
+      expect(String(redacted['PersonEmail'])).toMatch(
+        /^[a-z]+\.[a-z]+\.[0-9a-f]{4}@example\.invalid$/,
+      );
     });
 
     it('leaves an email field empty when the method empties it', () => {

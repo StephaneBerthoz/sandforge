@@ -254,6 +254,12 @@ export interface AnonymizePreviewObject {
   /** The fields the template masks that the object has, as the org names them. */
   fields: string[];
   /**
+   * How each of them is masked, by field: the template's method, or, on the
+   * fields of a person account the template does not name, the method a
+   * contact's rule or an erasure gives it.
+   */
+  methods?: Record<string, string>;
+  /**
    * Its first rows in Id order — those a run masks first — each masked field
    * as it is and as Apply writes it. An empty field stays empty: Apply writes
    * nothing into it.

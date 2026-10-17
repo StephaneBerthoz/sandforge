@@ -602,5 +602,32 @@ describe('sandforge-dataops', () => {
       expect(lines).toContain('    Contact.Nickname__c: the org has no such field — masks nothing');
       expect(lines.at(-1)).toContain('--resume masks only what it left');
     });
+
+    it("says in a dry run how a person account's fields the template does not name are masked", () => {
+      const lines = dryRunLines(
+        {
+          id: 't',
+          name: 'T',
+          rules: [
+            { fieldPattern: 'Account.Phone', ruleType: 'mask' },
+            { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+          ],
+        },
+        { objects: [{ objectApiName: 'Account', count: 1 }] },
+        {
+          objects: [
+            {
+              objectApiName: 'Account',
+              fields: ['Phone', 'PersonEmail', 'PersonBirthdate'],
+              methods: { Phone: 'mask', PersonEmail: 'hash', PersonBirthdate: 'nullify' },
+              rows: [],
+            },
+          ],
+        },
+      );
+      expect(lines).toContain(
+        '    fields: Phone (mask), PersonEmail (hash), PersonBirthdate (nullify)',
+      );
+    });
   });
 });

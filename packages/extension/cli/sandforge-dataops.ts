@@ -345,6 +345,7 @@ export function dryRunLines(
     (preview.objects as Array<{
       objectApiName: string;
       fields: string[];
+      methods?: Record<string, string>;
       rows: Array<{ id: string; after: Record<string, unknown> }>;
       error?: string;
     }>) ?? [];
@@ -358,12 +359,17 @@ export function dryRunLines(
       lines.push(`    not read: ${shownObject.error}`);
       continue;
     }
-    const methods = new Map(
-      rulesOf(template, o.objectApiName).map((r) => [
-        r.fieldPattern.split('.').pop()?.toLowerCase() ?? '',
-        r.ruleType,
-      ]),
-    );
+    // The method the handler says each field is masked by — a person
+    // account's fields the template does not name included — or else the
+    // template's.
+    const methods = new Map([
+      ...rulesOf(template, o.objectApiName).map(
+        (r) => [r.fieldPattern.split('.').pop()?.toLowerCase() ?? '', r.ruleType] as const,
+      ),
+      ...Object.entries(shownObject?.methods ?? {}).map(
+        ([field, method]) => [field.toLowerCase(), method] as const,
+      ),
+    ]);
     const fields = shownObject?.fields ?? [];
     lines.push(
       `    fields: ${

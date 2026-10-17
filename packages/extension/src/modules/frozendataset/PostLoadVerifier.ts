@@ -528,16 +528,23 @@ function namedIn(byField: Record<string, unknown> | undefined, field: string): s
 
 /**
  * Why the records the load did not write went unwritten, as its contract
- * counts them: refused by the target, of an object the load could not send,
- * held back for a parent it refused, or a person account's contact whose
- * account it did not write. A duplicate the target skipped is none of them —
- * the target holds it — nor is a record the dataset leaves to the platform or
- * holds for an object `excludedObjects` leaves out: the load said so before
- * it wrote anything.
+ * counts them: refused by the target, held back for a parent it refused, or a
+ * person account's contact whose account it did not write. A duplicate the
+ * target skipped is none of them — the target holds it — nor is a record the
+ * dataset leaves to the platform or holds for an object `excludedObjects`
+ * leaves out: the load said so before it wrote anything.
+ *
+ * Nor is a record of an object the load could not send — the target lacks
+ * it, or takes no insert of it — which the load's plan announced before
+ * anything was written, and which no load into that target can write: it is
+ * counted apart, and fails nothing. Run for real, a load's verification said
+ * FAILED for the history rows and the entitlement process its preview had
+ * already called not loadable.
  */
 const NOT_LOADED_REASONS = {
-  refused: ['dml-failed', 'object-not-loaded', 'person-contact-not-sent'],
+  refused: ['dml-failed', 'person-contact-not-sent'],
   heldBack: ['parent-refused'],
+  notLoadable: ['object-not-loaded'],
 } as const;
 
 /** What a load did not write, per object and in all, from its contract. */
@@ -546,21 +553,33 @@ interface NotLoaded {
   whole: Array<{ objectApiName: string; notLoaded: number }>;
   /** Objects of which it wrote part. */
   part: Array<{ objectApiName: string; notLoaded: number; of: number }>;
-  /** Records refused, or of an object it could not send. */
+  /** Records refused. */
   refused: number;
   /** Records held back for a parent it refused. */
   heldBack: number;
+  /** Records of each object the load could not send, as its plan said: counted apart. */
+  notLoadable: Array<{ objectApiName: string; records: number }>;
+  /** Records refused or held back: what fails the check. */
   records: number;
 }
 
 /** What the load whose contract this is did not write. */
 function notLoadedOf(contract: CountingContract): NotLoaded {
-  const notLoaded: NotLoaded = { whole: [], part: [], refused: 0, heldBack: 0, records: 0 };
+  const notLoaded: NotLoaded = {
+    whole: [],
+    part: [],
+    refused: 0,
+    heldBack: 0,
+    notLoadable: [],
+    records: 0,
+  };
   for (const [objectApiName, entry] of Object.entries(contract.objects).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
     const count = (reasons: readonly string[]): number =>
       reasons.reduce((sum, reason) => sum + (entry.exclusionReasons[reason] ?? 0), 0);
+    const notLoadable = count(NOT_LOADED_REASONS.notLoadable);
+    if (notLoadable > 0) notLoaded.notLoadable.push({ objectApiName, records: notLoadable });
     const refused = count(NOT_LOADED_REASONS.refused);
     const heldBack = count(NOT_LOADED_REASONS.heldBack);
     const missed = refused + heldBack;
@@ -576,7 +595,8 @@ function notLoadedOf(contract: CountingContract): NotLoaded {
 
 /** What the `load` check says of what the load did not write. */
 function notLoadedDetail(notLoaded: NotLoaded): string {
-  if (notLoaded.records === 0) return 'Every record the load had to write went in';
+  const loadable = notLoadableDetail(notLoaded);
+  if (notLoaded.records === 0) return `Every record the load had to write went in${loadable}`;
   const parts = [
     ...(notLoaded.whole.length > 0
       ? [
@@ -599,7 +619,17 @@ function notLoadedDetail(notLoaded: NotLoaded): string {
       ? [`${notLoaded.heldBack} held back for a parent the target org refused`]
       : []),
   ];
-  return `${notLoaded.records} record(s) not loaded: ${why.join(', ')}. ${parts.join('; ')}`;
+  return `${notLoaded.records} record(s) not loaded: ${why.join(', ')}. ${parts.join('; ')}${loadable}`;
+}
+
+/** The records of objects the load could not send, said apart: `''` when there are none. */
+function notLoadableDetail(notLoaded: NotLoaded): string {
+  if (notLoaded.notLoadable.length === 0) return '';
+  const records = notLoaded.notLoadable.reduce((sum, o) => sum + o.records, 0);
+  return (
+    `; ${records} record(s) not loadable, as the preview said — ` +
+    notLoaded.notLoadable.map((o) => `${o.objectApiName} (${o.records})`).join(', ')
+  );
 }
 
 /** Per lookup, how many records the load wrote with it left empty because the record it named was not loaded. */
