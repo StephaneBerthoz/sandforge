@@ -37,11 +37,17 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   readDataStorage,
+  readEmailLimits,
   type DataStorage,
+  type EmailCheck,
+  type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import {
+  autopilotEmails,
   autopilotWritePlan,
   gateAutopilotWrite,
+  objectsThePlanWrites,
 } from '../../modules/autopilot/AutopilotRunGate.js';
 import { detectPersonalFields } from '../../modules/autopilot/personalFields.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
@@ -65,6 +71,9 @@ const MAX_TRACKED_OPERATIONS = 10;
 
 /** How long the target's `/limits` may take to say what data storage it has left. */
 const LIMITS_TIMEOUT_MS = 30_000;
+
+/** How long the read of the target's automation may take, as Forge's may. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /**
  * The codes a run's write gate stops it with on the error channel, each
@@ -150,9 +159,20 @@ export class AutopilotHandler implements DomainHandler {
   private orchestrator?: AutopilotOrchestrator;
   private registry?: BackgroundOperationRegistry;
   private liveTracker?: LiveOperationTracker;
+  /** What reads the target's automation: Forge's reader, given with Forge's services. */
+  private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Inject what reads the target's automation, the reader Forge's Review and
+   * clone read it with: a run's gate counts the emails the target's flows
+   * send as the plan's records go in.
+   */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
 
   /** Inject autopilot orchestrator. */
   setOrchestrator(orchestrator: AutopilotOrchestrator): void {
@@ -507,13 +527,16 @@ export class AutopilotHandler implements DomainHandler {
       return;
     }
 
-    // The plan's records against the setting and the target's data storage,
-    // as Forge's gate holds a clone: refused past the storage, asked about
-    // past the setting or near the storage, before anything is written.
+    // The plan's records against the setting, the target's data storage and
+    // the emails its flows send for them, as Forge's gate holds a clone:
+    // refused past the storage, asked about past the setting, near the
+    // storage or past a daily email limit, before anything is written.
+    const writePlan = autopilotWritePlan(plan, scanResult.recordCounts);
     const gate = await gateAutopilotWrite({
-      plan: autopilotWritePlan(plan, scanResult.recordCounts),
+      plan: writePlan,
       storage: await this.readTargetDataStorage(operation.targetOrgId),
       confirmAboveRecords: this.confirmAboveRecords(),
+      emails: await this.targetEmails(operation.targetOrgId, plan, writePlan),
       org: targetOrg?.alias ?? operation.targetOrgId,
       orgTier: guardRequest.orgTier,
       confirm: (question) => guard.confirmRun(question),
@@ -824,6 +847,59 @@ export class AutopilotHandler implements DomainHandler {
     } catch (err: unknown) {
       return { unread: extractErrorMessage(err) };
     }
+  }
+
+  /**
+   * The emails the target's flows send as the plan's records go in, per daily
+   * limit, against what the target has left: its automation on the objects
+   * the plan writes, read as Forge reads it, and its limits when something
+   * sends. What could not be read is logged and asks nothing, as Forge's
+   * write gate does: the gate counts emails it can count.
+   */
+  private async targetEmails(
+    targetOrgId: string,
+    plan: Pick<ExecutionPlan, 'waves'>,
+    writePlan: WritePlan,
+  ): Promise<EmailCheck[]> {
+    const reader = this.targetAutomation;
+    if (!reader) {
+      this.deps.log(
+        "[WARN] autopilot:execute: no reader of the target org's automation is set up: " +
+          'the emails its flows send were not counted',
+      );
+      return [];
+    }
+    const emails = await autopilotEmails({
+      plan: writePlan,
+      objects: objectsThePlanWrites(plan),
+      readAutomation: (objects) =>
+        new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('autopilot:automation', () =>
+          reader.read(targetOrgId, objects),
+        ),
+      readLimits: async () => {
+        const conn = await getJsforceConnection(
+          targetOrgId,
+          this.deps.orgRegistry,
+          this.deps.orgManager,
+        );
+        return new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('autopilot:limits', () =>
+          readEmailLimits(conn),
+        );
+      },
+    });
+    if (emails.unread !== undefined) {
+      this.deps.log(
+        `[WARN] autopilot:execute: the emails the target's flows send were not counted: ` +
+          `${emails.unread} could not be read`,
+      );
+    }
+    for (const check of emails.checks.filter((c) => c.verdict === 'unread')) {
+      this.deps.log(
+        `[WARN] autopilot:execute: about ${check.emails} ${check.limit} from the target's ` +
+          `flows, against a limit that could not be read: ${check.unread ?? ''}`,
+      );
+    }
+    return emails.checks;
   }
 
   /**

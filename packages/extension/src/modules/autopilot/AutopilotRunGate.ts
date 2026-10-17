@@ -1,7 +1,8 @@
 /**
  * What an Autopilot run is held to before it writes: the records its plan
- * counts, against `sandforge.safety.confirmAboveRecords` and the data storage
- * the target has left — Forge's write gate (`ForgeRunGate`), on the plan.
+ * counts, against `sandforge.safety.confirmAboveRecords`, the data storage
+ * the target has left and the daily emails its flows would send for them —
+ * Forge's write gate (`ForgeRunGate`), on the plan.
  *
  * Autopilot consulted the Production Guard and nothing else. Run for real
  * with plan only, a plan of 2.6 million records for a target with 22 MB of
@@ -13,19 +14,24 @@
  * without loading it.
  */
 
-import type { ExecutionPlan } from '@sandforge/shared';
+import type { ExecutionPlan, ForgeEmailLimit, ForgeTargetAutomation } from '@sandforge/shared';
+import { emailsPerInsertOf } from '@sandforge/shared';
 import type {
   RunConfirmationAnswer,
   SafetyTier,
   WriteConfirmation,
 } from '../../core/precheck/ProductionGuard.js';
 import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   confirmationStorageOf,
+  emailChecksOf,
   storageCheckOf,
   storageRefusal,
   writePlanOf,
   type DataStorage,
+  type EmailCheck,
+  type EmailLimit,
   type StorageCheck,
   type WritePlan,
 } from '../forge/ForgeRunGate.js';
@@ -52,6 +58,91 @@ export function autopilotWritePlan(
   );
 }
 
+/** The objects a plan writes, each once, in the order of its waves. */
+export function objectsThePlanWrites(plan: Pick<ExecutionPlan, 'waves'>): string[] {
+  return [...new Set(plan.waves.flatMap((wave) => wave.objects.map(String)))];
+}
+
+/** The emails a plan makes the target send, per daily limit, or why they could not be said. */
+export interface AutopilotEmails {
+  /** One per daily limit the target's flows send against as the plan's records go in. */
+  checks: EmailCheck[];
+  /** Why the target's automation, or its limits, could not be read; absent when they were. */
+  unread?: string;
+}
+
+/**
+ * The emails the target's automation sends as a plan inserts its records,
+ * against the daily limits the target has left: Forge's email check, on the
+ * plan's counts. What runs on the objects the plan writes is read as Forge
+ * reads it, through the target automation reader, and the limits only when
+ * something sends.
+ *
+ * Autopilot read none of the target's automation: a plan of contacts into a
+ * Developer Edition, whose contact flow sends two emails a record, would have
+ * taken it past its fifteen single emails a day, and every contact past them
+ * would have been refused by its flow (`CANNOT_EXECUTE_FLOW_TRIGGER`), with
+ * nothing said before the run.
+ *
+ * @param input.readAutomation - What the target runs on the given objects.
+ * @param input.readLimits - The target's daily email limits, as `/limits` say them.
+ */
+export async function autopilotEmails(input: {
+  plan: WritePlan;
+  objects: readonly string[];
+  readAutomation: (objects: readonly string[]) => Promise<ForgeTargetAutomation>;
+  readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
+}): Promise<AutopilotEmails> {
+  if (input.plan.totalRows === 0 || input.objects.length === 0) return { checks: [] };
+  let automation: ForgeTargetAutomation;
+  try {
+    automation = await input.readAutomation(input.objects);
+  } catch (err: unknown) {
+    return { checks: [], unread: `the target's automation: ${extractErrorMessage(err)}` };
+  }
+  const sending = emailsPerInsertOf(automation);
+  if (sending.length === 0) return { checks: [] };
+  const limits = await input
+    .readLimits()
+    .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+  return { checks: emailChecksOf(input.plan, sending, limits) };
+}
+
+/** The limits a plan's emails go past, as a run's question names them. */
+function overEmailsOf(checks: readonly EmailCheck[]): NonNullable<WriteConfirmation['emails']> {
+  return checks
+    .filter((check) => check.verdict === 'exceeds')
+    .map((check) => ({
+      limit: check.limit,
+      emails: check.emails,
+      remaining: check.remaining ?? 0,
+      max: check.max ?? 0,
+      objects: check.objects.map(({ objectApiName, perRecord }) => ({ objectApiName, perRecord })),
+    }));
+}
+
+/**
+ * Why a command-line run is refused for its emails: past what the target has
+ * left of a daily limit, as a run past its storage is refused. Undefined when
+ * they fit, or could not be counted against a limit.
+ */
+export function emailRefusal(checks: readonly EmailCheck[], org: string): string | undefined {
+  const over = overEmailsOf(checks);
+  if (over.length === 0) return undefined;
+  const said = over
+    .map(
+      (o) =>
+        `about ${o.emails} ${o.limit === 'SingleEmail' ? 'single' : 'workflow'} emails, ` +
+        `${o.remaining} of ${o.max} left today`,
+    )
+    .join('; ');
+  return (
+    `The target's flows would make ${org} send ${said}: past them, each record whose flow ` +
+    'fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER). Assign the user a bypass ' +
+    'that keeps the flow quiet, or write fewer records.'
+  );
+}
+
 /** Why a run's gate stopped it: Forge's codes for the same stops. */
 export type AutopilotGateCode = 'STORAGE_EXCEEDED' | 'WRITE_DECLINED' | 'CONFIRMATION_UNAVAILABLE';
 
@@ -63,18 +154,21 @@ export type AutopilotGateOutcome =
 /**
  * Hold a plan to the gate, as the panel holds it: refused past the storage
  * the target has left; asked about past `confirmAboveRecords` records, near
- * that storage, or when the target would not say what it has left; let
- * through otherwise.
+ * that storage, when the target would not say what it has left, or past a
+ * daily email limit the target's flows would send against, as Forge's gate
+ * asks; let through otherwise.
  *
  * @param input.plan - The records the plan writes ({@link autopilotWritePlan}).
  * @param input.storage - What the target said of its storage, or why it said nothing.
  * @param input.confirmAboveRecords - The volume past which the run asks; 0 never asks.
+ * @param input.emails - The emails the plan makes the target send ({@link autopilotEmails}).
  * @param input.confirm - Puts the question (`ProductionGuard.confirmRun`).
  */
 export async function gateAutopilotWrite(input: {
   plan: WritePlan;
   storage: DataStorage | { unread: string };
   confirmAboveRecords: number;
+  emails?: readonly EmailCheck[];
   org: string;
   orgTier: SafetyTier;
   confirm: (question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
@@ -93,7 +187,8 @@ export async function gateAutopilotWrite(input: {
   }
   const threshold = input.confirmAboveRecords;
   const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
-  if (aboveRecords === undefined && check.verdict === 'fits') {
+  const overEmails = overEmailsOf(input.emails ?? []);
+  if (aboveRecords === undefined && check.verdict === 'fits' && overEmails.length === 0) {
     return { go: true, check, asked: false };
   }
   const line = largeVolumeThreshold(input.orgTier);
@@ -108,6 +203,7 @@ export async function gateAutopilotWrite(input: {
     ...(line !== undefined && plan.totalRows > line ? { largeVolume: line } : {}),
     storage: confirmationStorageOf(check),
     counted: true,
+    ...(overEmails.length > 0 ? { emails: overEmails } : {}),
   });
   if (answer === 'confirmed') return { go: true, check, asked: true };
   return answer === 'declined'

@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { ApiName } from '@sandforge/shared';
+import type { ApiName, ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard';
-import { autopilotWritePlan, gateAutopilotWrite } from './AutopilotRunGate';
+import {
+  autopilotEmails,
+  autopilotWritePlan,
+  emailRefusal,
+  gateAutopilotWrite,
+  objectsThePlanWrites,
+} from './AutopilotRunGate';
 
 /** A plan of the given objects, one wave each. */
 function planOf(...objects: string[]) {
@@ -118,5 +124,186 @@ describe('gateAutopilotWrite', () => {
 
     expect(outcome).toMatchObject({ go: true, asked: false });
     expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+/** A Developer Edition's contact flow, which sends two emails for each contact created. */
+const WELCOME_FLOW: ForgeTargetAutomation = {
+  objectsRead: ['Account', 'Contact'],
+  objects: [
+    {
+      objectApiName: 'Contact',
+      flows: [
+        {
+          apiName: 'Contact_Welcome',
+          label: 'Contact welcome',
+          timing: 'afterSave',
+          startsOn: 'create',
+          condition: 'read',
+          permissions: [],
+          messages: [
+            { kind: 'email', name: 'Send welcome', limit: 'SingleEmail' },
+            { kind: 'email', name: 'Send follow up', limit: 'SingleEmail' },
+          ],
+        },
+      ],
+      triggers: [],
+    },
+  ],
+  unread: [],
+  conditionsNotRead: 0,
+  conditionsBound: 25,
+  requests: 4,
+};
+
+describe('objectsThePlanWrites', () => {
+  it('names each object of the waves once, in their order', () => {
+    expect(
+      objectsThePlanWrites({
+        waves: [
+          { order: 0, objects: ['Account' as ApiName], dependsOn: [] },
+          { order: 1, objects: ['Contact' as ApiName, 'Account' as ApiName], dependsOn: [] },
+        ],
+      }),
+    ).toEqual(['Account', 'Contact']);
+  });
+});
+
+describe('autopilotEmails', () => {
+  const plan = autopilotWritePlan(
+    planOf('Account', 'Contact'),
+    new Map([
+      ['Account', 4],
+      ['Contact', 30],
+    ]),
+  );
+
+  it("reads what the target runs on the plan's objects, and counts its emails against what it has left today", async () => {
+    const readAutomation = vi.fn(async (_objects: readonly string[]) => WELCOME_FLOW);
+    const readLimits = vi.fn(async () => ({ SingleEmail: { max: 15, remaining: 15 } }));
+
+    const emails = await autopilotEmails({
+      plan,
+      objects: ['Account', 'Contact'],
+      readAutomation,
+      readLimits,
+    });
+
+    expect(readAutomation).toHaveBeenCalledWith(['Account', 'Contact']);
+    expect(emails.checks).toEqual([
+      expect.objectContaining({
+        limit: 'SingleEmail',
+        emails: 60,
+        verdict: 'exceeds',
+        remaining: 15,
+        max: 15,
+        objects: [
+          { objectApiName: 'Contact', rows: 30, perRecord: 2, sentBy: ['Contact welcome'] },
+        ],
+      }),
+    ]);
+  });
+
+  it('reads no limit when nothing the target runs sends an email', async () => {
+    const readLimits = vi.fn(async () => ({}));
+    const emails = await autopilotEmails({
+      plan,
+      objects: ['Account', 'Contact'],
+      readAutomation: async () => ({ ...WELCOME_FLOW, objects: [] }),
+      readLimits,
+    });
+
+    expect(emails).toEqual({ checks: [] });
+    expect(readLimits).not.toHaveBeenCalled();
+  });
+
+  it("says the target's automation could not be read rather than counting no email", async () => {
+    const emails = await autopilotEmails({
+      plan,
+      objects: ['Account', 'Contact'],
+      readAutomation: async () => {
+        throw new Error('INSUFFICIENT_ACCESS: no access to the Tooling API');
+      },
+      readLimits: async () => ({}),
+    });
+
+    expect(emails.checks).toEqual([]);
+    expect(emails.unread).toContain('INSUFFICIENT_ACCESS');
+  });
+});
+
+describe('gateAutopilotWrite — the emails of a plan', () => {
+  const roomy = { maxMB: 200, remainingMB: 150 };
+  const contacts = autopilotWritePlan(planOf('Contact'), new Map([['Contact', 30]]));
+  const sixty = {
+    limit: 'SingleEmail' as const,
+    objects: [{ objectApiName: 'Contact', rows: 30, perRecord: 2, sentBy: ['Contact welcome'] }],
+    emails: 60,
+  };
+
+  it('asks before a small plan whose flows take the target past a daily email limit, naming it', async () => {
+    const confirm = vi.fn(async (_question: WriteConfirmation) => 'declined' as const);
+    const outcome = await gateAutopilotWrite({
+      plan: contacts,
+      storage: roomy,
+      confirmAboveRecords: 2_000,
+      emails: [{ ...sixty, verdict: 'exceeds', remaining: 15, max: 15 }],
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(confirm.mock.calls[0][0].emails).toEqual([
+      {
+        limit: 'SingleEmail',
+        emails: 60,
+        remaining: 15,
+        max: 15,
+        objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+      },
+    ]);
+    expect(outcome).toMatchObject({ go: false, code: 'WRITE_DECLINED' });
+  });
+
+  it('asks nothing when the emails fit in what the target has left', async () => {
+    const confirm = vi.fn();
+    const outcome = await gateAutopilotWrite({
+      plan: contacts,
+      storage: roomy,
+      confirmAboveRecords: 2_000,
+      emails: [{ ...sixty, verdict: 'fits', remaining: 900, max: 1_000 }],
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(outcome).toMatchObject({ go: true, asked: false });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('emailRefusal', () => {
+  const check = {
+    limit: 'SingleEmail' as const,
+    objects: [{ objectApiName: 'Contact', rows: 30, perRecord: 2, sentBy: ['Contact welcome'] }],
+    emails: 60,
+  };
+
+  it('refuses a command-line run past what the target has left of a daily limit', () => {
+    expect(emailRefusal([{ ...check, verdict: 'exceeds', remaining: 15, max: 15 }], 'TARGET')).toBe(
+      "The target's flows would make TARGET send about 60 single emails, 15 of 15 left today: " +
+        'past them, each record whose flow fails in the save is refused ' +
+        '(CANNOT_EXECUTE_FLOW_TRIGGER). Assign the user a bypass that keeps the flow quiet, or ' +
+        'write fewer records.',
+    );
+  });
+
+  it('refuses nothing that fits, or that no limit could be read for', () => {
+    expect(
+      emailRefusal([{ ...check, verdict: 'fits', remaining: 90, max: 100 }], 'T'),
+    ).toBeUndefined();
+    expect(
+      emailRefusal([{ ...check, verdict: 'unread', unread: 'no access' }], 'T'),
+    ).toBeUndefined();
   });
 });

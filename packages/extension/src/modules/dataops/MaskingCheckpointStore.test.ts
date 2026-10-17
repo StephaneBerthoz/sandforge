@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { AnonymizationTemplateRule } from '@sandforge/shared';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -57,6 +58,31 @@ describe('maskingFingerprint', () => {
     expect(
       maskingFingerprint([{ ...RULES[0], description: 'Other words' }, RULES[1]], ['Contact']),
     ).toBe(base);
+  });
+
+  it('changes with the filter a run held its rows to', () => {
+    const where = "AccountId = '001000000000001'";
+    const base = maskingFingerprint(RULES, ['Contact']);
+    expect(maskingFingerprint(RULES, ['Contact'], where)).not.toBe(base);
+    expect(maskingFingerprint(RULES, ['Contact'], where)).not.toBe(
+      maskingFingerprint(RULES, ['Contact'], "AccountId = '001000000000002'"),
+    );
+    expect(maskingFingerprint(RULES, ['Contact'], `  ${where} `)).toBe(
+      maskingFingerprint(RULES, ['Contact'], where),
+    );
+  });
+
+  it('stays the one a checkpoint kept before filters has, for a run with none or a blank one', () => {
+    const before = createHash('sha256')
+      .update(
+        JSON.stringify({
+          rules: RULES.map((r) => [r.fieldPattern, r.ruleType, r.config ?? null]),
+          objects: ['Contact'],
+        }),
+      )
+      .digest('hex');
+    expect(maskingFingerprint(RULES, ['Contact'])).toBe(before);
+    expect(maskingFingerprint(RULES, ['Contact'], '   ')).toBe(before);
   });
 });
 

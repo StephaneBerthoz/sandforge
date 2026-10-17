@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AutopilotHandler } from './AutopilotHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, ForgeTargetAutomation } from '@sandforge/shared';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -1475,12 +1475,23 @@ describe('AutopilotHandler', () => {
       cycleResolutions: [],
     };
 
-    /** Scan, plan and execute a plan of 3 000 leads into a target with `remainingMB` left. */
+    /**
+     * Scan, plan and execute a plan of 3 000 leads into a target with
+     * `remainingMB` left; with `automation`, what the target runs on them,
+     * and the single emails it has left today.
+     */
     async function run(options: {
       remainingMB: number;
       confirmAboveRecords?: number;
       answer?: 'confirmed' | 'declined';
+      automation?: ForgeTargetAutomation;
+      singleEmailsLeft?: number;
     }) {
+      const read = vi.fn(async () => {
+        if (!options.automation) throw new Error('no automation given');
+        return options.automation;
+      });
+      if (options.automation) handler.setTargetAutomation({ read });
       const confirmRun = vi.fn(async () => options.answer ?? 'confirmed');
       const guard = new ProductionGuard({
         requestRunConfirmation: async () => (await confirmRun()) === 'confirmed',
@@ -1507,6 +1518,7 @@ describe('AutopilotHandler', () => {
       mockGetConn.mockResolvedValue({
         request: vi.fn(async () => ({
           DataStorageMB: { Max: 200, Remaining: options.remainingMB },
+          SingleEmail: { Max: 15, Remaining: options.singleEmailsLeft ?? 15 },
         })),
       } as never);
       await handler.handle(scanMsg('scan-gate'));
@@ -1529,8 +1541,76 @@ describe('AutopilotHandler', () => {
       const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error') as Array<
         BaseMessage & { payload: { code?: string; message: string } }
       >;
-      return { orchestrator, asked, errors };
+      return { orchestrator, asked, errors, read };
     }
+
+    /** A lead flow of the target that sends one single email for each lead created. */
+    const LEAD_FLOW: ForgeTargetAutomation = {
+      objectsRead: ['Lead'],
+      objects: [
+        {
+          objectApiName: 'Lead',
+          flows: [
+            {
+              apiName: 'Lead_Welcome',
+              label: 'Lead welcome',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 4,
+    };
+
+    it("asks before a plan the target's flows would send more emails for than it has left today, and writes nothing when declined", async () => {
+      // A Developer Edition sends fifteen single emails a day: the 3 000 leads
+      // would each send one, and every lead past the fifteenth would be refused.
+      const { orchestrator, asked, errors, read } = await run({
+        remainingMB: 150,
+        confirmAboveRecords: 5_000,
+        automation: LEAD_FLOW,
+        answer: 'declined',
+      });
+
+      expect(read).toHaveBeenCalledWith('tgt', ['Lead']);
+      expect(asked).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'write',
+          module: 'autopilot',
+          emails: [
+            {
+              limit: 'SingleEmail',
+              emails: 3_000,
+              remaining: 15,
+              max: 15,
+              objects: [{ objectApiName: 'Lead', perRecord: 1 }],
+            },
+          ],
+        }),
+      );
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      expect(errors.map((e) => e.payload.code)).toEqual(['AUTOPILOT_WRITE_DECLINED']);
+    });
+
+    it('asks nothing of a plan whose emails fit in what the target has left', async () => {
+      const { orchestrator, asked } = await run({
+        remainingMB: 150,
+        confirmAboveRecords: 5_000,
+        automation: LEAD_FLOW,
+        singleEmailsLeft: 5_000,
+      });
+
+      expect(asked).not.toHaveBeenCalled();
+      expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+    });
 
     it("refuses a plan past the target's data storage before anything is written", async () => {
       // 3 000 records take about 5.9 MB; the target has 1 MB left.

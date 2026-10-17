@@ -14,7 +14,7 @@ import type {
   DataOpsAnonymizationRule,
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
-import { recordWriteHeaders, sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import { recordWriteHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -36,7 +36,7 @@ import {
 } from './HandlerTypes.js';
 import type { Connection, QueryOptions, QueryResult } from 'jsforce';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { assertSoqlWhere, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -69,6 +69,8 @@ import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationT
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
+import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import {
@@ -256,6 +258,22 @@ function dmlStatus(succeeded: number, failed: number): 'success' | 'partial' | '
   return 'partial';
 }
 
+/**
+ * The tier Production Guard takes the org of a restore or a masking run for:
+ * the tier of its type, but a Developer Edition org, which says `IsSandbox`
+ * false and is registered as a production org, taken for the development org
+ * it is — as a Forge run, a Frozen load and a Sync removal take it
+ * (`forgeTargetTier`). Read from its type alone, DataOps asked before every
+ * write to such an org as before one to production, and a command line, with
+ * nobody to ask, could tell it from production by nothing. An org whose
+ * edition is not known stays production.
+ */
+function writeTier(
+  org: { orgType?: string; metadata?: { edition?: unknown } } | undefined,
+): SafetyTier {
+  return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);
+}
+
 /** Append a bounded sample of what the org said about a rejected row. */
 function collectDmlError(
   sink: Array<{ objectApiName: string; message: string }>,
@@ -438,6 +456,12 @@ function unconfirmedRowOf(row: Readonly<Record<string, unknown>>): UnconfirmedRo
 /** The code a masking run is recorded with when the org would not count an object's rows. */
 const COUNT_FAILED = 'COUNT_FAILED';
 
+/**
+ * The code a masking run is stopped with, before its first write, when the
+ * snapshot it asked for was not taken, or holds only part of its rows.
+ */
+const SNAPSHOT_NOT_TAKEN = 'SNAPSHOT_NOT_TAKEN';
+
 /** An API or system error code, as an org's error message starts with one. */
 const LEADING_CODE = /^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+):/;
 
@@ -613,6 +637,7 @@ function maskingAuditCounts(tallies: readonly MaskingTally[]): AuditObjectCounts
  *
  * @param afterId - The last row of the page before, as {@link pageEnd} checked
  *   it: letters and digits only, so it goes into the statement as it is.
+ * @param where - The run's filter, as the payload schema let it through.
  */
 async function maskingPage(
   conn: Connection,
@@ -620,13 +645,39 @@ async function maskingPage(
   fields: string,
   pageSize: number,
   afterId: string | undefined,
+  where?: string,
 ): Promise<BoundedRecords<Record<string, unknown>>> {
-  const after = afterId === undefined ? '' : ` WHERE Id > '${afterId}'`;
   return queryAllBounded<Record<string, unknown>>(
     conn,
-    `SELECT ${fields} FROM ${objectApiName}${after} ORDER BY Id LIMIT ${pageSize}`,
+    `SELECT ${fields} FROM ${objectApiName}${rowsOfTheRun(where, afterId)} ORDER BY Id LIMIT ${pageSize}`,
     pageSize,
   );
+}
+
+/**
+ * The WHERE of a masking run's statements: its filter, and past the row it
+ * reached. The filter goes in parentheses, so an `OR` in it does not reach
+ * past the row the run reached; it is checked again here, as every builder of
+ * a filter checks it, for one that leaves a parenthesis open or goes on past
+ * the condition.
+ *
+ * @param where - The run's filter; absent or blank for every row.
+ * @param afterId - The last row handled, letters and digits only.
+ * @throws When the filter does more than filter.
+ */
+function rowsOfTheRun(where: string | undefined, afterId: string | undefined): string {
+  const filter = where?.trim();
+  const conditions = [
+    ...(filter ? [`(${assertSoqlWhere(filter)})`] : []),
+    ...(afterId === undefined ? [] : [`Id > '${afterId}'`]),
+  ];
+  return conditions.length === 0 ? '' : ` WHERE ${conditions.join(' AND ')}`;
+}
+
+/** A run's filter as it was given, or undefined for none: a blank one filters nothing. */
+function filterOf(payload: { where?: string }): string | undefined {
+  const where = payload.where?.trim();
+  return where ? where : undefined;
 }
 
 /**
@@ -983,15 +1034,18 @@ export class DataOpsHandler implements DomainHandler {
    *
    * @param afterId - Count only the rows past this one, in Id order: those a
    *   resume has left to read. Letters and digits only, as a checkpoint keeps it.
+   * @param where - Count only the rows the run's filter holds it to.
    * @throws When the org answers the count with no number.
    */
   private async countRows(
     conn: Connection,
     objectApiName: string,
     afterId?: string,
+    where?: string,
   ): Promise<number> {
-    const after = afterId === undefined ? '' : ` WHERE Id > '${afterId}'`;
-    const answer = await conn.query(`SELECT COUNT() FROM ${objectApiName}${after}`);
+    const answer = await conn.query(
+      `SELECT COUNT() FROM ${objectApiName}${rowsOfTheRun(where, afterId)}`,
+    );
     const total: unknown = answer.totalSize;
     if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
       throw new Error(`The org did not say how many records ${objectApiName} holds.`);
@@ -1120,14 +1174,21 @@ export class DataOpsHandler implements DomainHandler {
    * the failure when there is one.
    *
    * @param operationId - The snapshot's id: its storage key and its registry entry.
-   * @param payload - The org and the objects to read.
+   * @param payload - The org and the objects to read; for the snapshot a
+   *   masking run takes, the rows its filter holds it to and, per object, the
+   *   fields it masks, which are all a restore of it writes back.
    * @param origin - The request that asked for it, for the fix suggestion.
    * @param signal - Stops the snapshot between two pages or before it is
    *   saved, as a cancel from Live Operations does.
    */
   private async takeBackup(
     operationId: string,
-    payload: { orgId: string; objects: string[] },
+    payload: {
+      orgId: string;
+      objects: string[];
+      where?: string;
+      fields?: ReadonlyMap<string, string>;
+    },
     origin: string,
     signal?: AbortSignal,
   ): Promise<BackupTaken | BackupNotTaken> {
@@ -1234,7 +1295,7 @@ export class DataOpsHandler implements DomainHandler {
           safeObj,
           read,
           writer,
-          { pageSize, cap },
+          { pageSize, cap, select: payload.fields?.get(safeObj), where: payload.where },
           stop.signal,
           () => {
             // Between two pages of a large object: how far into it the read is.
@@ -1443,6 +1504,9 @@ export class DataOpsHandler implements DomainHandler {
    *
    * @param read - The object as read so far, updated page by page, so that a
    *   read that fails part-way still says how many rows it wrote.
+   * @param limits - The rows a page reads and the most the snapshot takes;
+   *   and, for a masking run's snapshot, the fields read — every field
+   *   otherwise — and the rows its filter holds it to.
    * @param onPage - Called between two pages, once more are to come.
    * @throws {BackupCancelledError} At a cancel, between two pages.
    */
@@ -1451,7 +1515,7 @@ export class DataOpsHandler implements DomainHandler {
     safeObj: string,
     read: BackupObjectRead,
     writer: BackupWriter,
-    limits: { pageSize: number; cap: number },
+    limits: { pageSize: number; cap: number; select?: string; where?: string },
     stop: AbortSignal,
     onPage: () => void,
   ): Promise<void> {
@@ -1462,8 +1526,9 @@ export class DataOpsHandler implements DomainHandler {
       scanAll: false,
       responseTarget: 'QueryResult',
     };
+    const select = limits.select ?? (await this.selectAllFields(conn, safeObj));
     let page: QueryResult<BackupRecord> = await conn.query<BackupRecord>(
-      `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj}`,
+      `SELECT ${select} FROM ${safeObj}${rowsOfTheRun(limits.where, undefined)}`,
       options,
     );
     checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
@@ -2009,7 +2074,8 @@ export class DataOpsHandler implements DomainHandler {
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
-        orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+        // A Developer Edition org as the development org it is (see `writeTier`).
+        orgTier: writeTier(org),
         operation: 'upsert' as const,
         objectName: backupMeta.objects.map((o) => o.objectApiName).join(', ') || 'RollbackData',
         recordCount: backupMeta.totalRecords ?? 0,
@@ -2292,6 +2358,83 @@ export class DataOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Take the snapshot a masking run asked for, once the guard let it go and
+   * before its first write: the rows it counted, held to its filter, each
+   * with the fields its rules mask as they are now. A restore of it writes
+   * those fields back, by Id, and nothing else of the record.
+   *
+   * Taken by the flow the Backup button runs — the org's lock, the cap of
+   * rows per object, the registry entry a cancel stops — so it is listed,
+   * kept and restored like any backup. The run then writes nothing unless the
+   * snapshot holds every row it would mask: a snapshot that stopped at the
+   * cap, with the rows past it masked all the same, would put back part of
+   * the object and leave the rest masked for good.
+   *
+   * @param work - The run's objects, counted: one with no row is not read.
+   * @returns The snapshot, or none when there was no row to keep; or why the
+   *   run must not write, and whether trying again may help.
+   */
+  private async snapshotBeforeMasking(
+    conn: Connection,
+    operationId: string,
+    orgId: string,
+    work: readonly MaskingWork[],
+    options: { where?: string; origin: string; stop: AbortSignal },
+  ): Promise<
+    | { taken?: { operationId: string; totalRecords: number } }
+    | { refused: string; retryable: boolean }
+  > {
+    const fields = new Map<string, string>();
+    try {
+      for (const w of work) {
+        if (w.tally.total === 0) continue;
+        const { select } = await this.maskedFields(
+          conn,
+          w.tally.objectApiName,
+          this.maskingRules(w.objectName, w.objectRules),
+        );
+        // An object none of whose masked fields it has is written nothing.
+        if (select !== 'Id') fields.set(w.tally.objectApiName, select);
+      }
+    } catch (err: unknown) {
+      return {
+        refused: `No snapshot was taken, so nothing was masked: ${extractErrorMessage(err)}`,
+        retryable: true,
+      };
+    }
+    if (fields.size === 0) return {};
+    const snapshotId = `${operationId}-snapshot`;
+    const outcome = await this.takeBackup(
+      snapshotId,
+      {
+        orgId,
+        objects: [...fields.keys()],
+        ...(options.where !== undefined ? { where: options.where } : {}),
+        fields,
+      },
+      options.origin,
+      options.stop,
+    );
+    if ('error' in outcome) {
+      this.endBackupNotTaken(snapshotId, outcome);
+      return {
+        refused: `No snapshot was taken, so nothing was masked: ${extractErrorMessage(outcome.error)}`,
+        retryable: outcome.retryable && outcome.cancelled !== true,
+      };
+    }
+    if (outcome.partial) {
+      return {
+        refused:
+          `Snapshot ${snapshotId} holds only part of the records the run would mask, so nothing ` +
+          `was masked: a restore could not put back the rest (${backupShortfall(outcome.objects)}). ` +
+          'Raise sandforge.backup.maxRecordsPerObject, or narrow the run.',
+        retryable: false,
+      };
+    }
+    return { taken: { operationId: snapshotId, totalRecords: outcome.totalRecords } };
+  }
+
   private async handleAnonymize(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsAnonymizePayloadSchema, msg, 'dataops:error', this.deps);
@@ -2318,8 +2461,10 @@ export class DataOpsHandler implements DomainHandler {
     const tallies: MaskingTally[] = [];
     /** Per object, its rules, its counts, and how far the run got through it. */
     const work: MaskingWork[] = [];
-    /** What a checkpoint of this run is good for: its rules and its objects. */
-    const fingerprint = template ? maskingFingerprint(template.rules, plannedObjects) : '';
+    /** The filter the run holds the rows of its one object to, if it was given one. */
+    const where = filterOf(payload);
+    /** What a checkpoint of this run is good for: its rules, its objects and its filter. */
+    const fingerprint = template ? maskingFingerprint(template.rules, plannedObjects, where) : '';
     /**
      * Whether every object the run addresses has been counted and the guard
      * let it go ahead: until then, how many rows a run that stops leaves is
@@ -2340,6 +2485,12 @@ export class DataOpsHandler implements DomainHandler {
     let checkpointSettled = false;
     /** The engine the run masks with, once made: what it drew is kept for a resume. */
     let drawing: AnonymizationEngine | undefined;
+    /**
+     * The snapshot taken before the first write, when the request asked for
+     * one: every answer of the run names it, a failure's too, since that is
+     * when a restore is wanted.
+     */
+    let snapshot: { operationId: string; totalRecords: number } | undefined;
     /**
      * Aborted by the registry: a cancel of the run, the window closing. A run
      * was never registered, so nothing could stop it, and it masked every
@@ -2363,7 +2514,10 @@ export class DataOpsHandler implements DomainHandler {
       const reason = extractErrorMessage(err);
       const totals = maskingTotals(tallies);
       const left = counted && totals.recordsNotMasked > 0;
-      const extraPayload = counted ? { ...totals, objects: maskingResultObjects(tallies) } : {};
+      const extraPayload = {
+        ...(counted ? { ...totals, objects: maskingResultObjects(tallies) } : {}),
+        ...(snapshot ? { snapshot } : {}),
+      };
       sendHandlerError(
         this.deps,
         'dataops:anonymize',
@@ -2526,7 +2680,7 @@ export class DataOpsHandler implements DomainHandler {
         let toRead = 0;
         if (!progress.done) {
           try {
-            toRead = await this.countRows(conn, safeObj, progress.afterId);
+            toRead = await this.countRows(conn, safeObj, progress.afterId, where);
           } catch (err: unknown) {
             // Before the guard is asked and before anything is written: the
             // run ends here, and is recorded as a failure with the object and
@@ -2563,7 +2717,8 @@ export class DataOpsHandler implements DomainHandler {
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
-        orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+        // A Developer Edition org as the development org it is (see `writeTier`).
+        orgTier: writeTier(org),
         operation: 'update' as const,
         // The objects the run addresses, so a production confirmation
         // names them instead of an opaque 'AnonymizeData'.
@@ -2610,6 +2765,37 @@ export class DataOpsHandler implements DomainHandler {
         const desc = await conn.describe(objectApiName);
         return describeToObjectDescribe(desc);
       });
+
+      // A snapshot of what the run is about to write over, when asked: after
+      // the guard, which may stop the run, and before the first write.
+      if (payload.snapshot === true) {
+        const kept = await this.snapshotBeforeMasking(conn, operationId, payload.orgId, work, {
+          where,
+          origin: msg.type,
+          stop: stop.signal,
+        });
+        if ('refused' in kept) {
+          recordWriteRun(this.deps, {
+            ...run,
+            outcome: 'stopped',
+            source: undefined,
+            code: SNAPSHOT_NOT_TAKEN,
+          });
+          sendHandlerError(
+            this.deps,
+            'dataops:anonymize',
+            'dataops:error',
+            msg,
+            new Error(kept.refused),
+            { code: SNAPSHOT_NOT_TAKEN },
+          );
+          sendOperationFailed(this.deps, operationId, kept.refused, kept.retryable, {
+            context: failure,
+          });
+          return;
+        }
+        snapshot = kept.taken;
+      }
 
       const description = `Anonymizing with ${template.name}`;
       sendOperationStarted(this.deps, operationId, 'dataops', description);
@@ -2904,7 +3090,7 @@ export class DataOpsHandler implements DomainHandler {
             break;
           }
           if (usageAtStop()) break;
-          const page = await maskingPage(conn, safeObj, fields, pageSize, afterId);
+          const page = await maskingPage(conn, safeObj, fields, pageSize, afterId, where);
           noteApiUsage(`dataops:anonymize query ${safeObj}`);
           if (page.records.length === 0) {
             tally.done = true;
@@ -3030,6 +3216,7 @@ export class DataOpsHandler implements DomainHandler {
         fieldsNotFound,
         ...(cancelled ? { cancelled: true } : {}),
         ...(limitHit ? { stoppedAtApiLimit: true } : {}),
+        ...(snapshot ? { snapshot } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
@@ -3094,6 +3281,11 @@ export class DataOpsHandler implements DomainHandler {
    * read that failed. Read-only: one count per object, and the backups kept
    * on this machine. An object the org will not count is listed with no count
    * rather than failing the answer.
+   *
+   * Asked with the objects and the filter a run would be given, it counts
+   * what that run would mask, and finds the checkpoint that run would resume:
+   * an object the template has no rule for is not listed, as the run masks
+   * nothing there.
    */
   private async handleAnonymizeCoverage(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -3117,11 +3309,12 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
       const objects: AnonymizeCoverageObject[] = [];
-      for (const objectName of plannedAnonymizeObjects({}, template)) {
+      for (const objectName of plannedAnonymizeObjects(parsed, template)) {
+        if (rulesOfObject(template, objectName).length === 0) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
         let count: number | null = null;
         try {
-          count = await this.countRows(conn, objectApiName);
+          count = await this.countRows(conn, objectApiName, undefined, filterOf(parsed));
         } catch (err: unknown) {
           this.deps.log(
             `[WARN] dataops:anonymize:coverage: ${objectApiName} not counted: ${extractErrorMessage(err)}`,
@@ -3143,7 +3336,11 @@ export class DataOpsHandler implements DomainHandler {
       const checkpoint = new MaskingCheckpointStore(this.deps.configStore).load(
         parsed.orgId,
         parsed.templateId,
-        maskingFingerprint(template.rules, plannedAnonymizeObjects({}, template)),
+        maskingFingerprint(
+          template.rules,
+          plannedAnonymizeObjects(parsed, template),
+          filterOf(parsed),
+        ),
       );
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:coverage:response', {
         templateId: parsed.templateId,
@@ -3178,7 +3375,8 @@ export class DataOpsHandler implements DomainHandler {
    * for a record whose name an earlier record of the run already took, which
    * only a run through every record before it can tell. An object the org will
    * not describe or read is listed with what it said rather than failing the
-   * answer.
+   * answer. Asked with the objects and the filter a run would be given, it
+   * shows the first rows that run would mask.
    */
   private async handleAnonymizePreview(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -3205,7 +3403,7 @@ export class DataOpsHandler implements DomainHandler {
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const objects: AnonymizePreviewObject[] = [];
       const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
-      for (const objectName of plannedAnonymizeObjects({}, template)) {
+      for (const objectName of plannedAnonymizeObjects(parsed, template)) {
         const objectRules = rulesOfObject(template, objectName);
         if (objectRules.length === 0) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
@@ -3216,7 +3414,14 @@ export class DataOpsHandler implements DomainHandler {
             this.maskingRules(objectName, objectRules),
           );
           fieldsNotFound.push(...missing.map((fieldApiName) => ({ objectApiName, fieldApiName })));
-          const page = await maskingPage(conn, objectApiName, select, PREVIEW_ROWS, undefined);
+          const page = await maskingPage(
+            conn,
+            objectApiName,
+            select,
+            PREVIEW_ROWS,
+            undefined,
+            filterOf(parsed),
+          );
           checkApiLimits(conn.limitInfo, `dataops:anonymize:preview ${objectApiName}`);
           const masked = engine.anonymize(page.records, rules);
           const fields = rules

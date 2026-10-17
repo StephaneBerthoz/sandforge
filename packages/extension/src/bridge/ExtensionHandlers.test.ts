@@ -234,6 +234,30 @@ describe('ExtensionHandlers', () => {
     });
   });
 
+  describe("the reader of the target's automation", () => {
+    it("hands Forge's reader to an Autopilot run's gate, as to a Frozen removal's sweep", () => {
+      // Autopilot read none of the target's automation, and its gate could
+      // not count the emails a plan's records make the target send.
+      const inner = handlers as unknown as {
+        autopilotHandler: { setTargetAutomation: (reader: unknown) => void };
+        frozenHandler: { setTargetAutomation: (reader: unknown) => void };
+      };
+      const autopilot = vi.spyOn(inner.autopilotHandler, 'setTargetAutomation');
+      const frozen = vi.spyOn(inner.frozenHandler, 'setTargetAutomation');
+      const reader = { read: vi.fn(), readForGraph: vi.fn() };
+
+      handlers.setForgeOrchestrator(
+        {} as unknown as Parameters<ExtensionHandlers['setForgeOrchestrator']>[0],
+        { targetAutomation: reader } as unknown as Parameters<
+          ExtensionHandlers['setForgeOrchestrator']
+        >[1],
+      );
+
+      expect(autopilot).toHaveBeenCalledWith(reader);
+      expect(frozen).toHaveBeenCalledWith(reader);
+    });
+  });
+
   describe('org:list', () => {
     it('should respond with current orgs', () => {
       orgManager.addOrg({

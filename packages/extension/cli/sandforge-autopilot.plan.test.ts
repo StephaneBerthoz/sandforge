@@ -4,10 +4,30 @@ vi.mock('./sfSession.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./sfSession.js')>();
   return { ...actual, loadOrg: vi.fn(actual.loadOrg), makeConn: vi.fn(actual.makeConn) };
 });
+// What the target runs, as the reader Forge's clone command reads it with
+// would answer: no automation, unless a test gives some.
+const readAutomation = vi.hoisted(() => vi.fn());
+vi.mock('./sandforge-clone.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./sandforge-clone.js')>()),
+  targetAutomationReader: () => ({ read: readAutomation }),
+}));
 
+import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { main, parseArgs } from './sandforge-autopilot';
 import { countingConnection, largeOrg } from '../src/test/largeOrg';
+
+/** What the target runs on the objects a plan writes. */
+function automationOf(objects: ForgeTargetAutomation['objects']): ForgeTargetAutomation {
+  return {
+    objectsRead: objects.map((o) => o.objectApiName),
+    objects,
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 4,
+  };
+}
 
 /** The command line, after the script's own two words. */
 const argv = (...rest: string[]) => [
@@ -20,8 +40,11 @@ const argv = (...rest: string[]) => [
   ...rest,
 ];
 
-/** A source and a target over the same large org, the target with `remainingMB` of storage. */
-function orgs(remainingMB: number) {
+/**
+ * A source and a target over the same large org, the target with
+ * `remainingMB` of storage and `singleEmailsLeft` of its fifteen single emails.
+ */
+function orgs(remainingMB: number, singleEmailsLeft = 15) {
   const org = largeOrg();
   const source = countingConnection(org);
   const target = countingConnection(org);
@@ -30,7 +53,10 @@ function orgs(remainingMB: number) {
   );
   const conn = {
     ...target.conn,
-    request: vi.fn(async () => ({ DataStorageMB: { Max: 200, Remaining: remainingMB } })),
+    request: vi.fn(async () => ({
+      DataStorageMB: { Max: 200, Remaining: remainingMB },
+      SingleEmail: { Max: 15, Remaining: singleEmailsLeft },
+    })),
     sobject: (name: string) => ({ ...target.conn.sobject(name), create }),
   };
   vi.mocked(loadOrg).mockImplementation(async (alias) => ({
@@ -54,6 +80,8 @@ describe('sandforge-autopilot — what a plan copies', () => {
       out.push(String(chunk));
       return true;
     });
+    readAutomation.mockReset();
+    readAutomation.mockResolvedValue(automationOf([]));
   });
 
   afterEach(() => {
@@ -127,5 +155,78 @@ describe('sandforge-autopilot — what a plan copies', () => {
     out.length = 0;
     await main(argv('--object', 'Lead', '--max-total', '5', '--plan-only'));
     expect(out.join('')).toContain('a real run would be refused: The run would write 30 records');
+  });
+
+  it("refuses a run the target's flows would send more emails for than it has left today, and says so with --plan-only", async () => {
+    // Autopilot read none of the target's automation: thirty leads into a
+    // Developer Edition whose lead flow sends an email for each would have
+    // taken it past its fifteen single emails a day, nothing said.
+    const { create } = orgs(150, 15);
+    readAutomation.mockResolvedValue(
+      automationOf([
+        {
+          objectApiName: 'Lead',
+          flows: [
+            {
+              apiName: 'Lead_Welcome',
+              label: 'Lead welcome',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ]),
+    );
+
+    await expect(main(argv('--object', 'Lead'))).rejects.toThrow(
+      /The target's flows would make TGT send about 30 single emails, 15 of 15 left today.*Nothing was written\./,
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(readAutomation).toHaveBeenCalledWith('TGT', expect.arrayContaining(['Lead']));
+
+    out.length = 0;
+    await main(argv('--object', 'Lead', '--plan-only'));
+    const printed = out.join('');
+    expect(printed).toContain(
+      '  emails: these records make TGT send about 30 single emails (1 per Lead, by Lead ' +
+        'welcome), more than the 15 of 15 it has left today',
+    );
+    expect(printed).toContain(
+      "a real run would be refused: The target's flows would make TGT send about 30 single emails",
+    );
+  });
+
+  it('says the emails fit, and refuses nothing for them, when the target has them left', async () => {
+    orgs(150, 15);
+    readAutomation.mockResolvedValue(
+      automationOf([
+        {
+          objectApiName: 'Lead',
+          flows: [
+            {
+              apiName: 'Lead_Welcome',
+              label: 'Lead welcome',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [{ name: 'Skip_Welcome', bypass: true, held: true }],
+              messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ]),
+    );
+
+    await main(argv('--object', 'Lead', '--plan-only'));
+
+    // A bypass the user holds keeps the flow quiet: nothing to count.
+    const printed = out.join('');
+    expect(printed).not.toContain('emails:');
+    expect(printed).not.toContain('a real run would be refused');
   });
 });

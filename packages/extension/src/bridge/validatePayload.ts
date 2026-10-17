@@ -641,21 +641,56 @@ export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: opaqueIdSchema,
 });
-export const dataOpsAnonymizePayloadSchema = z.object({
-  orgId: orgIdSchema,
-  templateId: opaqueIdSchema,
+/**
+ * The objects and the filter of a masking run, as its preview and its
+ * coverage take them too: a filter is a condition on one object's rows, so it
+ * comes with that object alone. A filter beside two objects would hold both
+ * to fields only one of them may have; beside none, to every object a
+ * template names.
+ */
+const maskingScopeShape = {
   objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),
-  // The checkpoint a resume names: matched against the one kept, never read as anything else.
-  resumeFrom: opaqueIdSchema.optional(),
-});
-export const dataOpsAnonymizeCoveragePayloadSchema = z.object({
-  orgId: orgIdSchema,
-  templateId: opaqueIdSchema,
-});
-export const dataOpsAnonymizePreviewPayloadSchema = z.object({
-  orgId: orgIdSchema,
-  templateId: opaqueIdSchema,
-});
+  where: whereClauseSchema.optional(),
+};
+/** Whether a filter, if given, comes with exactly one object. */
+const filterOnOneObject = (scope: { objects?: string[]; where?: string }): boolean =>
+  scope.where === undefined || scope.where.trim() === '' || scope.objects?.length === 1;
+const FILTER_ON_ONE_OBJECT = {
+  message: 'A WHERE clause filters the rows of one object: name exactly one in objects',
+  path: ['where'],
+};
+
+export const dataOpsAnonymizePayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    templateId: opaqueIdSchema,
+    ...maskingScopeShape,
+    // The checkpoint a resume names: matched against the one kept, never read as anything else.
+    resumeFrom: opaqueIdSchema.optional(),
+    snapshot: z.boolean().optional(),
+  })
+  .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT)
+  // A resume carries on over rows the run it resumes already masked: a
+  // snapshot of them now would keep their masked values, and a restore of it
+  // would put those back.
+  .refine((payload) => !(payload.snapshot === true && payload.resumeFrom !== undefined), {
+    message: 'A resume takes no snapshot: the run it resumes has written over some of its rows',
+    path: ['snapshot'],
+  });
+export const dataOpsAnonymizeCoveragePayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    templateId: opaqueIdSchema,
+    ...maskingScopeShape,
+  })
+  .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT);
+export const dataOpsAnonymizePreviewPayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    templateId: opaqueIdSchema,
+    ...maskingScopeShape,
+  })
+  .refine(filterOnOneObject, FILTER_ON_ONE_OBJECT);
 /**
  * Rules the user saves as a template of their own: each an `Object.Field`, a
  * method a DataOps run applies, and the setting a Constant or a Truncate needs

@@ -188,7 +188,14 @@ export interface AnonymizationTemplateDeleteResponse extends BaseMessage {
  */
 export interface DataOpsAnonymizeCoverageRequest extends BaseMessage {
   type: 'dataops:anonymize:coverage';
-  payload: { orgId: string; templateId: string };
+  payload: {
+    orgId: string;
+    templateId: string;
+    /** The objects a run would be asked for ({@link DataOpsAnonymizeRequest}); absent, the template's. */
+    objects?: string[];
+    /** The filter a run would be given ({@link DataOpsAnonymizeRequest}): rows are counted under it. */
+    where?: string;
+  };
 }
 
 /** One object a template masks: its rows in the org, and those the latest backup holds. */
@@ -228,7 +235,14 @@ export interface DataOpsAnonymizeCoverageResponse extends BaseMessage {
  */
 export interface DataOpsAnonymizePreviewRequest extends BaseMessage {
   type: 'dataops:anonymize:preview';
-  payload: { orgId: string; templateId: string };
+  payload: {
+    orgId: string;
+    templateId: string;
+    /** The objects a run would be asked for ({@link DataOpsAnonymizeRequest}); absent, the template's. */
+    objects?: string[];
+    /** The filter a run would be given ({@link DataOpsAnonymizeRequest}): the first rows under it. */
+    where?: string;
+  };
 }
 
 /** A masked field's value, as the org holds it or as Apply writes it. */
@@ -304,6 +318,20 @@ export interface DataOpsAnonymizeRequest extends BaseMessage {
      * run left. Absent, the run masks every row.
      */
     resumeFrom?: string;
+    /**
+     * A SOQL condition, without its `WHERE`, the rows of the one object in
+     * `objects` are held to: the run counts, reads and masks those alone.
+     * Absent, every row of each object.
+     */
+    where?: string;
+    /**
+     * Take a snapshot of the rows the run masks, their masked fields as they
+     * are, once the guard let the run go and before its first write: a restore
+     * of it puts their values back. The run writes nothing unless the snapshot
+     * holds every row it counted. Not given with `resumeFrom`: the run resumed
+     * already wrote over some of those rows.
+     */
+    snapshot?: boolean;
   };
 }
 
@@ -382,6 +410,11 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
      * org had used nearly all of its daily API requests.
      */
     stoppedAtApiLimit?: true;
+    /**
+     * The snapshot the run took before it wrote, when it was asked to: the
+     * backup a restore names, and the rows it holds.
+     */
+    snapshot?: { operationId: string; totalRecords: number };
   };
 }
 

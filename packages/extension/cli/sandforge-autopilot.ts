@@ -64,15 +64,23 @@ import { sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { detectPersonalFields } from '../src/modules/autopilot/personalFields.js';
-import { autopilotWritePlan } from '../src/modules/autopilot/AutopilotRunGate.js';
+import {
+  autopilotEmails,
+  autopilotWritePlan,
+  emailRefusal,
+  objectsThePlanWrites,
+} from '../src/modules/autopilot/AutopilotRunGate.js';
 import {
   DEFAULT_MAX_TOTAL,
+  emailCheckLines,
   readDataStorage,
+  readEmailLimits,
   storageCheckOf,
   storageRefusal,
   writePlanLines,
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
+import { targetAutomationReader } from './sandforge-clone.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
 
@@ -104,8 +112,9 @@ Options:
 
 A selected object is copied whole. Of any other object, only the records the
 selection references are read, by id; a lookup past the bounds is left empty,
-and the plan says which. Before it writes, the run is held to --max-total and
-to the data storage the target has left: past either, nothing is written.
+and the plan says which. Before it writes, the run is held to --max-total, to
+the data storage the target has left, and to the daily emails the target's
+flows would send for its records: past any, nothing is written.
 
 Exit codes: 0 the run finished (read the summary for per-object failures),
 1 the run could not be started or was refused, 2 a bad command line.
@@ -389,12 +398,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const check = storageCheckOf(writePlan, storage);
   log('');
   for (const line of writePlanLines(writePlan, check, args.target)) log(line);
+  // The emails the target's flows send as the plan's records go in, against
+  // what it has left today: its automation read as Forge reads it, its limits
+  // when something sends. Past them, the run is refused, as past the storage.
+  const emails = await autopilotEmails({
+    plan: writePlan,
+    objects: objectsThePlanWrites(plan),
+    readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
+    readLimits: () => readEmailLimits(targetConn),
+  });
+  for (const line of emailCheckLines(emails.checks, args.target)) log(line);
+  if (emails.unread !== undefined) {
+    log(`  emails: not counted, ${emails.unread} could not be read`);
+  }
   const refusals = [
     writePlan.totalRows > args.maxTotal
       ? `The run would write ${writePlan.totalRows} records, more than --max-total ` +
         `${args.maxTotal}: narrow it (--object, --max-depth, --max-objects), or raise --max-total.`
       : undefined,
     storageRefusal(check, args.target),
+    emailRefusal(emails.checks, args.target),
   ].filter((reason): reason is string => reason !== undefined);
 
   if (args.planOnly) {
@@ -407,7 +430,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             planOnly: true,
             graph,
             plan,
-            writeGate: { records: writePlan.totalRows, storage: check, refusals },
+            writeGate: {
+              records: writePlan.totalRows,
+              storage: check,
+              emails: emails.checks,
+              ...(emails.unread !== undefined ? { emailsUnread: emails.unread } : {}),
+              refusals,
+            },
           },
           null,
           2,

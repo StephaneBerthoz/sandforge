@@ -99,14 +99,28 @@ export type MaskingCheckpoint = z.infer<typeof checkpointSchema>;
  * an object added, and the rows the first run masked are no longer masked the
  * way the rest would be: such a checkpoint matches nothing. A rule's
  * description is left out, as it masks nothing.
+ *
+ * So is the filter a run held its rows to: where a run over the contacts of
+ * one account stopped says nothing of where a run over every contact stands,
+ * and a resume of the one from the other's checkpoint would read on past rows
+ * it never masked. A run with no filter keeps the fingerprint it always had,
+ * so a checkpoint kept before filters were is still found.
+ *
+ * @param where - The run's filter, as it was given; absent or blank for none.
  */
 export function maskingFingerprint(
   rules: readonly AnonymizationTemplateRule[],
   objects: readonly string[],
+  where?: string,
 ): string {
   const masked = rules.map((r) => [r.fieldPattern, r.ruleType, r.config ?? null]);
+  const filter = where?.trim();
   return createHash('sha256')
-    .update(JSON.stringify({ rules: masked, objects }))
+    .update(
+      JSON.stringify(
+        filter ? { rules: masked, objects, where: filter } : { rules: masked, objects },
+      ),
+    )
     .digest('hex');
 }
 
