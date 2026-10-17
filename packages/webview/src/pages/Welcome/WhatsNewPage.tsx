@@ -78,6 +78,14 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
  * adds no entry here shows no panel at all: from 1.44.3 on, a patch adds none.
  */
 export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
+  '1.58.0': [
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.personCurrency1580',
+      descKey: 'onboarding.whatsNew.personCurrency1580Desc',
+      navigateTo: 'forge',
+    },
+  ],
   '1.57.0': [
     {
       category: 'feature',

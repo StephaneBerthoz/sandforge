@@ -5,6 +5,24 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.58.0] - 2026-10-17
+
+Person accounts and multi-currency tested on real orgs: amounts keep their value, and every module writes each account as its kind.
+
+### Changed
+
+- **Currencies**: a currency the target lacks is replaced by the record type's default or the corporate currency, and the amounts are converted at the source's rates, in Forge, Sync and Autopilot.
+- **Sync simulation and Autopilot plan**: predict the currency replacement and its conversion.
+- **Frozen defaults**: required picklists are kept without a rule.
+- **Frozen**: a business account's Name and a person account's last name are asked where the rules leave them empty.
+
+### Fixed
+
+- **Autopilot**: writes each account as its kind, person or business.
+- **Autopilot**: holds back a record whose parent it refused.
+- **DataOps masking**: covers a person account's own fields — names, email, phones, birthdate.
+- **Frozen verification**: counts apart what the preview said it could not load.
+
 ## [1.57.0] - 2026-10-17
 
 Sync links across runs, DataOps masks from the command line, and every module reads a large org within Salesforce's limits.
