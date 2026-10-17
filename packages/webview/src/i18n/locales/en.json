@@ -2318,6 +2318,8 @@
       "scaleTested1550Desc": "Tested on a large org: Sync maps record types and holds back what the target would refuse, and its simulation says so beforehand. Autopilot copies only the records your selection references and checks the target's storage first. Seed can take a run back, and Frozen selects with far fewer API calls.",
       "frozenScale1560": "Frozen Dataset holds on a large org",
       "frozenScale1560Desc": "A dossier now stays a dossier: children are read only under what its root reaches, so a parent it names no longer brings every sibling. A load holds back what a refused parent would leave orphaned and says it failed when it did, and a removal can sweep what the target's automation created. Personal attributes such as gender or salutation stay cleared.",
+      "syncLinks1570": "Sync links across runs",
+      "syncLinks1570Desc": "A saved Sync configuration now remembers the records its runs wrote, so a later or delta run links to them, and a parent the target refuses as a duplicate is linked to the record it matches. DataOps masking gets a command line with a snapshot and a restore, a Seed run can be removed from its results, and the automation report reads a large org's flows within Salesforce's limits.",
       "exactResume1530": "Resume exactly where it stopped",
       "exactResume1530Desc": "A resumed Forge run now copies the files left to copy, never gives a status back twice, and is no longer refused when an empty table changed meanwhile. Removing a large run reads its journal page by page.",
       "undoSync1520": "Take back what a Sync run created",

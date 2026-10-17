@@ -2318,6 +2318,8 @@
       "scaleTested1550Desc": "Testados em uma org grande: o Sync mapeia os tipos de registro e retém o que o destino recusaria, e sua simulação avisa antes. O Autopilot copia apenas os registros que sua seleção referencia e verifica primeiro o armazenamento do destino. O Seed pode desfazer uma execução, e o Frozen seleciona com muito menos chamadas de API.",
       "frozenScale1560": "Frozen Dataset aguenta em uma org grande",
       "frozenScale1560Desc": "Um dossiê continua um dossiê: os filhos só são lidos sob o que sua raiz alcança, e um pai que ele nomeia não traz mais todos os irmãos. Uma carga retém o que um pai recusado deixaria órfão e diz que falhou quando falhou, e uma remoção pode varrer o que a automação do destino criou. Atributos pessoais como gênero ou tratamento continuam vazios.",
+      "syncLinks1570": "O Sync vincula entre execuções",
+      "syncLinks1570Desc": "Uma configuração de Sync salva agora lembra os registros que suas execuções escreveram, então uma execução posterior ou delta se vincula a eles, e um pai que o destino recusa como duplicado é vinculado ao registro correspondente. O mascaramento do DataOps ganha linha de comando com snapshot e restauração, uma execução do Seed pode ser removida pelos resultados e o relatório de automação lê os Flows de uma org grande dentro dos limites do Salesforce.",
       "exactResume1530": "Retomar exatamente de onde parou",
       "exactResume1530Desc": "Uma execução do Forge retomada agora copia os arquivos que faltam, nunca devolve um status duas vezes e não é mais recusada quando uma tabela vazia mudou nesse meio-tempo. Remover uma execução grande lê seu diário página por página.",
       "undoSync1520": "Desfazer o que uma execução do Sync criou",

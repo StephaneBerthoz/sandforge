@@ -5,6 +5,40 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.57.0] - 2026-10-17
+
+Sync links across runs, DataOps masks from the command line, and every module reads a large org within Salesforce's limits.
+
+### Added
+
+- **DataOps command line**: `sandforge-dataops anonymize` masks with a filter and a dry run, takes a snapshot first and restores from it.
+- **Seed panel**: a run can be removed from its results.
+- **Seed command line**: writes person accounts for a person record type.
+- **Frozen preview**: lists the target's active validation rules, with their fields.
+
+### Changed
+
+- **Sync**: a saved configuration remembers the records its runs wrote, so a later or delta run links to them.
+- **Sync**: a lookup to another row of the same write is set in a second pass.
+- **Sync**: a parent refused as a duplicate of one record is linked to it, and its children follow.
+- **Autopilot**: the first scan lists the org's objects without describing them.
+- **Autopilot**: the write gate counts the emails the target's flows would send.
+- **Frozen**: a default for a name or a unique field gives each record its own value.
+- **Frozen**: business hours, which the platform never deletes, are found again by name.
+- **Frozen**: the extraction reuses the selection's graph while the source's schema is unchanged.
+- **Validation rules**: an insert's caveat leaves out rules that only fire on a change.
+- **Automation report**: reads flow metadata within Salesforce's composite limits, 1 500 start conditions at most.
+- **Forge removal**: sweeps what the target's automation created before it deletes.
+
+### Fixed
+
+- **Backup and Frozen command lines**: a production write nobody confirmed is refused.
+- **Forge**: a cancelled run shows as cancelled, not as an error.
+- **Forge removal**: a parent a swept child's roll-up touched is no longer kept as changed.
+- **Forge command line**: Ctrl-C stops the run as the panel does, audited and resumable.
+- **Seed**: a row a validation rule refuses is written again without the field it names.
+- **DataOps**: masking and restore take a Developer Edition for development.
+
 ## [1.56.0] - 2026-10-16
 
 Frozen Dataset tested on a large org: a dossier stays a dossier, a load says what it could not write, and personal attributes stay cleared.
