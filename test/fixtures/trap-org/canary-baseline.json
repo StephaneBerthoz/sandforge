@@ -23,9 +23,82 @@
     "sweepStatus": "success",
     "left": 0
   },
+  "frozen select": {
+    "roots": 1,
+    "records": 38
+  },
+  "frozen extract": {
+    "records": 38,
+    "control": true,
+    "graph": "select"
+  },
+  "frozen load dry run": {
+    "toInsert": 38,
+    "toLink": 0,
+    "notSent": 0
+  },
+  "frozen load": {
+    "inserted": 38,
+    "withoutFields": 1,
+    "linked": 0,
+    "refused": 0,
+    "heldBack": 0
+  },
+  "frozen verify": {
+    "verdict": "passed"
+  },
+  "frozen remove": {
+    "status": "success",
+    "flowTasks": 30,
+    "swept": 30,
+    "left": 0
+  },
+  "autopilot plan": {
+    "objects": 1,
+    "records": 20
+  },
+  "autopilot run": {
+    "written": 16,
+    "linked": 0,
+    "refused": 4
+  },
+  "autopilot remove": {
+    "removed": 16,
+    "left": 0
+  },
+  "seed dry run": {
+    "Account": 2,
+    "Contact": 3
+  },
+  "seed run": {
+    "written": 5,
+    "withoutFields": 3,
+    "refused": 0,
+    "sameAsDryRun": true
+  },
+  "seed remove": {
+    "status": "success",
+    "left": 0,
+    "flowTasks": 3
+  },
   "dataops backup": {
     "held": 1200,
     "orgCount": 1200
+  },
+  "dataops anonymize dry run": {
+    "records": 3,
+    "fields": 7
+  },
+  "dataops anonymize": {
+    "masked": 3,
+    "refused": 0,
+    "changed": 3,
+    "snapshot": 3
+  },
+  "dataops restore": {
+    "restored": 3,
+    "failed": 0,
+    "checksumsEqual": true
   },
   "sync simulation": {
     "insert": 4,

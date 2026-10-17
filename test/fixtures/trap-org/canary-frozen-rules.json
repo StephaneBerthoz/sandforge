@@ -1,0 +1,17 @@
+{
+  "rulesVersion": "1.0.0",
+  "rules": {
+    "Account.Name": { "generator": "companyName" },
+    "Account.Type": {
+      "generator": "keep",
+      "approved": true,
+      "comment": "synthetic picklist value the target's lookup filter reads"
+    },
+    "Contact.FirstName": { "generator": "firstName" },
+    "Contact.LastName": { "generator": "lastName" },
+    "Contact.Email": { "generator": "email" },
+    "Case.Subject": { "generator": "keep", "approved": true, "comment": "synthetic" },
+    "Case.Status": { "generator": "keep", "approved": true, "comment": "platform value" },
+    "Case.Origin": { "generator": "keep", "approved": true, "comment": "platform value" }
+  }
+}

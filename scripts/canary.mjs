@@ -15,17 +15,42 @@
  *   node scripts/canary.mjs --skip-probes      # leave out the trap probes (~6 min)
  *
  * It touches no org but SANDFORGE-SOURCE and SANDFORGE-TRAP, writes to the
- * target and, in the source, only the records the Sync steps create for
- * themselves, never a seeded one, and removes what it wrote, however the run
- * ends. It prints counts and verdicts, never an id, a username or a token:
- * its log is public when it runs in CI.
+ * target and, in the source, only the records the Sync and DataOps steps
+ * create for themselves, never a seeded one, and removes what it wrote,
+ * however the run ends. It prints counts and verdicts, never an id, a
+ * username or a token: its log is public when it runs in CI.
  */
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { maskIds, tableCell } from './canary-mask.mjs';
+import {
+  autopilotCreated,
+  changedRows,
+  fieldsChecksum,
+  frozenCreated,
+  frozenLoadCounts,
+  frozenPreviewCounts,
+  idCount,
+  postedError,
+  postedOf,
+  seedCreated,
+  seedPlanned,
+  seedWrittenAgain,
+  soqlDate,
+  windowAround,
+} from './canary-steps.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = 'SANDFORGE-SOURCE';
@@ -60,7 +85,55 @@ const SYNC_CHANGE = 'changed by the canary';
  */
 const SYNC_TAG = `CANARY-SYNC-${Date.now().toString(36).toUpperCase()}`;
 
+const FROZEN_CLI = 'packages/extension/cli/sandforge-frozen.ts';
+/**
+ * The Frozen project: one root, `Trap Account 15`, a Customer, so that trap
+ * 5's filter takes the contacts that prefer it.
+ */
+const FROZEN_CONFIG = join(FIXTURES, 'canary-frozen-config.json');
+const FROZEN_RULES = join(FIXTURES, 'canary-frozen-rules.json');
+/**
+ * The salt of the Frozen dataset's pseudonyms when the run is given none: the
+ * records are synthetic, and the same salt freezes the same dataset every week.
+ */
+const FROZEN_SALT = 'sandforge-canary';
+const AUTOPILOT_CLI = 'packages/extension/cli/sandforge-autopilot.ts';
+/**
+ * What Autopilot carries: the source's leads, copied whole, which no flow of
+ * the target sends an email for. Its real run is held to `--max-total`: a plan
+ * grown past it is refused before anything is written.
+ */
+const AUTOPILOT_OBJECT = 'Lead';
+const AUTOPILOT_MAX_TOTAL = 25;
+const SEED_CLI = 'packages/extension/cli/sandforge-seed.ts';
+/**
+ * The Seed steps' draws: two accounts and one to three contacts under each,
+ * the same every week.
+ */
+const SEED_DRAWS = '4242';
+const DATAOPS_CLI = 'packages/extension/cli/sandforge-dataops.ts';
+const DATAOPS_TEMPLATE = 'tpl-gdpr-standard';
+/** The contact fields the template masks: what the checksums are taken over. */
+const DATAOPS_FIELDS = [
+  'FirstName',
+  'LastName',
+  'Email',
+  'Phone',
+  'MailingStreet',
+  'MailingCity',
+  'MailingPostalCode',
+];
+/** Contacts the DataOps steps create in the source, mask and put back. */
+const DATAOPS_RECORDS = 3;
+/**
+ * The DataOps steps' contacts carry this in `Department`, which the template
+ * leaves alone: masked, their names no longer tell them, and the filter of
+ * the masking and the cleanup find them by it.
+ */
+const DATAOPS_TAG = `CANARY-DATAOPS-${Date.now().toString(36).toUpperCase()}`;
+
 const args = new Set(process.argv.slice(2));
+const startedAt = Date.now();
 const work = mkdtempSync(join(tmpdir(), 'sandforge-canary-'));
 
 /** One line per step: its name, whether it held, and what it counted. */
@@ -76,19 +149,19 @@ function record(name, ok, detail, measured) {
 }
 
 /** A command, its output kept in the work directory rather than printed. */
-function run(label, command, commandArgs) {
+function run(label, command, commandArgs, env = {}) {
   const result = spawnSync(command, commandArgs, {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
-    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
+    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096', ...env },
   });
   writeFileSync(join(work, `${label}.out`), result.stdout ?? '');
   writeFileSync(join(work, `${label}.err`), result.stderr ?? '');
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
-const tsx = (label, cli, cliArgs) => run(label, 'npx', ['tsx', cli, ...cliArgs]);
+const tsx = (label, cli, cliArgs, env) => run(label, 'npx', ['tsx', cli, ...cliArgs], env);
 
 /** `sf … --json`, parsed; undefined when it failed. */
 function sfJson(label, sfArgs) {
@@ -271,9 +344,6 @@ const SWEEP_TRAIL_MS = 60_000;
 /** The subject trap 18's flow gives each task it opens. */
 const FOLLOW_UP_SUBJECT = 'Trap follow-up: ';
 
-/** A date as a SOQL literal takes it, to the second. */
-const soqlDate = (epoch) => new Date(epoch).toISOString().replace(/\.\d{3}Z$/, 'Z');
-
 /**
  * What the target's automation created as the clone wrote, taken back by the
  * sweep: trap 18's flow opens a task for each contact created under an
@@ -372,13 +442,27 @@ function forge() {
     { nodes },
   );
 
-  // A Developer Edition sends 15 single emails a day and the welcome flow
-  // sends two per contact: the clone runs as a holder of the bypass the dry
-  // run named, as a user would, and gives it back so that the probes find the
-  // set assigned to nobody (trap 3).
-  const user = sfJson('running-user', ['org', 'display', 'user', '--target-org', TARGET])?.id;
+  const user = targetUser();
   if (!user) return record('forge bypass', false, 'the target would not say who runs the clone');
-  const assigned = run('bypass-assign', 'sf', [
+  return withBypass('forge', user, () => cloneAndRemove(root, user));
+}
+
+/** The user the canary writes to the target as, read once. */
+let runningUser;
+function targetUser() {
+  runningUser ??= sfJson('running-user', ['org', 'display', 'user', '--target-org', TARGET])?.id;
+  return runningUser;
+}
+
+/**
+ * Run a step's writes to the target as a holder of the bypass. A Developer
+ * Edition sends 15 single emails a day and the welcome flow sends two per
+ * contact: a step that writes contacts runs as a holder of the bypass the
+ * Forge dry run names, as a user would, and gives it back so that the probes
+ * find the set assigned to nobody (trap 3).
+ */
+function withBypass(step, user, writes) {
+  const assigned = run(`${step}-bypass-assign`, 'sf', [
     'org',
     'assign',
     'permset',
@@ -388,14 +472,14 @@ function forge() {
     TARGET,
   ]);
   if (assigned.status !== 0 && !/duplicate|already/i.test(`${assigned.stdout}${assigned.stderr}`)) {
-    return record('forge bypass', false, `${BYPASS_SET} not assigned: ${why(assigned.stderr)}`);
+    return record(`${step} bypass`, false, `${BYPASS_SET} not assigned: ${why(assigned.stderr)}`);
   }
   try {
-    return cloneAndRemove(root, user);
+    return writes();
   } finally {
     const given = dropBypass(user);
     record(
-      'forge bypass given back',
+      `${step} bypass given back`,
       given,
       given ? `${BYPASS_SET} assigned to nobody again` : 'still assigned',
     );
@@ -495,6 +579,459 @@ function cloneAndRemove(root, user) {
   }
 }
 
+/** Run a step; what it throws is recorded as its failure, and the steps after it run. */
+function guarded(name, step) {
+  try {
+    return step();
+  } catch (error) {
+    return record(name, false, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** The ids of `ids` as a SOQL list, two hundred at a time. */
+function* idLists(ids) {
+  for (let i = 0; i < ids.length; i += 200) {
+    yield [
+      i,
+      ids
+        .slice(i, i + 200)
+        .map((id) => `'${id}'`)
+        .join(','),
+    ];
+  }
+}
+
+/**
+ * The window of trap 18's tasks for contacts a step wrote: the seconds the
+ * contacts were created in, by the target's clock — the flow opens each task
+ * in its contact's transaction. Read while the contacts are still there.
+ */
+function followUpWindow(label, contactIds) {
+  const dates = [];
+  for (const [i, inList] of idLists(contactIds)) {
+    const found = rows(
+      `${label}-${i}`,
+      TARGET,
+      `SELECT CreatedDate FROM Contact WHERE Id IN (${inList})`,
+    );
+    if (!found) return undefined;
+    dates.push(...found.map((row) => row.CreatedDate));
+  }
+  return windowAround(dates, 1_000, 1_000);
+}
+
+/** The tasks of trap 18's flow the canary's user created in `window`; undefined when unread. */
+const followUpTasks = (label, user, window) =>
+  window
+    ? rows(
+        label,
+        TARGET,
+        `SELECT Id FROM Task WHERE CreatedById = '${user}' AND CreatedDate >= ${window.from} ` +
+          `AND CreatedDate <= ${window.to} AND Subject LIKE '${FOLLOW_UP_SUBJECT}%'`,
+      )
+    : [];
+
+// ─── Frozen ──────────────────────────────────────────────────────────────────
+
+/**
+ * A Frozen Dataset, as a user builds and replays one from the command line:
+ * one root of the trap fixture selected, extracted with the source's own
+ * graph reused, a dry run of the load, the load, its verification, and the
+ * removal with the sweep, which takes the tasks trap 18's flow opens for each
+ * contact the load writes. What the load created is read from the sas before
+ * the removal, and counted by id after it.
+ */
+function frozenRun(user) {
+  const sasDir = join(work, 'frozen-sas');
+  mkdirSync(sasDir, { recursive: true });
+  copyFileSync(FROZEN_RULES, join(sasDir, 'rules.json'));
+  const configFile = join(work, 'frozen-config.json');
+  writeFileSync(
+    configFile,
+    JSON.stringify({ ...JSON.parse(readFileSync(FROZEN_CONFIG, 'utf8')), sasDir }, null, 2),
+  );
+  const env = { SANDFORGE_FROZEN_SALT: process.env.SANDFORGE_FROZEN_SALT || FROZEN_SALT };
+  const step = (label, stepArgs) => {
+    const ran = tsx(label, FROZEN_CLI, [...stepArgs, '--config', configFile, '--json'], env);
+    const doc = jsonOf(ran.stdout);
+    return { ...ran, doc, error: postedError(doc) ?? why(ran.stderr) };
+  };
+
+  const select = step('frozen-select', ['select', '--source', SOURCE]);
+  const selection = postedOf(select.doc, 'frozen:select:response')?.payload?.selection;
+  const roots = selection?.combinations?.length ?? 0;
+  const measured = selection?.volumetry?.total ?? 0;
+  const uncovered = selection?.uncovered?.length ?? 0;
+  record(
+    'frozen select',
+    select.status === 0 && roots === 1 && uncovered === 0 && measured > 0,
+    selection
+      ? `${roots} root(s) selected, ${uncovered} uncovered, ${measured} record(s) of a budget of ${selection.volumetry.budgetMax}`
+      : select.error,
+    selection ? { roots, records: measured } : undefined,
+  );
+  if (!selection) return false;
+
+  const extract = step('frozen-extract', ['extract', '--source', SOURCE, '--author', 'canary']);
+  const extracted = postedOf(extract.doc, 'frozen:extract:response')?.payload;
+  const control = postedOf(extract.doc, 'frozen:control:result')?.payload?.report;
+  const reused = extracted?.discovery?.reusedFrom;
+  record(
+    'frozen extract',
+    extract.status === 0 && extracted?.recordCount === measured && control?.passed === true,
+    extracted
+      ? `${extracted.recordCount} record(s) frozen, non-reidentification control ` +
+          `${control?.passed ? 'passed' : 'FAILED'}, graph ${reused ? `reused from ${reused}` : 'discovered again'}`
+      : extract.error,
+    extracted
+      ? { records: extracted.recordCount, control: control?.passed ?? null, graph: reused ?? null }
+      : undefined,
+  );
+  if (!extracted) return false;
+
+  const dry = step('frozen-load-dry', ['load', '--target', TARGET, '--dry-run']);
+  const plan = postedOf(dry.doc, 'frozen:load:preview:response')?.payload?.plan;
+  const preview = frozenPreviewCounts(plan);
+  record(
+    'frozen load dry run',
+    dry.status === 0 &&
+      plan !== undefined &&
+      preview.fromFiles === extracted.recordCount &&
+      preview.toInsert > 0,
+    plan
+      ? `${preview.toInsert} to insert, ${preview.toLink} to link, ${preview.notSent} not sent, ` +
+          `of ${preview.fromFiles}; nothing written`
+      : dry.error,
+    plan
+      ? { toInsert: preview.toInsert, toLink: preview.toLink, notSent: preview.notSent }
+      : undefined,
+  );
+  if (!plan) return false;
+
+  const load = step('frozen-load', ['load', '--target', TARGET, '--yes']);
+  const report = postedOf(load.doc, 'frozen:load:response')?.payload?.report;
+  const mappingFile = readdirSync(sasDir).find((name) =>
+    /^referenceid-mapping\..+\.json$/.test(name),
+  );
+  // Read before the removal, which makes the mapping forget what it deletes.
+  const created = mappingFile
+    ? frozenCreated(JSON.parse(readFileSync(join(sasDir, mappingFile), 'utf8')))
+    : new Map();
+  const window = followUpWindow('frozen-contacts', created.get('Contact') ?? []);
+  let removing = false;
+  try {
+    const loaded = frozenLoadCounts(report);
+    record(
+      'frozen load',
+      load.status === 0 &&
+        report !== undefined &&
+        loaded.inserted === preview.toInsert &&
+        loaded.refused === 0 &&
+        loaded.heldBack === 0 &&
+        idCount(created) === loaded.inserted,
+      report
+        ? `${report.status}: ${loaded.inserted} inserted (${loaded.withoutFields} written again ` +
+            `without a field the target refused), ${loaded.linked} linked, ${loaded.refused} refused, ` +
+            `${loaded.heldBack} held back for a refused parent, as the dry run counted ` +
+            `${preview.toInsert} to insert`
+        : load.error,
+      report
+        ? {
+            inserted: loaded.inserted,
+            withoutFields: loaded.withoutFields,
+            linked: loaded.linked,
+            refused: loaded.refused,
+            heldBack: loaded.heldBack,
+          }
+        : undefined,
+    );
+    if (created.size === 0) return false;
+
+    const verify = step('frozen-verify', ['verify', '--target', TARGET]);
+    const verdict = postedOf(verify.doc, 'frozen:verify:result')?.payload?.verdict;
+    const failing = (verdict?.checks ?? []).filter((check) => !check.passed);
+    record(
+      'frozen verify',
+      verdict?.status === 'passed',
+      verdict
+        ? `${verdict.status}, ${(verdict.checks ?? []).length - failing.length} of ` +
+            `${(verdict.checks ?? []).length} check(s) held` +
+            (failing.length > 0 ? `: ${failing.map((check) => check.detail).join(' | ')}` : '')
+        : verify.error,
+      verdict ? { verdict: verdict.status } : undefined,
+    );
+
+    removing = true;
+    return frozenRemove(step, created, user, window);
+  } finally {
+    // Whatever broke before the removal, what was written goes.
+    if (!removing && created.size > 0) frozenRemove(step, created, user, window, { quiet: true });
+  }
+}
+
+/**
+ * Remove the load with the sweep, then count by id what the target holds of
+ * it, and the tasks of trap 18's flow left in the seconds its contacts were
+ * created. What the removal left is deleted all the same, so that nothing of
+ * the canary's stays in the target; the step then fails.
+ */
+function frozenRemove(step, created, user, window, { quiet = false } = {}) {
+  const opened = followUpTasks('frozen-tasks-before', user, window)?.length;
+  const remove = step(quiet ? 'frozen-remove-again' : 'frozen-remove', [
+    'remove',
+    '--target',
+    TARGET,
+    '--sweep',
+    '--yes',
+  ]);
+  const removal = postedOf(remove.doc, 'frozen:remove:response')?.payload?.result;
+  const swept =
+    (removal?.sweep?.objects ?? []).find((o) => o.objectApiName === 'Task')?.deleted ?? 0;
+  const left = leftInTarget(created);
+  const tasksLeft = followUpTasks('frozen-tasks-after', user, window);
+  const strays = [
+    ...['Contact', 'Case', 'Account'].flatMap((object) => created.get(object) ?? []),
+    ...[...created.keys()]
+      .filter((object) => !['Contact', 'Case', 'Account'].includes(object))
+      .flatMap((object) => created.get(object) ?? []),
+  ];
+  if ((left ?? 1) > 0) destroy('frozen-strays', TARGET, strays);
+  if ((tasksLeft ?? []).length > 0) {
+    destroy(
+      'frozen-task-strays',
+      TARGET,
+      tasksLeft.map((task) => task.Id),
+    );
+  }
+  if (quiet) return left === 0;
+  return record(
+    'frozen remove',
+    removal?.status === 'success' &&
+      removal?.sweep?.status === 'success' &&
+      left === 0 &&
+      tasksLeft?.length === 0 &&
+      swept === opened,
+    removal
+      ? `removal ${removal.status}, sweep ${removal.sweep?.status ?? 'not run'}` +
+          (removal.sweep?.refusal ? ` (${removal.sweep.refusal})` : '') +
+          `: ${opened ?? 'unknown'} task(s) trap 18's flow opened, ${swept} swept; ` +
+          `${left ?? 'unknown'} record(s) and ${tasksLeft?.length ?? 'unknown'} task(s) left in the target` +
+          ((left ?? 1) > 0 || (tasksLeft ?? []).length > 0 ? ' (deleted after it)' : '')
+      : remove.error,
+    removal
+      ? {
+          status: removal.status,
+          flowTasks: opened ?? null,
+          swept,
+          left: left ?? null,
+        }
+      : undefined,
+  );
+}
+
+// ─── Autopilot ───────────────────────────────────────────────────────────────
+
+/**
+ * Autopilot, bounded: a `--plan-only` held to one lookup and three objects,
+ * then the run, under `--max-total`, and the records it created deleted by
+ * the ids its summary prints. The target holds two of the source's lead
+ * emails and blocks a duplicate of either (trap 4): those leads are refused,
+ * and the run says so.
+ */
+function autopilotRun() {
+  const base = [
+    '--source',
+    SOURCE,
+    '--target',
+    TARGET,
+    '--object',
+    AUTOPILOT_OBJECT,
+    '--max-depth',
+    '1',
+    '--max-objects',
+    '3',
+    '--max-total',
+    String(AUTOPILOT_MAX_TOTAL),
+    '--json',
+  ];
+  const planned = tsx('autopilot-plan', AUTOPILOT_CLI, [...base, '--plan-only']);
+  const planDoc = jsonOf(planned.stdout);
+  const objects = new Set((planDoc?.plan?.waves ?? []).flatMap((wave) => wave.objects)).size;
+  const records = planDoc?.writeGate?.records ?? 0;
+  const refusals = planDoc?.writeGate?.refusals ?? [];
+  const planOk =
+    planned.status === 0 &&
+    objects === 1 &&
+    records > 0 &&
+    records <= AUTOPILOT_MAX_TOTAL &&
+    refusals.length === 0;
+  record(
+    'autopilot plan',
+    planOk,
+    planDoc
+      ? `${objects} object(s) in ${(planDoc.plan?.waves ?? []).length} wave(s), ${records} record(s) ` +
+          `to write under --max-total ${AUTOPILOT_MAX_TOTAL}; ` +
+          (refusals.length > 0
+            ? `a run would be refused: ${refusals.join(' ')}`
+            : 'nothing written')
+      : why(planned.stderr),
+    planDoc ? { objects, records } : undefined,
+  );
+  if (!planOk) return false;
+
+  const ran = tsx('autopilot-run', AUTOPILOT_CLI, base);
+  const doc = jsonOf(ran.stdout);
+  const created = autopilotCreated(doc);
+  try {
+    const result = doc?.result;
+    const written = result?.totalSuccess ?? 0;
+    const linked = result?.totalLinked ?? 0;
+    const refused = result?.totalFailure ?? 0;
+    const codes = Object.values(result?.objectOutcomes ?? {})
+      .flatMap((outcome) => outcome.refusals ?? [])
+      .map((refusal) => `${refusal.statusCode} x${refusal.count}`);
+    record(
+      'autopilot run',
+      ran.status === 0 &&
+        result !== undefined &&
+        !result.fatalError &&
+        written > 0 &&
+        written + linked + refused === records &&
+        idCount(created) === written,
+      result
+        ? `${written} written, ${linked} linked, ${refused} refused` +
+            (codes.length > 0 ? ` (${codes.join(', ')})` : '') +
+            `, of the ${records} the plan counted`
+        : why(ran.stderr),
+      result ? { written, linked, refused } : undefined,
+    );
+  } finally {
+    // The run's own records, by the ids it printed: never one the target held.
+    const ids = [...created.values()].flat();
+    const failed = destroy('autopilot-remove', TARGET, ids);
+    const left = leftInTarget(created);
+    record(
+      'autopilot remove',
+      left === 0,
+      `${ids.length - failed} of the ${ids.length} record(s) the run created deleted by the ids its ` +
+        `summary printed, ${left ?? 'unknown'} left in the target`,
+      { removed: ids.length - failed, left: left ?? null },
+    );
+  }
+  return true;
+}
+
+// ─── Seed ────────────────────────────────────────────────────────────────────
+
+/**
+ * Seed, as a user fills a sandbox from the command line: a dry run with
+ * fixed draws, the run with the same draws, which plans and writes the same
+ * numbers, and its removal from the summary it printed. Trap 3 refuses the
+ * phone Seed draws: the contacts go in without it, with a note. Trap 18's
+ * flow opens a task for each contact, which no Seed removal takes: the canary
+ * deletes them after it.
+ */
+function seedRun(user) {
+  const base = [
+    '--target',
+    TARGET,
+    '--object',
+    'Account:2',
+    '--object',
+    'Contact:1',
+    '--relation',
+    'Contact.AccountId=Account',
+    '--between',
+    '1-3',
+    '--seed',
+    SEED_DRAWS,
+    '--json',
+  ];
+  const plannedLine = (planned) =>
+    Object.entries(planned)
+      .map(([object, count]) => `${object} ${count}`)
+      .join(', ');
+
+  const dry = tsx('seed-dry', SEED_CLI, [...base, '--dry-run']);
+  const dryDoc = jsonOf(dry.stdout);
+  const planned = seedPlanned(dryDoc?.result);
+  const total = Object.values(planned).reduce((sum, count) => sum + count, 0);
+  record(
+    'seed dry run',
+    dry.status === 0 && dryDoc?.dryRun === true && String(dryDoc.seed) === SEED_DRAWS && total > 0,
+    dryDoc
+      ? `seed ${dryDoc.seed}: ${plannedLine(planned)} planned; nothing written`
+      : why(dry.stderr),
+    dryDoc ? planned : undefined,
+  );
+  if (total === 0) return false;
+
+  const summaryPath = join(work, 'seed-summary.json');
+  const ran = tsx('seed-run', SEED_CLI, base);
+  const doc = jsonOf(ran.stdout);
+  if (doc) writeFileSync(summaryPath, ran.stdout);
+  const created = seedCreated(doc?.result);
+  const window = followUpWindow('seed-contacts', created.get('Contact') ?? []);
+  try {
+    const wrote = seedPlanned(doc?.result);
+    const refused = doc?.result?.totalRecordsFailed ?? 0;
+    const same = Object.keys({ ...planned, ...wrote }).every(
+      (object) => planned[object] === wrote[object],
+    );
+    const withoutFields = seedWrittenAgain(doc?.result);
+    record(
+      'seed run',
+      ran.status === 0 && same && refused === 0 && idCount(created) === total,
+      doc
+        ? `seed ${doc.seed}: ${plannedLine(wrote)}, ${same ? 'as' : 'NOT as'} the dry run planned, ` +
+            `${idCount(created)} written (${withoutFields} written again without a field the ` +
+            `target refused), ${refused} refused`
+        : why(ran.stderr),
+      doc ? { written: idCount(created), withoutFields, refused, sameAsDryRun: same } : undefined,
+    );
+  } finally {
+    seedRemove(summaryPath, created, user, window);
+  }
+  return true;
+}
+
+/** Remove a Seed run from its summary, then the tasks trap 18's flow opened for its contacts. */
+function seedRemove(summaryPath, created, user, window) {
+  if (created.size === 0) return;
+  const opened = followUpTasks('seed-tasks-before', user, window);
+  const remove = existsSync(summaryPath)
+    ? tsx('seed-remove', SEED_CLI, ['--remove', summaryPath, '--target', TARGET, '--json'])
+    : undefined;
+  const removal = remove ? jsonOf(remove.stdout)?.result : undefined;
+  let left = leftInTarget(created);
+  if ((left ?? 1) > 0) {
+    // What the removal left goes all the same, the last object written first.
+    destroy('seed-strays', TARGET, [...created.values()].reverse().flat());
+    left = `${left ?? 'unknown'} (deleted after it)`;
+  }
+  destroy(
+    'seed-tasks',
+    TARGET,
+    (opened ?? []).map((task) => task.Id),
+  );
+  const tasksLeft = followUpTasks('seed-tasks-after', user, window)?.length;
+  record(
+    'seed remove',
+    removal?.status === 'success' && left === 0 && tasksLeft === 0,
+    `removal ${removal?.status ?? (remove ? why(remove.stderr) : 'not run: no summary')}, ` +
+      `${removal?.planned ?? 0} planned, ${left ?? 'unknown'} of the run's record(s) left; ` +
+      `${opened?.length ?? 'unknown'} task(s) trap 18's flow opened, which Seed's removal does ` +
+      `not take, deleted after it, ${tasksLeft ?? 'unknown'} left`,
+    {
+      status: removal?.status ?? null,
+      left: typeof left === 'number' ? left : null,
+      flowTasks: opened?.length ?? null,
+    },
+  );
+}
+
+// ─── DataOps ─────────────────────────────────────────────────────────────────
+
 function dataopsBackup() {
   const count = sfJson('contact-count', [
     'data',
@@ -529,6 +1066,153 @@ function dataopsBackup() {
       : why(backup.stderr),
     contact ? { held: contact.recordCount, orgCount: count } : undefined,
   );
+}
+
+/**
+ * DataOps masking, as a user scrubs a sandbox from the command line, on
+ * contacts the canary creates in the source for itself, never a seeded one: a
+ * dry run, the masking with its snapshot, the values read back changed, the
+ * snapshot restored, and the values read back as they were, compared by a
+ * checksum of the masked fields. The contacts are deleted at the end, found
+ * by their ids and by the tag they carry in a field the template leaves alone.
+ */
+function dataopsAnonymize() {
+  const contact = (n) => ({
+    attributes: { type: 'Contact' },
+    FirstName: `Canary ${n}`,
+    LastName: `DataOps ${DATAOPS_TAG}`,
+    Email: `canary.dataops.${n}@example.invalid`,
+    Phone: `+33 6 39 98 00 0${n}`,
+    MailingStreet: `${n} rue de la Forge`,
+    MailingCity: 'Canary City',
+    MailingPostalCode: `7500${n}`,
+    Department: DATAOPS_TAG,
+  });
+  const created = rest('dataops-seed', SOURCE, 'POST', 'composite/sobjects', {
+    allOrNone: true,
+    records: Array.from({ length: DATAOPS_RECORDS }, (_, i) => contact(i + 1)),
+  });
+  const ids = Array.isArray(created) ? created.filter((r) => r.success).map((r) => r.id) : [];
+  try {
+    if (ids.length !== DATAOPS_RECORDS) {
+      return record(
+        'dataops anonymize',
+        false,
+        `${ids.length} of ${DATAOPS_RECORDS} contact(s) created in the source`,
+      );
+    }
+    const inList = ids.map((id) => `'${id}'`).join(',');
+    const read = (label) =>
+      rows(
+        label,
+        SOURCE,
+        `SELECT Id, ${DATAOPS_FIELDS.join(', ')} FROM Contact WHERE Id IN (${inList})`,
+      ) ?? [];
+    const before = read('dataops-before');
+    const was = fieldsChecksum(before, DATAOPS_FIELDS);
+    const store = join(work, 'dataops-store');
+    const base = ['anonymize', '--org', SOURCE, '--store', store, '--json'];
+    const scope = [
+      '--object',
+      'Contact',
+      '--template',
+      DATAOPS_TEMPLATE,
+      '--where',
+      `Department = '${DATAOPS_TAG}'`,
+    ];
+
+    const dry = tsx('dataops-dry', DATAOPS_CLI, [...base, ...scope, '--dry-run']);
+    const dryDoc = jsonOf(dry.stdout);
+    const counted = postedOf(dryDoc, 'dataops:anonymize:coverage:response')?.payload?.objects?.[0]
+      ?.count;
+    const fields = postedOf(dryDoc, 'dataops:anonymize:preview:response')?.payload?.objects?.[0]
+      ?.fields;
+    const untouched = fieldsChecksum(read('dataops-after-dry'), DATAOPS_FIELDS) === was;
+    record(
+      'dataops anonymize dry run',
+      dry.status === 0 &&
+        counted === DATAOPS_RECORDS &&
+        (fields ?? []).length === DATAOPS_FIELDS.length &&
+        untouched,
+      dryDoc && counted !== undefined
+        ? `${counted} contact(s) to mask on ${(fields ?? []).length} field(s), ` +
+            `${untouched ? 'nothing written' : 'values CHANGED by a dry run'}`
+        : (postedError(dryDoc) ?? why(dry.stderr)),
+      dryDoc ? { records: counted ?? null, fields: (fields ?? []).length } : undefined,
+    );
+
+    const masking = tsx('dataops-anonymize', DATAOPS_CLI, [...base, ...scope, '--yes']);
+    const maskDoc = jsonOf(masking.stdout);
+    const answer = postedOf(maskDoc, 'dataops:anonymize:response')?.payload;
+    const object = answer?.objects?.[0];
+    const snapshot = answer?.snapshot;
+    const masked = read('dataops-masked');
+    const changed = changedRows(before, masked, DATAOPS_FIELDS);
+    record(
+      'dataops anonymize',
+      masking.status === 0 &&
+        object?.processed === DATAOPS_RECORDS &&
+        object?.failed === 0 &&
+        snapshot?.totalRecords === DATAOPS_RECORDS &&
+        changed === DATAOPS_RECORDS,
+      object
+        ? `${object.processed} masked, ${object.failed} refused, ${changed} of ${before.length} ` +
+            `read back changed, snapshot of ${snapshot?.totalRecords ?? 'no'} record(s) taken first`
+        : (postedError(maskDoc) ?? why(masking.stderr)),
+      object
+        ? {
+            masked: object.processed,
+            refused: object.failed,
+            changed,
+            snapshot: snapshot?.totalRecords ?? null,
+          }
+        : undefined,
+    );
+    if (!snapshot?.operationId) return false;
+
+    const restore = tsx('dataops-restore', DATAOPS_CLI, [
+      'anonymize',
+      '--org',
+      SOURCE,
+      '--restore',
+      snapshot.operationId,
+      '--store',
+      store,
+      '--yes',
+      '--json',
+    ]);
+    const restoreDoc = jsonOf(restore.stdout);
+    const restored = postedOf(restoreDoc, 'dataops:rollback:response')?.payload;
+    const equal = fieldsChecksum(read('dataops-restored'), DATAOPS_FIELDS) === was;
+    return record(
+      'dataops restore',
+      restore.status === 0 &&
+        restored?.totalRestored === DATAOPS_RECORDS &&
+        restored?.totalFailed === 0 &&
+        equal,
+      restored
+        ? `${restored.totalRestored} restored, ${restored.totalFailed} failed, checksum of the ` +
+            `masked fields ${equal ? 'equal to' : 'DIFFERENT from'} the one taken before the masking`
+        : (postedError(restoreDoc) ?? why(restore.stderr)),
+      restored
+        ? { restored: restored.totalRestored, failed: restored.totalFailed, checksumsEqual: equal }
+        : undefined,
+    );
+  } finally {
+    dataopsCleanup(ids);
+  }
+}
+
+/** Delete the DataOps steps' contacts from the source, by id and by their tag. */
+function dataopsCleanup(ids) {
+  const byId = ids.length > 0 ? ` OR Id IN (${ids.map((id) => `'${id}'`).join(',')})` : '';
+  const tagged = (label) =>
+    (
+      rows(label, SOURCE, `SELECT Id FROM Contact WHERE Department = '${DATAOPS_TAG}'${byId}`) ?? []
+    ).map((row) => row.Id);
+  destroy('dataops-clean', SOURCE, [...new Set([...ids, ...tagged('dataops-held')])]);
+  const left = tagged('dataops-left').length;
+  record('dataops cleanup', left === 0, `${left} of the canary's contact(s) left in the source`);
 }
 
 // ─── Sync ────────────────────────────────────────────────────────────────────
@@ -939,7 +1623,18 @@ const syncSeeded = syncSeed();
 try {
   probes();
   forge();
+  const user = targetUser();
+  if (!user) {
+    record('target user', false, 'the target would not say who the canary writes as');
+  } else {
+    // Frozen and Seed write contacts: as a holder of the bypass, as the clone.
+    guarded('frozen', () => withBypass('frozen', user, () => frozenRun(user)));
+    guarded('autopilot', autopilotRun);
+    guarded('seed', () => withBypass('seed', user, () => seedRun(user)));
+  }
   dataopsBackup();
+  // After the backup, which counts the source's contacts: the masking adds its own for a while.
+  guarded('dataops anonymize', dataopsAnonymize);
   sync(syncSeeded);
 } finally {
   syncCleanup();
@@ -953,8 +1648,11 @@ if (args.has('--update-baseline')) {
 }
 
 const failed = steps.filter((s) => !s.ok);
+// Said beside the verdict: the CI job has a time limit, and each step added runs within it.
+const ran = `ran in ${Math.round((Date.now() - startedAt) / 60_000)} min`;
+console.log(ran);
 const report = [
-  `## Canary: ${failed.length === 0 ? 'every step held' : `${failed.length} step(s) failed`}`,
+  `## Canary: ${failed.length === 0 ? 'every step held' : `${failed.length} step(s) failed`}, ${ran}`,
   '',
   '| Step | Verdict | Detail |',
   '| --- | --- | --- |',

@@ -129,10 +129,13 @@ is empty.
 
 `pnpm canary` (`scripts/canary.mjs`) runs SandForge's own commands against the pair: the probes
 above, then a Forge clone from the seeded account `Trap Account 01` (dry run, rehearsal, clone,
-verification, removal), then a DataOps backup of every contact, then a Sync of a saved delta
-configuration (simulation, first run, delta run, removal). It removes what it wrote however the
-run ends, and prints counts and verdicts, never an id. `--skip-probes` leaves out the probes
-(about six minutes, and probe 17 takes one of the day's fifteen emails).
+verification, removal), a Frozen Dataset of `Trap Account 15` (selection, extraction, dry run,
+load, verification, removal with the sweep), an Autopilot copy of the source's leads (plan, run,
+removal), a Seed run (dry run, run with the same draws, removal), then a DataOps backup of every
+contact, a DataOps masking of contacts of its own (dry run, masking, restore), and a Sync of a
+saved delta configuration (simulation, first run, delta run, removal). It removes what it wrote
+however the run ends, and prints counts and verdicts, never an id. `--skip-probes` leaves out the
+probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
 
 - The Sync runs on records of its own, never the seeded ones: four accounts, two files on them and
   a marker account, created in the source with a tag of the run in their key and title, and
@@ -145,13 +148,31 @@ run ends, and prints counts and verdicts, never an id. `--skip-probes` leaves ou
 - The clone runs as a holder of `Trap_Bypass`, which the dry run names as the bypass of trap 9's
   flow: without it the day's emails run out after seven contacts and the rest are refused. The
   canary assigns it before the rehearsal and takes it back after the removal, so that the probes
-  find it assigned to nobody (trap 3).
+  find it assigned to nobody (trap 3). The Frozen load and the Seed run write contacts too, each
+  as a holder of the set, given back after its removal.
 - The first removal leaves the item trap 8 holds; the canary checks `Trap_Allow_Delete__c` on it
   and removes the rest with `--include-changed`, then counts by id what the target still holds.
 - Trap 18's flow opens a task for each contact the clone writes. The tasks point at no record, so
   the removal leaves them: the canary counts them by the run's window and user once the removal is
   through, lists what `--sweep-list` finds, takes them back with `--sweep`, and counts again: none
   is left. A task of the flow the sweep left is deleted all the same, and the step fails.
+- The Frozen Dataset takes one root, `Trap Account 15`, a Customer, so that trap 5's filter takes
+  the contacts that prefer it (`canary-frozen-config.json`, pseudonymization rules in
+  `canary-frozen-rules.json`, items left out for trap 8, a salt of the canary's own unless
+  `SANDFORGE_FROZEN_SALT` gives one). Trap 2 refuses the subcategory of its case, which goes in
+  without it. What the load created is read from the sas before the removal, which runs with
+  `--sweep` and takes the tasks trap 18's flow opened, and counted by id after it.
+- Autopilot copies the source's twenty leads whole, its plan held to one lookup and three
+  objects and its run to `--max-total 25`. The target holds two of their emails and blocks a
+  duplicate of either (trap 4): the four leads that carry them are refused. What the run created
+  is deleted by the ids its summary prints.
+- Seed writes two accounts and one to three contacts under each, drawn with a fixed `--seed`: the
+  dry run and the run plan the same numbers. Trap 3 refuses the phone it draws, and the contacts
+  go in without it. Its removal does not take the tasks trap 18's flow opened, which the canary
+  deletes by the seconds the contacts were created in.
+- The DataOps masking runs on three contacts the canary creates in the source, tagged in
+  `Department`, which the GDPR template leaves alone: their masked fields read back changed, then,
+  once the snapshot is restored, with the checksum they had before. They are deleted at the end.
 - `canary-clone-config.json` gives the clone the decisions the target needs (a value for
   `Trap_Target_Only__c`, the picklist values it refuses). `canary-baseline.json` holds the counts
   of the last accepted run; a run that counts otherwise fails, and `--update-baseline` records a

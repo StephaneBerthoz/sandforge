@@ -3,8 +3,12 @@ name: Canary
 # SandForge's own commands, run end to end once a week against the two
 # Developer Editions made for SandForge alone (test/fixtures/trap-org/README.md):
 # the trap probes, a Forge dry run, rehearsal, clone, verification and removal,
-# a DataOps backup read, and a Sync of the canary's own records in full, then in
-# delta, then removed. Every other suite runs against mocks, and every
+# a Frozen Dataset selected, extracted, loaded, verified and removed, an
+# Autopilot plan and run, a Seed dry run and run, each removed, a DataOps
+# backup read, a masking of the canary's own contacts and its restore, and a
+# Sync of the canary's own records in full, then in delta, then removed. The
+# run says how long it took: it has to stay within the timeout below. Every
+# other suite runs against mocks, and every
 # serious defect of the 1.4x series came out of a real run instead; this one
 # sees a Salesforce release or a dependency that breaks a run before a user does.
 #

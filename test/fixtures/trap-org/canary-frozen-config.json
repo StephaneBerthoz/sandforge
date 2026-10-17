@@ -1,0 +1,20 @@
+{
+  "rootObject": "Account",
+  "axes": [
+    {
+      "name": "account",
+      "label": "Account",
+      "filterField": "Name",
+      "valuesSoql": "SELECT Name axisValue, COUNT(Id) cnt FROM Account WHERE Name = 'Trap Account 15' GROUP BY Name"
+    }
+  ],
+  "edgeCases": [],
+  "budgetMaxRecords": 200,
+  "candidatesPerCombination": 1,
+  "maxNodes": 50,
+  "excludedObjects": ["Trap_Item__c", "CaseHistory2", "FeedItem"],
+  "datasetVersion": "0.1.0",
+  "excludedFields": { "Case": ["Trap_Record_Type_Label__c"] },
+  "requiredFieldDefaults": { "Account.Trap_Target_Only__c": "frozen by SandForge" },
+  "mandatoryLookups": { "Case": ["AccountId"] }
+}
