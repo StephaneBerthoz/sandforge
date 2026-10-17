@@ -431,6 +431,128 @@ describe('removeRunRecords', () => {
     });
   });
 
+  describe('the sweep it is handed', () => {
+    /** A child the target's automation hung under the run's account, which a roll-up counts. */
+    const SWEPT = id('a0X', 1);
+
+    /**
+     * The run's account and contacts, and a child of the account its
+     * automation created during the run; deleting that child restamps the
+     * account, as modified now by the session's user.
+     */
+    function withSweptChild(): { org: FakeOrg; plan: ForgeRunObjectRecords[] } {
+      const { org, plan } = accountWithContacts();
+      org.add('Risk__c', runRow(SWEPT, { Account__c: id('001', 1) }));
+      org.onDelete = (object, row) => {
+        if (object !== 'Risk__c') return;
+        const parent = (org.rows.get('Account') ?? []).find((a) => a.Id === row.Account__c);
+        if (parent) Object.assign(parent, { LastModifiedDate: org.now(), LastModifiedById: USER });
+      };
+      return { org, plan };
+    }
+
+    /** A sweep that deletes the automation's child, as `sweepRunRecords` does. */
+    const sweepOf = (org: FakeOrg) => async (): Promise<boolean> => {
+      await org.destroy('Risk__c', [SWEPT]);
+      return true;
+    };
+
+    it('reads what changed since the run before the sweep deletes: a parent its roll-up restamps goes', async () => {
+      const { org, plan } = withSweptChild();
+
+      const outcome = await removeRunRecords(org, plan, options({ sweep: sweepOf(org) }));
+
+      expect(org.deletes.map((d) => d.object)).toEqual(['Risk__c', 'Contact', 'Account']);
+      expect(outcome.objects[1]).toMatchObject({
+        objectApiName: 'Account',
+        deleted: 1,
+        keptChanged: 0,
+      });
+      expect(org.has('Account', id('001', 1))).toBe(false);
+    });
+
+    it('kept the parent as changed since the run when the sweep came before the removal read it', async () => {
+      // What the order the sweep had before did: swept first, then removed.
+      const { org, plan } = withSweptChild();
+      await sweepOf(org)();
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects[1]).toMatchObject({ objectApiName: 'Account', keptChanged: 1 });
+    });
+
+    it('keeps a parent someone changed after the run, before the sweep restamped it', async () => {
+      const { org, plan } = withSweptChild();
+      Object.assign((org.rows.get('Account') ?? [])[0], {
+        LastModifiedDate: AFTER_RUN,
+        LastModifiedById: COLLEAGUE,
+      });
+
+      const outcome = await removeRunRecords(org, plan, options({ sweep: sweepOf(org) }));
+
+      expect(outcome.objects[1]).toMatchObject({ objectApiName: 'Account', keptChanged: 1 });
+      expect(org.has('Account', id('001', 1))).toBe(true);
+    });
+
+    it('deletes none of the run’s records once a stop came during the sweep, and says what the sweep left on them', async () => {
+      const { org, plan } = withSweptChild();
+      const stop = new AbortController();
+
+      const outcome = await removeRunRecords(
+        org,
+        plan,
+        options({
+          signal: stop.signal,
+          sweep: async () => {
+            await sweepOf(org)();
+            stop.abort();
+            return true;
+          },
+        }),
+      );
+
+      expect(outcome.cancelled).toBe(true);
+      expect(org.deletes.map((d) => d.object)).toEqual(['Risk__c']);
+      expect(org.has('Account', id('001', 1))).toBe(true);
+      // The next removal reads the account's new date as the sweep's doing.
+      const restamped = String((org.rows.get('Account') ?? [])[0].LastModifiedDate);
+      expect(outcome.stamps).toEqual({ [id('001', 1)]: restamped });
+      expect(outcome.span?.userId).toBe(USER.slice(0, 15));
+      const next = await removeRunRecords(
+        org,
+        plan,
+        options({ removalStamps: outcome.stamps, removalSpans: [outcome.span!] }),
+      );
+      expect(next.objects[1]).toMatchObject({
+        objectApiName: 'Account',
+        deleted: 1,
+        keptChanged: 0,
+      });
+    });
+
+    it('says nothing was written when a stop came during a sweep that deleted nothing', async () => {
+      const { org, plan } = withSweptChild();
+      const stop = new AbortController();
+
+      const outcome = await removeRunRecords(
+        org,
+        plan,
+        options({
+          signal: stop.signal,
+          sweep: async () => {
+            stop.abort();
+            return false;
+          },
+        }),
+      );
+
+      expect(outcome.cancelled).toBe(true);
+      expect(org.deletes).toEqual([]);
+      expect(outcome.stamps).toEqual({});
+      expect(outcome.span).toBeUndefined();
+    });
+  });
+
   it('keeps a parent that a record created since the run depends on', async () => {
     const { org, plan } = accountWithContacts();
     org.add('Task', {

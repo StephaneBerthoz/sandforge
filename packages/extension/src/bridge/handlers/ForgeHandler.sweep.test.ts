@@ -126,6 +126,8 @@ function targetOrg() {
   ]);
   const deletes: Array<{ object: string; ids: string[] }> = [];
   const bin = new Map<string, Row>();
+  /** What a delete does to other records: a roll-up restamping its parent. */
+  const hooks: { onDestroy?: (object: string, row: Row) => void } = {};
   const pick = (row: Row, columns: string): Record<string, unknown> =>
     Object.fromEntries(columns.split(', ').map((c) => [c, row[c]]));
   const conn = {
@@ -214,6 +216,7 @@ function targetOrg() {
             (rows.get(object) ?? []).filter((r) => r.Id !== recordId),
           );
           bin.set(recordId, { ...row, object });
+          hooks.onDestroy?.(object, row);
           // The org takes the account's contacts along with it.
           if (object === 'Account') {
             for (const contact of rows.get('Contact') ?? []) {
@@ -230,7 +233,7 @@ function targetOrg() {
       update: vi.fn(async () => []),
     }),
   };
-  return { conn, rows, deletes };
+  return { conn, rows, deletes, hooks };
 }
 
 /** What the target runs on the run's objects: a contact flow that creates an asset. */
@@ -401,6 +404,37 @@ describe('a sweep asked with a removal', () => {
         { objectApiName: 'Asset', found: 1, deleted: 1 },
       ],
     });
+  });
+
+  it('removes the run’s account though deleting the asset the automation hung under it restamped it, a roll-up counting assets', async () => {
+    // The asset under the run's account: deleted, the org recalculates the
+    // account's roll-up and dates the account then, as modified by the
+    // session's user. Read after the sweep, the account was a change since
+    // the run, and the removal kept it.
+    const asset = org.rows.get('Asset')?.[0];
+    if (asset) asset.AccountId = id('001', 1);
+    org.hooks.onDestroy = (object, row) => {
+      if (object !== 'Asset') return;
+      const account = org.rows.get('Account')?.find((a) => a.Id === row.AccountId);
+      if (account) {
+        Object.assign(account, {
+          LastModifiedDate: new Date().toISOString(),
+          LastModifiedById: USER,
+        });
+      }
+    };
+
+    await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', sweep: true }));
+
+    expect(errors()).toEqual([]);
+    expect(org.deletes.map((d) => d.object)).toEqual(['Task', 'Asset', 'Contact', 'Account']);
+    expect(ids('Account')).toEqual([]);
+    const result = answer();
+    expect(result?.status).toBe('success');
+    expect(result?.objects.map((o) => [o.objectApiName, o.deleted, o.keptChanged])).toEqual([
+      ['Contact', 1, 0],
+      ['Account', 1, 0],
+    ]);
   });
 
   it('removes none of the run’s records once a cancel stopped the sweep before them', async () => {

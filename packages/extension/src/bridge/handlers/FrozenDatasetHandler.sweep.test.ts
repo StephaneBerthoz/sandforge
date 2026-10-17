@@ -110,6 +110,8 @@ function targetOrg() {
   const bin = new Map<string, Row>();
   const pick = (row: Row, columns: string): Record<string, unknown> =>
     Object.fromEntries(columns.split(', ').map((c) => [c, row[c]]));
+  /** What a delete does to other records: a roll-up restamping its parent. */
+  const hooks: { onDrop?: (object: string, row: Row) => void } = {};
   const drop = (object: string, recordId: string): void => {
     const row = (rows.get(object) ?? []).find((r) => r.Id === recordId);
     if (!row) return;
@@ -118,6 +120,7 @@ function targetOrg() {
       (rows.get(object) ?? []).filter((r) => r.Id !== recordId),
     );
     bin.set(recordId, { ...row, object });
+    hooks.onDrop?.(object, row);
     for (const child of children.get(object) ?? []) {
       for (const under of rows.get(child.childSObject) ?? []) {
         if (under[child.field] === recordId) drop(child.childSObject, under.Id);
@@ -212,7 +215,7 @@ function targetOrg() {
       update: vi.fn(async () => []),
     }),
   };
-  return { conn, rows, deletes };
+  return { conn, rows, deletes, hooks };
 }
 
 /** What the target runs on the load's objects: a work-order flow that opens a task. */
@@ -367,6 +370,35 @@ describe('a sweep asked with the removal of a Frozen load', () => {
     expect(sweep).toMatchObject({ module: 'frozen', action: 'cleanup_delete' });
     expect(sweep?.details).toMatchObject({ deleted: 3, loadedAt: LAST_WRITE });
     expect(sweep?.details).not.toHaveProperty('forgeId');
+  });
+
+  it('removes the load’s work order though deleting the task the automation opened on it restamped it, a roll-up counting tasks', async () => {
+    // The task deleted, the org recalculates the work order's roll-up and
+    // dates the work order then, as modified by the session's user. Read
+    // after the sweep, the work order was a change since the load.
+    const task = org.rows.get('Task')?.find((row) => row.Id === id('00T', 1));
+    if (task) task.WhatId = WORK_ORDER;
+    org.hooks.onDrop = (object, row) => {
+      if (object !== 'Task') return;
+      const workOrder = org.rows.get('WorkOrder')?.find((w) => w.Id === row.WhatId);
+      if (workOrder) {
+        Object.assign(workOrder, {
+          LastModifiedDate: new Date().toISOString(),
+          LastModifiedById: USER,
+        });
+      }
+    };
+
+    await remove({ sweep: true });
+
+    expect(errors()).toEqual([]);
+    const result = answer();
+    expect(result?.status).toBe('success');
+    expect(result?.objects.find((o) => o.objectApiName === 'WorkOrder')).toMatchObject({
+      deleted: 1,
+      keptChanged: 0,
+    });
+    expect(ids('WorkOrder')).toEqual([]);
   });
 
   it('lists what a sweep would take, and deletes nothing', async () => {

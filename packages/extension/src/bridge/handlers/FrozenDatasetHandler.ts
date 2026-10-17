@@ -2762,15 +2762,22 @@ export class FrozenDatasetHandler implements DomainHandler {
       const span = load.writtenBetween;
       const began = load.startedAt === undefined ? Number.NaN : Date.parse(load.startedAt);
       const ended = Date.parse(load.endedAt);
-      const sweepResult = sweep
-        ? await this.sweepBeforeRemoval({
-            conn,
-            load,
-            includeChanged,
-            signal: abortController.signal,
-            guard: productionGuard,
-            operationId,
-          })
+      // Made by the removal once it has read the load's records: a child the
+      // sweep deletes under one of them restamps that record when a roll-up
+      // counts it, which read afterwards was a change since the load.
+      const sweepMade: { result?: ForgeSweepResult } = {};
+      const sweepFirst = sweep
+        ? async (): Promise<boolean> => {
+            sweepMade.result = await this.sweepBeforeRemoval({
+              conn,
+              load,
+              includeChanged,
+              signal: abortController.signal,
+              guard: productionGuard,
+              operationId,
+            });
+            return sweepMade.result.objects.some((object) => object.deleted > 0);
+          }
         : undefined;
       const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
         ...(span
@@ -2783,6 +2790,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             }),
         removalStamps: load.removalStamps,
         removalSpans: load.removalSpans,
+        ...(sweepFirst ? { sweep: sweepFirst } : {}),
         includeChanged,
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
@@ -2794,6 +2802,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
       });
+      const sweepResult = sweepMade.result;
       // A removal after one that marked the load takes what that one left:
       // the result and the audit trail say so, with when it ended.
       const leftBy = load.removal?.removedAt;

@@ -108,4 +108,63 @@ describe('ForgeStops', () => {
       expect(new ForgeStops().resolve()).toEqual({ refused: 'none' });
     });
   });
+
+  describe('a stop carried out', () => {
+    /** What a stop asked of its caller, in order. */
+    function acts(): {
+      told: string[];
+      act: { discovery: (d: { requestId: string }) => void; run: () => void };
+    } {
+      const told: string[] = [];
+      return {
+        told,
+        act: {
+          discovery: (d) => told.push(`discovery ${d.requestId}`),
+          run: () => told.push('run'),
+        },
+      };
+    }
+
+    it('stops the one run under way, as a Ctrl-C asks it, through the run it is told to stop', () => {
+      const stops = new ForgeStops();
+      stops.beginRun('sandforge-clone-1', new AbortController());
+      const { told, act } = acts();
+
+      expect(stops.stop(undefined, act)).toEqual({ stops: { kind: 'run' } });
+      expect(told).toEqual(['run']);
+    });
+
+    it('aborts a run waiting on the guard by its controller, and tells no executor', () => {
+      const stops = new ForgeStops();
+      const waiting = new AbortController();
+      stops.awaitGuard('wv-run', waiting);
+      const { told, act } = acts();
+
+      stops.stop('wv-run', act);
+
+      expect(waiting.signal.aborted).toBe(true);
+      expect(told).toEqual([]);
+    });
+
+    it('stops the discovery it names, through the discovery it is told to stop', () => {
+      const stops = new ForgeStops();
+      stops.beginDiscovery('wv-a', new AbortController(), 'forge-discover-1');
+      const { told, act } = acts();
+
+      stops.stop('wv-a', act);
+
+      expect(told).toEqual(['discovery wv-a']);
+    });
+
+    it('stops nothing it refuses', () => {
+      const stops = new ForgeStops();
+      stops.beginRun('wv-run', new AbortController());
+      stops.beginDiscovery('wv-a', new AbortController(), 'forge-discover-1');
+      const { told, act } = acts();
+
+      expect(stops.stop(undefined, act)).toEqual({ refused: 'several', live: 2 });
+      expect(stops.stop('gone', act)).toEqual({ refused: 'none' });
+      expect(told).toEqual([]);
+    });
+  });
 });

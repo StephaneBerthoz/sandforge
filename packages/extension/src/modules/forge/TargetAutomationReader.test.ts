@@ -17,6 +17,7 @@ import {
   PROCESSES_SOQL,
   DEFINITION_REQUESTS_BOUND,
   TOOLING_QUERIES_PER_REQUEST,
+  TOOLING_RETRIEVES_PER_REQUEST,
   TRIGGERS_SOQL,
   TargetAutomationReader,
   USER_PERMISSIONS_SOQL,
@@ -36,10 +37,14 @@ import {
   switchesNamed,
   toolingAnswersOf,
   toolingCompositeBody,
+  toolingRecordsOf,
+  toolingRetrieveBody,
+  toolingRetrievesOver,
   type CompositeQuery,
   type QueryAnswer,
   type TargetAutomationDeps,
   type ToolingAnswer,
+  type ToolingRetrieve,
 } from './TargetAutomationReader.js';
 
 /** A node of a discovered graph, included unless told. */
@@ -746,6 +751,10 @@ type Refusals = {
   conditions?: Record<string, Error>;
   /** A whole composite refused, by the id its first query names. */
   composite?: Record<string, Error>;
+  /** Records the org will not retrieve by id, each answered with its error: their queries read them. */
+  retrieve?: Record<string, Error>;
+  /** Every composite of retrieves refused whole. */
+  retrieves?: Error;
 };
 
 /** The queries of a composite the org runs, as the Tooling API documents it and an org answered. */
@@ -757,25 +766,43 @@ const SUBREQUESTS_PER_COMPOSITE = 25;
 /** The words an org halts a query past its limit with. */
 const HALTED = 'Limit number of query or Collections in Rest Operations reached.';
 
+/** The words a Developer Edition refused a composite of 26 subrequests with. */
+const TOO_MANY = 'The request can’t contain more than 25 operations.';
+
 /**
  * A Tooling composite endpoint holding to the limits the org documents and a
- * Developer Edition answered with: more than 25 subrequests refused whole;
- * the first `queriesRun` queries run — one the org refuses counted among
- * them, as it counts it — and every query after them halted with
- * `PROCESSING_HALTED`, status 400, without being run.
+ * Developer Edition answered with: more than 25 subrequests refused whole, in
+ * one answer that names no subrequest (`LIMIT_EXCEEDED`); the first
+ * `queriesRun` queries run — one the org refuses counted among them, as it
+ * counts it — and every query after them halted with `PROCESSING_HALTED`,
+ * status 400, without being run; a retrieve of a record by id, which is no
+ * query, answered with the record, or refused alone (`NOT_FOUND`, 404).
  */
 function compositeEndpoint(
   body: ReturnType<typeof toolingCompositeBody>,
   queriesRun: number,
   answerQuery: (soql: string) => QueryAnswer,
+  answerRetrieve: (sobject: string, id: string) => Record<string, unknown> = () => {
+    throw refusal('NOT_FOUND', 'The requested resource does not exist');
+  },
 ): unknown {
   if (body.compositeRequest.length > SUBREQUESTS_PER_COMPOSITE) {
-    throw refusal('LIMIT_EXCEEDED', `More than ${SUBREQUESTS_PER_COMPOSITE} subrequests`);
+    return {
+      compositeResponse: [
+        {
+          body: [{ errorCode: 'LIMIT_EXCEEDED', message: TOO_MANY }],
+          httpHeaders: {},
+          httpStatusCode: 400,
+          referenceId: null,
+        },
+      ],
+    };
   }
   let queries = 0;
   return {
     compositeResponse: body.compositeRequest.map(({ url, referenceId }) => {
       const query = /\/tooling\/query\?q=(.*)$/.exec(url);
+      const retrieve = /\/tooling\/sobjects\/(\w+)\/(\w+)$/.exec(url);
       if (query && ++queries > queriesRun) {
         return {
           referenceId,
@@ -784,6 +811,13 @@ function compositeEndpoint(
         };
       }
       try {
+        if (retrieve) {
+          return {
+            referenceId,
+            httpStatusCode: 200,
+            body: answerRetrieve(retrieve[1], retrieve[2]),
+          };
+        }
         const { records } = answerQuery(decodeURIComponent(query?.[1] ?? ''));
         return {
           referenceId,
@@ -794,7 +828,7 @@ function compositeEndpoint(
         const code = (err as { errorCode?: string }).errorCode ?? 'UNKNOWN_EXCEPTION';
         return {
           referenceId,
-          httpStatusCode: 400,
+          httpStatusCode: code === 'NOT_FOUND' ? 404 : 400,
           body: [{ errorCode: code, message: err instanceof Error ? err.message : String(err) }],
         };
       }
@@ -826,6 +860,7 @@ function fakeTarget({
   metadata = {},
   refuse = {},
   composites = false,
+  retrieves = false,
   queriesRun = QUERIES_RUN_PER_COMPOSITE,
 }: {
   flows?: Array<Record<string, unknown>>;
@@ -851,14 +886,24 @@ function fakeTarget({
    * then refuses the composites whose first query names that id.
    */
   composites?: boolean;
+  /**
+   * Whether the host retrieves flow versions and rules by id in composites
+   * too, beside its composites of queries; `refuse.retrieve` and
+   * `refuse.retrieves` then refuse some, or all.
+   */
+  retrieves?: boolean;
   /** The queries of a composite the org runs before it halts the rest. */
   queriesRun?: number;
 }) {
   const asked: string[] = [];
   const regular: string[] = [];
   const tooling: string[] = [];
-  /** The size of each composite sent. */
+  /** The size of each composite of queries sent. */
   const composite: number[] = [];
+  /** The size of each composite of retrieves sent. */
+  const retrieved: number[] = [];
+  /** What each retrieve asked for, `<object>/<id>`. */
+  const retrievedAs: string[] = [];
   let inFlight = 0;
   let mostInFlight = 0;
   const answering = async (respond: () => QueryAnswer): Promise<QueryAnswer> => {
@@ -933,19 +978,56 @@ function fakeTarget({
           },
         }
       : {}),
+    ...(composites && retrieves
+      ? {
+          toolingRetrieves: async (_orgId: string, reads: readonly ToolingRetrieve[]) => {
+            retrieved.push(reads.length);
+            retrievedAs.push(...reads.map(({ sobject, id }) => `${sobject}/${id}`));
+            await answering(() => answer([]));
+            if (refuse.retrieves) throw refuse.retrieves;
+            const sent = toolingRetrieveBody('/services/data/v66.0', reads);
+            return toolingRecordsOf(
+              compositeEndpoint(sent, queriesRun, metadataAnswer, retrieveAnswer),
+              reads.length,
+            );
+          },
+        }
+      : {}),
   };
+  /** The definition of a flow version or rule by id, its start alone unless the whole is told. */
+  function metadataOf(id: string): unknown {
+    return metadata[id] ?? { start: starts[id] ?? { filterFormula: null, filters: [] } };
+  }
   /** The metadata of the flow version or rule a query names, as the org answers it. */
   function metadataAnswer(soql: string): QueryAnswer {
     const id = /WHERE Id = '(\w+)'/.exec(soql)?.[1] ?? '';
     const refused = refuse.conditions?.[id];
     if (refused) throw refused;
-    return answer([
-      {
-        Metadata: metadata[id] ?? { start: starts[id] ?? { filterFormula: null, filters: [] } },
-      },
-    ]);
+    return answer([{ Metadata: metadataOf(id) }]);
   }
-  return { deps, asked, regular, tooling, composite, mostInFlight: () => mostInFlight };
+  /**
+   * The flow version or rule a retrieve names, as the org answers it: not
+   * found under the other object, as a rule asked for as a flow was.
+   */
+  function retrieveAnswer(sobject: string, id: string): Record<string, unknown> {
+    const isRule = rules.some((row) => row.Id === id);
+    if ((sobject === 'WorkflowRule') !== isRule) {
+      throw refusal('NOT_FOUND', 'The requested resource does not exist');
+    }
+    const refused = refuse.retrieve?.[id] ?? refuse.conditions?.[id];
+    if (refused) throw refused;
+    return { attributes: { type: sobject }, Id: id, Metadata: metadataOf(id) };
+  }
+  return {
+    deps,
+    asked,
+    regular,
+    tooling,
+    composite,
+    retrieved,
+    retrievedAs,
+    mostInFlight: () => mostInFlight,
+  };
 }
 
 /** An error as jsforce raises one for an org's refusal. */
@@ -1958,6 +2040,153 @@ describe('start conditions read in composites', () => {
   });
 });
 
+describe('flow versions and rules retrieved by id in composites', () => {
+  const TWENTY = Array.from({ length: 20 }, (_, i) => `Object_${i}__c`);
+
+  it('retrieves the start conditions of 500 flows, twenty-five a request, where queries took five', async () => {
+    const target = fakeTarget({ flows: flowsOn(TWENTY, 25), composites: true, retrieves: true });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', TWENTY);
+
+    const flows = automation.objects.flatMap((o) => o.flows);
+    expect(flows).toHaveLength(500);
+    expect(flows.every((f) => f.condition === 'read')).toBe(true);
+    expect(automation.unread).toEqual([]);
+    expect(automation.conditionsNotRead).toBe(0);
+    expect(automation.conditionsBound).toBe(
+      CONDITION_REQUESTS_BOUND * TOOLING_RETRIEVES_PER_REQUEST,
+    );
+    expect(automation.conditionsBound).toBeGreaterThanOrEqual(500);
+    expect(target.retrieved).toEqual(Array.from({ length: 20 }, () => 25));
+    expect(target.retrievedAs.every((asked) => asked.startsWith('Flow/301'))).toBe(true);
+    expect(target.composite).toEqual([]);
+    // Five parts, then twenty composites, where queries took a hundred.
+    expect(automation.requests).toBe(5 + 20);
+    expect(target.mostInFlight()).toBeLessThanOrEqual(4);
+  });
+
+  it('reads by query, five a request, what the org will not retrieve at all', async () => {
+    const target = fakeTarget({
+      flows: flowsOn(['Case'], 30),
+      composites: true,
+      retrieves: true,
+      refuse: { retrieves: refusal('INVALID_TYPE', 'sObject type is not supported') },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.objects[0].flows.every((f) => f.condition === 'read')).toBe(true);
+    expect(automation.unread).toEqual([]);
+    // Refused whole, the route is not tried again: the rest goes by query.
+    expect(target.retrieved.length).toBeLessThanOrEqual(4);
+    expect(target.composite).toEqual([5, 5, 5, 5, 5, 5]);
+    expect(automation.requests).toBe(6 + target.retrieved.length + 6);
+  });
+
+  it('reads by query what each retrieve of a composite refused, and retrieves no more', async () => {
+    const flows = flowsOn(['Case'], 3);
+    const ids = flows.map((flow) => String(flow.ActiveVersionId));
+    const notFound = refusal('NOT_FOUND', 'The requested resource does not exist');
+    const target = fakeTarget({
+      flows,
+      composites: true,
+      retrieves: true,
+      refuse: { retrieve: Object.fromEntries(ids.map((id) => [id, notFound])) },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.objects[0].flows.map((f) => f.condition)).toEqual(['read', 'read', 'read']);
+    expect(target.retrieved).toEqual([3]);
+    expect(target.composite).toEqual([3]);
+  });
+
+  it('reads by its query the one record the org would not retrieve, and the rest retrieved', async () => {
+    const flows = flowsOn(['Case'], 30);
+    const refused = String(flows[7].ActiveVersionId);
+    const target = fakeTarget({
+      flows,
+      composites: true,
+      retrieves: true,
+      refuse: {
+        retrieve: { [refused]: refusal('NOT_FOUND', 'The requested resource does not exist') },
+      },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.objects[0].flows.every((f) => f.condition === 'read')).toBe(true);
+    expect(automation.unread).toEqual([]);
+    expect(target.retrieved).toEqual([25, 5]);
+    expect(target.composite).toEqual([1]);
+    expect(target.tooling).toContain(conditionSoql(refused));
+  });
+
+  it('says why a condition was not read when neither its retrieve nor its query is answered', async () => {
+    const flows = flowsOn(['Case'], 2);
+    const refused = String(flows[1].ActiveVersionId);
+    const target = fakeTarget({
+      flows,
+      composites: true,
+      retrieves: true,
+      refuse: { conditions: { [refused]: refusal('INSUFFICIENT_ACCESS', 'no access') } },
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(automation.objects[0].flows.map((f) => f.condition).sort()).toEqual([
+      'read',
+      'unreadable',
+    ]);
+    expect(automation.unread).toEqual([
+      { part: 'conditions', reason: 'INSUFFICIENT_ACCESS: no access' },
+    ]);
+  });
+
+  it('retrieves a process as a flow version and a workflow rule as a rule, in the composite the conditions leave room in', async () => {
+    // As on the trap Developer Edition: a few flows and one workflow rule,
+    // which took a composite each.
+    const flows = flowsOn(['Case'], 4);
+    const process = processRow('Case_Process', '301000000000900AAA', 'Case');
+    const rule = ruleRow('01Q000000000001AAA', 'Case rule', 'Case');
+    const target = fakeTarget({
+      flows,
+      processes: [process],
+      rules: [rule],
+      metadata: {
+        '01Q000000000001AAA': { active: true, triggerType: 'onCreateOnly', actions: [] },
+      },
+      composites: true,
+      retrieves: true,
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(target.retrieved).toEqual([6]);
+    expect(target.composite).toEqual([]);
+    expect(target.retrievedAs.slice(4)).toEqual([
+      'Flow/301000000000900AAA',
+      'WorkflowRule/01Q000000000001AAA',
+    ]);
+    const [caseAutomation] = automation.objects;
+    expect(caseAutomation.flows.every((f) => f.condition === 'read')).toBe(true);
+    expect(caseAutomation.processes?.map((p) => p.condition)).toEqual(['read']);
+    expect(caseAutomation.workflowRules?.map((r) => r.condition)).toEqual(['read']);
+    expect(automation.definitionsBound).toBe(
+      DEFINITION_REQUESTS_BOUND * TOOLING_RETRIEVES_PER_REQUEST,
+    );
+  });
+
+  it('retrieves nothing without composites of queries to fall back on', async () => {
+    const target = fakeTarget({ flows: flowsOn(['Case'], 3), retrieves: true });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+
+    expect(target.retrieved).toEqual([]);
+    expect(automation.conditionsBound).toBe(CONDITIONS_BOUND);
+  });
+});
+
 describe('readInComposites', () => {
   /** A query that records what became of it. */
   function recorded(soql: string, outcomes: string[]): CompositeQuery {
@@ -2008,11 +2237,229 @@ describe('readInComposites', () => {
     );
 
     expect(count).toBe(4);
-    expect(sent.map((soqls) => soqls.length)).toEqual([5, 2, 5, 5]);
-    expect(sent[0][0]).toBe('a0');
-    expect(sent[2][0]).toBe('b0');
+    // The room the first batch leaves in its second composite goes to the
+    // second batch, for none of its requests.
+    expect(sent).toEqual([
+      ['a0', 'a1', 'a2', 'a3', 'a4'],
+      ['a5', 'a6', 'b0', 'b1', 'b2'],
+      ['b3', 'b4', 'b5', 'b6', 'b7'],
+      ['b8', 'b9'],
+    ]);
     expect(outcomes.filter((o) => o.endsWith(' read'))).toHaveLength(17);
     expect(outcomes.filter((o) => o.includes(' refused: '))).toEqual([]);
+  });
+
+  it('gives no room to a batch whose requests are spent', async () => {
+    const outcomes: string[] = [];
+    const sent: string[][] = [];
+    const first = Array.from({ length: 2 }, (_, i) => recorded(`a${i}`, outcomes));
+    const second = Array.from({ length: 2 }, (_, i) => recorded(`b${i}`, outcomes));
+
+    await readInComposites(
+      async (soqls) => {
+        sent.push([...soqls]);
+        return soqls.map(() => ({ records: [] }));
+      },
+      [
+        { queries: first, requests: 1 },
+        { queries: second, requests: 0 },
+      ],
+      1,
+    );
+
+    expect(sent).toEqual([['a0', 'a1']]);
+    expect(outcomes).toContain('b0 refused: PROCESSING_HALTED');
+  });
+
+  /** A query that names the record it reads, recording what became of it. */
+  function retrievable(n: number, outcomes: string[]): CompositeQuery {
+    return {
+      ...recorded(`q${n}`, outcomes),
+      retrieve: { sobject: 'Flow', id: `301${String(n).padStart(12, '0')}AAA` },
+    };
+  }
+
+  it('sends again, fewer a composite, the retrieves an org halts', async () => {
+    const outcomes: string[] = [];
+    const sizes: number[] = [];
+    const halted: ToolingAnswer = { refused: `PROCESSING_HALTED: ${HALTED}`, halted: true };
+
+    const count = await readInComposites(
+      async () => {
+        throw new Error('no query expected');
+      },
+      [{ queries: Array.from({ length: 30 }, (_, i) => retrievable(i, outcomes)), requests: 10 }],
+      1,
+      async (reads) => {
+        sizes.push(reads.length);
+        // An org that retrieves ten a composite and halts the rest.
+        return reads.map((_, i) => (i < 10 ? { records: [{}] } : halted));
+      },
+    );
+
+    expect(sizes).toEqual([25, 10, 10]);
+    expect(count).toBe(3);
+    expect(outcomes.filter((o) => o.endsWith(' read'))).toHaveLength(30);
+  });
+
+  it('reads by query, from the first, what a composite of retrieves the org refused whole held', async () => {
+    const outcomes: string[] = [];
+    const queried: string[][] = [];
+
+    const count = await readInComposites(
+      async (soqls) => {
+        queried.push([...soqls]);
+        return soqls.map(() => ({ records: [{}] }));
+      },
+      [{ queries: Array.from({ length: 7 }, (_, i) => retrievable(i, outcomes)), requests: 10 }],
+      1,
+      async () => {
+        throw new Error('INVALID_TYPE: sObject type is not supported');
+      },
+    );
+
+    expect(queried).toEqual([
+      ['q0', 'q1', 'q2', 'q3', 'q4'],
+      ['q5', 'q6'],
+    ]);
+    expect(count).toBe(3);
+    expect(outcomes.filter((o) => o.endsWith(' read'))).toHaveLength(7);
+  });
+
+  it('refuses what its requests leave unread with why the org would not retrieve it', async () => {
+    const outcomes: string[] = [];
+
+    await readInComposites(
+      async (soqls) => soqls.map(() => ({ records: [{}] })),
+      [{ queries: Array.from({ length: 12 }, (_, i) => retrievable(i, outcomes)), requests: 2 }],
+      1,
+      async (reads) =>
+        reads.map(() => ({ refused: 'NOT_FOUND: The requested resource does not exist' })),
+    );
+
+    // One composite of retrieves, one of five queries: seven left.
+    expect(outcomes.filter((o) => o.endsWith(' read'))).toHaveLength(5);
+    expect(outcomes.filter((o) => o.includes(' refused: '))).toEqual(
+      Array.from(
+        { length: 7 },
+        (_, i) => `q${i + 5} refused: NOT_FOUND: The requested resource does not exist`,
+      ),
+    );
+  });
+});
+
+describe('toolingRetrieveBody, toolingRecordsOf and toolingRetrievesOver', () => {
+  it('retrieves each record in a subrequest of its own, by its object and id', () => {
+    const body = toolingRetrieveBody('/services/data/v66.0', [
+      { sobject: 'Flow', id: '301000000000001AAA' },
+      { sobject: 'WorkflowRule', id: '01Q000000000001AAA' },
+    ]);
+
+    expect(body).toEqual({
+      allOrNone: false,
+      compositeRequest: [
+        {
+          method: 'GET',
+          url: '/services/data/v66.0/tooling/sobjects/Flow/301000000000001AAA',
+          referenceId: 'r0',
+        },
+        {
+          method: 'GET',
+          url: '/services/data/v66.0/tooling/sobjects/WorkflowRule/01Q000000000001AAA',
+          referenceId: 'r1',
+        },
+      ],
+    });
+  });
+
+  it('holds 25 retrieves at most, and only ids', () => {
+    const reads = (n: number): ToolingRetrieve[] =>
+      Array.from({ length: n }, (_, i) => ({
+        sobject: 'Flow',
+        id: `301${String(i).padStart(12, '0')}AAA`,
+      }));
+    expect(toolingRetrieveBody('/services/data/v66.0', reads(25)).compositeRequest).toHaveLength(
+      25,
+    );
+    expect(() => toolingRetrieveBody('/services/data/v66.0', reads(26))).toThrow(
+      /retrieves 25 records/,
+    );
+    expect(() =>
+      toolingRetrieveBody('/services/data/v66.0', [{ sobject: 'Flow', id: "x' OR 1=1" }]),
+    ).toThrow(/Not a record id/);
+  });
+
+  it('gives each record as its one row, and a refusal for what the org did not give', () => {
+    const answers = toolingRecordsOf(
+      {
+        compositeResponse: [
+          {
+            referenceId: 'r1',
+            httpStatusCode: 404,
+            body: [{ errorCode: 'NOT_FOUND', message: 'gone' }],
+          },
+          {
+            referenceId: 'r0',
+            httpStatusCode: 200,
+            body: { Id: '301000000000001AAA', Metadata: { start: {} } },
+          },
+        ],
+      },
+      3,
+    );
+
+    expect(answers).toEqual([
+      { records: [{ Id: '301000000000001AAA', Metadata: { start: {} } }] },
+      { refused: 'NOT_FOUND: gone' },
+      { refused: 'The org gave no answer to this retrieve of the composite' },
+    ]);
+  });
+
+  it('takes the answer of a composite of more than 25 subrequests for no composite answer', () => {
+    // As a Developer Edition answered 26: one answer, naming no subrequest.
+    const raw = compositeEndpoint(
+      {
+        allOrNone: false,
+        compositeRequest: Array.from({ length: 26 }, (_, i) => ({
+          method: 'GET' as const,
+          url: `/x/${i}`,
+          referenceId: `r${i}`,
+        })),
+      },
+      QUERIES_RUN_PER_COMPOSITE,
+      () => answer([]),
+    );
+
+    expect(() => toolingRecordsOf(raw, 26)).toThrow(/no composite answer/);
+  });
+
+  it('posts the retrieves to the Tooling composite of the connection', async () => {
+    const requests: Array<{ method: string; url: string; body: string }> = [];
+    const retrieve = toolingRetrievesOver({
+      version: '66.0',
+      request: async (request) => {
+        requests.push(request);
+        return {
+          compositeResponse: [
+            {
+              referenceId: 'r0',
+              httpStatusCode: 200,
+              body: { Id: '301000000000001AAA', Metadata: {} },
+            },
+          ],
+        };
+      },
+    });
+
+    const answers = await retrieve([{ sobject: 'Flow', id: '301000000000001AAA' }]);
+
+    expect(answers).toEqual([{ records: [{ Id: '301000000000001AAA', Metadata: {} }] }]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe('POST');
+    expect(requests[0].url).toBe('/tooling/composite');
+    expect(JSON.parse(requests[0].body)).toEqual(
+      toolingRetrieveBody('/services/data/v66.0', [{ sobject: 'Flow', id: '301000000000001AAA' }]),
+    );
   });
 });
 

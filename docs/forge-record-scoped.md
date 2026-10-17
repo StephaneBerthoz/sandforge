@@ -354,7 +354,11 @@ objects neither the run nor the automation reaches (`Account`, `Contact`,
 the automation created. Production Guard judges its deletes as the removal's;
 a record changed since the run by anyone but a removal of it stays unless the
 request includes what changed; children go before their parents, and a stop
-is honoured between two calls. The result says per object what was found,
+is honoured between two calls. The removal makes the sweep once it has read
+the run's records, before its own first delete (`RunRemovalOptions.sweep`): a
+child the sweep deletes under one of them restamps that record when a roll-up
+summary counts it, and read after the sweep, the record was a change since the
+run, which the removal kept. The result says per object what was found,
 deleted, already gone, kept and refused, the run keeps its counts (`sweep`),
 and the audit trail records it as a `cleanup_delete` with a `sweep` detail.
 

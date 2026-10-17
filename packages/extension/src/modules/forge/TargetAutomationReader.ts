@@ -35,11 +35,13 @@
  *   the `Metadata` of its active version, `Flow` over the Tooling API, and a
  *   rule's from its own `Metadata`. The org gives `Metadata` one row per
  *   query: asked for two, it refuses with `MALFORMED_QUERY`. A Tooling
- *   composite asks {@link TOOLING_QUERIES_PER_REQUEST} such queries in one
- *   request, each answered on its own — the most queries the org runs in
- *   one — and the read takes {@link CONDITION_REQUESTS_BOUND} requests of
- *   flows and {@link DEFINITION_REQUESTS_BOUND} of processes and rules at
- *   most, a query the org halts sent again among them
+ *   composite retrieves {@link TOOLING_RETRIEVES_PER_REQUEST} flow versions
+ *   or rules by id in one request, each with its `Metadata` — where it asks
+ *   {@link TOOLING_QUERIES_PER_REQUEST} such queries at most, the most the
+ *   org runs in one, to which a retrieve the org refuses falls back — and
+ *   the read takes {@link CONDITION_REQUESTS_BOUND} requests of flows and
+ *   {@link DEFINITION_REQUESTS_BOUND} of processes and rules at most, a
+ *   subrequest the org halts sent again among them
  *   ({@link readInComposites}); one query a request, where no composite can
  *   be sent, it takes {@link CONDITIONS_BOUND} flows and
  *   {@link DEFINITIONS_BOUND} processes and rules;
@@ -118,12 +120,30 @@ export interface TargetAutomationDeps {
    * each definition takes a request of its own, and the read takes fewer.
    */
   toolingQueries?: (orgId: string, soqls: readonly string[]) => Promise<ToolingAnswer[]>;
+  /**
+   * Several flow versions or workflow rules of an org, retrieved whole by id
+   * on its Tooling API in one request — {@link TOOLING_RETRIEVES_PER_REQUEST}
+   * at most, a Tooling composite (`toolingRetrieveBody`) — each answered on
+   * its own, in the order asked (`toolingRecordsOf`). Used beside
+   * `toolingQueries`, whose queries read what the org refuses to retrieve.
+   */
+  toolingRetrieves?: (orgId: string, reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]>;
+}
+
+/** The Tooling objects a read retrieves by id: a flow version, a workflow rule. */
+export type ToolingRetrievedObject = 'Flow' | 'WorkflowRule';
+
+/** A record a Tooling composite retrieves whole by its id, its `Metadata` with it. */
+export interface ToolingRetrieve {
+  sobject: ToolingRetrievedObject;
+  id: string;
 }
 
 /**
- * What one query of a Tooling composite came to: its rows, or the org's
- * refusal of it alone — `halted` when the org did not run it, its limit of
- * queries a composite reached ({@link TOOLING_QUERIES_PER_REQUEST}).
+ * What one subrequest of a Tooling composite came to: a query's rows, or the
+ * record a retrieve read as its one row; or the org's refusal of it alone —
+ * `halted` when the org did not run it, its limit of queries a composite
+ * reached ({@link TOOLING_QUERIES_PER_REQUEST}).
  */
 export type ToolingAnswer =
   { records: Array<Record<string, unknown>> } | { refused: string; halted?: true };
@@ -169,17 +189,34 @@ export const DEFINITIONS_BOUND = 15;
 export const TOOLING_QUERIES_PER_REQUEST = 5;
 
 /**
+ * The flow versions or rules one Tooling composite retrieves by id
+ * (`GET /tooling/sobjects/Flow/{id}`): every one of its subrequests. A
+ * composite "can have up to 25 subrequests", of which "up to 5 … can be
+ * sObject Collections or query operations, including Query and QueryAll
+ * requests" (REST API Developer Guide, Composite); a retrieve is neither.
+ * Asked on a Developer Edition, a composite of 25 retrieves of flow versions
+ * came back with the `Metadata` of each, none halted, and one of 26 was
+ * refused whole (`LIMIT_EXCEEDED`, "The request can’t contain more than 25
+ * operations."). A workflow rule retrieved so comes with its `Metadata` too.
+ */
+export const TOOLING_RETRIEVES_PER_REQUEST = 25;
+
+/**
  * The most requests a read sends for start conditions when it can send them
- * in composites: 300 flows. Run on a large client sandbox, a clone's objects
- * ran 242 record-triggered flows, and a read of {@link CONDITIONS_BOUND}, one
- * request each, left 217 of them "start condition not read" — the org where
- * the report matters most. Sixty requests stay a sliver of a day's API
- * budget, a query the org halts is sent again among them, and the report
- * says what is still left unread past them.
+ * in composites: 1 500 flows retrieved, 300 by query. Run on a large client
+ * sandbox, a clone's objects ran 242 record-triggered flows, and a read of
+ * {@link CONDITIONS_BOUND}, one request each, left 217 of them "start
+ * condition not read" — the org where the report matters most. Sixty
+ * requests stay a sliver of a day's API budget, a subrequest the org halts
+ * or refuses to retrieve is sent again among them, and the report says what
+ * is still left unread past them.
  */
 export const CONDITION_REQUESTS_BOUND = 60;
 
-/** The most requests a read sends for the definitions of processes and rules, in composites: 100. */
+/**
+ * The most requests a read sends for the definitions of processes and rules,
+ * in composites: 500 retrieved, 100 by query.
+ */
 export const DEFINITION_REQUESTS_BOUND = 20;
 
 /**
@@ -256,6 +293,41 @@ export function toolingCompositeBody(
   };
 }
 
+/**
+ * The body of a Tooling composite retrieving `reads` by id, one record a
+ * subrequest, each answered on its own: a record the org will not give fails
+ * alone.
+ *
+ * @param apiPath - The org's REST API path, `/services/data/vXX.X`.
+ * @throws Past {@link TOOLING_RETRIEVES_PER_REQUEST} records, or for an id
+ *   that is none.
+ */
+export function toolingRetrieveBody(
+  apiPath: string,
+  reads: readonly ToolingRetrieve[],
+): {
+  allOrNone: false;
+  compositeRequest: Array<{ method: 'GET'; url: string; referenceId: string }>;
+} {
+  if (reads.length > TOOLING_RETRIEVES_PER_REQUEST) {
+    throw new Error(
+      `A Tooling composite retrieves ${TOOLING_RETRIEVES_PER_REQUEST} records, not ${reads.length}`,
+    );
+  }
+  return {
+    allOrNone: false,
+    compositeRequest: reads.map(({ sobject, id }, index) => {
+      // It goes into the subrequest's path: an id, or nothing.
+      if (!SF_ID_RE.test(id)) throw new Error(`Not a record id: ${id}`);
+      return {
+        method: 'GET',
+        url: `${apiPath}/tooling/sobjects/${sobject}/${id}`,
+        referenceId: `r${index}`,
+      };
+    }),
+  };
+}
+
 /** The code the org halts a subrequest of a composite with, past its limit of queries. */
 const PROCESSING_HALTED = 'PROCESSING_HALTED';
 
@@ -265,29 +337,37 @@ const compositeAnswerSchema = z.object({
   ),
 });
 const queryBodySchema = z.object({ records: z.array(z.record(z.string(), z.unknown())) }).loose();
+const recordBodySchema = z.record(z.string(), z.unknown());
 const refusalBodySchema = z.array(
   z.object({ errorCode: z.string().optional(), message: z.string().optional() }).loose(),
 );
 
 /**
- * The answers of a Tooling composite of `count` queries
- * ({@link toolingCompositeBody}), in the order asked: each query's rows, or
- * the org's refusal of it.
+ * The answers of a Tooling composite of `count` subrequests, each referenced
+ * as `prefix` and its place, in the order asked: the rows `rowsOf` reads from
+ * each one's body, or the org's refusal of it.
  *
- * @throws When the answer is no composite answer of `count` queries.
+ * @param what - What a subrequest is, as a refusal names it.
+ * @throws When the answer is no composite answer.
  */
-export function toolingAnswersOf(raw: unknown, count: number): ToolingAnswer[] {
+function compositeAnswersOf(
+  raw: unknown,
+  count: number,
+  prefix: string,
+  what: string,
+  rowsOf: (body: unknown) => Array<Record<string, unknown>> | undefined,
+): ToolingAnswer[] {
   const parsed = compositeAnswerSchema.safeParse(raw);
   if (!parsed.success)
     throw new Error('The org answered the Tooling composite with no composite answer');
   const byRef = new Map(parsed.data.compositeResponse.map((sub) => [sub.referenceId, sub]));
   return Array.from({ length: count }, (_, index): ToolingAnswer => {
-    const sub = byRef.get(`q${index}`);
-    if (!sub) return { refused: 'The org gave no answer to this query of the composite' };
+    const sub = byRef.get(`${prefix}${index}`);
+    if (!sub) return { refused: `The org gave no answer to this ${what} of the composite` };
     if (sub.httpStatusCode < 400) {
-      const body = queryBodySchema.safeParse(sub.body);
-      return body.success
-        ? { records: body.data.records }
+      const rows = rowsOf(sub.body);
+      return rows
+        ? { records: rows }
         : { refused: `The org answered with status ${sub.httpStatusCode} and no rows` };
     }
     const errors = refusalBodySchema.safeParse(sub.body);
@@ -296,16 +376,82 @@ export function toolingAnswersOf(raw: unknown, count: number): ToolingAnswer[] {
       refused: first
         ? [first.errorCode, first.message].filter(Boolean).join(': ')
         : `status ${sub.httpStatusCode}`,
-      // Halted, the query was not run. The composite's queries name none of
-      // one another, so only the org's limit of queries halts one.
+      // Halted, the subrequest was not run. A composite's subrequests name
+      // none of one another, so only the org's limit of queries halts one.
       ...(first?.errorCode === PROCESSING_HALTED ? { halted: true as const } : {}),
     };
   });
 }
 
-/** A query a read sends in a Tooling composite, and what becomes of its answer. */
+/**
+ * The answers of a Tooling composite of `count` queries
+ * ({@link toolingCompositeBody}), in the order asked: each query's rows, or
+ * the org's refusal of it.
+ *
+ * @throws When the answer is no composite answer.
+ */
+export function toolingAnswersOf(raw: unknown, count: number): ToolingAnswer[] {
+  return compositeAnswersOf(raw, count, 'q', 'query', (body) => {
+    const parsed = queryBodySchema.safeParse(body);
+    return parsed.success ? parsed.data.records : undefined;
+  });
+}
+
+/**
+ * The answers of a Tooling composite of `count` retrieves
+ * ({@link toolingRetrieveBody}), in the order asked: each record as the one
+ * row of its answer, or the org's refusal of it.
+ *
+ * @throws When the answer is no composite answer.
+ */
+export function toolingRecordsOf(raw: unknown, count: number): ToolingAnswer[] {
+  return compositeAnswersOf(raw, count, 'r', 'retrieve', (body) => {
+    const parsed = recordBodySchema.safeParse(body);
+    return parsed.success ? [parsed.data] : undefined;
+  });
+}
+
+/** A connection a Tooling composite is sent through, as jsforce's is. */
+export interface CompositeConnection {
+  version: string;
+  request: (request: {
+    method: 'POST';
+    url: string;
+    body: string;
+    headers: Record<string, string>;
+  }) => Promise<unknown>;
+}
+
+/**
+ * Retrieves by id over a connection (`TargetAutomationDeps.toolingRetrieves`):
+ * `POST /tooling/composite`, as the read's queries are sent.
+ *
+ * @param conn - The org's connection.
+ */
+export function toolingRetrievesOver(
+  conn: CompositeConnection,
+): (reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]> {
+  return async (reads) =>
+    toolingRecordsOf(
+      await conn.request({
+        method: 'POST',
+        url: '/tooling/composite',
+        body: JSON.stringify(toolingRetrieveBody(`/services/data/v${conn.version}`, reads)),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      reads.length,
+    );
+}
+
+/**
+ * A query a read sends in a Tooling composite, and what becomes of its
+ * answer. One that reads a record by its id names it (`retrieve`): the
+ * record is retrieved instead, many more a composite than queries, and the
+ * query is sent when the org will not retrieve it.
+ */
 export interface CompositeQuery {
   soql: string;
+  retrieve?: ToolingRetrieve;
   take: (records: ReadonlyArray<Record<string, unknown>>) => void;
   refused: (reason: string) => void;
 }
@@ -316,71 +462,155 @@ export interface CompositeBatch {
   requests: number;
 }
 
+/** The two ways a composite reads: records retrieved by id, or queries. */
+type CompositeRoute = 'retrieving' | 'waiting';
+
+/** One batch's queries left to send, each way, and its requests left. */
+interface CompositeQueue {
+  /** The queries whose records are still to be retrieved. */
+  retrieving: CompositeQuery[];
+  /** The queries still to be sent as queries. */
+  waiting: CompositeQuery[];
+  left: number;
+  /** Why a query the batch's requests leave unsent was not read. */
+  reason?: string;
+}
+
 /**
- * Send `batches` in Tooling composites, {@link TOOLING_QUERIES_PER_REQUEST}
- * queries a composite at most, `inFlightLimit` composites at a time, the first
- * batch's queries first; and return how many composites were sent.
+ * Send `batches` in Tooling composites, `inFlightLimit` composites at a time,
+ * the first batch's queries first; and return how many composites were sent.
  *
- * A query the org halts (`ToolingAnswer.halted`) was not run: it goes again,
- * before the queries not sent yet, and every composite sent after it holds no
- * more queries than the org ran of the one that halted it — an org that runs
- * fewer than it documents is read all the same, a few a request. A query goes
- * again only when the org ran another of its composite, so a read always
- * ends; and within its batch's requests, so the budget holds: a query a
- * batch's requests leave unsent is refused with the org's reason, and the
+ * Given `retrieve`, the record a query names (`CompositeQuery.retrieve`) is
+ * retrieved, {@link TOOLING_RETRIEVES_PER_REQUEST} a composite; one the org
+ * will not retrieve is read by its query, and once a composite of retrieves
+ * gives nothing back — refused whole, or each of them — every record left is:
+ * the org will not take the route. Queries go
+ * {@link TOOLING_QUERIES_PER_REQUEST} a composite at most. Room a batch leaves
+ * in a composite goes to the batches after it that still have requests, for
+ * none of theirs: run on a Developer Edition, a read's four start conditions
+ * and one workflow rule took a composite each.
+ *
+ * A subrequest the org halts (`ToolingAnswer.halted`) was not run: it goes
+ * again, before the queries not sent yet, and every composite sent its way
+ * after it holds no more than the org ran of the one that halted it — an org
+ * that runs fewer than it documents is read all the same, a few a request. A
+ * query goes again only when the org ran another of its composite, so a read
+ * always ends; and within its batch's requests, so the budget holds: a query
+ * a batch's requests leave unsent is refused with the org's reason, and the
  * report says it was not read.
  */
 export async function readInComposites(
   send: (soqls: readonly string[]) => Promise<ToolingAnswer[]>,
   batches: readonly CompositeBatch[],
   inFlightLimit: number,
+  retrieve?: (reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]>,
 ): Promise<number> {
-  const queues = batches.map((batch) => ({
-    waiting: [...batch.queries],
+  const queues: CompositeQueue[] = batches.map((batch) => ({
+    retrieving: retrieve ? batch.queries.filter((query) => query.retrieve !== undefined) : [],
+    waiting: retrieve
+      ? batch.queries.filter((query) => query.retrieve === undefined)
+      : [...batch.queries],
     left: batch.requests,
-    halt: undefined as string | undefined,
   }));
-  let size = TOOLING_QUERIES_PER_REQUEST;
+  const size: Record<CompositeRoute, number> = {
+    retrieving: TOOLING_RETRIEVES_PER_REQUEST,
+    waiting: TOOLING_QUERIES_PER_REQUEST,
+  };
+  type Sent = { query: CompositeQuery; queue: CompositeQueue };
+  /** Put `items` back first of their queue's `route`, in the order they were sent. */
+  const back = (route: CompositeRoute, items: readonly Sent[]): void => {
+    for (const queue of queues) {
+      const own = items.filter((item) => item.queue === queue).map((item) => item.query);
+      if (own.length > 0) queue[route].unshift(...own);
+    }
+  };
+  /**
+   * The org will not retrieve: every record left to retrieve is read by its
+   * query, those of the composite it gave nothing back for first.
+   */
+  const retrieveNoMore = (reason: string, given: readonly Sent[]): void => {
+    for (const queue of queues) {
+      const own = given.filter((item) => item.queue === queue).map((item) => item.query);
+      if (own.length === 0 && queue.retrieving.length === 0) continue;
+      queue.reason ??= reason;
+      queue.waiting.unshift(...own, ...queue.retrieving.splice(0));
+    }
+  };
   let sent = 0;
   const worker = async (): Promise<void> => {
     for (;;) {
-      const queue = queues.find((q) => q.waiting.length > 0 && q.left > 0);
-      if (!queue) return;
-      queue.left--;
+      const lead = queues.find(
+        (q) => q.left > 0 && (q.retrieving.length > 0 || q.waiting.length > 0),
+      );
+      if (!lead) return;
+      const route: CompositeRoute = lead.retrieving.length > 0 ? 'retrieving' : 'waiting';
+      lead.left--;
       sent++;
-      const chunk = queue.waiting.splice(0, size);
+      const chunk: Sent[] = [];
+      for (const queue of queues) {
+        if (queue !== lead && queue.left <= 0) continue;
+        const room = size[route] - chunk.length;
+        if (room <= 0) break;
+        for (const query of queue[route].splice(0, room)) chunk.push({ query, queue });
+      }
       let answers: ToolingAnswer[];
       try {
-        answers = await send(chunk.map((query) => query.soql));
+        answers =
+          retrieve && route === 'retrieving'
+            ? await retrieve(chunk.map(({ query }) => query.retrieve as ToolingRetrieve))
+            : await send(chunk.map(({ query }) => query.soql));
       } catch (err: unknown) {
-        for (const query of chunk) query.refused(extractErrorMessage(err));
+        const reason = extractErrorMessage(err);
+        if (route === 'retrieving') retrieveNoMore(reason, chunk);
+        else for (const { query } of chunk) query.refused(reason);
         continue;
       }
-      const halted: CompositeQuery[] = [];
-      let reason: string | undefined;
-      chunk.forEach((query, index) => {
-        const answer = answers[index];
-        if (!answer) query.refused('The org gave no answer to this query of the composite');
-        else if ('records' in answer) query.take(answer.records);
-        else if (answer.halted) {
-          halted.push(query);
-          reason ??= answer.refused;
-        } else query.refused(answer.refused);
+      const what = route === 'retrieving' ? 'retrieve' : 'query';
+      const halted: Sent[] = [];
+      const unretrieved: Sent[] = [];
+      let taken = 0;
+      let haltReason: string | undefined;
+      let refusal: string | undefined;
+      chunk.forEach((item, index) => {
+        const answer: ToolingAnswer = answers[index] ?? {
+          refused: `The org gave no answer to this ${what} of the composite`,
+        };
+        if ('records' in answer) {
+          item.query.take(answer.records);
+          taken++;
+        } else if (answer.halted) {
+          halted.push(item);
+          haltReason ??= answer.refused;
+        } else if (route === 'retrieving') {
+          unretrieved.push(item);
+          refusal ??= answer.refused;
+        } else item.query.refused(answer.refused);
       });
+      if (route === 'retrieving' && taken === 0) {
+        // Not one record given back: the org will not take the route.
+        retrieveNoMore(refusal ?? haltReason ?? PROCESSING_HALTED, chunk);
+        continue;
+      }
+      if (unretrieved.length > 0) {
+        for (const { queue } of unretrieved) queue.reason ??= refusal;
+        back('waiting', unretrieved);
+      }
       if (halted.length === 0) continue;
       const ran = chunk.length - halted.length;
       if (ran === 0) {
-        for (const query of halted) query.refused(reason ?? PROCESSING_HALTED);
+        for (const { query } of halted) query.refused(haltReason ?? PROCESSING_HALTED);
         continue;
       }
-      size = Math.min(size, ran);
-      queue.halt = reason;
-      queue.waiting.unshift(...halted);
+      size[route] = Math.min(size[route], ran);
+      for (const { queue } of halted) queue.reason = haltReason;
+      back(route, halted);
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, inFlightLimit) }, worker));
   for (const queue of queues) {
-    for (const query of queue.waiting) query.refused(queue.halt ?? PROCESSING_HALTED);
+    for (const query of [...queue.retrieving, ...queue.waiting]) {
+      query.refused(queue.reason ?? PROCESSING_HALTED);
+    }
   }
   return sent;
 }
@@ -1519,14 +1749,19 @@ export class TargetAutomationReader {
           objectRank(a) - objectRank(b) ||
           a.flow.label.localeCompare(b.flow.label),
       );
-    // In composites when the host can send them, many flows a request; one
-    // a request otherwise, as the read always did.
+    // In composites when the host can send them, many flows a request —
+    // retrieved by id where it can, five times as many as queries; one a
+    // request otherwise, as the read always did.
     const toolingQueries = this.deps.toolingQueries;
+    const toolingRetrieves = toolingQueries ? this.deps.toolingRetrieves : undefined;
+    const perRequest = toolingRetrieves
+      ? TOOLING_RETRIEVES_PER_REQUEST
+      : TOOLING_QUERIES_PER_REQUEST;
     const conditionsBound = toolingQueries
-      ? CONDITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST
+      ? CONDITION_REQUESTS_BOUND * perRequest
       : CONDITIONS_BOUND;
     const definitionsBound = toolingQueries
-      ? DEFINITION_REQUESTS_BOUND * TOOLING_QUERIES_PER_REQUEST
+      ? DEFINITION_REQUESTS_BOUND * perRequest
       : DEFINITIONS_BOUND;
     const reading = toRead.slice(0, conditionsBound);
     // The root's processes and rules first, a process before a rule: a rule
@@ -1581,33 +1816,38 @@ export class TargetAutomationReader {
       read.flow.condition = 'unreadable';
       definitionRefusal ??= reason;
     };
-    /** The queries that read `items`, each answered on its own. */
+    /** The queries that read `items`, each answered on its own, and the record each reads. */
     const queriesOf = <T>(
       items: readonly T[],
       soqlOf: (item: T) => string,
+      retrieveOf: (item: T) => ToolingRetrieve,
       take: (item: T, records: ReadonlyArray<Record<string, unknown>>) => void,
       refused: (item: T, reason: string) => void,
     ): CompositeQuery[] =>
       items.map((item) => ({
         soql: soqlOf(item),
+        retrieve: retrieveOf(item),
         take: (records) => take(item, records),
         refused: (reason) => refused(item, reason),
       }));
     const conditionQueries = queriesOf(
       reading,
       (read) => conditionSoql(read.id!),
+      (read) => ({ sobject: 'Flow', id: read.id! }),
       takeCondition,
       conditionRefused,
     );
     const definitionQueries = queriesOf(
       definitionsReading,
       definitionSoql,
+      ({ read, kind }) => ({ sobject: kind === 'process' ? 'Flow' : 'WorkflowRule', id: read.id! }),
       takeDefinition,
       definitionRefused,
     );
     if (toolingQueries) {
-      // In composites, a few queries a request, a query the org halts sent
-      // again within the same bound of requests.
+      // In composites, many records or a few queries a request, what the org
+      // halts or will not retrieve sent again within the same bound of
+      // requests.
       requests += await readInComposites(
         (soqls) => toolingQueries(targetOrgId, soqls),
         [
@@ -1615,6 +1855,7 @@ export class TargetAutomationReader {
           { queries: definitionQueries, requests: DEFINITION_REQUESTS_BOUND },
         ],
         REQUESTS_IN_FLIGHT,
+        toolingRetrieves && ((reads) => toolingRetrieves(targetOrgId, reads)),
       );
     } else {
       await inFlight(

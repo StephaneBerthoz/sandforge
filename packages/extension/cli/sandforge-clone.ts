@@ -94,6 +94,7 @@ import type {
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
+import { ForgeStops } from '../src/modules/forge/ForgeStops.js';
 import { cursorPages, queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { controllersOf, fieldBoundsOf } from '../src/modules/forge/describeBounds.js';
 import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
@@ -156,7 +157,7 @@ import {
   sweepRunRecords,
   type SweepInput,
 } from '../src/modules/forge/ForgeRunSweep.js';
-import { recordWriteRun } from '../src/modules/audit/auditTrail.js';
+import { ABORTED_BEFORE_START, recordWriteRun } from '../src/modules/audit/auditTrail.js';
 import type { AuditDeps, WriteRun } from '../src/modules/audit/auditTrail.js';
 import {
   RUN_CANCELLED,
@@ -174,6 +175,7 @@ import {
   automationLines,
   toolingAnswersOf,
   toolingCompositeBody,
+  toolingRetrievesOver,
 } from '../src/modules/forge/TargetAutomationReader.js';
 import { TargetGapReader, gapFieldOf, gapLines } from '../src/modules/forge/TargetGapReader.js';
 import {
@@ -2278,6 +2280,8 @@ export function targetAutomationReader(conn: Connection): TargetAutomationReader
         }),
         soqls.length,
       ),
+    // The flow versions and rules themselves, retrieved many more a request.
+    toolingRetrieves: (_orgId, reads) => toolingRetrievesOver(conn)(reads),
   });
 }
 
@@ -3447,47 +3451,58 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 
   // The sweep comes before the run's records go, as the panel's does: a
   // record the target's automation hung under one of them after the run's
-  // last write would otherwise hold it back as a record that stays.
-  let sweep: ForgeSweepResult | undefined;
-  if (args.sweep) {
+  // last write would otherwise hold it back as a record that stays. The
+  // removal makes it once it has read the run's records: a child it deletes
+  // under one of them restamps that record when a roll-up counts it, which
+  // read afterwards was a change since the run.
+  const sweepMade: { result?: ForgeSweepResult } = {};
+  const sweepFirst = args.sweep
+    ? async (): Promise<boolean> => {
+        const swept = await sweepRunRecords(
+          removalOrg(conn, 'sandforge-clone --sweep'),
+          await cliSweepInput(conn, args.target, summary, created, stop.signal),
+          {
+            includeChanged: args.includeChanged,
+            // What the earlier removals of the run changed while they ran is no
+            // change since the run.
+            removalSpans: earlier?.removalSpans ?? [],
+            // What it found, said before the first delete: --sweep asked for it.
+            approve: async (listing) => {
+              say('');
+              for (const line of sweepListingLines(listing, args.target)) say(line);
+              return undefined;
+            },
+          },
+        );
+        sweepMade.result = swept;
+        recordCliRun(args.audit, audited, {
+          action: 'cleanup_delete',
+          module: 'forge',
+          operationId: `${operationId}-sweep`,
+          orgId: org.id,
+          outcome: swept.status === 'refused' ? 'stopped' : swept.status,
+          ...(swept.status === 'refused' ? { code: 'SWEEP_REFUSED' } : {}),
+          objects: sweepAuditObjects(swept),
+          details: sweepAuditDetails(swept, run),
+        });
+        return swept.objects.some((object) => object.deleted > 0);
+      }
+    : undefined;
+
+  // A Ctrl-C during the sweep stops the removal too; with nothing of the run
+  // left, the sweep goes alone.
+  let outcome: RunRemovalOutcome | undefined;
+  if (plan.length > 0) {
+    outcome = await removeThePlan();
+  } else if (sweepFirst) {
     process.once('SIGINT', interrupt);
     try {
-      sweep = await sweepRunRecords(
-        removalOrg(conn, 'sandforge-clone --sweep'),
-        await cliSweepInput(conn, args.target, summary, created, stop.signal),
-        {
-          includeChanged: args.includeChanged,
-          // What the earlier removals of the run changed while they ran is no
-          // change since the run.
-          removalSpans: earlier?.removalSpans ?? [],
-          // What it found, said before the first delete: --sweep asked for it.
-          approve: async (listing) => {
-            say('');
-            for (const line of sweepListingLines(listing, args.target)) say(line);
-            return undefined;
-          },
-        },
-      );
+      await sweepFirst();
     } finally {
       process.off('SIGINT', interrupt);
     }
-    recordCliRun(args.audit, audited, {
-      action: 'cleanup_delete',
-      module: 'forge',
-      operationId: `${operationId}-sweep`,
-      orgId: org.id,
-      outcome: sweep.status === 'refused' ? 'stopped' : sweep.status,
-      ...(sweep.status === 'refused' ? { code: 'SWEEP_REFUSED' } : {}),
-      objects: sweepAuditObjects(sweep),
-      details: sweepAuditDetails(sweep, run),
-    });
   }
-
-  // A Ctrl-C during the sweep stops the removal too.
-  let outcome: RunRemovalOutcome | undefined;
-  if (plan.length > 0) {
-    outcome = stop.signal.aborted ? notRemoved() : await removeThePlan();
-  }
+  const sweep = sweepMade.result;
 
   /** What the run would remove said, and what the target runs as its records go asked about. */
   async function checkThePlan(): Promise<void> {
@@ -3529,13 +3544,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
   }
 
-  /** A removal a stop came before: nothing deleted, recorded as cancelled. */
-  function notRemoved(): RunRemovalOutcome {
-    recordRemoval({ outcome: 'cancelled', objects: [] });
-    return { objects: [], cancelled: true, gone: [], stamps: {}, left: async function* () {} };
-  }
-
-  /** The removal of what is left of the run, recorded as it always was. */
+  /** The removal of what is left of the run, its sweep first, recorded as it always was. */
   async function removeThePlan(): Promise<RunRemovalOutcome> {
     process.once('SIGINT', interrupt);
     const span = summary.result.writtenBetween;
@@ -3557,6 +3566,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               removalSpans: earlier.removalSpans,
             }
           : {}),
+        ...(sweepFirst ? { sweep: sweepFirst } : {}),
         includeChanged: args.includeChanged,
         signal: stop.signal,
       });
@@ -4021,6 +4031,23 @@ export function interruptedLine(summaryPath: string | undefined): string {
 export async function main(argv: string[] = process.argv): Promise<void> {
   if (argv.slice(2).includes('--verify')) return verifyMain(argv);
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
+  const interrupts: CloneInterrupts = {};
+  try {
+    await cloneMain(argv, interrupts);
+  } finally {
+    // However the clone ended, a refusal at one of its gates included, its
+    // Ctrl-C goes with it.
+    interrupts.release?.();
+  }
+}
+
+/** How a clone hears Ctrl-C, for {@link main} to let it go however the clone ends. */
+interface CloneInterrupts {
+  release?: () => void;
+}
+
+/** One clone from the given command line: see {@link main}. */
+async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<void> {
   const t0 = Date.now();
   const args = parseArgs(argv);
   // In --json mode stdout carries the summary alone, for a parser to read: a
@@ -4233,6 +4260,56 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     say(`taking up the run of ${journalPath}`);
   }
 
+  // Ctrl-C stops the run as the panel's Stop does, through the same registry
+  // of what is under way (`ForgeStops.stop`), from the read of what the
+  // target runs until the executor is through. Before the executor has the
+  // run, nothing is written, and the run is recorded stopped before it
+  // started, as the panel records one stopped while it read the target's
+  // automation or record types; once the executor has it, the run stops
+  // between two calls to the org and says what it created. Killed outright
+  // before then, a clone left no entry in the trail. A second Ctrl-C ends
+  // the process at once.
+  const stops = new ForgeStops();
+  const runController = new AbortController();
+  /** The executor, once made: what a stop tells to stop writing. */
+  const running: { executor?: ForgeExecutor } = {};
+  let interrupted = false;
+  const interrupt = (): void => {
+    interrupted = true;
+    process.stderr.write(
+      '\ninterrupted: the clone stops after the call under way, and says what it created ' +
+        '(Ctrl-C again ends it at once)\n',
+    );
+    stops.stop(undefined, {
+      discovery: () => undefined,
+      run: () => {
+        runController.abort();
+        running.executor?.abort();
+      },
+    });
+  };
+  if (!args.dryRun && !args.rehearse && !args.listObjects) {
+    stops.beginRun(operationId, runController);
+    process.once('SIGINT', interrupt);
+    interrupts.release = () => {
+      process.off('SIGINT', interrupt);
+      stops.endRun(operationId);
+    };
+  }
+  /**
+   * End the clone here when a Ctrl-C came before the executor had the run:
+   * nothing written, recorded stopped before it started under the panel's
+   * code, `endJournal` letting a journal begun for it go, and exit 130. The
+   * executor clears a stop on entry: one that came before is honoured here.
+   */
+  const stopIfInterrupted = async (endJournal?: () => Promise<void>): Promise<void> => {
+    if (!runController.signal.aborted) return;
+    recordClone({ outcome: 'stopped', code: ABORTED_BEFORE_START, context: runAudit().context() });
+    await endJournal?.();
+    say('interrupted: the clone stopped before it wrote anything');
+    process.exit(INTERRUPTED_EXIT);
+  };
+
   // What the target runs on the objects the run writes, said before anything
   // is written — on a dry run too, for the requests the read sends alone. Run
   // into a sandbox, a clone fired the target's record-triggered flows on every
@@ -4340,6 +4417,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         'and updates, or could not be read, above',
     );
   }
+  await stopIfInterrupted();
 
   say('record-type mapping…');
   const requestsBeforeRecordTypes = requestsSent();
@@ -4349,6 +4427,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
   const recordTypeCalls = requestsSent() - requestsBeforeRecordTypes;
   say(`record-types: ${recordTypeMappings.length} mappings`);
+  await stopIfInterrupted();
 
   /** The statements read through the org's cursor, and the pages the org answered them in. */
   const pagedReads = { statements: 0, pages: 0 };
@@ -4624,6 +4703,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }
     }
   }
+  await stopIfInterrupted();
 
   // Every row in hand and none written: the records the run is about to
   // write, per object, and the data storage they take, held to --max-total
@@ -4819,20 +4899,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     rowsKept = rows;
     keepSummary(runDocument(withRecordTypeCalls(soFar), new Date(), { running: true }));
   };
-  // Ctrl-C stops the run between two calls to the org, as Abort does in the
-  // panel, and the summary says what it had created by then. Killed outright,
-  // a clone printed nothing, and --remove had nothing to take it back from.
-  // A second Ctrl-C ends the process at once.
-  let interrupted = false;
-  const interrupt = (): void => {
-    interrupted = true;
-    process.stderr.write(
-      '\ninterrupted: the clone stops after the call under way, and says what it created ' +
-        '(Ctrl-C again ends it at once)\n',
-    );
-    executor.abort();
-  };
-  process.once('SIGINT', interrupt);
+  // From here a Ctrl-C stops the run between two calls to the org, as Abort
+  // does in the panel, and the summary says what it had created by then.
+  // Killed outright, a clone printed nothing, and --remove had nothing to
+  // take it back from.
+  running.executor = executor;
+  await stopIfInterrupted(() => endJournal('cancelled', false));
   try {
     const executed = await executor.execute(
       graph,
@@ -4925,7 +4997,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     throw err;
   } finally {
-    process.off('SIGINT', interrupt);
+    interrupts.release?.();
   }
 
   await endJournal('success', true);

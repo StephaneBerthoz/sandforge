@@ -5,6 +5,7 @@ import { SchemaCache } from '../core/metadata/SchemaCache';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
 import type { ForgeExecutorDeps } from '../modules/forge/ForgeExecutor';
+import type { ToolingRetrieve } from '../modules/forge/TargetAutomationReader';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
@@ -198,7 +199,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeRehearser },
         { getJsforceConnection },
         fileTransfer,
-        { TargetAutomationReader, answerOf, toolingAnswersOf, toolingCompositeBody },
+        {
+          TargetAutomationReader,
+          answerOf,
+          toolingAnswersOf,
+          toolingCompositeBody,
+          toolingRetrievesOver,
+        },
         { TargetGapReader },
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
@@ -631,6 +638,10 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             });
             return toolingAnswersOf(answer, soqls.length);
           },
+          // The flow versions and rules themselves, retrieved by id: five times
+          // as many a request as queries.
+          toolingRetrieves: async (orgId: string, reads: readonly ToolingRetrieve[]) =>
+            toolingRetrievesOver(await getJsforceConnection(orgId, orgRegistry, orgManager))(reads),
         };
         const targetAutomation = new TargetAutomationReader(targetQueries);
 

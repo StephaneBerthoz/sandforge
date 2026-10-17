@@ -159,13 +159,7 @@ export const GUARD_REFUSAL = {
   declined: 'GUARD_DECLINED',
 } as const;
 
-/**
- * The code of a run the user cancelled before it started — while Production
- * Guard's question was still open — as the audit trail records it and the
- * page is told: nothing was written. See
- * `BackgroundOperationRegistry.holdUntilStart`.
- */
-export const ABORTED_BEFORE_START = 'ABORTED_BEFORE_START';
+export { ABORTED_BEFORE_START } from '../../modules/audit/auditTrail.js';
 
 /**
  * A write Production Guard refused, as an error to throw: the message every

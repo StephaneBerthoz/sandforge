@@ -180,6 +180,23 @@ const TOOK_ALL: RunRemovalOutcome = {
   stamps: {},
 };
 
+/**
+ * A removal answering `outcome` as the real one goes about it: the sweep it is
+ * handed first, once it has read the run's records, and none of them taken
+ * once a stop came during that sweep.
+ */
+function removalAnswering(
+  outcome: RunRemovalOutcome,
+): (...args: Parameters<typeof removeRunRecords>) => Promise<RunRemovalOutcome> {
+  return async (_org, _plan, options) => {
+    await options.sweep?.();
+    if (options.signal?.aborted) {
+      return { objects: [], cancelled: true, gone: [], left: noneLeft, stamps: {} };
+    }
+    return outcome;
+  };
+}
+
 /** The plan the summary of `runSummary` gives a removal, children first. */
 const PLAN = [
   { objectApiName: 'Contact', ids: [TGT('003', 2), TGT('003', 1)] },
@@ -246,7 +263,9 @@ describe('sandforge-clone --remove', () => {
     }),
     queryMore: vi.fn(async () => page([])),
     tooling,
-    // A Tooling composite, each of its queries answered as the Tooling API answers it alone.
+    // A Tooling composite, each of its subrequests answered as the Tooling API
+    // answers it alone: a flow version retrieved by id comes whole, and a
+    // query, with its rows.
     request: vi.fn(async ({ url, body }: { url: string; body: string }) => {
       if (url !== '/tooling/composite') return {};
       const { compositeRequest } = JSON.parse(body) as {
@@ -254,13 +273,26 @@ describe('sandforge-clone --remove', () => {
       };
       return {
         compositeResponse: await Promise.all(
-          compositeRequest.map(async (sub) => ({
-            referenceId: sub.referenceId,
-            httpStatusCode: 200,
-            body: await tooling.query(
-              new URL(sub.url, 'https://org.example').searchParams.get('q') ?? '',
-            ),
-          })),
+          compositeRequest.map(async (sub) => {
+            const version = /\/tooling\/sobjects\/Flow\/(\w+)$/.exec(sub.url)?.[1];
+            if (version) {
+              const [row] = (
+                await tooling.query(`SELECT Metadata FROM Flow WHERE Id = '${version}'`)
+              ).records as Array<Record<string, unknown>>;
+              return {
+                referenceId: sub.referenceId,
+                httpStatusCode: 200,
+                body: { Id: version, ...row },
+              };
+            }
+            return {
+              referenceId: sub.referenceId,
+              httpStatusCode: 200,
+              body: await tooling.query(
+                new URL(sub.url, 'https://org.example').searchParams.get('q') ?? '',
+              ),
+            };
+          }),
         ),
       };
     }),
@@ -311,7 +343,7 @@ describe('sandforge-clone --remove', () => {
     }));
     vi.mocked(makeConn).mockReturnValue(targetConn);
     vi.mocked(removalOrg).mockReturnValue(session);
-    vi.mocked(removeRunRecords).mockResolvedValue(TOOK_ALL);
+    vi.mocked(removeRunRecords).mockImplementation(removalAnswering(TOOK_ALL));
   });
 
   afterEach(() => {
@@ -1017,17 +1049,21 @@ describe('sandforge-clone --remove', () => {
       });
     });
 
-    it('sweeps before the removal, with the run’s window, records and id map', async () => {
+    it('hands the removal the sweep, with the run’s window, records and id map, for it to make before its first delete', async () => {
       // Swept after it, a task the target's automation opened under a cloned
       // contact after the run's last write kept the contact back as a record
-      // that stays.
+      // that stays. Swept before the removal read the run's records, a
+      // roll-up the sweep's deletes recalculated read as a change since the run.
       const path = file(runSummary());
-      vi.mocked(removeRunRecords).mockResolvedValue({ ...TOOK_ALL, span: FIRST_SPAN });
+      vi.mocked(removeRunRecords).mockImplementation(
+        removalAnswering({ ...TOOK_ALL, span: FIRST_SPAN }),
+      );
 
       expect(await run(['--remove', path, '--target', 'TGT', '--sweep', '--json'])).toBeUndefined();
 
-      expect(vi.mocked(sweepRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
-        vi.mocked(removeRunRecords).mock.invocationCallOrder[0],
+      expect(removalOptions().sweep).toEqual(expect.any(Function));
+      expect(vi.mocked(removeRunRecords).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(sweepRunRecords).mock.invocationCallOrder[0],
       );
       const { input, options } = sweepCall();
       expect(input.writtenBetween).toEqual(WRITTEN_BETWEEN);
@@ -1084,7 +1120,8 @@ describe('sandforge-clone --remove', () => {
 
       expect(await run(['--remove', path, '--target', 'TGT', '--sweep', '--json'])).toBe(3);
 
-      expect(removeRunRecords).not.toHaveBeenCalled();
+      // The removal was handed the stop, which came during its sweep.
+      expect(removalOptions().signal?.aborted).toBe(true);
       expect(JSON.parse(stdout.join(''))).toMatchObject({
         result: { status: 'cancelled', objects: [], sweep: { status: 'cancelled' } },
       });

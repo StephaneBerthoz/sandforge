@@ -357,6 +357,17 @@ export interface RunRemovalOptions {
    */
   includeChanged: boolean;
   /**
+   * The sweep of what the target's automation created during the run
+   * (`sweepRunRecords`), made once the removal has read the run's records —
+   * and so what changed since the run — and before its first write; it
+   * resolves to whether it deleted anything. Made before that reading, a
+   * sweep that deleted a child of one of the run's records with a roll-up
+   * summary restamped that record as the org recalculated the summary, and
+   * the removal then kept it as changed since the run. A stop during the
+   * sweep stops the removal before its first write.
+   */
+  sweep?: () => Promise<boolean>;
+  /**
    * Stops the removal before its next call to the org, but for the calls that
    * give a status it changed for a delete back to the records it leaves, and
    * the reads of what it left on them.
@@ -643,17 +654,18 @@ class ObjectRemoval {
  * Remove from the org the records a Forge run created, each object after the
  * objects of the run whose records point at it, and say what became of each.
  *
- * Nothing is deleted before every object has been read: deleting a child can
- * stamp its parent as modified (a roll-up recalculated), and a parent read
- * afterwards would look changed since the run. A record no longer in the org
- * is counted as already gone; one modified after the run ended is kept unless
- * `includeChanged` says otherwise. What the removal itself stamps — a refused
- * delete, a child deleted under a record — is never read as a change, because
- * that reading is the one taken before the first delete; and what it left on
- * a record it did not delete — a status given back, an amount its deleted
- * children changed — a later removal is told (`RunRemovalOutcome.stamps`),
- * with when it ran (`RunRemovalOutcome.span`), whether it ended, was stopped,
- * or was cancelled.
+ * Nothing is deleted before every object has been read, by the sweep it is
+ * handed (`RunRemovalOptions.sweep`) no more than by the removal: deleting a
+ * child can stamp its parent as modified (a roll-up recalculated), and a
+ * parent read afterwards would look changed since the run. A record no longer
+ * in the org is counted as already gone; one modified after the run ended is
+ * kept unless `includeChanged` says otherwise. What the removal itself and its
+ * sweep stamp — a refused delete, a child deleted under a record — is never
+ * read as a change, because that reading is the one taken before the first
+ * delete; and what it left on a record it did not delete — a status given
+ * back, an amount its deleted children changed — a later removal is told
+ * (`RunRemovalOutcome.stamps`), with when it ran (`RunRemovalOutcome.span`),
+ * whether it ended, was stopped, or was cancelled.
  *
  * An order past Draft is set to Draft before anything is deleted, and one the
  * removal leaves in the org — kept, refused, or not reached when it was
@@ -832,23 +844,13 @@ export async function removeRunRecords(
   });
 
   if (stopped()) return untouched();
-  const drafting = await backToDraft(
-    session,
-    dependents,
-    order,
-    records,
-    (objectApiName, id) => {
-      const key = recordKey(id);
-      const snapshot = snapshots.get(objectApiName);
-      return (
-        snapshot !== undefined &&
-        snapshot.error === undefined &&
-        !snapshot.missing.has(key) &&
-        !(changed.has(key) && !options.includeChanged)
-      );
-    },
-    stopped,
-  );
+  // The sweep, once what changed since the run has been read: a roll-up its
+  // deletes recalculate stamps a record of the run as modified, which that
+  // reading, taken before, never takes for a change. Swept first, on a
+  // Developer Edition whose accounts count their opportunities, the sweep
+  // took the opportunity created under a cloned account during the run, and
+  // the removal kept the account as changed since the run.
+  if (options.sweep && (await options.sweep())) wrote = true;
 
   const removals: ObjectRemoval[] = [];
   const removalOf = (objectApiName: string): ObjectRemoval | undefined =>
@@ -889,12 +891,14 @@ export async function removeRunRecords(
         !gone
       );
     });
+  /** The records set to Draft for their delete, with the status each had. */
+  let drafted: Drafted[] = [];
   // Every way out once a status may have been changed: what the removal leaves
   // in the org gets its status back first; then, once it has written, what it
   // left on the run's records is read, and when it ran is said, for the next
   // removal.
   const outcome = async (cancelled: boolean): Promise<RunRemovalOutcome> => {
-    await putBackStatuses(session, drafting.drafted, {
+    await putBackStatuses(session, drafted, {
       note: (objectApiName, reason, failed) => {
         let removal = removalOf(objectApiName);
         // An object not reached is named only for a record left in Draft:
@@ -929,6 +933,27 @@ export async function removeRunRecords(
       ...(span ? { span } : {}),
     };
   };
+  // Stopped during the sweep: none of the run's records goes, and what the
+  // sweep left on them is said for the next removal.
+  if (stopped()) return wrote ? outcome(true) : untouched();
+  const drafting = await backToDraft(
+    session,
+    dependents,
+    order,
+    records,
+    (objectApiName, id) => {
+      const key = recordKey(id);
+      const snapshot = snapshots.get(objectApiName);
+      return (
+        snapshot !== undefined &&
+        snapshot.error === undefined &&
+        !snapshot.missing.has(key) &&
+        !(changed.has(key) && !options.includeChanged)
+      );
+    },
+    stopped,
+  );
+  drafted = drafting.drafted;
   if (drafting.cancelled) return outcome(true);
   let settled = 0;
   for (const { objectApiName, count } of order) {

@@ -132,6 +132,8 @@ function fakeOrg({
   const tooling: string[] = [];
   /** The size of each Tooling composite the read sent. */
   const composites: number[] = [];
+  /** What the read retrieved by id, `<object>/<id>`. */
+  const retrieved: string[] = [];
   const written: string[] = [];
   const headers: Array<Record<string, string> | undefined> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
@@ -222,13 +224,28 @@ function fakeOrg({
         composites.push(compositeRequest.length);
         return {
           compositeResponse: await Promise.all(
-            compositeRequest.map(async (sub) => ({
-              referenceId: sub.referenceId,
-              httpStatusCode: 200,
-              body: await conn.tooling.query(
-                decodeURIComponent(new URL(sub.url, 'https://x').searchParams.get('q') ?? ''),
-              ),
-            })),
+            compositeRequest.map(async (sub) => {
+              // A flow version retrieved by id comes whole, its metadata with it.
+              const version = /\/tooling\/sobjects\/Flow\/(\w+)$/.exec(sub.url)?.[1];
+              if (version) {
+                retrieved.push(`Flow/${version}`);
+                return {
+                  referenceId: sub.referenceId,
+                  httpStatusCode: 200,
+                  body: {
+                    Id: version,
+                    Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } },
+                  },
+                };
+              }
+              return {
+                referenceId: sub.referenceId,
+                httpStatusCode: 200,
+                body: await conn.tooling.query(
+                  decodeURIComponent(new URL(sub.url, 'https://x').searchParams.get('q') ?? ''),
+                ),
+              };
+            }),
           ),
         };
       }
@@ -239,7 +256,15 @@ function fakeOrg({
         fullNames.map((fullName) => ({ fullName, ...duplicateActions[fullName] })),
     },
   };
-  return { conn: conn as unknown as Connection, regular, tooling, composites, written, headers };
+  return {
+    conn: conn as unknown as Connection,
+    regular,
+    tooling,
+    composites,
+    retrieved,
+    written,
+    headers,
+  };
 }
 
 describe('sandforge-clone target automation', () => {
@@ -339,11 +364,10 @@ describe('sandforge-clone target automation', () => {
     expect(orgs.TGT.tooling.map((soql) => /FROM (\w+)/.exec(soql)?.[1])).toEqual([
       'ApexTrigger',
       'WorkflowRule',
-      'Flow',
       'ValidationRule',
     ]);
-    expect(orgs.TGT.tooling[2]).toContain(WELCOME_VERSION);
-    // The start condition asked in a Tooling composite, as many as one holds.
+    // The flow version retrieved by id in a Tooling composite, as many as one holds.
+    expect(orgs.TGT.retrieved).toEqual([`Flow/${WELCOME_VERSION}`]);
     expect(orgs.TGT.composites).toEqual([1]);
     expect(orgs.SRC.tooling).toEqual([]);
     expect(orgs.SRC.regular.some((soql) => soql.includes(' FROM FlowDefinitionView '))).toBe(false);
@@ -407,9 +431,9 @@ describe('sandforge-clone target automation', () => {
       ],
       unread: [],
       conditionsNotRead: 0,
-      conditionsBound: 300,
+      conditionsBound: 1500,
       definitionsNotRead: 0,
-      definitionsBound: 100,
+      definitionsBound: 500,
       bypassGrants: [{ permission: 'Load_Data', permissionSets: [] }],
       requests: 9,
     });

@@ -11,8 +11,9 @@
  * no two panels share — so that a stop takes the one it names, and a
  * discovery stopped for another one is known as such, to be answered so.
  *
- * Bookkeeping only: the handler aborts what a stop takes, through the
- * background registry and the controllers kept here.
+ * Bookkeeping, and the one way a stop is carried out (`ForgeStops.stop`): the
+ * panel's handler and the command line abort what a stop takes, the first
+ * through the background registry, with the controllers kept here.
  */
 
 /** Why a discovery under way was stopped, which its answer says. */
@@ -139,6 +140,30 @@ export class ForgeStops {
       target.discovery.stop = 'stopped';
     }
     return { stops: target };
+  }
+
+  /**
+   * Stop what `requestId` names, or the one operation under way: what
+   * {@link resolve} takes, aborted — a discovery by `act.discovery`, a run
+   * waiting on Production Guard's question by its controller, the run the
+   * executor holds by `act.run`, which aborts its controller and tells the
+   * executor. The panel's Stop and the command line's Ctrl-C both come this
+   * way, so a run either stops is stopped, and recorded, the same.
+   *
+   * @param requestId - The request of the operation to stop, when named.
+   */
+  stop(
+    requestId: string | undefined,
+    act: { discovery: (discovery: LiveDiscovery) => void; run: () => void },
+  ): StopResolution {
+    const resolution = this.resolve(requestId);
+    if ('refused' in resolution) return resolution;
+    const target = resolution.stops;
+    if (target.kind === 'discovery') act.discovery(target.discovery);
+    // Never starts once the guard answers, and writes nothing.
+    else if (target.kind === 'awaiting-guard') target.controller.abort();
+    else act.run();
+    return resolution;
   }
 
   /** What answers `requestId`, stopping or not. */

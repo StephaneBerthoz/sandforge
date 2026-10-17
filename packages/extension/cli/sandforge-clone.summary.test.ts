@@ -30,6 +30,7 @@ import {
   withTheJournal,
 } from './sandforge-clone';
 import { ForgeRunStore, memoryRunFile } from '../src/modules/forge/ForgeRunStore.js';
+import { ForgeStops } from '../src/modules/forge/ForgeStops.js';
 import { nodeRunJournal } from '../src/modules/forge/ForgeRunJournal.js';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
@@ -116,6 +117,7 @@ function fakeOrg(
   flows: unknown[] = [],
   onCreate: (name: string) => void = () => {},
   orgId: string = TARGET_ORG,
+  onQuery: (soql: string) => void = () => {},
 ) {
   const written: string[] = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
@@ -136,6 +138,7 @@ function fakeOrg(
       sobjects: Object.values(DESCRIBES).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
     }),
     query: async (soql: string) => {
+      onQuery(soql);
       if (soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1') {
         return page([{ Id: orgId, IsSandbox: true }]);
       }
@@ -351,6 +354,86 @@ describe('sandforge-clone --summary', () => {
     expect((JSON.parse(stdout) as { removalRisks: unknown }).removalRisks).toEqual([
       { objectApiName: 'Account', kind: 'flow', name: 'Account guard' },
     ]);
+  });
+
+  describe('Ctrl-C, through the stop the panel’s Stop takes', () => {
+    /** The entries `--audit` kept in `path`. */
+    const entriesOf = (path: string): Array<Record<string, unknown>> => {
+      const kept = JSON.parse(readFileSync(path, 'utf8')) as Record<string, { value: string }>;
+      return JSON.parse(kept['audit:trail'].value) as Array<Record<string, unknown>>;
+    };
+    /** Ctrl-C, as the process hears it: the clone's own handler, once it listens. */
+    const pressCtrlC = (once: { mock: { calls: unknown[][] } }): void => {
+      const interrupt = once.mock.calls.find(([event]) => event === 'SIGINT')?.[1];
+      if (typeof interrupt !== 'function') throw new Error('the clone does not hear Ctrl-C yet');
+      (interrupt as () => void)();
+    };
+
+    it('records a clone stopped before its executor had it as the panel records a run stopped before it started, and writes nothing', async () => {
+      const once = vi.spyOn(process, 'once');
+      // Ctrl-C as the target's record types are read, before anything is written.
+      withOrgs(
+        fakeOrg(
+          [],
+          () => {},
+          TARGET_ORG,
+          (soql) => {
+            if (soql.includes(' FROM RecordType ')) pressCtrlC(once);
+          },
+        ),
+      );
+      const auditPath = join(dir, 'audit.json');
+      const path = join(dir, 'clone-summary.json');
+      const listening = process.listenerCount('SIGINT');
+
+      expect(await run(argv('--audit', auditPath, '--summary', path))).toBe(130);
+
+      expect(orgs.TGT.written).toEqual([]);
+      expect(entriesOf(auditPath)).toEqual([
+        expect.objectContaining({
+          action: 'forge_execute',
+          outcome: 'stopped',
+          objects: [],
+          details: { code: 'ABORTED_BEFORE_START' },
+        }),
+      ]);
+      expect(printed).toContain('interrupted: the clone stopped before it wrote anything');
+      // No journal was begun, and no summary: nothing to take back.
+      expect(printed.some((line) => line.startsWith('journal: '))).toBe(false);
+      expect(existsSync(path)).toBe(false);
+      // The clone let Ctrl-C go as it ended.
+      expect(process.listenerCount('SIGINT')).toBe(listening);
+    });
+
+    it('records a clone stopped part way as the panel records a run it stopped, its journal told so for --resume', async () => {
+      const once = vi.spyOn(process, 'once');
+      const stop = vi.spyOn(ForgeStops.prototype, 'stop');
+      withOrgs(
+        fakeOrg([], (name) => {
+          if (name === 'Account') pressCtrlC(once);
+        }),
+      );
+      const auditPath = join(dir, 'audit.json');
+      const path = join(dir, 'clone-summary.json');
+
+      expect(await run(argv('--audit', auditPath, '--summary', path))).toBe(130);
+
+      // The id-less stop the panel's Stop sends with one run under way.
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(stop.mock.calls[0][0]).toBeUndefined();
+      expect(orgs.TGT.written).toEqual(['Account']);
+      const [entry, ...more] = entriesOf(auditPath);
+      expect(more).toEqual([]);
+      expect(entry).toMatchObject({ action: 'forge_execute', outcome: 'cancelled' });
+      expect(entry.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Account', created: 1, failed: 0 }),
+      ]);
+      const journal = String(
+        (JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>).journal,
+      );
+      const journals = nodeRunJournal(String(process.env['SANDFORGE_JOURNAL_DIR']));
+      expect(await journals.lastEndAt(journal)).toMatchObject({ status: 'cancelled' });
+    });
   });
 
   describe('the journal, and taking a run up from it (--resume)', () => {

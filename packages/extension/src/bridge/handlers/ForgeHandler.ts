@@ -2598,7 +2598,21 @@ export class ForgeHandler implements DomainHandler {
   private handleAbort(msg: InboundRequest): void {
     const parsed = parsePayload(abortPayloadSchema, msg, 'forge:abort:error', this.deps);
     if (parsed === null) return;
-    const resolution = this.stops.resolve(parsed?.requestId);
+    const resolution = this.stops.stop(parsed?.requestId, {
+      discovery: (discovery) => this.stopDiscovery(discovery),
+      run: () => {
+        // The registry first: it stamps the run aborted and stops it through
+        // the handle it was registered with. Settling the tracked promise
+        // instead would record the stopped run as completed. The executor is
+        // told as well, for a handler with no registry.
+        if (this.executeOperationId) {
+          this.deps.infraServices?.backgroundRegistry?.abort(this.executeOperationId);
+        }
+        this.abortController?.abort();
+        this.abortController = null;
+        this.orchestrator?.abort();
+      },
+    });
     if ('refused' in resolution) {
       if (resolution.refused === 'none') {
         // What it named has ended, or nothing runs: nothing to stop.
@@ -2619,25 +2633,7 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
-    const target = resolution.stops;
-    if (target.kind === 'discovery') {
-      this.stopDiscovery(target.discovery);
-    } else if (target.kind === 'awaiting-guard') {
-      // Never starts once the guard answers, and writes nothing.
-      target.controller.abort();
-    } else {
-      // The registry first: it stamps the run aborted and stops it through
-      // the handle it was registered with. Settling the tracked promise
-      // instead would record the stopped run as completed. The executor is
-      // told as well, for a handler with no registry.
-      if (this.executeOperationId) {
-        this.deps.infraServices?.backgroundRegistry?.abort(this.executeOperationId);
-      }
-      this.abortController?.abort();
-      this.abortController = null;
-      this.orchestrator?.abort();
-    }
-    logger.info('Forge stopped', { what: target.kind });
+    logger.info('Forge stopped', { what: resolution.stops.kind });
   }
 
   /**
@@ -4338,30 +4334,38 @@ export class ForgeHandler implements DomainHandler {
       // does: a record the target's automation hung under one of them after
       // the run's last write — a task or a feed item its asynchronous path
       // opened — is not of the run, and would hold its parent back as a
-      // record that stays. A cancel during the sweep stops the removal too.
-      const sweepResult = sweepOf
-        ? await this.sweepBeforeRemoval({
-            conn,
-            entry: sweepOf,
-            includeChanged,
-            removalSpans: entry.removalSpans ?? [],
-            signal: stop.signal,
-            guard,
-            orgTier,
-            operationId,
-          })
+      // record that stays. The removal makes it once it has read the run's
+      // records: a child it deletes under one of them restamps that record
+      // when a roll-up counts it, which read afterwards was a change since
+      // the run. A cancel during the sweep stops the removal too.
+      const sweepMade: { result?: ForgeSweepResult } = {};
+      const sweep = sweepOf
+        ? async (): Promise<boolean> => {
+            sweepMade.result = await this.sweepBeforeRemoval({
+              conn,
+              entry: sweepOf,
+              includeChanged,
+              removalSpans: entry.removalSpans ?? [],
+              signal: stop.signal,
+              guard,
+              orgTier,
+              operationId,
+            });
+            return sweepMade.result.objects.some((object) => object.deleted > 0);
+          }
         : undefined;
-      // Nothing of the run to remove, or a cancel during the sweep: no record
-      // of the run goes.
+      // Nothing of the run to remove: the sweep alone, and no record of the run goes.
+      if (total === 0) await sweep?.();
       const outcome: RunRemovalOutcome =
-        total === 0 || stop.signal.aborted
-          ? { ...NOTHING_REMOVED, cancelled: total > 0 }
+        total === 0
+          ? NOTHING_REMOVED
           : await removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
               ...(span
                 ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
                 : { runDurationMs: entry.duration, runRecordedAt: new Date(entry.timestamp) }),
               ...(Object.keys(stampedBefore).length > 0 ? { removalStamps: stampedBefore } : {}),
               ...(entry.removalSpans ? { removalSpans: entry.removalSpans } : {}),
+              ...(sweep ? { sweep } : {}),
               includeChanged,
               signal: stop.signal,
               onProgress: (settled, of, objectApiName) => {
@@ -4375,6 +4379,7 @@ export class ForgeHandler implements DomainHandler {
                 this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
               },
             });
+      const sweepResult = sweepMade.result;
       // A removal after one that marked the run takes what that one left:
       // the result and the audit trail say so, with when it ended.
       const leftBy = entry.undo?.removedAt;

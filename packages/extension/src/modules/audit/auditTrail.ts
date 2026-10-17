@@ -140,6 +140,15 @@ function isAuditEntry(value: unknown): value is AuditLogEntry {
 export type RunSource =
   { origin: 'org'; orgId: string } | { origin: Exclude<LineageOrigin, 'org'>; label?: string };
 
+/**
+ * The code of a run the user cancelled before it started — while Production
+ * Guard's question was still open, or before its executor had it — as the
+ * audit trail records it and the page is told: nothing was written. See
+ * `BackgroundOperationRegistry.holdUntilStart`. Kept here, beside the trail,
+ * for the command line, which records a Ctrl-C that came as early the same.
+ */
+export const ABORTED_BEFORE_START = 'ABORTED_BEFORE_START';
+
 /** One run that wrote to an org, as its write path reports it when it ends. */
 export interface WriteRun {
   action: AuditAction;
