@@ -35,7 +35,7 @@ import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
-import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
+import { commandLineGuard } from './commandLineGuard.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 
 const HELP = `sandforge-backup — take and restore DataOps snapshots, without the editor.
@@ -231,7 +231,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     },
     infraServices: {
       // A restore refuses to write without the guard, as in the extension.
-      productionGuard: new ProductionGuard(),
+      productionGuard: commandLineGuard(log, args.org),
       // A snapshot of the org an alias reached before a refresh goes into the
       // org it reaches now only on a yes typed here: `--yes` answers the
       // question asked before the restore, not this one.

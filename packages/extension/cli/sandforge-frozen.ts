@@ -53,7 +53,7 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
-import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
+import { commandLineGuard } from './commandLineGuard.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 
 const HELP = `sandforge-frozen — build and replay a Frozen Dataset, without the editor.
@@ -954,7 +954,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     orgManager: { getOrg: (id: string) => orgs.get(id)?.org },
     orgRegistry: { getCredentials: async (id: string) => orgs.get(id)?.credentials },
     configStore,
-    infraServices: { productionGuard: new ProductionGuard(), piiDetector: new PIIDetector() },
+    infraServices: {
+      productionGuard: commandLineGuard(log, args.target ?? args.source ?? 'the org'),
+      piiDetector: new PIIDetector(),
+    },
     // Built rather than stubbed: every message the handler posts carries one.
     nextId: () => `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   } as never);
