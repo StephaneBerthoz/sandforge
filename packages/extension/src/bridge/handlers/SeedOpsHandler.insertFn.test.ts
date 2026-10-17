@@ -221,6 +221,48 @@ describe('SeedOpsHandler REST insert error accounting', () => {
     });
   });
 
+  it('answers per record, with the code and fields of each refusal, for a row to be sent again from', async () => {
+    // The run writes a row refused on a field a validation rule named again
+    // without it, and reads which field from here: without it, a phone rule
+    // of the target refused every seeded contact for good.
+    const create = vi.fn().mockResolvedValue([
+      { success: true, id: '003000000000001' },
+      {
+        success: false,
+        errors: [
+          {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: 'Phone must be written +33 X XX XX XX XX.',
+            fields: ['Phone'],
+          },
+        ],
+      },
+    ]);
+    mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
+
+    const insert = await captureInsertFn(deps);
+    const result = (await insert(
+      'org-1',
+      'Contact',
+      [{ LastName: 'a' }, { LastName: 'b' }],
+      200,
+    )) as InsertResult & { rows?: unknown[] };
+
+    expect(result.rows).toEqual([
+      { id: '003000000000001' },
+      {
+        error: 'Phone must be written +33 X XX XX XX XX.',
+        errorDetails: [
+          {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: 'Phone must be written +33 X XX XX XX XX.',
+            fields: ['Phone'],
+          },
+        ],
+      },
+    ]);
+  });
+
   it('keeps every error the org gives a record, in its one entry, up to a bound', async () => {
     // Only the first was kept: a row refused for a missing name and a bad
     // email said only the first, and fixing it met the second on the next run.

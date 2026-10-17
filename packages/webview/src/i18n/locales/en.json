@@ -879,6 +879,12 @@
       "running": "Running",
       "done": "Done",
       "error": "Failed"
+    },
+    "removal": {
+      "created_one": "{{formatted}} record created in {{org}}",
+      "created_other": "{{formatted}} records created in {{org}}",
+      "removeDescription": "Deletes from {{org}} the records this seed inserted, the last object written first, children before their parents; they go to its recycle bin. A record that records staying in {{org}} depend on is kept, and so is a record changed since the seed, or one that records added since depend on, unless you include it below.",
+      "notKept": "What this seed created is not kept in this window — it ran before the window was last opened, or was dropped to make room for newer seeds — and cannot be removed from here."
     }
   },
   "sync": {
@@ -3926,6 +3932,7 @@
       "rule": "Rule Applied"
     },
     "status": {
+      "listing": "Listing the objects...",
       "scanning": "Scanning schemas...",
       "planning": "Generating plan..."
     },

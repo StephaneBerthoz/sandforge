@@ -879,6 +879,12 @@
       "running": "Läuft",
       "done": "Fertig",
       "error": "Fehlgeschlagen"
+    },
+    "removal": {
+      "created_one": "{{formatted}} Datensatz in {{org}} erstellt",
+      "created_other": "{{formatted}} Datensätze in {{org}} erstellt",
+      "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Seed eingefügt hat, das zuletzt geschriebene Objekt zuerst, die untergeordneten Datensätze vor ihren übergeordneten; sie kommen in den Papierkorb. Ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen, wird behalten, ebenso ein seit dem Seed geänderter Datensatz oder einer, von dem seither hinzugefügte Datensätze abhängen, es sei denn, Sie schließen ihn unten ein.",
+      "notKept": "Was dieser Seed erstellt hat, wird in diesem Fenster nicht aufbewahrt — er lief, bevor das Fenster zuletzt geöffnet wurde, oder wurde für neuere Seeds verworfen — und kann von hier aus nicht entfernt werden."
     }
   },
   "sync": {
@@ -3926,6 +3932,7 @@
       "rule": "Angewendete Regel"
     },
     "status": {
+      "listing": "Objekte werden aufgelistet...",
       "scanning": "Schemas werden gescannt...",
       "planning": "Plan wird generiert..."
     },

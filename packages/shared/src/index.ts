@@ -28,6 +28,7 @@ export {
   type ExpectedPersonalData,
   type AnonymizationSummary,
   type AutopilotConfig,
+  type AutopilotObjectListing,
   type AutopilotEventType,
   type AutopilotEvent,
   type AutopilotNodeProgressEvent,

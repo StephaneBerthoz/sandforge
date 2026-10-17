@@ -154,29 +154,61 @@ function mockConn(
 describe('SchemaScanner', () => {
   const scanner = new SchemaScanner(5);
 
-  it('should auto-discover objects from describeGlobal when selectedObjects is empty', async () => {
+  it('lists the custom objects of the source from its global describe, describing none', async () => {
     const source = mockConn({
       globalSObjects: [
-        mockGlobalSObject('MyCustom__c'),
+        mockGlobalSObject('MyCustom__c', { label: 'My custom' }),
         mockGlobalSObject('Another__c'),
         mockGlobalSObject('Account', { custom: false }),
       ],
-      describes: {
-        MyCustom__c: mockDescribe('MyCustom__c', [], true),
-        Another__c: mockDescribe('Another__c', [], true),
-      },
     });
     const target = mockConn({
       globalSObjects: [mockGlobalSObject('MyCustom__c'), mockGlobalSObject('Another__c')],
     });
 
-    const result = await scanner.scan(source, target, [], false);
+    const listed = await scanner.listObjects(source, target, false);
 
     // Only custom objects should be included (includeStandardObjects = false)
-    expect(result.objectDescribes.has('MyCustom__c')).toBe(true);
-    expect(result.objectDescribes.has('Another__c')).toBe(true);
-    expect(result.objectDescribes.has('Account')).toBe(false);
+    expect(listed).toEqual([
+      { apiName: 'MyCustom__c', label: 'My custom', custom: true },
+      { apiName: 'Another__c', label: 'Another__c', custom: true },
+    ]);
     expect(source.describeGlobal).toHaveBeenCalledTimes(1);
+    expect(source.describe).not.toHaveBeenCalled();
+    expect(source.query).not.toHaveBeenCalled();
+  });
+
+  it('refuses to scan with nothing selected, before it asks the org anything', async () => {
+    // With nothing selected the scan described every object of the org and
+    // counted every table, and planned a copy of all of it.
+    const source = mockConn({ globalSObjects: [mockGlobalSObject('MyCustom__c')] });
+    const target = mockConn({ globalSObjects: [mockGlobalSObject('MyCustom__c')] });
+
+    await expect(scanner.scan(source, target, [], true)).rejects.toThrow(
+      /Choose the objects to copy/,
+    );
+    expect(source.describeGlobal).not.toHaveBeenCalled();
+    expect(source.describe).not.toHaveBeenCalled();
+    expect(source.query).not.toHaveBeenCalled();
+  });
+
+  it('counts the records of the objects it is given, one COUNT() each, leaving out one the org will not count', async () => {
+    const source = mockConn();
+    (source.query as ReturnType<typeof vi.fn>).mockImplementation((soql: string) =>
+      soql.includes('Locked__c')
+        ? Promise.reject(new Error('sObject type Locked__c is not supported'))
+        : Promise.resolve({
+            totalSize: soql.includes('Account') ? 5000 : 12,
+            done: true,
+            records: [],
+          }),
+    );
+
+    const counts = await scanner.countObjects(source, ['Account', 'Contact', 'Locked__c']);
+
+    expect(Object.fromEntries(counts)).toEqual({ Account: 5000, Contact: 12 });
+    expect(source.query).toHaveBeenCalledTimes(3);
+    expect(source.describe).not.toHaveBeenCalled();
   });
 
   it('should describe only selected objects and their dependencies', async () => {
@@ -324,18 +356,13 @@ describe('SchemaScanner', () => {
     expect(result.autoDiscoveredObjects).toEqual([]);
   });
 
-  it('should include standard objects when includeStandardObjects is true', async () => {
+  it('lists standard objects too when includeStandardObjects is true', async () => {
     const source = mockConn({
       globalSObjects: [
         mockGlobalSObject('Account', { custom: false }),
         mockGlobalSObject('Contact', { custom: false }),
         mockGlobalSObject('MyCustom__c'),
       ],
-      describes: {
-        Account: mockDescribe('Account'),
-        Contact: mockDescribe('Contact'),
-        MyCustom__c: mockDescribe('MyCustom__c', [], true),
-      },
     });
     const target = mockConn({
       globalSObjects: [
@@ -345,33 +372,27 @@ describe('SchemaScanner', () => {
       ],
     });
 
-    const result = await scanner.scan(source, target, [], true);
+    const listed = await scanner.listObjects(source, target, true);
 
-    expect(result.objectDescribes.has('Account')).toBe(true);
-    expect(result.objectDescribes.has('Contact')).toBe(true);
-    expect(result.objectDescribes.has('MyCustom__c')).toBe(true);
+    expect(listed.map((o) => o.apiName)).toEqual(['Account', 'Contact', 'MyCustom__c']);
+    expect(listed.find((o) => o.apiName === 'Account')?.custom).toBe(false);
   });
 
-  it('should filter out non-queryable and non-creatable objects in auto-detect', async () => {
+  it('lists no object the source cannot query or create', async () => {
     const source = mockConn({
       globalSObjects: [
         mockGlobalSObject('Queryable__c', { queryable: true, createable: true }),
         mockGlobalSObject('ReadOnly__c', { queryable: true, createable: false }),
         mockGlobalSObject('NoQuery__c', { queryable: false, createable: true }),
       ],
-      describes: {
-        Queryable__c: mockDescribe('Queryable__c', [], true),
-      },
     });
     const target = mockConn({
       globalSObjects: [mockGlobalSObject('Queryable__c')],
     });
 
-    const result = await scanner.scan(source, target, [], false);
+    const listed = await scanner.listObjects(source, target, false);
 
-    expect(result.objectDescribes.has('Queryable__c')).toBe(true);
-    expect(result.objectDescribes.has('ReadOnly__c')).toBe(false);
-    expect(result.objectDescribes.has('NoQuery__c')).toBe(false);
+    expect(listed.map((o) => o.apiName)).toEqual(['Queryable__c']);
   });
 
   it('should handle describe failures gracefully', async () => {
@@ -416,12 +437,12 @@ describe('objects no copy can create', () => {
     });
   }
 
-  it('leaves them out of a discovered object set', async () => {
+  it('leaves them out of the objects listed to choose from', async () => {
     // Salesforce says User is createable — at the cost of a licence and a
     // globally unique username. A run put 39 of them in its first wave.
-    const result = await scanner.scan(orgWithUsers(), orgWithUsers(), [], true);
+    const listed = await scanner.listObjects(orgWithUsers(), orgWithUsers(), true);
 
-    expect([...result.objectDescribes.keys()]).toEqual(['Account']);
+    expect(listed.map((o) => o.apiName)).toEqual(['Account']);
   });
 
   it('leaves them out of an explicit selection too', async () => {
@@ -593,6 +614,51 @@ describe('metadata and what the target will not create', () => {
   });
 });
 
+describe('the first look at an org of six hundred objects', () => {
+  it('lists every object a run may copy in two global describes, with no call per object', async () => {
+    // The panel's first scan described every object it listed and counted
+    // every table: hundreds of calls on a client sandbox before anything was
+    // picked.
+    const org = largeOrg({ customObjects: 670 });
+    const source = countingConnection(org);
+    const target = countingConnection(org);
+
+    const listed = await new SchemaScanner().listObjects(
+      source.conn as unknown as AutopilotConnection,
+      target.conn as unknown as AutopilotConnection,
+      true,
+    );
+
+    expect(listed.length).toBeGreaterThan(670);
+    expect(listed.find((o) => o.apiName === 'Obj004__c')).toEqual({
+      apiName: 'Obj004__c',
+      label: org.objects.get('Obj004__c')?.label,
+      custom: true,
+    });
+    expect(source.calls.describeGlobals + target.calls.describeGlobals).toBe(2);
+    expect(source.calls.describes).toEqual([]);
+    expect(source.calls.queries).toEqual([]);
+    expect(source.total() + target.total()).toBe(2);
+  });
+
+  it('counts only the objects picked from that list', async () => {
+    const org = largeOrg({ customObjects: 670 });
+    const source = countingConnection(org);
+
+    const counts = await new SchemaScanner().countObjects(
+      source.conn as unknown as AutopilotConnection,
+      ['Lead', 'PostalCode__c'],
+    );
+
+    expect(Object.fromEntries(counts)).toEqual({ Lead: 30, PostalCode__c: 61_635 });
+    expect(source.calls.queries).toEqual([
+      'SELECT COUNT() FROM Lead',
+      'SELECT COUNT() FROM PostalCode__c',
+    ]);
+    expect(source.calls.describes).toEqual([]);
+  });
+});
+
 describe('what a selection means, on an org of six hundred objects', () => {
   /** The scan of `selected` over a fresh large org, and the calls it made of the source. */
   async function scanLarge(
@@ -728,17 +794,6 @@ describe('what a selection means, on an org of six hundred objects', () => {
       'PostalCode__c',
     ]);
     expect([...result.recordCounts.values()].every((count) => count > 0)).toBe(true);
-  });
-
-  it('counts every table when nothing was selected, and walks to no parent', async () => {
-    // The panel's first scan selects nothing to list the objects a copy may
-    // write: every one is in, and a read of their every lookup column would
-    // cost a page per two thousand records of the org.
-    const { result, source } = await scanLarge([], false);
-
-    expect(result.scope.parents).toEqual([]);
-    expect(source.calls.queries.every((q) => q.startsWith('SELECT COUNT()'))).toBe(true);
-    expect(result.recordCounts.get('PostalCode__c')).toBe(61_635);
   });
 
   it('describes only the planned objects and reads parents by id, a few calls per object', async () => {

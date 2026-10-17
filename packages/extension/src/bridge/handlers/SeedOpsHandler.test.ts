@@ -8,6 +8,7 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import { SeedOrchestrator } from '../../modules/seed/SeedOrchestrator.js';
 import type { SeedOrchestratorDependencies } from '../../modules/seed/SeedOrchestrator.js';
+import { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -1013,6 +1014,7 @@ describe('SeedOpsHandler', () => {
       const oneJob = vi.spyOn(BulkApiExecutor.prototype, 'executeBulk').mockResolvedValue({
         successIds: ['001AAA', '001BBB'],
         failures: [{ recordIndex: 2, error: 'DUPLICATE_VALUE' }],
+        outcomes: [],
       } as never);
 
       const insert = await captureInsert();
@@ -1022,6 +1024,71 @@ describe('SeedOpsHandler', () => {
       expect(oneJob).toHaveBeenCalledOnce();
       expect(result.successIds).toEqual(['001AAA', '001BBB']);
       expect(result.errors).toEqual(['DUPLICATE_VALUE']);
+    });
+
+    it('answers a Bulk API job per record, with the fields its refusals named, when every row is laid on its record', async () => {
+      // The panel sends an object of more than 200 records as a Bulk API job:
+      // a phone rule of the target refused every seeded contact for good
+      // without the fields read from `sf__Error`.
+      vi.spyOn(BulkApiExecutor.prototype, 'executeBulk').mockResolvedValue({
+        totalRecords: 300,
+        successCount: 299,
+        failureCount: 1,
+        failures: [{ recordIndex: 1, error: 'x' }],
+        jobId: 'job-1',
+        usedBulkApi: true,
+        successIds: [],
+        outcomes: Array.from({ length: 300 }, (_, i) =>
+          i === 1
+            ? {
+                recordIndex: i,
+                success: false,
+                error:
+                  'FIELD_CUSTOM_VALIDATION_EXCEPTION:Phone must be written +33 X XX XX XX XX.:Phone --',
+              }
+            : { recordIndex: i, success: true, id: `003${String(i).padStart(15, '0')}` },
+        ),
+      });
+
+      const insert = await captureInsert();
+      const result = (await insert('org-1', 'Contact', makeRecords(300), 200)) as {
+        rows?: Array<Record<string, unknown>>;
+      };
+
+      expect(result.rows).toHaveLength(300);
+      expect(result.rows?.[0]).toEqual({ id: '003000000000000000' });
+      expect(result.rows?.[1]).toEqual({
+        error:
+          'FIELD_CUSTOM_VALIDATION_EXCEPTION:Phone must be written +33 X XX XX XX XX.:Phone --',
+        errorDetails: [
+          {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            message: 'Phone must be written +33 X XX XX XX XX.',
+            fields: ['Phone'],
+          },
+        ],
+      });
+    });
+
+    it('gives no answer per record for a Bulk API job one of whose rows matched no record', async () => {
+      vi.spyOn(BulkApiExecutor.prototype, 'executeBulk').mockResolvedValue({
+        totalRecords: 2,
+        successCount: 2,
+        failureCount: 0,
+        failures: [],
+        jobId: 'job-1',
+        usedBulkApi: true,
+        successIds: ['003000000000000001'],
+        outcomes: [{ recordIndex: 0, success: true, id: '003000000000000000' }],
+        unmatchedIds: ['003000000000000001'],
+      });
+
+      const insert = await captureInsert();
+      const result = (await insert('org-1', 'Contact', makeRecords(300), 200)) as {
+        rows?: unknown[];
+      };
+
+      expect(result.rows).toBeUndefined();
     });
 
     it('says the insert stopped when the cancel stopped a streamed upload', async () => {
@@ -1105,7 +1172,12 @@ describe('SeedOpsHandler', () => {
       const result = await captured('org-1', 'Account', makeRecords(5), 2);
 
       expect(create).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ successIds: ['001REST0', '001REST1'], errors: [], stopped: true });
+      expect(result).toEqual({
+        successIds: ['001REST0', '001REST1'],
+        errors: [],
+        rows: [{ id: '001REST0' }, { id: '001REST1' }],
+        stopped: true,
+      });
       registry.dispose();
     });
 
@@ -1170,7 +1242,7 @@ describe('SeedOpsHandler', () => {
         const result = await insert('org-1', 'Account', makeRecords(5), 2);
 
         expect(create).not.toHaveBeenCalled();
-        expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+        expect(result).toEqual({ successIds: [], errors: [], rows: [], stopped: true });
       });
 
       it('opens no Bulk API job for an insert it came before', async () => {
@@ -1238,7 +1310,7 @@ describe('SeedOpsHandler', () => {
         const result = await seed.insert('org-1', 'Account', makeRecords(3), 3);
 
         expect(create).toHaveBeenCalledTimes(1);
-        expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+        expect(result).toEqual({ successIds: [], errors: [], rows: [], stopped: true });
       });
     });
   });
@@ -2254,6 +2326,39 @@ describe('SeedOpsHandler', () => {
       expect(objectResult?.errors).toHaveLength(2);
       expect(objectResult?.truncated).toBe(true);
       expect(response?.payload?.totalRecordsCreated).toBe(5000);
+    });
+
+    it('keeps every id the run created for its removal, not the thousand the page gets', async () => {
+      // A removal of the cut list would leave four thousand seeded contacts
+      // in the org with nothing to tell them from the org's own.
+      const runs = new SeedRunCreations();
+      handler.setRunCreations(runs);
+      const createdIds = Array.from(
+        { length: 5000 },
+        (_, i) => `003${String(i).padStart(12, '0')}`,
+      );
+      await runWith(() => ({
+        templateId: 'tpl-1',
+        operationId: 'op-kept',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            recordsCreated: 5000,
+            recordsFailed: 0,
+            createdIds,
+            errors: [],
+          },
+        ],
+        totalRecordsCreated: 5000,
+        totalRecordsFailed: 0,
+        duration: 10,
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }));
+
+      const kept = runs.get('op-kept');
+      expect(kept?.targetOrgId).toBe('org-1');
+      expect(kept?.created).toEqual([{ objectApiName: 'Contact', ids: createdIds }]);
     });
 
     it('does not flag an object whose ids all fit', async () => {

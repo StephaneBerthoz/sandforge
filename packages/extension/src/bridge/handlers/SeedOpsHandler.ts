@@ -53,11 +53,21 @@ import {
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
+import type {
+  BulkApiConnection,
+  BulkApiExecutorDeps,
+  BulkExecutionResult,
+} from '../../core/engine/BulkApiExecutor.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
-import type { InsertResult, SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
+import type {
+  InsertedRow,
+  InsertResult,
+  SeedProgressEvent,
+} from '../../modules/seed/SeedOrchestrator.js';
+import { bulkSaveErrorDetail, saveErrorDetail } from '../../core/common/existingRecordMatch.js';
+import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { isUncopyableObject } from '@sandforge/shared';
@@ -147,6 +157,35 @@ function recordErrorText(errors: Array<{ message?: string }> | undefined): strin
   return more > 0 ? `${kept} (and ${more} more)` : kept;
 }
 
+/**
+ * What a Bulk API job answered for each record, in the order sent, its
+ * refusals read with the code and fields of their `sf__Error`
+ * (`bulkSaveErrorDetail`): what a row refused on a field a validation rule
+ * named is sent again from. Nothing when the job's answer cannot be laid on
+ * the records one for one — a row matched to none, a record written without
+ * its id said — or when the cancel aborted it: a row is never sent again on a
+ * guess.
+ */
+function bulkRows(result: BulkExecutionResult, sent: number): InsertedRow[] | undefined {
+  if (result.aborted || result.outcomes.length !== sent || (result.unmatchedIds?.length ?? 0) > 0) {
+    return undefined;
+  }
+  if (result.failures.some((failure) => failure.recordIndex < 0)) return undefined;
+  const rows: InsertedRow[] = new Array<InsertedRow>(sent);
+  for (const outcome of result.outcomes) {
+    if (outcome.recordIndex < 0 || outcome.recordIndex >= sent) return undefined;
+    if (outcome.success) {
+      if (!outcome.id) return undefined;
+      rows[outcome.recordIndex] = { id: outcome.id };
+    } else {
+      const error = outcome.error ?? 'Unknown error';
+      const detail = bulkSaveErrorDetail(error);
+      rows[outcome.recordIndex] = { error, ...(detail ? { errorDetails: [detail] } : {}) };
+    }
+  }
+  return rows.every((row) => row !== undefined) ? rows : undefined;
+}
+
 /** Message types handled by SeedOpsHandler. */
 const SEED_TYPES = new Set([
   'seed:execute',
@@ -183,6 +222,9 @@ export class SeedOpsHandler implements DomainHandler {
   /** Live operation tracker feeding the Monitor "live operations" panel. */
   private liveTracker?: LiveOperationTracker;
 
+  /** What each run of the window created, for its removal. */
+  private runCreations?: SeedRunCreations;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.seedTemplateStore = new SeedTemplateStore(deps.configStore);
@@ -212,6 +254,15 @@ export class SeedOpsHandler implements DomainHandler {
    */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /**
+   * Where each run keeps what it created, whole, for its removal from the
+   * results (`seed:remove`): the results the page gets carry the first
+   * thousand ids of an object at most.
+   */
+  setRunCreations(store: SeedRunCreations): void {
+    this.runCreations = store;
   }
 
   /**
@@ -759,6 +810,7 @@ export class SeedOpsHandler implements DomainHandler {
     guardDecision?: GuardDecision,
   ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = robustnessConfigOf(this.deps);
+    const startedAt = new Date().toISOString();
     const templateName = (payload.template as { name?: unknown }).name;
     /** Where the records came from: the template the generator filled in. */
     const source = {
@@ -851,9 +903,11 @@ export class SeedOpsHandler implements DomainHandler {
             'insert',
             records,
           );
+          const rows = bulkRows(bulkResult, records.length);
           return {
             successIds: bulkResult.successIds,
             errors: bulkResult.failures.map((f) => f.error),
+            ...(rows ? { rows } : {}),
             // The cancel aborted the job before it was closed, as it does a
             // streamed upload: none of its records was written.
             ...(bulkResult.aborted ? { stopped: true } : {}),
@@ -863,6 +917,9 @@ export class SeedOpsHandler implements DomainHandler {
         // REST API path with retry and batching
         const successIds: string[] = [];
         const errors: string[] = [];
+        // What the org answered per record, in order: a row refused on fields
+        // a validation rule named is sent again without them from it.
+        const rows: InsertedRow[] = [];
 
         for (let i = 0; i < records.length; i += batchSize) {
           // A cancel stops the insert before each batch, with what the
@@ -872,7 +929,7 @@ export class SeedOpsHandler implements DomainHandler {
           // just before it inserts, and nothing between the two waits today,
           // but a cancel that came between them would still send a batch.
           if (abortController.signal.aborted) {
-            return { successIds, errors, stopped: true };
+            return { successIds, errors, rows, stopped: true };
           }
           const batch = records.slice(i, i + batchSize);
           const retryResult = await retryOp.execute(async () => {
@@ -889,14 +946,17 @@ export class SeedOpsHandler implements DomainHandler {
           });
           // The batch failed and the cancel came before it was tried again:
           // none of it was created, and nothing after it is sent.
-          if (retryResult.cancelled) return { successIds, errors, stopped: true };
+          if (retryResult.cancelled) return { successIds, errors, rows, stopped: true };
 
           if (retryResult.success && retryResult.result) {
             for (const r of retryResult.result) {
               if (r.success && r.id) {
                 successIds.push(r.id);
+                rows.push({ id: r.id });
               } else {
-                errors.push(recordErrorText(r.errors));
+                const error = recordErrorText(r.errors);
+                errors.push(error);
+                rows.push({ error, errorDetails: (r.errors ?? []).map(saveErrorDetail) });
               }
             }
           } else {
@@ -906,11 +966,12 @@ export class SeedOpsHandler implements DomainHandler {
             const failMsg = retryResult.error?.message ?? 'Insert failed after retries';
             for (let k = 0; k < batch.length; k++) {
               errors.push(failMsg);
+              rows.push({ error: failMsg });
             }
           }
         }
 
-        return { successIds, errors };
+        return { successIds, errors, rows };
       };
 
       // Lazy-import seed dependencies
@@ -997,6 +1058,16 @@ export class SeedOpsHandler implements DomainHandler {
         'Validating template and building plan',
       );
       const result = await orchestrator.execute(template, payload.orgId);
+      // Kept whole before the lists are cut for the page, a stopped run's too:
+      // what it wrote before the cancel can be taken back from its results.
+      this.runCreations?.record({
+        runId: result.operationId,
+        targetOrgId: payload.orgId,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        status: result.status,
+        objectResults: result.objectResults,
+      });
       if (!result.cancelled) {
         sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
       }

@@ -879,6 +879,12 @@
       "running": "En cours",
       "done": "Terminé",
       "error": "Échoué"
+    },
+    "removal": {
+      "created_one": "{{formatted}} enregistrement créé dans {{org}}",
+      "created_other": "{{formatted}} enregistrements créés dans {{org}}",
+      "removeDescription": "Supprime de {{org}} les enregistrements que ce seed a insérés, le dernier objet écrit d'abord, les enfants avant leurs parents ; ils vont dans sa corbeille. Un enregistrement dont dépendent des enregistrements qui restent dans {{org}} est conservé, de même qu'un enregistrement modifié depuis le seed, ou dont dépendent des enregistrements ajoutés depuis, sauf si vous l'incluez ci-dessous.",
+      "notKept": "Ce que ce seed a créé n'est pas conservé dans cette fenêtre — il a tourné avant sa dernière ouverture, ou a été écarté pour faire place à des seeds plus récents — et ne peut pas être retiré d'ici."
     }
   },
   "sync": {
@@ -3926,6 +3932,7 @@
       "rule": "Règle Appliquée"
     },
     "status": {
+      "listing": "Liste des objets...",
       "scanning": "Scan des schémas...",
       "planning": "Génération du plan..."
     },

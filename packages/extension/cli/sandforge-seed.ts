@@ -49,7 +49,7 @@ import {
   integerDigitsOf,
   plannedChildCount,
 } from '@sandforge/shared';
-import { leftOutForAccountKind } from '../src/core/common/platformRecords.js';
+import { ACCOUNT, leftOutForAccountKind } from '../src/core/common/platformRecords.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { LOCALE_DATA } from '../src/modules/seed/LocaleData.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
@@ -69,8 +69,11 @@ import {
 import { loadOrg, makeConn } from './sfSession.js';
 import {
   SeedOrchestrator,
+  type InsertedRow,
+  type InsertResult,
   type SeedOrchestratorDependencies,
 } from '../src/modules/seed/SeedOrchestrator.js';
+import { saveErrorDetail } from '../src/core/common/existingRecordMatch.js';
 import { SeedValidator } from '../src/modules/seed/SeedValidator.js';
 import { DataPlanBuilder } from '../src/modules/seed/DataPlanBuilder.js';
 import { FieldMapper } from '../src/modules/seed/FieldMapper.js';
@@ -78,6 +81,7 @@ import { ReferenceLinker } from '../src/modules/seed/ReferenceLinker.js';
 import { FakerFallback } from '../src/modules/seed/FakerFallback.js';
 import { AIDataGenerator } from '../src/modules/seed/AIDataGenerator.js';
 import { readExistingParentIds } from '../src/modules/seed/existingParents.js';
+import { seedRunKept } from '../src/modules/seed/SeedRunCreations.js';
 
 /** The locales the faker draws in. */
 const SUPPORTED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
@@ -111,7 +115,10 @@ Options:
                          record type, by API name; several take turns at
                          random. One the running user may not use is
                          refused. Without it, records take the running
-                         user's default, and the run names the others
+                         user's default, and the run names the others.
+                         A person account record type on Account writes
+                         person accounts: a first and last name, the
+                         person's email and phones, and no Name
   --json                 emit the run summary as JSON      (default: off)
                          Saved to a file, it is what --remove takes the
                          run back from: it names what the run created.
@@ -119,7 +126,9 @@ Options:
 
 Contact points: an object's standard email and phone fields are filled, with
 addresses under domains no mailbox can be at (example.com, .example, .test)
-and numbers from ranges nobody holds: nobody can be reached.
+and numbers from ranges nobody holds: nobody can be reached. A record the org
+refuses on a field its validation rule names (a phone in another format) is
+written again without that field, and the summary says which, and why.
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
@@ -475,7 +484,15 @@ export function prebuiltTemplate(templateId: string | undefined): SeedTemplate |
  * is filled by a relation the command line names, never by a rule of its own.
  * The object decides whose name a name field holds, as in the panel: a
  * person's on a contact, a company's on an account. An account is written as a
- * business account, without the fields only a person account holds.
+ * business account, without the fields only a person account holds — unless
+ * `--record-type` gave it a person account's record type: then it is written
+ * as a person account, with a person's first and last names and the person's
+ * email and phones (`PersonEmail`, `PersonMobilePhone`…), drawn as a contact's
+ * are, and without `Name`, which the platform computes from the two names and
+ * refuses from a write.
+ *
+ * @param accountKind - How an account is written: a business account unless a
+ *   person account's record type was chosen (`accountKindOfRecordTypes`).
  */
 export function rulesFromDescribe(
   fields: Array<{
@@ -491,12 +508,17 @@ export function rulesFromDescribe(
     picklistValues?: Array<{ value?: string | null; active?: boolean }>;
   }>,
   objectApiName?: string,
+  accountKind: 'business' | 'person' = 'business',
 ): SeedTemplate['objects'][number]['fieldRules'] {
+  const person = accountKind === 'person' && objectApiName === ACCOUNT;
   const wanted = fields.filter(
     (f) =>
       f.createable &&
-      !leftOutForAccountKind(objectApiName ?? '', f.name, 'business') &&
-      (f.name === 'Name' || isContactPoint(f) || (!f.nillable && f.defaultedOnCreate !== true)),
+      !leftOutForAccountKind(objectApiName ?? '', f.name, person ? 'person' : 'business') &&
+      (f.name === 'Name' ||
+        isContactPoint(f) ||
+        (person && PERSON_NAME_PARTS.has(f.name)) ||
+        (!f.nillable && f.defaultedOnCreate !== true)),
   );
   const rules: SeedTemplate['objects'][number]['fieldRules'] = [];
   for (const field of wanted) {
@@ -530,6 +552,67 @@ export function rulesFromDescribe(
  */
 function isContactPoint(field: { name: string; type: string }): boolean {
   return (field.type === 'email' || field.type === 'phone') && !field.name.includes('__');
+}
+
+/**
+ * The name parts a person account is written with, which its describe lets
+ * be empty — a business account holds none — and the platform builds `Name`
+ * from: without a last name the account is refused.
+ */
+const PERSON_NAME_PARTS: ReadonlySet<string> = new Set(['FirstName', 'LastName']);
+
+/** The org's person account record types, by API name. */
+const PERSON_TYPES_SOQL =
+  "SELECT DeveloperName FROM RecordType WHERE SobjectType = 'Account' AND IsPersonType = true";
+
+/**
+ * The API names of the org's person account record types: none when it has no
+ * person accounts — such an org has no `IsPersonType`, and refuses the read.
+ */
+export async function personRecordTypeNames(conn: {
+  query: (soql: string) => PromiseLike<{ records: Array<Record<string, unknown>> }>;
+}): Promise<ReadonlySet<string>> {
+  try {
+    const answer = await conn.query(PERSON_TYPES_SOQL);
+    return new Set(
+      answer.records.flatMap((row) =>
+        typeof row.DeveloperName === 'string' ? [row.DeveloperName] : [],
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * How the accounts `--record-type` gives these record types are written: as
+ * person accounts when every one is a person account's, as business accounts
+ * when none is, and refused when they mix the two — a person account and a
+ * business account take different fields, and a run writes one set.
+ */
+export function accountKindOfRecordTypes(
+  names: readonly string[],
+  personTypes: ReadonlySet<string>,
+): { kind: 'business' | 'person' } | { refusal: string } {
+  const persons = names.filter((name) => personTypes.has(name));
+  if (persons.length === 0) return { kind: 'business' };
+  if (persons.length === names.length) return { kind: 'person' };
+  const business = names.filter((name) => !personTypes.has(name));
+  return {
+    refusal:
+      `--record-type ${ACCOUNT}: ${persons.join(', ')} ${persons.length === 1 ? 'is a person account record type' : 'are person account record types'} ` +
+      `and ${business.join(', ')} ${business.length === 1 ? 'is' : 'are'} not: a person account ` +
+      'and a business account take different fields. Seed one kind in a run.',
+  };
+}
+
+/** What a run says of accounts written as person accounts. */
+export function personAccountLine(names: readonly string[]): string {
+  return (
+    `  ${ACCOUNT}: ${names.join(', ')} ${names.length === 1 ? 'is a person account record type' : 'are person account record types'}: ` +
+    'the accounts are written as person accounts, with a first and last name, the person’s ' +
+    'email and phones, and no Name, which the org builds from the two names'
+  );
 }
 
 /** A record type of the org, as `recordTypeRule` reads it from the describe. */
@@ -690,16 +773,36 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         `${describeDistribution(relation.distribution)}, over ${parents}`,
     );
   }
+  /** What the run says of how it writes, beside its result: in the summary too. */
+  const notes: string[] = [];
   if (!template) {
     const objects: SeedTemplate['objects'] = [];
     for (const [index, spec] of args.objects.entries()) {
       const described = await conn.sobject(spec.objectApiName).describe();
+      // The record types the line chose, or a word on the ones it could choose.
+      const chosen = args.recordTypes[spec.objectApiName];
+      // Accounts given a person account's record type are person accounts:
+      // written as business accounts, with a company's name and none of a
+      // person's fields, the org refused them or took them as companies.
+      let accountKind: 'business' | 'person' = 'business';
+      if (chosen && spec.objectApiName === ACCOUNT) {
+        const decided = accountKindOfRecordTypes(chosen, await personRecordTypeNames(conn));
+        if ('refusal' in decided) {
+          process.stderr.write(`${decided.refusal}\n`);
+          process.exit(2);
+        }
+        accountKind = decided.kind;
+        if (accountKind === 'person') {
+          const line = personAccountLine(chosen);
+          log(line);
+          notes.push(line.trim());
+        }
+      }
       const rules = rulesFromDescribe(
         described.fields as unknown as Parameters<typeof rulesFromDescribe>[0],
         spec.objectApiName,
+        accountKind,
       );
-      // The record types the line chose, or a word on the ones it could choose.
-      const chosen = args.recordTypes[spec.objectApiName];
       if (chosen) {
         const typed = recordTypeRule(spec.objectApiName, chosen, described.recordTypeInfos);
         if ('refusal' in typed) {
@@ -741,13 +844,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     objectApiName: string,
     records: Record<string, unknown>[],
     batchSize: number,
-  ): Promise<{ successIds: string[]; errors: string[] }> => {
+  ): Promise<InsertResult> => {
     if (args.dryRun) {
       log(`  [dry-run] ${objectApiName}: ${records.length} record(s)`);
       return { successIds: records.map((_, i) => `dry-${i}`), errors: [] };
     }
     const successIds: string[] = [];
     const errors: string[] = [];
+    // Per record, in order: what a row refused on fields a validation rule
+    // named is written again from, without them.
+    const rows: InsertedRow[] = [];
     for (let at = 0; at < records.length; at += batchSize) {
       const batch = records.slice(at, at + batchSize);
       const written = (await conn
@@ -758,12 +864,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         errors?: Array<{ message: string }>;
       }>;
       for (const one of written) {
-        if (one.success && one.id) successIds.push(one.id);
-        else errors.push(one.errors?.[0]?.message ?? 'Unknown insert error');
+        if (one.success && one.id) {
+          successIds.push(one.id);
+          rows.push({ id: one.id });
+        } else {
+          const error = one.errors?.[0]?.message ?? 'Unknown insert error';
+          errors.push(error);
+          rows.push({ error, errorDetails: (one.errors ?? []).map(saveErrorDetail) });
+        }
       }
     }
     log(`  ${objectApiName}: ${successIds.length} written, ${errors.length} refused`);
-    return { successIds, errors };
+    return { successIds, errors, rows };
   };
 
   const creatableByObject = new Map<string, ReadonlySet<string>>();
@@ -805,6 +917,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           seed,
           startedAt,
           finishedAt: new Date().toISOString(),
+          ...(notes.length > 0 ? { notes } : {}),
           result,
           elapsedMs,
         },
@@ -973,21 +1086,18 @@ export function readRunSummary(text: string): { summary: SeedRunSummary } | { re
  * which the removal takes back the last first.
  */
 export function runOfSummary(summary: SeedRunSummary, removal?: SyncRunRemovalState): SyncRunKept {
-  const finishedAt = summary.finishedAt ?? new Date().toISOString();
-  return {
-    runId: summary.result.operationId ?? 'sandforge-seed',
-    configId: 'sandforge-seed',
-    configName: 'sandforge-seed',
-    sourceOrgId: summary.target,
-    targetOrgId: summary.target,
-    startedAt: summary.startedAt ?? finishedAt,
-    end: { at: finishedAt, status: summary.result.status },
-    lastWrittenAt: finishedAt,
-    created: summary.result.objectResults
-      .filter((object) => object.createdIds.length > 0)
-      .map((object) => ({ objectApiName: object.objectApiName, ids: [...object.createdIds] })),
-    ...(removal ? { removal } : {}),
-  };
+  // Built as the panel builds the run it keeps, so the two take a run back alike.
+  return seedRunKept(
+    {
+      runId: summary.result.operationId ?? 'sandforge-seed',
+      targetOrgId: summary.target,
+      ...(summary.startedAt !== undefined ? { startedAt: summary.startedAt } : {}),
+      ...(summary.finishedAt !== undefined ? { finishedAt: summary.finishedAt } : {}),
+      status: summary.result.status,
+      objectResults: summary.result.objectResults,
+    },
+    removal,
+  );
 }
 
 /** The exit code of a removal that left records of the run in the org. */

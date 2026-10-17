@@ -11,6 +11,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { SeedRunRemoval } from './SeedRunRemoval';
 
 const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   success: 'success',
@@ -179,6 +180,12 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
               )}
             </Card>
           ))}
+
+          {/* What the run created, and its removal: the records stay in the org
+              until it is taken back, as the command line could. */}
+          {executionResult.totalRecordsCreated > 0 && (
+            <SeedRunRemoval runId={executionResult.operationId} />
+          )}
 
           {/* Action buttons: Save, Export CSV, Seed Again */}
           <div className="flex gap-2 pt-2" data-testid="result-actions">

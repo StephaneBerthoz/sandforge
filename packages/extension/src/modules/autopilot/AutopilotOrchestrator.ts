@@ -18,6 +18,8 @@ import type {
   GrappeConfig,
   AutopilotNodeCompletedEvent,
   AutopilotNodeFailedEvent,
+  AutopilotObjectListing,
+  ApiName,
 } from '@sandforge/shared';
 import type {
   SchemaScanner,
@@ -147,10 +149,30 @@ export class AutopilotOrchestrator {
   }
 
   /**
+   * Before step 1: the objects a run may copy, for the user to choose from,
+   * without a describe or a count of any (`SchemaScanner.listObjects`).
+   */
+  listObjects(
+    sourceConn: AutopilotConnection,
+    targetConn: AutopilotConnection,
+    includeStandardObjects: boolean,
+  ): Promise<AutopilotObjectListing[]> {
+    return this.deps.schemaScanner.listObjects(sourceConn, targetConn, includeStandardObjects);
+  }
+
+  /** The records of the objects the user picked, counted in the source: one `COUNT()` each. */
+  countObjects(
+    sourceConn: AutopilotConnection,
+    objectNames: ApiName[],
+  ): Promise<Map<ApiName, number>> {
+    return this.deps.schemaScanner.countObjects(sourceConn, objectNames);
+  }
+
+  /**
    * Step 1: Scan schemas on source and target orgs.
    * @param sourceConn - Connection to the source org.
    * @param targetConn - Connection to the target org.
-   * @param config - Object selection (empty = auto-detect all), standard-object
+   * @param config - Object selection (at least one object), standard-object
    *   flag, and how far the walk to the parents goes.
    * @param onProgress - Told what the scan is doing, for whoever waits on it.
    * @returns Schema scan result with describes, dependencies, and record counts.

@@ -41,6 +41,8 @@ import { SeedCsvHandler } from './handlers/SeedCsvHandler.js';
 import { SyncOpsHandler, syncGuardRequest } from './handlers/SyncOpsHandler.js';
 import { SyncHistoryHandler } from './handlers/SyncHistoryHandler.js';
 import { SyncRemovalHandler } from './handlers/SyncRemovalHandler.js';
+import { SeedRemovalHandler } from './handlers/SeedRemovalHandler.js';
+import { SeedRunCreations } from '../modules/seed/SeedRunCreations.js';
 import type { SyncRunCreations } from '../modules/sync/SyncRunCreations.js';
 import { SyncHistoryStore } from '../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../modules/sync/SyncExecutionLogger.js';
@@ -145,6 +147,7 @@ export class ExtensionHandlers {
   private readonly syncHandler: SyncOpsHandler;
   private readonly syncHistoryHandler: SyncHistoryHandler;
   private readonly syncRemovalHandler: SyncRemovalHandler;
+  private readonly seedRemovalHandler: SeedRemovalHandler;
   private readonly compareHandler: CompareHandler;
   private readonly dataOpsHandler: DataOpsHandler;
   private readonly complianceHandler: DataOpsComplianceHandler;
@@ -204,6 +207,12 @@ export class ExtensionHandlers {
     this.settingsHandler = new SettingsHandler(this.handlerDeps);
     this.monitorHandler = new MonitorOpsHandler(this.handlerDeps);
     this.seedHandler = new SeedOpsHandler(this.handlerDeps);
+    // What each Seed run of the window created, kept whole for its removal
+    // from the run's results: the results carry a thousand ids an object.
+    const seedRuns = new SeedRunCreations();
+    this.seedHandler.setRunCreations(seedRuns);
+    this.seedRemovalHandler = new SeedRemovalHandler(this.handlerDeps);
+    this.seedRemovalHandler.setRunCreations(seedRuns);
     this.seedCloneHandler = new SeedCloneHandler(this.handlerDeps);
     this.seedCsvHandler = new SeedCsvHandler(this.handlerDeps);
     this.syncHandler = new SyncOpsHandler(this.handlerDeps);
@@ -346,6 +355,7 @@ export class ExtensionHandlers {
     this.seedHandler.setLiveOperationTracker(tracker);
     this.syncHandler.setLiveOperationTracker(tracker);
     this.syncRemovalHandler.setLiveOperationTracker(tracker);
+    this.seedRemovalHandler.setLiveOperationTracker(tracker);
     this.forgeHandler.setLiveOperationTracker(tracker);
     this.seedCloneHandler.setLiveOperationTracker(tracker);
     this.seedCsvHandler.setLiveOperationTracker(tracker);
@@ -401,6 +411,7 @@ export class ExtensionHandlers {
     this.backgroundRegistry = registry;
     this.syncHandler.setRegistry(registry);
     this.syncRemovalHandler.setRegistry(registry);
+    this.seedRemovalHandler.setRegistry(registry);
     this.seedHandler.setRegistry(registry);
     // Clone, CSV import and frozen-dataset loads run through BulkDataWriter
     // too. Without the registry they passed a throwaway AbortController, so
@@ -654,6 +665,7 @@ export class ExtensionHandlers {
 
     // What a Sync run created, and its removal
     route(['sync:removal:info', 'sync:removal:list', 'sync:remove'], this.syncRemovalHandler);
+    route(['seed:removal:info', 'seed:remove'], this.seedRemovalHandler);
 
     // Sync schedules (CRUD backed by SyncScheduleExecutor + SyncScheduleStore)
     route(
@@ -799,6 +811,8 @@ export class ExtensionHandlers {
     // Autopilot
     route(
       [
+        'autopilot:list-objects',
+        'autopilot:count-objects',
         'autopilot:scan-schema',
         'autopilot:generate-plan',
         'autopilot:execute',

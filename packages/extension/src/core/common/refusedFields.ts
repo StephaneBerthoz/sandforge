@@ -207,3 +207,16 @@ export function writtenWithoutFieldsNote(
     })
     .join('');
 }
+
+/**
+ * The sentence said of the rows written again without the fields the target
+ * refused them on, as Sync's and Seed's results carry it: how many rows, then
+ * each field, how many rows went without it, what refused it and in its own
+ * words, which may end a sentence of their own.
+ */
+export function fieldsLeftOutNote(written: WrittenWithoutFields): string {
+  const note =
+    `${written.rows} record(s) written again without the fields the target refused them ` +
+    `on${writtenWithoutFieldsNote(written)}`;
+  return note.endsWith('.') ? note : `${note}.`;
+}

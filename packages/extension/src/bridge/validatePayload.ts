@@ -1,4 +1,5 @@
 import {
+  AUTOPILOT_COUNTS_PER_REQUEST,
   SYNC_CONFLICT_STRATEGIES,
   isFileBodiedObject,
   syncConfigSchema,
@@ -438,6 +439,13 @@ export const syncHistoryEntryIdPayloadSchema = z.object({ entryId: opaqueIdSchem
 // The run is named, never its records: what is removed is what the run kept.
 export const syncRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });
 export const syncRemovePayloadSchema = z.object({
+  runId: opaqueIdSchema,
+  includeChanged: z.boolean().optional(),
+});
+// ── seed:removal:info / seed:remove payload schemas ─────────────────────────
+// The run is named, never its records: what is removed is what the run kept.
+export const seedRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });
+export const seedRemovePayloadSchema = z.object({
   runId: opaqueIdSchema,
   includeChanged: z.boolean().optional(),
 });
@@ -1010,7 +1018,20 @@ export const frozenRemoveSweepPayloadSchema = z.object({
 // Fields the handler never reads stay optional so a partial payload that used
 // to work keeps working; every field the handler consumes is validated.
 
-/** Scan request: both orgs, optional explicit object selection (empty = auto-detect). */
+/** The object picker's list: both orgs, and whether standard objects are offered. */
+export const autopilotListObjectsPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  targetOrgId: orgIdSchema,
+  includeStandardObjects: z.boolean(),
+});
+
+/** The objects picked, counted in the source: a page of them at a time. */
+export const autopilotCountObjectsPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  objectApiNames: z.array(sfApiNameSchema).min(1).max(AUTOPILOT_COUNTS_PER_REQUEST),
+});
+
+/** Scan request: both orgs and the objects chosen; the scanner refuses none. */
 export const autopilotScanSchemaPayloadSchema = z.object({
   sourceOrgId: orgIdSchema,
   targetOrgId: orgIdSchema,

@@ -259,13 +259,25 @@ export interface AnonymizationSummary {
   }>;
 }
 
+/**
+ * An object a run may copy, as the source's global describe lists it: what
+ * the object picker offers before anything is chosen. Nothing in it costs a
+ * call per object — no describe, no count — so an org of hundreds of objects
+ * is listed in two calls.
+ */
+export interface AutopilotObjectListing {
+  readonly apiName: ApiName;
+  readonly label: string;
+  readonly custom: boolean;
+}
+
 /** Autopilot configuration provided by the user */
 export interface AutopilotConfig {
   /** Source org ID */
   readonly sourceOrgId: string;
   /** Target org ID */
   readonly targetOrgId: string;
-  /** Root objects selected (empty = auto-detect all) */
+  /** Root objects selected: a scan starts from them, and refuses to start from none. */
   readonly selectedObjects: ApiName[];
   /** Compliance framework */
   readonly complianceFramework: ComplianceFrameworkType;

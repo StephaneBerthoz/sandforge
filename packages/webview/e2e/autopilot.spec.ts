@@ -11,8 +11,9 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  * sidebar since 1.8.0.
  *
  * The wizard is wired to the real bridge: every step transition is a request
- * the extension has to answer (`autopilot:scan-schema` → `autopilot:schema-result`,
- * `autopilot:generate-plan` → `autopilot:plan-ready`), correlated by message id.
+ * the extension has to answer (`autopilot:list-objects` → `autopilot:objects-listed`,
+ * `autopilot:scan-schema` → `autopilot:schema-result`, `autopilot:generate-plan`
+ * → `autopilot:plan-ready`), correlated by message id.
  * Posting a bare response with no correlation — what this file used to do —
  * leaves the mutation in flight forever, which is why every step past the first
  * timed out.
@@ -79,6 +80,13 @@ const MOCK_SCHEMA_OBJECTS = [
   { apiName: 'Contact', recordCount: 1200 },
   { apiName: 'Opportunity', recordCount: 300 },
 ];
+
+/** The same objects, as `autopilot:objects-listed` lists them: no count. */
+const MOCK_LISTING = MOCK_SCHEMA_OBJECTS.map(({ apiName }) => ({
+  apiName,
+  label: apiName,
+  custom: false,
+}));
 
 /**
  * Build an AutopilotGraph as `autopilot:schema-result` carries one.
@@ -163,26 +171,31 @@ const MOCK_COMPLIANCE_REPORT = {
   checksumSha256: 'abc123',
 };
 
-/** Step 1 → Step 2: pick both orgs, advance, answer the schema scan. */
+/** Step 1 → Step 2: pick both orgs, advance, answer the listing of the objects. */
 async function advanceToObjects(page: Page, bridge: MockBridge): Promise<void> {
   await page.getByTestId('source-org-org-src-1').click();
   await page.getByTestId('target-org-org-tgt-1').click();
   await page.getByTestId('seed-wizard-next').click();
-  await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
-  await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
-    graph: buildMockGraph(),
+  await bridge.waitForMessage('autopilot:list-objects', { timeout: 10_000 });
+  await respondToAll(page, 'autopilot:list-objects', 'autopilot:objects-listed', {
+    objects: MOCK_LISTING,
   });
   await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 /**
- * Step 2 → Step 3.
- *
- * No second scan is needed here: the initial scan already selected every
- * discovered object, and the wizard only re-scans for a narrowed subset.
+ * Step 2 → Step 3: pick every listed object, advance, answer the scan of the
+ * selection. Nothing is picked for the user, and the scan starts from what was.
  */
 async function advanceToCompliance(page: Page): Promise<void> {
+  await page.getByTestId('select-all-checkbox').check();
   await page.getByTestId('seed-wizard-next').click();
+  await expect
+    .poll(async () => (await outgoing(page, 'autopilot:scan-schema')).length, { timeout: 10_000 })
+    .toBeGreaterThan(0);
+  await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
+    graph: buildMockGraph(),
+  });
   await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
@@ -264,7 +277,7 @@ test.describe('Autopilot — Wizard Flow', () => {
     await expect(page.getByTestId('seed-wizard-next')).toBeEnabled();
   });
 
-  test('Step 2: displays object list after schema scan', async ({ page }) => {
+  test('Step 2: displays object list after the listing, scanning nothing', async ({ page }) => {
     await advanceToObjects(page, bridge);
 
     await expect(page.getByTestId('step2-objects')).toBeVisible();
@@ -272,31 +285,42 @@ test.describe('Autopilot — Wizard Flow', () => {
     for (const obj of MOCK_SCHEMA_OBJECTS) {
       await expect(page.getByTestId(`object-${obj.apiName}`)).toBeVisible();
     }
+    expect(await outgoing(page, 'autopilot:scan-schema')).toEqual([]);
   });
 
-  test('Step 2: can select objects and advance', async ({ page }) => {
+  test('Step 2: counts the objects picked, then scans the selection', async ({ page }) => {
     await advanceToObjects(page, bridge);
 
-    // The scan pre-selects every object it discovered.
-    await expect(page.getByTestId('select-all-checkbox')).toBeChecked();
-
-    // Narrowing the selection re-scans on the subset, so the plan is built
-    // from the filtered graph rather than the whole org.
-    await page.getByTestId('object-Contact').click();
+    // Nothing is picked for the user, and nothing is counted before a pick.
     await expect(page.getByTestId('select-all-checkbox')).not.toBeChecked();
-    await expect(page.getByTestId('seed-wizard-next')).toBeEnabled();
+    await expect(page.getByTestId('seed-wizard-next')).toBeDisabled();
+    expect(await outgoing(page, 'autopilot:count-objects')).toEqual([]);
 
-    const scansBefore = (await outgoing(page, 'autopilot:scan-schema')).length;
+    await page.getByTestId('object-Account').click();
+    await expect
+      .poll(async () => (await outgoing(page, 'autopilot:count-objects')).length, {
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(0);
+    const counted = (await outgoing(page, 'autopilot:count-objects')).at(-1);
+    expect((counted?.payload as Record<string, unknown>).objectApiNames).toEqual(['Account']);
+    await respondToAll(page, 'autopilot:count-objects', 'autopilot:objects-counted', {
+      counts: { Account: 500 },
+    });
+    await expect(page.getByTestId('object-Account')).toContainText('500');
+
+    await page.getByTestId('object-Opportunity').click();
+    await expect(page.getByTestId('seed-wizard-next')).toBeEnabled();
     await page.getByTestId('seed-wizard-next').click();
     await expect
       .poll(async () => (await outgoing(page, 'autopilot:scan-schema')).length, {
         timeout: 10_000,
       })
-      .toBeGreaterThan(scansBefore);
+      .toBeGreaterThan(0);
 
-    const rescan = (await outgoing(page, 'autopilot:scan-schema')).at(-1);
-    const rescanPayload = rescan?.payload as Record<string, unknown>;
-    expect(rescanPayload.selectedObjects).toEqual(['Account', 'Opportunity']);
+    const scan = (await outgoing(page, 'autopilot:scan-schema')).at(-1);
+    const scanPayload = scan?.payload as Record<string, unknown>;
+    expect(scanPayload.selectedObjects).toEqual(['Account', 'Opportunity']);
 
     await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
       graph: buildMockGraph(),
@@ -334,7 +358,7 @@ test.describe('Autopilot — Wizard Flow', () => {
     await expect(page.getByTestId('step1-connect')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('keeps the keyboard on Next while the scan it asked for runs, sends one scan, and takes the keyboard to the step it brings', async ({
+  test('keeps the keyboard on Next while the listing it asked for runs, sends one listing, and takes the keyboard to the step it brings', async ({
     page,
   }) => {
     // Next turned disabled under the Enter that started the scan, and a
@@ -346,18 +370,18 @@ test.describe('Autopilot — Wizard Flow', () => {
 
     await next.focus();
     await page.keyboard.press('Enter');
-    await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
+    await bridge.waitForMessage('autopilot:list-objects', { timeout: 10_000 });
 
-    const scanning = page.getByTestId('autopilot-scan-loading');
-    await expect(scanning).toHaveRole('status');
-    await expect(scanning).toHaveText('Scanning schemas...');
+    const listing = page.getByTestId('autopilot-scan-loading');
+    await expect(listing).toHaveRole('status');
+    await expect(listing).toHaveText('Listing the objects...');
     await expect(next).toBeDisabled();
     await expect(next).toBeFocused();
-    // Pressed again while the scan runs, Next asks for no second one.
+    // Pressed again while the listing runs, Next asks for no second one.
     await page.keyboard.press('Enter');
-    expect(await outgoing(page, 'autopilot:scan-schema')).toHaveLength(1);
-    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
-      graph: buildMockGraph(),
+    expect(await outgoing(page, 'autopilot:list-objects')).toHaveLength(1);
+    await respondToAll(page, 'autopilot:list-objects', 'autopilot:objects-listed', {
+      objects: MOCK_LISTING,
     });
     await expect(page.getByTestId('step2-objects')).toBeVisible();
     await expect(page.getByRole('group', { name: 'Select Objects', exact: true })).toBeFocused();
@@ -539,7 +563,7 @@ test.describe('Autopilot — Execution UI', () => {
 });
 
 test.describe('Autopilot — Error Scenarios', () => {
-  test('handles schema scan failure gracefully', async ({ page }) => {
+  test('handles a failed listing of the objects gracefully', async ({ page }) => {
     const bridge = await openAutopilot(page);
     await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10_000 });
 
@@ -547,9 +571,9 @@ test.describe('Autopilot — Error Scenarios', () => {
     await page.getByTestId('target-org-org-tgt-1').click();
     await page.getByTestId('seed-wizard-next').click();
 
-    await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
-    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:error', {
-      message: 'Failed to scan schema: INSUFFICIENT_ACCESS',
+    await bridge.waitForMessage('autopilot:list-objects', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:list-objects', 'autopilot:error', {
+      message: 'Failed to list the objects: INSUFFICIENT_ACCESS',
       code: 'INSUFFICIENT_ACCESS',
       retryable: true,
     });
@@ -570,21 +594,21 @@ test.describe('Autopilot — Error Scenarios', () => {
     await page.getByTestId('target-org-org-tgt-1').click();
     await page.getByTestId('seed-wizard-next').click();
 
-    await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
-    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:error', {
-      message: 'Failed to scan schema',
+    await bridge.waitForMessage('autopilot:list-objects', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:list-objects', 'autopilot:error', {
+      message: 'Failed to list the objects',
       code: 'UNKNOWN',
       retryable: true,
     });
     await expect(page.getByTestId('autopilot-scan-error')).toBeVisible({ timeout: 10_000 });
 
-    // A failed scan releases the wizard: Next comes back and a second attempt
-    // gets through. (Back stays disabled because step 1 is the first step —
-    // the failure never moved the user off it.)
+    // A failed listing releases the wizard: Next comes back and a second
+    // attempt gets through. (Back stays disabled because step 1 is the first
+    // step — the failure never moved the user off it.)
     await expect(page.getByTestId('seed-wizard-next')).toBeEnabled();
     await page.getByTestId('seed-wizard-next').click();
-    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
-      graph: buildMockGraph(),
+    await respondToAll(page, 'autopilot:list-objects', 'autopilot:objects-listed', {
+      objects: MOCK_LISTING,
     });
 
     await expect(page.getByTestId('step2-objects')).toBeVisible({ timeout: 10_000 });

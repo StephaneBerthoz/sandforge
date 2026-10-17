@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AutopilotGraph, ExecutionPlan } from '@sandforge/shared';
+import type { AutopilotGraph, AutopilotObjectListing, ExecutionPlan } from '@sandforge/shared';
+import { AUTOPILOT_COUNTS_PER_REQUEST } from '@sandforge/shared';
 import { SeedWizard } from '../../Seed/SeedWizard';
 import type { WizardStep } from '../../Seed/SeedWizard';
 import { useOrgStore } from '../../../stores/useOrgStore';
@@ -45,6 +46,16 @@ const WIZARD_STEP_IDS = [
   'review',
 ] as const satisfies readonly AutopilotStep[];
 
+/** Payload of the `autopilot:objects-listed` bridge response. */
+interface ObjectsListedPayload {
+  readonly objects: AutopilotObjectListing[];
+}
+
+/** Payload of the `autopilot:objects-counted` bridge response. */
+interface ObjectsCountedPayload {
+  readonly counts: Record<string, number>;
+}
+
 /** Payload of the `autopilot:schema-result` bridge response. */
 interface SchemaResultPayload {
   readonly graph: AutopilotGraph;
@@ -56,17 +67,14 @@ interface PlanReadyPayload {
   readonly graph: AutopilotGraph;
 }
 
-/** Where the wizard lands once a scan completes (initial scan vs re-scan). */
-type ScanTarget = 'objects' | 'compliance';
-
 /** Available object info for selection. */
 export interface AutopilotObjectInfo {
   /** Object API name */
   readonly apiName: string;
   /** Object label */
   readonly label: string;
-  /** Approximate record count */
-  readonly recordCount: number;
+  /** Records the source holds, once the object is picked and counted. */
+  readonly recordCount?: number;
 }
 
 /** AutopilotWizard component props. */
@@ -84,8 +92,16 @@ export interface AutopilotWizardProps {
 
 /**
  * AutopilotWizard — 4-step wizard wired to the real autopilot bridge flow:
- * scan-schema (step 1→2, and re-scan on a narrowed selection) → generate-plan
- * (step 3→4) → execute (delegated to the page via {@link AutopilotWizardProps.onExecute}).
+ * list-objects (step 1→2), with count-objects for the objects picked →
+ * scan-schema on the selection (step 2→3) → generate-plan (step 3→4) →
+ * execute (delegated to the page via {@link AutopilotWizardProps.onExecute}).
+ *
+ * The object step used to be filled by a scan with nothing selected, which
+ * described every object of the org and counted every table before the user
+ * had picked one: hundreds of calls on a client sandbox of some six hundred
+ * and seventy custom objects. It lists the objects from the two orgs' global
+ * describes now, counts each object once it is picked, and scans only what
+ * was picked.
  */
 export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   onExecute,
@@ -99,11 +115,23 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   const sourceOrgId = useAutopilotStore((s) => s.sourceOrgId);
   const targetOrgId = useAutopilotStore((s) => s.targetOrgId);
   const selectedObjects = useAutopilotStore((s) => s.selectedObjects);
+  const objectListing = useAutopilotStore((s) => s.objectListing);
+  const objectCounts = useAutopilotStore((s) => s.objectCounts);
   const complianceFramework = useAutopilotStore((s) => s.complianceFramework);
   const graph = useAutopilotStore((s) => s.graph);
   const plan = useAutopilotStore((s) => s.plan);
   const errors = useAutopilotStore((s) => s.errors);
 
+  const listMutation = useBridgeMutation<ObjectsListedPayload>('autopilot:list-objects', {
+    responseType: 'autopilot:objects-listed',
+    errorType: 'autopilot:error',
+    timeoutMs: 60_000,
+  });
+  const countMutation = useBridgeMutation<ObjectsCountedPayload>('autopilot:count-objects', {
+    responseType: 'autopilot:objects-counted',
+    errorType: 'autopilot:error',
+    timeoutMs: 60_000,
+  });
   const scanMutation = useBridgeMutation<SchemaResultPayload>('autopilot:scan-schema', {
     responseType: 'autopilot:schema-result',
     errorType: 'autopilot:error',
@@ -121,20 +149,48 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     WIZARD_STEP_IDS.indexOf(step as (typeof WIZARD_STEP_IDS)[number]),
   );
 
-  /** Where the in-flight scan should land once its response arrives. */
-  const scanTargetRef = useRef<ScanTarget>('objects');
+  // Listing → the object step. Nothing is picked for the user: picked whole,
+  // an org's every object made a plan of all of it. What was picked before
+  // going back stays picked where the new listing still offers it.
+  useEffect(() => {
+    const data = listMutation.data;
+    if (!data) return;
+    const store = useAutopilotStore.getState();
+    const listed = new Set(data.objects.map((o) => o.apiName));
+    store.setObjectListing(data.objects);
+    store.setSelectedObjects(store.selectedObjects.filter((name) => listed.has(name)));
+    store.setStep('objects');
+  }, [listMutation.data]);
 
-  // Scan response → sync the store and advance (initial scan initializes the
-  // selection to every discovered object; a re-scan keeps the user's subset).
+  // The objects picked are counted a page at a time, each once per listing:
+  // an object the org would not count is not asked about again.
+  const askedCounts = useRef(new Set<string>());
+  useEffect(() => {
+    askedCounts.current = new Set();
+  }, [objectListing]);
+  const countLoading = countMutation.loading;
+  const countObjects = countMutation.mutate;
+  useEffect(() => {
+    if (step !== 'objects' || !sourceOrgId || countLoading) return;
+    const unknown = selectedObjects
+      .filter((name) => objectCounts[name] === undefined && !askedCounts.current.has(name))
+      .slice(0, AUTOPILOT_COUNTS_PER_REQUEST);
+    if (unknown.length === 0) return;
+    for (const name of unknown) askedCounts.current.add(name);
+    countObjects({ sourceOrgId, objectApiNames: unknown });
+  }, [step, sourceOrgId, selectedObjects, objectCounts, countLoading, countObjects]);
+  useEffect(() => {
+    const data = countMutation.data;
+    if (data) useAutopilotStore.getState().addObjectCounts(data.counts);
+  }, [countMutation.data]);
+
+  // Scan of the selection → the compliance step, the selection kept as picked.
   useEffect(() => {
     const data = scanMutation.data;
     if (!data) return;
     const store = useAutopilotStore.getState();
     store.setGraph(data.graph);
-    if (scanTargetRef.current === 'objects') {
-      store.setSelectedObjects(data.graph.nodes.map((n) => n.objectApiName));
-    }
-    store.setStep(scanTargetRef.current);
+    store.setStep('compliance');
   }, [scanMutation.data]);
 
   // Plan response → sync the store and land on the review step.
@@ -148,28 +204,14 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   }, [planMutation.data]);
 
   const availableObjects: AutopilotObjectInfo[] =
-    graph?.nodes.map((n) => ({
-      apiName: n.objectApiName,
-      label: n.objectApiName,
-      recordCount: n.recordCount,
+    objectListing?.map((o) => ({
+      apiName: o.apiName,
+      label: o.label,
+      ...(objectCounts[o.apiName] !== undefined ? { recordCount: objectCounts[o.apiName] } : {}),
     })) ?? [];
 
   const selectAll =
     availableObjects.length > 0 && selectedObjects.length === availableObjects.length;
-
-  const startScan = useCallback(
-    (target: ScanTarget, objects: string[]) => {
-      if (!sourceOrgId || !targetOrgId) return;
-      scanTargetRef.current = target;
-      scanMutation.mutate({
-        sourceOrgId,
-        targetOrgId,
-        selectedObjects: objects,
-        includeStandardObjects: true,
-      });
-    },
-    [scanMutation, sourceOrgId, targetOrgId],
-  );
 
   const handleToggleObject = useCallback((apiName: string) => {
     useAutopilotStore.getState().toggleObject(apiName);
@@ -177,7 +219,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
 
   const handleToggleAll = useCallback(() => {
     const store = useAutopilotStore.getState();
-    const allNames = (store.graph?.nodes ?? []).map((n) => n.objectApiName);
+    const allNames = (store.objectListing ?? []).map((o) => o.apiName);
     const allSelected = allNames.length > 0 && store.selectedObjects.length === allNames.length;
     store.setSelectedObjects(allSelected ? [] : allNames);
   }, []);
@@ -191,17 +233,18 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
         return;
       }
       if (next !== currentStep + 1) return;
+      if (!sourceOrgId || !targetOrgId) return;
       if (currentStep === 0) {
-        startScan('objects', []);
+        listMutation.mutate({ sourceOrgId, targetOrgId, includeStandardObjects: true });
       } else if (currentStep === 1) {
-        if (selectAll) {
-          // The initial scan already covers every discovered object.
-          store.setStep('compliance');
-        } else {
-          // Narrowed selection — re-scan with the explicit subset so the plan
-          // is built from the filtered graph.
-          startScan('compliance', store.selectedObjects);
-        }
+        // The plan is built from the objects picked and the parents their
+        // records name: the scan starts from the selection, never the org.
+        scanMutation.mutate({
+          sourceOrgId,
+          targetOrgId,
+          selectedObjects: store.selectedObjects,
+          includeStandardObjects: true,
+        });
       } else if (currentStep === 2) {
         planMutation.mutate({
           complianceFramework: store.complianceFramework,
@@ -211,10 +254,10 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
         });
       }
     },
-    [currentStep, selectAll, startScan, planMutation],
+    [currentStep, sourceOrgId, targetOrgId, listMutation, scanMutation, planMutation],
   );
 
-  const isPending = scanMutation.loading || planMutation.loading;
+  const isPending = listMutation.loading || scanMutation.loading || planMutation.loading;
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
@@ -234,9 +277,9 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   /** Review-step stats: real plan numbers when available, scan fallback otherwise. */
   const totalRecords =
     plan?.totalRecords ??
-    availableObjects
-      .filter((o) => selectedObjects.includes(o.apiName))
-      .reduce((sum, o) => sum + o.recordCount, 0);
+    (graph?.nodes ?? [])
+      .filter((n) => selectedObjects.includes(n.objectApiName))
+      .reduce((sum, n) => sum + n.recordCount, 0);
   const estimatedApiCalls = plan?.estimatedApiCalls ?? 0;
   const estimatedDurationMin = Math.ceil((plan?.estimatedDurationSec ?? 0) / 60);
   const lastError = errors.length > 0 ? errors[errors.length - 1] : null;
@@ -269,19 +312,19 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
               onSourceSelect={(id) => useAutopilotStore.getState().setSourceOrg(id)}
               onTargetSelect={(id) => useAutopilotStore.getState().setTargetOrg(id)}
             />
-            {/* A status, here and below: Next waits on the scan or the plan,
-                and nothing else tells a screen reader why. */}
-            {scanMutation.loading && (
+            {/* A status, here and below: Next waits on the listing, the scan
+                or the plan, and nothing else tells a screen reader why. */}
+            {listMutation.loading && (
               <p
                 role="status"
                 className="text-xs text-text-secondary"
                 data-testid="autopilot-scan-loading"
               >
-                {t('autopilot.status.scanning')}
+                {t('autopilot.status.listing')}
               </p>
             )}
-            {scanMutation.error && (
-              <ErrorBanner message={scanMutation.error} data-testid="autopilot-scan-error" />
+            {listMutation.error && (
+              <ErrorBanner message={listMutation.error} data-testid="autopilot-scan-error" />
             )}
           </>
         )}

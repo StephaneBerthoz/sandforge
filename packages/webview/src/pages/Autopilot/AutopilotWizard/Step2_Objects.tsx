@@ -86,12 +86,15 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
                 {obj.label}
                 <span className="text-xs text-text-primary ml-1">({obj.apiName})</span>
               </span>
-              <span className="text-xs text-text-primary tabular-nums">
-                {t('common.recordCountFormatted', {
-                  count: obj.recordCount,
-                  formatted: formatCount(obj.recordCount),
-                })}
-              </span>
+              {/* Counted once picked: listing the org counts nothing. */}
+              {obj.recordCount !== undefined && (
+                <span className="text-xs text-text-primary tabular-nums">
+                  {t('common.recordCountFormatted', {
+                    count: obj.recordCount,
+                    formatted: formatCount(obj.recordCount),
+                  })}
+                </span>
+              )}
             </label>
           );
         })}

@@ -195,6 +195,13 @@ export const SF_DEVICE_CODE_LIFETIME_MS = 10 * 60_000;
  */
 export const AUDIT_TRAIL_LIMIT = 2_000;
 
+/**
+ * Objects an Autopilot count request names, at most. The object picker asks
+ * the counts of the objects picked a page at a time, and the host refuses a
+ * request for more: each object is one `COUNT()` against the source.
+ */
+export const AUTOPILOT_COUNTS_PER_REQUEST = 50;
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

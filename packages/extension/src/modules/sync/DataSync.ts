@@ -3,8 +3,8 @@ import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGua
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import {
   addWrittenWithoutFields,
+  fieldsLeftOutNote,
   refusedFields,
-  writtenWithoutFieldsNote,
   type FieldToLeaveOut,
   type WrittenWithoutFields,
 } from '../../core/common/refusedFields.js';
@@ -565,18 +565,6 @@ function isCrossReferenceFailure(message: string): boolean {
     CROSS_REFERENCE_CODES.some((code) => message.includes(code)) ||
     CROSS_REFERENCE_WORDS.test(message)
   );
-}
-
-/**
- * What is said of the rows written again without the fields the target
- * refused them on: each field, how many rows, what refused it and in its own
- * words, which may end a sentence of their own.
- */
-function fieldsLeftOutNote(written: WrittenWithoutFields): string {
-  const note =
-    `${written.rows} record(s) written again without the fields the target refused them ` +
-    `on${writtenWithoutFieldsNote(written)}`;
-  return note.endsWith('.') ? note : `${note}.`;
 }
 
 /**

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import type { AutopilotGraph, ComplianceReport, ExecutionPlan } from '@sandforge/shared';
+import type {
+  AutopilotGraph,
+  AutopilotObjectListing,
+  ComplianceReport,
+  ExecutionPlan,
+} from '@sandforge/shared';
 import i18n from '../../i18n';
 import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
@@ -10,8 +15,8 @@ import { useAutopilotStore } from '../../stores/useAutopilotStore';
 /**
  * End-to-end bridge flow test: real store, real message bus and real
  * useBridgeMutation/useBridgeQuery hooks — only the VSCode API transport is
- * mocked. Drives scan-schema → generate-plan → execute → node-progress →
- * completed → compliance-report plus error paths.
+ * mocked. Drives list-objects → count-objects → scan-schema → generate-plan
+ * → execute → node-progress → completed → compliance-report plus error paths.
  */
 
 /** Captured envelopes posted to the extension host. */
@@ -147,6 +152,12 @@ const GRAPH: AutopilotGraph = {
   },
 };
 
+/** Fixture listing used by objects-listed responses. */
+const LISTING: AutopilotObjectListing[] = [
+  { apiName: 'Account', label: 'Account', custom: false },
+  { apiName: 'Contact', label: 'Contact', custom: false },
+];
+
 /** Fixture plan used by plan-ready responses. */
 const PLAN: ExecutionPlan = {
   waves: [
@@ -203,35 +214,57 @@ describe('Autopilot bridge flow', () => {
     fireEvent.click(screen.getByTestId('source-org-org-1'));
     fireEvent.click(screen.getByTestId('target-org-org-2'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
-    respondTo('autopilot:scan-schema', 'autopilot:schema-result', { graph: GRAPH });
+    respondTo('autopilot:list-objects', 'autopilot:objects-listed', { objects: LISTING });
+    fireEvent.click(screen.getByTestId('object-Account'));
+    fireEvent.click(screen.getByTestId('object-Contact'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    respondTo('autopilot:scan-schema', 'autopilot:schema-result', { graph: GRAPH });
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
     respondTo('autopilot:generate-plan', 'autopilot:plan-ready', { plan: PLAN, graph: GRAPH });
   };
 
-  it('should run the full scan → plan → execute → progress → completed → report flow', () => {
+  it('should run the full list → count → scan → plan → execute → progress → completed → report flow', () => {
     render(<AutopilotPage />);
 
-    // ── Step 1: connect + scan-schema ──────────────────────────────────
+    // ── Step 1: connect + list-objects ─────────────────────────────────
     fireEvent.click(screen.getByTestId('source-org-org-1'));
     fireEvent.click(screen.getByTestId('target-org-org-2'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+
+    const listRequest = lastRequestOfType('autopilot:list-objects');
+    expect(listRequest.payload).toEqual({
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      includeStandardObjects: true,
+    });
+    expect(() => lastRequestOfType('autopilot:scan-schema')).toThrow();
+
+    dispatchBridgeMessage('autopilot:objects-listed', { objects: LISTING }, listRequest.id);
+    expect(useAutopilotStore.getState().step).toBe('objects');
+    expect(screen.getByTestId('object-Account')).toBeDefined();
+    expect(screen.getByTestId('object-Contact')).toBeDefined();
+
+    // ── Step 2: pick two, counted as picked, then the scan of the pick ─
+    fireEvent.click(screen.getByTestId('object-Account'));
+    const countRequest = lastRequestOfType('autopilot:count-objects');
+    expect(countRequest.payload).toEqual({ sourceOrgId: 'org-1', objectApiNames: ['Account'] });
+    dispatchBridgeMessage(
+      'autopilot:objects-counted',
+      { counts: { Account: 100 } },
+      countRequest.id,
+    );
+    expect(screen.getByTestId('object-Account').textContent).toContain('100');
+    fireEvent.click(screen.getByTestId('object-Contact'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
     const scanRequest = lastRequestOfType('autopilot:scan-schema');
     expect(scanRequest.payload).toEqual({
       sourceOrgId: 'org-1',
       targetOrgId: 'org-2',
-      selectedObjects: [],
+      selectedObjects: ['Account', 'Contact'],
       includeStandardObjects: true,
     });
-
     dispatchBridgeMessage('autopilot:schema-result', { graph: GRAPH }, scanRequest.id);
-    expect(useAutopilotStore.getState().step).toBe('objects');
-    expect(screen.getByTestId('object-Account')).toBeDefined();
-    expect(screen.getByTestId('object-Contact')).toBeDefined();
-
-    // ── Step 2: all objects selected → straight to compliance ─────────
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
     expect(useAutopilotStore.getState().step).toBe('compliance');
 
     // ── Step 3: framework + generate-plan ──────────────────────────────
@@ -456,27 +489,27 @@ describe('Autopilot bridge flow', () => {
     expect(screen.queryByTestId('control-stop')).toBeNull();
   });
 
-  it('should surface a scan error and stay on the connect step', () => {
+  it('should surface a listing error and stay on the connect step', () => {
     render(<AutopilotPage />);
     fireEvent.click(screen.getByTestId('source-org-org-1'));
     fireEvent.click(screen.getByTestId('target-org-org-2'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
-    const scanRequest = lastRequestOfType('autopilot:scan-schema');
-    dispatchBridgeMessage('autopilot:error', { message: 'describe failed' }, scanRequest.id);
+    const listRequest = lastRequestOfType('autopilot:list-objects');
+    dispatchBridgeMessage('autopilot:error', { message: 'describe failed' }, listRequest.id);
 
     expect(screen.getByTestId('autopilot-scan-error')).toBeDefined();
     expect(screen.getByTestId('autopilot-scan-error').textContent).toContain('describe failed');
     expect(useAutopilotStore.getState().step).toBe('connect');
   });
 
-  it('says a scan asked before the module loaded in the page’s words, and stops waiting', () => {
+  it('says a listing asked before the module loaded in the page’s words, and stops waiting', () => {
     render(<AutopilotPage />);
     fireEvent.click(screen.getByTestId('source-org-org-1'));
     fireEvent.click(screen.getByTestId('target-org-org-2'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
-    const scanRequest = lastRequestOfType('autopilot:scan-schema');
+    const scanRequest = lastRequestOfType('autopilot:list-objects');
     dispatchBridgeMessage(
       'autopilot:error',
       { message: 'Autopilot module is not initialized.', code: 'AUTOPILOT_NOT_READY' },

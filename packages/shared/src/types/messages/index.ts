@@ -68,6 +68,11 @@ import type {
 } from './reports.messages.js';
 import type {
   SeedExecuteRequest,
+  SeedRemovalInfoRequest,
+  SeedRemoveRequest,
+  SeedRemovalInfoResponse,
+  SeedRemoveResponse,
+  SeedRemoveErrorResponse,
   SeedDescribeGlobalRequest,
   SeedDescribeObjectRequest,
   SeedTemplateSaveRequest,
@@ -277,6 +282,10 @@ import type {
   MarketplaceInstallResponse,
 } from './automation.messages.js';
 import type {
+  AutopilotListObjectsRequest,
+  AutopilotCountObjectsRequest,
+  AutopilotObjectsListed,
+  AutopilotObjectsCounted,
   AutopilotScanSchemaRequest,
   AutopilotGeneratePlanRequest,
   AutopilotExecuteRequest,
@@ -515,6 +524,8 @@ export type WebViewToExtensionMessage =
   | OrgOpenInBrowserRequest
   // Seed
   | SeedExecuteRequest
+  | SeedRemovalInfoRequest
+  | SeedRemoveRequest
   | SeedDescribeGlobalRequest
   | SeedDescribeObjectRequest
   | SeedTemplateSaveRequest
@@ -612,6 +623,8 @@ export type WebViewToExtensionMessage =
   | MarketplaceListRequest
   | MarketplaceInstallRequest
   // Autopilot
+  | AutopilotListObjectsRequest
+  | AutopilotCountObjectsRequest
   | AutopilotScanSchemaRequest
   | AutopilotGeneratePlanRequest
   | AutopilotExecuteRequest
@@ -742,6 +755,9 @@ export type ExtensionToWebViewMessage =
   | SeedDescribeGlobalResponse
   | SeedDescribeObjectResponse
   | SeedErrorResponse
+  | SeedRemovalInfoResponse
+  | SeedRemoveResponse
+  | SeedRemoveErrorResponse
   // Sync
   | SyncConfigSaveResponse
   | SyncConfigLoadResponse
@@ -836,6 +852,8 @@ export type ExtensionToWebViewMessage =
   | MarketplaceListResponse
   | MarketplaceInstallResponse
   // Autopilot
+  | AutopilotObjectsListed
+  | AutopilotObjectsCounted
   | AutopilotSchemaResult
   | AutopilotPlanReady
   | AutopilotNodeProgress

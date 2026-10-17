@@ -879,6 +879,12 @@
       "running": "En ejecución",
       "done": "Hecho",
       "error": "Fallido"
+    },
+    "removal": {
+      "created_one": "{{formatted}} registro creado en {{org}}",
+      "created_other": "{{formatted}} registros creados en {{org}}",
+      "removeDescription": "Elimina de {{org}} los registros que insertó este seed, primero el último objeto escrito, los hijos antes que sus padres; van a su papelera de reciclaje. Se conserva un registro del que dependen registros que se quedan en {{org}}, y también un registro modificado desde el seed, o del que dependen registros añadidos desde entonces, salvo que lo incluya abajo.",
+      "notKept": "Lo que creó este seed no se conserva en esta ventana — se ejecutó antes de su última apertura, o se descartó para dejar sitio a seeds más recientes — y no se puede quitar desde aquí."
     }
   },
   "sync": {
@@ -3926,6 +3932,7 @@
       "rule": "Regla aplicada"
     },
     "status": {
+      "listing": "Listando los objetos...",
       "scanning": "Escaneando esquemas...",
       "planning": "Generando plan..."
     },

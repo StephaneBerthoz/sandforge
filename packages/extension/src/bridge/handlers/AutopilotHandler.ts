@@ -19,6 +19,8 @@ import {
 } from './HandlerTypes.js';
 import {
   validatePayload,
+  autopilotListObjectsPayloadSchema,
+  autopilotCountObjectsPayloadSchema,
   autopilotScanSchemaPayloadSchema,
   autopilotGeneratePlanPayloadSchema,
   autopilotExecutePayloadSchema,
@@ -57,6 +59,8 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 
 /** Message types handled by AutopilotHandler. */
 const AUTOPILOT_TYPES = new Set([
+  'autopilot:list-objects',
+  'autopilot:count-objects',
   'autopilot:scan-schema',
   'autopilot:generate-plan',
   'autopilot:execute',
@@ -202,6 +206,12 @@ export class AutopilotHandler implements DomainHandler {
     if (!AUTOPILOT_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
+      case 'autopilot:list-objects':
+        await this.handleListObjects(msg);
+        return true;
+      case 'autopilot:count-objects':
+        await this.handleCountObjects(msg);
+        return true;
       case 'autopilot:scan-schema':
         await this.handleScanSchema(msg);
         return true;
@@ -272,6 +282,84 @@ export class AutopilotHandler implements DomainHandler {
       if (this.currentOperationId === oldest.value) {
         this.currentOperationId = [...this.operations.keys()].pop();
       }
+    }
+  }
+
+  /**
+   * The object picker's list: the two orgs' global describes, and nothing per
+   * object. The first scan the page asked for described and counted every
+   * object of the org before the user had picked one.
+   */
+  private async handleListObjects(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      this.refuseNotReady(msg);
+      return;
+    }
+    const parsed = validatePayload(
+      autopilotListObjectsPayloadSchema,
+      msg,
+      'autopilot:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const sourceConn = (await getJsforceConnection(
+        parsed.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      )) as unknown as AutopilotConnection;
+      const targetConn = (await getJsforceConnection(
+        parsed.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      )) as unknown as AutopilotConnection;
+      const objects = await this.orchestrator.listObjects(
+        sourceConn,
+        targetConn,
+        parsed.includeStandardObjects,
+      );
+      const response = buildResponse(this.deps, msg, 'autopilot:objects-listed', {
+        objects: objects as unknown as Record<string, unknown>[],
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} count=${objects.length}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'autopilot:list-objects', 'autopilot:error', msg, err);
+    }
+  }
+
+  /**
+   * The records of the objects the user picked, counted in the source: a page
+   * at a time, as the picker asks. An object the org will not count is left
+   * out, and the picker shows no count for it.
+   */
+  private async handleCountObjects(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      this.refuseNotReady(msg);
+      return;
+    }
+    const parsed = validatePayload(
+      autopilotCountObjectsPayloadSchema,
+      msg,
+      'autopilot:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const sourceConn = (await getJsforceConnection(
+        parsed.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      )) as unknown as AutopilotConnection;
+      const counts = await this.orchestrator.countObjects(sourceConn, parsed.objectApiNames);
+      const response = buildResponse(this.deps, msg, 'autopilot:objects-counted', {
+        counts: Object.fromEntries(counts),
+      });
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'autopilot:count-objects', 'autopilot:error', msg, err);
     }
   }
 

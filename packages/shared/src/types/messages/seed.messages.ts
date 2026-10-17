@@ -7,6 +7,8 @@ import type {
   CsvColumnMapping,
   CsvValidationResult,
   SeedExecutionResult,
+  SeedRemovalResult,
+  SeedRunRemovalInfo,
 } from '../seed.types.js';
 import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
 
@@ -94,6 +96,54 @@ export interface SeedDescribeObjectResponse extends BaseMessage {
  */
 export interface SeedErrorResponse extends BaseMessage {
   type: 'seed:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+// ─── Seed Removal Messages ───────────────────────────────────────────────────
+
+/**
+ * `seed:removal:info`. WebView -> Extension. What a removal of a run's
+ * records would take, and whether one can run, read from what the run kept —
+ * nothing is asked of the org.
+ */
+export interface SeedRemovalInfoRequest extends BaseMessage {
+  type: 'seed:removal:info';
+  payload: { runId: string };
+}
+
+/** `seed:removal:info:response`. Extension -> WebView. `null` when nothing of the run is kept. */
+export interface SeedRemovalInfoResponse extends BaseMessage {
+  type: 'seed:removal:info:response';
+  payload: { info: SeedRunRemovalInfo | null };
+}
+
+/**
+ * `seed:remove`. WebView -> Extension. Remove from its org what a run
+ * created, as the run kept it — the request names the run, never records.
+ */
+export interface SeedRemoveRequest extends BaseMessage {
+  type: 'seed:remove';
+  payload: {
+    runId: string;
+    /** Remove the records modified since the run too, and what was added to them since. */
+    includeChanged?: boolean;
+  };
+}
+
+/** `seed:remove:response`. Extension -> WebView. Also when the removal was cancelled part way. */
+export interface SeedRemoveResponse extends BaseMessage {
+  type: 'seed:remove:response';
+  payload: { result: SeedRemovalResult; operationId: string };
+}
+
+/**
+ * `seed:remove:error`. Extension -> WebView. A removal refused before it
+ * started (`NOT_KEPT`, `NOTHING_TO_REMOVE`, `ALREADY_REMOVED`, `DUPLICATE`,
+ * `ORG_GONE`, the guard's codes), one that failed, or a read of what a run
+ * kept that failed.
+ */
+export interface SeedRemoveErrorResponse extends BaseMessage {
+  type: 'seed:remove:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

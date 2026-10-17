@@ -73,6 +73,12 @@ const SeedMessages = [
   msg('seed:describe-object:response'),
   // Error channel for template/describe/execute/persona failures.
   msg('seed:error'),
+  // The removal of what a Seed run created, from the run's results.
+  msg('seed:removal:info'),
+  msg('seed:removal:info:response'),
+  msg('seed:remove'),
+  msg('seed:remove:response'),
+  msg('seed:remove:error'),
   msg('seed:template:save'),
   msg('seed:template:load'),
   msg('seed:template:list'),
@@ -317,6 +323,11 @@ const AutomationMessages = [
   msg('migration:save-sync-config:response'),
   // Error channel for migration import failures.
   msg('migration:error'),
+  // The object picker's list, and the counts of the objects picked.
+  msg('autopilot:list-objects'),
+  msg('autopilot:objects-listed'),
+  msg('autopilot:count-objects'),
+  msg('autopilot:objects-counted'),
   msg('autopilot:scan-schema'),
   msg('autopilot:schema-result'),
   msg('autopilot:generate-plan'),

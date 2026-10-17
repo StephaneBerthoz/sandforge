@@ -148,9 +148,8 @@ async function navigateToModule(
  * Graph an `autopilot:schema-result` answers with.
  *
  * `AutopilotGraph` carries `nodes` keyed by `objectApiName`; the wizard reads
- * `graph.nodes` directly to build both the object list and the initial
- * selection, so the `{ graph: { objects: [...] } }` shape the shared fixtures
- * still hand out renders nothing at all.
+ * `graph.nodes` directly for the run's view, so the `{ graph: { objects: [...] } }`
+ * shape the shared fixtures still hand out renders nothing at all.
  */
 const MOCK_GRAPH = {
   nodes: [
@@ -198,6 +197,26 @@ const MOCK_GRAPH = {
     totalEstimatedApiCalls: 9,
   },
 };
+
+/** The objects of {@link MOCK_GRAPH}, as `autopilot:objects-listed` lists them: no count. */
+const MOCK_LISTING = MOCK_GRAPH.nodes.map(({ objectApiName }) => ({
+  apiName: objectApiName,
+  label: objectApiName,
+  custom: false,
+}));
+
+/**
+ * From the Autopilot object step to compliance: every listed object picked,
+ * Next, and the scan of the selection answered with {@link MOCK_GRAPH}.
+ */
+async function pickAutopilotObjectsAndScan(bridge: MockBridge, page: Page): Promise<void> {
+  await page.getByTestId('select-all-checkbox').check();
+  await page.getByTestId('seed-wizard-next').click();
+  await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+    graph: MOCK_GRAPH,
+  });
+  await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+}
 
 /**
  * Plan an `autopilot:plan-ready` answers with.
@@ -1550,12 +1569,11 @@ async function startAutopilotRun(
   await page.getByTestId('source-org-org-src-1').click();
   await page.getByTestId('target-org-org-tgt-1').click();
   await page.getByTestId('seed-wizard-next').click();
-  await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-    graph: MOCK_GRAPH,
+  await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+    objects: MOCK_LISTING,
   });
   await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-  await page.getByTestId('seed-wizard-next').click();
-  await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+  await pickAutopilotObjectsAndScan(bridge, page);
   await page.getByTestId('seed-wizard-next').click();
   await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
     plan: MOCK_PLAN,
@@ -4995,26 +5013,24 @@ for (const theme of SCANNED_THEMES) {
       const step1 = await checkAccessibility(page);
       expectNoViolations(step1);
 
-      // Select orgs and advance to Step 2. `next` fires `autopilot:scan-schema`
+      // Select orgs and advance to Step 2. `next` fires `autopilot:list-objects`
       // through useBridgeMutation, which drops any response whose
       // `correlationId` is not the request's id — hence respondToNext rather
       // than a bare respond on the result channel.
       await page.getByTestId('source-org-org-src-1').click();
       await page.getByTestId('target-org-org-tgt-1').click();
       await page.getByTestId('seed-wizard-next').click();
-      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-        graph: MOCK_GRAPH,
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
       });
 
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
       const step2 = await checkAccessibility(page);
       expectNoViolations(step2);
 
-      // Advance to Step 3: Compliance. The scan already selected every
-      // discovered object, so the wizard walks straight over — toggling
-      // select-all here would *clear* the selection and disable `next`.
-      await page.getByTestId('seed-wizard-next').click();
-      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      // Advance to Step 3: Compliance. Nothing is picked for the user: every
+      // listed object is picked, and the selection scanned.
+      await pickAutopilotObjectsAndScan(bridge, page);
       const step3 = await checkAccessibility(page);
       expectNoViolations(step3);
 
@@ -5045,12 +5061,11 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, scanning, '[data-testid="autopilot-scan-loading"]'),
       ).toBeGreaterThan(0);
 
-      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-        graph: MOCK_GRAPH,
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-      await page.getByTestId('seed-wizard-next').click();
-      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
       await page.getByTestId('seed-wizard-next').click();
       await page.getByTestId('autopilot-plan-loading').waitFor({ timeout: 5000 });
       const planning = await checkAccessibility(page);
@@ -5067,12 +5082,11 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('source-org-org-src-1').click();
       await page.getByTestId('target-org-org-tgt-1').click();
       await page.getByTestId('seed-wizard-next').click();
-      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-        graph: MOCK_GRAPH,
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-      await page.getByTestId('seed-wizard-next').click();
-      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
       await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: MOCK_PLAN,
@@ -5103,12 +5117,11 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('source-org-org-src-1').click();
       await page.getByTestId('target-org-org-tgt-1').click();
       await page.getByTestId('seed-wizard-next').click();
-      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-        graph: MOCK_GRAPH,
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-      await page.getByTestId('seed-wizard-next').click();
-      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
       await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: {
@@ -7571,12 +7584,11 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('source-org-org-src-1').click();
       await page.getByTestId('target-org-org-tgt-1').click();
       await page.getByTestId('seed-wizard-next').click();
-      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-        graph: MOCK_GRAPH,
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-      await page.getByTestId('seed-wizard-next').click();
-      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
       await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: MOCK_PLAN,
@@ -7606,12 +7618,11 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('source-org-org-src-1').click();
       await page.getByTestId('target-org-org-tgt-1').click();
       await page.getByTestId('seed-wizard-next').click();
-      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-        graph: MOCK_GRAPH,
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-      await page.getByTestId('seed-wizard-next').click();
-      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
       await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: MOCK_PLAN,
@@ -7689,6 +7700,22 @@ for (const theme of STATE_THEMES) {
       await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
       await answerAll(page, 'seed:execute', 'seed:execute:response', SEED_RUN_RESULT);
       await page.getByTestId('seed-step-results-content').waitFor({ timeout: 10_000 });
+      // What the run created, offered for removal beside its results.
+      await bridge.waitForMessage('seed:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'seed:removal:info', 'seed:removal:info:response', {
+        info: {
+          runId: 'op-axe',
+          targetOrgId: 'org-src-1',
+          startedAt: '2026-10-01T09:59:00.000Z',
+          endedAt: '2026-10-01T10:00:00.000Z',
+          created: 390,
+          left: [
+            { objectApiName: 'Contact', count: 290 },
+            { objectApiName: 'Account', count: 100 },
+          ],
+        },
+      });
+      await page.getByTestId('seed-removal-remove').waitFor({ timeout: 10_000 });
 
       // The button had no handler.
       await page.getByTestId('btn-export-csv').click();

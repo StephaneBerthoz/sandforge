@@ -58,6 +58,32 @@ describe('Step2_Objects', () => {
     expect(contactRow.textContent).toContain('400');
   });
 
+  it('shows no count for an object not counted yet, and the count once it is', () => {
+    // The listing counts nothing: an object is counted once it is picked,
+    // and a zero drawn for it before would read as an empty table.
+    const { rerender } = render(
+      <Step2Objects
+        availableObjects={[{ apiName: 'Account', label: 'Account' }]}
+        selectedObjects={['Account']}
+        selectAll
+        onToggleObject={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('object-Account').textContent).toBe('Account(Account)');
+
+    rerender(
+      <Step2Objects
+        availableObjects={[{ apiName: 'Account', label: 'Account', recordCount: 0 }]}
+        selectedObjects={['Account']}
+        selectAll
+        onToggleObject={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('object-Account').textContent).toMatch(/0/);
+  });
+
   it('should call onToggleObject when object clicked', () => {
     const onToggleObject = vi.fn();
     render(

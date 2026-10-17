@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import type { AutopilotGraph, ExecutionPlan } from '@sandforge/shared';
+import type { AutopilotGraph, AutopilotObjectListing, ExecutionPlan } from '@sandforge/shared';
+import { AUTOPILOT_COUNTS_PER_REQUEST } from '@sandforge/shared';
 import '../../../i18n';
 import en from '../../../i18n/locales/en.json';
 import { AutopilotWizard } from './AutopilotWizard';
@@ -54,6 +55,13 @@ const GRAPH: AutopilotGraph = {
   },
 };
 
+/** Fixture listing returned by list-objects responses. */
+const LISTING: AutopilotObjectListing[] = [
+  { apiName: 'Account', label: 'Account', custom: false },
+  { apiName: 'Contact', label: 'Contact', custom: false },
+  { apiName: 'Invoice__c', label: 'Invoice', custom: true },
+];
+
 /** Fixture plan returned by generate-plan responses. */
 const PLAN: ExecutionPlan = {
   waves: [
@@ -73,7 +81,9 @@ const PLAN: ExecutionPlan = {
   cycleResolutions: [],
 };
 
-/** Mock bridge mutations (scan + plan) — state driven per test. */
+/** Mock bridge mutations (list + count + scan + plan) — state driven per test. */
+const mockListMutate = vi.fn();
+const mockCountMutate = vi.fn();
 const mockScanMutate = vi.fn();
 const mockPlanMutate = vi.fn();
 
@@ -85,6 +95,8 @@ interface MutationState {
   reset: ReturnType<typeof vi.fn>;
 }
 
+let listState: MutationState;
+let countState: MutationState;
 let scanState: MutationState;
 let planState: MutationState;
 
@@ -97,7 +109,14 @@ const idleMutation = (mutate: ReturnType<typeof vi.fn>): MutationState => ({
 });
 
 vi.mock('../../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: (type: string) => (type === 'autopilot:scan-schema' ? scanState : planState),
+  useBridgeMutation: (type: string) =>
+    type === 'autopilot:list-objects'
+      ? listState
+      : type === 'autopilot:count-objects'
+        ? countState
+        : type === 'autopilot:scan-schema'
+          ? scanState
+          : planState,
 }));
 
 /** Mock useOrgStore to return test orgs. */
@@ -129,92 +148,146 @@ vi.mock('../../../stores/useOrgStore', () => ({
 
 describe('AutopilotWizard', () => {
   const onExecute = vi.fn();
+  // A new element each time: rendered again with the same one, React skips it.
+  const wizard = (): React.ReactElement => (
+    <AutopilotWizard onExecute={onExecute} isExecuting={false} />
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
+    listState = idleMutation(mockListMutate);
+    countState = idleMutation(mockCountMutate);
     scanState = idleMutation(mockScanMutate);
     planState = idleMutation(mockPlanMutate);
     useAutopilotStore.getState().reset();
   });
 
-  /** Select both orgs and click Next — posts the scan request. */
-  const connectOrgsAndScan = (): void => {
+  /** Select both orgs and click Next — posts the listing request. */
+  const connectOrgs = (): void => {
     fireEvent.click(screen.getByTestId('source-org-org-1'));
     fireEvent.click(screen.getByTestId('target-org-org-2'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
   };
 
+  /** Connect, answer the listing, and land on the object step. */
+  const toObjects = (rerender: (ui: React.ReactElement) => void): void => {
+    connectOrgs();
+    listState = { ...listState, data: { objects: LISTING } };
+    rerender(wizard());
+  };
+
+  /** From the object step: pick Account and Contact, Next, answer the scan. */
+  const toCompliance = (rerender: (ui: React.ReactElement) => void): void => {
+    toObjects(rerender);
+    fireEvent.click(screen.getByTestId('object-Account'));
+    fireEvent.click(screen.getByTestId('object-Contact'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    scanState = { ...scanState, data: { graph: GRAPH } };
+    rerender(wizard());
+  };
+
   it('should render step 1 (Connect) by default', () => {
-    render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    render(wizard());
     expect(screen.getByTestId('autopilot-wizard')).toBeDefined();
     expect(screen.getByTestId('step1-connect')).toBeDefined();
   });
 
   it('should disable next when no orgs are selected', () => {
-    render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    render(wizard());
     expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('should post autopilot:scan-schema when both orgs selected and next clicked', () => {
-    render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    expect(mockScanMutate).toHaveBeenCalledWith({
+  it('asks for the listing of the objects, not a scan, when both orgs are chosen', () => {
+    // A scan with nothing selected described every object of the org and
+    // counted every table before the user had picked one.
+    render(wizard());
+    connectOrgs();
+    expect(mockListMutate).toHaveBeenCalledWith({
       sourceOrgId: 'org-1',
       targetOrgId: 'org-2',
-      selectedObjects: [],
       includeStandardObjects: true,
     });
+    expect(mockScanMutate).not.toHaveBeenCalled();
+    expect(mockCountMutate).not.toHaveBeenCalled();
   });
 
-  it('should advance to objects and list discovered nodes on schema-result', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+  it('lists the objects by label on the object step, none picked and none counted', () => {
+    const { rerender } = render(wizard());
+    toObjects(rerender);
 
     expect(useAutopilotStore.getState().step).toBe('objects');
-    expect(screen.getByTestId('object-Account')).toBeDefined();
-    expect(screen.getByTestId('object-Contact')).toBeDefined();
-    // Selection initialized to every discovered object
-    expect(useAutopilotStore.getState().selectedObjects).toEqual(['Account', 'Contact']);
+    expect(screen.getByTestId('object-Invoice__c').textContent).toBe('Invoice(Invoice__c)');
+    expect(useAutopilotStore.getState().selectedObjects).toEqual([]);
+    expect(mockCountMutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('should show a scan error banner when the scan fails', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
+  it('counts an object once it is picked, and shows the count when it comes', () => {
+    const { rerender } = render(wizard());
+    toObjects(rerender);
 
-    scanState = { ...scanState, loading: false, error: 'boom' };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    fireEvent.click(screen.getByTestId('object-Invoice__c'));
+    expect(mockCountMutate).toHaveBeenCalledWith({
+      sourceOrgId: 'org-1',
+      objectApiNames: ['Invoice__c'],
+    });
+
+    countState = { ...countState, data: { counts: { Invoice__c: 61635 } } };
+    rerender(wizard());
+    expect(screen.getByTestId('object-Invoice__c').textContent).toContain('61');
+    expect(screen.getByTestId('object-Account').textContent).toBe('Account(Account)');
+
+    // Unpicked and picked again: counted once.
+    fireEvent.click(screen.getByTestId('object-Invoice__c'));
+    fireEvent.click(screen.getByTestId('object-Invoice__c'));
+    expect(mockCountMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the counts of everything picked at once a page at a time, while none is in flight', () => {
+    const many: AutopilotObjectListing[] = Array.from(
+      { length: AUTOPILOT_COUNTS_PER_REQUEST + 5 },
+      (_, n) => ({ apiName: `Obj${n}__c`, label: `Obj ${n}`, custom: true }),
+    );
+    const { rerender } = render(wizard());
+    connectOrgs();
+    listState = { ...listState, data: { objects: many } };
+    rerender(wizard());
+
+    fireEvent.click(screen.getByTestId('select-all-checkbox'));
+    expect(mockCountMutate).toHaveBeenCalledTimes(1);
+    expect(mockCountMutate.mock.calls[0][0].objectApiNames).toHaveLength(
+      AUTOPILOT_COUNTS_PER_REQUEST,
+    );
+
+    countState = { ...countState, loading: true };
+    rerender(wizard());
+    expect(mockCountMutate).toHaveBeenCalledTimes(1);
+
+    countState = { ...countState, loading: false, data: { counts: { Obj0__c: 3 } } };
+    rerender(wizard());
+    expect(mockCountMutate).toHaveBeenCalledTimes(2);
+    expect(mockCountMutate.mock.calls[1][0].objectApiNames).toHaveLength(5);
+  });
+
+  it('should show an error banner when the listing fails', () => {
+    const { rerender } = render(wizard());
+    connectOrgs();
+
+    listState = { ...listState, loading: false, error: 'boom' };
+    rerender(wizard());
 
     expect(screen.getByTestId('autopilot-scan-error')).toBeDefined();
     expect(useAutopilotStore.getState().step).toBe('connect');
   });
 
-  it('should go straight to compliance when every object stays selected', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+  it('scans the objects picked, and lands on compliance with the selection as picked', () => {
+    const { rerender } = render(wizard());
+    toObjects(rerender);
 
+    fireEvent.click(screen.getByTestId('object-Account'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
-    // No re-scan needed — the initial scan already covers everything.
     expect(mockScanMutate).toHaveBeenCalledTimes(1);
-    expect(useAutopilotStore.getState().step).toBe('compliance');
-  });
-
-  it('should re-scan with the narrowed selection when objects were unselected', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-
-    // Unselect Contact, then Next → re-scan with the remaining subset.
-    fireEvent.click(screen.getByTestId('object-Contact'));
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
-
-    expect(mockScanMutate).toHaveBeenCalledTimes(2);
     expect(mockScanMutate).toHaveBeenLastCalledWith({
       sourceOrgId: 'org-1',
       targetOrgId: 'org-2',
@@ -222,20 +295,43 @@ describe('AutopilotWizard', () => {
       includeStandardObjects: true,
     });
 
-    // The re-scan response lands on the compliance step.
     scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    rerender(wizard());
     expect(useAutopilotStore.getState().step).toBe('compliance');
-    // User subset is preserved (not re-initialized to all nodes).
+    // The scan's parents are not picked for the user.
     expect(useAutopilotStore.getState().selectedObjects).toEqual(['Account']);
   });
 
-  it('should post autopilot:generate-plan on next from compliance', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+  it('scans even when every listed object is picked: no earlier scan covers them', () => {
+    const { rerender } = render(wizard());
+    toObjects(rerender);
+
+    fireEvent.click(screen.getByTestId('select-all-checkbox'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
+
+    expect(mockScanMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedObjects: ['Account', 'Contact', 'Invoice__c'] }),
+    );
+    expect(useAutopilotStore.getState().step).toBe('objects');
+  });
+
+  it('keeps what was picked when the user goes back and the orgs are listed again', () => {
+    const { rerender } = render(wizard());
+    toObjects(rerender);
+    fireEvent.click(screen.getByTestId('object-Contact'));
+
+    fireEvent.click(screen.getByTestId('seed-wizard-back'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    listState = { ...listState, data: { objects: LISTING.slice(1) } };
+    rerender(wizard());
+
+    expect(mockListMutate).toHaveBeenCalledTimes(2);
+    expect(useAutopilotStore.getState().selectedObjects).toEqual(['Contact']);
+  });
+
+  it('should post autopilot:generate-plan on next from compliance', () => {
+    const { rerender } = render(wizard());
+    toCompliance(rerender);
 
     fireEvent.click(screen.getByTestId('framework-gdpr'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
@@ -249,15 +345,12 @@ describe('AutopilotWizard', () => {
   });
 
   it('should land on review with plan stats on plan-ready', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    const { rerender } = render(wizard());
+    toCompliance(rerender);
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
     planState = { ...planState, data: { plan: PLAN, graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    rerender(wizard());
 
     expect(useAutopilotStore.getState().step).toBe('review');
     expect(screen.getByTestId('step4-review')).toBeDefined();
@@ -266,52 +359,57 @@ describe('AutopilotWizard', () => {
   });
 
   it('should call onExecute when the execute button is clicked', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    const { rerender } = render(wizard());
+    toCompliance(rerender);
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
     planState = { ...planState, data: { plan: PLAN, graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    rerender(wizard());
 
     fireEvent.click(screen.getByTestId('execute-button'));
     expect(onExecute).toHaveBeenCalled();
   });
 
-  it('says why Next waits while the scan runs, as a status a screen reader reads out', () => {
-    // Next is unavailable while the scan runs, and the line saying why was
+  it('says why Next waits while the objects are listed, as a status a screen reader reads out', () => {
+    // Next is unavailable while the listing runs, and the line saying why was
     // drawn alone: a screen reader on Next heard nothing of it.
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
+    const { rerender } = render(wizard());
+    connectOrgs();
+
+    listState = { ...listState, loading: true };
+    rerender(wizard());
+
+    expect(screen.getByRole('status').textContent).toBe(en.autopilot.status.listing);
+    expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('says why Next waits while the selection is scanned, as a status a screen reader reads out', () => {
+    const { rerender } = render(wizard());
+    toObjects(rerender);
+    fireEvent.click(screen.getByTestId('object-Account'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
     scanState = { ...scanState, loading: true };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    rerender(wizard());
 
     expect(screen.getByRole('status').textContent).toBe(en.autopilot.status.scanning);
     expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('says why Next waits while the plan is built, as a status a screen reader reads out', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    const { rerender } = render(wizard());
+    toCompliance(rerender);
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
     planState = { ...planState, loading: true };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    rerender(wizard());
 
     expect(screen.getByRole('status').textContent).toBe(en.autopilot.status.planning);
     expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('should go back to step 1 from step 2 (store-backed navigation)', () => {
-    const { rerender } = render(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
-    connectOrgsAndScan();
-    scanState = { ...scanState, data: { graph: GRAPH } };
-    rerender(<AutopilotWizard onExecute={onExecute} isExecuting={false} />);
+    const { rerender } = render(wizard());
+    toObjects(rerender);
 
     fireEvent.click(screen.getByTestId('seed-wizard-back'));
     expect(screen.getByTestId('step1-connect')).toBeDefined();

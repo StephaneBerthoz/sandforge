@@ -1,6 +1,7 @@
 /**
  * SchemaScanner — Scans source and target org schemas for the Autopilot module.
- * Discovers the selected objects and the parents their records reference, as
+ * Lists the objects a run may copy, without describing or counting any;
+ * discovers the selected objects and the parents their records reference, as
  * far as the bounds go, verifies target org compatibility, and counts the
  * records a run copies: every record of a selected object, and of every other
  * object only those the selection references.
@@ -10,6 +11,7 @@ import type {
   ApiName,
   AutopilotLeftOutReason,
   AutopilotLookupLeftEmpty,
+  AutopilotObjectListing,
   AutopilotPlanScope,
 } from '@sandforge/shared';
 import { isRequiredLookup, isSettableField } from '@sandforge/shared';
@@ -200,22 +202,68 @@ export class SchemaScanner {
   }
 
   /**
+   * The objects a run may copy, for the user to choose from: the source's
+   * queryable, creatable objects — custom ones only unless standard objects
+   * are asked for — less those no copy writes, as the target's global
+   * describe and its Tooling API say (`isNeverCopied`), each with its label
+   * and whether it is custom.
+   *
+   * Two global describes and the Tooling API's, and nothing per object. The
+   * panel's first scan used to be `scan` with nothing selected, which
+   * described every object it listed and counted each table: on a client
+   * sandbox of some six hundred and seventy custom objects, hundreds of calls
+   * before the user had picked anything. What is picked is counted on its
+   * own (`countObjects`), and scanned (`scan`).
+   */
+  async listObjects(
+    sourceConn: AutopilotConnection,
+    targetConn: AutopilotConnection,
+    includeStandardObjects: boolean,
+  ): Promise<AutopilotObjectListing[]> {
+    const [sourceGlobal, targetGlobal] = await Promise.all([
+      sourceConn.describeGlobal(),
+      targetConn.describeGlobal(),
+    ]);
+    const described = excludedByDescribe(
+      targetGlobal.sobjects,
+      await this.toolingObjects(targetConn),
+    );
+    return sourceGlobal.sobjects
+      .filter((s) => s.queryable && s.createable)
+      .filter((s) => includeStandardObjects || s.custom)
+      .filter((s) => !isNeverCopied(s.name, described))
+      .map((s) => ({ apiName: s.name, label: s.label, custom: s.custom }));
+  }
+
+  /**
+   * How many records each of `objectNames` holds in the org: one `COUNT()`
+   * each, `maxConcurrent` at a time. An object the
+   * org will not count is left out of the answer.
+   */
+  async countObjects(
+    conn: AutopilotConnection,
+    objectNames: ApiName[],
+  ): Promise<Map<ApiName, number>> {
+    return this.countRecords(conn, objectNames);
+  }
+
+  /**
    * Scan schemas on source and target orgs.
    *
-   * 1. If selectedObjects is empty, auto-detect all queryable+creatable custom objects.
-   * 2. Walk from the selected objects' records to the records they
+   * 1. Walk from the selected objects' records to the records they
    *    reference, as far as `options` lets it: a selected object's table is
    *    copied, and of every other object the records the selection
    *    references, read by id.
-   * 3. Verify objects exist on target org.
+   * 2. Verify objects exist on target org.
    *
    * @param sourceConn - Connection to the source org.
    * @param targetConn - Connection to the target org.
-   * @param selectedObjects - Objects explicitly selected by the user (empty = auto-detect).
-   * @param includeStandardObjects - Whether standard objects are auto-detected,
-   *   and taken when the walk reaches one a record can be written without.
+   * @param selectedObjects - Objects explicitly selected by the user: at least one.
+   * @param includeStandardObjects - Whether a standard object is taken when
+   *   the walk reaches one a record can be written without.
    * @param options - How far the walk goes, and who hears of its progress.
    * @returns Schema scan result with describes, dependencies, and record counts.
+   * @throws When nothing is selected: see `listObjects`.
    */
   async scan(
     sourceConn: AutopilotConnection,
@@ -228,29 +276,21 @@ export class SchemaScanner {
     const maxObjects = wholeOr(options.maxObjects, DEFAULT_SCAN_OBJECTS);
     const say = options.onProgress ?? ((): void => {});
 
+    // With nothing selected, the scan described every object of the org and
+    // counted every table, and a plan of all of it was what came out. The
+    // choice is made from `listObjects`; a scan starts from what was chosen.
+    if (selectedObjects.length === 0) {
+      throw new Error(
+        'Choose the objects to copy: a scan starts from them, and with none chosen it would ' +
+          'describe and count every object of the org.',
+      );
+    }
+
     // What the source says of each object: whether it is custom, and the key
     // prefix that tells which object a polymorphic lookup's id belongs to.
     const sourceGlobal = await sourceConn.describeGlobal();
 
-    // Step 1: Determine which objects to scan
-    let rootObjects: ApiName[];
-    if (selectedObjects.length === 0) {
-      rootObjects = sourceGlobal.sobjects
-        .filter((s) => s.queryable && s.createable)
-        /*
-         * `createable` is the platform's answer to "can the API create one",
-         * and for `User` it is yes — at the cost of a licence and a globally
-         * unique username. A run put 39 of them in its first wave and called
-         * insert on each. `RecordType`, `Profile` and the sharing groups are
-         * metadata, deployed rather than inserted. None of them can be copied,
-         * and a node that fails in wave one leaves every later wave remapping
-         * foreign keys onto records that were never created.
-         */
-        .filter((s) => includeStandardObjects || s.custom)
-        .map((s) => s.name);
-    } else {
-      rootObjects = [...selectedObjects];
-    }
+    let rootObjects: ApiName[] = [...selectedObjects];
 
     /*
      * What the target itself says no copy writes: the objects its Tooling API
@@ -268,10 +308,10 @@ export class SchemaScanner {
     const leftOut = (name: ApiName): boolean => isNeverCopied(name, described);
 
     /*
-     * Applied to a selection as well as to a discovery, because the rule is
+     * Applied to a selection as well as to the listing, because the rule is
      * about what a copy can do and not about how the name got into the list.
      * A saved configuration, a template, or a picker written before this
-     * existed can all carry one, and filtering only the discovered half would
+     * existed can all carry one, and filtering only the listed half would
      * have left the run that started this — 39 `User` records in wave one —
      * reachable from a saved config.
      *
@@ -300,9 +340,6 @@ export class SchemaScanner {
       keyPrefixes,
       maxDepth,
       maxObjects,
-      // Nothing was selected: every object a copy may write is in, and none
-      // is walked to. Its tables are counted, as they always were.
-      follow: selectedObjects.length > 0,
       say,
     });
 
@@ -370,8 +407,6 @@ export class SchemaScanner {
       keyPrefixes: ReadonlyMap<string, ApiName>;
       maxDepth: number;
       maxObjects: number;
-      /** Whether the selected objects' records are walked to their parents at all. */
-      follow: boolean;
       say: (line: string) => void;
     },
   ): Promise<{
@@ -466,7 +501,7 @@ export class SchemaScanner {
       const onward = lookups(name).filter((lookup) =>
         lookup.targets.some((target) => !selected.has(target)),
       );
-      if (!bounds.follow || onward.length === 0) {
+      if (onward.length === 0) {
         counted.push(name);
         continue;
       }

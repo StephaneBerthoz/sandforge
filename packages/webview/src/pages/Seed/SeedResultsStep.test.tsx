@@ -112,6 +112,38 @@ describe('SeedResultsStep', () => {
     mockVSCodeApi.postMessage.mockClear();
   });
 
+  it('offers the removal of what the run created, asking for it by the run’s id', () => {
+    // The command line could take a seed back from its summary; the panel
+    // offered nothing, and the records stayed in the org.
+    render(
+      <SeedResultsStep
+        executionResult={executionResult([objectResult()])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    const asked = mockVSCodeApi.postMessage.mock.calls
+      .map(([envelope]) => (envelope as { payload: { type: string; payload?: unknown } }).payload)
+      .filter((message) => message.type === 'seed:removal:info');
+    expect(asked.map((message) => message.payload)).toEqual([{ runId: 'op-1' }]);
+  });
+
+  it('offers no removal for a run that created nothing', () => {
+    render(
+      <SeedResultsStep
+        executionResult={{
+          ...executionResult([objectResult({ recordsCreated: 0, recordsFailed: 10 })]),
+          totalRecordsCreated: 0,
+        }}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(mockVSCodeApi.postMessage).not.toHaveBeenCalled();
+  });
+
   it('exports, per object, the records asked for, created and failed, and the ids created', () => {
     // The button had no handler: every results step offered an export that
     // saved nothing.
@@ -307,10 +339,11 @@ describe('SeedResultsStep', () => {
     );
 
     fireEvent.click(screen.getByTestId('btn-save-template'));
-    const sent = mockVSCodeApi.postMessage.mock.calls[0][0] as {
-      payload: { id: string; type: string };
-    };
-    expect(sent.payload.type).toBe('seed:template:save');
+    // The removal card beside it asks what the run kept as it mounts.
+    const sent = mockVSCodeApi.postMessage.mock.calls
+      .map(([envelope]) => envelope as { payload: { id: string; type: string } })
+      .find((envelope) => envelope.payload.type === 'seed:template:save');
+    if (!sent) throw new Error('no seed:template:save was sent');
 
     act(() => {
       window.dispatchEvent(

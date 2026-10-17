@@ -1,12 +1,51 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
   AutopilotGraph,
+  AutopilotObjectListing,
   ExecutionPlan,
   AnonymizationOverride,
   AutopilotNodeStatus,
 } from '../autopilot.types.js';
 import type { ComplianceFrameworkType } from '../common.types.js';
 import type { ComplianceReport } from '../compliance.types.js';
+
+/**
+ * Request to list the objects a run may copy: the object picker's list, read
+ * from the two orgs' global describes and nothing else.
+ */
+export interface AutopilotListObjectsRequest extends BaseMessage {
+  type: 'autopilot:list-objects';
+  payload: {
+    sourceOrgId: string;
+    targetOrgId: string;
+    includeStandardObjects: boolean;
+  };
+}
+
+/** The objects a run may copy, without a describe or a count of any. */
+export interface AutopilotObjectsListed extends BaseMessage {
+  type: 'autopilot:objects-listed';
+  payload: {
+    objects: AutopilotObjectListing[];
+  };
+}
+
+/** Request to count the records of a few listed objects: the ones the user picked. */
+export interface AutopilotCountObjectsRequest extends BaseMessage {
+  type: 'autopilot:count-objects';
+  payload: {
+    sourceOrgId: string;
+    objectApiNames: string[];
+  };
+}
+
+/** Records per object counted; an object the org would not count is left out. */
+export interface AutopilotObjectsCounted extends BaseMessage {
+  type: 'autopilot:objects-counted';
+  payload: {
+    counts: Record<string, number>;
+  };
+}
 
 /** Request to scan source/target org schemas and build dependency graph */
 export interface AutopilotScanSchemaRequest extends BaseMessage {

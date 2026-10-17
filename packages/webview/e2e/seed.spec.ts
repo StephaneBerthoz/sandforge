@@ -600,6 +600,101 @@ test.describe('Seed — a wizard run of three objects, which skips the configure
   });
 });
 
+/** One object's removal, as the extension counts it. */
+function removedObject(objectApiName: string, deleted: number): Record<string, unknown> {
+  return {
+    objectApiName,
+    planned: deleted,
+    deleted,
+    alreadyGone: 0,
+    keptChanged: 0,
+    keptDependents: 0,
+    refused: 0,
+    heldBy: [],
+    unchecked: [],
+    reasons: [],
+  };
+}
+
+test.describe('Seed — a run taken back from its results', () => {
+  test('removes what the run created, by its id, once the org is typed', async ({ page }) => {
+    // The command line could take a seed back from its summary; the panel
+    // offered nothing, and what a seed wrote from it stayed in the org.
+    const bridge = await pickThreeObjectsAndMoveOn(page);
+    await settleDescribes(page);
+    await page.getByTestId('seed-wizard-next').click();
+    await page.getByTestId('seed-wizard-finish').click();
+    await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+    await respondToAll(page, 'seed:execute', 'seed:execute:response', {
+      templateId: 'tpl',
+      operationId: 'op-seed-1',
+      status: 'success',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          recordsCreated: 1,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [],
+        },
+        {
+          objectApiName: 'Contact',
+          recordsCreated: 2,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [],
+        },
+      ],
+      totalRecordsCreated: 3,
+      totalRecordsFailed: 0,
+      duration: 1_000,
+      timestamp: '2026-10-17T08:01:00.000Z',
+    });
+    await expect(page.getByTestId('seed-step-results-content')).toBeVisible({ timeout: 10_000 });
+
+    const asked = await bridge.waitForMessage('seed:removal:info', { timeout: 10_000 });
+    expect(asked.payload).toEqual({ runId: 'op-seed-1' });
+    await respondToAll(page, 'seed:removal:info', 'seed:removal:info:response', {
+      info: {
+        runId: 'op-seed-1',
+        targetOrgId: 'org-src-1',
+        startedAt: '2026-10-17T08:00:00.000Z',
+        endedAt: '2026-10-17T08:01:00.000Z',
+        created: 3,
+        left: [
+          { objectApiName: 'Contact', count: 2 },
+          { objectApiName: 'Account', count: 1 },
+        ],
+      },
+    });
+    await expect(page.getByTestId('seed-removal-created')).toHaveText(
+      '3 records created in DevSandbox',
+    );
+
+    await page.getByTestId('seed-removal-remove').click();
+    await expect(page.getByTestId('forge-removal-plan')).toContainText('Contact');
+    expect(await outgoing(page, 'seed:remove')).toEqual([]);
+    await page.getByTestId('danger-input').fill('DevSandbox');
+    await page.getByTestId('danger-confirm-btn').click();
+
+    const remove = await bridge.waitForMessage('seed:remove', { timeout: 10_000 });
+    expect(remove.payload).toEqual({ runId: 'op-seed-1' });
+    await expect(page.getByTestId('seed-removal-removing')).toBeVisible();
+    await respondToAll(page, 'seed:remove', 'seed:remove:response', {
+      result: {
+        runId: 'op-seed-1',
+        status: 'success',
+        includeChanged: false,
+        finishedAt: '2026-10-17T09:00:00.000Z',
+        objects: [removedObject('Contact', 2), removedObject('Account', 1)],
+      },
+      operationId: String(remove.id),
+    });
+    await expect(page.getByTestId('forge-removal-result')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('seed-removal-removing')).toHaveCount(0);
+  });
+});
+
 /** Both sandboxes, neither connected: no org is selected, so a clone has no target. */
 const NONE_SELECTED = MOCK_ORGS.map((org) => ({ ...org, status: 'expired' }));
 

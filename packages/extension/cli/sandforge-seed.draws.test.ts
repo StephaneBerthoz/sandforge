@@ -2,7 +2,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { SeedTemplate } from '@sandforge/shared';
 import { childrenPerParent } from '@sandforge/shared';
 import {
+  accountKindOfRecordTypes,
   parseArgs,
+  personAccountLine,
+  personRecordTypeNames,
   recordTypeChoiceLine,
   recordTypeRule,
   rulesFromDescribe,
@@ -204,6 +207,41 @@ describe('contact points', () => {
     expect(rules.map((r) => r.fieldApiName)).toEqual(['Name', 'Phone']);
   });
 
+  it('writes an account given a person account’s record type as a person: names, email and phones, no Name', () => {
+    // The org builds a person account's Name from its two names and refuses
+    // one written; written as a business account, it went in as a company.
+    const fields = [
+      field('Name', 'string'),
+      field('FirstName', 'string'),
+      field('LastName', 'string'),
+      field('Salutation', 'picklist'),
+      field('Phone', 'phone'),
+      field('PersonEmail', 'email'),
+      field('PersonMobilePhone', 'phone'),
+      field('Industry', 'picklist'),
+    ];
+
+    const rules = rulesFromDescribe(fields, 'Account', 'person');
+
+    expect(rules.map((r) => [r.fieldApiName, r.config.fakerMethod])).toEqual([
+      ['FirstName', 'firstName'],
+      ['LastName', 'lastName'],
+      ['Phone', 'phone'],
+      ['PersonEmail', 'email'],
+      ['PersonMobilePhone', 'phone'],
+    ]);
+    const [record] = new FakerFallback('en_US').generate(rules, 1);
+    expect(record.Name).toBeUndefined();
+    expect(typeof record.LastName).toBe('string');
+    expect(isReservedEmailDomain(String(record.PersonEmail).split('@')[1])).toBe(true);
+    expect(isReservedPhone(String(record.PersonMobilePhone), 'en_US')).toBe(true);
+    // A business account is written as it was.
+    expect(rulesFromDescribe(fields, 'Account').map((r) => r.fieldApiName)).toEqual([
+      'Name',
+      'Phone',
+    ]);
+  });
+
   it('draws addresses and numbers nobody holds, in the locale asked for', () => {
     const rules = rulesFromDescribe([field('Email', 'email'), field('Phone', 'phone')], 'Contact');
     for (const locale of ['en_US', 'fr_FR']) {
@@ -298,5 +336,50 @@ describe('record types', () => {
     expect(
       refuse('--target', 'TGT', '--object', 'Account:2', '--record-type', 'Case=Main').message,
     ).toMatch(/give Case with --object too/);
+  });
+});
+
+describe('person accounts', () => {
+  it('reads the org’s person account record types by API name, and none from an org without them', async () => {
+    const query = vi.fn(async (soql: string) => ({
+      records: [{ DeveloperName: 'PersonAccount' }, { DeveloperName: 'Patient' }],
+      soql,
+    }));
+    expect([...(await personRecordTypeNames({ query }))]).toEqual(['PersonAccount', 'Patient']);
+    expect(query.mock.calls[0][0]).toBe(
+      "SELECT DeveloperName FROM RecordType WHERE SobjectType = 'Account' AND IsPersonType = true",
+    );
+
+    // An org without person accounts has no IsPersonType, and refuses the read.
+    const refusing = {
+      query: async () => {
+        throw new Error("INVALID_FIELD: No such column 'IsPersonType' on entity 'RecordType'");
+      },
+    };
+    expect((await personRecordTypeNames(refusing)).size).toBe(0);
+  });
+
+  it('writes person accounts for person record types, business accounts for the others, and refuses a mix', () => {
+    const persons = new Set(['PersonAccount', 'Patient']);
+
+    expect(accountKindOfRecordTypes(['PersonAccount'], persons)).toEqual({ kind: 'person' });
+    expect(accountKindOfRecordTypes(['PersonAccount', 'Patient'], persons)).toEqual({
+      kind: 'person',
+    });
+    expect(accountKindOfRecordTypes(['Customer'], persons)).toEqual({ kind: 'business' });
+    expect(accountKindOfRecordTypes(['Customer'], new Set())).toEqual({ kind: 'business' });
+    const mixed = accountKindOfRecordTypes(['PersonAccount', 'Customer'], persons);
+    expect('refusal' in mixed && mixed.refusal).toBe(
+      '--record-type Account: PersonAccount is a person account record type and Customer is ' +
+        'not: a person account and a business account take different fields. Seed one kind in a run.',
+    );
+  });
+
+  it('says the accounts are written as person accounts, and without a Name', () => {
+    expect(personAccountLine(['PersonAccount'])).toBe(
+      '  Account: PersonAccount is a person account record type: the accounts are written as ' +
+        'person accounts, with a first and last name, the person’s email and phones, and no ' +
+        'Name, which the org builds from the two names',
+    );
   });
 });

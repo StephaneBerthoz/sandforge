@@ -8,6 +8,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { Step7Execute } from './Step7_Execute';
+import { SeedRunRemoval } from './SeedRunRemoval';
 import type { QuickSeedState } from './useQuickSeed';
 import type { BadgeVariant } from '../../components/ui/Badge';
 
@@ -171,6 +172,10 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   )}
                 </Card>
               ))}
+
+              {quickSeed.executionResult.totalRecordsCreated > 0 && (
+                <SeedRunRemoval runId={quickSeed.executionResult.operationId} />
+              )}
 
               <div className="flex gap-2 pt-2" data-testid="quick-seed-result-actions">
                 <Button

@@ -11,11 +11,14 @@ import type {
 } from '@sandforge/shared';
 import { childrenPerParent, relationFor, seedDependencies } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
+import { addWrittenWithoutFields, fieldsLeftOutNote } from '../../core/common/refusedFields.js';
 import type { SeedValidator } from './SeedValidator';
 import type { DataPlanBuilder } from './DataPlanBuilder';
 import type { FieldMapper } from './FieldMapper';
 import type { ReferenceLinker } from './ReferenceLinker';
 import type { SeedGrappeAdapter } from './SeedGrappeAdapter';
+import { sendRefusedRowsAgain, type SentAgain } from './sendRefusedRowsAgain.js';
 import type { CoreServices } from '../../services.js';
 
 /** Function signature for inserting records into Salesforce */
@@ -26,6 +29,16 @@ export type InsertFn = (
   batchSize: number,
 ) => Promise<InsertResult>;
 
+/** What the org answered for one record of an insert. */
+export interface InsertedRow {
+  /** The id it gave the record; absent when it refused it. */
+  id?: string;
+  /** Why it refused it, as `errors` counts it. */
+  error?: string;
+  /** Every error it refused it with, each with its code and the fields it named. */
+  errorDetails?: SaveErrorDetail[];
+}
+
 /** Result of a batch insert operation */
 export interface InsertResult {
   successIds: string[];
@@ -35,6 +48,14 @@ export interface InsertResult {
    * were sent: the ids and errors are those of the records sent before it.
    */
   stopped?: boolean;
+  /**
+   * What the org answered for each record sent, in the order sent, when the
+   * write can say: what a row refused on fields a validation rule or a
+   * restricted picklist named is sent again from (`sendRefusedRowsAgain`).
+   * The REST path answers so; the Bulk API's paths do not, and a row they
+   * see refused stays refused.
+   */
+  rows?: InsertedRow[];
 }
 
 /** Function signature for generating unique IDs */
@@ -240,8 +261,9 @@ export class SeedOrchestrator {
       if (this.deps.signal?.aborted) {
         return this.stoppedResult(template, operationId, run, startTime);
       }
-      const insertResult = await this.deps.insert(orgId, obj.objectApiName, records, obj.batchSize);
-      recordWrite(run, obj, insertResult, ready.notes, fallback);
+      const sent = await this.insert(orgId, obj, records, ready);
+      const insertResult = sent.result;
+      recordWrite(run, obj, insertResult, [...ready.notes, ...notesOf(sent)], fallback);
       if (insertResult.stopped) return this.stoppedResult(template, operationId, run, startTime);
     }
 
@@ -394,6 +416,31 @@ export class SeedOrchestrator {
     };
   }
 
+  /**
+   * Insert records of an object, then write again, without the fields the
+   * org named, the rows it refused for a validation rule, a restricted
+   * picklist or a lookup filter (`sendRefusedRowsAgain`) — never without the
+   * lookup a relation filled, a reference rule's field, or the record type.
+   * Both paths insert through here, a partition at a time on the partitioned
+   * one.
+   */
+  private async insert(
+    orgId: string,
+    obj: SeedTemplate['objects'][number],
+    records: Record<string, unknown>[],
+    ready: ReadyObject,
+  ): Promise<SentAgain> {
+    const send = (rows: Record<string, unknown>[]): Promise<InsertResult> =>
+      this.deps.insert(orgId, obj.objectApiName, rows, obj.batchSize);
+    return sendRefusedRowsAgain(
+      send,
+      records,
+      await send(records),
+      settledFields(ready),
+      () => this.deps.signal?.aborted === true,
+    );
+  }
+
   /** Whether the org lets a seed write `field` on `objectApiName`; yes when nothing can tell. */
   private async orgTakesField(objectApiName: string, field: string): Promise<boolean> {
     if (!this.deps.describeCreateableFields) return true;
@@ -501,6 +548,8 @@ export class SeedOrchestrator {
       let objFailed = 0;
       const objErrors: string[] = [];
       const objCreatedIds: string[] = [];
+      /** What its partitions sent again without the fields the org named, said once for the object. */
+      const objSentAgain: SentAgain = { result: { successIds: [], errors: [] }, unsent: [] };
       /** Partitions of the object inserted before a cancel stopped it, if one did. */
       let stoppedAfter: number | undefined;
 
@@ -519,7 +568,12 @@ export class SeedOrchestrator {
         }
         const partitionStart = Date.now();
         const partitionId = partitions[processedPartitions]?.id ?? this.deps.generateId();
-        const insertResult = await this.deps.insert(orgId, obj.objectApiName, chunk, obj.batchSize);
+        const sent = await this.insert(orgId, obj, chunk, ready);
+        const insertResult = sent.result;
+        if (sent.written) {
+          objSentAgain.written = addWrittenWithoutFields(objSentAgain.written, sent.written);
+        }
+        objSentAgain.unsent.push(...sent.unsent);
 
         objSuccess += insertResult.successIds.length;
         objFailed += insertResult.errors.length;
@@ -561,7 +615,7 @@ export class SeedOrchestrator {
             run,
             obj,
             { successIds: objCreatedIds, errors: objErrors },
-            ready.notes,
+            [...ready.notes, ...notesOf(objSentAgain)],
             fallback,
           );
         }
@@ -578,7 +632,7 @@ export class SeedOrchestrator {
         run,
         obj,
         { successIds: objCreatedIds, errors: objErrors },
-        ready.notes,
+        [...ready.notes, ...notesOf(objSentAgain)],
         fallback,
       );
     }
@@ -686,6 +740,27 @@ interface ReadyObject {
   placed: PlacedChildren | undefined;
   /** What its result says besides the insert's own errors. */
   notes: string[];
+}
+
+/**
+ * The fields of an object no row is sent again without: the lookup its
+ * relation fills, the lookups its reference rules fill from records the run
+ * wrote, and the record type it was given. Written without them, a row
+ * would stand alone, or go in as another kind of record.
+ */
+function settledFields(ready: ReadyObject): ReadonlySet<string> {
+  return new Set([
+    'RecordTypeId',
+    ...(ready.relation ? [ready.relation.lookupField] : []),
+    ...ready.config.fieldRules
+      .filter((rule) => rule.ruleType === 'reference')
+      .map((rule) => rule.fieldApiName),
+  ]);
+}
+
+/** What an object's result says of its rows sent again: the fields left out, then what could not go. */
+function notesOf(sent: Pick<SentAgain, 'written' | 'unsent'>): string[] {
+  return [...(sent.written ? [fieldsLeftOutNote(sent.written)] : []), ...sent.unsent];
 }
 
 /** Skip an object before anything is written for it, saying why; null for the caller to return. */

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   AutopilotGraph,
   AutopilotNode,
+  AutopilotObjectListing,
   ExecutionPlan,
   ComplianceFrameworkType,
   AutopilotAnonymizationRule,
@@ -63,6 +64,8 @@ const INITIAL_STATE = {
   sourceOrgId: null as string | null,
   targetOrgId: null as string | null,
   selectedObjects: [] as string[],
+  objectListing: null as AutopilotObjectListing[] | null,
+  objectCounts: {} as Record<string, number>,
   complianceFramework: 'none' as ComplianceFrameworkType,
   graph: null as AutopilotGraph | null,
   plan: null as ExecutionPlan | null,
@@ -83,6 +86,13 @@ export interface AutopilotState {
   targetOrgId: string | null;
   /** Selected Salesforce object API names */
   selectedObjects: string[];
+  /**
+   * The objects the source offers, as its global describe lists them: what
+   * the object step chooses from. Null before the first listing.
+   */
+  objectListing: AutopilotObjectListing[] | null;
+  /** Records per listed object, as counted once the object is picked. */
+  objectCounts: Record<string, number>;
   /** Active compliance framework */
   complianceFramework: ComplianceFrameworkType;
   /** Dependency graph built from metadata scan */
@@ -110,6 +120,10 @@ export interface AutopilotState {
   setSelectedObjects: (objects: string[]) => void;
   /** Toggle a single object in the selection */
   toggleObject: (objectName: string) => void;
+  /** Keep a fresh listing of the source's objects; the counts of the last one go with it. */
+  setObjectListing: (listing: AutopilotObjectListing[]) => void;
+  /** Add the counts of objects just counted to those known. */
+  addObjectCounts: (counts: Record<string, number>) => void;
   /** Set the compliance framework */
   setComplianceFramework: (framework: ComplianceFrameworkType) => void;
   /** Set the dependency graph */
@@ -178,6 +192,14 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
           : [...state.selectedObjects, objectName],
       };
     });
+  },
+
+  setObjectListing(listing: AutopilotObjectListing[]): void {
+    set({ objectListing: listing, objectCounts: {} });
+  },
+
+  addObjectCounts(counts: Record<string, number>): void {
+    set((state) => ({ objectCounts: { ...state.objectCounts, ...counts } }));
   },
 
   setComplianceFramework(framework: ComplianceFrameworkType): void {
@@ -273,6 +295,7 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
       liveStats: { ...DEFAULT_LIVE_STATS },
       errors: [],
       selectedObjects: [],
+      objectCounts: {},
       rules: [],
     });
   },

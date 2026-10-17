@@ -1,4 +1,5 @@
 import type { UUID, ISODateString, ApiName } from './common.types.js';
+import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
 
 /** Seed generation strategy */
 export type SeedStrategy = 'ai' | 'faker' | 'template' | 'csv_import' | 'clone';
@@ -336,4 +337,46 @@ export interface VRCheckResult {
   risk: 'low' | 'medium' | 'high';
   /** Structured constraints extracted from the formula */
   fieldConstraints: VRFieldConstraint[];
+}
+
+/** Why no removal of a Seed run can run now. */
+export type SeedRemovalRefusalCode = 'GUARD_BLOCKED' | 'NO_GUARD' | 'ORG_GONE';
+
+/**
+ * What a Seed run created, as the window that ran it keeps it, and what a
+ * removal of it takes: read from what the run kept, nothing asked of the org.
+ */
+export interface SeedRunRemovalInfo {
+  /** The run, by its result's `operationId`. */
+  runId: string;
+  /** The org it wrote to. */
+  targetOrgId: string;
+  /** When the run started, by this machine's clock. */
+  startedAt: ISODateString;
+  /** When it ended, by this machine's clock. */
+  endedAt: ISODateString;
+  /** Records it created, in all. */
+  created: number;
+  /**
+   * What a removal takes now, per object, the last object written first.
+   * Empty once removals took them all.
+   */
+  left: Array<{ objectApiName: string; count: number }>;
+  /** What the removals of it did, once one took some. */
+  removed?: ForgeUndoMark;
+  /** Why no removal can run now; absent when one can. */
+  refusal?: { code: SeedRemovalRefusalCode; message: string };
+}
+
+/** What removing what a Seed run created did, object by object, the last written first. */
+export interface SeedRemovalResult {
+  runId: string;
+  status: ForgeUndoStatus;
+  /** Whether records modified since the run, and what was added to them since, went too. */
+  includeChanged: boolean;
+  objects: ForgeUndoObjectResult[];
+  /** When the removal ended, ISO 8601. */
+  finishedAt: ISODateString;
+  /** Set on a removal of what an earlier one left: when that one ended, ISO 8601. */
+  leftBy?: ISODateString;
 }
