@@ -421,6 +421,8 @@ export class SyncRemovalHandler implements DomainHandler {
         includeChanged,
         store,
         configs: this.configs,
+        // What it took leaves the configuration's pairs, kept beside the runs.
+        links: store.idMap(),
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
           const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));

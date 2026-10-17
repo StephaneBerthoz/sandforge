@@ -439,25 +439,37 @@ export function refusedOnTheirFields(
  * second of two accounts sharing one was refused, and what hung from it with
  * it, while the simulation had counted both written.
  *
+ * A value one record of the target holds has the row linked to that record,
+ * as the run links it: the target names the record it refuses the row for,
+ * and what hangs from the row follows it there. One a record sent before it
+ * holds is refused: the target names no record of its own write.
+ *
  * @param rows - The payloads the write would create, in the order sent.
  * @param heldByField - Per unique field, how many target records hold each
  *   value the rows carry, by the value as {@link simulationKey} gives it.
- * @returns The positions of the rows refused, and a note per field.
+ * @returns The positions of the rows refused and of those linked, and a note
+ *   per field.
  */
 export function refusedOnUniqueValues(
   rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
   heldByField: ReadonlyMap<string, ReadonlyMap<string, number>>,
-): { refused: Set<number>; notes: string[] } {
+): { refused: Set<number>; linked: Set<number>; notes: string[] } {
   const refused = new Set<number>();
+  const linked = new Set<number>();
   const notes: string[] = [];
   for (const [field, held] of heldByField) {
     const seen = new Set<string>();
+    let linkedHere = 0;
     let inTarget = 0;
     let twice = 0;
     rows.forEach((payload, position) => {
       const key = simulationKey(payload[field]);
       if (key === null) return;
-      if ((held.get(key) ?? 0) > 0) {
+      const holding = held.get(key) ?? 0;
+      if (holding === 1) {
+        linkedHere++;
+        linked.add(position);
+      } else if (holding > 1) {
         inTarget++;
         refused.add(position);
       } else if (seen.has(key)) {
@@ -466,11 +478,19 @@ export function refusedOnUniqueValues(
       }
       seen.add(key);
     });
+    if (linkedHere > 0) {
+      notes.push(
+        `LINKED_TO_EXISTING: ${linkedHere} record(s) hold a ${field} the target keeps unique, ` +
+          `which a record of the target holds already: it refuses them as duplicates ` +
+          `(DUPLICATE_VALUE) and names that record, which the run links them to — what it ` +
+          `writes under them points at that record.`,
+      );
+    }
     if (inTarget + twice === 0) continue;
     notes.push(
       `${inTarget + twice} record(s) hold a ${field} the target keeps unique, which ` +
         [
-          inTarget > 0 ? `the target holds already (${inTarget})` : '',
+          inTarget > 0 ? `several records of the target hold already (${inTarget})` : '',
           twice > 0 ? `a record sent before them holds (${twice})` : '',
         ]
           .filter(Boolean)
@@ -478,5 +498,8 @@ export function refusedOnUniqueValues(
         `: it refuses them (DUPLICATE_VALUE).`,
     );
   }
-  return { refused, notes };
+  // Refused on one field, a row is not linked by another: which record, if
+  // any, the target would name cannot be told.
+  for (const position of refused) linked.delete(position);
+  return { refused, linked, notes };
 }

@@ -21,14 +21,13 @@ describe('what a run prints of an object', () => {
     const without =
       '2 record(s) written without OwnerId: the lookup held an id from the source org that ' +
       'the target does not have.';
+    const linked =
+      'LINKED_TO_EXISTING: 2 Account records linked to an existing record, not written: the ' +
+      'target refused them as a duplicate of a record it holds and named it.';
 
-    expect(objectErrorLines([refusal, refusal, refusal, refusal, refusal, held, without])).toEqual([
-      refusal,
-      refusal,
-      refusal,
-      held,
-      without,
-    ]);
+    expect(
+      objectErrorLines([refusal, refusal, refusal, refusal, refusal, held, without, linked]),
+    ).toEqual([refusal, refusal, refusal, held, without, linked]);
   });
 });
 

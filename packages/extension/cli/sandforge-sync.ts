@@ -55,12 +55,16 @@ import type {
 import { recordWriteHeaders } from '@sandforge/shared';
 import {
   orgFileCopyDeps,
+  targetAllowsDeletes,
   type FileCopyOrg,
   type SyncCopiedFile,
   type SyncFileDeps,
   type SyncFileStore,
 } from '../src/modules/sync/SyncFiles.js';
+import { toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
+import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
 import { SyncConfigStore } from '../src/modules/sync/SyncConfigStore.js';
+import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
@@ -95,7 +99,7 @@ import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
-import { readActiveValidationRules } from '../src/modules/forge/TargetGapReader.js';
+import { toolingValidationRules } from '../src/modules/forge/TargetGapReader.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -142,11 +146,15 @@ Run a saved configuration:
                          names. In delta mode, each object reads only what the
                          source changed since its last good run.
   --store <dir>          where the configuration is kept between runs, with
-                         its watermarks and the files it copied, as the panel
-                         keeps them beside it: give every run of it the same
-                         directory, and --remove too.
+                         its watermarks, the files it copied and which record
+                         of the target each source record it wrote became, as
+                         the panel keeps them beside it: give every run of it
+                         the same directory, and --remove too. A later run
+                         points a lookup at the copy an earlier run wrote.
   --object, --where, --operation, --batch-size and --files come from the file,
-  and are refused with it.
+  and are refused with it. A legacy attachment the source changed since it was
+  copied is replaced, its earlier copy deleted, on a sandbox only, as in the
+  panel: a Developer Edition is a production org for Sync, and keeps the copy.
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
@@ -440,12 +448,18 @@ export function savedConfigStore(dir: string): SyncConfigStore {
  * runs from `--config-file`, in its store (`store`); otherwise the command
  * keeps it for the run alone, so a file is never copied twice within it, and
  * copied again by the next run. Exported so it can be tested.
+ *
+ * @param deletes - Whether Production Guard lets Sync delete in the target
+ *   (`targetAllowsDeletes`): then the earlier copy of a legacy attachment the
+ *   source changed is deleted once its new copy is written, as the panel's
+ *   run deletes it. The command never replaced one, even on a sandbox.
  */
 export function cliFileDeps(
   config: Pick<SyncConfig, 'sourceOrgId' | 'targetOrgId'>,
   sourceConn: Connection,
   targetConn: Connection,
   store?: SyncFileStore,
+  deletes = false,
 ): SyncFileDeps {
   const pagesOf = (conn: Connection) => ({
     query: async (q: string) => conn.query<Record<string, unknown>>(q),
@@ -484,7 +498,26 @@ export function cliFileDeps(
         copied.set(`${entry.sourceOrgId}|${entry.targetOrgId}|${entry.sourceId}`, entry);
       },
     },
+    // In one call, as a record delete is, read as the panel reads it.
+    ...(deletes
+      ? {
+          deleteFromTarget: async (objectApiName: string, ids: string[]) =>
+            toSaveOutcomes(await targetConn.sobject(objectApiName).destroy(ids), objectApiName).map(
+              (outcome) => ({ id: outcome.id, success: outcome.success, errors: outcome.errors }),
+            ),
+        }
+      : {}),
   };
+}
+
+/**
+ * Whether a run of the command may delete in its target, as the panel's run
+ * may (`targetAllowsDeletes`): judged by Production Guard on what the org says
+ * it is. A sandbox may; a Developer Edition, which says `IsSandbox` false, is a
+ * production org for a Sync write, as the panel registers it, and may not.
+ */
+export function cliAllowsDeletes(org: TypedTarget): boolean {
+  return targetAllowsDeletes(new ProductionGuard(), org.id, org.sandbox ? 'Sandbox' : 'Production');
 }
 
 /**
@@ -578,7 +611,7 @@ export function simulationLines(simulation: SyncSimulationResult): string[] {
 
 /** A line of an object's result on what its write held back or sent without a field. */
 const SAID_ONCE =
-  /^(PARENT_REFUSED|RECORD_TYPE_UNAVAILABLE|RECORD_TYPE_UNMAPPED):|^\d+ record\(s\) written (again )?without /;
+  /^(PARENT_REFUSED|RECORD_TYPE_UNAVAILABLE|RECORD_TYPE_UNMAPPED|LINKED_TO_EXISTING):|^\d+ record\(s\) written (again )?without /;
 
 /**
  * The lines the command prints of an object's errors: its first three, and
@@ -742,13 +775,36 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const kept = memoryCreations(`sandforge-sync-${randomUUID()}`);
   const startedAt = new Date().toISOString();
 
+  // A configuration that copies files replaces a changed attachment where
+  // Production Guard lets Sync delete in the target, as the panel's run does:
+  // judged on what the org says it is, nowhere when it will not say. A dry run
+  // finds the files as the run would, deleting none.
+  let fileDeps: SyncFileDeps | undefined;
+  if (config.files !== undefined) {
+    const deletes = await typeTarget(targetConn).then(cliAllowsDeletes, () => false);
+    fileDeps = cliFileDeps(config, sourceConn, targetConn, saved?.fileStore(), deletes);
+    if (args.dryRun && fileDeps.deleteFromTarget) {
+      fileDeps = {
+        ...fileDeps,
+        deleteFromTarget: async (objectApiName) => {
+          throw new Error(`A dry run writes nothing: delete ${objectApiName} refused.`);
+        },
+      };
+    }
+  }
+
   const orchestrator = new SyncOrchestrator({
     ...(args.dryRun ? {} : { creations: kept }),
-    ...(config.files !== undefined
-      ? { files: cliFileDeps(config, sourceConn, targetConn, saved?.fileStore()) }
-      : {}),
+    ...(fileDeps ? { files: fileDeps } : {}),
     // A saved configuration's watermarks, kept in its store, and what a delta
-    // run asks both orgs beside its reads: the panel's.
+    // run asks both orgs beside its reads: the panel's. And which record of
+    // the target each record its runs wrote became, which a later run points
+    // its lookups by.
+    ...(saved && args.store !== undefined
+      ? {
+          idMap: savedConfigIdMap(nodeSyncIdMap(args.store), (configId) => saved.isSaved(configId)),
+        }
+      : {}),
     ...(saved
       ? {
           deltaStore: saved.deltaStore(),
@@ -785,22 +841,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }),
     describeTargetFields,
     // What a simulation cannot evaluate, listed beside what it predicts: the
-    // target's validation rules, as the panel reads them.
-    readValidationRules: async (objectApiNames) =>
-      readActiveValidationRules(
-        async (soql) =>
-          (
-            await queryAllPages<Record<string, unknown>>(
-              {
-                query: async (q) => targetConn.tooling.query<Record<string, unknown>>(q),
-                queryMore: async (url) =>
-                  targetConn.tooling.queryMore<Record<string, unknown>>(url),
-              },
-              soql,
-            )
-          ).records,
-        objectApiNames,
-      ),
+    // target's validation rules, as the panel reads them, each with its field
+    // read back from the label a French org answers.
+    readValidationRules: toolingValidationRules(
+      async (soql) =>
+        (
+          await queryAllPages<Record<string, unknown>>(
+            {
+              query: async (q) => targetConn.tooling.query<Record<string, unknown>>(q),
+              queryMore: async (url) => targetConn.tooling.queryMore<Record<string, unknown>>(url),
+            },
+            soql,
+          )
+        ).records,
+    ),
     // Both orgs' record types, as the panel reads them: a record's type is
     // mapped to the target's of the same object and API name.
     recordTypes: () =>
@@ -1146,14 +1200,20 @@ export function removalSummaryLines(
   ];
 }
 
+/** What a removal told the saved configuration its run was of. */
+type ConfigurationTold = Pick<SyncRemovalResult, 'readWhole' | 'filesForgotten'> & {
+  /** How many of its pairs it forgot: see `SyncIdMap`. */
+  linksForgotten?: number;
+};
+
 /**
  * What a removal told the saved configuration its run was of, as the lines the
  * command prints: the objects its next run reads whole, the copied files it
- * forgot.
+ * forgot, the records whose copies no later run points a lookup at.
  */
 export function configurationToldLines(
   configId: string | undefined,
-  told: Pick<SyncRemovalResult, 'readWhole' | 'filesForgotten'>,
+  told: ConfigurationTold,
 ): string[] {
   if (configId === undefined) return [];
   return [
@@ -1164,6 +1224,12 @@ export function configurationToldLines(
       ? [
           `configuration ${configId}: ${told.filesForgotten} copied file(s) forgotten, copied ` +
             'again by its next run',
+        ]
+      : []),
+    ...((told.linksForgotten ?? 0) > 0
+      ? [
+          `configuration ${configId}: ${told.linksForgotten} record(s) forgotten, which no later ` +
+            'run points a lookup at',
         ]
       : []),
   ];
@@ -1272,7 +1338,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     status: ForgeUndoStatus,
     objects: ForgeUndoObjectResult[],
     planned: number,
-    told: Pick<SyncRemovalResult, 'readWhole' | 'filesForgotten'> = {},
+    told: ConfigurationTold = {},
   ) => {
     if (args.json) {
       process.stdout.write(
@@ -1341,7 +1407,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       org: removalOrg(conn, 'sandforge-sync --remove'),
       includeChanged: args.includeChanged,
       signal: stop.signal,
-      ...(configs ? { configs } : {}),
+      // The configuration's store, told what the removal took: its
+      // watermarks and copied files, and which records its runs wrote.
+      ...(configs && args.store !== undefined ? { configs, links: nodeSyncIdMap(args.store) } : {}),
       store: {
         // Kept beside the summary whatever the removal ended on, written
         // whole through a file renamed over it.
@@ -1364,14 +1432,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (summary.configId !== undefined && !configs && took) {
     process.stderr.write(
       `The run was of the saved configuration ${summary.configId}, and its store was not given: ` +
-        'its next delta run is not told what this removal took. Give --store with the next ' +
-        'removal, or run the configuration full next time.\n',
+        'its next delta run is not told what this removal took, and a later run may point a ' +
+        'lookup at a record it deleted. Give --store with the next removal, or run the ' +
+        'configuration full next time.\n',
     );
   }
   const { readWhole, filesForgotten } = outcome.result;
   output(outcome.result.status, outcome.result.objects, outcome.planned, {
     ...(readWhole ? { readWhole } : {}),
     ...(filesForgotten !== undefined ? { filesForgotten } : {}),
+    ...(outcome.linksForgotten !== undefined ? { linksForgotten: outcome.linksForgotten } : {}),
   });
   if (outcome.result.status !== 'success') process.exit(RECORDS_LEFT_EXIT);
 }

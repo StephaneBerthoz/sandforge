@@ -44,7 +44,13 @@ import type {
   SyncFilesStorage,
   SyncObjectConfig,
 } from '@sandforge/shared';
-import { BYTES_PER_MB, formatFileSize, sanitizeSoqlObjectName } from '@sandforge/shared';
+import {
+  BYTES_PER_MB,
+  formatFileSize,
+  orgTypeToGuardTier,
+  sanitizeSoqlObjectName,
+} from '@sandforge/shared';
+import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import {
   copyFiles,
   lookupFailure,
@@ -157,6 +163,36 @@ export interface SyncFileDeps {
   deleteFromTarget?: (objectApiName: string, ids: string[]) => Promise<InsertResult[]>;
   /** Told as each file is copied, for the run's progress: how far, in percent, and what. */
   onProgress?: (percent: number, message: string) => void;
+}
+
+/**
+ * Whether Production Guard would let Sync delete in the target without
+ * refusing it: a changed legacy attachment is replaced by writing its new copy
+ * and deleting the earlier one, and the guard allows no delete on a production
+ * org (a Developer Edition counts as one). Where it would refuse, the earlier
+ * copy stays and the change is not copied, as before attachments were
+ * replaced: a run never deletes where a delete of its own would be refused.
+ * No guard, no delete. The panel asks it with the org's registered type, the
+ * command line with what the org says it is (`IsSandbox`): one rule for both.
+ *
+ * @param guard - The Production Guard the run is judged by.
+ * @param targetOrgId - The org the run writes to.
+ * @param targetOrgType - That org's type, as `orgTypeToGuardTier` reads it.
+ */
+export function targetAllowsDeletes(
+  guard: Pick<ProductionGuard, 'check'> | undefined,
+  targetOrgId: string,
+  targetOrgType: string | undefined,
+): boolean {
+  if (!guard) return false;
+  return guard.check({
+    orgId: targetOrgId,
+    orgTier: orgTypeToGuardTier(targetOrgType ?? ''),
+    operation: 'delete',
+    objectName: 'Attachment',
+    recordCount: 1,
+    module: 'sync',
+  }).allowed;
 }
 
 /**

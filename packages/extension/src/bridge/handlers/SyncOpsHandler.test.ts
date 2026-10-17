@@ -60,6 +60,7 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import { clearDescribeCache } from '../../core/connection/describeCache.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import type { SyncIdMapStore } from '../../modules/sync/SyncIdMap.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import {
   nodeSyncRunCreations,
@@ -1829,6 +1830,45 @@ describe('SyncOpsHandler', () => {
       for (const run of kept) {
         expect(run).toMatchObject({ created: [{ objectApiName: 'Account', ids: [CREATED] }] });
       }
+    });
+
+    it('hands a run of a saved configuration what its earlier runs wrote, and forgets it with the configuration', async () => {
+      handler.setRunCreations(creations);
+      const orgs = { sourceOrgId: 'src-org', targetOrgId: 'tgt-org' };
+      const SOURCE_ACCOUNT = '001000000000001AAA';
+      await creations.idMap().record('cfg-1', orgs, 'Account', [[SOURCE_ACCOUNT, CREATED]]);
+      const seen: Array<ReadonlyMap<string, string> | null | undefined> = [];
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: { idMap?: SyncIdMapStore }) {
+          return {
+            execute: vi.fn(async () => {
+              seen.push(await d.idMap?.load('cfg-1', orgs));
+              return { status: 'success', objectResults: [] };
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+      const config = validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig;
+
+      // Not saved: nobody runs it again, and it reads nothing.
+      await handler.executeScheduled(config);
+      new SyncConfigStore(deps.configStore).save(config);
+      await handler.executeScheduled(config);
+
+      expect(seen).toEqual([null, new Map([[SOURCE_ACCOUNT.slice(0, 15), CREATED]])]);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-delete-cfg',
+          type: 'sync:config:delete',
+          timestamp: Date.now(),
+          payload: { id: 'cfg-1' },
+        } as BaseMessage),
+      );
+      expect((await creations.idMap().load('cfg-1', orgs)).size).toBe(0);
     });
 
     it('keeps nothing without a place to keep it', async () => {

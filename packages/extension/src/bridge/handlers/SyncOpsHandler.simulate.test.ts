@@ -110,7 +110,10 @@ interface Writes {
  * Both orgs: the source holds two accounts, the target the first of them by
  * its External ID. Every query each org is asked is recorded.
  */
-function mockOrgs(validationRules: Array<Record<string, unknown>> = []): {
+function mockOrgs(
+  validationRules: Array<Record<string, unknown>> = [],
+  fieldLabels: Array<Record<string, unknown>> = [],
+): {
   queries: Record<string, string[]>;
   writes: Writes;
   tooling: string[];
@@ -147,7 +150,10 @@ function mockOrgs(validationRules: Array<Record<string, unknown>> = []): {
       tooling: {
         query: vi.fn(async (soql: string) => {
           tooling.push(`${orgId} ${soql}`);
-          return { done: true, totalSize: validationRules.length, records: validationRules };
+          // The fields of an object with their labels, which a rule's field
+          // is named by on a French org.
+          const records = soql.includes('FROM FieldDefinition') ? fieldLabels : validationRules;
+          return { done: true, totalSize: records.length, records };
         }),
         queryMore: vi.fn(),
       },
@@ -241,8 +247,38 @@ describe('sync:simulate', () => {
       { name: 'Siret_Format', message: 'SIRET: 14 digits', field: 'Siret__c' },
     ]);
     // Read from the target, the org the run writes to.
-    expect(tooling).toHaveLength(1);
     expect(tooling[0]).toMatch(/^tgt-org SELECT .* FROM ValidationRule WHERE Active = true/);
+  });
+
+  it("names the field of a rule a French target answers by its label, as Frozen's preview does", async () => {
+    const { tooling } = mockOrgs(
+      [
+        {
+          Id: '03d000000000001AAA',
+          ValidationName: 'Siret_Format',
+          NamespacePrefix: null,
+          // As a French org answers it: the field's label.
+          ErrorDisplayField: 'Numéro SIRET',
+          ErrorMessage: 'SIRET : 14 chiffres',
+          EntityDefinition: { QualifiedApiName: 'Account' },
+        },
+      ],
+      [
+        { QualifiedApiName: 'Name', Label: 'Nom du compte' },
+        { QualifiedApiName: 'Siret__c', Label: 'Numéro SIRET' },
+      ],
+    );
+
+    await simulate(handler, 'sim-rules-fr', upsertConfig());
+
+    const result = posted(deps, 'sync:simulate:response')[0]
+      .payload as unknown as SyncSimulationResult;
+    expect(result.objects[0].validationRules).toEqual([
+      { name: 'Siret_Format', message: 'SIRET : 14 chiffres', field: 'Siret__c' },
+    ]);
+    expect(tooling).toContain(
+      "tgt-org SELECT QualifiedApiName, Label FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Account'",
+    );
   });
 
   it('leaves no trace of a write: no audit entry, a completion that says it was simulated', async () => {

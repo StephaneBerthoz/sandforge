@@ -11,7 +11,13 @@ import type {
   GrappeConfig,
 } from '@sandforge/shared';
 import { sanitizeSoqlObjectName } from '@sandforge/shared';
-import { buildObjectResult, type DataSync, type OperationOutcome } from './DataSync.js';
+import {
+  buildObjectResult,
+  linkedRecordOf,
+  type DataSync,
+  type OperationOutcome,
+} from './DataSync.js';
+import type { SyncIdMapStore, SyncLinkPair } from './SyncIdMap.js';
 import type { ConflictResolver } from './ConflictResolver';
 import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
@@ -174,6 +180,14 @@ export interface SyncOrchestratorDeps {
    * and the run cannot be taken back.
    */
   creations?: SyncCreationRecorder;
+  /**
+   * Where a saved configuration keeps which record of the target each source
+   * record its runs wrote became (`SyncIdMap`): read before the first object,
+   * so a lookup at a record an earlier run wrote names that copy, and added to
+   * as each object's write answers. A simulation reads it and adds nothing.
+   * Without it, a run links what it writes within itself alone.
+   */
+  idMap?: SyncIdMapStore;
   /**
    * The record types of both orgs, read once a run before its first object
    * (`readSyncRecordTypes`): what a record's `RecordTypeId` is mapped with,
@@ -339,10 +353,33 @@ export class SyncOrchestrator {
     }
 
     // What the run wrote and refused, by source id, as it goes: the lookups
-    // of each object read it. Both orgs' record types are read once, before
-    // the first object whose records carry one is written.
-    const links = new SyncRunLinks();
+    // of each object read it, begun with what earlier runs of a saved
+    // configuration wrote. Both orgs' record types are read once, before the
+    // first object whose records carry one is written.
+    const earlier = await this.earlierLinks(config);
+    const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
+
+    // What each write wrote or linked, added to the configuration's pairs as
+    // it answers: see `idMap`.
+    const idMap = this.deps.idMap;
+    const orgs = { sourceOrgId: config.sourceOrgId, targetOrgId: config.targetOrgId };
+    let linksKept: Promise<void> = Promise.resolve();
+    let linksUnkept: string | undefined;
+    const noteLinks = (
+      objectConfig: SyncObjectConfig,
+      outcomes: readonly OperationOutcome[],
+      sourceIds: ReadonlyArray<string | undefined>,
+    ): void => {
+      if (!idMap) return;
+      const pairs = linkPairs(objectConfig.operation, outcomes, sourceIds);
+      if (pairs.length === 0) return;
+      linksKept = linksKept.then(() =>
+        idMap.record(config.id, orgs, objectConfig.objectApiName, pairs).catch((err: unknown) => {
+          linksUnkept ??= err instanceof Error ? err.message : String(err);
+        }),
+      );
+    };
 
     // What the run creates, kept as it writes it, for its removal to take
     // back: see `creations`.
@@ -367,23 +404,41 @@ export class SyncOrchestrator {
       filesCreated++;
     };
     let unkeptSaid = false;
+    let linksSaid = false;
+    let earlierSaid = false;
     /**
      * An object's result, once what the run created by then is kept; with a
      * word, the first time, when some of it could not be: the run goes on,
-     * and its removal cannot take what was not kept.
+     * and its removal cannot take what was not kept. So are the pairs its
+     * writes added to the configuration's, and said alike; and the first
+     * result says when what earlier runs wrote could not be read.
      */
     const kept = async (result: SyncObjectResult): Promise<SyncObjectResult> => {
       const failure = await recorder?.flush();
-      if (failure === undefined || unkeptSaid) return result;
-      unkeptSaid = true;
-      return {
-        ...result,
-        errors: [
-          ...result.errors,
+      await linksKept;
+      const said: string[] = [];
+      if (earlier.unread !== undefined && !earlierSaid) {
+        earlierSaid = true;
+        said.push(
+          `What earlier runs of this configuration wrote could not be read (${earlier.unread}): ` +
+            'a lookup at a record one of them wrote went as the source holds it.',
+        );
+      }
+      if (failure !== undefined && !unkeptSaid) {
+        unkeptSaid = true;
+        said.push(
           `What this run created could not all be kept (${failure}): removing the run may ` +
             'leave some of it in the target.',
-        ],
-      };
+        );
+      }
+      if (linksUnkept !== undefined && !linksSaid) {
+        linksSaid = true;
+        said.push(
+          `Which record of the target each record this run wrote became could not all be kept ` +
+            `(${linksUnkept}): a later run may send a lookup at one of them as the source holds it.`,
+        );
+      }
+      return said.length === 0 ? result : { ...result, errors: [...result.errors, ...said] };
     };
     const push = async (result: SyncObjectResult): Promise<void> => {
       objectResults.push(await kept(result));
@@ -443,6 +498,7 @@ export class SyncOrchestrator {
     ): Promise<SyncExecutionResult> => {
       endGrappe();
       await recorder?.flush();
+      await linksKept;
       return finish(
         stoppedResult(config.id, operationId, objectResults, startTime, notReached, reason),
       );
@@ -481,7 +537,12 @@ export class SyncOrchestrator {
           { links, recordTypes },
           plan ? read : undefined,
           written,
-          recorder ? (outcomes) => noteCreated(objectConfig, outcomes) : undefined,
+          recorder || idMap
+            ? (outcomes, sourceIds) => {
+                noteCreated(objectConfig, outcomes);
+                noteLinks(objectConfig, outcomes, sourceIds);
+              }
+            : undefined,
         );
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
@@ -657,7 +718,29 @@ export class SyncOrchestrator {
     endGrappe();
 
     await recorder?.flush();
+    await linksKept;
     return finish(buildResult(config.id, operationId, objectResults, startTime, status));
+  }
+
+  /**
+   * What earlier runs of the configuration wrote, as a run begins with it
+   * (`idMap`): nothing for a configuration that keeps none, or a run given
+   * nowhere to read it; nothing too, with why, when it could not be read.
+   */
+  private async earlierLinks(
+    config: SyncConfig,
+  ): Promise<{ links?: ReadonlyMap<string, string>; unread?: string }> {
+    const idMap = this.deps.idMap;
+    if (!idMap) return {};
+    try {
+      const links = await idMap.load(config.id, {
+        sourceOrgId: config.sourceOrgId,
+        targetOrgId: config.targetOrgId,
+      });
+      return links ? { links } : {};
+    } catch (err: unknown) {
+      return { unread: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
@@ -883,9 +966,14 @@ export class SyncOrchestrator {
       return answer({ error: err instanceof Error ? err.message : String(err) });
     }
     // What the run would write and refuse, object by object: the rows under
-    // a record it would refuse are held back as the run holds them, and
-    // record types are mapped as the run maps them, from the same read.
-    const run: RunContext = { links: new SyncRunLinks(), recordTypes: this.recordTypesOnce() };
+    // a record it would refuse are held back as the run holds them, record
+    // types are mapped as the run maps them, from the same read, and a lookup
+    // at a record an earlier run wrote names its copy, as the run names it.
+    const earlier = await this.earlierLinks(config);
+    const run: RunContext = {
+      links: new SyncRunLinks(earlier.links),
+      recordTypes: this.recordTypesOnce(),
+    };
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
       this.deps.onSimulationProgress?.(index, ordered.length, objectConfig.objectApiName);
@@ -1053,9 +1141,12 @@ export class SyncOrchestrator {
       heldByField,
     );
     for (const position of unique.refused) refusedAt.add(creating[position]);
+    // Linked to the record the target holds, as the run links them: neither
+    // written nor refused, and what hangs from them follows them there.
+    const linkedAt = new Set([...unique.linked].map((position) => creating[position]));
 
     // The records left to the target's say, as the run would send them.
-    const kept = sentRecords.flatMap((_, k) => (refusedAt.has(k) ? [] : [k]));
+    const kept = sentRecords.flatMap((_, k) => (refusedAt.has(k) || linkedAt.has(k) ? [] : [k]));
     const keptAt = new Set(kept.map((k) => rows.sentAt[k]));
     const unsettled = prepared.unsettled.filter((_, at) => keptAt.has(at));
     const outcome = simulateObjectOutcome({
@@ -1095,6 +1186,7 @@ export class SyncOrchestrator {
 
     const withHeld: SyncObjectSimulation = {
       ...outcome,
+      skipped: outcome.skipped + linkedAt.size,
       refused: outcome.refused + rows.held.length + refusedAt.size,
       notes: [...outcome.notes, ...rows.notes, ...checked.notes, ...unique.notes],
     };
@@ -1136,7 +1228,8 @@ export class SyncOrchestrator {
    *   with what the read returned.
    * @param written - Receives the records the write took, source id to target id.
    * @param onWritten - Told what the write did, record by record, once it
-   *   answers — also the records it wrote before a cancel stopped it.
+   *   answers — also the records it wrote before a cancel stopped it — with
+   *   the source id of each record.
    */
   private async syncObject(
     config: SyncConfig,
@@ -1145,7 +1238,10 @@ export class SyncOrchestrator {
     run: RunContext,
     read?: ObjectRead,
     written?: Map<string, string>,
-    onWritten?: (outcomes: readonly OperationOutcome[]) => void,
+    onWritten?: (
+      outcomes: readonly OperationOutcome[],
+      sourceIds: ReadonlyArray<string | undefined>,
+    ) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
     const { records, sourceIds, sources } = await this.prepare(config, objectConfig, leftOut, read);
 
@@ -1175,7 +1271,7 @@ export class SyncOrchestrator {
             written.set(sourceId, outcome.id);
           }
         });
-        onWritten?.(outcomes);
+        onWritten?.(outcomes, sourceIds);
       };
       try {
         const { outcomes, notes } = await this.deps.dataSync.write(
@@ -1423,6 +1519,29 @@ export function createdIds(
       ? [outcome.id]
       : [],
   );
+}
+
+/**
+ * What a write adds to its configuration's pairs (`idMap`): each record an
+ * insert or an upsert wrote — created or updated — and each it linked to a
+ * record the target holds (`linkedRecordOf`), by its source id. An update
+ * finds its record by the source's id, which names it in both orgs already.
+ */
+function linkPairs(
+  operation: SyncObjectConfig['operation'],
+  outcomes: readonly OperationOutcome[],
+  sourceIds: ReadonlyArray<string | undefined>,
+): SyncLinkPair[] {
+  if (operation !== 'insert' && operation !== 'upsert') return [];
+  return outcomes.flatMap((outcome, at): SyncLinkPair[] => {
+    const sourceId = sourceIds[at];
+    if (sourceId === undefined) return [];
+    const target =
+      outcome.success && typeof outcome.id === 'string' && outcome.id !== ''
+        ? outcome.id
+        : linkedRecordOf(operation, outcome);
+    return target === undefined ? [] : [[sourceId, target]];
+  });
 }
 
 /** A record to create, without the lookups the platform fills in itself. */

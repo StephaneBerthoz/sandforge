@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { SyncObjectConfig } from '@sandforge/shared';
 import { DataSync, type DataSyncDeps, type OperationOutcome } from './DataSync.js';
 import { SyncRunLinks } from './syncRowPreparation.js';
+import { WriteCancelledError } from './WriteCancelledError.js';
 import { targetWriteFieldsOf } from './targetWriteFields.js';
 
 /** Fake ids: the source's records, their copies in the target, a user. */
@@ -75,6 +76,56 @@ describe('DataSync — the run a write is part of', () => {
 
     expect(links.targetOf(SOURCE_ACCOUNT)).toBe(TARGET_ACCOUNT);
     expect(links.refusedObjectOf(REFUSED_ACCOUNT)).toBe('Account');
+  });
+
+  it('links a record the target refused as a duplicate of one it named, and counts it apart', async () => {
+    const duplicate =
+      'DUPLICATE_VALUE: duplicate value found: Ext_Id__c duplicates value on record with id: 001000000000800';
+    const insert = vi
+      .fn()
+      .mockResolvedValue([
+        { id: '', success: false, errors: [duplicate], existingId: '001000000000800AAA' },
+      ]);
+    const links = new SyncRunLinks();
+    const rows = [{ Id: SOURCE_ACCOUNT, LastName: 'Acme' }];
+
+    const result = await new DataSync(deps(insert)).sync(
+      objectConfig({ objectApiName: 'Account' }),
+      rows,
+      { links, sources: rows },
+    );
+
+    // What hangs from it follows it to the record the target holds.
+    expect(links.targetOf(SOURCE_ACCOUNT)).toBe('001000000000800AAA');
+    expect(links.refusedObjectOf(SOURCE_ACCOUNT)).toBeUndefined();
+    expect(result).toMatchObject({ processed: 1, success: 0, failed: 0, skipped: 1 });
+    expect(result.errors).toEqual([
+      `LINKED_TO_EXISTING: 1 Account record linked to an existing record, not written: the ` +
+        `target refused it as a duplicate of a record it holds and named it (${duplicate}); ` +
+        'what the run writes under it points at that record.',
+    ]);
+  });
+
+  it('links no record an update was refused for: the record the target names is another', async () => {
+    const update = vi.fn().mockResolvedValue([
+      {
+        id: '',
+        success: false,
+        errors: ['DUPLICATE_VALUE: duplicate value found: Ext_Id__c duplicates value'],
+        existingId: '001000000000800AAA',
+      },
+    ]);
+    const links = new SyncRunLinks();
+    const rows = [{ Id: SOURCE_ACCOUNT, LastName: 'Acme' }];
+
+    const result = await new DataSync(deps(vi.fn(), update)).sync(
+      objectConfig({ objectApiName: 'Account', operation: 'update' }),
+      rows,
+      { links, sources: rows },
+    );
+
+    expect(links.targetOf(SOURCE_ACCOUNT)).toBeUndefined();
+    expect(result).toMatchObject({ failed: 1, skipped: 0 });
   });
 
   it('takes no record an update did not reach for refused: the target holds it already', async () => {
@@ -284,5 +335,134 @@ describe('DataSync — the run a write is part of', () => {
 
     expect(insert).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ success: 0, failed: 1 });
+  });
+});
+
+describe('DataSync — rows of one write that name each other', () => {
+  /** Fake ids: three source accounts and their copies, by the order they are written. */
+  const PARENT = '001000000000011AAA';
+  const CHILD = '001000000000012AAA';
+  const GRANDCHILD = '001000000000013AAA';
+  const copyOf = (n: number): string => `001000000000${900 + n}AAA`;
+
+  const ACCOUNT_TARGET = async () =>
+    targetWriteFieldsOf({
+      name: 'Account',
+      fields: [
+        { name: 'Name', createable: true, type: 'string' },
+        { name: 'ParentId', createable: true, type: 'reference', referenceTo: ['Account'] },
+      ],
+    });
+
+  /** An insert that writes every row, each given the next copy id. */
+  const writesAll = () =>
+    vi.fn(async (_object: string, records: Record<string, unknown>[]) =>
+      records.map((_, n) => ({ id: copyOf(n + 1), success: true, errors: [] })),
+    );
+
+  function accountDeps(
+    insert: DataSyncDeps['insert'],
+    update: DataSyncDeps['update'],
+  ): DataSyncDeps {
+    const unused = vi.fn().mockResolvedValue([]);
+    return { insert, update, upsert: unused, delete: unused, describeTargetFields: ACCOUNT_TARGET };
+  }
+
+  const write = (deps: DataSyncDeps, rows: Array<Record<string, unknown>>) =>
+    new DataSync(deps).sync(objectConfig({ objectApiName: 'Account' }), rows, {
+      links: new SyncRunLinks(),
+      sources: rows,
+    });
+
+  it('writes a parent and its child without the lookup, then points the child at the copy of its parent', async () => {
+    const insert = writesAll();
+    const update = vi.fn(async (_object: string, records: Record<string, unknown>[]) =>
+      records.map((r) => ({ id: r.Id as string, success: true, errors: [] })),
+    );
+
+    const result = await write(accountDeps(insert, update), [
+      { Id: CHILD, Name: 'Child', ParentId: PARENT },
+      { Id: PARENT, Name: 'Parent', ParentId: null },
+      { Id: GRANDCHILD, Name: 'Grandchild', ParentId: CHILD },
+    ]);
+
+    expect(insert.mock.calls[0][1]).toEqual([
+      { Name: 'Child' },
+      { Name: 'Parent', ParentId: null },
+      { Name: 'Grandchild' },
+    ]);
+    expect(update.mock.calls[0][1]).toEqual([
+      { Id: copyOf(1), ParentId: copyOf(2) },
+      { Id: copyOf(3), ParentId: copyOf(1) },
+    ]);
+    expect(result).toMatchObject({ success: 3, failed: 0, errors: [] });
+  });
+
+  it('gives each of two accounts that name each other the copy of the other, each written once', async () => {
+    const insert = writesAll();
+    const update = vi.fn(async (_object: string, records: Record<string, unknown>[]) =>
+      records.map((r) => ({ id: r.Id as string, success: true, errors: [] })),
+    );
+
+    await write(accountDeps(insert, update), [
+      { Id: PARENT, Name: 'One', ParentId: CHILD },
+      { Id: CHILD, Name: 'Two', ParentId: PARENT },
+    ]);
+
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][1]).toEqual([
+      { Id: copyOf(1), ParentId: copyOf(2) },
+      { Id: copyOf(2), ParentId: copyOf(1) },
+    ]);
+  });
+
+  it('says the rows left without their parent the target refused, and those whose update it refused', async () => {
+    const insert = vi.fn().mockResolvedValue([
+      { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Region__c'] },
+      { id: copyOf(2), success: true, errors: [] },
+      { id: copyOf(3), success: true, errors: [] },
+      { id: copyOf(4), success: true, errors: [] },
+    ]);
+    const update = vi
+      .fn()
+      .mockResolvedValue([
+        { id: '', success: false, errors: ['FIELD_INTEGRITY_EXCEPTION: parent loop'] },
+      ]);
+
+    const result = await write(accountDeps(insert, update), [
+      { Id: PARENT, Name: 'Refused', ParentId: null },
+      { Id: CHILD, Name: 'Under the refused', ParentId: PARENT },
+      { Id: GRANDCHILD, Name: 'Under the child', ParentId: CHILD },
+      { Id: '001000000000014AAA', Name: 'Alone', ParentId: null },
+    ]);
+
+    expect(update.mock.calls[0][1]).toEqual([{ Id: copyOf(3), ParentId: copyOf(2) }]);
+    expect(result.success).toBe(3);
+    expect(result.errors).toEqual([
+      'REQUIRED_FIELD_MISSING: Region__c',
+      '1 Account record(s) written without ParentId: the Account record it names was refused in this run.',
+      '1 Account record(s) written without ParentId: the target refused setting it once the ' +
+        'record it names was written (FIELD_INTEGRITY_EXCEPTION: parent loop).',
+    ]);
+  });
+
+  it('says the lookups a cancel kept from being set, and is cancelled with every row it wrote', async () => {
+    const insert = writesAll();
+    const update = vi.fn(async () => {
+      throw new WriteCancelledError('Account', []);
+    });
+
+    const failure = await write(accountDeps(insert, update), [
+      { Id: PARENT, Name: 'Parent', ParentId: null },
+      { Id: CHILD, Name: 'Child', ParentId: PARENT },
+    ]).catch((err: unknown) => err);
+
+    expect(failure).toBeInstanceOf(WriteCancelledError);
+    const cancelled = failure as WriteCancelledError;
+    expect(cancelled.written.map((o) => o.id)).toEqual([copyOf(1), copyOf(2)]);
+    expect(cancelled.notes).toEqual([
+      '1 Account record(s) written without ParentId: the run was cancelled before it was set.',
+    ]);
   });
 });

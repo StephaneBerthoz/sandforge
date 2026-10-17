@@ -36,6 +36,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import type { ForgeRemovalSpan, ForgeUndoMark } from '@sandforge/shared';
 import { forgeRemovalPlanLeft } from '@sandforge/shared';
+import { SyncIdMap } from './SyncIdMap.js';
 
 /** The directory, under the extension's storage, that the runs' files go in. */
 export const SYNC_RUNS_DIR = 'sync-runs';
@@ -350,6 +351,8 @@ export class SyncRunCreations {
   private readonly hardMaxBytes: number;
   /** Changes to the removal files one after the other: two at once would lose one. */
   private queue: Promise<unknown> = Promise.resolve();
+  /** See {@link idMap}. */
+  private links?: SyncIdMap;
 
   /** @param deps - Injected storage path and file-system operations. */
   constructor(private readonly deps: SyncRunCreationsDeps) {
@@ -421,6 +424,16 @@ export class SyncRunCreations {
         await writes;
       },
     };
+  }
+
+  /**
+   * Which record of the target each source record a saved configuration's
+   * runs wrote became (`SyncIdMap`), kept in the same storage directory: what
+   * a run reads and adds to, and what a removal of a run forgets.
+   */
+  idMap(): SyncIdMap {
+    this.links ??= new SyncIdMap(this.deps);
+    return this.links;
   }
 
   /** What one run kept, or undefined when nothing of it is. */

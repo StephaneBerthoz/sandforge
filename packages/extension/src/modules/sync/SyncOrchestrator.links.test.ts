@@ -135,6 +135,8 @@ const SOURCE_ROWS: Record<string, Array<Record<string, unknown>>> = {
     { Id: '003000000000003AAA', LastName: 'Under Initech', AccountId: '001000000000004AAA' },
     { Id: '003000000000004AAA', LastName: 'On their own', AccountId: null },
     { Id: '003000000000005AAA', LastName: 'Under the twin', AccountId: '001000000000006AAA' },
+    // Under an account the target holds under the same code: linked to it.
+    { Id: '003000000000006AAA', LastName: 'Under Taken', AccountId: '001000000000007AAA' },
   ],
   Case: [
     { Id: '500000000000001AAA', Subject: 'From Globex', ContactId: '003000000000002AAA' },
@@ -164,14 +166,20 @@ function targetOrg() {
   ]);
   let next = 900;
   /** How many accounts hold a code, regardless of case, as a unique text field compares. */
-  const holding = (code: unknown): number =>
-    [...held.values()].filter(
-      (r) =>
-        r.object === 'Account' &&
-        typeof r.Code__c === 'string' &&
-        typeof code === 'string' &&
-        r.Code__c.toLowerCase() === code.toLowerCase(),
-    ).length;
+  /** The ids of the accounts that hold a code, regardless of case, as a unique text field compares. */
+  const holders = (code: unknown): string[] =>
+    [...held.entries()]
+      .filter(
+        ([, r]) =>
+          r.object === 'Account' &&
+          typeof r.Code__c === 'string' &&
+          typeof code === 'string' &&
+          r.Code__c.toLowerCase() === code.toLowerCase(),
+      )
+      .map(([id]) => id);
+  const holding = (code: unknown): number => holders(code).length;
+  /** The records the target held before the call being answered. */
+  let before = new Set<string>();
   const refuse = (record: Record<string, unknown>, object: string): string | undefined => {
     const fields = DESCRIBES[object];
     const bad = Object.keys(record).filter((f) => !fields.creatable.has(f));
@@ -193,8 +201,12 @@ function targetOrg() {
       if (record.Region__c === null || record.Region__c === undefined) {
         return 'REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c]';
       }
-      if (holding(record.Code__c) > 0) {
-        return 'DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: 001000000000800';
+      // Salesforce names the record it holds; one written earlier in the
+      // same call, it does not.
+      const [holder] = holders(record.Code__c);
+      if (holder !== undefined) {
+        const named = before.has(holder) ? holder.slice(0, 15) : '<unknown>';
+        return `DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ${named}`;
       }
     }
     for (const lookup of ['AccountId', 'ContactId']) {
@@ -205,17 +217,27 @@ function targetOrg() {
     }
     return undefined;
   };
+  /**
+   * An insert, answered as the run's writer answers it: a duplicate's refusal
+   * that names a record of the target carries it (`existingId`).
+   */
   const insert = async (
     object: string,
     records: Record<string, unknown>[],
-  ): Promise<OperationOutcome[]> =>
-    records.map((record) => {
+  ): Promise<OperationOutcome[]> => {
+    before = new Set(held.keys());
+    return records.map((record) => {
       const refusal = refuse(record, object);
-      if (refusal) return { success: false, errors: [refusal] };
+      if (refusal) {
+        const named = /on record with id: ([A-Za-z0-9]{15})$/.exec(refusal)?.[1];
+        const existingId = [...held.keys()].find((id) => id.slice(0, 15) === named);
+        return { success: false, errors: [refusal], ...(existingId ? { existingId } : {}) };
+      }
       const id = `${object === 'Account' ? '001' : object === 'Contact' ? '003' : '500'}000000000${next++}AAA`;
       held.set(id, { ...record, object });
       return { id, success: true, errors: [] };
     });
+  };
   /** What a simulation asks in place of the write: how many accounts hold each code. */
   const find = async (
     _org: string,
@@ -294,11 +316,17 @@ describe('SyncOrchestrator — the records a run writes and refuses, object afte
     const result = await orchestrator(target).execute(CONFIG);
 
     expect(
-      result.objectResults.map((r) => [r.objectApiName, r.processed, r.success, r.failed]),
+      result.objectResults.map((r) => [
+        r.objectApiName,
+        r.processed,
+        r.success,
+        r.failed,
+        r.skipped,
+      ]),
     ).toEqual([
-      ['Account', 7, 2, 5],
-      ['Contact', 5, 2, 3],
-      ['Case', 2, 1, 1],
+      ['Account', 7, 2, 4, 1],
+      ['Contact', 6, 3, 3, 0],
+      ['Case', 2, 1, 1, 0],
     ]);
     // Every contact and case written points at a record of the target.
     const written = [...target.held.values()].filter((r) => r.Name !== 'Theirs');
@@ -311,6 +339,18 @@ describe('SyncOrchestrator — the records a run writes and refuses, object afte
     }
     const underAcme = written.find((r) => r.LastName === 'Under Acme');
     expect(target.held.get(underAcme?.AccountId as string)?.Name).toBe('Acme');
+    // The account the target refused as a duplicate of its own is linked to
+    // it, and the contact under it follows it there.
+    const underTaken = written.find((r) => r.LastName === 'Under Taken');
+    expect(target.held.get(underTaken?.AccountId as string)?.Name).toBe('Theirs');
+    expect(result.objectResults[0].errors).toContain(
+      'LINKED_TO_EXISTING: 1 Account record linked to an existing record, not written: the ' +
+        'target refused it as a duplicate of a record it holds and named it (DUPLICATE_VALUE: ' +
+        'duplicate value found: Code__c duplicates value on record with id: 001000000000800); ' +
+        'what the run writes under it points at that record.',
+    );
+    // Linked, it is not one the run created, and no removal of the run takes it.
+    expect(result.status).toBe('partial');
     const contacts = result.objectResults[1].errors.join(' ');
     expect(contacts).toMatch(/PARENT_REFUSED: 3 Contact records held back, not sent: the Account/);
     const cases = result.objectResults[2].errors.join(' ');
@@ -322,8 +362,8 @@ describe('SyncOrchestrator — the records a run writes and refuses, object afte
     const run = await orchestrator(targetOrg()).execute(CONFIG);
 
     expect(simulated.error).toBeUndefined();
-    expect(simulated.objects.map((o) => [o.objectApiName, o.insert, o.refused])).toEqual(
-      run.objectResults.map((r) => [r.objectApiName, r.success, r.failed]),
+    expect(simulated.objects.map((o) => [o.objectApiName, o.insert, o.refused, o.skipped])).toEqual(
+      run.objectResults.map((r) => [r.objectApiName, r.success, r.failed, r.skipped]),
     );
     const accounts = simulated.objects[0].notes.join(' ');
     expect(accounts).toContain(
@@ -334,8 +374,13 @@ describe('SyncOrchestrator — the records a run writes and refuses, object afte
       '1 record(s) leave Region__c empty, which the target requires: it refuses them',
     );
     expect(accounts).toContain(
-      '2 record(s) hold a Code__c the target keeps unique, which the target holds already (1) ' +
-        'or a record sent before them holds (1): it refuses them (DUPLICATE_VALUE).',
+      'LINKED_TO_EXISTING: 1 record(s) hold a Code__c the target keeps unique, which a record ' +
+        'of the target holds already: it refuses them as duplicates (DUPLICATE_VALUE) and names ' +
+        'that record, which the run links them to',
+    );
+    expect(accounts).toContain(
+      '1 record(s) hold a Code__c the target keeps unique, which a record sent before them ' +
+        'holds (1): it refuses them (DUPLICATE_VALUE).',
     );
   });
 

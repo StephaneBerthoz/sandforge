@@ -8,7 +8,12 @@ import {
   type FieldToLeaveOut,
   type WrittenWithoutFields,
 } from '../../core/common/refusedFields.js';
-import { addressedBy, prepareSyncRows, type SyncWriteRun } from './syncRowPreparation.js';
+import {
+  addressedBy,
+  prepareSyncRows,
+  type DeferredLookup,
+  type SyncWriteRun,
+} from './syncRowPreparation.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 
@@ -239,8 +244,91 @@ export class DataSync {
     if (retried.cancelled) {
       throw new WriteCancelledError(config.objectApiName, all, notes);
     }
-    if (run) noteInRun(config, all, run);
+    if (run) {
+      noteInRun(config, all, run);
+      // The lookups at rows of this write, now that those rows have copies.
+      const within = await this.linkWithinWrite(config, prepared.deferred, all, run.links);
+      notes.push(...within.notes);
+      if (within.cancelled) throw new WriteCancelledError(config.objectApiName, all, notes);
+    }
     return { outcomes: all, notes };
+  }
+
+  /**
+   * The second write of an object whose rows name each other: each row the
+   * first write took is given, by an update, the copy of the row its lookup
+   * names (`deferred`, see `prepareSyncRows`). A row whose record there was
+   * refused stays without the lookup, and the result says how many; so does
+   * one whose update the target refused, with its reason, and the rows a
+   * cancel kept the update from. The rows stay written whatever this write
+   * answers, and a failure of it is said, never thrown.
+   */
+  private async linkWithinWrite(
+    config: SyncObjectConfig,
+    deferred: readonly DeferredLookup[],
+    outcomes: readonly OperationOutcome[],
+    links: SyncWriteRun['links'],
+  ): Promise<{ notes: string[]; cancelled: boolean }> {
+    const name = config.objectApiName;
+    const updates = new Map<string, Record<string, unknown>>();
+    /** Per lookup, the rows written that stay without it because their record was refused. */
+    const refusedParent = new Map<string, number>();
+    for (const { index, field, parent } of deferred) {
+      const row = outcomes[index];
+      if (!row?.success || typeof row.id !== 'string' || row.id === '') continue;
+      const copy = links.targetOf(parent);
+      if (copy === undefined) {
+        refusedParent.set(field, (refusedParent.get(field) ?? 0) + 1);
+        continue;
+      }
+      const update = updates.get(row.id) ?? { Id: row.id };
+      update[field] = copy;
+      updates.set(row.id, update);
+    }
+    const notes = [...refusedParent].map(
+      ([field, count]) =>
+        `${count} ${name} record(s) written without ${field}: the ${name} record it names was ` +
+        'refused in this run.',
+    );
+    if (updates.size === 0) return { notes, cancelled: false };
+
+    const sent = [...updates.values()];
+    const fieldsOf = (rows: readonly Record<string, unknown>[]): string =>
+      [...new Set(rows.flatMap((row) => Object.keys(row).filter((f) => f !== 'Id')))]
+        .sort()
+        .join(', ');
+    let answered: OperationOutcome[];
+    let cancelled = false;
+    try {
+      answered = await this.executeOperation(name, 'update', sent, config.batchSize);
+    } catch (err: unknown) {
+      if (!(err instanceof WriteCancelledError)) {
+        const reason = err instanceof Error ? err.message : String(err);
+        notes.push(
+          `${sent.length} ${name} record(s) written without ${fieldsOf(sent)}: setting it once ` +
+            `the record it names was written failed: ${reason}`,
+        );
+        return { notes, cancelled: false };
+      }
+      answered = err.written;
+      cancelled = true;
+    }
+    const refused = sent.filter((_, at) => answered[at] !== undefined && !answered[at].success);
+    if (refused.length > 0) {
+      const first = answered.find((outcome) => !outcome.success)?.errors[0];
+      notes.push(
+        `${refused.length} ${name} record(s) written without ${fieldsOf(refused)}: the target ` +
+          `refused setting it once the record it names was written${first ? ` (${first})` : ''}.`,
+      );
+    }
+    const notReached = sent.slice(answered.length);
+    if (notReached.length > 0) {
+      notes.push(
+        `${notReached.length} ${name} record(s) written without ${fieldsOf(notReached)}: the ` +
+          'run was cancelled before it was set.',
+      );
+    }
+    return { notes, cancelled };
   }
 
   /**
@@ -535,12 +623,34 @@ function couldNotSendAgain(
 }
 
 /**
+ * The record of the target a refused row is linked to: the one the target
+ * named when it refused the row as a duplicate (`existingId`, which the writer
+ * reads off the refusal), for a row the run set out to create — an insert, or
+ * an upsert. Of an update, the record named is another than the row's own.
+ */
+export function linkedRecordOf(
+  operation: SyncOperation,
+  outcome: OperationOutcome,
+): string | undefined {
+  if (outcome.success || (operation !== 'insert' && operation !== 'upsert')) return undefined;
+  return outcome.existingId !== undefined && outcome.existingId !== ''
+    ? outcome.existingId
+    : undefined;
+}
+
+/**
  * Add what a write wrote and refused to the run it is part of, by the source
  * id of each record: the lookups of the objects written after read it. A
  * record the run set out to create — an insert, or an upsert — and the target
  * refused, or the write held back, is refused; one an update did not reach is
  * the target's already, and its children name it as they did. A delete adds
  * nothing.
+ *
+ * A row the target refused as a duplicate of a record it named is linked to
+ * that record, as Forge links it: the target holds it already, so what hangs
+ * from it follows it there rather than being held back. Run against a target
+ * that keeps an external id unique, every contact under an account the target
+ * held under the same id was held back as under a refused parent.
  */
 function noteInRun(
   config: SyncObjectConfig,
@@ -552,8 +662,11 @@ function noteInRun(
   outcomes.forEach((outcome, index) => {
     const sourceId = run.sources[index]?.['Id'];
     if (typeof sourceId !== 'string' || sourceId === '') return;
+    const linked = linkedRecordOf(config.operation, outcome);
     if (outcome.success && typeof outcome.id === 'string' && outcome.id !== '') {
       run.links.noteWritten(sourceId, outcome.id);
+    } else if (linked !== undefined) {
+      run.links.noteWritten(sourceId, linked);
     } else if (!outcome.success && creates) {
       run.links.noteRefused(sourceId, config.objectApiName);
     }
@@ -561,9 +674,26 @@ function noteInRun(
 }
 
 /**
+ * What is said once of the rows linked to a record the target holds, with
+ * the first refusal that named one.
+ */
+function linkedNote(objectApiName: string, count: number, refusal: string | undefined): string {
+  return (
+    `LINKED_TO_EXISTING: ${count} ${objectApiName} record${count === 1 ? '' : 's'} linked to ` +
+    `an existing record, not written: the target refused ${count === 1 ? 'it' : 'them'} as a ` +
+    `duplicate of a record it holds and named it${refusal ? ` (${refusal})` : ''}; what the ` +
+    `run writes under ${count === 1 ? 'it' : 'them'} points at that record.`
+  );
+}
+
+/**
  * Build a SyncObjectResult from operation outcomes. The run builds one from
  * the outcomes of a write its cancel stopped, too: the records never sent have
  * no outcome, and are not counted.
+ *
+ * A row linked to a record the target holds (`linkedRecordOf`) is neither
+ * written nor failed: counted skipped, as Forge counts it apart from its
+ * failures, and said once with how many.
  */
 export function buildObjectResult(
   objectApiName: string,
@@ -573,6 +703,8 @@ export function buildObjectResult(
 ): SyncObjectResult {
   let success = 0;
   let failed = 0;
+  let linked = 0;
+  let linkedBy: string | undefined;
   const errors: string[] = [];
   const split = { created: 0, updated: 0 };
 
@@ -581,6 +713,9 @@ export function buildObjectResult(
       success++;
       if (outcome.created === true) split.created++;
       else if (outcome.created === false) split.updated++;
+    } else if (linkedRecordOf(operation, outcome) !== undefined) {
+      linked++;
+      linkedBy ??= outcome.errors[0];
     } else {
       failed++;
       // A record held back is said once per reason, counted, in the notes.
@@ -594,10 +729,14 @@ export function buildObjectResult(
     processed: outcomes.length,
     success,
     failed,
-    skipped: 0,
+    skipped: linked,
     conflictCount: 0,
     // Notices last: what was refused matters more than what was recovered.
-    errors: [...errors, ...notes],
+    errors: [
+      ...errors,
+      ...(linked > 0 ? [linkedNote(objectApiName, linked, linkedBy)] : []),
+      ...notes,
+    ],
     // What each upserted record became, as the org said: the audit trail
     // counts them as created or updated rather than as "upserted".
     ...(operation === 'upsert' ? { upsertSplit: split } : {}),

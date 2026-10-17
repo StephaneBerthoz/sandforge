@@ -58,10 +58,21 @@ function idKey(id: string): string {
  * upsert — and the target did not take it, or the run held it back. A record
  * an update or a delete did not reach is the target's already: its children's
  * lookups name it as they did.
+ *
+ * Begun with what earlier runs of a saved configuration wrote (`SyncIdMap`),
+ * a lookup at a record one of them wrote names that copy, unless this run
+ * writes the record again; and a record this run refuses is not taken for
+ * refused when an earlier run's copy of it is in the target.
  */
 export class SyncRunLinks {
   private readonly written = new Map<string, string>();
   private readonly refused = new Map<string, string>();
+
+  /**
+   * @param earlier - What earlier runs of the configuration wrote, by the
+   *   first fifteen characters of each source id; none for a run on its own.
+   */
+  constructor(private readonly earlier: ReadonlyMap<string, string> = new Map()) {}
 
   /** A source record the run wrote, and the id of its copy in the target. */
   noteWritten(sourceId: string, targetId: string): void {
@@ -75,13 +86,20 @@ export class SyncRunLinks {
     this.refused.set(idKey(sourceId), objectApiName);
   }
 
-  /** The copy in the target of a source record the run wrote, if it wrote it. */
+  /**
+   * The copy in the target of a source record the run wrote, or else one an
+   * earlier run of the configuration wrote, if either did.
+   */
   targetOf(sourceId: string): string | undefined {
-    return this.written.get(idKey(sourceId));
+    return this.written.get(idKey(sourceId)) ?? this.earlier.get(idKey(sourceId));
   }
 
-  /** The object of a source record the run refused, if it refused it. */
+  /**
+   * The object of a source record the run refused, if it refused it and no
+   * earlier run's copy of it stands in for it.
+   */
   refusedObjectOf(sourceId: string): string | undefined {
+    if (this.earlier.has(idKey(sourceId))) return undefined;
     return this.refused.get(idKey(sourceId));
   }
 }
@@ -107,6 +125,20 @@ export interface HeldRow {
   reason: string;
 }
 
+/**
+ * A lookup of a row at another row of the same write — an account's parent
+ * account — left out of the write that creates the row and set by a second
+ * one, once the record it names has its copy: see `DataSync.write`.
+ */
+export interface DeferredLookup {
+  /** The row's place among the records handed over. */
+  index: number;
+  /** The lookup. */
+  field: string;
+  /** The source id of the record it names. */
+  parent: string;
+}
+
 /** What a write of one object sends, and what it holds back. */
 export interface PreparedSyncRows {
   /** The payloads to send, in the order of the records they come from. */
@@ -120,6 +152,8 @@ export interface PreparedSyncRows {
   settled: ReadonlySet<string>[];
   /** The rows held back, each with its reason. */
   held: HeldRow[];
+  /** The lookups at rows of the same write, set by a second write. */
+  deferred: DeferredLookup[];
   /** What was held back, one line per reason, counted. */
   notes: string[];
 }
@@ -262,10 +296,36 @@ function takenAsBusiness(
   return type !== undefined && !personTypes.has(idKey(type));
 }
 
+/** `PARENT_REFUSED`, said of the rows under a record of `parent` the run refused. */
+function parentRefused(
+  objectApiName: string,
+  field: string,
+  parent: string,
+): { group: string; reason: string; say: HeldGroup['say'] } {
+  return {
+    group: `parent:${field}:${parent}`,
+    reason: `PARENT_REFUSED: the ${parent} record its ${field} names was refused in this run.`,
+    say: (count) =>
+      `PARENT_REFUSED: ${recordsOf(count, objectApiName)} held back, not sent: the ` +
+      `${parent} record their ${field} names was refused in this run, and written ` +
+      `without it they would stand without their ${parent}.`,
+  };
+}
+
 /**
  * The payloads a write of one object sends, and the rows it holds back, with
  * why: see the module's comment. A delete sends ids alone, and is left as it
  * was mapped.
+ *
+ * A lookup at another row of the same write — an account's parent account,
+ * any lookup of an object at itself — is left out of the payload and set by a
+ * second write once that row is in (`deferred`), as Forge's second pass sets
+ * it: the write that creates both cannot name a copy neither has yet. Sent
+ * with the source's id, the row was refused, or written without it on the
+ * retry; two rows that name each other, a loop no order of the rows breaks,
+ * are written alike, each then given the other's copy. A row whose record
+ * there is held back is held back with it, and so are the rows under it in
+ * turn: written, it would stand without its parent.
  */
 export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   const { config, records, target, run } = input;
@@ -273,14 +333,34 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   const key = addressedBy(config);
   const infos = target?.recordTypes ?? [];
   const references = target?.references ?? new Set<string>();
-  const prepared: PreparedSyncRows = { payloads: [], sentAt: [], settled: [], held: [], notes: [] };
+  const prepared: PreparedSyncRows = {
+    payloads: [],
+    sentAt: [],
+    settled: [],
+    held: [],
+    deferred: [],
+    notes: [],
+  };
+  /** Each row to send, by its place among the records handed over. */
+  const staged = new Map<number, { payload: Record<string, unknown>; settled: Set<string> }>();
   const groups = new Map<string, HeldGroup>();
   const hold = (index: number, group: string, reason: string, say: HeldGroup['say']): void => {
     prepared.held.push({ index, reason });
+    staged.delete(index);
     const known = groups.get(group);
     if (known) known.count++;
     else groups.set(group, { count: 1, say });
   };
+  // The rows of this write that create their record, by source id: a lookup
+  // at one of them waits for its copy.
+  const creates = config.operation === 'insert' || config.operation === 'upsert';
+  const inThisWrite = new Map<string, number>();
+  if (run && creates) {
+    run.sources.forEach((source, index) => {
+      const id = source?.['Id'];
+      if (typeof id === 'string' && RECORD_ID.test(id)) inThisWrite.set(idKey(id), index);
+    });
+  }
 
   records.forEach((record, index) => {
     const payload = applyMappingsAndAddOns(
@@ -291,20 +371,24 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       key,
     );
     if (config.operation === 'delete') {
-      prepared.payloads.push(payload);
-      prepared.sentAt.push(index);
-      prepared.settled.push(new Set());
+      staged.set(index, { payload, settled: new Set() });
       return;
     }
     const settled = new Set<string>();
 
     // A lookup at a record the run wrote names its copy; one at a record the
-    // run set out to create and could not holds the row back.
+    // run set out to create and could not holds the row back; one at a row
+    // of this write waits for that row's copy.
     if (run) {
       for (const field of Object.keys(payload)) {
         const value = payload[field];
         if (field === 'RecordTypeId' || !references.has(field)) continue;
         if (typeof value !== 'string' || !RECORD_ID.test(value)) continue;
+        if (inThisWrite.has(idKey(value))) {
+          delete payload[field];
+          prepared.deferred.push({ index, field, parent: value });
+          continue;
+        }
         const copy = run.links.targetOf(value);
         if (copy) {
           payload[field] = copy;
@@ -313,15 +397,8 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
         }
         const parent = run.links.refusedObjectOf(value);
         if (parent === undefined) continue;
-        hold(
-          index,
-          `parent:${field}:${parent}`,
-          `PARENT_REFUSED: the ${parent} record its ${field} names was refused in this run.`,
-          (count) =>
-            `PARENT_REFUSED: ${recordsOf(count, objectApiName)} held back, not sent: the ` +
-            `${parent} record their ${field} names was refused in this run, and written ` +
-            `without it they would stand without their ${parent}.`,
-        );
+        const refused = parentRefused(objectApiName, field, parent);
+        hold(index, refused.group, refused.reason, refused.say);
         return;
       }
     }
@@ -387,11 +464,32 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       }
     }
 
+    staged.set(index, { payload, settled });
+  });
+
+  // A row whose record in this write is held back is held back with it, and
+  // the rows under it in turn, until none is left to hold — unless a copy of
+  // that record stands in for it, which the second write names.
+  let holding = true;
+  while (holding) {
+    holding = false;
+    for (const { index, field, parent } of prepared.deferred) {
+      const at = inThisWrite.get(idKey(parent));
+      if (!staged.has(index) || at === undefined || staged.has(at)) continue;
+      if (run?.links.targetOf(parent) !== undefined) continue;
+      const refused = parentRefused(objectApiName, field, objectApiName);
+      hold(index, refused.group, refused.reason, refused.say);
+      holding = true;
+    }
+  }
+  prepared.deferred = prepared.deferred.filter(({ index }) => staged.has(index));
+  prepared.held.sort((a, b) => a.index - b.index);
+
+  for (const [index, { payload, settled }] of [...staged].sort(([a], [b]) => a - b)) {
     prepared.payloads.push(payload);
     prepared.sentAt.push(index);
     prepared.settled.push(settled);
-  });
-
+  }
   prepared.notes = [...groups.values()].map(({ count, say }) => say(count));
   return prepared;
 }

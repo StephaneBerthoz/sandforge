@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { nodeSyncIdMap } from '../src/modules/sync/SyncIdMap.js';
 
 vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -182,9 +183,16 @@ describe('what the command takes back, and from where', () => {
     if (!('summary' in read)) throw new Error('refused');
     expect(runOfSummary(read.summary)).toMatchObject({ configId: 'cfg-1' });
 
-    expect(configurationToldLines('cfg-1', { readWhole: ['Account'], filesForgotten: 2 })).toEqual([
+    expect(
+      configurationToldLines('cfg-1', {
+        readWhole: ['Account'],
+        filesForgotten: 2,
+        linksForgotten: 3,
+      }),
+    ).toEqual([
       'configuration cfg-1: its next run reads Account whole',
       'configuration cfg-1: 2 copied file(s) forgotten, copied again by its next run',
+      'configuration cfg-1: 3 record(s) forgotten, which no later run points a lookup at',
     ]);
     expect(configurationToldLines(undefined, { readWhole: ['Account'] })).toEqual([]);
   });
@@ -324,6 +332,24 @@ describe('sandforge-sync --remove', () => {
       const delta = savedConfigStore(state).loadDelta('cfg-1');
       expect(delta.kind === 'stored' ? delta.state.entries : []).toEqual([
         { ...watermark, removedAt: expect.any(String) },
+      ]);
+    });
+
+    it('has its store forget which source records the accounts it took were the copies of', async () => {
+      const pairs = nodeSyncIdMap(state);
+      const orgs = { sourceOrgId: 'SRC', targetOrgId: 'TGT' };
+      await pairs.record('cfg-1', orgs, 'Account', [
+        [fakeId('001', 101), A1],
+        [fakeId('001', 102), A2],
+        // A record of the target the run linked to, which it did not create: kept.
+        [fakeId('001', 103), fakeId('001', 800)],
+      ]);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--store', state, '--json'));
+
+      expect(JSON.parse(stdout)).toMatchObject({ result: { linksForgotten: 2 } });
+      expect([...(await nodeSyncIdMap(state).load('cfg-1', orgs)).values()]).toEqual([
+        fakeId('001', 800),
       ]);
     });
 

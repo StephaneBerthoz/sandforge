@@ -174,6 +174,100 @@ describe('sandforge-sync --config-file', () => {
     });
   });
 
+  /** Both connections, the target saying what it is, as `typeTarget` asks it. */
+  function orgSays(org: { IsSandbox: boolean; OrganizationType?: string }) {
+    const destroy = vi.fn(async (ids: string[]) => ids.map((id) => ({ id, success: true })));
+    const sobject = vi.fn(() => ({ destroy }));
+    vi.mocked(makeConn).mockReturnValue({
+      query: vi.fn(async (soql: string) => ({
+        records: [
+          soql.includes('OrganizationType')
+            ? { OrganizationType: org.OrganizationType }
+            : { Id: '00D000000000002AAA', IsSandbox: org.IsSandbox },
+        ],
+        totalSize: 1,
+      })),
+      queryMore: vi.fn(),
+      sobject,
+    } as unknown as Connection);
+    return { destroy, sobject };
+  }
+
+  it('replaces a changed attachment on a sandbox, deleting its earlier copy as the panel does', async () => {
+    const { destroy, sobject } = orgSays({ IsSandbox: true });
+    engine.run = async (_deps, config) => answered(config);
+
+    await run();
+
+    const deleteFromTarget = engine.deps[0].files?.deleteFromTarget;
+    expect(deleteFromTarget).toBeDefined();
+    await expect(deleteFromTarget?.('Attachment', [fakeId('00P', 1)])).resolves.toEqual([
+      { id: fakeId('00P', 1), success: true, errors: [] },
+    ]);
+    expect(sobject).toHaveBeenCalledWith('Attachment');
+    expect(destroy).toHaveBeenCalledWith([fakeId('00P', 1)]);
+  });
+
+  it('deletes nothing in a Developer Edition, a production org for a Sync write', async () => {
+    orgSays({ IsSandbox: false, OrganizationType: 'Developer Edition' });
+    engine.run = async (_deps, config) => answered(config);
+
+    await run();
+
+    expect(engine.deps[0].files).toBeDefined();
+    expect(engine.deps[0].files?.deleteFromTarget).toBeUndefined();
+  });
+
+  it("lists a French target's validation rules with their field by its API name, as the panel does", async () => {
+    const tooling = vi.fn(async (soql: string) => ({
+      done: true,
+      totalSize: 1,
+      records: soql.includes('FROM FieldDefinition')
+        ? [{ QualifiedApiName: 'Email', Label: 'Adresse e-mail' }]
+        : [
+            {
+              ValidationName: 'Email_Required',
+              ErrorMessage: 'Un e-mail est requis.',
+              // As a French org answers it: the field's label.
+              ErrorDisplayField: 'Adresse e-mail',
+              EntityDefinition: { QualifiedApiName: 'Contact' },
+            },
+          ],
+    }));
+    vi.mocked(makeConn).mockReturnValue({
+      query: vi.fn(async () => ({ records: [{ Id: '00D000000000002AAA' }], totalSize: 1 })),
+      queryMore: vi.fn(),
+      tooling: { query: tooling, queryMore: vi.fn() },
+    } as unknown as Connection);
+    engine.run = async (_deps, config) => answered(config);
+
+    await run();
+
+    await expect(engine.deps[0].readValidationRules?.(['Contact'])).resolves.toEqual([
+      {
+        objectApiName: 'Contact',
+        name: 'Email_Required',
+        message: 'Un e-mail est requis.',
+        field: 'Email',
+      },
+    ]);
+  });
+
+  it('keeps in the store which record of the target each record a run wrote became, for the next run', async () => {
+    const orgs = { sourceOrgId: 'SRC', targetOrgId: 'TGT' };
+    const seen: Array<ReadonlyMap<string, string> | null | undefined> = [];
+    engine.run = async (deps, config) => {
+      seen.push(await deps.idMap?.load(config.id, orgs));
+      await deps.idMap?.record(config.id, orgs, 'Account', [[fakeId('001', 1), fakeId('001', 9)]]);
+      return answered(config);
+    };
+
+    await run();
+    await run();
+
+    expect(seen).toEqual([new Map(), new Map([[fakeId('001', 1).slice(0, 15), fakeId('001', 9)]])]);
+  });
+
   it('keeps nothing for a run of the objects of the line, which is never run again', async () => {
     engine.run = async (_deps, config) => answered(config);
 
@@ -181,6 +275,7 @@ describe('sandforge-sync --config-file', () => {
 
     expect(engine.deps[0].deltaStore).toBeUndefined();
     expect(engine.deps[0].deltaReads).toBeUndefined();
+    expect(engine.deps[0].idMap).toBeUndefined();
     expect(JSON.parse(stdout).configId).toBeUndefined();
   });
 

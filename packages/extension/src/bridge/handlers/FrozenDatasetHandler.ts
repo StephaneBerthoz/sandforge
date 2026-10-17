@@ -2006,10 +2006,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         // target's validation rules, read as Forge's pre-flight and Sync's
         // simulation read them.
         readValidationRules: async (objectApiNames) => {
-          const { readActiveValidationRules, fieldLabelsSoql } =
-            await import('../../modules/forge/TargetGapReader.js');
+          const { toolingValidationRules } = await import('../../modules/forge/TargetGapReader.js');
           const tooling = conn.tooling;
-          return readActiveValidationRules(
+          // Each rule with the field it shows its error on by its API name,
+          // read back from the label a French org answers.
+          return toolingValidationRules(
             async (soql) =>
               (
                 await queryAllPages<Record<string, unknown>>(
@@ -2020,32 +2021,7 @@ export class FrozenDatasetHandler implements DomainHandler {
                   soql,
                 )
               ).records,
-            objectApiNames,
-            // The field a rule shows its error on comes back as its label in
-            // the org's language, read back to its API name by the labels the
-            // org's field definitions give. The describe's can differ: on a
-            // French org, `Téléphone` there, `Téléphone (bureau)` in the
-            // describe of a contact.
-            async (objectApiName) =>
-              (
-                await queryAllPages<Record<string, unknown>>(
-                  {
-                    query: async (q) => tooling.query<Record<string, unknown>>(q),
-                    queryMore: async (url) => tooling.queryMore<Record<string, unknown>>(url),
-                  },
-                  fieldLabelsSoql(objectApiName),
-                )
-              ).records.flatMap((row) =>
-                typeof row.QualifiedApiName === 'string'
-                  ? [
-                      {
-                        name: row.QualifiedApiName,
-                        ...(typeof row.Label === 'string' ? { label: row.Label } : {}),
-                      },
-                    ]
-                  : [],
-              ),
-          );
+          )(objectApiNames);
         },
       });
       const plan = await loader.planLoad({

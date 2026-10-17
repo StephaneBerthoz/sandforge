@@ -13,13 +13,16 @@
  * What the removal took is then dropped from the configuration that ran: the
  * copies of files it deleted leave the record of copied files, and the
  * objects whose copies went are read whole by the next run, since a delta
- * read from their watermark would take the copies for still there.
+ * read from their watermark would take the copies for still there; and the
+ * records it took leave the configuration's pairs (`SyncIdMap`), which a
+ * later run points its lookups by.
  */
 
 import type { ForgeUndoObjectResult, SyncRemovalResult } from '@sandforge/shared';
 import { removeRunRecords, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
 import { removalMark, removalStatus } from '../forge/removalOutcome.js';
 import type { SyncCopiedFile } from './SyncFiles.js';
+import type { SyncLinkForgetter } from './SyncIdMap.js';
 import {
   SYNC_FILE_OBJECTS,
   syncRemovalPlan,
@@ -67,6 +70,12 @@ export interface SyncRunRemovalInput {
   store: SyncRemovalStateStore;
   /** The configuration that ran; absent from the command line, which saves none. */
   configs?: SyncRemovalConfigs;
+  /**
+   * Which record of the target each source record the configuration's runs
+   * wrote became (`SyncIdMap`): what the removal deleted leaves it, so no
+   * later run points a lookup at a copy that is gone.
+   */
+  links?: SyncLinkForgetter;
   /** Stops the removal before its next call to the org. */
   signal?: AbortSignal;
   /** Told how many of the run's creations are settled, after each step. */
@@ -80,6 +89,8 @@ export interface SyncRunRemovalOutcome {
   planned: number;
   /** Why a follow-up could not be made, when one could not: said, never thrown. */
   notes: string[];
+  /** How many of the configuration's pairs it forgot, the records it took. */
+  linksForgotten?: number;
 }
 
 /**
@@ -190,5 +201,25 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
       );
     }
   }
-  return { result, planned, notes };
+
+  // Nor does a later run point a lookup at a record the removal took: its
+  // pair leaves the configuration's, whether the removal deleted it or found
+  // it gone.
+  let linksForgotten: number | undefined;
+  if (input.links && gone.size > 0) {
+    try {
+      linksForgotten = await input.links.forget(
+        run.configId,
+        { sourceOrgId: run.sourceOrgId, targetOrgId: run.targetOrgId },
+        [...gone],
+      );
+    } catch (err: unknown) {
+      notes.push(
+        `Which records of the target this removal took could not be forgotten ` +
+          `(${err instanceof Error ? err.message : String(err)}): a later run of the ` +
+          'configuration may point a lookup at one of them.',
+      );
+    }
+  }
+  return { result, planned, notes, ...(linksForgotten ? { linksForgotten } : {}) };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { ConflictRecord, SyncObjectConfig } from '@sandforge/shared';
 import {
   keyBatches,
+  refusedOnUniqueValues,
   simulateObjectOutcome,
   simulationKey,
   soqlLiteral,
@@ -327,5 +328,51 @@ describe('simulateObjectOutcome', () => {
 
     expect(outcome.conflicts).toBe(1);
     expect(outcome.conflictFields).toEqual(['Custom__c']);
+  });
+});
+
+describe('refusedOnUniqueValues', () => {
+  it('links a row to the one record of the target that holds its unique value, and refuses the rest', () => {
+    const rows = [
+      { Name: 'Held once', Ext_Id__c: 'A' },
+      { Name: 'Held twice', Ext_Id__c: 'B' },
+      { Name: 'New', Ext_Id__c: 'C' },
+      { Name: 'Sent before', Ext_Id__c: 'c' },
+      { Name: 'No value', Ext_Id__c: null },
+    ];
+    const held = new Map([
+      [
+        'Ext_Id__c',
+        new Map([
+          ['a', 1],
+          ['b', 2],
+        ]),
+      ],
+    ]);
+
+    const { linked, refused, notes } = refusedOnUniqueValues(rows, held);
+
+    expect([...linked]).toEqual([0]);
+    expect([...refused].sort()).toEqual([1, 3]);
+    expect(notes).toEqual([
+      'LINKED_TO_EXISTING: 1 record(s) hold a Ext_Id__c the target keeps unique, which a record ' +
+        'of the target holds already: it refuses them as duplicates (DUPLICATE_VALUE) and names ' +
+        'that record, which the run links them to — what it writes under them points at that record.',
+      '2 record(s) hold a Ext_Id__c the target keeps unique, which several records of the target ' +
+        'hold already (1) or a record sent before them holds (1): it refuses them (DUPLICATE_VALUE).',
+    ]);
+  });
+
+  it('links no row another unique field refuses', () => {
+    const rows = [{ Ext_Id__c: 'A', Code__c: 'X' }];
+    const held = new Map([
+      ['Ext_Id__c', new Map([['a', 1]])],
+      ['Code__c', new Map([['x', 2]])],
+    ]);
+
+    const { linked, refused } = refusedOnUniqueValues(rows, held);
+
+    expect([...linked]).toEqual([]);
+    expect([...refused]).toEqual([0]);
   });
 });

@@ -11,6 +11,7 @@ import {
   gapLines,
   fieldLabelsSoql,
   readActiveValidationRules,
+  toolingValidationRules,
   validationFormulaSoql,
   validationRulesSoql,
   type GapField,
@@ -331,6 +332,32 @@ describe('readActiveValidationRules', () => {
     expect(await readActiveValidationRules(query, [])).toEqual([]);
     expect(await readActiveValidationRules(query, ["Account' OR Id != '"])).toEqual([]);
     expect(asked).toEqual([]);
+  });
+
+  it("reads over one Tooling API the rules and the fields' labels a French org names their fields by", async () => {
+    const asked: string[] = [];
+    const read = toolingValidationRules(async (soql) => {
+      asked.push(soql);
+      if (soql.includes('FROM FieldDefinition')) {
+        return [
+          { QualifiedApiName: 'Email', Label: 'Adresse e-mail' },
+          { QualifiedApiName: 'Phone', Label: 'Téléphone' },
+          { Label: 'no name' },
+        ];
+      }
+      return [
+        rule(ruleId(1), 'Email_Required', 'Contact', 'Adresse e-mail'),
+        rule(ruleId(2), 'Top', 'Contact', 'Haut de la page'),
+      ];
+    });
+
+    const rules = await read(['Contact']);
+
+    expect(rules.map((r) => [r.name, r.field])).toEqual([
+      ['Email_Required', 'Email'],
+      ['Top', undefined],
+    ]);
+    expect(asked).toEqual([validationRulesSoql(['Contact']), fieldLabelsSoql('Contact')]);
   });
 });
 

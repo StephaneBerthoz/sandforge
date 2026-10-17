@@ -280,6 +280,19 @@ describe('SyncRemovalHandler', () => {
       expect(errors()[0].payload.code).toBe('ALREADY_REMOVED');
     });
 
+    it('has the configuration forget which source records the accounts it took were the copies of', async () => {
+      const orgs = { sourceOrgId: 'org-source', targetOrgId: TARGET };
+      await creations.idMap().record('cfg-1', orgs, 'Account', [
+        [fakeId('001', 101), A1],
+        [fakeId('001', 102), A2],
+      ]);
+
+      await remove();
+
+      expect(errors()).toEqual([]);
+      expect((await creations.idMap().load('cfg-1', orgs)).size).toBe(0);
+    });
+
     it('drops what went from the configuration that ran: its next run reads the objects whole', async () => {
       const configs = new SyncConfigStore(store);
       configs.save(deltaConfig());

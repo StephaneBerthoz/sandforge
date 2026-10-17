@@ -283,7 +283,7 @@ describe('a saved configuration that copies files', () => {
 describe('replacing a changed attachment in the target', () => {
   it('is allowed only where Production Guard would let Sync delete there', async () => {
     const { ProductionGuard } = await import('../../core/precheck/ProductionGuard.js');
-    const { targetAllowsDeletes } = await import('./SyncOpsHandler.js');
+    const { targetAllowsDeletes } = await import('../../modules/sync/SyncFiles.js');
     const guard = new ProductionGuard({ requestConfirmation: async () => true });
 
     // A sandbox: the earlier copy can go once the new one is written.

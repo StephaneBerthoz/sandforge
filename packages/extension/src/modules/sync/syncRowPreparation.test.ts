@@ -360,6 +360,123 @@ describe('prepareSyncRows — the records the run wrote and refused', () => {
   });
 });
 
+describe('prepareSyncRows — lookups at rows of the same write', () => {
+  const SOURCE_ACCOUNT_3 = '001000000000003AAA';
+
+  it('leaves out a lookup at a row of the same write, for a second write to set', () => {
+    const rows = [
+      // Named by its fifteen-character id, as a formula or a report holds it.
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_1, ParentId: SOURCE_ACCOUNT_2.slice(0, 15) },
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_2, Name: 'Globex', ParentId: null },
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_3, Name: 'Initech', ParentId: SOURCE_ACCOUNT_1 },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, recordTypes: RECORD_TYPES },
+    });
+
+    expect(prepared.payloads.map((p) => 'ParentId' in p && p.ParentId)).toEqual([
+      false,
+      null,
+      false,
+    ]);
+    expect(prepared.deferred).toEqual([
+      { index: 0, field: 'ParentId', parent: SOURCE_ACCOUNT_2.slice(0, 15) },
+      { index: 2, field: 'ParentId', parent: SOURCE_ACCOUNT_1 },
+    ]);
+    expect(prepared.held).toEqual([]);
+  });
+
+  it('defers both lookups of two rows that name each other, a loop no order breaks', () => {
+    const rows = [
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_1, ParentId: SOURCE_ACCOUNT_2 },
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_2, Name: 'Globex', ParentId: SOURCE_ACCOUNT_1 },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, recordTypes: RECORD_TYPES },
+    });
+
+    expect(prepared.sentAt).toEqual([0, 1]);
+    expect(prepared.deferred.map((d) => [d.index, d.parent])).toEqual([
+      [0, SOURCE_ACCOUNT_2],
+      [1, SOURCE_ACCOUNT_1],
+    ]);
+  });
+
+  it('holds back the rows under a row of the same write it holds back, and the rows under those', () => {
+    const rows = [
+      // Its record type has no counterpart in the target: held back.
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_1, RecordTypeId: SOURCE_RETIRED, ParentId: null },
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_2, Name: 'Globex', ParentId: SOURCE_ACCOUNT_1 },
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_3, Name: 'Initech', ParentId: SOURCE_ACCOUNT_2 },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, recordTypes: RECORD_TYPES },
+    });
+
+    expect(prepared.payloads).toEqual([]);
+    expect(prepared.deferred).toEqual([]);
+    expect(prepared.held.map((h) => h.index)).toEqual([0, 1, 2]);
+    expect(prepared.notes).toContain(
+      'PARENT_REFUSED: 2 Account records held back, not sent: the Account record their ' +
+        'ParentId names was refused in this run, and written without it they would stand ' +
+        'without their Account.',
+    );
+  });
+
+  it('holds back no row under a held-back row an earlier run wrote a copy of', () => {
+    const links = new SyncRunLinks(
+      new Map([[SOURCE_ACCOUNT_1.slice(0, 15), '001000000000901AAA']]),
+    );
+    const rows = [
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_1, RecordTypeId: SOURCE_RETIRED, ParentId: null },
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_2, Name: 'Globex', ParentId: SOURCE_ACCOUNT_1 },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links, sources: rows, recordTypes: RECORD_TYPES },
+    });
+
+    expect(prepared.held.map((h) => h.index)).toEqual([0]);
+    expect(prepared.sentAt).toEqual([1]);
+    expect(prepared.deferred).toEqual([{ index: 1, field: 'ParentId', parent: SOURCE_ACCOUNT_1 }]);
+  });
+
+  it('points an update at the rows its ids name, deferring none', () => {
+    const rows = [
+      { Id: SOURCE_ACCOUNT_1, Name: 'Acme', ParentId: SOURCE_ACCOUNT_2 },
+      { Id: SOURCE_ACCOUNT_2, Name: 'Globex' },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ operation: 'update' }),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows },
+    });
+
+    expect(prepared.deferred).toEqual([]);
+    expect(prepared.payloads[0]).toMatchObject({
+      Id: SOURCE_ACCOUNT_1,
+      ParentId: SOURCE_ACCOUNT_2,
+    });
+  });
+});
+
 describe('SyncRunLinks', () => {
   it('finds a record by either form of its id, and forgets a refusal once it is written', () => {
     const links = new SyncRunLinks();

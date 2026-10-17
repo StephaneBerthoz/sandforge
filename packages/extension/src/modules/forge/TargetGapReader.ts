@@ -484,6 +484,39 @@ export async function readActiveValidationRules(
 }
 
 /**
+ * {@link readActiveValidationRules} over one Tooling API, with the fields of
+ * each object read there too (`fieldLabelsSoql`): the reader Sync's
+ * simulation, its command line and Frozen's load preview list the target's
+ * rules with. Wired in one of them alone, a French target's rules reached the
+ * others with their field missing — the label the org answers names no API
+ * name — while the load preview named it.
+ *
+ * @param toolingQuery - A SOQL query on the target's Tooling API, every page of it.
+ */
+export function toolingValidationRules(
+  toolingQuery: (soql: string) => Promise<Row[]>,
+): (objectApiNames: readonly string[]) => Promise<ActiveValidationRule[]> {
+  // The field a rule shows its error on comes back as its label in the org's
+  // language, read back to its API name by the labels the org's field
+  // definitions give. The describe's can differ: on a French org,
+  // `Téléphone` there, `Téléphone (bureau)` in the describe of a contact.
+  const fieldsOf = async (
+    objectApiName: string,
+  ): Promise<Array<{ name: string; label?: string }>> =>
+    (await toolingQuery(fieldLabelsSoql(objectApiName))).flatMap((row) =>
+      typeof row.QualifiedApiName === 'string'
+        ? [
+            {
+              name: row.QualifiedApiName,
+              ...(typeof row.Label === 'string' ? { label: row.Label } : {}),
+            },
+          ]
+        : [],
+    );
+  return (objectApiNames) => readActiveValidationRules(toolingQuery, objectApiNames, fieldsOf);
+}
+
+/**
  * Reads, from the target org's metadata, what will refuse or surprise a run.
  */
 export class TargetGapReader {

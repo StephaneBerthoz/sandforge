@@ -78,7 +78,7 @@ import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
-import type { OperationRequest, ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -104,11 +104,13 @@ import type {
 import {
   filesSummaryLine,
   orgFileCopyDeps,
+  targetAllowsDeletes,
   type FileCopyOrg,
   type SyncFileDeps,
   type SyncFileStore,
 } from '../../modules/sync/SyncFiles.js';
 import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
+import { savedConfigIdMap, type SyncIdMapStore } from '../../modules/sync/SyncIdMap.js';
 import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
@@ -143,34 +145,6 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
   upsert: 2,
   delete: 3,
 };
-
-/**
- * Whether Production Guard would let Sync delete in the target without
- * refusing it: a changed legacy attachment is replaced by writing its new copy
- * and deleting the earlier one, and the guard allows no delete on a production
- * org (a Developer Edition counts as one). Where it would refuse, the earlier
- * copy stays and the change is not copied, as before attachments were
- * replaced: a run never deletes where a delete of its own would be refused.
- * No guard, no delete.
- * @param guard - The window's Production Guard
- * @param targetOrgId - The org the run writes to
- * @param targetOrgType - That org's registered type
- */
-export function targetAllowsDeletes(
-  guard: Pick<ProductionGuard, 'check'> | undefined,
-  targetOrgId: string,
-  targetOrgType: string | undefined,
-): boolean {
-  if (!guard) return false;
-  return guard.check({
-    orgId: targetOrgId,
-    orgTier: orgTypeToGuardTier(targetOrgType ?? ''),
-    operation: 'delete',
-    objectName: 'Attachment',
-    recordCount: 1,
-    module: 'sync',
-  }).allowed;
-}
 
 /**
  * Build the Production Guard request describing a sync run on its target org.
@@ -536,6 +510,14 @@ export class SyncOpsHandler implements DomainHandler {
     if (!parsed) return;
     try {
       const success = this.syncConfigStore.delete(parsed.id);
+      // And which record of the target each record of its runs became: no
+      // run of it reads them again.
+      await this.runCreations
+        ?.idMap()
+        .delete(parsed.id)
+        .catch((err: unknown) =>
+          this.deps.log(`[WARN] sync:config:delete ${parsed.id}: ${extractErrorMessage(err)}`),
+        );
       const response = buildResponse(this.deps, msg, 'sync:config:delete:response', { success });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -584,6 +566,20 @@ export class SyncOpsHandler implements DomainHandler {
    */
   private fileStoreFor(): SyncFileStore {
     return this.syncConfigStore.fileStore();
+  }
+
+  /**
+   * Where a run of a saved configuration keeps which record of the target
+   * each source record it wrote became, and reads what earlier runs wrote:
+   * on disk beside what every run created (`SyncIdMap`), for a saved
+   * configuration alone. Nowhere in a window that keeps no run's creations.
+   */
+  private idMapFor(): SyncIdMapStore | undefined {
+    const creations = this.runCreations;
+    if (!creations) return undefined;
+    return savedConfigIdMap(creations.idMap(), (configId) =>
+      this.syncConfigStore.isSaved(configId),
+    );
   }
 
   /**
@@ -889,7 +885,7 @@ export class SyncOpsHandler implements DomainHandler {
       const { ConflictResolver } = await import('../../modules/sync/ConflictResolver.js');
       const { FieldMappingService } = await import('../../modules/sync/FieldMapping.js');
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
-      const { readActiveValidationRules } = await import('../../modules/forge/TargetGapReader.js');
+      const { toolingValidationRules } = await import('../../modules/forge/TargetGapReader.js');
       const tooling = readers.targetConn.tooling;
 
       // A simulation writes nothing, and its writer says so to anything that
@@ -926,25 +922,28 @@ export class SyncOpsHandler implements DomainHandler {
         // Read as the run reads them; a simulation records no watermark.
         deltaStore: this.deltaStoreFor(),
         deltaReads: readers.deltaReads,
+        // What earlier runs of the configuration wrote, read as the run reads
+        // it, so a lookup at one of their copies is told as the run sends it.
+        idMap: this.idMapFor(),
         // The files a run would copy, found and measured as the run finds
         // them; none is read or written, and nothing is recorded.
         files: readers.files,
         // What it cannot evaluate, listed beside what it predicts: the
-        // target's validation rules, read as Forge's pre-flight reads them.
-        readValidationRules: async (objectApiNames) =>
-          readActiveValidationRules(
-            async (soql) =>
-              (
-                await queryAllPages<Record<string, unknown>>(
-                  {
-                    query: async (q) => tooling.query<Record<string, unknown>>(q),
-                    queryMore: async (url) => tooling.queryMore<Record<string, unknown>>(url),
-                  },
-                  soql,
-                )
-              ).records,
-            objectApiNames,
-          ),
+        // target's validation rules, read as Forge's pre-flight reads them,
+        // each with the field it shows its error on by its API name, read
+        // back from the label a French org answers, as Frozen's preview does.
+        readValidationRules: toolingValidationRules(
+          async (soql) =>
+            (
+              await queryAllPages<Record<string, unknown>>(
+                {
+                  query: async (q) => tooling.query<Record<string, unknown>>(q),
+                  queryMore: async (url) => tooling.queryMore<Record<string, unknown>>(url),
+                },
+                soql,
+              )
+            ).records,
+        ),
         onSimulationProgress: (done, total, objectApiName) => {
           const pct = Math.round((done / total) * 100);
           const label = `Simulating ${objectApiName}`;
@@ -1820,6 +1819,9 @@ export class SyncOpsHandler implements DomainHandler {
           },
         },
         ...(creations ? { creations } : {}),
+        // Which record of the target each record of a saved configuration's
+        // runs became: an earlier run's copy is what a lookup at it names.
+        idMap: this.idMapFor(),
       };
       if (!this.deps.services) {
         throw new Error(
