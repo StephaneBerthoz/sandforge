@@ -4,6 +4,7 @@ import { forgeGapId } from '@sandforge/shared';
 import {
   ACTIVE_DUPLICATE_RULES_SOQL,
   FORMULAS_BOUND,
+  FORMULAS_IN_COMPOSITES_BOUND,
   FORMULA_REQUESTS_BOUND,
   TargetGapReader,
   bypassesOf,
@@ -21,9 +22,11 @@ import {
   type TargetGapDeps,
 } from './TargetGapReader.js';
 import {
+  TOOLING_RETRIEVES_PER_REQUEST,
   USER_PERMISSIONS_SOQL,
   type QueryAnswer,
   type ToolingAnswer,
+  type ToolingRetrieve,
 } from './TargetAutomationReader.js';
 
 const SOURCE = 'src-org';
@@ -127,6 +130,12 @@ interface FakeOrgs {
   sizes?: Record<string, [number, number]>;
   /** Describes already held, by `<org>::<object>`: they cost the read nothing. */
   held_describes?: ReadonlySet<string>;
+  /**
+   * Whether the target answers Tooling composites: `retrieve` retrieves the
+   * rules by id, as well as querying; `query` queries only, refusing every
+   * retrieve as an org that will not take the route.
+   */
+  composites?: 'retrieve' | 'query';
   refuse?: Partial<
     Record<
       'rules' | 'formulas' | 'duplicates' | 'definitions' | 'limits' | 'held' | 'permissionSets',
@@ -227,6 +236,39 @@ function fakeDeps(orgs: FakeOrgs = {}) {
         return orgs.limits ?? { DailyApiRequests: { Max: 100_000, Remaining: 100_000 } };
       }),
   };
+  /** A rule's metadata as the org gives it, or nothing for a rule it has no formula of. */
+  const metadataOf = (id: string): Array<Record<string, unknown>> => {
+    const formula = orgs.formulas?.[id];
+    const errorDisplayField = orgs.displayFields?.[id];
+    return formula === undefined
+      ? []
+      : [
+          {
+            Metadata: {
+              errorConditionFormula: formula,
+              ...(errorDisplayField ? { errorDisplayField } : {}),
+            },
+          },
+        ];
+  };
+  if (orgs.composites) {
+    deps.toolingQueries = (orgId, soqls) =>
+      call(`composite queries ${orgId} ${soqls.length}`, (): ToolingAnswer[] => {
+        if (soqls.length > 5) throw new Error('A Tooling composite holds 5 queries');
+        return soqls.map((soql) => ({
+          records: metadataOf(/WHERE Id = '(\w+)'/.exec(soql)?.[1] ?? ''),
+        }));
+      });
+    deps.toolingRetrieves = (orgId, reads: readonly ToolingRetrieve[]) =>
+      call(`composite retrieves ${orgId} ${reads.length}`, (): ToolingAnswer[] => {
+        if (reads.length > TOOLING_RETRIEVES_PER_REQUEST) throw new Error('LIMIT_EXCEEDED');
+        return reads.map(({ sobject, id }) =>
+          orgs.composites === 'query' || sobject !== 'ValidationRule'
+            ? { refused: 'NOT_FOUND: The requested resource does not exist' }
+            : { records: metadataOf(id).map((row) => ({ Id: id, ...row })) },
+        );
+      });
+  }
   return { deps, asked, mostInFlight: () => mostInFlight };
 }
 
@@ -427,6 +469,34 @@ describe('readActiveValidationRules', () => {
     expect(sent).toHaveLength(FORMULA_REQUESTS_BOUND);
     expect(rules.filter((r) => r.onChangeOnly)).toHaveLength(FORMULA_REQUESTS_BOUND * 5);
     expect(rules.filter((r) => !r.onChangeOnly)).toHaveLength(3);
+  });
+
+  it('retrieves the formulas by id, 25 a request, given a way to retrieve them', async () => {
+    const rows = Array.from({ length: 26 }, (_, i) =>
+      rule(ruleId(i + 1), `Rule_${String(i + 1).padStart(2, '0')}`, 'Invoice__c'),
+    );
+    const { sent, toolingQueries } = compositesOver({});
+    const retrieved: number[] = [];
+    const toolingRetrieves = async (
+      reads: readonly ToolingRetrieve[],
+    ): Promise<ToolingAnswer[]> => {
+      retrieved.push(reads.length);
+      return reads.map(({ id }) => ({
+        records: [{ Id: id, Metadata: { errorConditionFormula: 'ISCHANGED(Status__c)' } }],
+      }));
+    };
+
+    const rules = await readActiveValidationRules(
+      async () => rows,
+      ['Invoice__c'],
+      undefined,
+      toolingQueries,
+      toolingRetrieves,
+    );
+
+    expect(retrieved).toEqual([25, 1]);
+    expect(sent).toEqual([]);
+    expect(rules.every((r) => r.onChangeOnly)).toBe(true);
   });
 
   it('reads no formula without a way to send composites, and marks no rule', async () => {
@@ -732,6 +802,67 @@ describe('TargetGapReader — validation rules', () => {
       'Rule_28',
       'Rule_29',
     ]);
+  });
+
+  it('retrieves the formulas by id, 25 a composite, where it read them one request each', async () => {
+    // Read one request each, the formulas of a clone's three rules on a
+    // Developer Edition took three requests, and a read stopped at 25.
+    const rules = Array.from({ length: 30 }, (_, i) =>
+      rule(ruleId(i), `Rule_${String(i).padStart(2, '0')}`, 'Account'),
+    );
+    const read = await readGaps([node('Account')], {
+      rules,
+      formulas: Object.fromEntries(rules.map((r) => [r.Id as string, 'ISCHANGED(Name)'])),
+      composites: 'retrieve',
+    });
+
+    expect(read.asked.filter((call) => call.includes(" WHERE Id = '"))).toEqual([]);
+    expect(read.asked.filter((call) => call.startsWith('composite'))).toEqual([
+      `composite retrieves ${TARGET} 25`,
+      `composite retrieves ${TARGET} 5`,
+    ]);
+    const gaps = ofKind(read, 'validation_rule');
+    expect(gaps).toHaveLength(30);
+    expect(gaps.every((gap) => gap.detail?.formula === 'read')).toBe(true);
+    // Each composite is one request of the read.
+    const alone = await readGaps([node('Account')], { composites: 'retrieve' });
+    expect(read.requests - alone.requests).toBe(2);
+  });
+
+  it('reads the formulas by query, five a composite, from an org that will not retrieve them', async () => {
+    const rules = Array.from({ length: 7 }, (_, i) => rule(ruleId(i), `Rule_${i}`, 'Account'));
+    const read = await readGaps([node('Account')], {
+      rules,
+      formulas: Object.fromEntries(rules.map((r) => [r.Id as string, 'ISBLANK(Name)'])),
+      composites: 'query',
+    });
+
+    expect(read.asked.filter((call) => call.startsWith('composite'))).toEqual([
+      `composite retrieves ${TARGET} 7`,
+      `composite queries ${TARGET} 5`,
+      `composite queries ${TARGET} 2`,
+    ]);
+    expect(ofKind(read, 'validation_rule').every((g) => g.detail?.formula === 'read')).toBe(true);
+  });
+
+  it(`reads ${FORMULAS_IN_COMPOSITES_BOUND} formulas at most in composites, and says the others were not read`, async () => {
+    const rules = Array.from({ length: FORMULAS_IN_COMPOSITES_BOUND + 2 }, (_, i) =>
+      rule(ruleId(i), `Rule_${String(i).padStart(3, '0')}`, 'Account'),
+    );
+    const read = await readGaps([node('Account')], {
+      rules,
+      formulas: Object.fromEntries(rules.map((r) => [r.Id as string, 'ISBLANK(Name)'])),
+      composites: 'retrieve',
+    });
+
+    expect(read.asked.filter((call) => call.startsWith('composite'))).toHaveLength(
+      FORMULA_REQUESTS_BOUND,
+    );
+    const notRead = ofKind(read, 'validation_rule').filter((g) => g.detail?.formula === 'notRead');
+    expect(notRead).toHaveLength(2);
+    expect(gapLines(read, 'TGT')).toContain(
+      `  2 validation rule formula(s) not read: the read takes ${FORMULAS_IN_COMPOSITES_BOUND} at most`,
+    );
   });
 
   it('says the formulas it could not read, and keeps the rules', async () => {
@@ -1248,7 +1379,7 @@ describe('gapLines', () => {
       limits: { DailyApiRequests: { Max: 15_000, Remaining: 14_000 } },
       refuse: { held: new Error('INSUFFICIENT_ACCESS') },
     });
-    const lines = gapLines(read, 'TGT');
+    const lines = gapLines(read, 'TGT', { formulasBound: FORMULAS_BOUND });
 
     expect(lines[0]).toBe('target gaps: what TGT holds against the rows, read from its metadata');
     expect(lines[1]).toBe('  Account');
@@ -1271,9 +1402,7 @@ describe('gapLines', () => {
       '  info: API budget: the run takes about 4 call(s) (3 write(s) of 200 rows, 1 read(s)); ' +
         '14000 of 15000 daily requests left',
     );
-    expect(lines).toContain(
-      '  1 validation rule formula(s) not read: the read takes 25 at most, one request each',
-    );
+    expect(lines).toContain('  1 validation rule formula(s) not read: the read takes 25 at most');
     expect(lines).toContain(
       '  the custom permissions of the user the run writes as could not be read: INSUFFICIENT_ACCESS',
     );

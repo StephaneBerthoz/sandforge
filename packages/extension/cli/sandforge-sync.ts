@@ -104,6 +104,7 @@ import {
   toolingQueriesOver,
   toolingValidationRules,
 } from '../src/modules/forge/TargetGapReader.js';
+import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReader.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -860,6 +861,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           )
         ).records,
       toolingQueriesOver(targetConn),
+      toolingRetrievesOver(targetConn),
     ),
     // Both orgs' currencies, as the panel reads them: a row in one the target
     // does not hold active goes in its corporate currency, its amounts

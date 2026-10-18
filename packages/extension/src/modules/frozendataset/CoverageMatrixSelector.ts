@@ -253,6 +253,13 @@ export interface CoverageMatrixSelectorDeps {
   query: SoqlQueryFn;
   checkHealth: DossierHealthChecker;
   measureVolumetry: ScopeVolumetryFn;
+  /**
+   * The type of a field of an object as the source describes it (`boolean`,
+   * `double`, `date`…), or nothing when it cannot say: what an axis value is
+   * written as in a probe (`axisValueLiteral`). Without it, every value is
+   * quoted as text.
+   */
+  fieldType?: (objectApiName: string, field: string) => Promise<string | undefined>;
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
@@ -367,11 +374,20 @@ export class CoverageMatrixSelector {
     const { roots, uncovered, ownMeasures, at } = found;
     const step = <T>(work: Promise<T>): Promise<T> => untilStopped(work, signal);
 
-    // 1. Enumerate the observed values of every axis.
+    // 1. Enumerate the observed values of every axis, and the type of the
+    // field each filters on, which says how a probe writes its values.
     const axisValues = new Map<string, Array<string | null>>();
+    const axisTypes = new Map<string, string | undefined>();
     for (const axis of config.axes) {
       tell({ phase: 'axis', axis: axis.name });
       axisValues.set(axis.name, await step(this.enumerateAxisValues(axis, config.tokens)));
+      axisTypes.set(
+        axis.name,
+        await step(
+          this.deps.fieldType?.(rootObject, axis.filterField).catch(() => undefined) ??
+            Promise.resolve(undefined),
+        ),
+      );
     }
 
     // 2. Probe every combination of axis values; retain 1 healthy root each.
@@ -417,7 +433,7 @@ export class CoverageMatrixSelector {
           );
           return c.value === null
             ? `${field} = NULL`
-            : `${field} = '${sanitizeSoqlValue(c.value)}'`;
+            : `${field} = ${axisValueLiteral(c.value, axisTypes.get(c.axis))}`;
         })
         .join(' AND ');
       const retained = await pick(combinationKey, where);
@@ -569,6 +585,36 @@ function uncoveredReason(pick: PickResult, limit: number): string {
   if (pick.probed === 0) return 'no candidate record';
   const base = `no healthy candidate among the ${pick.probed} probed (limit ${limit})`;
   return pick.lastReason ? `${base} — last: ${pick.lastReason}` : base;
+}
+
+/** The field types whose SOQL literals are numbers, written bare. */
+const NUMBER_TYPES = new Set(['int', 'long', 'double', 'currency', 'percent']);
+
+/**
+ * An axis value as a probe's WHERE writes it for the type of the field it
+ * filters on: bare for a checkbox, a number, a date or a date and time, as
+ * SOQL takes them; quoted as text for any other type, or when the value is
+ * not one of its type. Quoted, a checkbox axis on `IsPersonAccount` probed
+ * `IsPersonAccount = 'false'`, which the org refused (`INVALID_FIELD`), and
+ * the selection kept no root.
+ */
+export function axisValueLiteral(value: string, fieldType: string | undefined): string {
+  const quoted = `'${sanitizeSoqlValue(value)}'`;
+  switch (fieldType) {
+    case 'boolean':
+      return /^(true|false)$/i.test(value) ? value.toLowerCase() : quoted;
+    case 'date':
+      return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : quoted;
+    case 'datetime':
+      return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:?\d{2})$/.test(value)
+        ? value
+        : quoted;
+    default:
+      if (fieldType !== undefined && NUMBER_TYPES.has(fieldType)) {
+        return /^-?\d+(\.\d+)?$/.test(value) ? value : quoted;
+      }
+      return quoted;
+  }
 }
 
 /** Cartesian product of axis values, in deterministic axis order. */

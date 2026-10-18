@@ -25,6 +25,26 @@ describe('IdRemapper', () => {
     });
   });
 
+  describe('a record that stands for another', () => {
+    it('remaps a lookup naming it onto the record the other went in as, and counts it nowhere', () => {
+      // Registered as a record the target already held, the price the run
+      // created in its place read as one, and a removal of the run kept it.
+      remapper.alias('01uGBP', '01uUSD');
+      expect(remapper.get('01uGBP')).toBeUndefined();
+      remapper.add('01uUSD', '01uNEW', 'PricebookEntry');
+
+      expect(remapper.get('01uGBP')).toBe('01uNEW');
+      expect(
+        remapper.remapRecord({ PricebookEntryId: '01uGBP' }, ['PricebookEntryId']).PricebookEntryId,
+      ).toBe('01uNEW');
+      expect(remapper.existingSourceIds()).toEqual([]);
+      expect(remapper.createdByObject()).toEqual([
+        { objectApiName: 'PricebookEntry', sourceIds: ['01uUSD'] },
+      ]);
+      expect(remapper.toJSON()).toEqual({ '01uUSD': '01uNEW' });
+    });
+  });
+
   describe('records the target already held', () => {
     it('remaps children onto an existing record like onto a created one', () => {
       remapper.addExisting('001OLD', '001EXISTING');

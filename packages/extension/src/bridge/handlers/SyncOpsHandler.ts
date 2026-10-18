@@ -890,6 +890,8 @@ export class SyncOpsHandler implements DomainHandler {
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
       const { toolingQueriesOver, toolingValidationRules } =
         await import('../../modules/forge/TargetGapReader.js');
+      const { toolingRetrievesOver } =
+        await import('../../modules/forge/TargetAutomationReader.js');
       const tooling = readers.targetConn.tooling;
 
       // A simulation writes nothing, and its writer says so to anything that
@@ -953,6 +955,7 @@ export class SyncOpsHandler implements DomainHandler {
               )
             ).records,
           toolingQueriesOver(readers.targetConn),
+          toolingRetrievesOver(readers.targetConn),
         ),
         onSimulationProgress: (done, total, objectApiName) => {
           const pct = Math.round((done / total) * 100);

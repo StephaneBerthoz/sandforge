@@ -38,6 +38,26 @@ export class IdRemapper {
    * left out of it: the run wrote nothing there.
    */
   private readonly objectOf = new Map<string, string>();
+  /**
+   * Source ids that stand for other source ids (`alias`): a lookup naming one
+   * is remapped as if it named the other.
+   */
+  private readonly aliases = new Map<string, string>();
+
+  /**
+   * Have a source record the run does not write stand for another it writes
+   * in its place: a lookup naming `sourceId` is remapped onto the record
+   * `standsFor` goes in as. A price read in a currency the target does not
+   * hold active is replaced so by the source's own price in the currency
+   * written, and the line items that point at the one point at the other.
+   * Registered as a mapping of its own, it read as a record the target
+   * already held, and a removal of the run kept the price it had created.
+   * Neither counted nor kept in the journal: the run neither created nor
+   * linked `sourceId`.
+   */
+  alias(sourceId: string, standsFor: string): void {
+    if (sourceId !== standsFor) this.aliases.set(sourceId, standsFor);
+  }
 
   /**
    * Register a record this run created: a mapping from old ID to new ID.
@@ -219,8 +239,9 @@ export class IdRemapper {
 
   /** Get the new ID for an old ID. Returns undefined if not mapped. */
   get(oldId: string): string | undefined {
-    if (this.store) return this.store.targetOf(oldId);
-    return this.map.get(oldId);
+    const id = this.aliases.get(oldId) ?? oldId;
+    if (this.store) return this.store.targetOf(id);
+    return this.map.get(id);
   }
 
   /**
@@ -236,7 +257,8 @@ export class IdRemapper {
       // Single-lookup pattern (was has() + get(), 2× the cost on
       // hot path of 50K records × 30 lookup fields = 3M lookups).
       if (typeof value === 'string') {
-        const newId = this.store ? this.store.targetOf(value) : this.map.get(value);
+        const id = this.aliases.size > 0 ? (this.aliases.get(value) ?? value) : value;
+        const newId = this.store ? this.store.targetOf(id) : this.map.get(id);
         if (newId !== undefined) remapped[field] = newId;
       }
     }
@@ -261,6 +283,7 @@ export class IdRemapper {
 
   /** Clear all mappings held in memory; a journal's are kept. */
   clear(): void {
+    this.aliases.clear();
     this.map.clear();
     this.existing.clear();
     this.updated.clear();

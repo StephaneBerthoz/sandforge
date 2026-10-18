@@ -130,8 +130,12 @@ export interface TargetAutomationDeps {
   toolingRetrieves?: (orgId: string, reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]>;
 }
 
-/** The Tooling objects a read retrieves by id: a flow version, a workflow rule. */
-export type ToolingRetrievedObject = 'Flow' | 'WorkflowRule';
+/**
+ * The Tooling objects a read retrieves by id: a flow version, a workflow rule,
+ * a validation rule — each with its `Metadata`, which a query gives one row a
+ * request.
+ */
+export type ToolingRetrievedObject = 'Flow' | 'WorkflowRule' | 'ValidationRule';
 
 /** A record a Tooling composite retrieves whole by its id, its `Metadata` with it. */
 export interface ToolingRetrieve {

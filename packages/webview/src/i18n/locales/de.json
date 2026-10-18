@@ -3559,10 +3559,12 @@
       "corporate": "in {{to}} geschrieben, der Unternehmenswährung der Ziel-Org",
       "recordTypeDefault": "in {{to}} geschrieben, dem Standardwert ihres Datensatztyps",
       "decision": "in {{to}} geschrieben, wie entschieden",
+      "parent": "in {{to}} geschrieben, der Währung des Datensatzes, zu dem sie gehören",
       "converted": "Beträge zu den Kursen der Quell-Org umgerechnet: {{fields}}",
       "convertedAtTargetRate": "Beträge zum Kurs der Quell-Org für {{from}} und dem der Ziel-Org für {{to}} umgerechnet: {{fields}}",
       "notConverted": "Beträge wie gelesen geschrieben: Kein Kurs rechnet {{from}} in {{to}} um",
-      "noAmount": "kein Betrag umzurechnen"
+      "noAmount": "kein Betrag umzurechnen",
+      "dated": "zu den datierten Kursen von {{field}}"
     },
     "contactPoints": {
       "title": "E-Mails und Telefonnummern",

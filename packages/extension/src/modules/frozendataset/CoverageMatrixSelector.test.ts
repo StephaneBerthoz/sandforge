@@ -3,6 +3,7 @@ import {
   CoverageMatrixSelector,
   DEFAULT_BUDGET_MAX_RECORDS,
   VolumetryBudgetExceededError,
+  axisValueLiteral,
   type CoverageMatrixConfig,
   type DossierHealthChecker,
   type SoqlQueryFn,
@@ -287,6 +288,77 @@ describe('CoverageMatrixSelector', () => {
     const result = await selector.select(config);
     // NULL sorts first (deterministic value ordering).
     expect(result.roots.map((r) => r.combinationKey)).toEqual(['prestation=NULL', 'prestation=RC']);
+  });
+
+  it('writes the values of a checkbox axis bare, as SOQL takes them, and a text axis quoted', async () => {
+    // Quoted, `IsPersonAccount = 'false'` was refused by the org
+    // (INVALID_FIELD) and the selection kept no root.
+    const captured: string[] = [];
+    const accounts: FakeOrg = {
+      axisValues: { IsPersonAccount: ['false', 'true'], Type: ['Customer'] },
+      candidates: [
+        { whereIncludes: ['IsPersonAccount = false', "Type = 'Customer'"], ids: ['A1'] },
+        { whereIncludes: ['IsPersonAccount = true', "Type = 'Customer'"], ids: ['A2'] },
+      ],
+    };
+    const asked: string[] = [];
+    const selector = new CoverageMatrixSelector({
+      query: buildQuery(accounts, captured),
+      checkHealth: healthChecker(new Set()),
+      measureVolumetry: volumetry(1),
+      fieldType: async (object, field) => {
+        asked.push(`${object}.${field}`);
+        return field === 'IsPersonAccount' ? 'boolean' : 'picklist';
+      },
+      now: () => NOW,
+    });
+
+    const result = await selector.select({
+      rootObject: 'Account',
+      axes: [
+        {
+          name: 'kind',
+          label: 'Kind',
+          filterField: 'IsPersonAccount',
+          valuesSoql:
+            'SELECT IsPersonAccount axisValue, COUNT(Id) cnt FROM Account GROUP BY IsPersonAccount',
+        },
+        {
+          name: 'type',
+          label: 'Type',
+          filterField: 'Type',
+          valuesSoql: 'SELECT Type axisValue, COUNT(Id) cnt FROM Account GROUP BY Type',
+        },
+      ],
+      edgeCases: [],
+    });
+
+    expect(result.roots.map((r) => r.rootRecordId)).toEqual(['A1', 'A2']);
+    expect(captured.filter((soql) => soql.includes('ORDER BY Id'))).toEqual([
+      "SELECT Id FROM Account WHERE IsPersonAccount = false AND Type = 'Customer' ORDER BY Id ASC LIMIT 3",
+      "SELECT Id FROM Account WHERE IsPersonAccount = true AND Type = 'Customer' ORDER BY Id ASC LIMIT 3",
+    ]);
+    expect(asked).toEqual(['Account.IsPersonAccount', 'Account.Type']);
+  });
+});
+
+describe('axisValueLiteral', () => {
+  it('writes a checkbox, a number, a date and a date and time bare, and quotes text', () => {
+    expect(axisValueLiteral('False', 'boolean')).toBe('false');
+    expect(axisValueLiteral('12.5', 'double')).toBe('12.5');
+    expect(axisValueLiteral('-3', 'int')).toBe('-3');
+    expect(axisValueLiteral('2026-03-31', 'date')).toBe('2026-03-31');
+    expect(axisValueLiteral('2026-03-31T10:00:00.000+0000', 'datetime')).toBe(
+      '2026-03-31T10:00:00.000+0000',
+    );
+    expect(axisValueLiteral("O'Brien", 'string')).toBe("'O\\'Brien'");
+    expect(axisValueLiteral('Customer', undefined)).toBe("'Customer'");
+  });
+
+  it('quotes a value that is not one of its type, which SOQL could not read bare', () => {
+    expect(axisValueLiteral('yes', 'boolean')).toBe("'yes'");
+    expect(axisValueLiteral('1e3; DELETE', 'double')).toBe("'1e3; DELETE'");
+    expect(axisValueLiteral('31/03/2026', 'date')).toBe("'31/03/2026'");
   });
 });
 

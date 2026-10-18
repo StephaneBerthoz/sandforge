@@ -5012,6 +5012,220 @@ describe('ForgeExecutor', () => {
         expect(summary.errors).toEqual([]);
       });
 
+      describe('an opportunity in a currency the target does not hold active', () => {
+        /** A price of widget `n` in `book` and `currency`, named after all three. */
+        const pricedIn = (
+          book: keyof typeof BOOKS,
+          n: number,
+          currency: 'USD' | 'GBP',
+          unitPrice: string,
+        ): FakeRow => ({
+          Id: `01u000000000${BOOKS[book][1]}${n}${currency === 'USD' ? 1 : 2}AAA`,
+          Name: `Widget ${n} ${book} ${currency}`,
+          Pricebook2Id: BOOKS[book][0],
+          Product2Id: product(n),
+          UnitPrice: unitPrice,
+          CurrencyIsoCode: currency,
+          IsActive: true,
+        });
+        const currency: FieldInfo = { ...text('CurrencyIsoCode'), type: 'picklist' };
+        const amount = (name: string): FieldInfo => ({ ...text(name), type: 'currency', scale: 2 });
+        /**
+         * Two widgets priced in both books in USD and GBP, and a GBP
+         * opportunity of the custom book whose two line items use its GBP
+         * prices. The source holds USD as its corporate currency and GBP at
+         * 0.79; the target USD alone.
+         */
+        function gbpDeal(prices: FakeRow[]) {
+          const orgs = fakeOrgs(
+            {
+              ...catalogTables(),
+              PricebookEntry: prices,
+              Opportunity: [
+                {
+                  Id: OPPORTUNITY,
+                  Name: 'Deal',
+                  Pricebook2Id: CUSTOM_BOOK,
+                  CurrencyIsoCode: 'GBP',
+                  Amount: '15.8',
+                },
+              ],
+              OpportunityLineItem: [1, 2].map((n) => ({
+                Id: `00k00000000000${n}AAA`,
+                OpportunityId: OPPORTUNITY,
+                PricebookEntryId: `01u0000000002${n}2AAA`,
+                Product2Id: product(n),
+                Quantity: '1',
+                UnitPrice: '7.9',
+                CurrencyIsoCode: 'GBP',
+              })),
+            },
+            {
+              ...catalogFields,
+              PricebookEntry: [
+                ...catalogFields.PricebookEntry.filter((f) => f.name !== 'UnitPrice'),
+                amount('UnitPrice'),
+                currency,
+                text('IsActive'),
+              ],
+              Opportunity: [
+                idField,
+                text('Name'),
+                lookup('Pricebook2Id', 'Pricebook2'),
+                currency,
+                amount('Amount'),
+              ],
+              OpportunityLineItem: [
+                idField,
+                lookup('OpportunityId', 'Opportunity', true),
+                lookup('PricebookEntryId', 'PricebookEntry'),
+                lookup('Product2Id', 'Product2'),
+                text('Quantity'),
+                amount('UnitPrice'),
+                // The platform gives a line its opportunity's currency.
+                { ...currency, createable: false },
+              ],
+            },
+          );
+          const read = orgs.orgDeps.queryRecords;
+          orgs.orgDeps.queryRecords = async (org, soql, onTruncated) => {
+            if (soql.includes('FROM CurrencyType')) {
+              return org === 'src'
+                ? [
+                    { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+                    { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true, IsCorporate: false },
+                  ]
+                : [{ IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true }];
+            }
+            if (soql.includes('FROM EntityDefinition')) return [];
+            return read(org, soql, onTruncated);
+          };
+          return orgs;
+        }
+        const graph = (): ForgeGraph =>
+          makeGraph(
+            [
+              makeNode('Opportunity'),
+              makeNode('Pricebook2'),
+              makeNode('Product2'),
+              makeNode('OpportunityLineItem'),
+              makeNode('PricebookEntry'),
+            ],
+            [
+              edge('Pricebook2', 'Opportunity'),
+              edge('Opportunity', 'OpportunityLineItem'),
+              { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+              edge('Product2', 'OpportunityLineItem'),
+              edge('Pricebook2', 'PricebookEntry'),
+            ],
+          );
+        const bothCurrencies = (): FakeRow[] =>
+          [1, 2].flatMap((n) => [
+            pricedIn('standard', n, 'USD', '10'),
+            pricedIn('standard', n, 'GBP', '7.9'),
+            pricedIn('custom', n, 'USD', '9'),
+            pricedIn('custom', n, 'GBP', '7.9'),
+          ]);
+
+        it("writes its line items in its new currency, their prices converted as its amount was, each on the source's own price in that currency", async () => {
+          // Written as read, the lines of a 15.80 GBP opportunity kept their
+          // GBP prices in a USD one; and their GBP prices, put in USD, were
+          // the product's USD price twice in the book.
+          const { orgDeps, inserted } = gbpDeal(bothCurrencies());
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+          );
+
+          expect(inserted['Opportunity']).toEqual([
+            expect.objectContaining({ CurrencyIsoCode: 'USD', Amount: 20 }),
+          ]);
+          expect(
+            inserted['PricebookEntry'].map((r) => [
+              r['Name'],
+              r['CurrencyIsoCode'],
+              r['UnitPrice'],
+            ]),
+          ).toEqual([
+            ['Widget 1 standard USD', 'USD', '10'],
+            ['Widget 2 standard USD', 'USD', '10'],
+            ['Widget 1 custom USD', 'USD', '9'],
+            ['Widget 2 custom USD', 'USD', '9'],
+          ]);
+          expect(
+            inserted['OpportunityLineItem'].map((r) => [
+              r['PricebookEntryId'],
+              r['UnitPrice'],
+              r['CurrencyIsoCode'],
+            ]),
+          ).toEqual([
+            ['PricebookEntry:Widget 1 custom USD', 10, undefined],
+            ['PricebookEntry:Widget 2 custom USD', 10, undefined],
+          ]);
+          expect(summary.currenciesReplaced).toContainEqual({
+            objectApiName: 'OpportunityLineItem',
+            from: 'GBP',
+            to: 'USD',
+            chosenBy: 'parent',
+            rows: 2,
+            fields: ['UnitPrice'],
+          });
+          // Said on the line the object ends on, which the command line prints.
+          expect(
+            progressEvents
+              .filter((e) => e.objectName === 'PricebookEntry' && e.status === 'done')
+              .map((e) => e.message),
+          ).toEqual([
+            expect.stringContaining(
+              ", 4 GBP → USD: price(s) in a currency the target does not hold active replaced by the source's " +
+                'own price in the currency written, for the same product and price book',
+            ),
+          ]);
+          // The prices written in their place are the run's to take back: a
+          // removal kept them when they read as records the target held.
+          expect(summary.existingSourceIds.filter((id) => id.startsWith('01u'))).toEqual([]);
+          expect(
+            summary.createdByObject.find((c) => c.objectApiName === 'PricebookEntry')?.sourceIds,
+          ).toHaveLength(4);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('writes a price the source holds in no other currency converted, and says so', async () => {
+          const { orgDeps, inserted } = gbpDeal(
+            bothCurrencies().filter((row) => row['Name'] !== 'Widget 2 custom USD'),
+          );
+
+          await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+          });
+
+          expect(
+            inserted['PricebookEntry'].map((r) => [
+              r['Name'],
+              r['CurrencyIsoCode'],
+              r['UnitPrice'],
+            ]),
+          ).toContainEqual(['Widget 2 custom GBP', 'USD', 10]);
+          expect(inserted['OpportunityLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 1 custom USD',
+            'PricebookEntry:Widget 2 custom GBP',
+          ]);
+          expect(
+            progressEvents.filter((e) => e.objectName === 'PricebookEntry').map((e) => e.message),
+          ).toContainEqual(
+            expect.stringContaining(
+              '1 GBP → USD: no price in the currency written in the source for the same product ' +
+                "and price book, written in it at the amount converted at the source's rates",
+            ),
+          );
+        });
+      });
+
       it('brings the price book of a price only a quote line points at', async () => {
         // A quote of the opportunity is priced from a book of its own. Its
         // line was held to the prices named so far — the one the

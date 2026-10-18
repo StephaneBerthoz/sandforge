@@ -178,7 +178,12 @@ import {
   toolingCompositeBody,
   toolingRetrievesOver,
 } from '../src/modules/forge/TargetAutomationReader.js';
-import { TargetGapReader, gapFieldOf, gapLines } from '../src/modules/forge/TargetGapReader.js';
+import {
+  TargetGapReader,
+  gapFieldOf,
+  gapLines,
+  toolingQueriesOver,
+} from '../src/modules/forge/TargetGapReader.js';
 import {
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
@@ -2352,6 +2357,10 @@ export function targetGapReader(
       return Array.isArray(answer) ? answer : [answer];
     },
     readLimits: async (orgId) => conn(orgId).request({ method: 'GET', url: '/limits' }),
+    // The validation rules' formulas, retrieved 25 a request, by query five
+    // a request where the org will not retrieve, as the panel reads them.
+    toolingQueries: async (orgId, soqls) => toolingQueriesOver(conn(orgId))(soqls),
+    toolingRetrieves: (orgId, reads) => toolingRetrievesOver(conn(orgId))(reads),
   });
 }
 

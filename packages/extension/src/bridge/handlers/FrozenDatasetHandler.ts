@@ -1464,7 +1464,18 @@ export class FrozenDatasetHandler implements DomainHandler {
         config.expectedObjects ?? [],
       );
 
-      const selector = new CoverageMatrixSelector({ query, checkHealth, measureVolumetry });
+      // The type of the field an axis filters on, which says how a probe
+      // writes its values: a checkbox's bare, as SOQL takes it.
+      const fieldType = async (objectApiName: string, field: string) =>
+        (await this.describeObject(parsed.sourceOrgId, objectApiName)).fields.find(
+          (f) => f.name.toLowerCase() === field.toLowerCase(),
+        )?.type;
+      const selector = new CoverageMatrixSelector({
+        query,
+        checkHealth,
+        measureVolumetry,
+        fieldType,
+      });
       const result = await selector.select(
         {
           rootObject: config.rootObject,
@@ -2216,11 +2227,13 @@ export class FrozenDatasetHandler implements DomainHandler {
         readValidationRules: async (objectApiNames) => {
           const { toolingQueriesOver, toolingValidationRules } =
             await import('../../modules/forge/TargetGapReader.js');
+          const { toolingRetrievesOver } =
+            await import('../../modules/forge/TargetAutomationReader.js');
           const tooling = conn.tooling;
           // Each rule with the field it shows its error on by its API name,
           // read back from the label a French org answers; and its formula,
-          // five a request, so a rule that refuses only a change of a record
-          // is left out of what may refuse an insert.
+          // retrieved 25 a request, so a rule that refuses only a change of a
+          // record is left out of what may refuse an insert.
           return toolingValidationRules(
             async (soql) =>
               (
@@ -2233,6 +2246,7 @@ export class FrozenDatasetHandler implements DomainHandler {
                 )
               ).records,
             toolingQueriesOver(conn),
+            toolingRetrievesOver(conn),
           )(objectApiNames);
         },
       });

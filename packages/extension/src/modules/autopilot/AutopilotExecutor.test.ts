@@ -634,6 +634,74 @@ describe('AutopilotExecutor — what the target will take', () => {
       ]);
     });
 
+    it("converts an opportunity's products as the opportunity was converted, the target taking no currency of theirs", async () => {
+      // Sent as read, the products of a GBP opportunity written in USD kept
+      // their GBP prices.
+      const deps = {
+        ...currencyDeps(),
+        remapper: new RecordIdRemapper(),
+        describeCreateableFields: async (object: string) =>
+          object === 'Opportunity'
+            ? new Set(['Name', 'CurrencyIsoCode', 'Amount'])
+            : new Set(['Name', 'OpportunityId', 'UnitPrice']),
+        describeCurrencyFields: async (object: string) =>
+          new Map([[object === 'Opportunity' ? 'Amount' : 'UnitPrice', 2]]),
+      };
+      vi.mocked(deps.query)
+        .mockResolvedValueOnce([
+          { Id: 'src1', Name: 'Deal 05', CurrencyIsoCode: 'GBP', Amount: 158 },
+        ])
+        .mockResolvedValueOnce([
+          {
+            Id: 'srcL1',
+            Name: 'Line 05',
+            OpportunityId: 'src1',
+            CurrencyIsoCode: 'GBP',
+            UnitPrice: 79,
+          },
+        ]);
+      vi.mocked(deps.insert)
+        .mockResolvedValueOnce(written('tgt1'))
+        .mockResolvedValueOnce(written('tgtL1'));
+
+      const result = await new AutopilotExecutor(deps).execute(
+        makePlan(
+          [
+            { order: 0, objects: ['Opportunity'], dependsOn: [] },
+            { order: 1, objects: ['OpportunityLineItem'], dependsOn: [0] },
+          ],
+          2,
+        ),
+        [
+          makeEdge({
+            from: 'Opportunity' as ApiName,
+            to: 'OpportunityLineItem' as ApiName,
+            fieldApiName: 'OpportunityId',
+            required: true,
+          }),
+        ],
+        [],
+        new Map([
+          ['Opportunity', 1],
+          ['OpportunityLineItem', 1],
+        ]),
+      );
+
+      expect(vi.mocked(deps.insert).mock.calls[1][1]).toEqual([
+        { Id: 'srcL1', Name: 'Line 05', OpportunityId: 'tgt1', UnitPrice: 100 },
+      ]);
+      expect(result.objectOutcomes?.['OpportunityLineItem']?.currenciesReplaced).toEqual([
+        {
+          objectApiName: 'OpportunityLineItem',
+          from: 'GBP',
+          to: 'USD',
+          chosenBy: 'parent',
+          rows: 1,
+          fields: ['UnitPrice'],
+        },
+      ]);
+    });
+
     it('reads no currency when no record carries one', async () => {
       const sourceQueries: string[] = [];
       const deps = currencyDeps(sourceQueries);

@@ -55,4 +55,38 @@ describe('ForgeCurrenciesResult', () => {
       'Order__c — 1 row in JPY, written in EUR, as decided — amounts written as read: no rate converts JPY into EUR',
     ]);
   });
+
+  it('says the rows that took the currency of the record they belong to, and the date field whose dated rates converted the amounts', () => {
+    render(
+      <ForgeCurrenciesResult
+        entries={[
+          {
+            objectApiName: 'Opportunity',
+            from: 'GBP',
+            to: 'USD',
+            chosenBy: 'corporate',
+            rows: 1,
+            fields: ['Amount'],
+            datedBy: 'CloseDate',
+          },
+          {
+            objectApiName: 'OpportunityLineItem',
+            from: 'GBP',
+            to: 'USD',
+            chosenBy: 'parent',
+            rows: 2,
+            fields: ['UnitPrice'],
+            datedBy: 'CloseDate',
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getAllByTestId('forge-results-currencies-row').map((row) => row.textContent),
+    ).toEqual([
+      "Opportunity — 1 row in GBP, written in USD, the target org's corporate currency — amounts converted at the source org's rates: Amount — at the dated rates of CloseDate",
+      "OpportunityLineItem — 2 rows in GBP, written in USD, the currency of the record they belong to — amounts converted at the source org's rates: UnitPrice — at the dated rates of CloseDate",
+    ]);
+  });
 });

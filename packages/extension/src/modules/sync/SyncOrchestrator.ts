@@ -38,7 +38,11 @@ import {
 } from './SyncSimulation.js';
 import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPreparation.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
-import { CURRENCY_FIELD, type RunCurrencies } from '../../core/common/recordCurrencies.js';
+import {
+  CURRENCY_FIELD,
+  type CurrencyChange,
+  type RunCurrencies,
+} from '../../core/common/recordCurrencies.js';
 import {
   changedSinceLiteral,
   deletionKeyOf,
@@ -238,6 +242,8 @@ interface RunContext {
   recordTypes: () => Promise<SyncRecordTypes | undefined>;
   /** Both orgs' currencies, read the first time an object's records carry one. */
   currencies: () => Promise<RunCurrencies | undefined>;
+  /** The currency change of each row sent in another currency, by its source id. */
+  currencyChangesById: Map<string, CurrencyChange>;
 }
 
 /** An active validation rule of the target as the simulation reads it. */
@@ -306,7 +312,7 @@ async function writeRunOf(
     links: run.links,
     sources,
     ...(recordTypes ? { recordTypes } : {}),
-    ...(currencies ? { currencies } : {}),
+    ...(currencies ? { currencies, currencyChangesById: run.currencyChangesById } : {}),
   };
 }
 
@@ -432,6 +438,7 @@ export class SyncOrchestrator {
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
     const currencies = this.currenciesOnce();
+    const currencyChangesById = new Map<string, CurrencyChange>();
 
     // What each write wrote or linked, added to the configuration's pairs as
     // it answers: see `idMap`.
@@ -627,7 +634,7 @@ export class SyncOrchestrator {
           config,
           objectConfig,
           leftOut,
-          { links, recordTypes, currencies },
+          { links, recordTypes, currencies, currencyChangesById },
           plan ? read : undefined,
           written,
           recorder || idMap
@@ -1098,6 +1105,7 @@ export class SyncOrchestrator {
       links: new SyncRunLinks(earlier.links),
       recordTypes: this.recordTypesOnce(),
       currencies: this.currenciesOnce(),
+      currencyChangesById: new Map<string, CurrencyChange>(),
     };
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });

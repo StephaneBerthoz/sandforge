@@ -7,6 +7,7 @@ const CHOSEN_KEYS: Record<CurrencyChosenBy, string> = {
   corporate: 'forge.currencies.corporate',
   'record-type-default': 'forge.currencies.recordTypeDefault',
   decision: 'forge.currencies.decision',
+  parent: 'forge.currencies.parent',
 };
 
 /** Props for {@link ForgeCurrenciesResult}. */
@@ -19,9 +20,11 @@ export interface ForgeCurrenciesResultProps {
  * The rows a run wrote in another currency than it read them in, per object:
  * the target does not hold theirs active, so each went in the target's
  * corporate currency or its record type's default — or in the one the user
- * mapped it to — and its amounts were converted into it at the source's
- * rates, or written as read where no rate converts them. Said with how many
- * rows and which fields.
+ * mapped it to — or in the new currency of the record they belong to, and
+ * its amounts were converted into it at the source's rates, or written as
+ * read where no rate converts them. Said with how many rows and which
+ * fields, and the date field whose dated rates converted them, when an org
+ * converts the object at dated rates.
  */
 export const ForgeCurrenciesResult: React.FC<ForgeCurrenciesResultProps> = ({ entries }) => {
   const { t } = useTranslation();
@@ -49,14 +52,25 @@ export const ForgeCurrenciesResult: React.FC<ForgeCurrenciesResultProps> = ({ en
                     : 'forge.currencies.converted',
                   values,
                 );
+          const dated =
+            entry.datedBy !== undefined && !entry.notConverted && entry.fields.length > 0
+              ? ` — ${t('forge.currencies.dated', { field: entry.datedBy })}`
+              : '';
           return (
             <li
-              key={[entry.objectApiName, entry.from, entry.to, entry.chosenBy].join('|')}
+              key={[
+                entry.objectApiName,
+                entry.from,
+                entry.to,
+                entry.chosenBy,
+                entry.notConverted ? 'kept' : '',
+                entry.datedBy ?? '',
+              ].join('|')}
               data-testid="forge-results-currencies-row"
             >
               <span className="font-mono text-text-primary">{entry.objectApiName}</span>
               {` — ${t('forge.currencies.rows', { count: entry.rows, from: entry.from })}, `}
-              {`${t(CHOSEN_KEYS[entry.chosenBy], values)} — ${amounts}`}
+              {`${t(CHOSEN_KEYS[entry.chosenBy], values)} — ${amounts}${dated}`}
             </li>
           );
         })}

@@ -35,6 +35,9 @@ import {
 import type { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
 import {
   CURRENCY_FIELD,
+  datedRateOf,
+  followParentCurrency,
+  parentCurrencyChange,
   replaceRowCurrency,
   type CurrencyChange,
   type RunCurrencies,
@@ -275,6 +278,17 @@ export interface CleanNodeRecordsInput {
   currencies?: RunCurrencies;
   /** The target's currency fields, by the name a row is written with, and their decimals. */
   currencyFields?: ReadonlyMap<string, number | undefined>;
+  /**
+   * For an object whose currency is its parent's — the target will not take
+   * one of its own — the currency change each record the run wrote went
+   * through, by its source id: a row whose parent went in another currency
+   * has its amounts converted as the parent's were (`followParentCurrency`).
+   * `currencies` gives the decimals of the currency written.
+   */
+  parentCurrencies?: {
+    changeOf: (sourceId: string) => CurrencyChange | undefined;
+    currencies?: RunCurrencies;
+  };
 }
 
 /** No currency field known. */
@@ -310,6 +324,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     decide,
     currencies,
     currencyFields = NO_CURRENCY_FIELDS,
+    parentCurrencies,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   const neutralize = contactPoints?.forObject(objectApiName, fieldInfos, fieldRename);
@@ -518,21 +533,34 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // A currency the target does not hold active goes as another, which the
     // picklist check then finds the target holds, and the row's amounts are
     // converted into it: left to the check, the row went in another currency
-    // with its amounts as read.
-    const currencyChange =
-      currencies && !renamed.has(CURRENCY_FIELD)
-        ? replaceRowCurrency(
-            cleaned,
-            {
-              read: r[CURRENCY_FIELD],
-              currencyFields,
-              recordTypeDefault: recordTypeValuesOf(recordTypeValues, recordTypeId)?.picklists.get(
-                CURRENCY_FIELD,
-              )?.defaultValue,
-            },
-            currencies,
-          )
-        : undefined;
+    // with its amounts as read. An opportunity's, at the rates of its close
+    // date where an org holds dated rates. A row whose currency is its
+    // parent's goes in the parent's new one, its amounts converted with them.
+    let currencyChange: CurrencyChange | undefined;
+    if (currencies && !renamed.has(CURRENCY_FIELD)) {
+      currencyChange = replaceRowCurrency(
+        cleaned,
+        {
+          read: r[CURRENCY_FIELD],
+          currencyFields,
+          recordTypeDefault: recordTypeValuesOf(recordTypeValues, recordTypeId)?.picklists.get(
+            CURRENCY_FIELD,
+          )?.defaultValue,
+          ratesOn: datedRateOf(objectApiName, r),
+        },
+        currencies,
+      );
+    } else if (parentCurrencies) {
+      currencyChange = followParentCurrency(
+        cleaned,
+        {
+          read: r[CURRENCY_FIELD],
+          parent: parentCurrencyChange(objectApiName, r, lookupFields, parentCurrencies.changeOf),
+          currencyFields,
+        },
+        parentCurrencies.currencies,
+      );
+    }
     const picklistChanges = checkRowPicklists(
       cleaned,
       picklistValuesByField,

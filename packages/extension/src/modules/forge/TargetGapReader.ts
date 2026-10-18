@@ -15,8 +15,12 @@
  *
  * Where each part comes from, as the Salesforce documentation gives it:
  * - the validation rules from `ValidationRule` over the Tooling API, whose
- *   formula is in its `Metadata`, which the org gives one row per query: each
- *   formula costs a request, so the read takes {@link FORMULAS_BOUND} at most;
+ *   formula is in its `Metadata`, which the org gives one row per query: the
+ *   rules are retrieved by id in Tooling composites, 25 a request, as the
+ *   automation read retrieves flows — by query, five a composite, where the
+ *   org will not retrieve — {@link FORMULAS_IN_COMPOSITES_BOUND} at most; and
+ *   given no way to send composites, one request each,
+ *   {@link FORMULAS_BOUND} at most;
  * - the duplicate rules from `DuplicateRule` over the regular API, which says
  *   whether a rule is active and on which object, but not what it does: whether
  *   it blocks an insert or allows it, with an alert or a report, is in its
@@ -68,24 +72,37 @@ import {
   switchesNamed,
   toolingAnswersOf,
   toolingCompositeBody,
+  TOOLING_RETRIEVES_PER_REQUEST,
   type QueryAnswer,
   type ToolingAnswer,
+  type ToolingRetrieve,
 } from './TargetAutomationReader.js';
 import { holdsOnlyOnChange } from './validationRuleFormula.js';
 
 /**
- * The most validation rule formulas a read reads. The org gives a rule's
- * metadata one row per request; an org with dozens of rules on the objects of
- * a clone would otherwise cost as many requests before Review shows anything.
+ * The most validation rule formulas a read reads one request each, when it is
+ * given no way to send Tooling composites. The org gives a rule's metadata one
+ * row per query; an org with dozens of rules on the objects of a clone would
+ * otherwise cost as many requests before Review shows anything.
  */
 export const FORMULAS_BOUND = 25;
 
 /**
- * The most requests a list of the active rules sends for their formulas, in
- * Tooling composites of five queries each: a hundred rules. Run on a large
- * client sandbox, one object of a Frozen preview had fourteen rules.
+ * The most requests a read sends for the formulas of the rules, in Tooling
+ * composites: 25 rules retrieved by id a composite, five by query where the
+ * org will not retrieve them. Run on a large client sandbox, one object of a
+ * Frozen preview had fourteen rules; read five a composite, a hundred rules
+ * took the twenty requests.
  */
 export const FORMULA_REQUESTS_BOUND = 20;
+
+/**
+ * The most validation rule formulas a read reads in composites: as many as
+ * {@link FORMULA_REQUESTS_BOUND} composites retrieve, 500. Read one request
+ * each, the clone's read of the target stopped at 25 and left the others
+ * "not read".
+ */
+export const FORMULAS_IN_COMPOSITES_BOUND = FORMULA_REQUESTS_BOUND * TOOLING_RETRIEVES_PER_REQUEST;
 
 /**
  * Requests in flight at a time. Review reads the target's automation and
@@ -193,6 +210,20 @@ export interface TargetGapDeps {
   readDuplicateRules: (orgId: string, fullNames: string[]) => Promise<unknown[]>;
   /** The org's `/limits`: one request. */
   readLimits: (orgId: string) => Promise<unknown>;
+  /**
+   * Several queries of one page each on the Tooling API of an org in one
+   * request — a Tooling composite (`toolingCompositeBody`) — each answered on
+   * its own: what the formulas are read with, five a request, where the org
+   * will not retrieve them. Without it, each formula takes a request of its
+   * own, {@link FORMULAS_BOUND} at most.
+   */
+  toolingQueries?: (orgId: string, soqls: readonly string[]) => Promise<ToolingAnswer[]>;
+  /**
+   * Validation rules retrieved whole by id on the Tooling API of an org, 25 a
+   * request (`toolingRetrieveBody`), their `Metadata` with them: what the
+   * formulas are read with beside `toolingQueries`.
+   */
+  toolingRetrieves?: (orgId: string, reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]>;
 }
 
 /** What of a run's config tells what it writes, and how much. */
@@ -460,15 +491,25 @@ export function toolingQueriesOver(conn: {
 }
 
 /**
+ * Validation rules retrieved by id over a connection, 25 a Tooling composite
+ * (`toolingRetrievesOver`): what a rule's formula is read with, beside the
+ * queries the org answers where it will not retrieve.
+ */
+export type ToolingRetrieves = (reads: readonly ToolingRetrieve[]) => Promise<ToolingAnswer[]>;
+
+/**
  * Mark, among `rules`, those whose formula holds only on a change of a record,
- * the formulas read in Tooling composites — {@link FORMULA_REQUESTS_BOUND}
- * requests at most, a query the org halts sent again among them. A rule whose
- * formula is not read — past the bound, refused, or with no id a query can
- * hold — is left as it is: one that may refuse an insert.
+ * the formulas read in Tooling composites — retrieved by id 25 a request when
+ * the reader can, five queries a request otherwise or where the org will not
+ * retrieve, {@link FORMULA_REQUESTS_BOUND} requests at most, a query the org
+ * halts sent again among them. A rule whose formula is not read — past the
+ * bound, refused, or with no id a query can hold — is left as it is: one that
+ * may refuse an insert.
  */
 async function markChangeOnlyRules(
   rules: ReadonlyArray<{ id: string; rule: ActiveValidationRule }>,
   toolingQueries: ToolingQueries,
+  toolingRetrieves?: ToolingRetrieves,
 ): Promise<void> {
   const readable = rules.filter(({ id }) => SF_ID_RE.test(id));
   if (readable.length === 0) return;
@@ -478,6 +519,7 @@ async function markChangeOnlyRules(
       {
         queries: readable.map(({ id, rule }) => ({
           soql: validationFormulaSoql(id),
+          retrieve: { sobject: 'ValidationRule' as const, id },
           take: (records) => {
             const metadata = records[0]?.Metadata;
             const formula =
@@ -495,6 +537,7 @@ async function markChangeOnlyRules(
       },
     ],
     REQUESTS_IN_FLIGHT,
+    toolingRetrieves,
   );
 }
 
@@ -528,12 +571,15 @@ async function markChangeOnlyRules(
  * @param toolingQueries - Tooling composites on the same org, which the
  *   formulas are read through; without it, no formula is read and no rule is
  *   marked.
+ * @param toolingRetrieves - Rules retrieved by id on the same org, 25 a
+ *   composite; without it, the formulas are read by query, five a composite.
  */
 export async function readActiveValidationRules(
   toolingQuery: (soql: string) => Promise<Row[]>,
   objectApiNames: readonly string[],
   fieldsOf?: (objectApiName: string) => Promise<ReadonlyArray<{ name: string; label?: string }>>,
   toolingQueries?: ToolingQueries,
+  toolingRetrieves?: ToolingRetrieves,
 ): Promise<ActiveValidationRule[]> {
   const queryable = [...new Set(objectApiNames)].filter((name) => API_NAME_RE.test(name));
   if (queryable.length === 0) return [];
@@ -585,7 +631,7 @@ export async function readActiveValidationRules(
         (order.get(a.rule.objectApiName) ?? 0) - (order.get(b.rule.objectApiName) ?? 0) ||
         a.rule.name.localeCompare(b.rule.name),
     );
-  if (toolingQueries) await markChangeOnlyRules(sorted, toolingQueries);
+  if (toolingQueries) await markChangeOnlyRules(sorted, toolingQueries, toolingRetrieves);
   return sorted.map(({ rule }) => rule);
 }
 
@@ -600,10 +646,13 @@ export async function readActiveValidationRules(
  * @param toolingQuery - A SOQL query on the target's Tooling API, every page of it.
  * @param toolingQueries - Tooling composites on the target, which each rule's
  *   formula is read through, to mark the rules that refuse an update only.
+ * @param toolingRetrieves - Rules retrieved by id on the target, 25 a
+ *   composite, beside those queries.
  */
 export function toolingValidationRules(
   toolingQuery: (soql: string) => Promise<Row[]>,
   toolingQueries?: ToolingQueries,
+  toolingRetrieves?: ToolingRetrieves,
 ): (objectApiNames: readonly string[]) => Promise<ActiveValidationRule[]> {
   // The field a rule shows its error on comes back as its label in the org's
   // language, read back to its API name by the labels the org's field
@@ -623,7 +672,13 @@ export function toolingValidationRules(
         : [],
     );
   return (objectApiNames) =>
-    readActiveValidationRules(toolingQuery, objectApiNames, fieldsOf, toolingQueries);
+    readActiveValidationRules(
+      toolingQuery,
+      objectApiNames,
+      fieldsOf,
+      toolingQueries,
+      toolingRetrieves,
+    );
 }
 
 /**
@@ -759,7 +814,12 @@ export class TargetGapReader {
           (order.get(a.objectApiName) ?? 0) - (order.get(b.objectApiName) ?? 0) ||
           a.name.localeCompare(b.name),
       );
-    const reading = rules.filter((rule) => rule.id !== null).slice(0, FORMULAS_BOUND);
+    // Read in composites when the reader can send them, a request each
+    // otherwise: the most each way reads.
+    const { toolingQueries, toolingRetrieves } = this.deps;
+    const reading = rules
+      .filter((rule) => rule.id !== null)
+      .slice(0, toolingQueries ? FORMULAS_IN_COMPOSITES_BOUND : FORMULAS_BOUND);
     for (const rule of rules) if (rule.id === null) rule.formula = 'unreadable';
 
     const duplicates = duplicateRows.flatMap((row) => {
@@ -783,35 +843,69 @@ export class TargetGapReader {
 
     let formulaRefusal: string | undefined;
     let actionRefusal: string | undefined;
+    /** What a rule's metadata says, once read: its formula, and the field it shows on. */
+    const takeFormula = (rule: ReadRule, metadata: unknown): void => {
+      const formula =
+        typeof metadata === 'object' && metadata !== null
+          ? (metadata as { errorConditionFormula?: unknown }).errorConditionFormula
+          : undefined;
+      if (typeof formula !== 'string') {
+        rule.formula = 'unreadable';
+        return;
+      }
+      rule.formula = 'read';
+      Object.assign(rule, bypassesOf(formula));
+      // The definition names the field by its API name, where the rule's row
+      // gives its label in the org's language: on a French org, "Adresse
+      // e-mail" for Email, which matched no field, and the rule offered no
+      // leave-empty decision.
+      const display = displayFieldOf(
+        (metadata as { errorDisplayField?: unknown }).errorDisplayField,
+        targetFields.get(rule.objectApiName),
+      );
+      if (display) rule.field = display;
+    };
+    // The formulas in composites: retrieved by id, 25 a request, as the flows
+    // of the automation read are; by query, five a request, where the org
+    // will not retrieve. Read one request each, the formulas of a clone's
+    // three rules on a Developer Edition took three requests, and the read of
+    // the target eighteen; retrieved, one, and sixteen.
+    const formulasInComposites = async (): Promise<void> => {
+      if (!toolingQueries || reading.length === 0) return;
+      // Counted once the composites are back: added across the wait, the
+      // requests the duplicate rules' reads counted meanwhile were lost.
+      const sent = await readInComposites(
+        (soqls) => toolingQueries(targetOrgId, soqls),
+        [
+          {
+            queries: reading.map((rule) => ({
+              soql: validationFormulaSoql(rule.id!),
+              retrieve: { sobject: 'ValidationRule' as const, id: rule.id! },
+              take: (records) => takeFormula(rule, records[0]?.Metadata),
+              refused: (reason) => {
+                rule.formula = 'unreadable';
+                formulaRefusal ??= reason;
+              },
+            })),
+            requests: FORMULA_REQUESTS_BOUND,
+          },
+        ],
+        REQUESTS_IN_FLIGHT,
+        toolingRetrieves && ((reads) => toolingRetrieves(targetOrgId, reads)),
+      );
+      requests += sent;
+    };
     await inFlight(
       [
-        ...reading.map((rule) => async () => {
+        ...(toolingQueries ? [formulasInComposites] : []),
+        ...(toolingQueries ? [] : reading).map((rule) => async () => {
           try {
             const answer = await this.deps.toolingQuery(
               targetOrgId,
               validationFormulaSoql(rule.id!),
             );
             requests += answer.requests;
-            const metadata = answer.records[0]?.Metadata;
-            const formula =
-              typeof metadata === 'object' && metadata !== null
-                ? (metadata as { errorConditionFormula?: unknown }).errorConditionFormula
-                : undefined;
-            if (typeof formula !== 'string') {
-              rule.formula = 'unreadable';
-              return;
-            }
-            rule.formula = 'read';
-            Object.assign(rule, bypassesOf(formula));
-            // The definition names the field by its API name, where the
-            // rule's row gives its label in the org's language: on a French
-            // org, "Adresse e-mail" for Email, which matched no field, and the
-            // rule offered no leave-empty decision.
-            const display = displayFieldOf(
-              (metadata as { errorDisplayField?: unknown }).errorDisplayField,
-              targetFields.get(rule.objectApiName),
-            );
-            if (display) rule.field = display;
+            takeFormula(rule, answer.records[0]?.Metadata);
           } catch (err: unknown) {
             requests++;
             rule.formula = 'unreadable';
@@ -1237,11 +1331,13 @@ function assignLines(gap: ForgeGap, target: string, username: string | undefined
  * @param target - The alias of the target, as the command names it.
  * @param options - The user the run writes as, whom the command that assigns
  *   a bypass names; without it, the permission set is named and no command.
+ *   And the most formulas the read took, when it read them one request each
+ *   ({@link FORMULAS_BOUND}).
  */
 export function gapLines(
   read: ForgeTargetGaps,
   target: string,
-  options: { username?: string } = {},
+  options: { username?: string; formulasBound?: number } = {},
 ): string[] {
   const lines = [`target gaps: what ${target} holds against the rows, read from its metadata`];
   const budget = read.gaps.filter((gap) => gap.kind === 'api_budget');
@@ -1267,8 +1363,8 @@ export function gapLines(
   const formulasNotRead = others.filter((gap) => gap.detail?.formula === 'notRead').length;
   if (formulasNotRead > 0) {
     lines.push(
-      `  ${formulasNotRead} validation rule formula(s) not read: the read takes ${FORMULAS_BOUND} ` +
-        'at most, one request each',
+      `  ${formulasNotRead} validation rule formula(s) not read: the read takes ` +
+        `${options.formulasBound ?? FORMULAS_IN_COMPOSITES_BOUND} at most`,
     );
   }
   for (const { part, reason } of read.unread) {

@@ -542,6 +542,74 @@ describe('prepareSyncRows — currencies', () => {
     expect(prepared.payloads[0]).toMatchObject({ CurrencyIsoCode: 'GBP', Amount: 5000.55 });
     expect(prepared.notes).toEqual([]);
   });
+
+  it("converts an opportunity's products as their opportunity was converted, the target taking no currency of theirs", () => {
+    // Sent as read, the products of a GBP opportunity written in USD kept
+    // their GBP prices, and the opportunity's amount, their sum, with them.
+    const lineTarget = targetWriteFieldsOf({
+      name: 'OpportunityLineItem',
+      fields: [
+        { name: 'Id', createable: false, type: 'id' },
+        {
+          name: 'OpportunityId',
+          createable: true,
+          type: 'reference',
+          referenceTo: ['Opportunity'],
+        },
+        { name: 'CurrencyIsoCode', createable: false, type: 'picklist' },
+        { name: 'UnitPrice', createable: true, type: 'currency', precision: 18, scale: 2 },
+        { name: 'Quantity', createable: true, type: 'double', precision: 18, scale: 2 },
+      ],
+    });
+    const deals = [deal(1, 'GBP', 158), deal(2, 'EUR', 100)];
+    const currencyChangesById = new Map();
+    prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records: deals,
+      target: OPPORTUNITY_TARGET,
+      run: {
+        links: new SyncRunLinks(),
+        sources: deals,
+        currencies: CURRENCIES,
+        currencyChangesById,
+      },
+    });
+    const lines = [
+      {
+        Id: '00k000000000001AAA',
+        OpportunityId: deals[0].Id,
+        CurrencyIsoCode: 'GBP',
+        UnitPrice: 79,
+        Quantity: 2,
+      },
+      {
+        Id: '00k000000000002AAA',
+        OpportunityId: deals[1].Id,
+        CurrencyIsoCode: 'EUR',
+        UnitPrice: 50,
+        Quantity: 2,
+      },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'OpportunityLineItem' }),
+      records: lines,
+      target: lineTarget,
+      run: {
+        links: new SyncRunLinks(),
+        sources: lines,
+        currencies: CURRENCIES,
+        currencyChangesById,
+      },
+    });
+
+    expect(prepared.payloads.map((payload) => payload['UnitPrice'])).toEqual([100, 50]);
+    expect(prepared.payloads[0]).not.toHaveProperty('CurrencyIsoCode');
+    expect(prepared.notes).toEqual([
+      '1 row(s) in GBP written in USD, the currency of the record they belong to: amounts ' +
+        "converted at the source's rates (UnitPrice).",
+    ]);
+  });
 });
 
 describe('SyncRunLinks', () => {

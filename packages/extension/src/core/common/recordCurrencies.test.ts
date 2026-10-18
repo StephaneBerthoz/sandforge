@@ -2,15 +2,23 @@ import { describe, expect, it } from 'vitest';
 import {
   CURRENCY_TYPES_SOQL,
   CurrencyReplacementTally,
+  DATED_RATES_ON_SOQL,
+  DATED_RATES_SOQL,
   conversionFactor,
   currencyFieldsOf,
   currencyReplacementsNote,
+  datedRateOf,
+  datedRatesOf,
   describeCurrencyReplaced,
+  followParentCurrency,
   orgCurrenciesOf,
+  parentCurrencyChange,
   readOrgCurrencies,
   readRunCurrencies,
   replaceRowCurrency,
+  replacementCurrency,
   roundToScale,
+  type CurrencyChange,
   type RunCurrencies,
 } from './recordCurrencies.js';
 
@@ -64,8 +72,14 @@ describe('readOrgCurrencies and readRunCurrencies', () => {
       },
     );
 
-    expect(asked).toEqual([`source ${CURRENCY_TYPES_SOQL}`, `target ${CURRENCY_TYPES_SOQL}`]);
+    expect(asked).toEqual([
+      `source ${CURRENCY_TYPES_SOQL}`,
+      `target ${CURRENCY_TYPES_SOQL}`,
+      `source ${DATED_RATES_ON_SOQL}`,
+      `target ${DATED_RATES_ON_SOQL}`,
+    ]);
     expect(read?.target.active.has('GBP')).toBe(false);
+    expect(read?.source.dated).toBeUndefined();
   });
 
   it('answers nothing for an org with one currency, which refuses the query', async () => {
@@ -140,7 +154,13 @@ describe('replaceRowCurrency', () => {
     );
 
     expect(payload).toEqual({ CurrencyIsoCode: 'USD', Amount: 6329.81 });
-    expect(change).toEqual({ from: 'GBP', to: 'USD', chosenBy: 'corporate', fields: ['Amount'] });
+    expect(change).toEqual({
+      from: 'GBP',
+      to: 'USD',
+      chosenBy: 'corporate',
+      fields: ['Amount'],
+      factor: 1 / 0.79,
+    });
   });
 
   it("takes the record type's default when it is a currency the target holds", () => {
@@ -276,6 +296,285 @@ describe('CurrencyReplacementTally and its words', () => {
       '1 row(s) in GBP written in EUR, the default of their record type, GBP not being active in ' +
         "the target: amounts converted at the source's rate for GBP and the target's for EUR " +
         '(AnnualRevenue)',
+    );
+  });
+});
+
+/**
+ * The dated rates of a source with advanced currency management on, as a real
+ * org answered them: the first period starts before any date, and GBP moved
+ * from 0.79 to 0.85 on 2026-01-01.
+ */
+const DATED_ROWS = [
+  { IsoCode: 'EUR', ConversionRate: 0.92, StartDate: '0000-12-30', NextStartDate: '9999-12-31' },
+  { IsoCode: 'GBP', ConversionRate: 0.85, StartDate: '2026-01-01', NextStartDate: '9999-12-31' },
+  { IsoCode: 'GBP', ConversionRate: 0.79, StartDate: '0000-12-30', NextStartDate: '2026-01-01' },
+  { IsoCode: 'USD', ConversionRate: 1, StartDate: '0000-12-30', NextStartDate: '9999-12-31' },
+];
+
+/** A source that answers its currencies, whether dated rates are on, and those rates. */
+function sourceAnswering(
+  on: boolean | 'refused',
+): (soql: string) => Promise<Record<string, unknown>[]> {
+  return async (soql) => {
+    if (soql === CURRENCY_TYPES_SOQL) return SOURCE_ROWS;
+    if (soql === DATED_RATES_ON_SOQL) {
+      if (on === 'refused') throw new Error('INSUFFICIENT_ACCESS');
+      return [{ RunningUserEntityAccess: { IsCreatable: on } }];
+    }
+    if (soql === DATED_RATES_SOQL) return DATED_ROWS;
+    throw new Error(`unexpected ${soql}`);
+  };
+}
+
+describe('dated rates', () => {
+  it('reads the dated rates of an org with advanced currency management on, each currency in order', async () => {
+    const read = await readOrgCurrencies(sourceAnswering(true));
+
+    expect(read?.dated?.get('GBP')).toEqual([
+      { start: '0000-12-30', next: '2026-01-01', rate: 0.79 },
+      { start: '2026-01-01', next: '9999-12-31', rate: 0.85 },
+    ]);
+    expect(read?.rates.get('GBP')).toBe(0.79);
+  });
+
+  it('reads none when it is off, or the org will not say, though the rows of an earlier time are there', async () => {
+    expect((await readOrgCurrencies(sourceAnswering(false)))?.dated).toBeUndefined();
+    expect((await readOrgCurrencies(sourceAnswering('refused')))?.dated).toBeUndefined();
+  });
+
+  it('leaves out a row without its dates or its rate', () => {
+    expect(
+      datedRatesOf([
+        { IsoCode: 'GBP', ConversionRate: 0.85, StartDate: null, NextStartDate: '9999-12-31' },
+        { IsoCode: 'GBP', ConversionRate: 0, StartDate: '2026-01-01', NextStartDate: '9999-12-31' },
+      ]).size,
+    ).toBe(0);
+  });
+
+  it("converts an opportunity at the rates of its close date, and an undated amount at CurrencyType's", async () => {
+    const run: RunCurrencies = {
+      source: (await readOrgCurrencies(sourceAnswering(true)))!,
+      target: orgCurrenciesOf(TARGET_ROWS)!,
+    };
+    const thisYear: Record<string, unknown> = { CurrencyIsoCode: 'GBP', Amount: 850 };
+    const lastYear: Record<string, unknown> = { CurrencyIsoCode: 'GBP', Amount: 790 };
+
+    const dated = replaceRowCurrency(
+      thisYear,
+      {
+        read: 'GBP',
+        currencyFields: AMOUNT,
+        ratesOn: datedRateOf('Opportunity', { CloseDate: '2026-03-31' }),
+      },
+      run,
+    );
+    replaceRowCurrency(
+      lastYear,
+      {
+        read: 'GBP',
+        currencyFields: AMOUNT,
+        ratesOn: datedRateOf('Opportunity', { CloseDate: '2025-12-31' }),
+      },
+      run,
+    );
+
+    expect(thisYear['Amount']).toBe(1000);
+    expect(dated).toMatchObject({ to: 'USD', datedBy: 'CloseDate', factor: 1 / 0.85 });
+    // Its period ends the day the next one starts.
+    expect(lastYear['Amount']).toBe(1000);
+    expect(conversionFactor('GBP', 'USD', run)).toBe(1 / 0.79);
+    expect(conversionFactor('GBP', 'USD', run, '2026-01-01')).toBe(1 / 0.85);
+  });
+
+  it('says dated by nothing when no dated rate covers the date: the rates of CurrencyType converted it', async () => {
+    const run: RunCurrencies = {
+      source: (await readOrgCurrencies(sourceAnswering(false)))!,
+      target: orgCurrenciesOf(TARGET_ROWS)!,
+    };
+    const payload: Record<string, unknown> = { CurrencyIsoCode: 'GBP', Amount: 79 };
+
+    const change = replaceRowCurrency(
+      payload,
+      { read: 'GBP', currencyFields: AMOUNT, ratesOn: { field: 'CloseDate', on: '2026-03-31' } },
+      run,
+    );
+
+    expect(payload['Amount']).toBe(100);
+    expect(change?.datedBy).toBeUndefined();
+  });
+
+  it('dates an opportunity by its close date and no other object', () => {
+    expect(datedRateOf('Opportunity', { CloseDate: '2026-03-31' })).toEqual({
+      field: 'CloseDate',
+      on: '2026-03-31',
+    });
+    expect(datedRateOf('Opportunity', { CloseDate: null })).toBeUndefined();
+    expect(datedRateOf('Account', { CloseDate: '2026-03-31' })).toBeUndefined();
+  });
+
+  it('says the rates were dated, and by which field', () => {
+    const tally = new CurrencyReplacementTally();
+    const change = { from: 'GBP', to: 'USD', chosenBy: 'corporate' as const, fields: ['Amount'] };
+    tally.add('Opportunity', { ...change, datedBy: 'CloseDate' });
+    tally.add('Opportunity', change);
+
+    const [dated, undated] = tally.list();
+    expect(describeCurrencyReplaced(dated)).toBe(
+      "1 row(s) in GBP written in USD, the target's corporate currency, GBP not being active " +
+        "there: amounts converted at the source's rates, dated by CloseDate (Amount)",
+    );
+    expect(undated.datedBy).toBeUndefined();
+  });
+});
+
+describe('replacementCurrency', () => {
+  it("takes the record type's default the target holds, then its corporate currency", () => {
+    const { target } = currencies();
+
+    expect(replacementCurrency('EUR', target)).toEqual({
+      to: 'EUR',
+      chosenBy: 'record-type-default',
+    });
+    expect(replacementCurrency('GBP', target)).toEqual({ to: 'USD', chosenBy: 'corporate' });
+    expect(replacementCurrency(undefined, { ...target, corporate: undefined })).toBeUndefined();
+  });
+});
+
+describe('a row whose currency is its parent', () => {
+  const PRICES = new Map<string, number | undefined>([
+    ['UnitPrice', 2],
+    ['TotalPrice', 2],
+  ]);
+  /** An opportunity of the source read in GBP and written in USD. */
+  function opportunityChange(): CurrencyChange {
+    const opportunity: Record<string, unknown> = { CurrencyIsoCode: 'GBP', Amount: 158 };
+    return replaceRowCurrency(opportunity, { read: 'GBP', currencyFields: AMOUNT }, currencies())!;
+  }
+
+  it("converts a product's prices by the factor its opportunity's amount was converted by", () => {
+    const line: Record<string, unknown> = { UnitPrice: 79, Quantity: 2 };
+
+    const change = followParentCurrency(
+      line,
+      { read: 'GBP', parent: opportunityChange(), currencyFields: PRICES },
+      currencies(),
+    );
+
+    expect(line).toEqual({ UnitPrice: 100, Quantity: 2 });
+    expect(change).toEqual({
+      from: 'GBP',
+      to: 'USD',
+      chosenBy: 'parent',
+      fields: ['UnitPrice'],
+      factor: 1 / 0.79,
+    });
+  });
+
+  it('takes the dated rate its parent was converted at', () => {
+    const line: Record<string, unknown> = { UnitPrice: 85 };
+    const parent: CurrencyChange = {
+      from: 'GBP',
+      to: 'USD',
+      chosenBy: 'corporate',
+      fields: [],
+      factor: 1 / 0.85,
+      datedBy: 'CloseDate',
+    };
+
+    const change = followParentCurrency(
+      line,
+      { read: 'GBP', parent, currencyFields: PRICES },
+      currencies(),
+    );
+
+    expect(line['UnitPrice']).toBe(100);
+    expect(change?.datedBy).toBe('CloseDate');
+  });
+
+  it('leaves the prices as read, and says so, when the parent kept its amounts as read', () => {
+    const line: Record<string, unknown> = { UnitPrice: 1000 };
+    const parent: CurrencyChange = {
+      from: 'JPY',
+      to: 'USD',
+      chosenBy: 'corporate',
+      fields: [],
+      notConverted: true,
+    };
+
+    const change = followParentCurrency(
+      line,
+      { read: 'JPY', parent, currencyFields: PRICES },
+      currencies(),
+    );
+
+    expect(line['UnitPrice']).toBe(1000);
+    expect(change).toMatchObject({ chosenBy: 'parent', notConverted: true, fields: [] });
+  });
+
+  it('touches nothing when the parent kept its currency, or was read in another', () => {
+    const line: Record<string, unknown> = { UnitPrice: 79 };
+
+    expect(
+      followParentCurrency(line, { read: 'GBP', parent: undefined, currencyFields: PRICES }),
+    ).toBeUndefined();
+    expect(
+      followParentCurrency(line, {
+        read: 'EUR',
+        parent: opportunityChange(),
+        currencyFields: PRICES,
+      }),
+    ).toBeUndefined();
+    expect(line['UnitPrice']).toBe(79);
+  });
+
+  it('finds the parent by the lookup the platform takes the currency from, then among the lookups of a detail object', () => {
+    const changes = new Map<string, CurrencyChange>([['006A', opportunityChange()]]);
+    const changeOf = (id: string): CurrencyChange | undefined => changes.get(id);
+
+    expect(
+      parentCurrencyChange(
+        'OpportunityLineItem',
+        { CurrencyIsoCode: 'GBP', OpportunityId: '006A', PricebookEntryId: '01uA' },
+        [],
+        changeOf,
+      )?.to,
+    ).toBe('USD');
+    // Its other lookups say nothing of its currency.
+    expect(
+      parentCurrencyChange(
+        'OpportunityLineItem',
+        { CurrencyIsoCode: 'GBP', OpportunityId: '006B', Custom__c: '006A' },
+        ['Custom__c'],
+        changeOf,
+      ),
+    ).toBeUndefined();
+    expect(
+      parentCurrencyChange(
+        'Detail__c',
+        { CurrencyIsoCode: 'GBP', Other__c: 'a01', Master__c: '006A' },
+        ['Other__c', 'Master__c'],
+        changeOf,
+      )?.to,
+    ).toBe('USD');
+    expect(
+      parentCurrencyChange('Detail__c', { Master__c: '006A' }, ['Master__c'], changeOf),
+    ).toBeUndefined();
+  });
+
+  it('says the rows went in the currency of the record they belong to', () => {
+    expect(
+      describeCurrencyReplaced({
+        objectApiName: 'OpportunityLineItem',
+        from: 'GBP',
+        to: 'USD',
+        chosenBy: 'parent',
+        rows: 2,
+        fields: ['UnitPrice'],
+      }),
+    ).toBe(
+      '2 row(s) in GBP written in USD, the currency of the record they belong to: amounts ' +
+        "converted at the source's rates (UnitPrice)",
     );
   });
 });

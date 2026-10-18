@@ -49,6 +49,16 @@ const DESCRIBES: Record<string, TargetWriteFields> = {
     name: 'Contact',
     fields: [{ name: 'LastName', createable: true, type: 'string' }],
   }),
+  // The platform gives a line item its opportunity's currency, and takes none of its own.
+  OpportunityLineItem: targetWriteFieldsOf({
+    name: 'OpportunityLineItem',
+    fields: [
+      { name: 'Name', createable: true, type: 'string' },
+      { name: 'OpportunityId', createable: true, type: 'reference' },
+      { name: 'CurrencyIsoCode', createable: false, type: 'picklist' },
+      { name: 'UnitPrice', createable: true, type: 'currency', precision: 18, scale: 2 },
+    ],
+  }),
 };
 
 const SOURCE_ROWS: Record<string, Array<Record<string, unknown>>> = {
@@ -73,6 +83,22 @@ const SOURCE_ROWS: Record<string, Array<Record<string, unknown>>> = {
     },
   ],
   Contact: [{ Id: '003000000000001AAA', LastName: 'Roe' }],
+  OpportunityLineItem: [
+    {
+      Id: '00k000000000001AAA',
+      Name: 'Line 05',
+      OpportunityId: '006000000000001AAA',
+      CurrencyIsoCode: 'GBP',
+      UnitPrice: 79,
+    },
+    {
+      Id: '00k000000000002AAA',
+      Name: 'Line 06',
+      OpportunityId: '006000000000002AAA',
+      CurrencyIsoCode: 'EUR',
+      UnitPrice: 50,
+    },
+  ],
 };
 
 /** The target org: what it holds, and an insert that refuses a currency it does not hold active. */
@@ -203,6 +229,27 @@ describe('SyncOrchestrator — a currency the target does not hold active', () =
     );
     expect(simulated.objects[0].notes).toContain(GBP_ACCOUNT);
     expect(simulated.objects[1].notes).toContain(GBP_DEAL);
+  });
+
+  it("converts an opportunity's line items as the opportunity was converted, in the run as in its simulation", async () => {
+    const target = targetOrg();
+    const withLines: SyncConfig = {
+      ...CONFIG,
+      objects: [...CONFIG.objects, objectConfig('OpportunityLineItem', 2)],
+    };
+
+    const simulated = await orchestrator(targetOrg(), async () => CURRENCIES).simulate(withLines);
+    const result = await orchestrator(target, async () => CURRENCIES).execute(withLines);
+
+    const written = [...target.held.values()];
+    expect(written.find((r) => r['Name'] === 'Line 05')).toMatchObject({ UnitPrice: 100 });
+    expect(written.find((r) => r['Name'] === 'Line 05')).not.toHaveProperty('CurrencyIsoCode');
+    expect(written.find((r) => r['Name'] === 'Line 06')).toMatchObject({ UnitPrice: 50 });
+    const line =
+      '1 row(s) in GBP written in USD, the currency of the record they belong to: amounts ' +
+      "converted at the source's rates (UnitPrice).";
+    expect(result.objectResults[2].errors).toContain(line);
+    expect(simulated.objects[2].notes).toContain(line);
   });
 
   it('reads no currency for objects whose rows carry none', async () => {

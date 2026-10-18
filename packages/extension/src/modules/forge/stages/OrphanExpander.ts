@@ -73,7 +73,9 @@ import type { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
 import {
   CURRENCY_FIELD,
   currencyFieldsOf,
+  datedRateOf,
   replaceRowCurrency,
+  type CurrencyChange,
   type CurrencyReplacementTally,
   type RunCurrencies,
 } from '../../../core/common/recordCurrencies.js';
@@ -181,6 +183,11 @@ export interface OrphanExpansionInput {
   currencies?: () => Promise<RunCurrencies | undefined>;
   /** Where a parent written in another currency is counted: the run's tally. */
   currencyChanges?: CurrencyReplacementTally;
+  /**
+   * Where the change of a parent written in another currency is kept, by its
+   * source id, for the rows whose currency is the parent's: the run's.
+   */
+  currencyChangesById?: Map<string, CurrencyChange>;
   /** Counts a parent written again without the fields the target refused it on. */
   onWrittenWithoutFields?: (objectApiName: string, written: WrittenWithoutFields) => void;
   /**
@@ -681,10 +688,13 @@ export class OrphanExpander {
           recordTypeDefault: recordTypeValuesOf(reads?.byRecordType, recordTypeId)?.picklists.get(
             CURRENCY_FIELD,
           )?.defaultValue,
+          ratesOn: datedRateOf(objectName, source),
         },
         currencies,
       );
       input.currencyChanges?.add(objectName, change);
+      const sourceId = source['Id'];
+      if (change && typeof sourceId === 'string') input.currencyChangesById?.set(sourceId, change);
     }
     const changes = checkRowPicklists(
       cleaned,

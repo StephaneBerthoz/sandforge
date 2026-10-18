@@ -90,6 +90,9 @@ import {
 import {
   CURRENCY_FIELD,
   CurrencyReplacementTally,
+  datedRateOf,
+  followParentCurrency,
+  parentCurrencyChange,
   readRunCurrencies,
   replaceRowCurrency,
   type CurrencyChange,
@@ -606,6 +609,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private currencies: Promise<RunCurrencies | undefined> | undefined;
   /** The records written in another currency than they were read in, by object. */
   private readonly currencyChanges = new CurrencyReplacementTally();
+  /**
+   * The currency change of each record the target took in another currency,
+   * by its id in the target: what the records whose currency is their
+   * parent's take with them — an opportunity's products, its own. By the
+   * target's id, as their lookups name the parent once remapped.
+   */
+  private readonly currencyChangesByWrittenId = new Map<string, CurrencyChange>();
   /** The target's key prefix per object, kept for the run. */
   private readonly keyPrefixByObject = new Map<string, Promise<string | null | undefined>>();
   /** A lifecycle object's statuses in the target, kept for the run. */
@@ -1609,7 +1619,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }
       if (outcome.success) {
         state.written++;
-        this.currencyChanges.add(objectApiName, currencyChanges.get(record));
+        const currencyChange = currencyChanges.get(record);
+        this.currencyChanges.add(objectApiName, currencyChange);
+        if (currencyChange && outcome.id) {
+          this.currencyChangesByWrittenId.set(outcome.id, currencyChange);
+        }
         if (sourceId && outcome.id) mappings.push([sourceId, outcome.id]);
         const status = drafts.get(index);
         if (status && outcome.id) {
@@ -1886,12 +1900,16 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
   /**
    * Put each record of a batch whose currency the target does not hold
-   * active in another, its amounts converted into it (`replaceRowCurrency`),
-   * and answer what changed, by record: counted once the target takes it.
-   * Both orgs' currencies are read once a run, the first time a record the
-   * target takes a currency of carries one; a run given no read of either
-   * org, or one with a single currency, sends the currency as read. Changes
-   * `payload` in place, index by index with `rows`.
+   * active in another, its amounts converted into it (`replaceRowCurrency`) —
+   * an opportunity's at the rates of its close date where an org holds dated
+   * rates — and answer what changed, by record: counted once the target
+   * takes it. A record whose currency is its parent's, which the target will
+   * not take one of its own for, has its amounts converted as its parent's
+   * were (`followParentCurrency`). Both orgs' currencies are read once a run,
+   * the first time a record the target takes a currency of carries one; a
+   * run given no read of either org, or one with a single currency, sends
+   * the currency as read. Changes `payload` in place, index by index with
+   * `rows`.
    */
   private async replaceCurrencies(
     objectApiName: string,
@@ -1901,22 +1919,44 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   ): Promise<Map<Record<string, unknown>, CurrencyChange>> {
     const changed = new Map<Record<string, unknown>, CurrencyChange>();
     const { querySource, queryTarget } = this.deps;
-    if (!querySource || !queryTarget || (writable && !writable.has(CURRENCY_FIELD))) {
-      return changed;
-    }
-    const carried = payload.some(
-      (record) => typeof record[CURRENCY_FIELD] === 'string' && record[CURRENCY_FIELD] !== '',
-    );
-    if (!carried) return changed;
+    if (!querySource || !queryTarget) return changed;
+    const own = !writable || writable.has(CURRENCY_FIELD);
+    if (!own && this.currencyChangesByWrittenId.size === 0) return changed;
+    const carries = (record: Record<string, unknown> | undefined): boolean =>
+      typeof record?.[CURRENCY_FIELD] === 'string' && record[CURRENCY_FIELD] !== '';
+    if (!(own ? payload.some(carries) : rows.some(carries))) return changed;
     this.currencies ??= readRunCurrencies(querySource, queryTarget);
     const currencies = await this.currencies;
     if (!currencies) return changed;
     const currencyFields =
       (await this.deps.describeCurrencyFields?.(objectApiName).catch(() => undefined)) ??
       new Map<string, number | undefined>();
+    const lookups = own
+      ? []
+      : ((await this.lookupsOf(objectApiName)) ?? []).map((lookup) => lookup.name);
     payload.forEach((record, index) => {
-      const read = rows[index]?.[CURRENCY_FIELD];
-      const change = replaceRowCurrency(record, { read, currencyFields }, currencies);
+      const row = rows[index];
+      const read = row?.[CURRENCY_FIELD];
+      const change = own
+        ? replaceRowCurrency(
+            record,
+            { read, currencyFields, ratesOn: datedRateOf(objectApiName, row) },
+            currencies,
+          )
+        : followParentCurrency(
+            record,
+            {
+              read,
+              // Its lookups name the target's records by now: remapped.
+              parent: row
+                ? parentCurrencyChange(objectApiName, row, lookups, (id) =>
+                    this.currencyChangesByWrittenId.get(id),
+                  )
+                : undefined,
+              currencyFields,
+            },
+            currencies,
+          );
       if (change) changed.set(record, change);
     });
     return changed;

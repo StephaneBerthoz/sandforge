@@ -3559,10 +3559,12 @@
       "corporate": "written in {{to}}, the target org's corporate currency",
       "recordTypeDefault": "written in {{to}}, the default of their record type",
       "decision": "written in {{to}}, as decided",
+      "parent": "written in {{to}}, the currency of the record they belong to",
       "converted": "amounts converted at the source org's rates: {{fields}}",
       "convertedAtTargetRate": "amounts converted at the source org's rate for {{from}} and the target org's for {{to}}: {{fields}}",
       "notConverted": "amounts written as read: no rate converts {{from}} into {{to}}",
-      "noAmount": "no amount to convert"
+      "noAmount": "no amount to convert",
+      "dated": "at the dated rates of {{field}}"
     },
     "contactPoints": {
       "title": "Emails and phone numbers",

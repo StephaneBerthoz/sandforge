@@ -225,6 +225,21 @@ function fakeOrg({
         return {
           compositeResponse: await Promise.all(
             compositeRequest.map(async (sub) => {
+              // A validation rule retrieved by id comes whole, its formula with it.
+              const ruleId = /\/tooling\/sobjects\/ValidationRule\/(\w+)$/.exec(sub.url)?.[1];
+              if (ruleId) {
+                retrieved.push(`ValidationRule/${ruleId}`);
+                return {
+                  referenceId: sub.referenceId,
+                  httpStatusCode: 200,
+                  body: {
+                    Id: ruleId,
+                    Metadata: {
+                      errorConditionFormula: 'AND(NOT($Permission.Load_Data), ISBLANK(LastName))',
+                    },
+                  },
+                };
+              }
               // A flow version retrieved by id comes whole, its metadata with it.
               const version = /\/tooling\/sobjects\/Flow\/(\w+)$/.exec(sub.url)?.[1];
               if (version) {
@@ -614,6 +629,8 @@ describe('sandforge-clone target automation', () => {
         // the permission sets holding it: the source's describes were discovery's.
         '  read in 10 request(s) to TGT',
       ]);
+      // The formula retrieved by id in a Tooling composite, as the flows are.
+      expect(orgs.TGT.retrieved).toEqual(['ValidationRule/03d000000000001AAA']);
       expect(said).toBeLessThan(printed.indexOf('record-type mapping…'));
       expect(orgs.SRC.tooling).toEqual([]);
       expect(orgs.TGT.written).toEqual([]);

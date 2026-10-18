@@ -39,8 +39,12 @@ import {
   CURRENCY_FIELD,
   CurrencyReplacementTally,
   currencyFieldsOf,
+  datedRateOf,
   describeCurrencyReplaced,
+  followParentCurrency,
+  parentCurrencyChange,
   replaceRowCurrency,
+  type CurrencyChange,
   type RunCurrencies,
 } from '../../core/common/recordCurrencies.js';
 
@@ -148,6 +152,13 @@ export interface SyncWriteRun {
    * currency goes as read.
    */
   currencies?: RunCurrencies;
+  /**
+   * The currency change each row the run sent in another currency went
+   * through, by its source id: a row whose currency is its parent's — an
+   * opportunity's products — has its amounts converted as its parent's were
+   * (`followParentCurrency`). Filled in as the run prepares its rows.
+   */
+  currencyChangesById?: Map<string, CurrencyChange>;
 }
 
 /** A row held back before the write. */
@@ -524,20 +535,48 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   // A row in a currency the target does not hold active was refused for it,
   // and written again without it, in the running user's currency with its
   // amounts as read: it goes in the target's corporate currency, its amounts
-  // converted, and the simulation, which prepares the same rows, says so.
+  // converted — an opportunity's at the rates of its close date where an org
+  // holds dated rates — and the simulation, which prepares the same rows,
+  // says so. A row whose currency is its parent's, which the target will not
+  // take one of its own for, has its amounts converted as its parent's were.
   const currencies = config.operation === 'delete' ? undefined : run?.currencies;
+  const ownCurrency = target?.creatable.has(CURRENCY_FIELD) === true;
+  const parentCurrency =
+    !ownCurrency &&
+    (run?.currencyChangesById?.size ?? 0) > 0 &&
+    target?.fields?.some((field) => field.name === CURRENCY_FIELD) === true;
   const currencyFields =
-    currencies && target?.creatable.has(CURRENCY_FIELD)
-      ? currencyFieldsOf(target.fields ?? [])
+    currencies && (ownCurrency || parentCurrency)
+      ? currencyFieldsOf(target?.fields ?? [])
       : undefined;
+  const lookups = [...(target?.references ?? [])];
   const replaced = new CurrencyReplacementTally();
   for (const [index, { payload, settled }] of [...staged].sort(([a], [b]) => a - b)) {
     if (currencies && currencyFields) {
-      const read = (run?.sources[index] ?? records[index])?.[CURRENCY_FIELD];
-      replaced.add(
-        objectApiName,
-        replaceRowCurrency(payload, { read, currencyFields }, currencies),
-      );
+      const source = run?.sources[index] ?? records[index];
+      const read = source?.[CURRENCY_FIELD];
+      const change: CurrencyChange | undefined = ownCurrency
+        ? replaceRowCurrency(
+            payload,
+            { read, currencyFields, ratesOn: datedRateOf(objectApiName, source) },
+            currencies,
+          )
+        : followParentCurrency(
+            payload,
+            {
+              read,
+              parent: source
+                ? parentCurrencyChange(objectApiName, source, lookups, (id) =>
+                    run?.currencyChangesById?.get(id),
+                  )
+                : undefined,
+              currencyFields,
+            },
+            currencies,
+          );
+      replaced.add(objectApiName, change);
+      const sourceId = source?.['Id'];
+      if (change && typeof sourceId === 'string') run?.currencyChangesById?.set(sourceId, change);
     }
     prepared.payloads.push(payload);
     prepared.sentAt.push(index);
