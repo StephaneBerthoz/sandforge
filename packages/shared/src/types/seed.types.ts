@@ -1,5 +1,10 @@
 import type { UUID, ISODateString, ApiName } from './common.types.js';
-import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
+import type {
+  ForgeSweepResult,
+  ForgeUndoMark,
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
+} from './forge.types.js';
 
 /** Seed generation strategy */
 export type SeedStrategy = 'ai' | 'faker' | 'template' | 'csv_import' | 'clone';
@@ -91,6 +96,21 @@ export interface SeedObjectConfig {
   excludedFields: string[];
   insertOrder: number;
   batchSize: number;
+}
+
+/**
+ * A record type a seed can give an object's records, as the target offers it
+ * to the running user: active, open to them, never the master.
+ */
+export interface SeedRecordTypeOption {
+  recordTypeId: string;
+  developerName: string;
+  /** Its label, in the org's language. */
+  label: string;
+  /** A person account's record type: accounts of it are written as person accounts. */
+  person: boolean;
+  /** The running user's default: the records' type when none is chosen. */
+  isDefault: boolean;
 }
 
 /** Field generation rule */
@@ -343,8 +363,8 @@ export interface VRCheckResult {
 export type SeedRemovalRefusalCode = 'GUARD_BLOCKED' | 'NO_GUARD' | 'ORG_GONE';
 
 /**
- * What a Seed run created, as the window that ran it keeps it, and what a
- * removal of it takes: read from what the run kept, nothing asked of the org.
+ * What a Seed run created, as the extension keeps it, and what a removal of
+ * it takes: read from what the run kept, nothing asked of the org.
  */
 export interface SeedRunRemovalInfo {
   /** The run, by its result's `operationId`. */
@@ -379,4 +399,9 @@ export interface SeedRemovalResult {
   finishedAt: ISODateString;
   /** Set on a removal of what an earlier one left: when that one ended, ISO 8601. */
   leftBy?: ISODateString;
+  /**
+   * What the sweep asked with the removal took, before the run's records went:
+   * what the target's automation created during the run, as its user.
+   */
+  sweep?: ForgeSweepResult;
 }

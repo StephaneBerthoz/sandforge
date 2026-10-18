@@ -76,6 +76,13 @@ export interface SyncRunRemovalInput {
    * later run points a lookup at a copy that is gone.
    */
   links?: SyncLinkForgetter;
+  /**
+   * The sweep of what the target's automation created during the run, made
+   * once the removal has read the run's records and before its first delete
+   * (`RunRemovalOptions.sweep`); it resolves to whether it deleted anything.
+   * A Seed run's removal offers it.
+   */
+  sweep?: () => Promise<boolean>;
   /** Stops the removal before its next call to the org. */
   signal?: AbortSignal;
   /** Told how many of the run's creations are settled, after each step. */
@@ -129,6 +136,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     ...(run.removal?.removalStamps ? { removalStamps: run.removal.removalStamps } : {}),
     ...(run.removal?.removalSpans ? { removalSpans: run.removal.removalSpans } : {}),
     includeChanged,
+    ...(input.sweep ? { sweep: input.sweep } : {}),
     signal: input.signal,
     onProgress: input.onProgress,
   });

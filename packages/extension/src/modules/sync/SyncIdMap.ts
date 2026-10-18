@@ -73,6 +73,12 @@ export interface SyncIdMapStore {
     objectApiName: string,
     pairs: readonly SyncLinkPair[],
   ): Promise<void>;
+  /**
+   * Forget the records in the target a delta run deleted, as the source had
+   * deleted theirs (`SyncLinkForgetter.forget`). Absent from a store that
+   * keeps nothing to forget.
+   */
+  forget?(configId: string, orgs: SyncLinkOrgs, targetIds: readonly string[]): Promise<number>;
 }
 
 /** What a removal of a run tells the configuration's pairs. */
@@ -378,5 +384,7 @@ export function savedConfigIdMap(
     record: async (configId, orgs, objectApiName, pairs) => {
       if (isSaved(configId)) await map.record(configId, orgs, objectApiName, pairs);
     },
+    forget: async (configId, orgs, targetIds) =>
+      isSaved(configId) && map.forget ? map.forget(configId, orgs, targetIds) : 0,
   };
 }

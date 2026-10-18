@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { TFunction } from 'i18next';
-import type { SeedExecutionResult, SeedTemplate, SeedObjectConfig } from '@sandforge/shared';
+import type {
+  FieldRule,
+  SeedExecutionResult,
+  SeedTemplate,
+  SeedObjectConfig,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
@@ -10,6 +15,7 @@ import type { ObjectProgress } from './Step7_Execute';
 import type { CheckedRelation } from './seedRelationDrafts';
 import { lookupsClosingACycle } from './seedLookupCycles';
 import type { RunLookup } from './seedLookupCycles';
+import { recordTypeFieldRule } from './seedRecordTypeChoices';
 
 /** Return type for the useSeedExecution hook. */
 export interface SeedExecutionState {
@@ -52,7 +58,8 @@ export interface SeedExecutionState {
  * Handles the execute mutation and tracks per-object progress. A relation
  * row that can be sent decides the record count of its child and fills the
  * lookup it names; a row with a problem is not sent, and the wizard does not
- * let the run start while there is one.
+ * let the run start while there is one. The record types chosen for an object
+ * go as a `RecordTypeId` rule, as the command line sends them.
  */
 export function useSeedExecution(
   selectedOrgId: string,
@@ -61,6 +68,7 @@ export function useSeedExecution(
   fieldConfigs: ObjectFieldConfig[],
   t: TFunction,
   relations: readonly CheckedRelation[] = [],
+  recordTypeChoices: Readonly<Record<string, readonly string[]>> = {},
 ): SeedExecutionState {
   const addNotification = useNotificationStore((s) => s.addNotification);
 
@@ -141,6 +149,7 @@ export function useSeedExecution(
         const vol = volumes[apiName] ?? { count: 100, batchSize: 200 };
         const objConfig = fieldConfigs.find((c) => c.objectApiName === apiName);
         const related = sent.find((s) => s.relation.childObject === apiName);
+        const recordTypes = recordTypeChoices[apiName] ?? [];
         return {
           objectApiName: apiName,
           // A relation plans its child's records from the parents it finds;
@@ -153,6 +162,8 @@ export function useSeedExecution(
             // The relation fills its lookup; the field's own rule would draw
             // a parent at random.
             .filter((f) => f.fieldApiName !== related?.relation.lookupField)
+            // The record types chosen give it below.
+            .filter((f) => recordTypes.length === 0 || f.fieldApiName !== 'RecordTypeId')
             // A lookup points at records this run inserts: an optional one to
             // an object the run does not seed, such as OwnerId to User, made
             // the run refuse the whole template. It is left for the org to
@@ -175,12 +186,13 @@ export function useSeedExecution(
             // for the other, and the run refused the template as a circular
             // dependency; one of the two optional lookups is left to the org.
             .filter((f) => !leftOut.has(`${apiName}.${f.fieldApiName}`))
-            .map((f) => ({
+            .map((f): FieldRule => ({
               fieldApiName: f.fieldApiName,
               fieldType: f.type,
               ruleType: f.ruleType,
               config: f.config as import('@sandforge/shared').FieldRuleConfig,
-            })),
+            }))
+            .concat(recordTypes.length > 0 ? [recordTypeFieldRule(recordTypes)] : []),
         };
       }),
       ...(sent.length > 0 ? { relations: sent.map((s) => s.relation) } : {}),
@@ -195,7 +207,15 @@ export function useSeedExecution(
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
     });
-  }, [selectedOrgId, selectedObjects, volumes, fieldConfigs, sent, executeSeedMutation]);
+  }, [
+    selectedOrgId,
+    selectedObjects,
+    volumes,
+    fieldConfigs,
+    sent,
+    recordTypeChoices,
+    executeSeedMutation,
+  ]);
 
   // Live figures from the extension, for this run only: SeedOpsHandler uses the
   // request id as the operationId, and every panel receives every run's events.

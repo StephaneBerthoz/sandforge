@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { BaseMessage, SeedRemovalResult, SeedRunRemovalInfo } from '@sandforge/shared';
 
 import { SeedRemovalHandler } from './SeedRemovalHandler.js';
@@ -8,7 +11,10 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
-import { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
+import {
+  nodeSeedRunCreations,
+  type SeedRunCreations,
+} from '../../modules/seed/SeedRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -45,6 +51,8 @@ function buildMsg(type: string, payload?: unknown): InboundRequest {
 
 describe('SeedRemovalHandler', () => {
   let store: ConfigStore;
+  /** The extension's storage directory, where the runs are kept. */
+  let storage: string;
   let runs: SeedRunCreations;
   let deps: HandlerDeps;
   let handler: SeedRemovalHandler;
@@ -71,8 +79,18 @@ describe('SeedRemovalHandler', () => {
   const remove = (payload: Record<string, unknown> = {}) =>
     handler.handle(buildMsg('seed:remove', { runId: 'op-1', ...payload }));
 
-  beforeEach(() => {
+  const lists = () =>
+    posted<BaseMessage & { payload: { runs: SeedRunRemovalInfo[] } }>(
+      'seed:removal:list:response',
+    ).map((m) => m.payload.runs);
+
+  afterEach(() => {
+    rmSync(storage, { recursive: true, force: true });
+  });
+
+  beforeEach(async () => {
     vi.clearAllMocks();
+    storage = mkdtempSync(join(tmpdir(), 'sandforge-seed-removal-'));
     store = new ConfigStore(new InMemoryConfigStoreBackend());
     store.initialize();
     registry = new BackgroundOperationRegistry();
@@ -100,7 +118,7 @@ describe('SeedRemovalHandler', () => {
       } as unknown as HandlerDeps['infraServices'],
       nextId: () => String(++n),
     };
-    runs = new SeedRunCreations();
+    runs = nodeSeedRunCreations(storage);
     handler = new SeedRemovalHandler(deps);
     handler.setRunCreations(runs);
     handler.setRegistry(registry);
@@ -109,7 +127,7 @@ describe('SeedRemovalHandler', () => {
     // A seed ten minutes ago: an account, then two contacts under it.
     const startedAt = new Date(Date.now() - 11 * 60_000).toISOString();
     const at = new Date(Date.now() - 10 * 60_000).toISOString();
-    runs.record({
+    await runs.record({
       runId: 'op-1',
       targetOrgId: TARGET,
       startedAt,
@@ -172,6 +190,40 @@ describe('SeedRemovalHandler', () => {
     });
   });
 
+  describe('seed:removal:list', () => {
+    it('lists the runs kept, newest first, and says which can still be removed', async () => {
+      await runs.record({
+        runId: 'op-2',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        finishedAt: new Date(Date.now() - 4 * 60_000).toISOString(),
+        status: 'partial',
+        objectResults: [{ objectApiName: 'Contact', createdIds: [fakeId('003', 9)] }],
+      });
+      org.add('Contact', { Id: fakeId('003', 9) }, new Date(Date.now() - 4 * 60_000).toISOString());
+      await remove();
+      vi.mocked(deps.broker.postToWebview).mockClear();
+
+      await handler.handle(buildMsg('seed:removal:list', {}));
+
+      const [listed] = lists();
+      expect(listed.map((run) => [run.runId, run.left.length > 0, run.removed?.deleted])).toEqual([
+        ['op-2', true, undefined],
+        ['op-1', false, 3],
+      ]);
+      expect(listed[0]).toMatchObject({ targetOrgId: TARGET, created: 1 });
+      expect(listed[0].refusal).toBeUndefined();
+    });
+
+    it('lists no run in a window given nowhere to keep them', async () => {
+      const bare = new SeedRemovalHandler(deps);
+
+      await bare.handle(buildMsg('seed:removal:list', {}));
+
+      expect(lists()).toEqual([[]]);
+    });
+  });
+
   describe('seed:remove', () => {
     it('removes what the run created, children first, records it in the audit trail, and is not offered again', async () => {
       await remove();
@@ -206,6 +258,23 @@ describe('SeedRemovalHandler', () => {
 
       await remove();
       expect(errors()[0].payload.code).toBe('ALREADY_REMOVED');
+    });
+
+    it('removes a run the window that ran it no longer holds: after a reload, from what the extension kept', async () => {
+      // The window reloads: a new handler, and a new store over the same storage.
+      const reloaded = new SeedRemovalHandler(deps);
+      reloaded.setRunCreations(nodeSeedRunCreations(storage));
+      reloaded.setRegistry(new BackgroundOperationRegistry());
+
+      await reloaded.handle(buildMsg('seed:remove', { runId: 'op-1' }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({ status: 'success' });
+      expect(org.all('Contact')).toEqual([]);
+      expect(org.all('Account')).toEqual([]);
+      // And what it did is kept for the next reload.
+      const kept = await nodeSeedRunCreations(storage).get('op-1');
+      expect(kept?.removal?.undo).toMatchObject({ deleted: 3 });
     });
 
     it('keeps a record changed since the run unless told to take it too', async () => {

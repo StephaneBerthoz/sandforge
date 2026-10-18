@@ -9,6 +9,7 @@ import { Accordion } from '../../components/ui/Accordion';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { Step3ConfigureFields } from './Step3_ConfigureFields';
 import { SeedRelationsEditor } from './SeedRelationsEditor';
+import { SeedRecordTypePicker } from './SeedRecordTypePicker';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { PIIObjectResult } from './useSeedWizardState';
 
@@ -62,6 +63,10 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
           <Skeleton variant="rect" height="80px" />
         </div>
       )}
+
+      {/* The record types the records take: outside the advanced settings,
+          as a person account type changes what the accounts are. */}
+      <SeedRecordTypePicker fieldConfigs={fieldConfigs} />
 
       <Step3ConfigureFields
         objectConfigs={fieldConfigs.filter((c) => selectedObjects.includes(c.objectApiName))}

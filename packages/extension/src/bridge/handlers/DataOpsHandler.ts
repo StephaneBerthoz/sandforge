@@ -299,18 +299,85 @@ function collectDmlError(
 
 /**
  * Objects a masking run addresses: the ones the request names, otherwise
- * the ones the template's rules address. Empty for an unknown template —
- * such a request stops at the template lookup, before any write.
+ * the ones the template's rules address — and Account, in an org with person
+ * accounts, when the template masks on a contact what a person account holds
+ * as its own (`personAccountRules`). Planned from the rules alone, a run of
+ * the CCPA template, whose rules name Contact and Lead, masked every contact
+ * of such an org and left each person account's name, email, phone, address
+ * and birthdate in clear. Empty for an unknown template — such a request
+ * stops at the template lookup, before any write.
+ *
+ * @param personAccounts - Whether the org has person accounts
+ *   (`orgHasPersonAccounts`); read only for a request that names no object.
  */
 function plannedAnonymizeObjects(
   payload: { objects?: string[] },
   template: ListedAnonymizationTemplate | undefined,
+  personAccounts = false,
 ): string[] {
   if (payload.objects) return payload.objects;
   if (!template) return [];
-  return template.rules
+  const objects = template.rules
     .map((r) => r.fieldPattern.split('.')[0])
     .filter((v, i, a) => a.indexOf(v) === i);
+  if (personAccounts && personRowsOnly(payload, template, ACCOUNT)) objects.push(ACCOUNT);
+  return objects;
+}
+
+/** The filter that holds the rows of Account to its person accounts. */
+const PERSON_ROWS = `${PERSON_ACCOUNT_FLAG} = true`;
+
+/**
+ * Whether a run masks an object's person accounts and nothing else: Account,
+ * planned for them alone — the request names no object and the template no
+ * rule of its own on Account, but derives rules for its person accounts. Its
+ * business accounts hold none of what those rules mask, and are neither
+ * counted, read, nor kept in the snapshot.
+ */
+function personRowsOnly(
+  payload: { objects?: string[] },
+  template: ListedAnonymizationTemplate,
+  objectName: string,
+): boolean {
+  return (
+    payload.objects === undefined &&
+    objectName.toLowerCase() === ACCOUNT.toLowerCase() &&
+    rulesOfObject(template, ACCOUNT).length === 0 &&
+    personAccountRules(template.rules).length > 0
+  );
+}
+
+/**
+ * The rows of one object a masking run holds to: the request's filter, which
+ * goes with one object alone; the person accounts, for Account planned for
+ * them (`personRowsOnly`); every row otherwise.
+ */
+function whereOfObject(
+  payload: { objects?: string[]; where?: string },
+  template: ListedAnonymizationTemplate,
+  objectName: string,
+): string | undefined {
+  if (personRowsOnly(payload, template, objectName)) return PERSON_ROWS;
+  return filterOf(payload);
+}
+
+/**
+ * Whether an org has person accounts: its Account has `IsPersonAccount`. A
+ * describe the org refuses is taken for none, as before this was asked, and
+ * logged.
+ */
+async function orgHasPersonAccounts(
+  conn: { describe: (objectApiName: string) => Promise<{ fields: MaskableField[] }> },
+  log: (line: string) => void,
+): Promise<boolean> {
+  try {
+    return (await conn.describe(ACCOUNT)).fields.some((f) => f.name === PERSON_ACCOUNT_FLAG);
+  } catch (err: unknown) {
+    log(
+      `[WARN] dataops: whether the org has person accounts was not read: ${extractErrorMessage(err)}`,
+    );
+    return false;
+  }
 }
 
 /** The rules of a template a masking run applies to one object: those naming it, and a wildcard. */
@@ -465,6 +532,8 @@ interface MaskingTally {
 /** One object of a masking run: its rules, its counts, and how far the run got through it. */
 interface MaskingWork {
   objectName: string;
+  /** The rows of the object the run holds to (`whereOfObject`); every row when absent. */
+  where?: string;
   objectRules: AnonymizationTemplateRule[];
   /** The rules the template derives for the object's person accounts (`personRulesOfObject`). */
   personRules: AnonymizationTemplateRule[];
@@ -1253,7 +1322,8 @@ export class DataOpsHandler implements DomainHandler {
     payload: {
       orgId: string;
       objects: string[];
-      where?: string;
+      /** Per object, the rows the snapshot keeps; every row of an object it names none for. */
+      wheres?: ReadonlyMap<string, string>;
       fields?: ReadonlyMap<string, string>;
     },
     origin: string,
@@ -1362,7 +1432,12 @@ export class DataOpsHandler implements DomainHandler {
           safeObj,
           read,
           writer,
-          { pageSize, cap, select: payload.fields?.get(safeObj), where: payload.where },
+          {
+            pageSize,
+            cap,
+            select: payload.fields?.get(safeObj),
+            where: payload.wheres?.get(safeObj),
+          },
           stop.signal,
           () => {
             // Between two pages of a large object: how far into it the read is.
@@ -2454,15 +2529,18 @@ export class DataOpsHandler implements DomainHandler {
     operationId: string,
     orgId: string,
     work: readonly MaskingWork[],
-    options: { where?: string; origin: string; stop: AbortSignal },
+    options: { origin: string; stop: AbortSignal },
   ): Promise<
     | { taken?: { operationId: string; totalRecords: number } }
     | { refused: string; retryable: boolean }
   > {
     const fields = new Map<string, string>();
+    /** The rows of each object the run holds to, which are all the snapshot keeps of it. */
+    const wheres = new Map<string, string>();
     try {
       for (const w of work) {
         if (w.tally.total === 0) continue;
+        if (w.where !== undefined) wheres.set(w.tally.objectApiName, w.where);
         const { select } = await this.maskedFields(
           conn,
           w.tally.objectApiName,
@@ -2485,7 +2563,7 @@ export class DataOpsHandler implements DomainHandler {
       {
         orgId,
         objects: [...fields.keys()],
-        ...(options.where !== undefined ? { where: options.where } : {}),
+        ...(wheres.size > 0 ? { wheres } : {}),
         fields,
       },
       options.origin,
@@ -2521,7 +2599,8 @@ export class DataOpsHandler implements DomainHandler {
 
     // A template the user saved is applied the way one that ships is.
     const template = this.findTemplate(payload.templateId);
-    const plannedObjects = plannedAnonymizeObjects(payload, template);
+    /** The objects the run addresses: Account joins them once the org says it has person accounts. */
+    let plannedObjects = plannedAnonymizeObjects(payload, template);
 
     /** The masking run as the audit trail records it: read from the org, written back to it. */
     const run: WriteRun = {
@@ -2539,7 +2618,7 @@ export class DataOpsHandler implements DomainHandler {
     /** The filter the run holds the rows of its one object to, if it was given one. */
     const where = filterOf(payload);
     /** What a checkpoint of this run is good for: its rules, its objects and its filter. */
-    const fingerprint = template ? maskingFingerprint(template.rules, plannedObjects, where) : '';
+    let fingerprint = template ? maskingFingerprint(template.rules, plannedObjects, where) : '';
     /**
      * Whether every object the run addresses has been counted and the guard
      * let it go ahead: until then, how many rows a run that stops leaves is
@@ -2687,30 +2766,43 @@ export class DataOpsHandler implements DomainHandler {
         return;
       }
 
+      /**
+       * The objects the run addresses with Account planned for its person
+       * accounts, and what a checkpoint of that run is good for: which of the
+       * two plans holds is the org's to say, asked once it is reached.
+       */
+      const withPersons = personRowsOnly(payload, template, ACCOUNT)
+        ? plannedAnonymizeObjects(payload, template, true)
+        : undefined;
+      const fingerprints = withPersons
+        ? [fingerprint, maskingFingerprint(template.rules, withPersons, where)]
+        : [fingerprint];
+      const refuseResume = (): void =>
+        sendHandlerError(
+          this.deps,
+          'dataops:anonymize',
+          'dataops:error',
+          msg,
+          new Error(
+            'There is nothing to resume: the run has finished since, another run of this ' +
+              'template has stopped since, or its rules have changed. Apply masks every record ' +
+              'of its objects.',
+          ),
+          { code: NOTHING_TO_RESUME },
+        );
+
       /** Where the run this one resumes stopped; a run asked for whole starts from nothing. */
       let resumed: MaskingCheckpoint | undefined;
       if (payload.resumeFrom !== undefined) {
-        resumed = new MaskingCheckpointStore(this.deps.configStore).load(
-          payload.orgId,
-          payload.templateId,
-          fingerprint,
-        );
+        const checkpoints = new MaskingCheckpointStore(this.deps.configStore);
+        resumed = fingerprints
+          .map((kept) => checkpoints.load(payload.orgId, payload.templateId, kept))
+          .find((checkpoint) => checkpoint?.id === payload.resumeFrom);
         // Another run since, a run that finished, or rules edited since: what
         // the page offered to resume is not where the org stands, and a run
         // from the first row would mask again what was masked.
-        if (resumed?.id !== payload.resumeFrom) {
-          sendHandlerError(
-            this.deps,
-            'dataops:anonymize',
-            'dataops:error',
-            msg,
-            new Error(
-              'There is nothing to resume: the run has finished since, another run of this ' +
-                'template has stopped since, or its rules have changed. Apply masks every record ' +
-                'of its objects.',
-            ),
-            { code: NOTHING_TO_RESUME },
-          );
+        if (!resumed) {
+          refuseResume();
           return;
         }
       }
@@ -2720,6 +2812,16 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
+      if (withPersons && (await orgHasPersonAccounts(conn, this.deps.log))) {
+        plannedObjects = withPersons;
+        fingerprint = fingerprints[1];
+      }
+      // The run resumed planned other objects than the org now gives: its
+      // person accounts came or went since.
+      if (resumed && resumed.fingerprint !== fingerprint) {
+        refuseResume();
+        return;
+      }
 
       /** The org's API usage, once it passed the line past which the run makes no call. */
       let apiLimit: SforceLimitInfo | undefined;
@@ -2744,6 +2846,7 @@ export class DataOpsHandler implements DomainHandler {
         const personRules = personRulesOfObject(template, objectName);
         if (objectRules.length === 0 && personRules.length === 0) continue;
         const safeObj = sanitizeSoqlObjectName(objectName);
+        const objectWhere = whereOfObject(payload, template, objectName);
         failure.objectName = safeObj;
         const from = resumed?.objects.find((o) => o.objectApiName === safeObj);
         const progress: MaskingProgress = {
@@ -2756,7 +2859,7 @@ export class DataOpsHandler implements DomainHandler {
         let toRead = 0;
         if (!progress.done) {
           try {
-            toRead = await this.countRows(conn, safeObj, progress.afterId, where);
+            toRead = await this.countRows(conn, safeObj, progress.afterId, objectWhere);
           } catch (err: unknown) {
             // Before the guard is asked and before anything is written: the
             // run ends here, and is recorded as a failure with the object and
@@ -2786,7 +2889,14 @@ export class DataOpsHandler implements DomainHandler {
           done: total === 0,
         };
         tallies.push(tally);
-        work.push({ objectName, objectRules, personRules, tally, progress });
+        work.push({
+          objectName,
+          ...(objectWhere !== undefined ? { where: objectWhere } : {}),
+          objectRules,
+          personRules,
+          tally,
+          progress,
+        });
       }
       const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
 
@@ -2846,7 +2956,6 @@ export class DataOpsHandler implements DomainHandler {
       // the guard, which may stop the run, and before the first write.
       if (payload.snapshot === true) {
         const kept = await this.snapshotBeforeMasking(conn, operationId, payload.orgId, work, {
-          where,
           origin: msg.type,
           stop: stop.signal,
         });
@@ -2930,7 +3039,14 @@ export class DataOpsHandler implements DomainHandler {
         );
       };
 
-      for (const { objectName, objectRules, personRules, tally, progress } of work) {
+      for (const {
+        objectName,
+        where: objectWhere,
+        objectRules,
+        personRules,
+        tally,
+        progress,
+      } of work) {
         if (tally.total === 0) continue;
         if (stop.signal.aborted) {
           cancelled = true;
@@ -3176,7 +3292,7 @@ export class DataOpsHandler implements DomainHandler {
             break;
           }
           if (usageAtStop()) break;
-          const page = await maskingPage(conn, safeObj, fields, pageSize, afterId, where);
+          const page = await maskingPage(conn, safeObj, fields, pageSize, afterId, objectWhere);
           noteApiUsage(`dataops:anonymize query ${safeObj}`);
           if (page.records.length === 0) {
             tally.done = true;
@@ -3354,6 +3470,22 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
+   * The objects a coverage or a preview reads for a request, as the run it
+   * stands for plans them (`plannedAnonymizeObjects`): Account among them in
+   * an org with person accounts, which is asked only when it decides.
+   */
+  private async plannedObjectsIn(
+    conn: { describe: (objectApiName: string) => Promise<{ fields: MaskableField[] }> },
+    payload: { objects?: string[] },
+    template: ListedAnonymizationTemplate,
+  ): Promise<string[]> {
+    const persons =
+      personRowsOnly(payload, template, ACCOUNT) &&
+      (await orgHasPersonAccounts(conn, this.deps.log));
+    return plannedAnonymizeObjects(payload, template, persons);
+  }
+
+  /**
    * Answer `dataops:anonymize:coverage`: before an Anonymize, how many rows of
    * each object the template masks the org holds, and how many of them its
    * latest backup holds — what a restore can bring back once the run has
@@ -3395,12 +3527,18 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
       const objects: AnonymizeCoverageObject[] = [];
-      for (const objectName of plannedAnonymizeObjects(parsed, template)) {
+      const planned = await this.plannedObjectsIn(conn, parsed, template);
+      for (const objectName of planned) {
         if (!masksObject(template, objectName)) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
         let count: number | null = null;
         try {
-          count = await this.countRows(conn, objectApiName, undefined, filterOf(parsed));
+          count = await this.countRows(
+            conn,
+            objectApiName,
+            undefined,
+            whereOfObject(parsed, template, objectName),
+          );
         } catch (err: unknown) {
           this.deps.log(
             `[WARN] dataops:anonymize:coverage: ${objectApiName} not counted: ${extractErrorMessage(err)}`,
@@ -3422,11 +3560,7 @@ export class DataOpsHandler implements DomainHandler {
       const checkpoint = new MaskingCheckpointStore(this.deps.configStore).load(
         parsed.orgId,
         parsed.templateId,
-        maskingFingerprint(
-          template.rules,
-          plannedAnonymizeObjects(parsed, template),
-          filterOf(parsed),
-        ),
+        maskingFingerprint(template.rules, planned, filterOf(parsed)),
       );
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:coverage:response', {
         templateId: parsed.templateId,
@@ -3489,7 +3623,7 @@ export class DataOpsHandler implements DomainHandler {
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
       const objects: AnonymizePreviewObject[] = [];
       const fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }> = [];
-      for (const objectName of plannedAnonymizeObjects(parsed, template)) {
+      for (const objectName of await this.plannedObjectsIn(conn, parsed, template)) {
         if (!masksObject(template, objectName)) continue;
         const objectApiName = sanitizeSoqlObjectName(objectName);
         try {
@@ -3506,7 +3640,7 @@ export class DataOpsHandler implements DomainHandler {
             select,
             PREVIEW_ROWS,
             undefined,
-            filterOf(parsed),
+            whereOfObject(parsed, template, objectName),
           );
           checkApiLimits(conn.limitInfo, `dataops:anonymize:preview ${objectApiName}`);
           // Each row by the rules its kind of account can hold, as Apply masks it.

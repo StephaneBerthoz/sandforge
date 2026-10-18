@@ -64,6 +64,11 @@ export interface SyncRunFileEntry {
 export interface SyncRunCreationsDeps {
   /** Directory the extension owns for persistent data (globalStorageUri). */
   storagePath: string;
+  /**
+   * The directory under it the runs' files go in: {@link SYNC_RUNS_DIR}
+   * unless another module keeps its runs the same way (`SeedRunCreations`).
+   */
+  runsDir?: string;
   readFile: (filePath: string) => Promise<string>;
   writeFile: (filePath: string, content: string) => Promise<void>;
   /** Add to the end of a file, creating it when it is not there. */
@@ -83,9 +88,10 @@ export interface SyncRunCreationsDeps {
  * The store over Node's file system, under the extension's storage directory,
  * or the directory the command line is told.
  */
-export function nodeSyncRunCreations(storagePath: string): SyncRunCreations {
+export function nodeSyncRunCreations(storagePath: string, runsDir?: string): SyncRunCreations {
   return new SyncRunCreations({
     storagePath,
+    ...(runsDir !== undefined ? { runsDir } : {}),
     readFile: (filePath) => readFile(filePath, 'utf8'),
     writeFile: (filePath, content) => writeFile(filePath, content, 'utf8'),
     appendFile: (filePath, content) => appendFile(filePath, content, 'utf8'),
@@ -314,7 +320,7 @@ export function createdCount(run: Pick<SyncRunKept, 'created'>): number {
 }
 
 /** A run removed with nothing left behind: nothing more of it to remove. */
-function settled(run: SyncRunKept): boolean {
+export function settled(run: SyncRunKept): boolean {
   return run.removal?.undo !== undefined && syncRemovalPlan(run).length === 0;
 }
 
@@ -328,9 +334,10 @@ export interface SyncCreationRecorder {
   /**
    * The records of `objectApiName` — or the files, under `ContentDocument` and
    * `Attachment` — the run has just created: written at once, in the order
-   * given. Never throws: a write that fails is said by {@link flush}.
+   * given, dated now, or `at` for a run that writes them down once it has
+   * ended. Never throws: a write that fails is said by {@link flush}.
    */
-  note(objectApiName: string, ids: readonly string[]): void;
+  note(objectApiName: string, ids: readonly string[], at?: string): void;
   /**
    * Waits for what was noted to be written, and says why some of it could
    * not be, once: undefined when all of it was.
@@ -356,7 +363,7 @@ export class SyncRunCreations {
 
   /** @param deps - Injected storage path and file-system operations. */
   constructor(private readonly deps: SyncRunCreationsDeps) {
-    this.dir = path.join(deps.storagePath, SYNC_RUNS_DIR);
+    this.dir = path.join(deps.storagePath, deps.runsDir ?? SYNC_RUNS_DIR);
     this.maxBytes = deps.maxBytes ?? SYNC_RUNS_MAX_BYTES;
     this.hardMaxBytes = Math.max(this.maxBytes, deps.hardMaxBytes ?? SYNC_RUNS_HARD_MAX_BYTES);
   }
@@ -375,7 +382,12 @@ export class SyncRunCreations {
    */
   recorder(start: SyncRunStart): SyncCreationRecorder & {
     /** Note how the run ended, when it created anything. */
-    end(ending: { status: 'success' | 'partial' | 'failure'; cancelled?: boolean }): Promise<void>;
+    end(ending: {
+      status: 'success' | 'partial' | 'failure';
+      cancelled?: boolean;
+      /** When it ended, on this machine's clock; now, unless the run says. */
+      at?: string;
+    }): Promise<void>;
   } {
     const file = this.runPath(start.runId);
     const head: SyncRunHead = { ...start, startedAt: start.startedAt ?? new Date().toISOString() };
@@ -402,10 +414,10 @@ export class SyncRunCreations {
     };
     return {
       runId: start.runId,
-      note: (objectApiName, ids) => {
+      note: (objectApiName, ids, at) => {
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
         if (valid.length === 0 || !objectSchema.safeParse(objectApiName).success) return;
-        append({ object: objectApiName, created: valid, at: new Date().toISOString() });
+        append({ object: objectApiName, created: valid, at: at ?? new Date().toISOString() });
       },
       flush: async () => {
         await writes;
@@ -416,7 +428,7 @@ export class SyncRunCreations {
         if (!begun || failure !== undefined) return;
         append({
           end: {
-            at: new Date().toISOString(),
+            at: ending.at ?? new Date().toISOString(),
             status: ending.status,
             ...(ending.cancelled ? { cancelled: true } : {}),
           },
@@ -488,6 +500,12 @@ export class SyncRunCreations {
     });
     this.queue = next.catch(() => undefined);
     return next;
+  }
+
+  /** Forget a run: its file, and what its removals did. */
+  async forget(runId: string): Promise<void> {
+    await this.deps.rm(this.runPath(runId));
+    await this.deps.rm(this.removalPath(runId));
   }
 
   private async readRemoval(runId: string): Promise<SyncRunRemovalState | undefined> {

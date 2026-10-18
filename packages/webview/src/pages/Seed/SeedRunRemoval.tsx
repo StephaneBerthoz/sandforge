@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Trash2 } from 'lucide-react';
 import type {
+  ForgeSweepListing,
   SeedRemovalRefusalCode,
   SeedRemovalResult,
   SeedRunRemovalInfo,
@@ -19,6 +20,7 @@ import {
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
+import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
 
 /**
  * How long a removal may keep the card waiting: Production Guard may wait on a
@@ -28,6 +30,9 @@ const REMOVAL_TIMEOUT_MS = 1_800_000;
 
 /** Where every answer about a removal that is not one comes. */
 const ERROR_CHANNEL = 'seed:remove:error';
+
+/** How long the read of what a sweep would take may take: the target's automation, then one read per object. */
+const SWEEP_READ_TIMEOUT_MS = 150_000;
 
 /**
  * What the card says of a removal that cannot run, by why: in the words a
@@ -45,10 +50,69 @@ interface RemoveAnswer {
   operationId: string;
 }
 
+/** What `seed:remove:sweep` answers. */
+interface SweepAnswer {
+  runId: string;
+  listing: ForgeSweepListing;
+}
+
+/**
+ * What a sweep asked with the removal would take, read as the confirmation's
+ * sweep is ticked and listed before the user types the org's name: what the
+ * target's automation created during the run, as its user, that the run did
+ * not write — Forge's sweep, listed as Forge lists it, in its words: a seed is
+ * a run. Read only; the sweep runs before the run's records go, and finds
+ * again what is there.
+ */
+const SeedRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const read = useBridgeMutation<SweepAnswer>('seed:remove:sweep', {
+    responseType: 'seed:remove:sweep:response',
+    errorType: 'seed:remove:sweep:error',
+    timeoutMs: SWEEP_READ_TIMEOUT_MS,
+  });
+  const { mutate } = read;
+  useEffect(() => {
+    mutate({ runId });
+  }, [runId, mutate]);
+
+  let body: React.ReactNode;
+  if (read.error) {
+    body = (
+      <p data-testid="seed-sweep-error" className="text-status-warning">
+        {t('forge.history.sweep.error', { org, reason: read.error })}
+      </p>
+    );
+  } else if (!read.data || read.data.runId !== runId) {
+    body = (
+      <p data-testid="seed-sweep-loading" className="text-text-secondary">
+        {t('forge.history.sweep.loading', { org })}
+      </p>
+    );
+  } else {
+    body = <ForgeSweepListingView listing={read.data.listing} />;
+  }
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="seed-removal-sweep"
+      className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
+    >
+      <h4 id={headingId} className="text-[11px] font-semibold">
+        {t('forge.history.sweep.title', { org })}
+      </h4>
+      {body}
+    </section>
+  );
+};
+
 /** Props for {@link SeedRunRemoval}. */
 export interface SeedRunRemovalProps {
   /** The run, by its result's `operationId`. */
   runId: string;
+  /** Told once per answer to a removal, a refusal included: the list of earlier seeds reads again. */
+  onAnswered?: () => void;
 }
 
 /**
@@ -56,9 +120,12 @@ export interface SeedRunRemovalProps {
  * command line could take a run back from its summary; the panel offered
  * nothing, and a seed written from it stayed in the org.
  *
- * What the run created is read from what the window kept — nothing is asked
- * of the org until a removal is confirmed. The removal takes the records the
- * run inserted and nothing else, the last object written first. The
+ * What the run created is read from what the extension kept, in this window
+ * or before it was reloaded — nothing is asked of the org until a removal is
+ * confirmed. The removal takes the records the run inserted and nothing else,
+ * the last object written first, and, when asked, sweeps first what the
+ * target's automation created during the run: a flow that opens a task on
+ * each contact left those tasks behind. The
  * confirmation names the org, typed, and the records per object; a record
  * changed since the run stays unless included. Where Production Guard allows
  * no delete — a production org, as a Forge run's removal reads it — nothing is
@@ -66,11 +133,12 @@ export interface SeedRunRemovalProps {
  * card, as from Live Operations, between two calls to the org; what it left is
  * offered again.
  */
-export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId }) => {
+export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswered }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
+  const [sweep, setSweep] = useState(false);
   const info = useBridgeQuery<{ info: SeedRunRemovalInfo | null }>(
     'seed:removal:info',
     { runId },
@@ -93,8 +161,15 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId }) => {
   const { refetch } = info;
   const answered = removal.data;
   const refused = removal.error;
+  // Once per answer, whatever the caller hands in.
+  const onAnsweredRef = useRef(onAnswered);
   useEffect(() => {
-    if (answered || refused) refetch();
+    onAnsweredRef.current = onAnswered;
+  }, [onAnswered]);
+  useEffect(() => {
+    if (!answered && !refused) return;
+    refetch();
+    onAnsweredRef.current?.();
   }, [answered, refused, refetch]);
 
   const kept = info.data?.info;
@@ -132,6 +207,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId }) => {
         disabled={removal.loading}
         onClick={() => {
           setIncludeChanged(false);
+          setSweep(false);
           setConfirming(true);
         }}
         data-testid="seed-removal-remove"
@@ -143,7 +219,11 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId }) => {
   }
 
   const confirmRemoval = (): void => {
-    removal.mutate({ runId, ...(includeChanged ? { includeChanged: true } : {}) });
+    removal.mutate({
+      runId,
+      ...(includeChanged ? { includeChanged: true } : {}),
+      ...(sweep ? { sweep: true } : {}),
+    });
     setConfirming(false);
   };
   const result = removal.data?.result;
@@ -215,6 +295,17 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId }) => {
           />
           {t('sync.removal.includeChanged')}
         </label>
+        {/* Never ticked unasked: a sweep deletes records the run did not write. */}
+        <label className="flex items-center gap-2 mt-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={sweep}
+            onChange={(e) => setSweep(e.target.checked)}
+            data-testid="seed-removal-sweep-toggle"
+          />
+          {t('forge.history.removeSweep')}
+        </label>
+        {sweep && confirming && <SeedRemovalSweep runId={runId} org={org} />}
       </DangerConfirm>
     </section>
   );

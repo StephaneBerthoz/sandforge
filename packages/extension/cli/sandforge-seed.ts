@@ -36,6 +36,8 @@ import { randomInt } from 'node:crypto';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import type {
+  ForgeSweepResult,
+  ForgeTargetAutomation,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   SeedRelation,
@@ -82,6 +84,9 @@ import { FakerFallback } from '../src/modules/seed/FakerFallback.js';
 import { AIDataGenerator } from '../src/modules/seed/AIDataGenerator.js';
 import { readExistingParentIds } from '../src/modules/seed/existingParents.js';
 import { seedRunKept } from '../src/modules/seed/SeedRunCreations.js';
+import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
+import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
+import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
 
 /** The locales the faker draws in. */
 const SUPPORTED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
@@ -132,7 +137,8 @@ written again without that field, and the summary says which, and why.
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
-    --remove <summary.json> --target <alias> [--include-changed] [--json]
+    --remove <summary.json> --target <alias> [--include-changed] [--sweep | --sweep-list]
+    [--json]
 
   --remove <file>        the summary a run printed with --json, saved to a
                          file. Deletes from the org the records the run
@@ -142,6 +148,20 @@ Remove what a run created:
                          sandbox or a Developer Edition org.
   --include-changed      remove also the records changed since the run, which
                          are kept otherwise
+  --sweep                before the run's records go, delete too what the
+                         target's automation created during the run, as the
+                         run's user, that the run did not write: in the objects
+                         the run wrote, tasks, events, feed, email messages,
+                         notes, case comments, and the objects the target's
+                         flows create. The window is the run's inserts, read
+                         back from its records, from a second before the first
+                         to a minute after the last. Refused when that user
+                         created records in the window on objects neither the
+                         run nor the automation reaches (hand work, likely).
+                         Records someone changed since stay, unless
+                         --include-changed                 (default: off)
+  --sweep-list           list what --sweep would delete, per object with a few
+                         names, and delete nothing, the run's records included
   --json                 print the removal as JSON
 
   What the removal left on the run's records is kept beside the summary, in
@@ -965,6 +985,10 @@ export interface RemoveArgs {
   target: string;
   /** Remove also the records changed since the run. */
   includeChanged: boolean;
+  /** Sweep first what the target's automation created during the run. */
+  sweep: boolean;
+  /** List what a sweep would delete, and delete nothing. */
+  sweepList: boolean;
   /** Print the removal as JSON on stdout, every other line on stderr. */
   json: boolean;
 }
@@ -974,6 +998,8 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--remove',
   '--target',
   '--include-changed',
+  '--sweep',
+  '--sweep-list',
   '--json',
 ]);
 const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target']);
@@ -989,7 +1015,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed and --json, not "${arg}". Run with --help.\n`,
+        `--remove takes --target, --include-changed, --sweep, --sweep-list and --json, ` +
+          `not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -1007,10 +1034,18 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     );
     process.exit(2);
   }
+  if (args.includes('--sweep') && args.includes('--sweep-list')) {
+    process.stderr.write(
+      '--sweep deletes and --sweep-list only lists: give one of them. Run with --help.\n',
+    );
+    process.exit(2);
+  }
   return {
     summaryPath,
     target,
     includeChanged: args.includes('--include-changed'),
+    sweep: args.includes('--sweep'),
+    sweepList: args.includes('--sweep-list'),
     json: args.includes('--json'),
   };
 }
@@ -1177,7 +1212,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   const run = runOfSummary(summary, earlier);
 
-  const output = (status: ForgeUndoStatus, objects: ForgeUndoObjectResult[], planned: number) => {
+  const output = (
+    status: ForgeUndoStatus,
+    objects: ForgeUndoObjectResult[],
+    planned: number,
+    sweep?: ForgeSweepResult,
+  ) => {
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -1187,7 +1227,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             summary: args.summaryPath,
             target: args.target,
             includeChanged: args.includeChanged,
-            result: { status, planned, objects },
+            result: { status, planned, objects, ...(sweep ? { sweep } : {}) },
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -1196,12 +1236,15 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
       return;
     }
+    // The sweep ran first, before the run's records went.
+    for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
     say(`\ndone in ${Date.now() - t0}ms`);
   };
 
   const plan = syncRemovalPlan(run);
-  if (plan.length === 0) {
+  // A sweep, or its listing, still has the run's window to look in.
+  if (plan.length === 0 && !args.sweep && !args.sweepList) {
     say(
       earlier?.undo
         ? `what the run created was removed already, on ${earlier.undo.removedAt}`
@@ -1213,7 +1256,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 
   const conn = makeConn(await loadOrg(args.target));
   const org = await typeTarget(conn);
-  const refusal = removalRefusal(args.target, org, 'sandforge-seed');
+  // A listing deletes nothing; a removal and a sweep delete, and are refused
+  // before either reads anything outside a sandbox or a Developer Edition.
+  const refusal = args.sweepList ? undefined : removalRefusal(args.target, org, 'sandforge-seed');
   if (refusal) {
     process.stderr.write(`${refusal}\n`);
     process.exit(1);
@@ -1228,20 +1273,101 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(1);
   }
+  /** What a sweep is told: the run's records read back for its window, and what the target's flows create. */
+  const sweepInput = async (signal?: AbortSignal) => {
+    let automation: ForgeTargetAutomation | { error: string };
+    try {
+      automation = await targetAutomationReader(conn).read(
+        args.target,
+        run.created.map((object) => object.objectApiName),
+      );
+    } catch (err: unknown) {
+      automation = { error: err instanceof Error ? err.message : String(err) };
+    }
+    return seedSweepInput(
+      removalOrg(conn, 'sandforge-seed --sweep'),
+      run.created,
+      automation,
+      signal,
+    );
+  };
+
+  if (args.sweepList) {
+    // What a sweep would delete, read and said; nothing is deleted, the
+    // run's own records included.
+    const listing = await listSweep(
+      removalOrg(conn, 'sandforge-seed --sweep-list'),
+      await sweepInput(),
+    );
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            tool: 'sandforge-seed',
+            action: 'sweep-list',
+            summary: args.summaryPath,
+            target: args.target,
+            listing,
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      for (const line of sweepListingLines(listing, args.target)) say(line);
+      say(`\ndone in ${Date.now() - t0}ms`);
+    }
+    return;
+  }
+
   say(`sandforge-seed --remove  ${args.summaryPath}  from ${args.target}`);
   for (const { objectApiName, ids } of plan) say(`  ${objectApiName}: ${ids.length} to remove`);
+  if (plan.length === 0) say('nothing left of the run to remove');
+  if (args.sweep) {
+    say(
+      "before them, a sweep deletes what the target's automation created during the run, as " +
+        "the run's user — run with --sweep-list to see what",
+    );
+  }
 
   // Ctrl-C stops the removal before its next call to the org.
   const stop = new AbortController();
   const interrupt = (): void => stop.abort();
   process.once('SIGINT', interrupt);
   let state: SyncRunRemovalState = earlier ?? {};
+  // The sweep comes before the run's records go, as the panel's does: a task
+  // the target's automation opened on one of them would otherwise stay. The
+  // removal makes it once it has read the run's records.
+  const sweepMade: { result?: ForgeSweepResult } = {};
+  const sweepFirst = args.sweep
+    ? async (): Promise<boolean> => {
+        sweepMade.result = await sweepRunRecords(
+          removalOrg(conn, 'sandforge-seed --sweep'),
+          await sweepInput(stop.signal),
+          {
+            includeChanged: args.includeChanged,
+            // What the earlier removals of the run changed while they ran is no
+            // change since the run.
+            removalSpans: state.removalSpans ?? [],
+            // What it found, said before the first delete: --sweep asked for it.
+            approve: async (listing) => {
+              say('');
+              for (const line of sweepListingLines(listing, args.target)) say(line);
+              return undefined;
+            },
+          },
+        );
+        return sweepMade.result.objects.some((object) => object.deleted > 0);
+      }
+    : undefined;
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
   try {
     outcome = await removeSyncRun({
       run,
       org: removalOrg(conn, 'sandforge-seed --remove'),
       includeChanged: args.includeChanged,
+      ...(sweepFirst ? { sweep: sweepFirst } : {}),
       signal: stop.signal,
       store: {
         // Kept beside the summary whatever the removal ended on, written
@@ -1261,8 +1387,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.off('SIGINT', interrupt);
   }
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
-  output(outcome.result.status, outcome.result.objects, outcome.planned);
-  if (outcome.result.status !== 'success') process.exit(RECORDS_LEFT_EXIT);
+  const sweep = sweepMade.result;
+  output(outcome.result.status, outcome.result.objects, outcome.planned, sweep);
+  if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
+    process.exit(RECORDS_LEFT_EXIT);
+  }
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

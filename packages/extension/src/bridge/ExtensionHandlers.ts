@@ -42,7 +42,7 @@ import { SyncOpsHandler, syncGuardRequest } from './handlers/SyncOpsHandler.js';
 import { SyncHistoryHandler } from './handlers/SyncHistoryHandler.js';
 import { SyncRemovalHandler } from './handlers/SyncRemovalHandler.js';
 import { SeedRemovalHandler } from './handlers/SeedRemovalHandler.js';
-import { SeedRunCreations } from '../modules/seed/SeedRunCreations.js';
+import type { SeedRunCreations } from '../modules/seed/SeedRunCreations.js';
 import type { SyncRunCreations } from '../modules/sync/SyncRunCreations.js';
 import { SyncHistoryStore } from '../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../modules/sync/SyncExecutionLogger.js';
@@ -207,12 +207,7 @@ export class ExtensionHandlers {
     this.settingsHandler = new SettingsHandler(this.handlerDeps);
     this.monitorHandler = new MonitorOpsHandler(this.handlerDeps);
     this.seedHandler = new SeedOpsHandler(this.handlerDeps);
-    // What each Seed run of the window created, kept whole for its removal
-    // from the run's results: the results carry a thousand ids an object.
-    const seedRuns = new SeedRunCreations();
-    this.seedHandler.setRunCreations(seedRuns);
     this.seedRemovalHandler = new SeedRemovalHandler(this.handlerDeps);
-    this.seedRemovalHandler.setRunCreations(seedRuns);
     this.seedCloneHandler = new SeedCloneHandler(this.handlerDeps);
     this.seedCsvHandler = new SeedCsvHandler(this.handlerDeps);
     this.syncHandler = new SyncOpsHandler(this.handlerDeps);
@@ -375,6 +370,16 @@ export class ExtensionHandlers {
   setSyncRunCreations(store: SyncRunCreations): void {
     this.syncHandler.setRunCreations(store);
     this.syncRemovalHandler.setRunCreations(store);
+  }
+
+  /**
+   * Inject the file-backed store of what each Seed run created, kept whole
+   * for its removal from the run's results or the list of earlier seeds — the
+   * results carry a thousand ids an object — in this window and after a reload.
+   */
+  setSeedRunCreations(store: SeedRunCreations): void {
+    this.seedHandler.setRunCreations(store);
+    this.seedRemovalHandler.setRunCreations(store);
   }
 
   /** Inject the AI assistant service, or `undefined` to take it away. */
@@ -564,6 +569,7 @@ export class ExtensionHandlers {
     if (services?.targetAutomation) {
       this.frozenHandler.setTargetAutomation(services.targetAutomation);
       this.autopilotHandler.setTargetAutomation(services.targetAutomation);
+      this.seedRemovalHandler.setTargetAutomation(services.targetAutomation);
     }
   }
 
@@ -665,7 +671,10 @@ export class ExtensionHandlers {
 
     // What a Sync run created, and its removal
     route(['sync:removal:info', 'sync:removal:list', 'sync:remove'], this.syncRemovalHandler);
-    route(['seed:removal:info', 'seed:remove'], this.seedRemovalHandler);
+    route(
+      ['seed:removal:info', 'seed:removal:list', 'seed:remove', 'seed:remove:sweep'],
+      this.seedRemovalHandler,
+    );
 
     // Sync schedules (CRUD backed by SyncScheduleExecutor + SyncScheduleStore)
     route(

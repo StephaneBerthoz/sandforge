@@ -557,6 +557,14 @@
     "configureFields": "Felder konfigurieren",
     "configureFieldsDesc": "Definieren Sie Generierungsregeln für jedes Feld",
     "configureRelations": "Beziehungen konfigurieren",
+    "recordTypes": {
+      "title": "Datensatztypen",
+      "help": "Ohne Auswahl erhalten die Datensätze Ihren Standard-Datensatztyp. Mehrere gewählte Typen wechseln sich zufällig ab.",
+      "person": "Personenaccount",
+      "yourDefault": "Ihr Standard",
+      "mixed": "{{object}}: Ein Personenaccount-Datensatztyp und ein Geschäftsaccount-Typ nehmen unterschiedliche Felder — wählen Sie eine Art.",
+      "personNote": "{{object}}-Datensätze werden als Personenaccounts geschrieben: Vor- und Nachname, E-Mail und Telefonnummern der Person, und kein Name, den die Org aus den beiden Namen bildet."
+    },
     "relations": {
       "help": "Eine Beziehung füllt ein Lookup-Feld eines untergeordneten Objekts mit den Datensätzen eines übergeordneten Objekts und legt fest, wie viele untergeordnete Datensätze angelegt werden – anstelle der Anzahl, die im ersten Schritt für das untergeordnete Objekt gesetzt wurde. Ohne Beziehung erhält ein Lookup auf ein Objekt dieses Laufs einen seiner Datensätze nach Zufall.",
       "add": "Beziehung hinzufügen",
@@ -884,7 +892,18 @@
       "created_one": "{{formatted}} Datensatz in {{org}} erstellt",
       "created_other": "{{formatted}} Datensätze in {{org}} erstellt",
       "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Seed eingefügt hat, das zuletzt geschriebene Objekt zuerst, die untergeordneten Datensätze vor ihren übergeordneten; sie kommen in den Papierkorb. Ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen, wird behalten, ebenso ein seit dem Seed geänderter Datensatz oder einer, von dem seither hinzugefügte Datensätze abhängen, es sei denn, Sie schließen ihn unten ein.",
-      "notKept": "Was dieser Seed erstellt hat, wird in diesem Fenster nicht aufbewahrt — er lief, bevor das Fenster zuletzt geöffnet wurde, oder wurde für neuere Seeds verworfen — und kann von hier aus nicht entfernt werden."
+      "notKept": "Was dieser Seed erstellt hat, wird nicht mehr aufbewahrt — er wurde für neuere Seeds verworfen oder lief, bevor Seeds auf dem Datenträger aufbewahrt wurden — und kann von hier aus nicht entfernt werden.",
+      "historyTitle": "Frühere Seeds",
+      "historyNote": "Die Seeds, die diese Erweiterung aufbewahrt hat, die neuesten zuerst: Seeds, deren Datensätze noch in ihrer Org sind, können entfernt werden, auch nachdem das Fenster neu geladen wurde.",
+      "historyRun_one": "{{date}} · {{org}} · {{formatted}} Datensatz erstellt",
+      "historyRun_other": "{{date}} · {{org}} · {{formatted}} Datensätze erstellt",
+      "historyRemovable": "kann entfernt werden",
+      "historyRemoved": "entfernt am {{date}}",
+      "historyPartlyRemoved": "teilweise entfernt am {{date}}: der Rest kann entfernt werden",
+      "historyNothingLeft": "nichts mehr zu entfernen",
+      "historyRefused": "kann von hier aus nicht entfernt werden",
+      "historyShow": "Anzeigen",
+      "historyHide": "Ausblenden"
     }
   },
   "sync": {

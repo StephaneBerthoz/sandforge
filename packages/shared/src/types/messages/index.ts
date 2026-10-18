@@ -69,10 +69,15 @@ import type {
 import type {
   SeedExecuteRequest,
   SeedRemovalInfoRequest,
+  SeedRemovalListRequest,
   SeedRemoveRequest,
+  SeedRemoveSweepRequest,
   SeedRemovalInfoResponse,
+  SeedRemovalListResponse,
   SeedRemoveResponse,
   SeedRemoveErrorResponse,
+  SeedRemoveSweepResponse,
+  SeedRemoveSweepErrorResponse,
   SeedDescribeGlobalRequest,
   SeedDescribeObjectRequest,
   SeedTemplateSaveRequest,
@@ -525,7 +530,9 @@ export type WebViewToExtensionMessage =
   // Seed
   | SeedExecuteRequest
   | SeedRemovalInfoRequest
+  | SeedRemovalListRequest
   | SeedRemoveRequest
+  | SeedRemoveSweepRequest
   | SeedDescribeGlobalRequest
   | SeedDescribeObjectRequest
   | SeedTemplateSaveRequest
@@ -756,8 +763,11 @@ export type ExtensionToWebViewMessage =
   | SeedDescribeObjectResponse
   | SeedErrorResponse
   | SeedRemovalInfoResponse
+  | SeedRemovalListResponse
   | SeedRemoveResponse
   | SeedRemoveErrorResponse
+  | SeedRemoveSweepResponse
+  | SeedRemoveSweepErrorResponse
   // Sync
   | SyncConfigSaveResponse
   | SyncConfigLoadResponse

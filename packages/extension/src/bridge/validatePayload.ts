@@ -448,7 +448,11 @@ export const seedRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });
 export const seedRemovePayloadSchema = z.object({
   runId: opaqueIdSchema,
   includeChanged: z.boolean().optional(),
+  // Sweep too what the target's automation created during the run, as its user.
+  sweep: z.boolean().optional(),
 });
+// What a sweep asked with a run's removal would take: the run, named as for its removal.
+export const seedRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
 export const syncHistoryExportPayloadSchema = z.object({
   format: z.enum(['csv', 'json']),
   entryIds: z.array(opaqueIdSchema).max(500).optional(),

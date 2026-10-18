@@ -486,4 +486,58 @@ describe('useSeedExecution', () => {
     const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
     expect(result.current.lastTemplate).toEqual(payload.template);
   });
+
+  it('gives an object the record types chosen, in place of the lookup the describe gave it', () => {
+    const PERSON_TYPE = '012000000000001AAA';
+    const accounts: ObjectFieldConfig[] = [
+      {
+        objectApiName: 'Account',
+        objectLabel: 'Account',
+        fields: [
+          {
+            fieldApiName: 'LastName',
+            label: 'Last Name',
+            type: 'string',
+            required: false,
+            ruleType: 'faker',
+            config: { fakerMethod: 'lastName' },
+          },
+          {
+            fieldApiName: 'RecordTypeId',
+            label: 'Record Type ID',
+            type: 'reference',
+            required: true,
+            ruleType: 'reference',
+            config: { referenceObject: 'RecordType', referenceField: 'Id' },
+          },
+        ],
+      },
+    ];
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Account'],
+        { Account: { count: 5, batchSize: 200 } },
+        accounts,
+        ((key: string) => key) as unknown as TFunction,
+        [],
+        { Account: [PERSON_TYPE] },
+      ),
+    );
+
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
+    expect(payload.template.objects[0].fieldRules).toEqual([
+      expect.objectContaining({ fieldApiName: 'LastName' }),
+      {
+        fieldApiName: 'RecordTypeId',
+        fieldType: 'reference',
+        ruleType: 'static',
+        config: { staticValue: PERSON_TYPE },
+      },
+    ]);
+  });
 });

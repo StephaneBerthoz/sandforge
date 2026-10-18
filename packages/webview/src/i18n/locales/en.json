@@ -557,6 +557,14 @@
     "configureFields": "Configure Fields",
     "configureFieldsDesc": "Define generation rules for each field",
     "configureRelations": "Configure Relations",
+    "recordTypes": {
+      "title": "Record types",
+      "help": "Without a choice, the records take your default record type. Several chosen take turns at random.",
+      "person": "person account",
+      "yourDefault": "your default",
+      "mixed": "{{object}}: a person account record type and a business one take different fields — choose one kind.",
+      "personNote": "{{object}} records are written as person accounts: a first and last name, the person’s email and phones, and no Name, which the org builds from the two names."
+    },
     "relations": {
       "help": "A relation fills a lookup of a child object from a parent object's records and decides how many child records are created, in place of the count set for the child on the first step. Without one, a lookup to an object of this run takes one of its records at random.",
       "add": "Add relation",
@@ -884,7 +892,18 @@
       "created_one": "{{formatted}} record created in {{org}}",
       "created_other": "{{formatted}} records created in {{org}}",
       "removeDescription": "Deletes from {{org}} the records this seed inserted, the last object written first, children before their parents; they go to its recycle bin. A record that records staying in {{org}} depend on is kept, and so is a record changed since the seed, or one that records added since depend on, unless you include it below.",
-      "notKept": "What this seed created is not kept in this window — it ran before the window was last opened, or was dropped to make room for newer seeds — and cannot be removed from here."
+      "notKept": "What this seed created is no longer kept — it was dropped to make room for newer seeds, or ran before seeds were kept on disk — and cannot be removed from here.",
+      "historyTitle": "Earlier seeds",
+      "historyNote": "The seeds this extension kept, newest first: those whose records are still in their org can be removed, also after the window was reloaded.",
+      "historyRun_one": "{{date}} · {{org}} · {{formatted}} record created",
+      "historyRun_other": "{{date}} · {{org}} · {{formatted}} records created",
+      "historyRemovable": "can be removed",
+      "historyRemoved": "removed on {{date}}",
+      "historyPartlyRemoved": "partly removed on {{date}}: what is left can be removed",
+      "historyNothingLeft": "nothing left to remove",
+      "historyRefused": "cannot be removed from here",
+      "historyShow": "Show",
+      "historyHide": "Hide"
     }
   },
   "sync": {

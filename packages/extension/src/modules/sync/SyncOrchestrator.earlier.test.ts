@@ -103,7 +103,13 @@ function targetOrg() {
       held.set(id, { ...record, object });
       return { id, success: true, errors: [], created: true };
     });
-  return { held, upsert };
+  /** A delete of records the target holds; one it does not hold is refused. */
+  const remove = async (ids: string[]): Promise<OperationOutcome[]> =>
+    ids.map((id) => {
+      if (!held.delete(id)) return { success: false, errors: ['ENTITY_IS_DELETED'] };
+      return { id, success: true, errors: [] };
+    });
+  return { held, upsert, remove };
 }
 
 function upsertOf(objectApiName: string, externalIdField: string): SyncObjectConfig {
@@ -189,6 +195,7 @@ describe('SyncOrchestrator — the records earlier runs of a saved configuration
     target: ReturnType<typeof targetOrg>,
     store: SyncDeltaStore,
     creations?: SyncCreationRecorder,
+    reads: SyncDeltaReads = DELTA_READS,
   ): SyncOrchestrator {
     const unused = async (): Promise<OperationOutcome[]> => [];
     const describeTargetFields = async (object: string) => DESCRIBES[object];
@@ -197,7 +204,7 @@ describe('SyncOrchestrator — the records earlier runs of a saved configuration
         insert: unused,
         update: unused,
         upsert: (object, key, records) => target.upsert(object, key, records),
-        delete: unused,
+        delete: (_object, ids) => target.remove(ids),
         describeTargetFields,
       }),
       conflictResolver: new ConflictResolver(),
@@ -208,7 +215,7 @@ describe('SyncOrchestrator — the records earlier runs of a saved configuration
       findInTarget: async () => new Map(),
       describeTargetFields,
       deltaStore: store,
-      deltaReads: DELTA_READS,
+      deltaReads: reads,
       idMap: savedConfigIdMap(map, () => true),
       ...(creations ? { creations } : {}),
     });
@@ -264,6 +271,47 @@ describe('SyncOrchestrator — the records earlier runs of a saved configuration
     expect([...left.keys()].sort()).toEqual(
       SOURCE.Contact.map((c) => String(c.Id).slice(0, 15)).sort(),
     );
+  });
+
+  it('forgets an account a delta run deleted as the source had, so a later lookup at it is not sent to a copy that is gone', async () => {
+    const target = targetOrg();
+    const store = deltaStore();
+    const first = recorder('run-1');
+    await orchestrator(target, store, first).execute(CONFIG);
+    const [acme, globex] = first.created.get('Account') ?? [];
+    expect((await map.load(CONFIG.id, CONFIG)).size).toBe(2);
+
+    // The source deleted Acme: the delta run deletes its copy in the target.
+    const deletedAcme: SyncDeltaReads = {
+      ...DELTA_READS,
+      deletedRows: async () => ({
+        records: [{ Id: fakeId('001', 1), Ext_Id__c: 'A-1', SystemModstamp: minutesAgo(1) }],
+        truncated: false,
+      }),
+      // By the key as the run compares it: in lower case.
+      targetIdsByKey: async (_object, _field, keys) =>
+        new Map(keys.filter((key) => key === 'A-1').map(() => ['a-1', [acme]])),
+    };
+    const second = await orchestrator(target, store, undefined, deletedAcme).execute({
+      ...CONFIG,
+      propagateDeletes: true,
+    });
+    expect(second.objectResults[0]?.delta).toMatchObject({ deleted: 1, deleteFailed: 0 });
+    expect(target.held.has(acme)).toBe(false);
+    const left = await map.load(CONFIG.id, CONFIG);
+    expect([...left.values()]).toEqual([globex]);
+
+    // A contact still naming Acme in the source goes without its account,
+    // said, rather than refused for a lookup at the deleted copy.
+    const third = await orchestrator(target, store).execute({
+      ...CONFIG,
+      objects: [upsertOf('Contact', 'Email')],
+    });
+    expect(third.objectResults[0]).toMatchObject({ success: 2, failed: 0 });
+    const contacts = [...target.held.values()].filter((r) => r.object === 'Contact');
+    expect(
+      Object.fromEntries(contacts.map((c) => [String(c.LastName), c.AccountId ?? null])),
+    ).toEqual({ Roe: null, Doe: globex });
   });
 
   it('holds back in a simulation no contact under an account an earlier run wrote, and adds no pair', async () => {

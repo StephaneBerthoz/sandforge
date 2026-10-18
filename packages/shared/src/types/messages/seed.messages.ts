@@ -7,10 +7,12 @@ import type {
   CsvColumnMapping,
   CsvValidationResult,
   SeedExecutionResult,
+  SeedRecordTypeOption,
   SeedRemovalResult,
   SeedRunRemovalInfo,
 } from '../seed.types.js';
 import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
+import type { ForgeSweepListing } from '../forge.types.js';
 
 /**
  * Seed messages.
@@ -86,6 +88,11 @@ export interface SeedDescribeObjectResponse extends BaseMessage {
       /** The object described, which decides whose name a name field holds. */
       objectApiName: string;
     }>;
+    /**
+     * The record types the target offers the running user on the object,
+     * person account types marked: what the panel lets a seed choose from.
+     */
+    recordTypes?: SeedRecordTypeOption[];
   };
 }
 
@@ -118,6 +125,22 @@ export interface SeedRemovalInfoResponse extends BaseMessage {
 }
 
 /**
+ * `seed:removal:list`. WebView -> Extension. The Seed runs kept, newest first,
+ * each with what a removal of it would take and whether one can run: the
+ * runs of earlier windows too, read from the extension's storage.
+ */
+export interface SeedRemovalListRequest extends BaseMessage {
+  type: 'seed:removal:list';
+  payload: Record<string, never>;
+}
+
+/** `seed:removal:list:response`. Extension -> WebView. */
+export interface SeedRemovalListResponse extends BaseMessage {
+  type: 'seed:removal:list:response';
+  payload: { runs: SeedRunRemovalInfo[] };
+}
+
+/**
  * `seed:remove`. WebView -> Extension. Remove from its org what a run
  * created, as the run kept it — the request names the run, never records.
  */
@@ -127,7 +150,33 @@ export interface SeedRemoveRequest extends BaseMessage {
     runId: string;
     /** Remove the records modified since the run too, and what was added to them since. */
     includeChanged?: boolean;
+    /**
+     * Sweep first what the target's automation created during the run, as
+     * its user, that the run did not write.
+     */
+    sweep?: boolean;
   };
+}
+
+/**
+ * `seed:remove:sweep`. WebView -> Extension. What a sweep asked with the
+ * removal of a run would take, read only, for the confirmation to list.
+ */
+export interface SeedRemoveSweepRequest extends BaseMessage {
+  type: 'seed:remove:sweep';
+  payload: { runId: string };
+}
+
+/** `seed:remove:sweep:response`. Extension -> WebView. */
+export interface SeedRemoveSweepResponse extends BaseMessage {
+  type: 'seed:remove:sweep:response';
+  payload: { runId: string; listing: ForgeSweepListing };
+}
+
+/** `seed:remove:sweep:error`. Extension -> WebView. The read of what a sweep would take failed. */
+export interface SeedRemoveSweepErrorResponse extends BaseMessage {
+  type: 'seed:remove:sweep:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** `seed:remove:response`. Extension -> WebView. Also when the removal was cancelled part way. */

@@ -26,6 +26,9 @@ vi.mock('./SeedExecuteStep', () => ({
   SeedExecuteStep: () => <div data-testid="seed-step-execute-content" />,
 }));
 
+/* The list of earlier seeds asks the extension on its own: covered elsewhere. */
+vi.mock('./SeedRunHistory', () => ({ SeedRunHistory: () => null }));
+
 vi.mock('./useQuickSeed', () => ({
   useQuickSeed: () => ({
     phase: 'idle',

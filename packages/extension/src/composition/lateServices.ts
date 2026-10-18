@@ -6,6 +6,7 @@ import type { PipelineMarketplace } from '../modules/automation/PipelineMarketpl
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker';
 import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
 import type { SyncRunCreations } from '../modules/sync/SyncRunCreations.js';
+import type { SeedRunCreations } from '../modules/seed/SeedRunCreations.js';
 
 /**
  * LateServices — the dependencies injected into `ExtensionHandlers` through
@@ -61,6 +62,11 @@ export interface LateServices {
    * the run can be taken back: out of globalState for the same reason.
    */
   syncRunCreations?: SyncRunCreations;
+  /**
+   * File-backed store of what each Seed run created, kept whole so the run can
+   * be taken back after the window that ran it was reloaded.
+   */
+  seedRunCreations?: SeedRunCreations;
 }
 
 /**
@@ -79,4 +85,5 @@ export function applyLateServices(handlers: ExtensionHandlers, late: LateService
   handlers.setLiveOperationTracker(late.liveOperationTracker);
   handlers.setBackupRecordStore(late.backupRecordStore);
   if (late.syncRunCreations) handlers.setSyncRunCreations(late.syncRunCreations);
+  if (late.seedRunCreations) handlers.setSeedRunCreations(late.seedRunCreations);
 }

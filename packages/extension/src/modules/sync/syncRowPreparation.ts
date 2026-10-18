@@ -75,12 +75,27 @@ function idKey(id: string): string {
 export class SyncRunLinks {
   private readonly written = new Map<string, string>();
   private readonly refused = new Map<string, string>();
+  /** Copies in the target the run deleted, by the first fifteen characters of their id. */
+  private readonly deleted = new Set<string>();
 
   /**
    * @param earlier - What earlier runs of the configuration wrote, by the
    *   first fifteen characters of each source id; none for a run on its own.
    */
   constructor(private readonly earlier: ReadonlyMap<string, string> = new Map()) {}
+
+  /**
+   * Records of the target the run deleted, as the source had deleted theirs:
+   * a lookup no longer names one of them, which the target would refuse.
+   */
+  noteDeleted(targetIds: readonly string[]): void {
+    for (const id of targetIds) this.deleted.add(idKey(id));
+  }
+
+  /** The copy of a source record, unless the run deleted it. */
+  private standing(copy: string | undefined): string | undefined {
+    return copy !== undefined && this.deleted.has(idKey(copy)) ? undefined : copy;
+  }
 
   /** A source record the run wrote, and the id of its copy in the target. */
   noteWritten(sourceId: string, targetId: string): void {
@@ -99,7 +114,10 @@ export class SyncRunLinks {
    * earlier run of the configuration wrote, if either did.
    */
   targetOf(sourceId: string): string | undefined {
-    return this.written.get(idKey(sourceId)) ?? this.earlier.get(idKey(sourceId));
+    return (
+      this.standing(this.written.get(idKey(sourceId))) ??
+      this.standing(this.earlier.get(idKey(sourceId)))
+    );
   }
 
   /**
@@ -107,7 +125,7 @@ export class SyncRunLinks {
    * earlier run's copy of it stands in for it.
    */
   refusedObjectOf(sourceId: string): string | undefined {
-    if (this.earlier.has(idKey(sourceId))) return undefined;
+    if (this.standing(this.earlier.get(idKey(sourceId))) !== undefined) return undefined;
     return this.refused.get(idKey(sourceId));
   }
 }

@@ -695,6 +695,127 @@ test.describe('Seed — a run taken back from its results', () => {
   });
 });
 
+/** Account's record types as the extension reads them from the target, the person account's marked. */
+const ACCOUNT_RECORD_TYPES = [
+  {
+    recordTypeId: '012000000000001AAA',
+    developerName: 'PersonAccount',
+    label: 'Person Account',
+    person: true,
+    isDefault: false,
+  },
+  {
+    recordTypeId: '012000000000002AAA',
+    developerName: 'Customer',
+    label: 'Customer',
+    person: false,
+    isDefault: true,
+  },
+];
+
+test.describe('Seed — the record types of the accounts a run writes', () => {
+  test('writes person accounts for the person account type, and waits on a mix of kinds', async ({
+    page,
+  }) => {
+    // Person accounts could be seeded from the command line only
+    // (--record-type): the panel offered no record type.
+    const bridge = await pickThreeObjectsAndMoveOn(page);
+    const answered = new Set<string>();
+    await expect
+      .poll(
+        async () => {
+          for (const request of await outgoing(page, 'seed:describe-object')) {
+            const id = String(request.id);
+            if (answered.has(id)) continue;
+            answered.add(id);
+            const objectApiName = String(
+              (request.payload as Record<string, unknown>).objectApiName,
+            );
+            await sendExtensionMessage(page, {
+              type: 'seed:describe-object:response',
+              id: `resp-${id}`,
+              correlationId: id,
+              payload: {
+                objectApiName,
+                objectLabel: objectApiName,
+                fields: SEED_DESCRIBES[objectApiName],
+                ...(objectApiName === 'Account' ? { recordTypes: ACCOUNT_RECORD_TYPES } : {}),
+              },
+            });
+          }
+          return page.getByTestId('seed-fields-status').textContent();
+        },
+        { timeout: 10_000 },
+      )
+      .toBe('Using default field rules.');
+
+    const picker = page.getByTestId('seed-record-types-Account');
+    await expect(picker).toContainText('person account');
+    await expect(picker).toContainText('your default');
+    await expect(page.getByTestId('seed-record-types-Contact')).toHaveCount(0);
+
+    await page.getByTestId('seed-record-type-Account-PersonAccount').check();
+    await page.getByTestId('seed-record-type-Account-Customer').check();
+    await expect(page.getByRole('alert')).toContainText('take different fields');
+    await expect(page.getByTestId('seed-wizard-next')).toBeDisabled();
+
+    await page.getByTestId('seed-record-type-Account-Customer').uncheck();
+    await expect(page.getByTestId('seed-record-types-person-Account')).toContainText('no Name');
+    await page.getByTestId('seed-wizard-next').click();
+    await page.getByTestId('seed-wizard-finish').click();
+
+    const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+    const account = (
+      request.payload as {
+        template: { objects: Array<{ objectApiName: string; fieldRules: unknown[] }> };
+      }
+    ).template.objects.find((o) => o.objectApiName === 'Account');
+    expect(account?.fieldRules).toContainEqual({
+      fieldApiName: 'RecordTypeId',
+      fieldType: 'reference',
+      ruleType: 'static',
+      config: { staticValue: '012000000000001AAA' },
+    });
+  });
+});
+
+test.describe('Seed — earlier seeds, removable after a reload', () => {
+  test('lists the seeds kept and opens one onto its removal', async ({ page }) => {
+    // What a seed from the panel created was kept for the window's life:
+    // once it was reloaded, nothing led back to the run.
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs(MOCK_ORGS);
+    await bridge.waitForMessage('seed:removal:list', { timeout: 10_000 });
+    await respondToAll(page, 'seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        {
+          runId: 'op-earlier',
+          targetOrgId: 'org-src-1',
+          startedAt: '2026-10-17T08:00:00.000Z',
+          endedAt: '2026-10-17T08:01:00.000Z',
+          created: 3,
+          left: [{ objectApiName: 'Account', count: 3 }],
+        },
+      ],
+    });
+
+    await expect(page.getByTestId('seed-run-history-op-earlier')).toContainText(
+      'DevSandbox · 3 records created',
+    );
+    await expect(page.getByTestId('seed-run-history-state-op-earlier')).toHaveText(
+      'can be removed',
+    );
+    await page.getByTestId('seed-run-history-toggle-op-earlier').click();
+    const asked = await bridge.waitForMessage('seed:removal:info', { timeout: 10_000 });
+    expect(asked.payload).toEqual({ runId: 'op-earlier' });
+  });
+});
+
 /** Both sandboxes, neither connected: no org is selected, so a clone has no target. */
 const NONE_SELECTED = MOCK_ORGS.map((org) => ({ ...org, status: 'expired' }));
 

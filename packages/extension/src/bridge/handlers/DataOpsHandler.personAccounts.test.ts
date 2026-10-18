@@ -377,3 +377,238 @@ describe('DataOps masking of the accounts of an org with person accounts', () =>
     expect(sent[1]).not.toHaveProperty('Name');
   });
 });
+
+/**
+ * A masking run asked for no object, as the panel's Apply asks it: the
+ * objects come from the template. Run with the CCPA template on an org with
+ * person accounts, whose rules name Contact and Lead, it masked every contact
+ * and left every person account in clear: Account was never planned.
+ */
+describe('DataOps masking asked for no object, on an org with person accounts or without', () => {
+  let deps: HandlerDeps;
+  let handler: DataOpsHandler;
+
+  /** The fields of a contact the CCPA template masks, and its own. */
+  const CONTACT_FIELDS: FakeField[] = [
+    { name: 'Id', label: 'Contact ID', type: 'id', updateable: false },
+    ...(
+      [
+        ['FirstName', 'First Name', 'string'],
+        ['LastName', 'Last Name', 'string'],
+        ['Email', 'Email', 'email'],
+        ['Phone', 'Phone', 'phone'],
+        ['MailingStreet', 'Mailing Street', 'textarea'],
+        ['MailingCity', 'Mailing City', 'string'],
+        ['MailingPostalCode', 'Mailing Zip/Postal Code', 'string'],
+        ['Birthdate', 'Birthdate', 'date'],
+      ] as const
+    ).map(([name, label, type]): FakeField => ({ name, label, type, updateable: true })),
+  ];
+  const LEAD_FIELDS: FakeField[] = [
+    { name: 'Id', label: 'Lead ID', type: 'id', updateable: false },
+    { name: 'Email', label: 'Email', type: 'email', updateable: true },
+    { name: 'Phone', label: 'Phone', type: 'phone', updateable: true },
+  ];
+
+  /**
+   * An org of accounts, contacts and leads, read per object by the fields and
+   * the conditions a statement names, and written as Salesforce writes them.
+   */
+  function orgWith(personAccounts: boolean) {
+    const rows: Record<string, Array<Record<string, unknown>>> = {
+      Account: personAccounts
+        ? accounts()
+        : [{ Id: '001000000000001AAA', Name: 'Birchwood Dental', Phone: '(555) 010-9000' }],
+      Contact: [
+        {
+          Id: '003000000000001AAA',
+          FirstName: 'Wendeline',
+          LastName: 'Ashgrove',
+          Email: 'wendeline@mail.test',
+          Phone: '(555) 010-2020',
+          MailingStreet: '3 Elm Court',
+          MailingCity: 'Portwick',
+          MailingPostalCode: '04101',
+          Birthdate: '1979-11-02',
+        },
+      ],
+      Lead: [{ Id: '00Q000000000001AAA', Email: 'lead@mail.test', Phone: '(555) 010-3030' }],
+    };
+    const accountFields = personAccounts
+      ? DESCRIBED
+      : DESCRIBED.filter((f) => !f.personOnly && f.name !== 'IsPersonAccount');
+    const fieldsOf = (object: string): FakeField[] =>
+      object === 'Account' ? accountFields : object === 'Contact' ? CONTACT_FIELDS : LEAD_FIELDS;
+    const statements: string[] = [];
+    const query = vi.fn(async (soql: string) => {
+      statements.push(soql);
+      if (soql === 'SELECT Id FROM Organization') {
+        return { records: [{ Id: '00D000000000001AAA' }], done: true, totalSize: 1 };
+      }
+      if (soql.includes('IsDeleted = true')) return { records: [], done: true, totalSize: 0 };
+      const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+      const after = /\bId > '(\w+)'/.exec(soql)?.[1];
+      const persons = soql.includes('(IsPersonAccount = true)');
+      const kept = (rows[object] ?? []).filter(
+        (r) =>
+          (after === undefined || String(r.Id) > after) && (!persons || r.IsPersonAccount === true),
+      );
+      if (soql.startsWith('SELECT COUNT() ')) {
+        return { records: [], done: true, totalSize: kept.length };
+      }
+      const fields = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+      const records = kept.map((r) => Object.fromEntries(fields.map((f) => [f, r[f]])));
+      return { records, done: true, totalSize: records.length };
+    });
+    const sent: Array<{ object: string; record: Record<string, unknown> }> = [];
+    const conn = {
+      query,
+      queryMore: vi.fn(),
+      describe: vi.fn(async (object: string) => ({
+        name: object,
+        label: object,
+        createable: true,
+        updateable: true,
+        deletable: true,
+        queryable: true,
+        fields: fieldsOf(object).map((f) => ({
+          ...f,
+          nillable: f.nillable ?? true,
+          createable: f.updateable,
+          permissionable: f.updateable,
+        })),
+        recordTypeInfos: [],
+        childRelationships: [],
+      })),
+      sobject: vi.fn((object: string) => ({
+        update: vi.fn(async (batch: Array<Record<string, unknown>>) =>
+          batch.map((record) => {
+            sent.push({ object, record });
+            const row = rows[object]?.find((r) => r.Id === record.Id);
+            if (!row) return { success: false, errors: [{ message: 'ENTITY_IS_DELETED' }] };
+            const refused = object === 'Account' ? refusal(row, record) : undefined;
+            if (refused) return { success: false, errors: [{ message: refused }] };
+            Object.assign(row, record);
+            return { success: true, id: record.Id };
+          }),
+        ),
+      })),
+      soap: { undelete: vi.fn(async () => []) },
+    };
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    return { rows, sent, statements };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const store = new ConfigStore(new InMemoryConfigStoreBackend());
+    store.initialize();
+    let ids = 0;
+    deps = {
+      log: vi.fn(),
+      broker: { postToWebview: vi.fn() },
+      stateSync: {},
+      orgManager: { getOrg: vi.fn(() => ({ alias: 'ORG', orgType: 'Sandbox' })) },
+      orgRegistry: {},
+      configStore: store,
+      secretVault: {},
+      authProvider: {},
+      sfdxBridge: {},
+      services: { getSandforgeSetting: (_key: string, fallback: unknown) => fallback },
+      infraServices: {
+        productionGuard: new ProductionGuard({ requestConfirmation: async () => false }),
+        backgroundRegistry: new BackgroundOperationRegistry(),
+      },
+      nextId: () => String(++ids),
+    } as unknown as HandlerDeps;
+    handler = new DataOpsHandler(deps);
+    handler.setBackupRecordStore(memoryBackups());
+  });
+
+  async function send(type: string, payload: Record<string, unknown>) {
+    await handler.handle(
+      inboundRequest({ id: `req-${type}`, type, timestamp: Date.now(), payload } as BaseMessage),
+    );
+  }
+
+  function last(type: string): (BaseMessage & { payload: Record<string, unknown> }) | undefined {
+    return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as BaseMessage & { payload: Record<string, unknown> })
+      .filter((m) => m.type === type)
+      .at(-1);
+  }
+
+  it('plans Account with the CCPA template, its person accounts alone counted, previewed and masked', async () => {
+    const { rows, sent, statements } = orgWith(true);
+    const before = accounts();
+    const scope = { orgId: 'org-1', templateId: 'tpl-ccpa-california' };
+
+    await send('dataops:anonymize:coverage', scope);
+    const counted = last('dataops:anonymize:coverage:response')?.payload.objects as Array<{
+      objectApiName: string;
+      count: number | null;
+    }>;
+    expect(counted.map((o) => [o.objectApiName, o.count])).toEqual([
+      ['Contact', 1],
+      ['Lead', 1],
+      ['Account', 1],
+    ]);
+
+    await send('dataops:anonymize:preview', scope);
+    const previewed = last('dataops:anonymize:preview:response')?.payload.objects as Array<{
+      objectApiName: string;
+      rows: Array<{ id: string }>;
+    }>;
+    expect(previewed.find((o) => o.objectApiName === 'Account')?.rows.map((r) => r.id)).toEqual([
+      '001000000000002AAA',
+    ]);
+
+    await send('dataops:anonymize', { ...scope, snapshot: true });
+
+    expect(last('dataops:error')).toBeUndefined();
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+      status: 'success',
+      recordsFailed: 0,
+    });
+    const [business, person] = rows.Account;
+    for (const field of ['FirstName', 'LastName', 'PersonEmail', 'PersonMailingStreet']) {
+      expect(person[field], field).not.toEqual(before[1][field]);
+    }
+    expect(person.PersonBirthdate).toBeNull();
+    expect(rows.Contact[0].Email).not.toBe('wendeline@mail.test');
+    // The business account was neither read nor written: it holds none of it.
+    expect(business).toEqual(before[0]);
+    expect(sent.some((s) => s.record.Id === business.Id)).toBe(false);
+    const accountReads = statements.filter((q) => /\bFROM Account\b/.test(q));
+    expect(accountReads.length).toBeGreaterThan(0);
+    expect(accountReads.every((q) => q.includes('(IsPersonAccount = true)'))).toBe(true);
+  });
+
+  it('leaves Account out with the CCPA template on an org without person accounts', async () => {
+    const { rows, sent } = orgWith(false);
+
+    await send('dataops:anonymize:coverage', { orgId: 'org-1', templateId: 'tpl-ccpa-california' });
+    const counted = last('dataops:anonymize:coverage:response')?.payload.objects as Array<{
+      objectApiName: string;
+    }>;
+    expect(counted.map((o) => o.objectApiName)).toEqual(['Contact', 'Lead']);
+
+    await send('dataops:anonymize', { orgId: 'org-1', templateId: 'tpl-ccpa-california' });
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({ status: 'success' });
+    expect(sent.some((s) => s.object === 'Account')).toBe(false);
+    expect(rows.Account[0]).toMatchObject({ Name: 'Birchwood Dental' });
+  });
+
+  it('counts every account under a template with rules of its own on Account, as before', async () => {
+    orgWith(true);
+
+    await send('dataops:anonymize:coverage', { orgId: 'org-1', templateId: 'tpl-gdpr-standard' });
+    const counted = last('dataops:anonymize:coverage:response')?.payload.objects as Array<{
+      objectApiName: string;
+      count: number | null;
+    }>;
+    expect(counted.filter((o) => o.objectApiName === 'Account')).toEqual([
+      expect.objectContaining({ count: 2 }),
+    ]);
+  });
+});

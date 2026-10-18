@@ -168,7 +168,13 @@ your own:
   person account goes without a rule on `Name`, which the platform computes
   from its first and last names, and an org without person accounts is
   masked as before. A snapshot keeps each account's kind, and a restore
-  writes each back with the fields its kind holds
+  writes each back with the fields its kind holds. A run that names no
+  object -- Apply, or the command line without `--object` -- masks Account's
+  person accounts too, in an org that has them, when the template masks
+  contacts: planned from its rules alone, the CCPA template, whose rules name
+  Contact and Lead, masked every contact and left every person account in
+  clear. Its business accounts, which hold none of it, are neither counted,
+  read nor kept in the snapshot
 - **Preview before Apply.** **Preview** reads the first five records of each
   object the template masks, in `Id` order -- the ones a run masks first --
   and shows each masked field as the org holds it beside the value Apply

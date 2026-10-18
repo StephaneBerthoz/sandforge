@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-import type { FieldRuleType, PersonaMsg, PersonaFieldPatternMsg } from '@sandforge/shared';
+import type {
+  FieldRuleType,
+  PersonaMsg,
+  PersonaFieldPatternMsg,
+  SeedRecordTypeOption,
+} from '@sandforge/shared';
 import {
   acceptsGeneratedSentence,
   defaultFakerMethod,
@@ -150,12 +155,13 @@ export function useSeedFieldRules(
     objectApiName: string;
     objectLabel: string;
     fields: DescribedField[];
+    recordTypes?: SeedRecordTypeOption[];
   }>('seed:describe-object', { responseType: 'seed:describe-object:response' });
 
   /* Map describe-fields response into fieldConfigs state */
   useEffect(() => {
     if (!describeFieldsMutation.data) return;
-    const { objectApiName, objectLabel, fields } = describeFieldsMutation.data;
+    const { objectApiName, objectLabel, fields, recordTypes } = describeFieldsMutation.data;
     const describedFields = fields.map((f: DescribedField): FieldConfig => {
       const rule = describedFieldRule(f);
       return {
@@ -177,6 +183,7 @@ export function useSeedFieldRules(
       objectApiName,
       objectLabel,
       fields: persona ? applyPersonaToFields(describedFields, persona).fields : describedFields,
+      ...(recordTypes && recordTypes.length > 0 ? { recordTypes } : {}),
     };
 
     setFieldConfigs((prev) => {

@@ -557,6 +557,14 @@
     "configureFields": "Configurar campos",
     "configureFieldsDesc": "Defina as regras de geração para cada campo",
     "configureRelations": "Configurar relações",
+    "recordTypes": {
+      "title": "Tipos de registro",
+      "help": "Sem escolha, os registros recebem o seu tipo de registro padrão. Vários tipos escolhidos se alternam ao acaso.",
+      "person": "conta pessoal",
+      "yourDefault": "seu padrão",
+      "mixed": "{{object}}: um tipo de registro de conta pessoal e um de conta empresarial usam campos diferentes — escolha um só tipo.",
+      "personNote": "Os registros de {{object}} são gravados como contas pessoais: nome e sobrenome, e-mail e telefones da pessoa, e sem Name, que a org monta a partir dos dois nomes."
+    },
     "relations": {
       "help": "Uma relação preenche um campo de pesquisa de um objeto filho com os registros de um objeto pai e decide quantos registros filhos são criados, no lugar da quantidade definida para o filho na primeira etapa. Sem relação, uma pesquisa para um objeto desta execução recebe um de seus registros ao acaso.",
       "add": "Adicionar relação",
@@ -884,7 +892,18 @@
       "created_one": "{{formatted}} registro criado em {{org}}",
       "created_other": "{{formatted}} registros criados em {{org}}",
       "removeDescription": "Exclui de {{org}} os registros que este seed inseriu, primeiro o último objeto gravado, os filhos antes dos pais; eles vão para a lixeira. Um registro do qual dependem registros que ficam em {{org}} é mantido, assim como um registro alterado desde o seed, ou do qual dependem registros adicionados desde então, a menos que você o inclua abaixo.",
-      "notKept": "O que este seed criou não é guardado nesta janela — ele rodou antes da última abertura dela, ou foi descartado para dar lugar a seeds mais recentes — e não pode ser removido daqui."
+      "notKept": "O que este seed criou não é mais guardado — foi descartado para dar lugar a seeds mais recentes, ou rodou antes de os seeds serem guardados em disco — e não pode ser removido daqui.",
+      "historyTitle": "Seeds anteriores",
+      "historyNote": "Os seeds que esta extensão guardou, os mais recentes primeiro: aqueles cujos registros ainda estão na org podem ser removidos, também depois de recarregar a janela.",
+      "historyRun_one": "{{date}} · {{org}} · {{formatted}} registro criado",
+      "historyRun_other": "{{date}} · {{org}} · {{formatted}} registros criados",
+      "historyRemovable": "pode ser removido",
+      "historyRemoved": "removido em {{date}}",
+      "historyPartlyRemoved": "removido em parte em {{date}}: o que resta pode ser removido",
+      "historyNothingLeft": "nada mais a remover",
+      "historyRefused": "não pode ser removido daqui",
+      "historyShow": "Mostrar",
+      "historyHide": "Ocultar"
     }
   },
   "sync": {

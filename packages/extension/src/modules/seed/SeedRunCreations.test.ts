@@ -1,6 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import { SeedRunCreations, seedRunKept, type SeedRunEnded } from './SeedRunCreations';
-import { syncRemovalPlan } from '../sync/SyncRunCreations';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  SEED_RUNS_DIR,
+  SeedRunCreations,
+  nodeSeedRunCreations,
+  seedRunKept,
+  type SeedRunEnded,
+} from './SeedRunCreations';
+import { nodeSyncRunCreations, syncRemovalPlan } from '../sync/SyncRunCreations';
 
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
 
@@ -41,38 +50,88 @@ describe('seedRunKept', () => {
 });
 
 describe('SeedRunCreations', () => {
-  it('keeps what a run created, and nothing of a run that created nothing', () => {
-    const runs = new SeedRunCreations();
-    runs.record(run('op-1'));
-    runs.record(run('op-empty', { objectResults: [{ objectApiName: 'Account', createdIds: [] }] }));
+  let dir: string;
 
-    expect(runs.get('op-1')?.created).toHaveLength(2);
-    expect(runs.get('op-empty')).toBeUndefined();
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sandforge-seed-runs-'));
   });
 
-  it('keeps the latest runs, the oldest going first past its bound', () => {
-    const runs = new SeedRunCreations(2);
-    runs.record(run('op-1'));
-    runs.record(run('op-2'));
-    runs.record(run('op-3'));
-
-    expect(runs.get('op-1')).toBeUndefined();
-    expect(runs.get('op-2')).toBeDefined();
-    expect(runs.get('op-3')).toBeDefined();
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  it('keeps what a removal did on the run, for the next removal to read', async () => {
-    const runs = new SeedRunCreations();
-    runs.record(run('op-1'));
+  it('keeps what a run created on disk, where a store made after a reload reads it whole', async () => {
+    await nodeSeedRunCreations(dir).record(run('op-1'));
+
+    // A new store over the same directory: the window was reloaded.
+    const kept = await nodeSeedRunCreations(dir).get('op-1');
+
+    expect(kept).toMatchObject({
+      runId: 'op-1',
+      targetOrgId: 'org-target',
+      startedAt: '2026-10-17T10:00:00.000Z',
+      end: { status: 'success' },
+      created: [
+        { objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] },
+        { objectApiName: 'Contact', ids: [fakeId('003', 1)] },
+      ],
+    });
+    expect(syncRemovalPlan(kept!).map((o) => o.objectApiName)).toEqual(['Contact', 'Account']);
+    // Beside a Sync run's, never among them.
+    expect(readdirSync(join(dir, SEED_RUNS_DIR))).toEqual(['op-1.ndjson']);
+    expect(await nodeSyncRunCreations(dir).list()).toEqual([]);
+  });
+
+  it('keeps every id of an object past what one line of the file holds', async () => {
+    const createdIds = Array.from({ length: 60_000 }, (_, i) => fakeId('003', i + 1));
+    await nodeSeedRunCreations(dir).record(
+      run('op-big', { objectResults: [{ objectApiName: 'Contact', createdIds }] }),
+    );
+
+    const kept = await nodeSeedRunCreations(dir).get('op-big');
+    expect(kept?.created).toEqual([{ objectApiName: 'Contact', ids: createdIds }]);
+  });
+
+  it('keeps nothing of a run that created nothing', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    await runs.record(
+      run('op-empty', { objectResults: [{ objectApiName: 'Account', createdIds: [] }] }),
+    );
+
+    expect(await runs.get('op-empty')).toBeUndefined();
+    expect(await runs.list()).toEqual([]);
+  });
+
+  it('keeps the latest runs, the oldest removed with nothing left going first past the bound', async () => {
+    const runs = new SeedRunCreations(nodeSyncRunCreations(dir, SEED_RUNS_DIR), 2);
+    const at = (minute: number) => `2026-10-17T10:0${minute}:00.000Z`;
+    await runs.record(run('op-1', { startedAt: at(1) }));
+    await runs.record(run('op-2', { startedAt: at(2) }));
+    // The newer of the two removed whole: it goes before the older one.
+    await runs.updateRemoval('op-2', () => ({
+      undo: { removedAt: at(5), deleted: 3, alreadyGone: 0, kept: 0, refused: 0 },
+    }));
+    await runs.record(run('op-3', { startedAt: at(3) }));
+
+    expect((await runs.list()).map((r) => r.runId)).toEqual(['op-3', 'op-1']);
+
+    await runs.record(run('op-4', { startedAt: at(4) }));
+    expect((await runs.list()).map((r) => r.runId)).toEqual(['op-4', 'op-3']);
+  });
+
+  it('keeps what a removal did on the run, for the next removal to read after a reload', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    await runs.record(run('op-1'));
 
     await runs.updateRemoval('op-1', (state) => ({
       ...state,
       removalLeft: [fakeId('001', 2)],
     }));
 
-    const kept = runs.get('op-1');
+    const kept = await nodeSeedRunCreations(dir).get('op-1');
     expect(kept?.removal).toEqual({ removalLeft: [fakeId('001', 2)] });
+    expect(syncRemovalPlan(kept!)).toEqual([{ objectApiName: 'Account', ids: [fakeId('001', 2)] }]);
     await runs.updateRemoval('never-ran', (state) => state);
-    expect(runs.get('never-ran')).toBeUndefined();
+    expect(await runs.get('never-ran')).toBeUndefined();
   });
 });

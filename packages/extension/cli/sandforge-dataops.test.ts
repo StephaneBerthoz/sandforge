@@ -131,6 +131,78 @@ function orgOf(rows: Array<Record<string, unknown>>) {
   return { update, upsert };
 }
 
+/**
+ * An org with person accounts: a business account and a person account, a
+ * contact and a lead, each object described with its own fields and read by
+ * the fields and the conditions a statement names.
+ */
+function personAccountOrg() {
+  const personFields = ['FirstName', 'LastName', 'PersonEmail', 'PersonMailingStreet'];
+  const rows: Record<string, Array<Record<string, unknown>>> = {
+    Account: [
+      { Id: '001000000000001AAA', IsPersonAccount: false, Name: 'Birchwood Dental' },
+      {
+        Id: '001000000000002AAA',
+        IsPersonAccount: true,
+        Name: 'Ottoline Quenneville',
+        FirstName: 'Ottoline',
+        LastName: 'Quenneville',
+        PersonEmail: 'ottoline.q@example.com',
+        PersonMailingStreet: '12 Harbour Row',
+      },
+    ],
+    Contact: contactsOf(1, 0),
+    Lead: [{ Id: '00Q000000000001AAA', Email: 'lead@example.com', Phone: '+33 1 00 00 99' }],
+  };
+  const fieldsOf: Record<string, string[]> = {
+    Account: ['Id', 'IsPersonAccount', 'Name', 'Phone', ...personFields],
+    Contact: CONTACT_FIELDS,
+    Lead: ['Id', 'Email', 'Phone'],
+  };
+  const query = vi.fn(async (soql: string) => {
+    if (soql === 'SELECT Id FROM Organization') {
+      return { records: [{ Id: '00D000000000001AAA' }], done: true, totalSize: 1 };
+    }
+    if (soql.includes('IsDeleted = true')) return { records: [], done: true, totalSize: 0 };
+    const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+    const persons = soql.includes('(IsPersonAccount = true)');
+    const kept = (rows[object] ?? []).filter((r) => !persons || r.IsPersonAccount === true);
+    if (soql.startsWith('SELECT COUNT() ')) {
+      return { records: [], done: true, totalSize: kept.length };
+    }
+    const fields = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+    const records = kept.map((r) => Object.fromEntries(fields.map((f) => [f, r[f] ?? null])));
+    return { records, done: true, totalSize: records.length };
+  });
+  const update = vi.fn(async () => []);
+  vi.mocked(getJsforceConnection).mockResolvedValue({
+    query,
+    queryMore: vi.fn(),
+    describe: vi.fn(async (object: string) => ({
+      name: object,
+      label: object,
+      createable: true,
+      updateable: true,
+      deletable: true,
+      queryable: true,
+      fields: (fieldsOf[object] ?? []).map((name) => ({
+        name,
+        label: name,
+        type: name === 'Id' ? 'id' : name === 'IsPersonAccount' ? 'boolean' : 'string',
+        nillable: true,
+        createable: name !== 'Id' && name !== 'IsPersonAccount',
+        updateable: name !== 'Id' && name !== 'IsPersonAccount',
+        permissionable: name !== 'Id' && name !== 'IsPersonAccount',
+      })),
+      recordTypeInfos: [],
+      childRelationships: [],
+    })),
+    sobject: vi.fn(() => ({ update, upsert: update })),
+    soap: { undelete: vi.fn(async () => []) },
+  } as never);
+  return { update };
+}
+
 /** What the org says it is, as the extension's typing query reads it. */
 function orgIs(edition: string, sandbox = false): void {
   validateConnection.mockResolvedValue({
@@ -228,6 +300,14 @@ describe('sandforge-dataops', () => {
       });
     });
 
+    it('reads a run of every object its template masks when it names none', () => {
+      const args = parseArgs(
+        argv('anonymize', '--org', 'ORG', '--template', 'tpl-ccpa-california'),
+      );
+      expect(args).toMatchObject({ org: 'ORG', mode: 'run', templateId: 'tpl-ccpa-california' });
+      expect(args.object).toBeUndefined();
+    });
+
     it('reads a resume and a restore', () => {
       expect(
         parseArgs(
@@ -259,7 +339,10 @@ describe('sandforge-dataops', () => {
         'an org that is not an alias',
         ['anonymize', '--org', 'O&x', '--object', 'Contact', '--template', 't'],
       ],
-      ['no object', ['anonymize', '--org', 'O', '--template', 't']],
+      [
+        'a filter with no object to hold it to',
+        ['anonymize', '--org', 'O', '--template', 't', '--where', "LastName LIKE 'S%'"],
+      ],
       [
         'two objects',
         ['anonymize', '--org', 'O', '--object', 'Contact', '--object', 'Lead', '--template', 't'],
@@ -535,6 +618,49 @@ describe('sandforge-dataops', () => {
       expect(code).toBe(1);
       expect(stderr).toContain('There is nothing to resume');
       expect(update).not.toHaveBeenCalled();
+    });
+
+    it('plans in a dry run with no object the person accounts of an org that has them, under the CCPA template', async () => {
+      orgIs('Developer Edition');
+      const { update } = personAccountOrg();
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--template',
+        'tpl-ccpa-california',
+        '--dry-run',
+      );
+
+      expect(code).toBeUndefined();
+      expect(update).not.toHaveBeenCalled();
+      expect(stdout).toContain('objects: every object the template masks');
+      expect(stdout).toContain('  Contact: 1 record(s) to mask');
+      expect(stdout).toContain('  Lead: 1 record(s) to mask');
+      // The person account alone: the business account holds none of it.
+      expect(stdout).toContain('  Account: 1 record(s) to mask');
+      expect(stdout).toMatch(/fields: [^\n]*PersonEmail \(hash\)/);
+    });
+
+    it('takes --object Account under a template whose contact rules mask person accounts', async () => {
+      orgIs('Developer Edition');
+      personAccountOrg();
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Account',
+        '--template',
+        'tpl-ccpa-california',
+        '--dry-run',
+      );
+
+      expect(code).toBeUndefined();
+      expect(stderr).not.toContain('has no rule for Account');
+      expect(stdout).toContain('  Account: 2 record(s) to mask');
     });
 
     it('refuses a template with no rule for the object, before anything is read', async () => {

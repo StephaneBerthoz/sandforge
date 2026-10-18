@@ -23,6 +23,7 @@ import { useSeedRelations } from './useSeedRelations';
 import type { CheckedRelation, RelationLookup } from './seedRelationDrafts';
 import { useSeedExecution } from './useSeedExecution';
 import { useSeedNL2SOQL } from './useSeedNL2SOQL';
+import { recordTypesMixed } from './seedRecordTypeChoices';
 
 /** Draft state safe to persist (no credentials, no execution results, no PII). */
 interface SeedDraftState {
@@ -163,6 +164,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   const setError = useSeedWizardStore((s) => s.setError);
   const selectedPersona = useSeedWizardStore((s) => s.selectedPersona);
   const setSelectedPersona = useSeedWizardStore((s) => s.setSelectedPersona);
+  const recordTypeChoices = useSeedWizardStore((s) => s.recordTypeChoices);
 
   /* ------------------------------------------------------------------ */
   /* Sub-hooks                                                           */
@@ -184,6 +186,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     fieldConfig.fieldConfigs,
     t,
     relations.checked,
+    recordTypeChoices,
   );
 
   /* ------------------------------------------------------------------ */
@@ -293,17 +296,30 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   // the object carried none and the run refused it: below five objects the
   // configure step is skipped, and every such run was sent that way.
   const { fieldsReady } = fieldConfig;
+  // A person account record type and a business one chosen together: the run
+  // would be refused, as the command line refuses it. The wizard waits.
+  const recordTypesReady = useMemo(
+    () =>
+      !objectSelection.selectedObjects.some((objectApiName) =>
+        recordTypesMixed(
+          fieldConfig.fieldConfigs.find((c) => c.objectApiName === objectApiName)?.recordTypes ??
+            [],
+          recordTypeChoices[objectApiName] ?? [],
+        ),
+      ),
+    [objectSelection.selectedObjects, fieldConfig.fieldConfigs, recordTypeChoices],
+  );
   const canGoNext = useMemo((): boolean => {
     switch (currentStep) {
       case 0:
         return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
       case 1:
-        return relationsReady;
+        return relationsReady && recordTypesReady;
       // The last step sends the run, and its button stayed live while the run
       // was in flight: a second press sent the whole template again.
       case 2:
       case 3:
-        return !execution.isRunning && relationsReady && fieldsReady;
+        return !execution.isRunning && relationsReady && fieldsReady && recordTypesReady;
       default:
         return true;
     }
@@ -314,6 +330,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     execution.isRunning,
     relationsReady,
     fieldsReady,
+    recordTypesReady,
   ]);
 
   const isFinished = currentStep === 3 && !!execution.executionResult;

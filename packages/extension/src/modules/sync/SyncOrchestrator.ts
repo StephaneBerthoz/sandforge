@@ -331,6 +331,17 @@ interface CarriedDeletions {
   complete: boolean;
 }
 
+/**
+ * The records of the target a delete answered for as deleted: each outcome
+ * that succeeded, by the id it was sent with.
+ */
+function deletedIdsOf(ids: readonly string[], outcomes: readonly OperationOutcome[]): string[] {
+  return outcomes.flatMap((outcome, at) => {
+    const id = ids[at];
+    return outcome.success && id !== undefined ? [id] : [];
+  });
+}
+
 /** One object's records as the run's write would be handed them. */
 interface PreparedObject {
   /** Rows the source read returned. */
@@ -440,6 +451,26 @@ export class SyncOrchestrator {
         idMap.record(config.id, orgs, objectConfig.objectApiName, pairs).catch((err: unknown) => {
           linksUnkept ??= err instanceof Error ? err.message : String(err);
         }),
+      );
+    };
+
+    // A record of the target a delta run deletes, as the source had deleted
+    // its own, no longer stands for that source record: neither for the
+    // objects the run writes after it nor for a later run. Its pair stayed,
+    // and a lookup at it went to a record the target no longer held, and was
+    // refused.
+    const noteDeleted = (targetIds: readonly string[]): void => {
+      if (targetIds.length === 0) return;
+      links.noteDeleted(targetIds);
+      const forget = idMap?.forget?.bind(idMap);
+      if (!forget) return;
+      linksKept = linksKept.then(() =>
+        forget(config.id, orgs, targetIds).then(
+          () => undefined,
+          (err: unknown) => {
+            linksUnkept ??= err instanceof Error ? err.message : String(err);
+          },
+        ),
       );
     };
 
@@ -704,7 +735,7 @@ export class SyncOrchestrator {
           return stopHere(sortedObjects.slice(index));
         }
         try {
-          deletions = await this.carryDeletions(objectConfig, read.changedSince);
+          deletions = await this.carryDeletions(objectConfig, read.changedSince, noteDeleted);
         } catch (err: unknown) {
           if (!(err instanceof WriteCancelledError)) throw err;
           // Stopped between two batches of deletes: those sent are done, the
@@ -893,6 +924,7 @@ export class SyncOrchestrator {
   private async carryDeletions(
     objectConfig: SyncObjectConfig,
     changedSince: string,
+    onDeleted: (targetIds: readonly string[]) => void,
   ): Promise<CarriedDeletions> {
     const tallied = await this.tallyObjectDeletions(objectConfig, changedSince);
     if ('error' in tallied) {
@@ -908,15 +940,30 @@ export class SyncOrchestrator {
     if (tally.ids.length === 0) {
       return { deleted: 0, deleteFailed: 0, notes, complete: !tally.truncated };
     }
-    const written = await this.deps.dataSync.sync(
-      {
-        ...objectConfig,
-        operation: 'delete',
-        fieldMappings: [],
-        transformRules: [],
-        addOnFields: [],
-      },
-      tally.ids.map((Id) => ({ Id })),
+    const deleteConfig: SyncObjectConfig = {
+      ...objectConfig,
+      operation: 'delete',
+      fieldMappings: [],
+      transformRules: [],
+      addOnFields: [],
+    };
+    let answered: { outcomes: OperationOutcome[]; notes: string[] };
+    try {
+      answered = await this.deps.dataSync.write(
+        deleteConfig,
+        tally.ids.map((Id) => ({ Id })),
+      );
+    } catch (err: unknown) {
+      // The deletes sent before a cancel are done: forgotten all the same.
+      if (err instanceof WriteCancelledError) onDeleted(deletedIdsOf(tally.ids, err.written));
+      throw err;
+    }
+    onDeleted(deletedIdsOf(tally.ids, answered.outcomes));
+    const written = buildObjectResult(
+      objectConfig.objectApiName,
+      'delete',
+      answered.outcomes,
+      answered.notes,
     );
     return {
       deleted: written.success,

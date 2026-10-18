@@ -68,6 +68,12 @@ import type {
 } from '../../modules/seed/SeedOrchestrator.js';
 import { bulkSaveErrorDetail, saveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
+import {
+  personRecordTypes,
+  seedRecordTypeOptions,
+  templateForAccountKinds,
+} from '../../modules/seed/seedRecordTypes.js';
+import { ACCOUNT } from '../../core/common/platformRecords.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { isUncopyableObject } from '@sandforge/shared';
@@ -222,7 +228,7 @@ export class SeedOpsHandler implements DomainHandler {
   /** Live operation tracker feeding the Monitor "live operations" panel. */
   private liveTracker?: LiveOperationTracker;
 
-  /** What each run of the window created, for its removal. */
+  /** What each run created, kept on disk for its removal. */
   private runCreations?: SeedRunCreations;
 
   /** @param deps - Injected handler dependencies. */
@@ -595,10 +601,19 @@ export class SeedOpsHandler implements DomainHandler {
           objectApiName: payload.objectApiName,
         }));
 
+      // The record types the panel lets a seed choose, a person account's
+      // marked: it offered none, and person accounts were seeded from the
+      // command line only.
+      const recordTypes = seedRecordTypeOptions(
+        safeObjectName,
+        (result as { recordTypeInfos?: unknown }).recordTypeInfos,
+        safeObjectName === ACCOUNT ? await personRecordTypes(conn) : [],
+      );
       const response = buildResponse(this.deps, msg, 'seed:describe-object:response', {
         objectApiName: payload.objectApiName,
         objectLabel: (result as { label: string }).label,
         fields,
+        recordTypes,
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -645,16 +660,32 @@ export class SeedOpsHandler implements DomainHandler {
         batchSize: o.batchSize ?? defaultBatchSize,
       }));
       Object.assign(failure, objectsFailureContext(objects));
-      const payload: { orgId: string; template: Record<string, unknown> } = {
-        orgId: parsed.orgId,
-        template: { ...parsed.template, objects } as unknown as Record<string, unknown>,
-      };
-
       const conn = await getJsforceConnection(
-        payload.orgId,
+        parsed.orgId,
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
+
+      // Each account written as the kind its record types give it, as the
+      // command line writes them: a person account without Name, a business
+      // account without a person's fields. A person type and a business type
+      // chosen together are refused before the guard is asked or anything is
+      // written.
+      const asTemplate = { ...parsed.template, objects } as unknown as SeedTemplate;
+      const kinds = asTemplate.objects.some((o) => o.objectApiName === ACCOUNT)
+        ? templateForAccountKinds(asTemplate, await personRecordTypes(conn))
+        : { template: asTemplate, personObjects: [] };
+      if ('refusal' in kinds) {
+        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(kinds.refusal), {
+          code: 'RECORD_TYPES_MIXED',
+          retryable: false,
+        });
+        return;
+      }
+      const payload: { orgId: string; template: Record<string, unknown> } = {
+        orgId: parsed.orgId,
+        template: kinds.template as unknown as Record<string, unknown>,
+      };
 
       // Planned record total, known upfront from the template. It feeds the
       // Production Guard impact summary (the sentence the user reads in the
@@ -1059,15 +1090,25 @@ export class SeedOpsHandler implements DomainHandler {
       );
       const result = await orchestrator.execute(template, payload.orgId);
       // Kept whole before the lists are cut for the page, a stopped run's too:
-      // what it wrote before the cancel can be taken back from its results.
-      this.runCreations?.record({
-        runId: result.operationId,
-        targetOrgId: payload.orgId,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        status: result.status,
-        objectResults: result.objectResults,
-      });
+      // what it wrote before the cancel can be taken back from its results,
+      // or after a reload from the list of earlier seeds. A store that cannot
+      // keep it is said, and the run ends as it did.
+      await this.runCreations
+        ?.record({
+          runId: result.operationId,
+          targetOrgId: payload.orgId,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          status: result.status,
+          ...(result.cancelled ? { cancelled: true } : {}),
+          objectResults: result.objectResults,
+        })
+        .catch((err: unknown) =>
+          this.deps.log(
+            `[WARN] seed:execute ${operationId}: what the run created could not all be kept, ` +
+              `so removing it may leave some of it in the org: ${extractErrorMessage(err)}`,
+          ),
+        );
       if (!result.cancelled) {
         sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
       }

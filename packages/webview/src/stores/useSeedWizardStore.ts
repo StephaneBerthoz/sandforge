@@ -50,6 +50,11 @@ export interface SeedWizardState {
   error: string | null;
   /** Currently selected AI persona, or null. */
   selectedPersona: PersonaMsg | null;
+  /**
+   * The record types chosen per object, by id: none, and the records take the
+   * running user's default.
+   */
+  recordTypeChoices: Record<string, string[]>;
 
   /** Update the selected org. */
   handleOrgSelect: (orgId: string) => void;
@@ -69,6 +74,8 @@ export interface SeedWizardState {
   setError: (e: string | null) => void;
   /** Set the selected persona (from PersonaGallery callback). */
   setSelectedPersona: (persona: PersonaMsg | null) => void;
+  /** Choose the record types an object's records take; none for the user's default. */
+  setRecordTypeChoice: (objectApiName: string, recordTypeIds: string[]) => void;
   /** Reset all wizard slices to their initial values. */
   resetSeedWizard: () => void;
 }
@@ -80,6 +87,7 @@ const INITIAL_STATE = {
   relations: [] as SeedRelationDraft[],
   error: null as string | null,
   selectedPersona: null as PersonaMsg | null,
+  recordTypeChoices: {} as Record<string, string[]>,
 };
 
 /**
@@ -104,8 +112,12 @@ export const useSeedWizardStore = create<SeedWizardState>((set) => ({
       if (!state.selectedObjects.includes(apiName)) {
         return { selectedObjects: [...state.selectedObjects, apiName] };
       }
+      const recordTypeChoices = Object.fromEntries(
+        Object.entries(state.recordTypeChoices).filter(([object]) => object !== apiName),
+      );
       return {
         selectedObjects: state.selectedObjects.filter((o) => o !== apiName),
+        recordTypeChoices,
         relations: state.relations.filter(
           (r) =>
             r.childObject !== apiName && !(r.source === 'generated' && r.parentObject === apiName),
@@ -134,6 +146,12 @@ export const useSeedWizardStore = create<SeedWizardState>((set) => ({
 
   setSelectedPersona(persona: PersonaMsg | null): void {
     set({ selectedPersona: persona });
+  },
+
+  setRecordTypeChoice(objectApiName: string, recordTypeIds: string[]): void {
+    set((state) => ({
+      recordTypeChoices: { ...state.recordTypeChoices, [objectApiName]: [...recordTypeIds] },
+    }));
   },
 
   resetSeedWizard(): void {

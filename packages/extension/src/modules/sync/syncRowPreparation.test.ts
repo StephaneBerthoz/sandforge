@@ -558,4 +558,19 @@ describe('SyncRunLinks', () => {
     links.noteRefused(SOURCE_ACCOUNT_1, 'Account');
     expect(links.refusedObjectOf(SOURCE_ACCOUNT_1)).toBeUndefined();
   });
+
+  it('names no copy the run deleted, its own or an earlier run’s, by either form of its id', () => {
+    const earlierCopy = '001000000000902AAA';
+    const links = new SyncRunLinks(new Map([[SOURCE_ACCOUNT_1.slice(0, 15), earlierCopy]]));
+    links.noteWritten(SOURCE_ACCOUNT_2, '001000000000903AAA');
+    expect(links.targetOf(SOURCE_ACCOUNT_1)).toBe(earlierCopy);
+
+    links.noteDeleted([earlierCopy.slice(0, 15), '001000000000903AAA']);
+
+    expect(links.targetOf(SOURCE_ACCOUNT_1)).toBeUndefined();
+    expect(links.targetOf(SOURCE_ACCOUNT_2)).toBeUndefined();
+    // The deleted copy no longer stands in for a record this run refused.
+    links.noteRefused(SOURCE_ACCOUNT_1, 'Account');
+    expect(links.refusedObjectOf(SOURCE_ACCOUNT_1)).toBe('Account');
+  });
 });

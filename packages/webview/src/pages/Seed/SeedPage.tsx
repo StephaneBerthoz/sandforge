@@ -29,6 +29,7 @@ import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { CsvUploadWizard } from './CsvUpload/CsvUploadWizard';
 import { CloneWizard } from './Clone/CloneWizard';
 import { PersonaGallery } from './Persona/PersonaGallery';
+import { SeedRunHistory } from './SeedRunHistory';
 
 /** Seed mode selection with AI sub-modes. */
 type SeedMode = 'select' | 'ai' | 'ai-persona' | 'ai-scratch' | 'csv' | 'clone';
@@ -279,6 +280,9 @@ export const SeedPage: React.FC = () => {
           </Card>
         </div>
       )}
+
+      {/* The seeds kept, which a reload left removable */}
+      {seedMode === 'select' && quickSeed.phase === 'idle' && <SeedRunHistory />}
 
       {/* ----- CSV UPLOAD MODE ----- */}
       {seedMode === 'csv' && <CsvUploadWizard onBack={() => setSeedMode('select')} />}

@@ -557,6 +557,14 @@
     "configureFields": "Configurer les champs",
     "configureFieldsDesc": "Définissez les règles de génération pour chaque champ",
     "configureRelations": "Configurer les relations",
+    "recordTypes": {
+      "title": "Types d'enregistrement",
+      "help": "Sans choix, les enregistrements prennent votre type d'enregistrement par défaut. Plusieurs types choisis alternent au hasard.",
+      "person": "compte personnel",
+      "yourDefault": "votre défaut",
+      "mixed": "{{object}} : un type de compte personnel et un type de compte professionnel prennent des champs différents — choisissez un seul genre.",
+      "personNote": "Les enregistrements {{object}} sont écrits comme comptes personnels : un prénom et un nom, l'e-mail et les téléphones de la personne, et pas de Name, que l'org compose à partir des deux noms."
+    },
     "relations": {
       "help": "Une relation remplit un champ de référence d'un objet enfant avec les enregistrements d'un objet parent, et fixe le nombre d'enregistrements enfants créés, à la place du nombre choisi pour l'enfant à la première étape. Sans relation, une référence vers un objet de cette exécution reçoit l'un de ses enregistrements au hasard.",
       "add": "Ajouter une relation",
@@ -884,7 +892,18 @@
       "created_one": "{{formatted}} enregistrement créé dans {{org}}",
       "created_other": "{{formatted}} enregistrements créés dans {{org}}",
       "removeDescription": "Supprime de {{org}} les enregistrements que ce seed a insérés, le dernier objet écrit d'abord, les enfants avant leurs parents ; ils vont dans sa corbeille. Un enregistrement dont dépendent des enregistrements qui restent dans {{org}} est conservé, de même qu'un enregistrement modifié depuis le seed, ou dont dépendent des enregistrements ajoutés depuis, sauf si vous l'incluez ci-dessous.",
-      "notKept": "Ce que ce seed a créé n'est pas conservé dans cette fenêtre — il a tourné avant sa dernière ouverture, ou a été écarté pour faire place à des seeds plus récents — et ne peut pas être retiré d'ici."
+      "notKept": "Ce que ce seed a créé n'est plus conservé — il a été écarté pour faire place à des seeds plus récents, ou a tourné avant que les seeds soient conservés sur disque — et ne peut pas être retiré d'ici.",
+      "historyTitle": "Seeds précédents",
+      "historyNote": "Les seeds que l'extension a conservés, les plus récents d'abord : ceux dont les enregistrements sont encore dans leur org peuvent être retirés, y compris après un rechargement de la fenêtre.",
+      "historyRun_one": "{{date}} · {{org}} · {{formatted}} enregistrement créé",
+      "historyRun_other": "{{date}} · {{org}} · {{formatted}} enregistrements créés",
+      "historyRemovable": "peut être retiré",
+      "historyRemoved": "retiré le {{date}}",
+      "historyPartlyRemoved": "retiré en partie le {{date}} : le reste peut être retiré",
+      "historyNothingLeft": "plus rien à retirer",
+      "historyRefused": "ne peut pas être retiré d'ici",
+      "historyShow": "Afficher",
+      "historyHide": "Masquer"
     }
   },
   "sync": {

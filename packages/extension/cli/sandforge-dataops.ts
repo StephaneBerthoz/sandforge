@@ -39,20 +39,22 @@ import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/Backu
 import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import { isSafeSoqlWhere, SOQL_WHERE_RULE } from '../src/core/common/soqlValidator.js';
+import { personAccountRules } from '../src/modules/dataops/personAccountMasking.js';
+import { ACCOUNT } from '../src/core/common/platformRecords.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
+import type { AnonymizationTemplateRule } from '@sandforge/shared';
 
 const HELP = `sandforge-dataops — mask an org's records, and put them back, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
-    --org <alias> --object <ApiName> (--template <id> | --rules <file>) [options]
+    --org <alias> [--object <ApiName>] (--template <id> | --rules <file>) [options]
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
     --org <alias> --restore <snapshot> [--store <dir>] [--yes]
 
 Required:
   anonymize              the command
   --org <alias>          sf CLI alias of the org
-  --object <ApiName>     the object to mask, one per run
   --template <id>        a template that ships (tpl-gdpr-standard, tpl-ccpa-california,
                          tpl-hipaa-health, tpl-sandbox-scrub) or one saved in the store
   --rules <file>         or a JSON file of rules, saved in the store as a template:
@@ -60,8 +62,12 @@ Required:
                          "ruleType": "hash"}]} — a rule as the panel's editor saves it
 
 Options:
-  --where <clause>       mask only the records this SOQL condition selects,
-                         written without WHERE
+  --object <ApiName>     the object to mask, one per run; without it, every object
+                         the template masks, as the panel's Apply masks them —
+                         Account's person accounts among them, in an org that has
+                         person accounts, when the template masks contacts
+  --where <clause>       with --object: mask only the records this SOQL condition
+                         selects, written without WHERE
   --dry-run              say what a run would mask — the fields, the records, the
                          first records masked as a run masks them — and write
                          nothing
@@ -205,11 +211,15 @@ export function parseArgs(argv: string[]): CliArgs {
     return { ...common, mode: 'restore', restoreId };
   }
 
-  if (count('--object') !== 1) {
-    refuseLine('Give one --object: a run masks one object, which --where filters.');
+  if (count('--object') > 1) {
+    refuseLine(
+      'Give one --object at most: a run masks one object, or every object its template masks.',
+    );
   }
-  const object = get('--object')!;
-  if (!API_NAME_RE.test(object)) refuseLine(`Not an SObject API name: "${object}"`);
+  const object = get('--object');
+  if (object !== undefined && !API_NAME_RE.test(object)) {
+    refuseLine(`Not an SObject API name: "${object}"`);
+  }
 
   const templateId = get('--template');
   const rulesFile = get('--rules');
@@ -222,11 +232,15 @@ export function parseArgs(argv: string[]): CliArgs {
   if (where !== undefined && (where === '' || !isSafeSoqlWhere(where))) {
     refuseLine(`Not a filter --where can take: "${where}". ${SOQL_WHERE_RULE}`);
   }
+  // A filter is written for one object's fields, as the panel takes it.
+  if (where !== undefined && object === undefined) {
+    refuseLine('--where filters the records of one object: give it with --object.');
+  }
 
   return {
     ...common,
     mode: dryRun ? 'dry-run' : resume ? 'resume' : 'run',
-    object,
+    ...(object !== undefined ? { object } : {}),
     ...(templateId !== undefined ? { templateId } : {}),
     ...(rulesFile !== undefined ? { rules: readRulesFile(rulesFile) } : {}),
     ...(where !== undefined ? { where } : {}),
@@ -274,6 +288,21 @@ function rulesOf(template: Listed, object: string): Listed['rules'] {
   const prefix = `${object.toLowerCase()}.`;
   return template.rules.filter(
     (r) => r.fieldPattern.toLowerCase().startsWith(prefix) || r.fieldPattern === '*',
+  );
+}
+
+/**
+ * Whether a template masks anything of `object`: a rule of its own, or — on
+ * Account — what its Contact rules mask on a person account
+ * (`personAccountRules`), which the handler applies to person accounts alone.
+ * Refused for want of a rule on Account, `--object Account` could not mask a
+ * person account with the CCPA template, whose rules name Contact and Lead.
+ */
+export function masksObject(template: Listed, object: string): boolean {
+  if (rulesOf(template, object).length > 0) return true;
+  return (
+    object.toLowerCase() === ACCOUNT.toLowerCase() &&
+    personAccountRules(template.rules as AnonymizationTemplateRule[]).length > 0
   );
 }
 
@@ -638,19 +667,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return;
     }
   }
-  const object = args.object!;
-  if (rulesOf(template, object).length === 0) {
+  const object = args.object;
+  if (object !== undefined && !masksObject(template, object)) {
     fail(`Template "${template.name}" has no rule for ${object}: a run would mask nothing.`);
     return;
   }
   const scope = {
     orgId: args.org,
     templateId: template.id,
-    objects: [object],
+    ...(object !== undefined ? { objects: [object] } : {}),
     ...(args.where !== undefined ? { where: args.where } : {}),
   };
   log(
-    `template: ${template.name} (${template.id})  object: ${object}` +
+    `template: ${template.name} (${template.id})  ` +
+      (object !== undefined ? `object: ${object}` : 'objects: every object the template masks') +
       (args.where !== undefined ? `  where: ${args.where}` : ''),
   );
 
@@ -687,16 +717,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
   if (args.mode === 'run' && toMask === 0) {
-    log('Nothing to mask: no record of the object is under the filter.');
+    log(
+      object !== undefined
+        ? 'Nothing to mask: no record of the object is under the filter.'
+        : 'Nothing to mask: no object the template masks holds a record.',
+    );
     emit('run');
     return;
   }
   if (!args.yes) {
+    /** What the run masks, in words: the object, or the objects the coverage counted. */
+    const masked = object ?? counted.map((o) => o.objectApiName).join(', ');
     const question =
       args.mode === 'resume'
-        ? `Resume the masking of ${object} in ${args.org} that stopped on ${checkpoint!.savedAt}? ` +
+        ? `Resume the masking of ${masked} in ${args.org} that stopped on ${checkpoint!.savedAt}? ` +
           'What it left is written over; the snapshot the first run took holds their values.'
-        : `Mask ${toMask} record(s) of ${object} in ${args.org} with ${template.name}? ` +
+        : `Mask ${toMask} record(s) of ${masked} in ${args.org} with ${template.name}? ` +
           'A snapshot of their values is taken first.';
     if (!(await confirm(question))) {
       log('Nothing written.');

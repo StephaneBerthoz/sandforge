@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FieldRuleType } from '@sandforge/shared';
+import type { FieldRuleType, SeedRecordTypeOption } from '@sandforge/shared';
 import {
   SUPPORTED_FAKER_METHODS,
   acceptsGeneratedSentence,
@@ -40,6 +40,8 @@ export interface ObjectFieldConfig {
   objectApiName: string;
   objectLabel: string;
   fields: FieldConfig[];
+  /** The record types the target offers the user on the object, a person account's marked. */
+  recordTypes?: SeedRecordTypeOption[];
 }
 
 /** Step3 props. */

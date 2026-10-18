@@ -6284,6 +6284,23 @@ const SEED_DESCRIBES: Record<string, Record<string, unknown>> = {
         length: 18,
       },
     ],
+    // The record types the wizard offers, a person account's marked.
+    recordTypes: [
+      {
+        recordTypeId: '012000000000001AAA',
+        developerName: 'PersonAccount',
+        label: 'Person Account',
+        person: true,
+        isDefault: false,
+      },
+      {
+        recordTypeId: '012000000000002AAA',
+        developerName: 'Customer',
+        label: 'Customer',
+        person: false,
+        isDefault: true,
+      },
+    ],
   },
   Contact: {
     objectApiName: 'Contact',
@@ -7724,6 +7741,69 @@ for (const theme of STATE_THEMES) {
       await openSeedExecuteSkipped(bridge, page, theme);
 
       await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
+    });
+
+    test('Seed record types of the accounts, a person type and a business one refused together', async ({
+      page,
+    }) => {
+      await openSeedExecuteSkipped(bridge, page, theme);
+      await page.getByTestId('seed-record-type-Account-PersonAccount').check();
+      await page.getByTestId('seed-record-type-Account-Customer').check();
+      await page.getByTestId('seed-record-types-mixed-Account').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="seed-record-types"]');
+
+      await page.getByTestId('seed-record-type-Account-Customer').uncheck();
+      await page.getByTestId('seed-record-types-person-Account').waitFor({ timeout: 10_000 });
+      await expectReadable(page, theme, '[data-testid="seed-record-types"]');
+    });
+
+    test('Seed earlier seeds, one opened onto its removal', async ({ page }) => {
+      await openPanel(bridge, page, 'seed', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('seed:removal:list', { timeout: 10_000 });
+      await answerAll(page, 'seed:removal:list', 'seed:removal:list:response', {
+        runs: [
+          {
+            runId: 'op-axe-2',
+            targetOrgId: 'org-src-1',
+            startedAt: '2026-10-02T09:59:00.000Z',
+            endedAt: '2026-10-02T10:00:00.000Z',
+            created: 12,
+            left: [{ objectApiName: 'Contact', count: 12 }],
+          },
+          {
+            runId: 'op-axe-1',
+            targetOrgId: 'org-src-1',
+            startedAt: '2026-10-01T09:59:00.000Z',
+            endedAt: '2026-10-01T10:00:00.000Z',
+            created: 3,
+            left: [],
+            removed: {
+              removedAt: '2026-10-01T11:00:00.000Z',
+              deleted: 3,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 0,
+            },
+          },
+        ],
+      });
+      await page.getByTestId('seed-run-history-toggle-op-axe-2').click();
+      await bridge.waitForMessage('seed:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'seed:removal:info', 'seed:removal:info:response', {
+        info: {
+          runId: 'op-axe-2',
+          targetOrgId: 'org-src-1',
+          startedAt: '2026-10-02T09:59:00.000Z',
+          endedAt: '2026-10-02T10:00:00.000Z',
+          created: 12,
+          left: [{ objectApiName: 'Contact', count: 12 }],
+        },
+      });
+      await page.getByTestId('seed-removal-remove').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="seed-run-history"]');
     });
 
     test('Seed results of a run, and the CSV of them the host saves', async ({ page }) => {

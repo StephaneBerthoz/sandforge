@@ -5,6 +5,7 @@ import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { Step7Execute } from './Step7_Execute';
 import type { ObjectProgress } from './Step7_Execute';
 import { SeedRelationsEditor } from './SeedRelationsEditor';
+import { SeedRecordTypePicker } from './SeedRecordTypePicker';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { SeedVolumes } from './seedRelationDrafts';
 
@@ -43,7 +44,8 @@ export interface SeedExecuteStepProps {
  * to name a persona whether or not one was picked, above a run that carried
  * no rule at all. Until every object is described it says the run waits for
  * that instead, and the wizard does not move on. With Configure skipped, the
- * relations are set here: they were only reachable through Customize.
+ * relations and the record types are set here: they were only reachable
+ * through Customize.
  */
 export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   isRunning,
@@ -116,6 +118,13 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
             {t('seed.configureRelations')}
           </span>
           <SeedRelationsEditor fieldConfigs={fieldConfigs} volumes={volumes} />
+        </div>
+      )}
+
+      {/* With Configure skipped, the record types are chosen here too. */}
+      {configSkipped && !isRunning && (
+        <div className="mb-2">
+          <SeedRecordTypePicker fieldConfigs={fieldConfigs} />
         </div>
       )}
 

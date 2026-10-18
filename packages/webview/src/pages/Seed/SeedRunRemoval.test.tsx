@@ -187,13 +187,11 @@ describe('SeedRunRemoval', () => {
     );
   });
 
-  it('says so when nothing of the run is kept in this window', () => {
+  it('says so when nothing of the run is kept any more', () => {
     render(<SeedRunRemoval runId="op-1" />);
     answer('seed:removal:info', 'seed:removal:info:response', { info: null });
 
-    expect(screen.getByTestId('seed-removal-not-kept').textContent).toContain(
-      'is not kept in this window',
-    );
+    expect(screen.getByTestId('seed-removal-not-kept').textContent).toContain('is no longer kept');
   });
 
   it('shows a refused removal in the card', () => {
@@ -208,5 +206,35 @@ describe('SeedRunRemoval', () => {
     });
 
     expect(screen.getByTestId('seed-removal-error').textContent).toContain('removed already');
+  });
+
+  it('lists what a sweep would take once asked, and sends the removal with it', () => {
+    const answered = vi.fn();
+    render(<SeedRunRemoval runId="op-1" onAnswered={answered} />);
+    answer('seed:removal:info', 'seed:removal:info:response', { info: KEPT });
+
+    fireEvent.click(screen.getByTestId('seed-removal-remove'));
+    // Nothing is read of the org until the sweep is ticked.
+    expect(sentAll('seed:remove:sweep')).toEqual([]);
+    fireEvent.click(screen.getByTestId('seed-removal-sweep-toggle'));
+    expect(sentAll('seed:remove:sweep').pop()?.payload).toEqual({ runId: 'op-1' });
+    answer('seed:remove:sweep', 'seed:remove:sweep:response', {
+      runId: 'op-1',
+      listing: {
+        looked: ['Account', 'Contact', 'Task'],
+        found: [{ objectApiName: 'Task', count: 2, names: ['Welcome call'] }],
+        unread: [],
+        handWork: [],
+        window: { from: '2026-10-17T07:59:59Z', to: '2026-10-17T08:02:00Z' },
+      },
+    });
+    expect(screen.getByTestId('seed-removal-sweep').textContent).toContain('Welcome call');
+
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sentAll('seed:remove').pop()?.payload).toEqual({ runId: 'op-1', sweep: true });
+
+    answer('seed:remove', 'seed:remove:response', { result: DONE, operationId: 'req' });
+    expect(answered).toHaveBeenCalledTimes(1);
   });
 });

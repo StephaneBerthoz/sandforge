@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, DescribedSeedField, SeedExecutionResult } from '@sandforge/shared';
@@ -8,7 +11,7 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import { SeedOrchestrator } from '../../modules/seed/SeedOrchestrator.js';
 import type { SeedOrchestratorDependencies } from '../../modules/seed/SeedOrchestrator.js';
-import { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
+import { nodeSeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -2331,7 +2334,8 @@ describe('SeedOpsHandler', () => {
     it('keeps every id the run created for its removal, not the thousand the page gets', async () => {
       // A removal of the cut list would leave four thousand seeded contacts
       // in the org with nothing to tell them from the org's own.
-      const runs = new SeedRunCreations();
+      const storage = mkdtempSync(join(tmpdir(), 'sandforge-seed-kept-'));
+      const runs = nodeSeedRunCreations(storage);
       handler.setRunCreations(runs);
       const createdIds = Array.from(
         { length: 5000 },
@@ -2356,7 +2360,9 @@ describe('SeedOpsHandler', () => {
         timestamp: '2026-01-01T00:00:00.000Z',
       }));
 
-      const kept = runs.get('op-kept');
+      // Read back by a store over the same storage, as after a reload.
+      const kept = await nodeSeedRunCreations(storage).get('op-kept');
+      rmSync(storage, { recursive: true, force: true });
       expect(kept?.targetOrgId).toBe('org-1');
       expect(kept?.created).toEqual([{ objectApiName: 'Contact', ids: createdIds }]);
     });
