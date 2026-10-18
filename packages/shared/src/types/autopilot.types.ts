@@ -234,6 +234,16 @@ export interface AutopilotPlanScope {
    */
   readonly standardNeeded: Array<{ readonly objectApiName: ApiName; readonly neededBy: string }>;
   /**
+   * Standard objects followed although standard objects were not asked for,
+   * as they are by default: the account, which the selection's records
+   * reference. Each with the lookups that reference it. Absent when the run
+   * took standard objects, or followed none this way.
+   */
+  readonly followedByDefault?: Array<{
+    readonly objectApiName: ApiName;
+    readonly referencedBy: string[];
+  }>;
+  /**
    * The currencies the source holds that the target does not hold active: a
    * record in one goes in the target's corporate currency, its amounts
    * converted at the source's rates. Absent when the target holds every one,
@@ -286,6 +296,12 @@ export interface AutopilotObjectListing {
   readonly apiName: ApiName;
   readonly label: string;
   readonly custom: boolean;
+  /**
+   * Set when the target's global describe does not list the object: no run
+   * can write it there, so the picker shows it and does not let it be
+   * picked. Absent when the target has it.
+   */
+  readonly missingInTarget?: true;
 }
 
 /** Autopilot configuration provided by the user */

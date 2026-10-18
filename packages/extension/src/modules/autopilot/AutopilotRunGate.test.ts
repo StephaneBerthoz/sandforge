@@ -34,6 +34,32 @@ describe('autopilotWritePlan', () => {
     expect(plan.totalRows).toBe(50);
     expect(plan.storageBytes).toBe(50 * 2048);
   });
+
+  it('sizes a person account at 4 KB and its contact at nothing of its own, as Forge sizes them', () => {
+    // Salesforce counts a person account at 4 KB, being an account and a
+    // contact; every record went at 2 KB, and a plan of person accounts said
+    // half the storage it takes.
+    const plan = autopilotWritePlan(
+      planOf('Account', 'Contact', 'Opportunity'),
+      new Map([
+        ['Account', 20],
+        ['Contact', 30],
+        ['Opportunity', 20],
+      ]),
+      new Map([
+        ['Account', 10],
+        ['Contact', 10],
+      ]),
+    );
+
+    const bytesOf = (name: string): number | undefined =>
+      plan.objects.find((o) => o.objectApiName === name)?.storageBytes;
+    expect(bytesOf('Account')).toBe(10 * 2048 + 10 * 4096);
+    expect(bytesOf('Contact')).toBe(20 * 2048);
+    expect(bytesOf('Opportunity')).toBe(20 * 2048);
+    // Every record is still counted among those written.
+    expect(plan.totalRows).toBe(70);
+  });
 });
 
 describe('gateAutopilotWrite', () => {

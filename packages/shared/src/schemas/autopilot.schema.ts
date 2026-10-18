@@ -215,6 +215,14 @@ export const autopilotPlanScopeSchema = z.object({
   standardNeeded: z.array(
     z.object({ objectApiName: z.string().min(1), neededBy: z.string().min(1) }),
   ),
+  followedByDefault: z
+    .array(
+      z.object({
+        objectApiName: z.string().min(1),
+        referencedBy: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .optional(),
   currencies: z
     .object({
       notInTarget: z.array(z.string().min(1)).min(1),

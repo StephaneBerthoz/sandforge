@@ -19,7 +19,7 @@ import {
   type UpdateFn,
 } from './AutopilotExecutor.js';
 import type { SaveOutcome } from '../../core/common/existingRecordMatch.js';
-import type { SoqlQuery } from '../../core/common/platformRecords.js';
+import { accountsOfPersonContactsSoql, type SoqlQuery } from '../../core/common/platformRecords.js';
 import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
 import { RECORD_TYPES_SOQL } from '../sync/RecordTypeMapper.js';
 import { logger } from '../../logger.js';
@@ -2914,6 +2914,132 @@ describe('AutopilotExecutor — accounts of both kinds', () => {
     const personSent = vi.mocked(insert).mock.calls[0][1][0];
     expect(personSent).not.toHaveProperty('Name');
     expect(personSent['LastName']).toBe('Example');
+  });
+});
+
+describe("AutopilotExecutor — a person account's contact", () => {
+  const rows = {
+    Account: [
+      { Id: 'accBusiness', Name: 'Acme', IsPersonAccount: false },
+      { Id: 'accPerson', LastName: 'Example', IsPersonAccount: true, PersonContactId: 'conPerson' },
+    ],
+    Contact: [
+      { Id: 'conBusiness', LastName: 'Smith', AccountId: 'accBusiness', IsPersonAccount: false },
+      { Id: 'conPerson', LastName: 'Example', AccountId: 'accPerson', IsPersonAccount: true },
+    ],
+    Case: [{ Id: 'casPerson', Subject: 'Help', ContactId: 'conPerson' }],
+  };
+  const edges = [
+    makeEdge({ from: 'Account' as ApiName, to: 'Contact' as ApiName, fieldApiName: 'AccountId' }),
+    makeEdge({ from: 'Contact' as ApiName, to: 'Case' as ApiName, fieldApiName: 'ContactId' }),
+  ];
+  /** The account's lookup at the contact the platform writes with a person account. */
+  const personContact = lookup('PersonContactId', ['Contact'], {
+    createable: false,
+    updateable: false,
+  });
+
+  /**
+   * Run the plan over `source` into a target that wrote, with each account
+   * of `platform` (by its id there), the contact named; with `personAccounts`
+   * false, a target without them.
+   */
+  async function run(
+    source: Partial<typeof rows>,
+    options: {
+      platform?: Record<string, string | null>;
+      personAccounts?: boolean;
+      failLookup?: boolean;
+    } = {},
+  ) {
+    const insert = vi.fn<InsertFn>(async (name, records) =>
+      written(...records.map((_, i) => `${name.slice(0, 3)}T${i}`)),
+    );
+    const queryTarget = vi.fn<SoqlQuery>(async (soql) => {
+      const asked = accountsOfPersonContactsSoql(soql);
+      if (!asked) return [];
+      if (options.failLookup) throw new Error('REQUEST_LIMIT_EXCEEDED');
+      return asked.map((id) => ({ Id: id, PersonContactId: options.platform?.[id] ?? null }));
+    });
+    const deps = makeDeps({
+      query: sourceOf(source),
+      insert,
+      remapper: new RecordIdRemapper(),
+      describeLookups: async (name) =>
+        name === 'Account' && options.personAccounts !== false ? [personContact] : [],
+      queryTarget,
+      batchSize: 200,
+    });
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf(...Object.keys(source)),
+      edges,
+      [],
+      countsOf(source),
+    );
+    const sentOf = (object: string): Record<string, unknown>[] =>
+      insert.mock.calls.filter(([name]) => name === object).flatMap(([, records]) => records);
+    return { result, sentOf };
+  }
+
+  it('sends no contact of a person account, links to the one the platform wrote, and points its case at it', async () => {
+    // Every contact was sent: the contact of each person account went in a
+    // second time, as a contact of its own beside the platform's.
+    const { result, sentOf } = await run(rows, { platform: { AccT1: 'conPlatform' } });
+
+    expect(sentOf('Contact').map((r) => r['Id'])).toEqual(['conBusiness']);
+    expect(sentOf('Case')[0]['ContactId']).toBe('conPlatform');
+    expect(result.objectOutcomes?.['Contact']).toMatchObject({
+      written: 1,
+      linked: 1,
+      failed: 0,
+      withTheirPersonAccount: 1,
+    });
+    expect(result.totalLinked).toBe(1);
+  });
+
+  it('sends the contact as any contact when the target holds its account as a business one', async () => {
+    const { result, sentOf } = await run(rows, { platform: {} });
+
+    expect(sentOf('Contact').map((r) => [r['Id'], r['AccountId']])).toEqual([
+      ['conBusiness', 'AccT0'],
+      ['conPerson', 'AccT1'],
+    ]);
+    expect(result.objectOutcomes?.['Contact']).not.toHaveProperty('withTheirPersonAccount');
+  });
+
+  it('sends every contact as any contact to a target without person accounts, asking it nothing', async () => {
+    const { sentOf } = await run(rows, { personAccounts: false });
+
+    expect(sentOf('Contact')).toHaveLength(2);
+  });
+
+  it('holds back the contact of a person account the target does not hold, and the case naming it', async () => {
+    // Sent with no account, it would stand as a contact of its own.
+    const { result, sentOf } = await run({ Contact: rows.Contact, Case: rows.Case });
+
+    expect(sentOf('Contact').map((r) => r['Id'])).toEqual(['conBusiness']);
+    expect(sentOf('Case')).toEqual([]);
+    expect(result.objectOutcomes?.['Contact']).toMatchObject({
+      written: 1,
+      failed: 1,
+      refusals: [expect.objectContaining({ statusCode: 'PERSON_ACCOUNT_NOT_WRITTEN', count: 1 })],
+    });
+    expect(result.objectOutcomes?.['Case']).toMatchObject({
+      failed: 1,
+      refusals: [expect.objectContaining({ statusCode: 'PARENT_REFUSED' })],
+    });
+  });
+
+  it('holds back the contacts of person accounts when the target cannot be asked for its own', async () => {
+    const { result, sentOf } = await run(rows, { failLookup: true });
+
+    expect(sentOf('Contact').map((r) => r['Id'])).toEqual(['conBusiness']);
+    expect(result.objectOutcomes?.['Contact']?.refusals).toEqual([
+      expect.objectContaining({
+        statusCode: 'PERSON_CONTACT_NOT_LOOKED_UP',
+        message: expect.stringContaining('REQUEST_LIMIT_EXCEEDED'),
+      }),
+    ]);
   });
 });
 

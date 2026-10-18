@@ -97,8 +97,9 @@ Required:
 
 Options:
   --standard-objects     include standard objects the scan finds  (default: off)
-                         A standard object a record cannot be written without
-                         is taken either way, and said.
+                         The accounts the selection references are taken
+                         either way, as is a standard object a record cannot
+                         be written without, and said.
   --max-depth <n>        lookups followed from a selected object  (default: 5)
   --max-objects <n>      objects the plan holds, the selected ones included;
                          each parent a record needs raises it, to twice
@@ -395,7 +396,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The records the plan writes and the data storage they take, held to
   // --max-total and to what the target has left, as a clone is. With
   // --plan-only, what a real run would meet there.
-  const writePlan = autopilotWritePlan(plan, recordCounts);
+  const writePlan = autopilotWritePlan(plan, recordCounts, scan.personAccounts);
   let storage: DataStorage | { unread: string };
   try {
     storage = await readDataStorage(targetConn);
@@ -405,6 +406,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const check = storageCheckOf(writePlan, storage);
   log('');
   for (const line of writePlanLines(writePlan, check, args.target)) log(line);
+  for (const line of personAccountLines(scan.personAccounts)) log(line);
   // The emails the target's flows send as the plan's records go in, against
   // what it has left today: its automation read as Forge reads it, its limits
   // when something sends. Past them, the run is refused, as past the storage.
@@ -440,6 +442,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             writeGate: {
               records: writePlan.totalRows,
               storage: check,
+              personAccounts: Object.fromEntries(scan.personAccounts),
               emails: emails.checks,
               ...(emails.unread !== undefined ? { emailsUnread: emails.unread } : {}),
               refusals,
@@ -507,6 +510,14 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
         `${needed.neededBy} cannot be left empty`,
     );
   }
+  // The account is followed with standard objects off, as it is by default:
+  // left empty, the opportunities of a plan went in without theirs.
+  for (const followed of scope.followedByDefault ?? []) {
+    lines.push(
+      `  ${followed.objectApiName} followed by default though standard objects are off: ` +
+        `${followed.referencedBy.join(', ')} reference${followed.referencedBy.length === 1 ? 's' : ''} it`,
+    );
+  }
   const why: Record<AutopilotPlanScope['leftEmpty'][number]['reason'], string> = {
     depth: `further than ${scope.maxDepth} lookup(s)`,
     objects: `past ${scope.maxObjects} object(s)`,
@@ -533,6 +544,23 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
     );
   }
   return lines;
+}
+
+/**
+ * How the write gate sized the person accounts it counted, as Salesforce
+ * counts their storage: 4 KB an account, being an account and a contact, and
+ * nothing of its own for the contact the platform writes with it. Nothing
+ * when the plan copies none. Exported so it can be tested.
+ */
+export function personAccountLines(personAccounts: ReadonlyMap<string, number>): string[] {
+  const accounts = personAccounts.get('Account') ?? 0;
+  const contacts = personAccounts.get('Contact') ?? 0;
+  if (accounts === 0 && contacts === 0) return [];
+  const parts = [
+    ...(accounts > 0 ? [`${accounts} person account(s) at 4 KB each`] : []),
+    ...(contacts > 0 ? [`${contacts} contact(s) of person accounts at none of their own`] : []),
+  ];
+  return [`  sized as Salesforce counts them: ${parts.join(', ')}`];
 }
 
 /**
@@ -584,6 +612,13 @@ export function outcomeLines(result: ExecutionResult): string[] {
     // Not sent either: rows the platform writes itself, and what hangs from them.
     for (const left of outcome.leftToThePlatform ?? []) {
       lines.push(`      ${leftToThePlatformNote(left.count, left.why)}`);
+    }
+    // Nor the contacts of person accounts: the platform wrote each with its account.
+    if (outcome.withTheirPersonAccount !== undefined && outcome.withTheirPersonAccount > 0) {
+      lines.push(
+        `      ${outcome.withTheirPersonAccount} contact(s) of person accounts left to the ` +
+          'platform, which wrote each with its account: linked to it, not sent',
+      );
     }
     // Sent in another currency than read: the target does not hold theirs active.
     for (const entry of outcome.currenciesReplaced ?? []) {

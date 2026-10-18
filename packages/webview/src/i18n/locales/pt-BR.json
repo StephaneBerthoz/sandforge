@@ -3814,7 +3814,9 @@
       "description": "Selecione os objetos a incluir na execução do Autopilot.",
       "searchPlaceholder": "Buscar objetos...",
       "noResults": "Nenhum objeto corresponde à sua busca.",
-      "selectedCount": "{{count}} de {{total}} objetos selecionados"
+      "selectedCount": "{{count}} de {{total}} objetos selecionados",
+      "notInTarget": "Não existe na org de destino",
+      "countShown": "Contar os registros dos objetos exibidos ({{objects}})"
     },
     "step3": {
       "title": "Framework de conformidade",
@@ -3861,6 +3863,7 @@
         "reasonStandard": "um objeto padrão que a execução não precisava levar",
         "required": "um registro não pode ser gravado sem ele: esses registros serão recusados",
         "standardNeeded": "{{object}} é levado embora objetos padrão não tenham sido pedidos: {{field}} não pode ficar vazio.",
+        "followedByDefault": "{{object}} é seguido embora objetos padrão não tenham sido pedidos, como é por padrão: {{fields}} fazem referência a ele.",
         "currencies": "Moedas que a org de destino não tem ativas: {{currencies}}. Um registro em uma delas é gravado em {{writtenIn}}, sua moeda corporativa, com seus valores convertidos pelas taxas da org de origem ({{objects}})."
       },
       "notCovered": "{{object}}: nenhuma regra de anonimização para {{missing}}. Esses dados seriam copiados como a origem os contém.",

@@ -3597,7 +3597,9 @@
       "description": "Autopilot実行に含めるオブジェクトを選択してください。",
       "searchPlaceholder": "オブジェクトを検索...",
       "noResults": "検索に一致するオブジェクトがありません。",
-      "selectedCount": "{{total}}個中{{count}}個のオブジェクトが選択済み"
+      "selectedCount": "{{total}}個中{{count}}個のオブジェクトが選択済み",
+      "notInTarget": "ターゲット組織にありません",
+      "countShown": "表示中のオブジェクトのレコードを数える ({{objects}})"
     },
     "step3": {
       "title": "コンプライアンスフレームワーク",
@@ -3644,6 +3646,7 @@
         "reasonStandard": "実行で取り込むよう指定されていない標準オブジェクト",
         "required": "これがないとレコードを書き込めません: それらのレコードは拒否されます",
         "standardNeeded": "標準オブジェクトは指定されていませんが、{{object}} を取り込みます: {{field}} は空にできません。",
+        "followedByDefault": "標準オブジェクトは要求されていませんが、{{object}} は既定で辿られます: {{fields}} が参照しています。",
         "currencies": "ターゲット組織で有効になっていない通貨: {{currencies}}。これらの通貨のレコードは、ターゲット組織の会社の通貨である {{writtenIn}} で書き込まれ、金額はソース組織の換算レートで換算されます ({{objects}})。"
       },
       "notCovered": "{{object}}: {{missing}} の匿名化ルールがありません。ソースのままコピーされます。",

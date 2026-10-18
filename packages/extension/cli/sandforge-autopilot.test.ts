@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Connection } from 'jsforce';
-import { everyPage, outcomeLines, scopeLines } from './sandforge-autopilot';
+import { everyPage, outcomeLines, personAccountLines, scopeLines } from './sandforge-autopilot';
 
 describe('sandforge-autopilot — what it asks of the target', () => {
   it('reads every page of the answer, not the first alone', async () => {
@@ -213,6 +213,27 @@ describe('sandforge-autopilot — the run summary', () => {
     ]);
   });
 
+  it('prints the contacts of person accounts left to the platform, linked to and not sent', () => {
+    const lines = outcomeLines({
+      totalSuccess: 20,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Contact'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Contact: { written: 20, linked: 10, failed: 0, refusals: [], withTheirPersonAccount: 10 },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'Contact'.padEnd(28)} written 20  linked 10  refused 0`,
+      '      10 contact(s) of person accounts left to the platform, which wrote each with its ' +
+        'account: linked to it, not sent',
+    ]);
+  });
+
   it('prints a node that died before writing with the error it died with', () => {
     const lines = outcomeLines({
       totalSuccess: 0,
@@ -248,5 +269,41 @@ describe('sandforge-autopilot — the plan', () => {
       '  currencies the target does not hold active: GBP — a record in one is written in USD, ' +
         "its corporate currency, its amounts converted at the source's rates (Account, Opportunity)",
     );
+  });
+
+  it('says which standard parents were followed by default, and through which lookups', () => {
+    // Left out with standard objects off, the account of every opportunity
+    // stayed empty; it is followed now, and the plan says so.
+    const lines = scopeLines({
+      maxDepth: 5,
+      maxObjects: 50,
+      selected: ['Opportunity', 'Contact'],
+      parents: [{ objectApiName: 'Account', records: 20 }],
+      leftEmpty: [],
+      standardNeeded: [],
+      followedByDefault: [
+        { objectApiName: 'Account', referencedBy: ['Opportunity.AccountId', 'Contact.AccountId'] },
+      ],
+    });
+
+    expect(lines).toContain(
+      '  Account followed by default though standard objects are off: ' +
+        'Opportunity.AccountId, Contact.AccountId reference it',
+    );
+  });
+
+  it('says how the write gate sized the person accounts it counted', () => {
+    expect(
+      personAccountLines(
+        new Map([
+          ['Account', 10],
+          ['Contact', 10],
+        ]),
+      ),
+    ).toEqual([
+      '  sized as Salesforce counts them: 10 person account(s) at 4 KB each, ' +
+        '10 contact(s) of person accounts at none of their own',
+    ]);
+    expect(personAccountLines(new Map())).toEqual([]);
   });
 });

@@ -38,23 +38,38 @@ import {
 
 /**
  * The records a plan writes, per object, and the data storage they take: the
- * plan's counts, as a run of whole tables counts before it reads anything.
+ * plan's counts, as a run of whole tables counts before it reads anything,
+ * sized as Forge sizes them (`countedStorageBytes`) — a person account at
+ * 4 KB, being an account and a contact, and its contact at nothing of its
+ * own, the platform writing it with the account.
+ *
+ * Every record went at 2 KB: a plan of person accounts said half the storage
+ * they take.
  *
  * @param plan - The plan, whose waves name the objects it writes.
  * @param recordCounts - The records of each, as the scan counted them.
+ * @param personAccounts - Of the accounts and contacts, how many are person
+ *   accounts or their contacts, as the scan counted them.
  */
 export function autopilotWritePlan(
   plan: Pick<ExecutionPlan, 'waves'>,
   recordCounts: ReadonlyMap<string, number>,
+  personAccounts: ReadonlyMap<string, number> = new Map(),
 ): WritePlan {
   return writePlanOf(
     plan.waves
       .flatMap((wave) => wave.objects)
-      .map((objectApiName) => ({
-        objectApiName,
-        rows: [],
-        counted: { rows: recordCounts.get(objectApiName) ?? 0 },
-      })),
+      .map((objectApiName) => {
+        const persons = personAccounts.get(objectApiName);
+        return {
+          objectApiName,
+          rows: [],
+          counted: {
+            rows: recordCounts.get(objectApiName) ?? 0,
+            ...(persons !== undefined ? { personAccounts: persons } : {}),
+          },
+        };
+      }),
   );
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DEFAULT_SCAN_OBJECTS, SchemaScanner } from './SchemaScanner';
-import { countingConnection, fakeId, largeOrg } from '../../test/largeOrg';
+import { countingConnection, fakeId, largeOrg, type LargeOrgField } from '../../test/largeOrg';
 import type {
   AutopilotConnection,
   ObjectDescribeResult,
@@ -176,6 +176,24 @@ describe('SchemaScanner', () => {
     expect(source.describeGlobal).toHaveBeenCalledTimes(1);
     expect(source.describe).not.toHaveBeenCalled();
     expect(source.query).not.toHaveBeenCalled();
+  });
+
+  it('marks the objects the target does not have, from its global describe, and lists them all the same', async () => {
+    // Offered as any other, an object never deployed to the target was
+    // picked, scanned and planned, and its records refused at the write.
+    const source = mockConn({
+      globalSObjects: [mockGlobalSObject('Shipped__c'), mockGlobalSObject('NotDeployed__c')],
+    });
+    const target = mockConn({ globalSObjects: [mockGlobalSObject('Shipped__c')] });
+
+    const listed = await scanner.listObjects(source, target, false);
+
+    expect(listed).toEqual([
+      { apiName: 'Shipped__c', label: 'Shipped__c', custom: true },
+      { apiName: 'NotDeployed__c', label: 'NotDeployed__c', custom: true, missingInTarget: true },
+    ]);
+    expect(target.describeGlobal).toHaveBeenCalledTimes(1);
+    expect(target.describe).not.toHaveBeenCalled();
   });
 
   it('refuses to scan with nothing selected, before it asks the org anything', async () => {
@@ -774,6 +792,97 @@ describe('what a selection means, on an org of six hundred objects', () => {
       target: 'Case',
       reason: 'standard',
     });
+  });
+
+  it('follows the account the selection references with standard objects off, by id, and says it was by default', async () => {
+    // Left out as a standard object, the account of every opportunity was
+    // empty: the opportunities went in without the accounts they belong to.
+    const { org, result } = await scanLarge(['Opportunity'], false);
+
+    expect(result.objectDescribes.has('Account')).toBe(true);
+    // The ten opportunities name ten of the twenty accounts: those ten are read.
+    expect([...(result.parentIds.get('Account') ?? [])].sort()).toEqual(
+      Array.from({ length: 10 }, (_, i) => fakeId(org, 'Account', i + 1)).sort(),
+    );
+    expect(result.recordCounts.get('Account')).toBe(10);
+    expect(result.scope.followedByDefault).toEqual([
+      { objectApiName: 'Account', referencedBy: ['Opportunity.AccountId'] },
+    ]);
+    expect(result.scope.standardNeeded).toEqual([]);
+    expect(result.scope.leftEmpty.some((lookup) => lookup.target === 'Account')).toBe(false);
+  });
+
+  it('still leaves out the other standard objects with standard objects off', async () => {
+    // A case is no account: it waits for the run to be asked to take it.
+    const { result } = await scanLarge(['Obj012__c'], false, { maxDepth: 1 }, (org) => {
+      for (const row of org.rows.Obj012__c) {
+        row.Account__c = fakeId(org, 'Account', 1);
+        row.Case__c = fakeId(org, 'Case', 1);
+      }
+    });
+
+    expect(result.objectDescribes.has('Account')).toBe(true);
+    expect(result.objectDescribes.has('Case')).toBe(false);
+    expect(result.scope.leftEmpty).toContainEqual({
+      objectApiName: 'Obj012__c',
+      fieldApiName: 'Case__c',
+      target: 'Case',
+      reason: 'standard',
+    });
+  });
+
+  /** Person accounts in the org: half the accounts, and the contact the platform wrote with each. */
+  const personAccounts = (org: ReturnType<typeof largeOrg>): void => {
+    const flag: LargeOrgField = {
+      name: 'IsPersonAccount',
+      label: 'Is person account',
+      type: 'boolean',
+      referenceTo: [],
+      relationshipName: null,
+      nillable: false,
+      createable: false,
+      updateable: false,
+      unique: false,
+      externalId: false,
+      cascadeDelete: false,
+      defaultValue: null,
+    };
+    org.objects.get('Account')?.fields.push({ ...flag });
+    org.objects.get('Contact')?.fields.push({ ...flag });
+    org.rows.Account.forEach((row, i) => (row.IsPersonAccount = i % 2 === 1));
+    org.rows.Contact.forEach((row, i) => (row.IsPersonAccount = i < 10));
+  };
+
+  it('counts the person accounts among the accounts it reads by id, for the write gate', async () => {
+    // The ten opportunities name accounts 1 to 10; the even-numbered five are
+    // person accounts.
+    const { result, source } = await scanLarge(['Opportunity'], false, {}, personAccounts);
+
+    expect(result.personAccounts.get('Account')).toBe(5);
+    expect(result.personAccounts.has('Contact')).toBe(false);
+    expect(source.calls.queries.filter((q) => q.includes('IsPersonAccount = true'))).toHaveLength(
+      1,
+    );
+  });
+
+  it('counts the person contacts of a selected contact table in one count', async () => {
+    const { result } = await scanLarge(['Contact'], false, {}, personAccounts);
+
+    expect(result.personAccounts.get('Contact')).toBe(10);
+  });
+
+  it('counts no person account in an org without them', async () => {
+    const { result, source } = await scanLarge(['Opportunity'], false);
+
+    expect(result.personAccounts.size).toBe(0);
+    expect(source.calls.queries.some((q) => q.includes('IsPersonAccount'))).toBe(false);
+  });
+
+  it('says nothing was followed by default when the run takes standard objects', async () => {
+    const { result } = await scanLarge(['Opportunity'], true);
+
+    expect(result.objectDescribes.has('Account')).toBe(true);
+    expect(result.scope.followedByDefault).toBeUndefined();
   });
 
   it('takes a standard object asked for, reading only the records the selection names', async () => {

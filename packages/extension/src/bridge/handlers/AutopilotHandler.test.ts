@@ -1486,6 +1486,12 @@ describe('AutopilotHandler', () => {
       answer?: 'confirmed' | 'declined';
       automation?: ForgeTargetAutomation;
       singleEmailsLeft?: number;
+      /** Another plan than the leads', with the scan's counts of it. */
+      scanned?: {
+        plan: typeof PLAN;
+        recordCounts: Map<string, number>;
+        personAccounts: Map<string, number>;
+      };
     }) {
       const read = vi.fn(async () => {
         if (!options.automation) throw new Error('no automation given');
@@ -1508,11 +1514,12 @@ describe('AutopilotHandler', () => {
       const orchestrator = createMockOrchestrator({
         scanSchemas: vi.fn().mockResolvedValue({
           objectDescribes: new Map(),
-          recordCounts: new Map([['Lead', 3_000]]),
+          recordCounts: options.scanned?.recordCounts ?? new Map([['Lead', 3_000]]),
           parentIds: new Map(),
+          personAccounts: options.scanned?.personAccounts ?? new Map(),
           totalObjectsScanned: 1,
         }),
-        generatePlan: vi.fn().mockReturnValue(PLAN),
+        generatePlan: vi.fn().mockReturnValue(options.scanned?.plan ?? PLAN),
       });
       handler.setOrchestrator(orchestrator);
       mockGetConn.mockResolvedValue({
@@ -1651,6 +1658,23 @@ describe('AutopilotHandler', () => {
 
       expect(asked).not.toHaveBeenCalled();
       expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+    });
+
+    it('sizes the person accounts of the plan at 4 KB, and refuses them past the storage left', async () => {
+      // 300 person accounts take about 1.2 MB, as Salesforce counts them; at
+      // 2 KB each the gate said 0.6 MB, and let them into a target with 1 MB.
+      const { orchestrator, errors } = await run({
+        remainingMB: 1,
+        confirmAboveRecords: 5_000,
+        scanned: {
+          plan: { ...PLAN, waves: [{ order: 0, objects: ['Account'], dependsOn: [] }] },
+          recordCounts: new Map([['Account', 300]]),
+          personAccounts: new Map([['Account', 300]]),
+        },
+      });
+
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      expect(errors.map((e) => e.payload.code)).toEqual(['AUTOPILOT_STORAGE_EXCEEDED']);
     });
   });
 

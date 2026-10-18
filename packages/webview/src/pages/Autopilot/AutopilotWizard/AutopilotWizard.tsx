@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AutopilotGraph, AutopilotObjectListing, ExecutionPlan } from '@sandforge/shared';
 import { AUTOPILOT_COUNTS_PER_REQUEST } from '@sandforge/shared';
@@ -75,6 +75,10 @@ export interface AutopilotObjectInfo {
   readonly label: string;
   /** Records the source holds, once the object is picked and counted. */
   readonly recordCount?: number;
+  /** Set once its records were asked for: counted, being counted, or not countable. */
+  readonly countAsked?: true;
+  /** Set when the target does not have the object: shown, and not to be picked. */
+  readonly missingInTarget?: true;
 }
 
 /** AutopilotWizard component props. */
@@ -100,8 +104,10 @@ export interface AutopilotWizardProps {
  * described every object of the org and counted every table before the user
  * had picked one: hundreds of calls on a client sandbox of some six hundred
  * and seventy custom objects. It lists the objects from the two orgs' global
- * describes now, counts each object once it is picked, and scans only what
- * was picked.
+ * describes now, marks those the target does not have and lets none of them
+ * be picked, counts each object once it is picked by itself — and a page of
+ * the objects shown when asked, never all that "select all" picks — and
+ * scans only what was picked.
  */
 export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   onExecute,
@@ -149,20 +155,32 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     WIZARD_STEP_IDS.indexOf(step as (typeof WIZARD_STEP_IDS)[number]),
   );
 
+  /*
+   * The objects whose records the step counts: each one picked by itself, and
+   * those the user asks for with the count of the objects shown, at most a
+   * page of them a click. Never what "select all" picks: on a sandbox of some
+   * six hundred and seventy objects, the box set every one of them counting,
+   * fifty at a time, until the whole org had been counted. The scan counts
+   * what the plan copies all the same.
+   */
+  const [countWanted, setCountWanted] = useState<ReadonlySet<string>>(() => new Set());
+
   // Listing → the object step. Nothing is picked for the user: picked whole,
   // an org's every object made a plan of all of it. What was picked before
-  // going back stays picked where the new listing still offers it.
+  // going back stays picked where the new listing still offers it, and the
+  // target has it.
   useEffect(() => {
     const data = listMutation.data;
     if (!data) return;
     const store = useAutopilotStore.getState();
-    const listed = new Set(data.objects.map((o) => o.apiName));
+    const listed = new Set(data.objects.filter((o) => !o.missingInTarget).map((o) => o.apiName));
     store.setObjectListing(data.objects);
     store.setSelectedObjects(store.selectedObjects.filter((name) => listed.has(name)));
+    setCountWanted((wanted) => new Set([...wanted].filter((name) => listed.has(name))));
     store.setStep('objects');
   }, [listMutation.data]);
 
-  // The objects picked are counted a page at a time, each once per listing:
+  // The objects wanted are counted a page at a time, each once per listing:
   // an object the org would not count is not asked about again.
   const askedCounts = useRef(new Set<string>());
   useEffect(() => {
@@ -172,13 +190,13 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   const countObjects = countMutation.mutate;
   useEffect(() => {
     if (step !== 'objects' || !sourceOrgId || countLoading) return;
-    const unknown = selectedObjects
+    const unknown = [...countWanted]
       .filter((name) => objectCounts[name] === undefined && !askedCounts.current.has(name))
       .slice(0, AUTOPILOT_COUNTS_PER_REQUEST);
     if (unknown.length === 0) return;
     for (const name of unknown) askedCounts.current.add(name);
     countObjects({ sourceOrgId, objectApiNames: unknown });
-  }, [step, sourceOrgId, selectedObjects, objectCounts, countLoading, countObjects]);
+  }, [step, sourceOrgId, countWanted, objectCounts, countLoading, countObjects]);
   useEffect(() => {
     const data = countMutation.data;
     if (data) useAutopilotStore.getState().addObjectCounts(data.counts);
@@ -208,20 +226,38 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
       apiName: o.apiName,
       label: o.label,
       ...(objectCounts[o.apiName] !== undefined ? { recordCount: objectCounts[o.apiName] } : {}),
+      ...(countWanted.has(o.apiName) ? { countAsked: true as const } : {}),
+      ...(o.missingInTarget ? { missingInTarget: true as const } : {}),
     })) ?? [];
 
-  const selectAll =
-    availableObjects.length > 0 && selectedObjects.length === availableObjects.length;
+  const selectable = availableObjects.filter((o) => !o.missingInTarget).length;
+  const selectAll = selectable > 0 && selectedObjects.length === selectable;
 
   const handleToggleObject = useCallback((apiName: string) => {
-    useAutopilotStore.getState().toggleObject(apiName);
+    const store = useAutopilotStore.getState();
+    const listed = store.objectListing?.find((o) => o.apiName === apiName);
+    if (listed?.missingInTarget) return;
+    const picking = !store.selectedObjects.includes(apiName);
+    store.toggleObject(apiName);
+    if (picking) setCountWanted((wanted) => new Set(wanted).add(apiName));
   }, []);
 
   const handleToggleAll = useCallback(() => {
     const store = useAutopilotStore.getState();
-    const allNames = (store.objectListing ?? []).map((o) => o.apiName);
+    const allNames = (store.objectListing ?? [])
+      .filter((o) => !o.missingInTarget)
+      .map((o) => o.apiName);
     const allSelected = allNames.length > 0 && store.selectedObjects.length === allNames.length;
     store.setSelectedObjects(allSelected ? [] : allNames);
+  }, []);
+
+  // A page of the objects shown, counted on demand.
+  const handleCountShown = useCallback((apiNames: string[]) => {
+    setCountWanted((wanted) => {
+      const next = new Set(wanted);
+      for (const name of apiNames.slice(0, AUTOPILOT_COUNTS_PER_REQUEST)) next.add(name);
+      return next;
+    });
   }, []);
 
   const handleStepChange = useCallback(
@@ -336,6 +372,8 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
               selectAll={selectAll}
               onToggleObject={handleToggleObject}
               onToggleAll={handleToggleAll}
+              onCountShown={handleCountShown}
+              counting={countLoading}
             />
             {scanMutation.loading && (
               <p

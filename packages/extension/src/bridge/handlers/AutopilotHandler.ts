@@ -618,8 +618,9 @@ export class AutopilotHandler implements DomainHandler {
     // The plan's records against the setting, the target's data storage and
     // the emails its flows send for them, as Forge's gate holds a clone:
     // refused past the storage, asked about past the setting, near the
-    // storage or past a daily email limit, before anything is written.
-    const writePlan = autopilotWritePlan(plan, scanResult.recordCounts);
+    // storage or past a daily email limit, before anything is written. A
+    // person account is sized at 4 KB, as Salesforce counts it.
+    const writePlan = autopilotWritePlan(plan, scanResult.recordCounts, scanResult.personAccounts);
     const gate = await gateAutopilotWrite({
       plan: writePlan,
       storage: await this.readTargetDataStorage(operation.targetOrgId),

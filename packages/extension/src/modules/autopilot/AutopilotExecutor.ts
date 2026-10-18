@@ -53,6 +53,7 @@ import {
   ACCOUNT,
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
+  CONTACT,
   EMAIL_MESSAGE,
   FLAGS_THE_PLATFORM_LEAVES,
   NATURAL_KEYS,
@@ -68,6 +69,7 @@ import {
   isPersonAccountRow,
   leftOutForAccountKind,
   lookupsThePlatformFills,
+  personContactsOfAccounts,
   recordsByNaturalKey,
   statusCategories,
   tasksWrittenWithEmails,
@@ -257,6 +259,12 @@ export interface ObjectOutcome {
    * `core/common/recordCurrencies.ts`). Absent when there are none.
    */
   currenciesReplaced?: CurrencyReplaced[];
+  /**
+   * Of the contacts, those of person accounts, never sent: the platform wrote
+   * each with its account, and the run linked to that one. Counted among
+   * `linked`. Absent when there are none.
+   */
+  withTheirPersonAccount?: number;
 }
 
 /**
@@ -454,6 +462,18 @@ const NO_REASON_DETAIL: SaveErrorDetail = {
 /** The code of a record held back because a record it names was refused in the run. */
 export const PARENT_REFUSED = 'PARENT_REFUSED';
 
+/**
+ * The code of a person account's contact held back because its account is not
+ * in the target: the platform writes the contact with the account.
+ */
+export const PERSON_ACCOUNT_NOT_WRITTEN = 'PERSON_ACCOUNT_NOT_WRITTEN';
+
+/**
+ * The code of a person account's contact held back because the contact the
+ * platform wrote with its account could not be looked up.
+ */
+export const PERSON_CONTACT_NOT_LOOKED_UP = 'PERSON_CONTACT_NOT_LOOKED_UP';
+
 /** The target's person account record types, as Forge and Sync read them. */
 const PERSON_TYPES_SOQL = `SELECT Id FROM RecordType WHERE SobjectType = '${ACCOUNT}' AND IsPersonType = true`;
 
@@ -642,6 +662,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly heldWhole = new Set<string>();
   /** The target's person account record types, read once a run when a person account is written. */
   private personTypes: Promise<ReadonlySet<string> | undefined> | undefined;
+  /** The contacts of person accounts linked to the one the platform wrote with each account. */
+  private personContactsLinked = 0;
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -917,6 +939,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
             ? { notSent: objResult.notSent }
             : {}),
           ...this.currenciesReplacedOf(objectApiName),
+          ...(objectApiName === CONTACT && this.personContactsLinked > 0
+            ? { withTheirPersonAccount: this.personContactsLinked }
+            : {}),
         };
 
         // Cut short by the stop: neither completed nor failed, and said so
@@ -1464,7 +1489,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     // would leave without an id in the target: it waits for it. The others go
     // now, and the platform writes their tasks as it takes them.
     if (objectApiName === EMAIL_MESSAGE) rows = this.holdEmailsForTheirTask(rows);
-    if (rows.length === 0) return;
+    // A person account's contact is the platform's, written with its account:
+    // linked to, never sent.
+    if (objectApiName === CONTACT) rows = await this.linkPersonContacts(rows, state, mappings);
+    if (rows.length === 0) {
+      this.register(objectApiName, mappings);
+      return;
+    }
 
     const remap = this.deps.remapper.remapRecords(rows, edges, objectApiName);
     await this.leaveToDefault(objectApiName, rows, state);
@@ -2008,6 +2039,109 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       state.refusals.add([{ statusCode: PARENT_REFUSED, message, fields: [refused.fieldApiName] }]);
       const id = row['Id'];
       if (typeof id === 'string' && id !== '') this.refusedRecords.set(idKey(id), objectApiName);
+    }
+    return kept;
+  }
+
+  /**
+   * Of a page of contacts, those to send: each contact of a person account is
+   * linked to the contact the platform wrote with its account
+   * (`personContactsOfAccounts`), and mapped for the records that name it —
+   * a case, an opportunity's contact — as Forge links it. None of them is
+   * sent.
+   *
+   * The platform writes a person account's contact as it takes the account,
+   * and "you can't create or delete a person contact" (SOAP API Developer
+   * Guide, "Person Account Record Types"). Autopilot sent every contact it
+   * read: the contact of each person account it wrote went in a second time,
+   * as a contact of its own beside the platform's, and what named it named
+   * the copy.
+   *
+   * One whose account the target holds with no contact of the platform's —
+   * written or linked to as a business account — goes as any contact, as does
+   * every one when the target has no person accounts. One whose account is not
+   * in the target is held back (`PERSON_ACCOUNT_NOT_WRITTEN`), and so are all
+   * of them when the target could not be asked (`PERSON_CONTACT_NOT_LOOKED_UP`):
+   * sent, each would stand as a contact of its own. A run given no read of the
+   * target sends them as it always did.
+   *
+   * @param mappings - Where the source id of each contact linked is mapped to
+   *   the target's.
+   */
+  private async linkPersonContacts(
+    rows: Record<string, unknown>[],
+    state: ObjectState,
+    mappings: Array<[string, string]>,
+  ): Promise<Record<string, unknown>[]> {
+    const persons = rows.filter(isPersonAccountRow);
+    const target = this.deps.queryTarget;
+    if (persons.length === 0 || !target) return rows;
+    const lookups = await this.lookupsOf(ACCOUNT);
+    if (lookups && !lookups.some((lookup) => lookup.name === PERSON_CONTACT_FIELD)) return rows;
+    /** The account of each contact of a person account, by its id in the target. */
+    const accountOf = new Map<Record<string, unknown>, string>();
+    for (const row of persons) {
+      const account = row['AccountId'];
+      const id =
+        typeof account === 'string' && account !== ''
+          ? this.deps.remapper.getTargetId(ACCOUNT as ApiName, account)
+          : undefined;
+      if (id) accountOf.set(row, id);
+    }
+    let written = new Map<string, string>();
+    let unread: string | undefined;
+    if (accountOf.size > 0) {
+      try {
+        state.apiCallsUsed++;
+        written = await personContactsOfAccounts(target, [...new Set(accountOf.values())]);
+      } catch (err) {
+        unread = extractErrorMessage(err);
+      }
+    }
+    const holdBack = (row: Record<string, unknown>, statusCode: string, message: string): void => {
+      state.failed++;
+      state.errors.push(`${statusCode}: ${message}`);
+      state.refusals.add([{ statusCode, message, fields: ['AccountId'] }]);
+      const id = row['Id'];
+      if (typeof id === 'string' && id !== '') this.refusedRecords.set(idKey(id), CONTACT);
+    };
+    const kept: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      if (!isPersonAccountRow(row)) {
+        kept.push(row);
+        continue;
+      }
+      const account = accountOf.get(row);
+      if (account === undefined) {
+        holdBack(
+          row,
+          PERSON_ACCOUNT_NOT_WRITTEN,
+          'the person account this contact belongs to is not in the target: the platform ' +
+            'writes the contact with the account, and sent on its own it would stand as a ' +
+            'contact of no account.',
+        );
+        continue;
+      }
+      if (unread !== undefined) {
+        holdBack(
+          row,
+          PERSON_CONTACT_NOT_LOOKED_UP,
+          `the contact the platform wrote with its person account could not be looked up ` +
+            `(${unread}): sent, this one would stand beside it as a second contact.`,
+        );
+        continue;
+      }
+      const contact = written.get(account);
+      const id = row['Id'];
+      if (contact === undefined || typeof id !== 'string') {
+        // The account is in the target as a business account: no contact of
+        // the platform's stands for this one, which goes as any contact.
+        kept.push(row);
+        continue;
+      }
+      mappings.push([id, contact]);
+      state.linked++;
+      this.personContactsLinked++;
     }
     return kept;
   }

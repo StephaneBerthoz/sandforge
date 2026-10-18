@@ -391,6 +391,36 @@ describe('executionPlanSchema', () => {
     expect(result.waves).toHaveLength(1);
   });
 
+  it('keeps the standard parents a plan followed by default, with the lookups that reference them', () => {
+    const followedByDefault = [
+      { objectApiName: 'Account', referencedBy: ['Opportunity.AccountId', 'Contact.AccountId'] },
+    ];
+    const result = executionPlanSchema.parse({
+      waves: [{ order: 0, objects: ['Account'], dependsOn: [] }],
+      totalRecords: 1,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 1,
+      complianceFramework: 'none',
+      anonymizationSummary: {
+        totalPiiFields: 0,
+        totalFieldsToAnonymize: 0,
+        methodBreakdown: {},
+        objectsWithPii: [],
+      },
+      cycleResolutions: [],
+      scope: {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Opportunity'],
+        parents: [{ objectApiName: 'Account', records: 1 }],
+        leftEmpty: [],
+        standardNeeded: [],
+        followedByDefault,
+      },
+    });
+    expect(result.scope?.followedByDefault).toEqual(followedByDefault);
+  });
+
   it('should reject invalid compliance framework', () => {
     expect(() =>
       executionPlanSchema.parse({

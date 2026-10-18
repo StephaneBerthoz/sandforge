@@ -26,6 +26,7 @@ import {
 } from '../forge/GraphDiscoveryService.js';
 import { queryAllPages } from '../forge/queryAllPages.js';
 import { CURRENCY_FIELD, readRunCurrencies } from '../../core/common/recordCurrencies.js';
+import { ACCOUNT, CONTACT } from '../../core/common/platformRecords.js';
 import { logger } from '../../logger.js';
 
 /** Abstraction over Salesforce describe API for testability. */
@@ -141,6 +142,14 @@ export interface SchemaScanResult {
   parentIds: Map<ApiName, string[]>;
   /** What the plan copies and what it leaves out: see `AutopilotPlanScope`. */
   scope: AutopilotPlanScope;
+  /**
+   * Of the accounts and the contacts the plan copies, how many are person
+   * accounts or their contacts, in an org that has them: a person account
+   * takes 4 KB of the target's storage, its contact none of its own (see
+   * `countedStorageBytes`). An object it could not count is absent, and is
+   * sized as any record.
+   */
+  personAccounts: Map<ApiName, number>;
 }
 
 /** How far a scan walks from the selected objects, and what it says as it goes. */
@@ -180,6 +189,19 @@ export const IDS_PER_READ = 200;
  */
 const MAX_REQUIRED_ROUNDS = 10;
 
+/**
+ * The standard objects a walk follows when standard objects are not asked
+ * for, as it follows a custom one: the account. Left out with the others, a
+ * plan of opportunities left every `Opportunity.AccountId` empty, and the
+ * opportunities went in without the accounts they belong to. The other
+ * standard objects — a user's, a campaign, a price book — still wait for
+ * the run to be asked to take them.
+ */
+const FOLLOWED_BY_DEFAULT: ReadonlySet<ApiName> = new Set([ACCOUNT]);
+
+/** The flag of an account, and of a contact, that tells a person account's. */
+const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
+
 /** A lookup of a planned object to another, as the walk of the records follows it. */
 interface PlannedLookup {
   field: string;
@@ -216,6 +238,12 @@ export class SchemaScanner {
    * sandbox of some six hundred and seventy custom objects, hundreds of calls
    * before the user had picked anything. What is picked is counted on its
    * own (`countObjects`), and scanned (`scan`).
+   *
+   * An object the target's global describe does not list is listed all the
+   * same, marked `missingInTarget`: the picker shows it and does not let it
+   * be picked. Offered as any other, a custom object never deployed to the
+   * target was picked, scanned and planned, and every one of its records
+   * refused at the write.
    */
   async listObjects(
     sourceConn: AutopilotConnection,
@@ -230,11 +258,17 @@ export class SchemaScanner {
       targetGlobal.sobjects,
       await this.toolingObjects(targetConn),
     );
+    const inTarget = new Set(targetGlobal.sobjects.map((s) => s.name));
     return sourceGlobal.sobjects
       .filter((s) => s.queryable && s.createable)
       .filter((s) => includeStandardObjects || s.custom)
       .filter((s) => !isNeverCopied(s.name, described))
-      .map((s) => ({ apiName: s.name, label: s.label, custom: s.custom }));
+      .map((s) => ({
+        apiName: s.name,
+        label: s.label,
+        custom: s.custom,
+        ...(inTarget.has(s.name) ? {} : { missingInTarget: true as const }),
+      }));
   }
 
   /**
@@ -262,7 +296,8 @@ export class SchemaScanner {
    * @param targetConn - Connection to the target org.
    * @param selectedObjects - Objects explicitly selected by the user: at least one.
    * @param includeStandardObjects - Whether a standard object is taken when
-   *   the walk reaches one a record can be written without.
+   *   the walk reaches one a record can be written without; the account is
+   *   either way ({@link FOLLOWED_BY_DEFAULT}).
    * @param options - How far the walk goes, and who hears of its progress.
    * @returns Schema scan result with describes, dependencies, and record counts.
    * @throws When nothing is selected: see `listObjects`.
@@ -356,6 +391,15 @@ export class SchemaScanner {
     // corporate currency, its amounts converted.
     const currencies = await this.currenciesOf(sourceConn, targetConn, objectDescribes);
 
+    // Step 6: the person accounts among the accounts and contacts the plan
+    // copies, which the write gate sizes as Salesforce counts them.
+    const personAccounts = await this.personAccountsOf(
+      sourceConn,
+      objectDescribes,
+      selected,
+      walk.parentIds,
+    );
+
     return {
       objectDescribes,
       autoDiscoveredObjects: walk.added,
@@ -363,6 +407,7 @@ export class SchemaScanner {
       recordCounts: walk.recordCounts,
       totalObjectsScanned: objectDescribes.size,
       parentIds: walk.parentIds,
+      personAccounts,
       scope: {
         maxDepth,
         maxObjects,
@@ -373,9 +418,55 @@ export class SchemaScanner {
         })),
         leftEmpty: walk.leftEmpty,
         standardNeeded: walk.standardNeeded,
+        ...(walk.followedByDefault.length > 0 ? { followedByDefault: walk.followedByDefault } : {}),
         ...(currencies ? { currencies } : {}),
       },
     };
+  }
+
+  /**
+   * Of the accounts and the contacts the plan copies, how many are person
+   * accounts or their contacts: of a selected object, its table's, one
+   * `COUNT()`; of one read by id, those of its ids, a `COUNT()` per
+   * {@link IDS_PER_READ} of them. Asked only of an object the source
+   * describes `IsPersonAccount` on; one the source will not count is left
+   * out, and sized as any record.
+   *
+   * The write gate counted every record at 2 KB, where Salesforce counts a
+   * person account at 4 KB, being an account and a contact, and its contact
+   * at nothing of its own: Forge's gate sizes them so, and a plan of person
+   * accounts said half the storage it would take.
+   */
+  private async personAccountsOf(
+    conn: AutopilotConnection,
+    describes: ReadonlyMap<ApiName, ObjectDescribeResult>,
+    selected: ReadonlySet<ApiName>,
+    parentIds: ReadonlyMap<ApiName, readonly string[]>,
+  ): Promise<Map<ApiName, number>> {
+    const counts = new Map<ApiName, number>();
+    for (const name of [ACCOUNT, CONTACT]) {
+      const describe = describes.get(name);
+      if (!describe?.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG)) continue;
+      const of = `SELECT COUNT() FROM ${assertSoqlIdentifier(name)} WHERE ${PERSON_ACCOUNT_FLAG} = true`;
+      try {
+        if (selected.has(name)) {
+          counts.set(name, (await conn.query(of)).totalSize);
+          continue;
+        }
+        let persons = 0;
+        for (const chunk of this.chunk([...(parentIds.get(name) ?? [])], IDS_PER_READ)) {
+          const list = chunk.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+          persons += (await conn.query(`${of} AND Id IN (${list})`)).totalSize;
+        }
+        counts.set(name, persons);
+      } catch (err) {
+        logger.warn('Autopilot could not count the person accounts it copies', {
+          objectApiName: name,
+          error: extractErrorMessage(err),
+        });
+      }
+    }
+    return counts;
   }
 
   /**
@@ -425,8 +516,9 @@ export class SchemaScanner {
    * A lookup is followed while the record holding it is fewer than `maxDepth`
    * levels from a selected one, while the plan holds fewer than `maxObjects`
    * objects, and to a standard object only when standard objects were asked
-   * for. A lookup a record cannot be written without is followed past all
-   * three — the record would be refused otherwise — and raises the object
+   * for — save the account, followed either way ({@link FOLLOWED_BY_DEFAULT})
+   * and said so. A lookup a record cannot be written without is followed past
+   * all three — the record would be refused otherwise — and raises the object
    * bound by one, to twice it, as Forge's discovery does for a required
    * parent. A lookup that holds values and is not followed is listed with
    * why: the run leaves it empty. One that holds none takes nothing into the
@@ -450,6 +542,7 @@ export class SchemaScanner {
     added: ApiName[];
     leftEmpty: AutopilotLookupLeftEmpty[];
     standardNeeded: AutopilotPlanScope['standardNeeded'];
+    followedByDefault: NonNullable<AutopilotPlanScope['followedByDefault']>;
     recordCounts: Map<ApiName, number>;
     parentIds: Map<ApiName, string[]>;
   }> {
@@ -459,6 +552,7 @@ export class SchemaScanner {
     const ceiling = bounds.maxObjects * REQUIRED_PARENT_CEILING_FACTOR;
     const leftEmpty = new Map<string, AutopilotLookupLeftEmpty>();
     const standardNeeded: AutopilotPlanScope['standardNeeded'] = [];
+    const followedByDefault: NonNullable<AutopilotPlanScope['followedByDefault']> = [];
     const added: ApiName[] = [];
     const recordCounts = new Map<ApiName, number>();
     /** Of each object read by id, the ids of the records read. */
@@ -575,9 +669,10 @@ export class SchemaScanner {
       const fresh: ApiName[] = [];
       for (const [target, entry] of current) {
         if (planned.has(target)) continue;
-        const standard = bounds.isStandard(target);
+        const standard = bounds.isStandard(target) && !bounds.includeStandardObjects;
+        const byDefault = standard && !entry.required && FOLLOWED_BY_DEFAULT.has(target);
         let reason: AutopilotLeftOutReason | undefined;
-        if (standard && !bounds.includeStandardObjects && !entry.required) {
+        if (standard && !entry.required && !byDefault) {
           reason = 'standard';
         } else if (planned.size >= budget) {
           if (entry.required && budget < ceiling) budget++;
@@ -590,7 +685,12 @@ export class SchemaScanner {
         }
         planned.add(target);
         fresh.push(target);
-        if (standard && !bounds.includeStandardObjects) {
+        if (byDefault) {
+          followedByDefault.push({
+            objectApiName: target,
+            referencedBy: entry.via.map((via) => `${via.objectApiName}.${via.field}`),
+          });
+        } else if (standard) {
           const first = entry.via[0];
           standardNeeded.push({
             objectApiName: target,
@@ -645,6 +745,10 @@ export class SchemaScanner {
       // Left empty from one object, and taken in through another: not left out.
       leftEmpty: [...leftEmpty.values()].filter((lookup) => !planned.has(lookup.target)),
       standardNeeded,
+      // Followed, and not described: not copied, and not said to be.
+      followedByDefault: followedByDefault.filter((followed) =>
+        planned.has(followed.objectApiName),
+      ),
       recordCounts,
       parentIds,
     };

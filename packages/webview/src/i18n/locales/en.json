@@ -3814,7 +3814,9 @@
       "description": "Select the objects to include in the autopilot run.",
       "searchPlaceholder": "Search objects...",
       "noResults": "No objects match your search.",
-      "selectedCount": "{{count}} of {{total}} objects selected"
+      "selectedCount": "{{count}} of {{total}} objects selected",
+      "notInTarget": "Not in the target org",
+      "countShown": "Count the records of the objects shown ({{objects}})"
     },
     "step3": {
       "title": "Compliance Framework",
@@ -3861,6 +3863,7 @@
         "reasonStandard": "a standard object the run was not asked to take",
         "required": "a record cannot be written without it: those records will be refused",
         "standardNeeded": "{{object}} is taken although standard objects were not asked for: {{field}} cannot be left empty.",
+        "followedByDefault": "{{object}} is followed although standard objects were not asked for, as it is by default: {{fields}} reference it.",
         "currencies": "Currencies the target org does not hold active: {{currencies}}. A record in one of them is written in {{writtenIn}}, its corporate currency, its amounts converted at the source org's rates ({{objects}})."
       },
       "notCovered": "{{object}}: no anonymization rule for its {{missing}}. They would be copied as the source holds them.",

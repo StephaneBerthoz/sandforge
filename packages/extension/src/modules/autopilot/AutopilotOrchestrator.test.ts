@@ -75,6 +75,7 @@ function mockScanResult(): SchemaScanResult {
     recordCounts,
     totalObjectsScanned: 2,
     parentIds: new Map(),
+    personAccounts: new Map(),
     scope: {
       maxDepth: 5,
       maxObjects: 50,

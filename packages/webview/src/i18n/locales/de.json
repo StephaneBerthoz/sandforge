@@ -3814,7 +3814,9 @@
       "description": "Wählen Sie die Objekte, die im Autopilot-Lauf enthalten sein sollen.",
       "searchPlaceholder": "Objekte suchen...",
       "noResults": "Keine Objekte entsprechen Ihrer Suche.",
-      "selectedCount": "{{count}} von {{total}} Objekten ausgewählt"
+      "selectedCount": "{{count}} von {{total}} Objekten ausgewählt",
+      "notInTarget": "Nicht in der Ziel-Org",
+      "countShown": "Datensätze der angezeigten Objekte zählen ({{objects}})"
     },
     "step3": {
       "title": "Compliance-Framework",
@@ -3861,6 +3863,7 @@
         "reasonStandard": "ein Standardobjekt, das der Lauf nicht übernehmen sollte",
         "required": "ein Datensatz kann ohne ihn nicht geschrieben werden: Diese Datensätze werden abgelehnt",
         "standardNeeded": "{{object}} wird übernommen, obwohl keine Standardobjekte angefordert wurden: {{field}} darf nicht leer bleiben.",
+        "followedByDefault": "{{object}} wird verfolgt, obwohl keine Standardobjekte angefordert wurden, wie standardmäßig: {{fields}} verweisen darauf.",
         "currencies": "Währungen, die in der Ziel-Org nicht aktiv sind: {{currencies}}. Ein Datensatz in einer davon wird in {{writtenIn}} geschrieben, ihrer Unternehmenswährung, seine Beträge zu den Kursen der Quell-Org umgerechnet ({{objects}})."
       },
       "notCovered": "{{object}}: keine Anonymisierungsregel für {{missing}}. Diese Daten würden so kopiert, wie die Quelle sie enthält.",

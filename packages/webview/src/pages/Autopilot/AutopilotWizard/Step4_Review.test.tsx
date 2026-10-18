@@ -157,6 +157,35 @@ describe('Step4_Review', () => {
     );
   });
 
+  it('says which standard parents the plan followed by default, and through which lookups', () => {
+    render(
+      <Step4Review
+        {...defaultProps}
+        scope={{
+          maxDepth: 5,
+          maxObjects: 50,
+          selected: ['Opportunity', 'Contact'],
+          parents: [{ objectApiName: 'Account', records: 20 }],
+          leftEmpty: [],
+          standardNeeded: [],
+          followedByDefault: [
+            {
+              objectApiName: 'Account',
+              referencedBy: ['Opportunity.AccountId', 'Contact.AccountId'],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('step4-scope-followed-by-default').textContent).toBe(
+      i18n.t('autopilot.step4.scope.followedByDefault', {
+        object: 'Account',
+        fields: 'Opportunity.AccountId, Contact.AccountId',
+      }),
+    );
+  });
+
   it('warns of a person object whose names, emails or phones no rule anonymizes', () => {
     render(
       <Step4Review

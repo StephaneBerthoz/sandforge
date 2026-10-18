@@ -205,6 +205,14 @@ const MOCK_LISTING = MOCK_GRAPH.nodes.map(({ objectApiName }) => ({
   custom: false,
 }));
 
+/** An object of the source the target does not have: listed, said so, and not to be picked. */
+const MISSING_IN_TARGET = {
+  apiName: 'Shipment__c',
+  label: 'Shipment',
+  custom: true,
+  missingInTarget: true,
+};
+
 /**
  * From the Autopilot object step to compliance: every listed object picked,
  * Next, and the scan of the selection answered with {@link MOCK_GRAPH}.
@@ -5034,11 +5042,15 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('source-org-org-src-1').click();
       await page.getByTestId('target-org-org-tgt-1').click();
       await page.getByTestId('seed-wizard-next').click();
+      // With an object the target lacks: its row says so, and the count of
+      // the objects shown is offered.
       await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
-        objects: MOCK_LISTING,
+        objects: [...MOCK_LISTING, MISSING_IN_TARGET],
       });
 
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('object-Shipment__c-missing').waitFor({ state: 'visible' });
+      await page.getByTestId('count-shown-button').waitFor({ state: 'visible' });
       const step2 = await checkAccessibility(page);
       expectNoViolations(step2);
 
@@ -5165,6 +5177,7 @@ for (const theme of SCANNED_THEMES) {
               },
             ],
             standardNeeded: [{ objectApiName: 'Account', neededBy: 'Contact.AccountId' }],
+            followedByDefault: [{ objectApiName: 'Account', referencedBy: ['Contact.AccountId'] }],
             currencies: { notInTarget: ['GBP'], writtenIn: 'USD', objects: ['Account'] },
           },
         },
@@ -5173,7 +5186,12 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('step4-scope').waitFor({ state: 'visible', timeout: 5000 });
       const review = await checkAccessibility(page);
       expectNoViolations(review);
-      for (const testId of ['step4-scope', 'step4-scope-currencies', 'step4-not-covered']) {
+      for (const testId of [
+        'step4-scope',
+        'step4-scope-currencies',
+        'step4-scope-followed-by-default',
+        'step4-not-covered',
+      ]) {
         expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
           0,
         );

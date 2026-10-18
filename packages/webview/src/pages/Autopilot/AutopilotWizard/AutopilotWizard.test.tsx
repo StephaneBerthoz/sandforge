@@ -243,30 +243,73 @@ describe('AutopilotWizard', () => {
     expect(mockCountMutate).toHaveBeenCalledTimes(1);
   });
 
-  it('asks the counts of everything picked at once a page at a time, while none is in flight', () => {
-    const many: AutopilotObjectListing[] = Array.from(
-      { length: AUTOPILOT_COUNTS_PER_REQUEST + 5 },
-      (_, n) => ({ apiName: `Obj${n}__c`, label: `Obj ${n}`, custom: true }),
-    );
+  it('counts nothing "select all" picks on an org of six hundred and seventy objects, and a page of those shown when asked', () => {
+    // The box set every object counting, fifty at a time, until the whole org
+    // had been counted: fourteen requests and 670 counts for one click.
+    const many: AutopilotObjectListing[] = Array.from({ length: 670 }, (_, n) => ({
+      apiName: `Obj${String(n).padStart(3, '0')}__c`,
+      label: `Obj ${n}`,
+      custom: true,
+    }));
     const { rerender } = render(wizard());
     connectOrgs();
     listState = { ...listState, data: { objects: many } };
     rerender(wizard());
 
     fireEvent.click(screen.getByTestId('select-all-checkbox'));
+    expect(useAutopilotStore.getState().selectedObjects).toHaveLength(670);
+    expect(mockCountMutate).not.toHaveBeenCalled();
+
+    // One click, one page: the first fifty objects shown.
+    fireEvent.click(screen.getByTestId('count-shown-button'));
     expect(mockCountMutate).toHaveBeenCalledTimes(1);
-    expect(mockCountMutate.mock.calls[0][0].objectApiNames).toHaveLength(
-      AUTOPILOT_COUNTS_PER_REQUEST,
+    expect(mockCountMutate.mock.calls[0][0].objectApiNames).toEqual(
+      many.slice(0, AUTOPILOT_COUNTS_PER_REQUEST).map((o) => o.apiName),
     );
 
     countState = { ...countState, loading: true };
     rerender(wizard());
+    const counted = Object.fromEntries(
+      many.slice(0, AUTOPILOT_COUNTS_PER_REQUEST).map((o, n) => [o.apiName, n]),
+    );
+    countState = { ...countState, loading: false, data: { counts: counted } };
+    rerender(wizard());
+    // Answered, nothing more is asked until the user asks again.
     expect(mockCountMutate).toHaveBeenCalledTimes(1);
 
-    countState = { ...countState, loading: false, data: { counts: { Obj0__c: 3 } } };
-    rerender(wizard());
+    fireEvent.click(screen.getByTestId('count-shown-button'));
     expect(mockCountMutate).toHaveBeenCalledTimes(2);
-    expect(mockCountMutate.mock.calls[1][0].objectApiNames).toHaveLength(5);
+    expect(mockCountMutate.mock.calls[1][0].objectApiNames).toEqual(
+      many
+        .slice(AUTOPILOT_COUNTS_PER_REQUEST, 2 * AUTOPILOT_COUNTS_PER_REQUEST)
+        .map((o) => o.apiName),
+    );
+  });
+
+  it('does not let an object the target lacks be picked, by itself or by "select all"', () => {
+    const { rerender } = render(wizard());
+    connectOrgs();
+    listState = {
+      ...listState,
+      data: {
+        objects: [
+          ...LISTING,
+          { apiName: 'Ghost__c', label: 'Ghost', custom: true, missingInTarget: true },
+        ],
+      },
+    };
+    rerender(wizard());
+
+    fireEvent.click(screen.getByTestId('object-Ghost__c'));
+    expect(useAutopilotStore.getState().selectedObjects).toEqual([]);
+
+    fireEvent.click(screen.getByTestId('select-all-checkbox'));
+    expect(useAutopilotStore.getState().selectedObjects).toEqual([
+      'Account',
+      'Contact',
+      'Invoice__c',
+    ]);
+    expect((screen.getByTestId('select-all-checkbox') as HTMLInputElement).checked).toBe(true);
   });
 
   it('should show an error banner when the listing fails', () => {

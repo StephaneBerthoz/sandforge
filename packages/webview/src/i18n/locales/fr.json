@@ -3814,7 +3814,9 @@
       "description": "Sélectionnez les objets à inclure dans l'exécution autopilot.",
       "searchPlaceholder": "Rechercher des objets...",
       "noResults": "Aucun objet ne correspond à votre recherche.",
-      "selectedCount": "{{count}} sur {{total}} objets sélectionnés"
+      "selectedCount": "{{count}} sur {{total}} objets sélectionnés",
+      "notInTarget": "Absent de l'org cible",
+      "countShown": "Compter les enregistrements des objets affichés ({{objects}})"
     },
     "step3": {
       "title": "Cadre de Conformité",
@@ -3861,6 +3863,7 @@
         "reasonStandard": "un objet standard que l'exécution n'avait pas à prendre",
         "required": "un enregistrement ne peut pas être écrit sans lui : ces enregistrements seront refusés",
         "standardNeeded": "{{object}} est pris bien que les objets standard n'aient pas été demandés : {{field}} ne peut pas rester vide.",
+        "followedByDefault": "{{object}} est suivi bien que les objets standard n'aient pas été demandés, comme il l'est par défaut : {{fields}} y font référence.",
         "currencies": "Devises que l'org cible n'a pas actives : {{currencies}}. Un enregistrement dans l'une d'elles est écrit en {{writtenIn}}, sa devise de société, ses montants convertis aux taux de l'org source ({{objects}})."
       },
       "notCovered": "{{object}} : aucune règle d'anonymisation pour {{missing}}. Ces données seraient copiées telles que la source les contient.",

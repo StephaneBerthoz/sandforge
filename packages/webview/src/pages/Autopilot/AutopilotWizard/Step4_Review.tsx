@@ -198,6 +198,18 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
               })}
             </p>
           ))}
+          {(scope.followedByDefault ?? []).map((followed) => (
+            <p
+              key={followed.objectApiName}
+              className="text-xs text-text-secondary"
+              data-testid="step4-scope-followed-by-default"
+            >
+              {t('autopilot.step4.scope.followedByDefault', {
+                object: followed.objectApiName,
+                fields: followed.referencedBy.join(', '),
+              })}
+            </p>
+          ))}
           {scope.leftEmpty.length > 0 && (
             <div className="flex flex-col gap-0.5 text-xs text-text-secondary">
               <span>{t('autopilot.step4.scope.leftEmpty')}</span>

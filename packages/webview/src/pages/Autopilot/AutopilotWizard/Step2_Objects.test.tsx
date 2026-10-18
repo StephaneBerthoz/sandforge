@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../../i18n';
+import i18n from '../../../i18n';
 import { Step2Objects } from './Step2_Objects';
 import type { AutopilotObjectInfo } from './AutopilotWizard';
 
@@ -110,6 +110,85 @@ describe('Step2_Objects', () => {
       />,
     );
     expect(screen.getByTestId('select-all-checkbox')).toBeDefined();
+  });
+
+  it('shows an object the target does not have, said so, and does not let it be picked', () => {
+    // Offered as any other, it was picked, scanned and planned, and every
+    // record of it refused at the write.
+    const onToggleObject = vi.fn();
+    render(
+      <Step2Objects
+        availableObjects={[{ apiName: 'Ghost__c', label: 'Ghost', missingInTarget: true }]}
+        selectedObjects={[]}
+        selectAll={false}
+        onToggleObject={onToggleObject}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    const row = screen.getByTestId('object-Ghost__c');
+    expect(row.querySelector('input')?.disabled).toBe(true);
+    expect(screen.getByTestId('object-Ghost__c-missing').textContent).toBe(
+      i18n.t('autopilot.step2.notInTarget'),
+    );
+    fireEvent.click(row);
+    expect(onToggleObject).not.toHaveBeenCalled();
+  });
+
+  it('counts on demand the objects shown whose count is not known, as the search narrows them', () => {
+    const onCountShown = vi.fn();
+    render(
+      <Step2Objects
+        availableObjects={[
+          { apiName: 'Account', label: 'Account', recordCount: 5 },
+          { apiName: 'Contact', label: 'Contact' },
+          { apiName: 'Case', label: 'Case', countAsked: true },
+          { apiName: 'Ghost__c', label: 'Ghost', missingInTarget: true },
+          { apiName: 'Invoice__c', label: 'Invoice' },
+        ]}
+        selectedObjects={[]}
+        selectAll={false}
+        onToggleObject={vi.fn()}
+        onToggleAll={vi.fn()}
+        onCountShown={onCountShown}
+      />,
+    );
+
+    const button = screen.getByTestId('count-shown-button');
+    expect(button.textContent).toBe(i18n.t('autopilot.step2.countShown', { objects: 2 }));
+    fireEvent.click(button);
+    expect(onCountShown).toHaveBeenLastCalledWith(['Contact', 'Invoice__c']);
+
+    fireEvent.change(screen.getByTestId('object-search-input'), { target: { value: 'Inv' } });
+    fireEvent.click(screen.getByTestId('count-shown-button'));
+    expect(onCountShown).toHaveBeenLastCalledWith(['Invoice__c']);
+  });
+
+  it('offers no count of the objects shown while one is in flight, or when every one is known', () => {
+    const { rerender } = render(
+      <Step2Objects
+        availableObjects={[{ apiName: 'Contact', label: 'Contact' }]}
+        selectedObjects={[]}
+        selectAll={false}
+        onToggleObject={vi.fn()}
+        onToggleAll={vi.fn()}
+        onCountShown={vi.fn()}
+        counting
+      />,
+    );
+    expect((screen.getByTestId('count-shown-button') as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(
+      <Step2Objects
+        availableObjects={[{ apiName: 'Contact', label: 'Contact', recordCount: 3 }]}
+        selectedObjects={[]}
+        selectAll={false}
+        onToggleObject={vi.fn()}
+        onToggleAll={vi.fn()}
+        onCountShown={vi.fn()}
+      />,
+    );
+    expect((screen.getByTestId('count-shown-button') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('should filter objects by search input', () => {

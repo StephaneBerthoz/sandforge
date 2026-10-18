@@ -3814,7 +3814,9 @@
       "description": "Seleccione los objetos a incluir en la ejecución de Autopilot.",
       "searchPlaceholder": "Buscar objetos...",
       "noResults": "Ningún objeto coincide con su búsqueda.",
-      "selectedCount": "{{count}} de {{total}} objetos seleccionados"
+      "selectedCount": "{{count}} de {{total}} objetos seleccionados",
+      "notInTarget": "No está en la org de destino",
+      "countShown": "Contar los registros de los objetos mostrados ({{objects}})"
     },
     "step3": {
       "title": "Marco de cumplimiento",
@@ -3861,6 +3863,7 @@
         "reasonStandard": "un objeto estándar que no se pidió a la ejecución",
         "required": "un registro no puede escribirse sin él: esos registros serán rechazados",
         "standardNeeded": "{{object}} se toma aunque no se pidieron objetos estándar: {{field}} no puede quedar vacío.",
+        "followedByDefault": "{{object}} se sigue aunque no se pidieron objetos estándar, como se hace por defecto: {{fields}} hacen referencia a él.",
         "currencies": "Divisas que la org de destino no tiene activas: {{currencies}}. Un registro en una de ellas se escribe en {{writtenIn}}, su divisa corporativa, con sus importes convertidos a los tipos de la org de origen ({{objects}})."
       },
       "notCovered": "{{object}}: ninguna regla de anonimización para {{missing}}. Esos datos se copiarían tal como los tiene el origen.",
