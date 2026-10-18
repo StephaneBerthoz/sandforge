@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Trap_Expires_At__c</fullName>
+    <description>When the lease ends. Past it the lease holds nothing, so that a run that crashed before it gave the set back keeps it from nobody for longer than its lease.</description>
+    <externalId>false</externalId>
+    <label>Trap Expires At</label>
+    <required>false</required>
+    <type>DateTime</type>
+</CustomField>

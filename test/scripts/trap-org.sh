@@ -793,7 +793,7 @@ verify_source() {
 }
 
 verify_target() {
-  local org=$TARGET_ORG main empty person='' business='' described account_rt base id response
+  local org=$TARGET_ORG main empty person='' business='' described account_rt base id response leases
   CLEANUP_ORG=$org
   main=$(record_type "$org" Case Trap_Main)
   empty=$(record_type "$org" Case Trap_Empty)
@@ -836,8 +836,13 @@ verify_target() {
   report target 3a 'Contact, phone in the national form' 400 "$RESPONSE"
   insert "$org" Contact '{"LastName":"Probe Email","Phone":"+33 6 39 98 99 02"}'
   report target 3b 'Contact without email (bypassable rule)' 400 "$RESPONSE"
+  # A run holding a live lease on the bypass (scripts/trap-bypass.mjs) keeps
+  # the set assigned, and 3b then gets in: said beside the count.
+  leases=$(sfj data query --target-org "$org" --query \
+    "SELECT COUNT() FROM Trap_Bypass_Lease__c WHERE Trap_Expires_At__c > $(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+    jq -r '.result.totalSize // empty' 2>/dev/null || true)
   note target 3c 'Trap Bypass assignments' \
-    "$(count "$org" "SELECT COUNT() FROM PermissionSetAssignment WHERE PermissionSet.Name = 'Trap_Bypass'")"
+    "$(count "$org" "SELECT COUNT() FROM PermissionSetAssignment WHERE PermissionSet.Name = 'Trap_Bypass'")${leases:+, $leases live lease(s)}"
 
   # 4. Duplicate rules: an alert lets the API through only with allowSave, a block never.
   insert "$org" Account "{\"Name\":\"Trap Probe Twin\",$base}"

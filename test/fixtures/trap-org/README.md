@@ -42,10 +42,34 @@ connected with `sf org login web --alias SANDFORGE-TRAP --instance-url https://l
 | 16  | Asynchronous work an insert starts, rolled back in a composite call beside the same insert committed (the async probe, `target/probes`)                                                                                       | after the rollback, only the event published at once; the control, all six       |
 | 17  | A contact with an email (trap 9's flow) in a rolled-back composite call, beside one message sent for good                                                                                                                     | one single email taken, the control's                                            |
 | 18  | A flow that opens a follow-up Task, pointing at no record, for every Contact created under an account, as the user who created it: what a client org's Case flow did with assets, which no removal of the clone took back     | reports whether the flow is active                                               |
+| 19  | `Account.Trap_Opportunity_Count__c`, a roll-up of the account's opportunities, in the target alone: one inserted or deleted dates the account anew as modified by its writer, which a removal after a sweep took for a change | not probed                                                                       |
 
 A Developer Edition sends 15 single emails a day. The flow of trap 9 sends two per contact, and
 once the day's are spent it fails and the contact is refused (`CANNOT_EXECUTE_FLOW_TRIGGER`,
-"Probably Limit Exceeded"): a clone of contacts needs the flow's bypass, held by `Trap_Bypass`.
+"Probably Limit Exceeded"): a clone of contacts needs the flow's bypass, held by `Trap_Bypass`,
+which every run takes as a lease (below).
+
+### The bypass, held as a lease
+
+Every run writes to the target as the same user, and each used to take `Trap_Bypass` back by
+assignee once done: a run that ended took the bypass from under another still writing, whose
+contacts were then refused. A run now records that it holds the bypass, in a `Trap_Bypass_Lease__c`
+record (`target/main/`, opened to the admin by `Trap_Access`) named after the run, with the user
+and the time the lease ends, and assigns the set when the user lacks it. Giving it back removes the
+run's lease, and any lease past its end, and drops the assignment only when no other live lease is
+left. A lease past its end holds nothing: a run that crashed keeps the set from nobody for longer
+than its lease. A run that takes its lease while another drops the set gets it assigned again,
+a few seconds later.
+
+```bash
+node scripts/trap-bypass.mjs acquire <run> [--minutes <n>]  # 60 minutes unless told otherwise
+node scripts/trap-bypass.mjs release <run>
+node scripts/trap-bypass.mjs status                         # live leases, and whether the set is assigned
+```
+
+It touches `SANDFORGE-TRAP` alone, refuses it unless it answers as a Developer Edition, and prints
+no id. The probes find the set assigned to nobody only when no run holds a live lease: probe 3c
+says how many there are beside the count of assignments, and 3b gets in while one is live.
 
 A Developer Edition comes without person accounts and multi-currency. Both can be turned on in
 Setup, and multi-currency never off again; until then traps 11 and 12 say they are off and the
@@ -147,9 +171,10 @@ probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
 
 - The clone runs as a holder of `Trap_Bypass`, which the dry run names as the bypass of trap 9's
   flow: without it the day's emails run out after seven contacts and the rest are refused. The
-  canary assigns it before the rehearsal and takes it back after the removal, so that the probes
-  find it assigned to nobody (trap 3). The Frozen load and the Seed run write contacts too, each
-  as a holder of the set, given back after its removal.
+  canary takes a lease on it before the rehearsal and gives the lease back after the removal, so
+  that the probes find it assigned to nobody (trap 3), unless another run's lease is still live,
+  which the step says. The Frozen load and the Seed run write contacts too, each under a lease of
+  its own, given back after its removal.
 - The first removal leaves the item trap 8 holds; the canary checks `Trap_Allow_Delete__c` on it
   and removes the rest with `--include-changed`, then counts by id what the target still holds.
 - Trap 18's flow opens a task for each contact the clone writes. The tasks point at no record, so

@@ -36,6 +36,7 @@ import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
 import { commandLineGuard } from './commandLineGuard.js';
+import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 
 const HELP = `sandforge-backup — take and restore DataOps snapshots, without the editor.
@@ -64,7 +65,8 @@ A restore never deletes: it upserts on Id, so it overwrites the fields of
 records that are there, after bringing back from the recycle bin the ones
 deleted since the snapshot.
 
-Exit codes: 0 the run finished, 1 it could not start, 2 a bad command line.
+Exit codes: 0 the run finished, 1 it could not start, or the snapshot or the
+restore failed or was refused, 2 a bad command line.
 `;
 
 /** Everything the command line settled. */
@@ -198,6 +200,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
+  // Typed as the extension types an org it connects (`OrgHandler`): its
+  // `Organization` record, `IsSandbox` for its type and its edition with it.
+  // Handed neither, the Production Guard took every org for a production one,
+  // and a restore into a Developer Edition or a sandbox was refused as one
+  // into production: `--restore` wrote nowhere.
+  const identity = await new AuthProvider().validateConnection(org.accessToken, org.instanceUrl);
+  const typed = {
+    alias: org.alias,
+    orgType: identity.isSandbox ? 'Sandbox' : 'Production',
+    metadata: { apiVersion: '66.0', edition: identity.orgType },
+  };
+
   // What the panel would have received, printed instead of posted.
   const posted: Array<Record<string, unknown>> = [];
   const handler = new DataOpsHandler({
@@ -208,12 +222,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         const type = String(message.type ?? '');
         if (type.endsWith(':error') || type.includes('failed')) {
           log(`  ! ${JSON.stringify(message.payload ?? message)}`);
+          // A snapshot or a restore the handler refused or failed: the run
+          // did not do what it was asked, whatever else it said.
+          process.exitCode = 1;
         }
       },
     },
-    orgManager: {
-      getOrg: () => ({ alias: org.alias, metadata: { apiVersion: '66.0' } }),
-    },
+    orgManager: { getOrg: () => typed },
     orgRegistry: {
       getCredentials: async () => ({
         accessToken: org.accessToken,
@@ -298,7 +313,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-backup')) {
   main()
-    .then(() => process.exit(0))
+    .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
       process.exit(1);

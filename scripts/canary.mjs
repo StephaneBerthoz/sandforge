@@ -51,6 +51,7 @@ import {
   soqlDate,
   windowAround,
 } from './canary-steps.mjs';
+import { acquireBypass, releaseBypass, sfOrg as trapOrg } from './trap-bypass.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = 'SANDFORGE-SOURCE';
@@ -455,62 +456,43 @@ function targetUser() {
 }
 
 /**
+ * The lease the canary holds the bypass under (scripts/trap-bypass.mjs): a
+ * name of its own run, and an end past its longest step.
+ */
+const BYPASS_RUN = `canary-${Date.now().toString(36)}`;
+const BYPASS_MINUTES = 60;
+const bypassOrg = trapOrg(TARGET, (label, sfArgs) => run(label, 'sf', sfArgs));
+
+/**
  * Run a step's writes to the target as a holder of the bypass. A Developer
  * Edition sends 15 single emails a day and the welcome flow sends two per
  * contact: a step that writes contacts runs as a holder of the bypass the
  * Forge dry run names, as a user would, and gives it back so that the probes
- * find the set assigned to nobody (trap 3).
+ * find the set assigned to nobody (trap 3). Another run may hold it as well,
+ * as the same user: the canary takes a lease on the set, and giving it back
+ * leaves it assigned while another run's lease is live.
  */
 function withBypass(step, user, writes) {
-  const assigned = run(`${step}-bypass-assign`, 'sf', [
-    'org',
-    'assign',
-    'permset',
-    '--name',
-    BYPASS_SET,
-    '--target-org',
-    TARGET,
-  ]);
-  if (assigned.status !== 0 && !/duplicate|already/i.test(`${assigned.stdout}${assigned.stderr}`)) {
-    return record(`${step} bypass`, false, `${BYPASS_SET} not assigned: ${why(assigned.stderr)}`);
-  }
+  const taken = acquireBypass(bypassOrg, {
+    runId: BYPASS_RUN,
+    assignee: user,
+    minutes: BYPASS_MINUTES,
+  });
+  if (!taken.ok) return record(`${step} bypass`, false, `${BYPASS_SET} not held: ${taken.why}`);
   try {
     return writes();
   } finally {
-    const given = dropBypass(user);
+    const given = releaseBypass(bypassOrg, { runId: BYPASS_RUN, assignee: user });
     record(
       `${step} bypass given back`,
-      given,
-      given ? `${BYPASS_SET} assigned to nobody again` : 'still assigned',
+      given.ok,
+      !given.ok
+        ? given.why
+        : given.held
+          ? `${BYPASS_SET} kept for ${given.keptFor} other live lease(s)`
+          : `${BYPASS_SET} assigned to nobody again`,
     );
   }
-}
-
-/** Remove the bypass assignment the canary made; true once none is left. */
-function dropBypass(user) {
-  const query = (label) =>
-    sfJson(label, [
-      'data',
-      'query',
-      '--query',
-      `SELECT Id FROM PermissionSetAssignment WHERE PermissionSet.Name = '${BYPASS_SET}' AND AssigneeId = '${user}'`,
-      '--target-org',
-      TARGET,
-    ])?.records ?? [];
-  for (const { Id } of query('bypass-held')) {
-    run(`bypass-drop-${Id.slice(-4)}`, 'sf', [
-      'data',
-      'delete',
-      'record',
-      '--sobject',
-      'PermissionSetAssignment',
-      '--record-id',
-      Id,
-      '--target-org',
-      TARGET,
-    ]);
-  }
-  return query('bypass-left').length === 0;
 }
 
 function cloneAndRemove(root, user) {
