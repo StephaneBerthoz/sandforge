@@ -5,6 +5,34 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.59.0] - 2026-10-19
+
+Line items keep their parent's currency, Seed picks its record type and cleans up after the target's automation, and the bulk paths hold past 10 000 rows.
+
+### Added
+
+- **Seed panel**: picks the record type to write, person or business, and refuses a mix.
+- **Seed panel**: lists earlier seeds, each removable from any window, after a reload too.
+- **Seed removal**: can sweep what the target's automation created during the run, from the panel and with `--sweep`.
+- **Currencies**: dated exchange rates are used where advanced currency management is on, by the opportunity's close date.
+
+### Changed
+
+- **Currencies**: line items follow their parent's currency and its conversion, in Forge, Sync and Autopilot.
+- **Forge**: a price entry in a currency the target lacks gives way to the source's own entry in the currency written, or is converted and said.
+- **Autopilot**: follows Account by default, reading only the accounts the selected records reference.
+- **Autopilot object list**: "select all" counts nothing until asked, and the objects the target lacks are listed but not selectable.
+- **Autopilot**: leaves a person account's contact to the platform and links its children to it.
+- **Autopilot write gate**: sizes a person account at 4 KB, as Forge does.
+- **DataOps CCPA**: without an object, masks the person accounts as well when the org has them.
+- **Validation rules**: their formulas are read 25 per request, so a large org is read in fewer calls.
+
+### Fixed
+
+- **Backup command line**: `sandforge-backup --restore` writes again into a Developer Edition or a sandbox, and exits 1 when the snapshot or the restore fails.
+- **Sync delta**: a copy it deleted is no longer linked to by a later run.
+- **Frozen**: an axis on a checkbox, number or date field is queried without quotes, as Salesforce requires.
+
 ## [1.58.0] - 2026-10-17
 
 Person accounts and multi-currency tested on real orgs: amounts keep their value, and every module writes each account as its kind.
