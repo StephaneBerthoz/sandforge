@@ -10,8 +10,8 @@ Only the latest minor on the marketplace receives security fixes.
 
 | Version | Supported |
 | ------- | --------- |
-| 1.59.x  | Yes       |
-| < 1.59  | No        |
+| 1.60.x  | Yes       |
+| < 1.60  | No        |
 
 ## Reporting a vulnerability
 

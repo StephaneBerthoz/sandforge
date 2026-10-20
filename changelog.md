@@ -5,6 +5,41 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.60.0] - 2026-10-20
+
+An empty org fills in one click: Seed opens on templates sized for a new Developer Edition, which is no longer treated as production.
+
+### Added
+
+- **Seed**: two light starters lead the gallery, CRM Starter (about 300 linked records) and Leads & Activities.
+- **Seed**: checks the data storage a run needs before writing anything.
+- **Seed results**: refusals grouped by code and field with a hint, and a link to a created record in the org.
+- **Quick Seed**: a run can be cancelled.
+- **Sync and Autopilot**: emails and phone numbers are neutralised by default; an option keeps them.
+- **Frozen**: the salt is kept in the editor's secret storage, with commands to copy it or use a teammate's.
+
+### Changed
+
+- **Seed**: opens on its template gallery, with one confirmation and the org preselected.
+- **Seed templates**: products are priced on the org's standard price book, and objects the org lacks are skipped by name.
+- **Seed data**: names, companies, addresses and dates vary from run to run and follow the org's locale.
+- **Seed**: a run is kept on disk as it writes, so an interrupted run can still be removed.
+- **Seed Configure step**: lists an account's fields for the chosen record type.
+- **Developer Edition**: a development org everywhere, as Trailhead playgrounds are; a production org keeps every guard.
+- **Removals**: past 10 000 records of one object they use a Bulk API job, and dependents are read once per relationship: 12 000 contacts in under a minute.
+- **Sync**: an owner the target refused is left out of later objects from the start.
+- **DataOps restore**: writes only the rows that differ from the org; an option rewrites them all.
+- **DataOps Backup tab**: lists the objects the masking plan covers.
+- **Autopilot**: three wizard steps, the compliance framework under Advanced.
+
+### Fixed
+
+- **Seed**: a long run no longer loses its page or asks to try again while it is still writing.
+- **Seed**: records watched by a duplicate rule are no longer refused.
+- **Seed**: a field the org requires without a rule is filled, and named in the results.
+- **DataOps Restore tab**: the Restore button no longer sits inside a selectable card.
+- **Clone command line**: prints what its scan added.
+
 ## [1.59.0] - 2026-10-19
 
 Line items keep their parent's currency, Seed picks its record type and cleans up after the target's automation, and the bulk paths hold past 10 000 rows.

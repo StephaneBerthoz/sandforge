@@ -2406,6 +2406,8 @@
       "personCurrency1580Desc": "Tested on orgs with person accounts and several currencies: a currency the target lacks is replaced and the amounts are converted at the source's rates, in Forge, Sync and Autopilot. Autopilot writes each account as its kind and holds back what a refused parent would orphan, and DataOps masking now covers a person account's own name, email and phones.",
       "seedCurrency1590": "Seed and currencies go further",
       "seedCurrency1590Desc": "Seed now picks a person or business record type, keeps its runs so an earlier one can be removed from any window, and can sweep what the target's automation created. Line items follow their parent's currency, at the dated rates where advanced currency management is on, and Autopilot follows Account by default.",
+      "emptyOrg1600": "Fill an empty org in one click",
+      "emptyOrg1600Desc": "Seed opens on its template gallery: CRM Starter fills a new Developer Edition with linked accounts, contacts, priced opportunities and cases, after checking its storage. A Developer Edition is no longer treated as production, Sync and Autopilot hide real emails and phone numbers by default, and large removals take under a minute.",
       "exactResume1530": "Resume exactly where it stopped",
       "exactResume1530Desc": "A resumed Forge run now copies the files left to copy, never gives a status back twice, and is no longer refused when an empty table changed meanwhile. Removing a large run reads its journal page by page.",
       "undoSync1520": "Take back what a Sync run created",

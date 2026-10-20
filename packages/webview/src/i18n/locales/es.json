@@ -2406,6 +2406,8 @@
       "personCurrency1580Desc": "Probado en orgs con cuentas personales y varias divisas: una divisa que el destino no tiene se sustituye y los importes se convierten a los tipos del origen, en Forge, Sync y Autopilot. Autopilot escribe cada cuenta según su tipo y retiene lo que un padre rechazado dejaría huérfano, y el enmascaramiento de DataOps cubre ahora el nombre, el correo y los teléfonos de una cuenta personal.",
       "seedCurrency1590": "Seed y las divisas van más lejos",
       "seedCurrency1590Desc": "Seed elige ahora un tipo de registro personal o de empresa, guarda sus ejecuciones para que una anterior se elimine desde cualquier ventana y puede barrer lo que la automatización del destino creó. Las partidas siguen la divisa de su padre, a los tipos fechados donde la gestión avanzada de divisas está activa, y Autopilot sigue Account por defecto.",
+      "emptyOrg1600": "Llenar una org vacía con un clic",
+      "emptyOrg1600Desc": "Seed se abre en su galería de plantillas: CRM Starter llena una Developer Edition nueva con cuentas, contactos, oportunidades con precio y casos enlazados, tras comprobar su almacenamiento. Una Developer Edition ya no se trata como producción, Sync y Autopilot ocultan por defecto los correos y teléfonos reales, y las eliminaciones grandes tardan menos de un minuto.",
       "exactResume1530": "Reanudar exactamente donde se detuvo",
       "exactResume1530Desc": "Una ejecución de Forge reanudada ahora copia los archivos pendientes, nunca devuelve un estado dos veces y ya no se rechaza cuando una tabla vacía cambió entretanto. Eliminar una ejecución grande lee su diario página por página.",
       "undoSync1520": "Deshacer lo que creó una ejecución de Sync",
