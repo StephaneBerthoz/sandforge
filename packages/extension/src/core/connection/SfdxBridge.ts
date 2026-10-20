@@ -1,5 +1,5 @@
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
-import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
+import { SF_LIMITS, orgRegistrationOf, orgTypeOf } from '@sandforge/shared';
 import { z } from 'zod';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { parseSalesforceLoginUrl } from '../common/salesforceLoginHost.js';
@@ -721,20 +721,15 @@ export class SfdxBridge {
   }
 
   private mapToSalesforceOrg(entry: SfdxOrgEntry): SfdxImportResult {
-    const orgType = entry.isScratch
-      ? ('Scratch' as const)
-      : entry.isSandbox
-        ? ('Sandbox' as const)
-        : ('Production' as const);
-
-    // Production orgs are critical; sandboxes may hold production-shaped data
-    // so they sit one tier above scratch orgs (medium vs low).
-    const safetyTier =
-      orgType === 'Production'
-        ? OrgSafetyTier.CRITICAL
-        : orgType === 'Sandbox'
-          ? OrgSafetyTier.MEDIUM
-          : OrgSafetyTier.LOW;
+    // Typed by the one rule every guard reads (`orgTypeOf`): a Developer
+    // Edition org says `isSandbox` false and was imported as a production org,
+    // red, asked about before every write and refused every cleanup.
+    const orgType = orgTypeOf({
+      isScratch: entry.isScratch,
+      isSandbox: entry.isSandbox,
+      edition: entry.orgEdition,
+    });
+    const { safetyTier, color } = orgRegistrationOf(orgType);
 
     const org: SalesforceOrg = {
       id: entry.orgId,
@@ -746,7 +741,7 @@ export class SfdxBridge {
       authMethod: 'sfdx_import',
       safetyTier,
       appearance: {
-        color: orgType === 'Production' ? '#e74c3c' : '#4a9eff',
+        color,
         icon: 'cloud',
         position: 0,
       },

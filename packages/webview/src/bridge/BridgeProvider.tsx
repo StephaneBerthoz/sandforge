@@ -37,6 +37,7 @@ const DROP_REASON_KEYS: Readonly<Record<string, string>> = {
  */
 const NOTIFICATION_CODE_KEYS: Readonly<Record<string, string>> = {
   AUTOPILOT_NOT_READY: 'common.refusal.autopilotNotReady',
+  FROZEN_SALT_CREATED: 'frozen.salt.created',
 };
 
 /** Props for BridgeProvider. */

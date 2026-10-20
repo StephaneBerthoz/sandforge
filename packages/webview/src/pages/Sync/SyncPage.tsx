@@ -196,6 +196,7 @@ export const SyncPage: React.FC = () => {
   const deltaHintId = React.useId();
   const deletesHintId = React.useId();
   const filesHintId = React.useId();
+  const contactPointsHintId = React.useId();
   const filesNeedSaveId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
@@ -229,6 +230,8 @@ export const SyncPage: React.FC = () => {
     setPropagateDeletes,
     copyFiles,
     setCopyFiles,
+    keepContactPoints,
+    setKeepContactPoints,
     fileCaps,
     setFileCap,
     deltaBlockers,
@@ -517,6 +520,29 @@ export const SyncPage: React.FC = () => {
                     {t('sync.delta.needsKey', { objects: deltaBlockers.join(', ') })}
                   </p>
                 )}
+              </div>
+
+              {/* Emails and phone numbers: neutralized unless unticked, as a
+                  Forge run's are. Copied as read into a sandbox whose flows
+                  email and text the contacts they are written for, the copies
+                  were real people. */}
+              <div
+                className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                data-testid="sync-contact-points-settings"
+              >
+                <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!keepContactPoints}
+                    onChange={(e) => setKeepContactPoints(!e.target.checked)}
+                    aria-describedby={contactPointsHintId}
+                    data-testid="sync-contact-points-toggle"
+                  />
+                  {t('sync.contactPoints.toggle')}
+                </label>
+                <p id={contactPointsHintId} className="text-[10px] text-text-secondary">
+                  {t('sync.contactPoints.toggleHint')}
+                </p>
               </div>
 
               {/* The files of the records it writes: off unless ticked, with the

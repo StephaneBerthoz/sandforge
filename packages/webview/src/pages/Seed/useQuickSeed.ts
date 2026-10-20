@@ -6,6 +6,7 @@ import type {
   SeedObjectConfig,
   FieldRuleConfig,
 } from '@sandforge/shared';
+import { isDevelopmentOrg } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
@@ -23,14 +24,11 @@ export type QuickSeedPhase = 'idle' | 'confirm' | 'executing' | 'results';
 
 /**
  * Whether an org is one a seed may be aimed at without being asked for: it is
- * connected, and it is not a production org. A Developer Edition is registered
- * as production, as the platform says it is not a sandbox, and holds nobody's
- * business: Seed is for it as for a sandbox, as Production Guard reads it.
+ * connected, and it is not a production org by the rule every guard reads
+ * (`isDevelopmentOrg`): a sandbox, a scratch org or a Developer Edition.
  */
 export function isSeedTargetCandidate(org: SalesforceOrg): boolean {
-  if (org.status !== 'connected') return false;
-  if (org.orgType !== 'Production') return true;
-  return org.metadata?.edition?.trim().toLowerCase() === 'developer edition';
+  return org.status === 'connected' && isDevelopmentOrg(org);
 }
 
 /** State and actions for the Quick Seed flow. */

@@ -1362,6 +1362,10 @@
         "removed": "Leitura completa (uma remoção retirou cópias gravadas)"
       }
     },
+    "contactPoints": {
+      "toggle": "Neutralizar e-mails e números de telefone (recomendado)",
+      "toggleHint": "Ativado, a menos que desmarcado. Cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém. Desmarcado, eles são copiados como a origem os contém, e os fluxos do destino podem enviar e-mails e SMS a pessoas reais. O campo com que a gravação faz a correspondência é mantido como lido."
+    },
     "files": {
       "toggle": "Copiar os arquivos destes registros",
       "toggleHint": "Desativado, a menos que marcado. Depois que os registros de um objeto são gravados, a versão mais recente de cada arquivo do Salesforce vinculado a um deles, e seus anexos clássicos, são copiados e vinculados às cópias dos registros no destino. Uma configuração salva lembra qual arquivo copiou e onde: executá-la de novo copia um arquivo só se a origem tiver uma versão mais recente, adicionada como versão da cópia, nunca como um segundo arquivo. Antes que a execução grave qualquer coisa, o armazenamento de arquivos do destino é lido, e uma execução cujos arquivos não caberiam é recusada. Um arquivo maior que o tamanho máximo, e os arquivos além do máximo que uma execução copia, são ignorados e contados; a próxima execução copia estes últimos. Remover uma execução retira, com seus registros, os arquivos que ela criou; uma versão adicionada a uma cópia anterior fica.",
@@ -2641,7 +2645,7 @@
     "sfStackExchangeDesc": "Perguntas e respostas da comunidade para desenvolvedores Salesforce",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Iniciar tour guiado",
-    "autopilotContent": "O Autopilot copia os objetos que você escolher de uma org de origem para uma org de destino, em quatro etapas:\n1. Escolha a org de origem e a de destino\n2. Selecione os objetos a copiar\n3. Escolha um framework de conformidade para anonimizar os dados pessoais (GDPR, CCPA, HIPAA ou PCI-DSS), ou nenhum\n4. Revise o plano (ondas, registros, chamadas de API, campos PII) e execute-o",
+    "autopilotContent": "O Autopilot copia os objetos que você escolher de uma org de origem para uma org de destino, em três etapas:\n1. Escolha a org de origem e a de destino\n2. Selecione os objetos a copiar\n3. Revise o plano (ondas, registros, chamadas de API, campos PII) e execute-o. E-mails e números de telefone são neutralizados, a menos que você desmarque — cada endereço sob .invalid, cada número fictício — e Avançado escolhe um framework de conformidade que anonimiza mais (GDPR, CCPA, HIPAA ou PCI-DSS)",
     "migrationContent": "A Migração converte uma definição de migração existente em uma configuração do Sync:\n- Importe um export.json do SFDMU, ou um arquivo .json ou .csv\n- A importação lê o arquivo e não altera nada em nenhuma org\n- Executar a configuração convertida grava registros na org de destino",
     "reportsContent": "Relatórios lê o histórico de execuções que o Forge e o Sync já mantêm:\n- Execuções: cada execução com status, duração e número de registros, exportável em JSON\n- Análises: taxas de sucesso calculadas a partir dessas execuções\n- Trilha de auditoria e linhagem de dados: em breve, nada os registra ainda"
   },
@@ -3901,10 +3905,9 @@
       "countShown": "Contar os registros dos objetos exibidos ({{objects}})"
     },
     "step3": {
-      "title": "Framework de conformidade",
       "selectFramework": "Selecione um framework de conformidade",
       "none": "Nenhum",
-      "noneDesc": "Sem anonimização — transfere os dados como estão",
+      "noneDesc": "Sem estrutura: nada é anonimizado além dos e-mails e números de telefone que a execução neutraliza, a menos que essa caixa seja desmarcada",
       "gdpr": "GDPR",
       "gdprDesc": "Proteção de dados europeia — anonimiza identificadores pessoais",
       "ccpa": "CCPA",
@@ -3924,6 +3927,9 @@
       "waves": "Ondas de execução",
       "piiFields": "Campos PII detectados",
       "anonymizedFields": "Campos a anonimizar",
+      "contactPoints": "Neutralizar e-mails e números de telefone (recomendado)",
+      "contactPointsHint": "Cada endereço de e-mail é gravado sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém. Desmarcado, eles são copiados como a origem os contém.",
+      "advancedCompliance": "Avançado: estrutura de conformidade",
       "execute": "Executar Autopilot",
       "description": "Revise sua configuração antes de iniciar o Autopilot.",
       "complianceFramework": "Framework de conformidade",
@@ -4092,7 +4098,10 @@
     },
     "status": {
       "salt": "Impressão digital do salt",
-      "saltMissing": "Salt ausente",
+      "saltMissing": "Ainda nenhum",
+      "saltKept": "Guardado no armazenamento secreto do VS Code",
+      "saltFromEnvironment": "De SANDFORGE_FROZEN_SALT",
+      "saltMadeOnExtraction": "Criado e guardado na primeira extração",
       "dataset": "Dataset congelado",
       "records_one": "{{count}} registro",
       "records_other": "{{count}} registros",
@@ -4100,11 +4109,14 @@
       "selection": "Seleção",
       "noSelection": "Nenhuma seleção ainda",
       "lastVerify": "Última verificação",
-      "saltMismatch": "O salt deste ambiente ({{current}}) não é aquele com que este conjunto de dados foi construído ({{manifest}}). Uma nova extração com ele daria aos mesmos registros pseudônimos diferentes dos deste conjunto. Antes, volte a definir esse salt em SANDFORGE_FROZEN_SALT."
+      "saltMismatch": "O salt deste editor ({{current}}) não é aquele com que este conjunto de dados foi construído ({{manifest}}). Uma nova extração com ele daria aos mesmos registros pseudônimos diferentes dos deste conjunto. Antes, defina de novo esse salt, com \"SandForge: Usar um salt para o Frozen Dataset\" ou SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extrair",
       "load": "Carregar"
+    },
+    "salt": {
+      "created": "Esta primeira extração criou o salt com que cada pseudônimo é tirado e o guarda no armazenamento secreto do VS Code: cada extração seguinte pseudonimiza os mesmos registros da mesma forma. Um colega que extrair este conjunto de dados precisa do mesmo salt: copie-o com \"SandForge: Copiar o salt do Frozen Dataset\" e passe-o como passaria uma senha; ele o define com \"SandForge: Usar um salt para o Frozen Dataset\". Quem o tem pode saber de qual valor de origem um pseudônimo foi tirado."
     },
     "manifest": {
       "version": "Conjunto de dados v{{version}}"
@@ -4163,7 +4175,8 @@
       "title": "Extração e pseudonimização",
       "run": "Executar extração",
       "summary_one": "{{count}} registro congelado em {{files}} arquivos",
-      "summary_other": "{{count}} registros congelados em {{files}} arquivos"
+      "summary_other": "{{count}} registros congelados em {{files}} arquivos",
+      "saltHint": "Cada pseudônimo é tirado com o salt deste editor, criado na primeira extração e guardado no armazenamento secreto do VS Code. Para extrair os mesmos pseudônimos que um colega, defina o dele com \"SandForge: Usar um salt para o Frozen Dataset\"; passe o seu com \"SandForge: Copiar o salt do Frozen Dataset\". SANDFORGE_FROZEN_SALT, onde está definido, prevalece sobre ambos. Uma carga não precisa do salt."
     },
     "control": {
       "check": "Verificação",
@@ -4177,13 +4190,11 @@
     },
     "guards": {
       "title": "Guardas de entrada",
-      "sandboxOnly": "Somente sandbox",
+      "sandboxOnly": "Nunca uma org de produção",
       "protectedEnvs_one": "{{count}} ambiente protegido",
       "protectedEnvs_other": "{{count}} ambientes protegidos",
-      "mocksConfigured": "Detecção de mocks configurada",
-      "mocksNotConfigured": "Detecção de mocks não configurada",
-      "saltOk": "Salt carregado",
-      "saltMissing": "Salt ausente"
+      "mocksConfigured": "Callouts não simulados verificados",
+      "mocksNotConfigured": "Callouts não simulados não verificados"
     },
     "load": {
       "targetOrg": "Org de destino (sandbox)",

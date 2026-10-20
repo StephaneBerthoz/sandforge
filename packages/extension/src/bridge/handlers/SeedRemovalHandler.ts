@@ -5,6 +5,7 @@ import type {
   SeedRemovalResult,
   SeedRunRemovalInfo,
 } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import {
   ABORTED_BEFORE_START,
@@ -36,7 +37,6 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg } from '../../modules/forge/ForgeRunRemoval.js';
 import { removalAuditObjects, removalAuditOutcome } from '../../modules/forge/removalOutcome.js';
-import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
 import {
   createdCount,
   syncRemovalPlan,
@@ -177,10 +177,10 @@ export class SeedRemovalHandler implements DomainHandler {
     return true;
   }
 
-  /** The tier a removal takes the target for: a Forge removal's (`forgeTargetTier`). */
+  /** The tier a removal takes the target for: a Forge removal's (`guardTierOf`). */
   private tierOf(targetOrgId: string): SafetyTier {
     const org = this.deps.orgManager.getOrg(targetOrgId);
-    return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);
+    return guardTierOf(org);
   }
 
   /** What a run kept, as the page reads it, and why no removal can run when none can. */

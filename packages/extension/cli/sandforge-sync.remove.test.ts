@@ -21,6 +21,7 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 import { makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import {
+  cliAllowsDeletes,
   configurationToldLines,
   main,
   memoryCreations,
@@ -176,6 +177,20 @@ describe('what the command takes back, and from where', () => {
         'Enterprise Edition): sandforge-sync removes records from sandboxes and Developer ' +
         'Edition orgs only. Nothing was deleted.',
     );
+  });
+
+  it('replaces an attachment in a sandbox or a Developer Edition org, never in a production org', () => {
+    // The earlier copy of a changed attachment goes once the new one is
+    // written, where the guard lets the run delete: a Developer Edition org,
+    // which says IsSandbox false, is typed as the panel types it.
+    expect(cliAllowsDeletes({ id: ORG_ID, sandbox: true })).toBe(true);
+    expect(cliAllowsDeletes({ id: ORG_ID, sandbox: false, edition: 'Developer Edition' })).toBe(
+      true,
+    );
+    expect(cliAllowsDeletes({ id: ORG_ID, sandbox: false, edition: 'Enterprise Edition' })).toBe(
+      false,
+    );
+    expect(cliAllowsDeletes({ id: ORG_ID, sandbox: false })).toBe(false);
   });
 
   it('names the configuration of a run it was given the store of, and says what it was told', () => {

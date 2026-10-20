@@ -9,14 +9,14 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 
-function deps(orgType: string, guard?: ProductionGuard): HandlerDeps {
+function deps(orgType: string, guard?: ProductionGuard, edition?: string): HandlerDeps {
   const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
   configStore.initialize();
   let id = 0;
   return {
     log: vi.fn(),
     broker: { postToWebview: vi.fn() },
-    orgManager: { getOrg: vi.fn(() => ({ orgType, alias: 'dev' })) },
+    orgManager: { getOrg: vi.fn(() => ({ orgType, alias: 'dev', metadata: { edition } })) },
     configStore,
     nextId: () => String(++id),
     ...(guard ? { infraServices: { productionGuard: guard } } : {}),
@@ -84,6 +84,28 @@ describe('runGuardedRemoval', () => {
       outcome: 'stopped',
       guard: 'refused',
     });
+  });
+
+  it('runs a cleanup on a Developer Edition org, which an earlier build registered as production', async () => {
+    // A Trailhead playground says IsSandbox false: DataOps Cleanup and a DSR
+    // erase were refused there as deletes in production.
+    for (const orgType of ['Developer', 'Production']) {
+      const d = deps(orgType, new ProductionGuard(), 'Developer Edition');
+      const run = removal();
+
+      const result = await runGuardedRemoval(d, run);
+
+      expect(result).toMatchObject({ ran: true, guard: 'allowed' });
+      expect(run.run).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('still refuses a delete on a production org of any other edition', async () => {
+    const d = deps('Production', new ProductionGuard(), 'Enterprise Edition');
+    const run = removal();
+
+    expect(await runGuardedRemoval(d, run)).toMatchObject({ ran: false, guard: 'refused' });
+    expect(run.run).not.toHaveBeenCalled();
   });
 
   it('stops when a person turns the production confirmation down', async () => {

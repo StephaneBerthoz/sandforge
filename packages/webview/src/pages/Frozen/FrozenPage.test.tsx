@@ -174,6 +174,14 @@ describe('FrozenPage', () => {
     expect(mockMutate).toHaveBeenCalledWith('frozen:extract', { sourceOrgId: 'org-1' });
   });
 
+  it('says beside the extraction where its salt comes from and how a teammate gets it', () => {
+    render(<FrozenPage />);
+    const hint = screen.getByTestId('frozen-salt-hint').textContent ?? '';
+    expect(hint).toContain('made on the first extraction');
+    expect(hint).toContain('SandForge: Use a Frozen Dataset Salt');
+    expect(hint).toContain('SandForge: Copy Frozen Dataset Salt');
+  });
+
   it('renders the retained combinations after a selection', () => {
     useFrozenStore.setState({
       selection: {
@@ -1284,6 +1292,39 @@ describe('FrozenPage', () => {
       render(<FrozenPage />);
 
       expect(screen.queryByTestId('frozen-salt-mismatch')).toBeNull();
+    });
+
+    it('says a salt is made on the first extraction, and where the one in use is kept', () => {
+      // "Salt missing", in warning colours, until an environment variable
+      // was set before VS Code started: there was no way to fix it here.
+      useFrozenStore.setState({ status: statusFixture({ salt: { present: false } }) });
+      const { unmount } = render(<FrozenPage />);
+      const strip = screen.getByTestId('frozen-status-strip').textContent ?? '';
+      expect(strip).toContain('None yet');
+      expect(strip).toContain('Made and kept on the first extraction');
+      expect(strip).not.toMatch(/missing/i);
+      unmount();
+
+      useFrozenStore.setState({
+        status: statusFixture({
+          salt: { present: true, fingerprint: 'abc123def456', source: 'secretStorage' },
+        }),
+      });
+      const kept = render(<FrozenPage />);
+      expect(screen.getByTestId('frozen-status-strip').textContent).toContain(
+        "Kept in VS Code's secret storage",
+      );
+      kept.unmount();
+
+      useFrozenStore.setState({
+        status: statusFixture({
+          salt: { present: true, fingerprint: 'abc123def456', source: 'environment' },
+        }),
+      });
+      render(<FrozenPage />);
+      expect(screen.getByTestId('frozen-status-strip').textContent).toContain(
+        'From SANDFORGE_FROZEN_SALT',
+      );
     });
 
     it('says nothing when there is no salt or no dataset to compare', () => {

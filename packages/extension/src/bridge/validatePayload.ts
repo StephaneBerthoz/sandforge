@@ -1090,6 +1090,8 @@ export const autopilotGeneratePlanPayloadSchema = z.object({
 /** Execute request: 0 disables the grappe threshold (handler acts on truthy values only). */
 export const autopilotExecutePayloadSchema = z.object({
   grappeThreshold: z.number().int().nonnegative(),
+  /** Write emails and phone numbers as read; absent, the run neutralizes them. */
+  keepContactPoints: z.boolean().optional(),
 });
 
 export const autopilotSkipNodePayloadSchema = z.object({

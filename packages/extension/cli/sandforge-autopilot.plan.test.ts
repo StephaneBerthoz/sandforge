@@ -88,6 +88,13 @@ describe('sandforge-autopilot — what a plan copies', () => {
     vi.restoreAllMocks();
   });
 
+  it('neutralizes emails and phone numbers unless --keep-contact-points is given', () => {
+    expect(parseArgs(argv('--object', 'Lead')).keepContactPoints).toBe(false);
+    expect(parseArgs(argv('--object', 'Lead', '--keep-contact-points')).keepContactPoints).toBe(
+      true,
+    );
+  });
+
   it('takes the bounds of the walk and the most records a run writes', () => {
     expect(parseArgs(argv('--object', 'Lead'))).toMatchObject({
       maxDepth: 5,

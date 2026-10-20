@@ -16,7 +16,7 @@ function createOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
     authMethod: 'oauth_web',
     safetyTier: OrgSafetyTier.LOW,
     appearance: { color: '#3B82F6', icon: 'cloud', position: 0 },
-    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+    metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
     status: 'connected',
     lastConnected: '2024-01-01T00:00:00Z',
     tags: [],
@@ -47,6 +47,24 @@ describe('useSandboxDetection', () => {
     const { result } = renderHook(() => useSandboxDetection());
     expect(result.current.hasSandbox).toBe(false);
     expect(result.current.sandboxOrgs).toHaveLength(0);
+  });
+
+  it('counts a Developer Edition org and a scratch org as orgs to fill, as a sandbox', () => {
+    // Only sandboxes were kept: those who connect a Trailhead playground saw
+    // neither the Home page's "Populate Sandbox" nor the banner.
+    const developerEdition = { apiVersion: '59.0', edition: 'Developer Edition', features: [] };
+    useOrgStore.setState({
+      orgs: [
+        createOrg({ id: 'org-1', orgType: 'Developer', metadata: developerEdition }),
+        createOrg({ id: 'org-2', orgType: 'Scratch', metadata: developerEdition }),
+        // Registered as production by an earlier build: its edition says otherwise.
+        createOrg({ id: 'org-3', orgType: 'Production', metadata: developerEdition }),
+        createOrg({ id: 'org-4', orgType: 'Production' }),
+      ],
+    });
+    const { result } = renderHook(() => useSandboxDetection());
+    expect(result.current.hasSandbox).toBe(true);
+    expect(result.current.sandboxOrgs.map((o) => o.id)).toEqual(['org-1', 'org-2', 'org-3']);
   });
 
   it('should return multiple sandbox orgs', () => {

@@ -751,7 +751,24 @@ describe('SfdxBridge', () => {
 
       expect(orgs.get('00D000000000001AAA')?.orgType).toBe('Sandbox');
       expect(orgs.get('00D000000000002AAA')?.orgType).toBe('Production');
-      expect(orgs.get('00D00000000000HUB')?.orgType).toBe('Production');
+    });
+
+    it('types an org that is no sandbox and says it is a Developer Edition as a Developer org, blue and low', async () => {
+      const orgs = await importReal();
+
+      // The Dev Hub of this listing is a Developer Edition org, as a
+      // Trailhead playground is: it holds nobody's business.
+      expect(orgs.get('00D00000000000HUB')).toMatchObject({
+        orgType: 'Developer',
+        safetyTier: 'low',
+        appearance: { color: '#4a9eff' },
+      });
+      // An Enterprise Edition org that is no sandbox stays a production org.
+      expect(orgs.get('00D000000000002AAA')).toMatchObject({
+        orgType: 'Production',
+        safetyTier: 'critical',
+        appearance: { color: '#e74c3c' },
+      });
     });
   });
 

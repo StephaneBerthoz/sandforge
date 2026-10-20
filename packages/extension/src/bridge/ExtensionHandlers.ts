@@ -59,6 +59,7 @@ import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
 import { FrozenDatasetHandler } from './handlers/FrozenDatasetHandler.js';
+import { secretStorageSaltKeeper } from '../modules/frozendataset/FrozenSalt.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
@@ -236,6 +237,9 @@ export class ExtensionHandlers {
     this.autopilotHandler = new AutopilotHandler(this.handlerDeps);
     this.forgeHandler = new ForgeHandler(this.handlerDeps);
     this.frozenHandler = new FrozenDatasetHandler(this.handlerDeps);
+    // The salt kept in VS Code's secret storage, made on the first extraction;
+    // SANDFORGE_FROZEN_SALT wins where it is set.
+    this.frozenHandler.setSaltKeeper(secretStorageSaltKeeper(deps.secretVault));
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(
@@ -271,7 +275,7 @@ export class ExtensionHandlers {
       syncGuard: (config) =>
         syncGuardVerdict(
           this.handlerDeps.infraServices?.productionGuard,
-          syncGuardRequest(config, deps.orgManager.getOrg(config.targetOrgId)?.orgType),
+          syncGuardRequest(config, deps.orgManager.getOrg(config.targetOrgId)),
         ),
       runSync: (config, answer, signal) =>
         runPipelineSync(

@@ -119,6 +119,12 @@ export const syncConfigSchema = z.object({
   propagateDeletes: z.boolean().optional(),
   /** Copy the files of the records each object writes. Off unless set. */
   files: syncFileCopyOptionSchema.optional(),
+  /**
+   * Write emails and phone numbers as the source holds them. Off unless set:
+   * parsing drops what the schema does not name, and the choice would never
+   * reach the run.
+   */
+  keepContactPoints: z.boolean().optional(),
 });
 
 /** Inferred type for transform rule configuration input */

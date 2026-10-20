@@ -574,6 +574,11 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               {t('frozen.extract.run')}
             </Button>
           </div>
+          {/* Where the salt comes from and how a teammate gets it: it is made
+              on the first extraction, and nothing else said so. */}
+          <p className="text-xs text-text-secondary" data-testid="frozen-salt-hint">
+            {t('frozen.extract.saltHint')}
+          </p>
           {extractMutation.error && <ErrorBanner message={extractMutation.error} />}
           {extractMutation.data && (
             <>

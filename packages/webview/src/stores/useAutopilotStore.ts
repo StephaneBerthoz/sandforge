@@ -28,9 +28,13 @@ export type NodeOutcome = Partial<
   >
 >;
 
-/** Autopilot wizard step */
-export type AutopilotStep =
-  'connect' | 'objects' | 'compliance' | 'review' | 'executing' | 'completed';
+/**
+ * Autopilot wizard step. The compliance framework had a step of its own,
+ * whose default copied every email and phone number as read; it is now an
+ * advanced choice on the review step, beside the neutralization a run makes
+ * by default.
+ */
+export type AutopilotStep = 'connect' | 'objects' | 'review' | 'executing' | 'completed';
 
 /** Execution status */
 export type ExecutionStatus =
@@ -67,6 +71,7 @@ const INITIAL_STATE = {
   objectListing: null as AutopilotObjectListing[] | null,
   objectCounts: {} as Record<string, number>,
   complianceFramework: 'none' as ComplianceFrameworkType,
+  neutralizeContactPoints: true,
   graph: null as AutopilotGraph | null,
   plan: null as ExecutionPlan | null,
   rules: [] as AutopilotAnonymizationRule[],
@@ -95,6 +100,12 @@ export interface AutopilotState {
   objectCounts: Record<string, number>;
   /** Active compliance framework */
   complianceFramework: ComplianceFrameworkType;
+  /**
+   * Whether the run neutralizes emails and phone numbers before it writes
+   * them — every address under `.invalid`, every number a fictional one —
+   * as a Forge run does. On unless unticked on the review step.
+   */
+  neutralizeContactPoints: boolean;
   /** Dependency graph built from metadata scan */
   graph: AutopilotGraph | null;
   /** Execution plan derived from the graph */
@@ -126,6 +137,8 @@ export interface AutopilotState {
   addObjectCounts: (counts: Record<string, number>) => void;
   /** Set the compliance framework */
   setComplianceFramework: (framework: ComplianceFrameworkType) => void;
+  /** Neutralize emails and phone numbers, or keep them as read */
+  setNeutralizeContactPoints: (on: boolean) => void;
   /** Set the dependency graph */
   setGraph: (graph: AutopilotGraph | null) => void;
   /** Set the execution plan */
@@ -204,6 +217,10 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
 
   setComplianceFramework(framework: ComplianceFrameworkType): void {
     set({ complianceFramework: framework });
+  },
+
+  setNeutralizeContactPoints(on: boolean): void {
+    set({ neutralizeContactPoints: on });
   },
 
   setGraph(graph: AutopilotGraph | null): void {

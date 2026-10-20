@@ -35,6 +35,13 @@ describe('orgFromIdentity', () => {
     expect(org.orgType).toBe('Production');
     expect(org.safetyTier).toBe('critical');
   });
+
+  it('types a Developer Edition org, which says IsSandbox false, as the development org it is', () => {
+    const org = orgFromIdentity(session, { ...identity(false), orgType: 'Developer Edition' });
+    expect(org.orgType).toBe('Developer');
+    expect(org.safetyTier).toBe('low');
+    expect(org.metadata.edition).toBe('Developer Edition');
+  });
 });
 
 describe('settles', () => {

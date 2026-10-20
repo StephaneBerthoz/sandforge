@@ -3269,3 +3269,69 @@ describe('AutopilotExecutor — a record whose parent the run could not write', 
     expect(result.objectOutcomes?.['Opportunity']).toMatchObject({ written: 1, failed: 2 });
   });
 });
+
+describe('AutopilotExecutor — emails and phone numbers', () => {
+  /** The target's Contact, as its describe gives the neutralizer its fields. */
+  const describeFields = vi.fn(async () => [
+    { name: 'LastName', type: 'string', queryable: true, createable: true, isReference: false },
+    {
+      name: 'Email',
+      type: 'email',
+      length: 80,
+      queryable: true,
+      createable: true,
+      isReference: false,
+    },
+    {
+      name: 'Phone',
+      type: 'phone',
+      length: 40,
+      queryable: true,
+      createable: true,
+      isReference: false,
+    },
+  ]);
+
+  async function runContacts(options?: {
+    keepContactPoints?: boolean;
+  }): Promise<{ sent: Record<string, unknown>[]; contactPoints: unknown }> {
+    const deps = makeDeps({ describeFields });
+    vi.mocked(deps.query).mockResolvedValueOnce([
+      { Id: 'src1', LastName: 'Doe', Email: 'jane@acme.com', Phone: '+1 415 555 0100' },
+    ]);
+    vi.mocked(deps.insert).mockResolvedValueOnce(written('tgt1'));
+    const plan = makePlan([{ order: 0, objects: ['Contact'], dependsOn: [] }], 1);
+
+    const result = await new AutopilotExecutor(deps).execute(
+      plan,
+      [],
+      [],
+      new Map([['Contact', 1]]),
+      undefined,
+      new Map(),
+      options,
+    );
+
+    const sent = vi.mocked(deps.insert).mock.calls[0][1] as Record<string, unknown>[];
+    return { sent, contactPoints: result.contactPoints };
+  }
+
+  it('neutralizes them by default before it writes, and says so on its result', async () => {
+    // "None — No anonymization — transfer data as-is" was the default of the
+    // compliance step: a run copied real people into the sandbox.
+    const { sent, contactPoints } = await runContacts();
+
+    expect(sent[0].Email).toBe('jane@acme.com.invalid');
+    expect(String(sent[0].Phone)).toMatch(/^\+3363998\d{4}$/);
+    expect(sent[0].LastName).toBe('Doe');
+    expect(contactPoints).toMatchObject({ neutralized: true, values: 2 });
+  });
+
+  it('writes them as read for a run told to keep them', async () => {
+    const { sent, contactPoints } = await runContacts({ keepContactPoints: true });
+
+    expect(sent[0].Email).toBe('jane@acme.com');
+    expect(sent[0].Phone).toBe('+1 415 555 0100');
+    expect(contactPoints).toBeUndefined();
+  });
+});

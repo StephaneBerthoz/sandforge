@@ -214,8 +214,9 @@ const MISSING_IN_TARGET = {
 };
 
 /**
- * From the Autopilot object step to compliance: every listed object picked,
- * Next, and the scan of the selection answered with {@link MOCK_GRAPH}.
+ * From the Autopilot object step to the plan: every listed object picked,
+ * Next, and the scan of the selection answered with {@link MOCK_GRAPH} — which
+ * asks for the plan at once, there being no compliance step between them.
  */
 async function pickAutopilotObjectsAndScan(bridge: MockBridge, page: Page): Promise<void> {
   await page.getByTestId('select-all-checkbox').check();
@@ -223,7 +224,7 @@ async function pickAutopilotObjectsAndScan(bridge: MockBridge, page: Page): Prom
   await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
     graph: MOCK_GRAPH,
   });
-  await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+  await bridge.waitForMessage('autopilot:generate-plan', { timeout: 5000 });
 }
 
 /**
@@ -1582,7 +1583,6 @@ async function startAutopilotRun(
   });
   await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
   await pickAutopilotObjectsAndScan(bridge, page);
-  await page.getByTestId('seed-wizard-next').click();
   await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
     plan: MOCK_PLAN,
     graph: MOCK_GRAPH,
@@ -5054,22 +5054,23 @@ for (const theme of SCANNED_THEMES) {
       const step2 = await checkAccessibility(page);
       expectNoViolations(step2);
 
-      // Advance to Step 3: Compliance. Nothing is picked for the user: every
-      // listed object is picked, and the selection scanned.
+      // Nothing is picked for the user: every listed object is picked, the
+      // selection scanned, and its plan asked for at once.
       await pickAutopilotObjectsAndScan(bridge, page);
-      const step3 = await checkAccessibility(page);
-      expectNoViolations(step3);
 
-      // Advance to Step 4: Review — one more round trip, this one for the plan
-      // whose numbers the review step puts on screen.
-      await page.getByTestId('seed-wizard-next').click();
+      // Step 3: Review — the plan's numbers, the neutralization of emails and
+      // phone numbers, and the framework behind its disclosure, opened.
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: MOCK_PLAN,
         graph: MOCK_GRAPH,
       });
       await page.getByTestId('step4-review').waitFor({ state: 'visible', timeout: 5000 });
-      const step4 = await checkAccessibility(page);
-      expectNoViolations(step4);
+      const review = await checkAccessibility(page);
+      expectNoViolations(review);
+      await page.getByTestId('step4-compliance-advanced').locator('summary').click();
+      await page.getByTestId('compliance-picker').waitFor({ state: 'visible', timeout: 5000 });
+      const advanced = await checkAccessibility(page);
+      expectNoViolations(advanced);
     });
 
     test('Autopilot wizard while its scan runs, then while its plan is built, saying so', async ({
@@ -5092,7 +5093,6 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
       await pickAutopilotObjectsAndScan(bridge, page);
-      await page.getByTestId('seed-wizard-next').click();
       await page.getByTestId('autopilot-plan-loading').waitFor({ timeout: 5000 });
       const planning = await checkAccessibility(page);
       expectNoViolations(planning);
@@ -5113,7 +5113,6 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
       await pickAutopilotObjectsAndScan(bridge, page);
-      await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: MOCK_PLAN,
         graph: MOCK_GRAPH,
@@ -5148,7 +5147,6 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
       await pickAutopilotObjectsAndScan(bridge, page);
-      await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: {
           ...MOCK_PLAN,
@@ -7795,7 +7793,6 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
       await pickAutopilotObjectsAndScan(bridge, page);
-      await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: MOCK_PLAN,
         graph: MOCK_GRAPH,
@@ -7829,7 +7826,6 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
       await pickAutopilotObjectsAndScan(bridge, page);
-      await page.getByTestId('seed-wizard-next').click();
       await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
         plan: MOCK_PLAN,
         graph: MOCK_GRAPH,

@@ -229,6 +229,49 @@ describe('OrgHandler', () => {
       expect(reply?.payload.message).toMatch(/sf org login web --instance-url/);
     });
 
+    it.each([
+      ['a Developer Edition org', false, 'Developer Edition', 'Developer', OrgSafetyTier.LOW],
+      ['a production org', false, 'Enterprise Edition', 'Production', OrgSafetyTier.CRITICAL],
+      ['a sandbox', true, 'Enterprise Edition', 'Sandbox', OrgSafetyTier.MEDIUM],
+    ])(
+      'registers %s signed in with a password as the kind its Organization record says',
+      async (_label, isSandbox, edition, orgType, safetyTier) => {
+        deps.authProvider = {
+          authenticate: vi.fn().mockResolvedValue({
+            success: true,
+            accessToken: 'not-a-token',
+            instanceUrl: 'https://acme.my.salesforce.com',
+          }),
+          validateConnection: vi.fn().mockResolvedValue({
+            userId: '005000000000001AAA',
+            username: 'u@example.com',
+            displayName: 'U',
+            orgId: '00D000000000001AAA',
+            orgName: 'Acme',
+            orgType: edition,
+            isSandbox,
+          }),
+          buildConnectionConfig: vi
+            .fn()
+            .mockReturnValue({ loginUrl: 'https://login.salesforce.com' }),
+        } as unknown as HandlerDeps['authProvider'];
+
+        await handler.handle(
+          createMsg('org:connect', {
+            orgId: '',
+            authMethod: 'usernamePassword',
+            username: 'u@example.com',
+            password: 'secret',
+            loginUrl: 'https://login.salesforce.com',
+          }),
+        );
+
+        const saved = (deps.orgRegistry.saveOrg as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
+          SalesforceOrg | undefined;
+        expect(saved).toMatchObject({ orgType, safetyTier, metadata: { edition } });
+      },
+    );
+
     it('sends username/password credentials to the origin of the login URL', async () => {
       const authenticate = vi.fn().mockResolvedValue({ success: false, error: 'bad password' });
       deps.authProvider = { authenticate } as unknown as HandlerDeps['authProvider'];

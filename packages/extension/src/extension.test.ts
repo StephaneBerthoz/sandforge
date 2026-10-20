@@ -444,10 +444,11 @@ describe('extension', () => {
     // + 1 sandforge.forge.graphView config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
     // + openOrgInBrowser command + AI token budget reset command
+    // + the two Frozen dataset salt commands (copy, use)
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker
-    // + performanceTracker + sandbox refresh detection + pipeline triggers = 35
-    expect(context.subscriptions.length).toBe(35);
+    // + performanceTracker + sandbox refresh detection + pipeline triggers = 37
+    expect(context.subscriptions.length).toBe(37);
   });
 
   it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {

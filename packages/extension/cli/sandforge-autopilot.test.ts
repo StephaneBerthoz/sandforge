@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Connection } from 'jsforce';
-import { everyPage, outcomeLines, personAccountLines, scopeLines } from './sandforge-autopilot';
+import {
+  contactPointLines,
+  everyPage,
+  outcomeLines,
+  personAccountLines,
+  scopeLines,
+} from './sandforge-autopilot';
 
 describe('sandforge-autopilot — what it asks of the target', () => {
   it('reads every page of the answer, not the first alone', async () => {
@@ -305,5 +311,31 @@ describe('sandforge-autopilot — the plan', () => {
         '10 contact(s) of person accounts at none of their own',
     ]);
     expect(personAccountLines(new Map())).toEqual([]);
+  });
+});
+
+describe('contactPointLines', () => {
+  it('says how many emails and phone numbers the run neutralized, and where, or that it kept them', () => {
+    expect(
+      contactPointLines({
+        contactPoints: {
+          neutralized: true,
+          fields: [
+            { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 3 },
+            { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 2 },
+          ],
+          values: 5,
+        },
+      }),
+    ).toEqual([
+      'emails and phone numbers: 5 neutralized (Contact.Email 3, Contact.Phone 2) -- addresses ' +
+        'under .invalid, numbers fictional',
+    ]);
+    expect(
+      contactPointLines({ contactPoints: { neutralized: true, fields: [], values: 0 } }),
+    ).toEqual(['emails and phone numbers: none to neutralize']);
+    expect(contactPointLines({})).toEqual([
+      'emails and phone numbers: written as read (--keep-contact-points)',
+    ]);
   });
 });

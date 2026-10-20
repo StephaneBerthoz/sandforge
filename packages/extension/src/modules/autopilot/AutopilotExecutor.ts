@@ -16,6 +16,7 @@ import type {
   AutopilotEdge,
   AutopilotRefusal,
   ApiName,
+  ForgeContactPointsReport,
 } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
@@ -27,6 +28,8 @@ import {
   splitStandardPricebookEntries,
 } from '@sandforge/shared';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
+import { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
+import type { FieldInfo } from '../forge/ForgeExecutor.js';
 import { IDS_PER_READ } from './SchemaScanner.js';
 import type { RecordIdRemapper, UnresolvedLookup } from './RecordIdRemapper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -290,6 +293,17 @@ export interface StatusOutcome {
 }
 
 /** Execution result summary */
+/** How a run writes, beside its plan. */
+export interface AutopilotRunOptions {
+  /**
+   * Write the emails and phone numbers of the records as the source holds
+   * them. Absent or false — the default — every record has them neutralized
+   * first, as a Forge run's are: each address under `.invalid`, each phone
+   * number a fictional one.
+   */
+  keepContactPoints?: boolean;
+}
+
 export interface ExecutionResult {
   /** Total successfully inserted records */
   totalSuccess: number;
@@ -329,6 +343,12 @@ export interface ExecutionResult {
   nodeErrors?: Record<string, string>;
   /** What became of each object's records, keyed by API name. */
   objectOutcomes?: Record<string, ObjectOutcome>;
+  /**
+   * What the run did with the emails and phone numbers of the records it
+   * wrote: neutralized them, field by field, unless it was told to keep them
+   * ({@link AutopilotRunOptions.keepContactPoints}).
+   */
+  contactPoints?: ForgeContactPointsReport;
   /** The statuses applied once the children were in, per object born a draft. */
   statuses?: Record<string, StatusOutcome>;
   /** The lookups filled once the records they point at were in, per object. */
@@ -378,6 +398,13 @@ export interface AutopilotExecutorDeps {
    * Optional, so a caller that cannot describe keeps the previous behaviour.
    */
   describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
+   * The object's fields in the TARGET org, with their type and length, from
+   * the same describe: the email and phone fields, and the texts named for
+   * either, whose values the run neutralizes before it writes them
+   * (`ContactPointNeutralizer`). Without it, nothing is neutralized.
+   */
+  describeFields?: (objectApiName: string) => Promise<readonly FieldInfo[]>;
   /**
    * The object's fields no update can set in the TARGET org, from the same
    * describe: a flag given back to a relation the run linked to, and the
@@ -603,6 +630,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private skippedObjects = new Set<string>();
   /** The run's stop, when its caller gave one. */
   private signal: AbortSignal | undefined;
+  /** What neutralizes the run's emails and phone numbers; absent when it keeps them. */
+  private contactPoints: ContactPointNeutralizer | undefined;
   /** One describe of the target per object, kept for the run. */
   private readonly creatableByObject = new Map<string, ReadonlySet<string> | null>();
   /** Both orgs' currencies, read the first time a record carries one; nothing when either holds one. */
@@ -856,6 +885,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     recordCounts: Map<string, number>,
     signal?: AbortSignal,
     parentIds: ReadonlyMap<string, readonly string[]> = new Map(),
+    options: AutopilotRunOptions = {},
   ): Promise<ExecutionResult> {
     // A plan whose parents are read by id, run by a caller that cannot read
     // by id, would read their whole tables: the plan said otherwise.
@@ -865,6 +895,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       );
     }
     this.parentIds = parentIds;
+    // Every record's emails and phone numbers made unreachable before it is
+    // written, as a Forge run's are, unless the run keeps them as read.
+    this.contactPoints =
+      options.keepContactPoints === true ? undefined : new ContactPointNeutralizer();
     const startTime = Date.now();
     this.signal = signal;
     // A run stopped while paused stops there, rather than waiting for a resume
@@ -1065,6 +1099,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         result.stoppedObjects = stoppedObjects;
         this.countEmailsTheStopHeld(result, stoppedObjects, objectOutcomes);
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
+        this.reportContactPoints(result);
         result.elapsedMs = Date.now() - startTime;
         return result;
       }
@@ -1092,6 +1127,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         this.countWhatTheStopLeft(stoppedObjects, objectOutcomes);
       }
 
+      this.reportContactPoints(result);
       result.elapsedMs = Date.now() - startTime;
       this.emit(
         'execution-completed',
@@ -1350,6 +1386,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         after = next;
         const kept = this.leaveToThePlatform(objectApiName, batch, edges);
         this.deps.anonymizer.anonymize(kept, rules, objectApiName);
+        await this.neutralizeContactPoints(objectApiName, kept);
         rows.push(...kept);
         if (last) break;
       }
@@ -1389,8 +1426,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       // What the platform writes itself never goes further than the read.
       const batch = this.leaveToThePlatform(objectApiName, read, edges);
 
-      // 2. Anonymize
+      // 2. Anonymize, then make the emails and phone numbers left unreachable
       this.deps.anonymizer.anonymize(batch, rules, objectApiName);
+      await this.neutralizeContactPoints(objectApiName, batch);
 
       // 3. Remap, link and insert
       await this.writeBatch(objectApiName, batch, edges, state);
@@ -1403,6 +1441,34 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     return finish();
+  }
+
+  /**
+   * Neutralize the emails and phone numbers of a page of records, in place:
+   * every address under `.invalid`, every number a fictional one. A run into
+   * a sandbox whose record-triggered flows email and text the contacts they
+   * are written for copied real people, reachable from the sandbox: a
+   * compliance framework was asked for at a step of its own, and "None —
+   * transfer data as-is" was the default. Nothing for a run that keeps them,
+   * or whose target cannot be described: the fields are found by the
+   * target's types.
+   */
+  private async neutralizeContactPoints(
+    objectApiName: ApiName,
+    rows: Record<string, unknown>[],
+  ): Promise<void> {
+    const { contactPoints } = this;
+    const describe = this.deps.describeFields;
+    if (!contactPoints || !describe || rows.length === 0) return;
+    const fields = await describe(objectApiName).catch(() => undefined);
+    if (!fields) return;
+    const neutralize = contactPoints.forObject(objectApiName, fields);
+    if (neutralize) for (const row of rows) neutralize(row);
+  }
+
+  /** What the run neutralized, kept on its result; nothing for a run that kept them. */
+  private reportContactPoints(result: ExecutionResult): void {
+    if (this.contactPoints) result.contactPoints = this.contactPoints.report();
   }
 
   /**

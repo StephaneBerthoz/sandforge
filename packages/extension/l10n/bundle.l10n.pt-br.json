@@ -167,5 +167,12 @@
   "Approve": "Aprovar",
   "Reject": "Rejeitar",
   "SandForge: pipeline \"{0}\" waits for your approval at step \"{1}\", until {2}.": "SandForge: o pipeline \"{0}\" aguarda sua aprovação na etapa \"{1}\", até {2}.",
-  "SandForge: step \"{0}\" no longer waits for an answer, so this one changed nothing.": "SandForge: a etapa \"{0}\" não aguarda mais uma resposta, então esta não mudou nada."
+  "SandForge: step \"{0}\" no longer waits for an answer, so this one changed nothing.": "SandForge: a etapa \"{0}\" não aguarda mais uma resposta, então esta não mudou nada.",
+  "SandForge: the Frozen dataset salt (fingerprint {0}) is on the clipboard. Give it to a teammate as you would a password: whoever holds it can tell which source value a pseudonym was drawn from.": "SandForge: o salt do Frozen Dataset (impressão digital {0}) está na área de transferência. Passe-o a um colega como passaria uma senha: quem o tem pode saber de qual valor de origem um pseudônimo foi tirado.",
+  "The Frozen dataset salt a teammate gave you: your extractions will draw the same pseudonyms as theirs.": "O salt do Frozen Dataset que um colega lhe passou: suas extrações tirarão os mesmos pseudônimos que as dele.",
+  "A salt holds 16 characters at least.": "Um salt tem pelo menos 16 caracteres.",
+  "Replace": "Substituir",
+  "SandForge: this editor already keeps a Frozen dataset salt (fingerprint {0}). Replace it with {1}? An extraction made with the one kept now could no longer be made again with the same pseudonyms.": "SandForge: este editor já guarda um salt do Frozen Dataset (impressão digital {0}). Substituí-lo por {1}? Uma extração feita com o guardado agora não poderia mais ser refeita com os mesmos pseudônimos.",
+  "SandForge: the Frozen dataset salt {0} is kept, but SANDFORGE_FROZEN_SALT is set in this window and wins over it until it is unset.": "SandForge: o salt {0} do Frozen Dataset foi guardado, mas SANDFORGE_FROZEN_SALT está definido nesta janela e prevalece até ser removido.",
+  "SandForge: Frozen dataset extractions draw their pseudonyms with the salt {0} from now on.": "SandForge: as extrações do Frozen Dataset passam a tirar seus pseudônimos com o salt {0}."
 }

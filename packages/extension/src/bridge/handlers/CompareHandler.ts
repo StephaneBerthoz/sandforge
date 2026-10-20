@@ -5,7 +5,7 @@ import type {
   GuardDecision,
   MetadataComponentType,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 import type { DeploymentComponentRef, DeploymentReport, DeployTestLevel } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendOperationProgress } from './HandlerTypes.js';
@@ -378,7 +378,7 @@ export class CompareHandler implements DomainHandler {
     const targetOrg = this.deps.orgManager.getOrg(targetOrgId);
     const request: OperationRequest = {
       orgId: targetOrgId,
-      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      orgTier: guardTierOf(targetOrg),
       operation: 'deploy',
       objectName: [...new Set(components.map((c) => c.componentType))].join(', '),
       recordCount: components.length,

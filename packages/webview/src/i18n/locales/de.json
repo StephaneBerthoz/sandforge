@@ -1362,6 +1362,10 @@
         "removed": "Vollständig gelesen (ein Entfernen hat geschriebene Kopien zurückgenommen)"
       }
     },
+    "contactPoints": {
+      "toggle": "E-Mail-Adressen und Telefonnummern neutralisieren (empfohlen)",
+      "toggleHint": "An, sofern nicht abgewählt. Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält, und die Flows des Ziels können echten Personen E-Mails und SMS senden. Das Feld, auf das das Schreiben abgleicht, bleibt wie gelesen."
+    },
     "files": {
       "toggle": "Die Dateien dieser Datensätze kopieren",
       "toggleHint": "Aus, sofern nicht angehakt. Sobald die Datensätze eines Objekts geschrieben sind, werden die neueste Version jeder Salesforce-Datei, die mit einem von ihnen verknüpft ist, und ihre klassischen Anhänge kopiert und mit den Kopien der Datensätze im Ziel verknüpft. Eine gespeicherte Konfiguration merkt sich, welche Datei sie wohin kopiert hat: Ein erneuter Lauf kopiert eine Datei nur, wenn die Quelle eine neuere Version hat, die als Version der Kopie hinzugefügt wird, nie als zweite Datei. Bevor der Lauf etwas schreibt, wird der Dateispeicher des Ziels gelesen, und ein Lauf, dessen Dateien nicht hineinpassen, wird abgelehnt. Eine Datei, die größer als die Höchstgröße ist, und die Dateien über der Höchstmenge eines Laufs werden übersprungen und gezählt; der nächste Lauf kopiert Letztere. Das Entfernen eines Laufs nimmt mit seinen Datensätzen die Dateien zurück, die er erstellt hat; eine einer früheren Kopie hinzugefügte Version bleibt.",
@@ -2641,7 +2645,7 @@
     "sfStackExchangeDesc": "Community-Fragen & -Antworten für Salesforce-Entwickler",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Geführte Tour starten",
-    "autopilotContent": "Autopilot kopiert die ausgewählten Objekte in vier Schritten aus einer Quell-Org in eine Ziel-Org:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Wählen Sie ein Compliance-Framework zur Anonymisierung personenbezogener Daten (DSGVO, CCPA, HIPAA oder PCI-DSS) oder keines\n4. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn",
+    "autopilotContent": "Autopilot kopiert die ausgewählten Objekte in drei Schritten aus einer Quell-Org in eine Ziel-Org:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn. E-Mail-Adressen und Telefonnummern werden neutralisiert, sofern Sie das nicht abwählen — jede Adresse unter .invalid, jede Nummer fiktiv —, und unter Erweitert wählen Sie ein Compliance-Framework, das mehr anonymisiert (DSGVO, CCPA, HIPAA oder PCI-DSS)",
     "migrationContent": "Migration wandelt eine bestehende Migrationsdefinition in eine Sync-Konfiguration um:\n- Importieren Sie eine SFDMU-export.json oder eine .json- bzw. .csv-Datei\n- Der Import liest die Datei und ändert in keiner Org etwas\n- Das Ausführen der umgewandelten Konfiguration schreibt Datensätze in die Ziel-Org",
     "reportsContent": "Berichte liest den Ausführungsverlauf, den Forge und Sync bereits führen:\n- Ausführungen: jeder Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Trail und Datenherkunft: Demnächst, noch zeichnet nichts sie auf"
   },
@@ -3901,10 +3905,9 @@
       "countShown": "Datensätze der angezeigten Objekte zählen ({{objects}})"
     },
     "step3": {
-      "title": "Compliance-Framework",
       "selectFramework": "Wählen Sie ein Compliance-Framework",
       "none": "Keines",
-      "noneDesc": "Keine Anonymisierung — Daten unverändert übertragen",
+      "noneDesc": "Kein Framework: Nichts wird anonymisiert außer den E-Mail-Adressen und Telefonnummern, die der Lauf neutralisiert, sofern dieses Kästchen nicht abgewählt ist",
       "gdpr": "DSGVO",
       "gdprDesc": "Europäischer Datenschutz — personenbezogene Kennungen anonymisieren",
       "ccpa": "CCPA",
@@ -3924,6 +3927,9 @@
       "waves": "Ausführungswellen",
       "piiFields": "PII-Felder erkannt",
       "anonymizedFields": "Zu anonymisierende Felder",
+      "contactPoints": "E-Mail-Adressen und Telefonnummern neutralisieren (empfohlen)",
+      "contactPointsHint": "Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält.",
+      "advancedCompliance": "Erweitert: Compliance-Framework",
       "execute": "Autopilot ausführen",
       "description": "Überprüfen Sie Ihre Konfiguration, bevor Sie den Autopilot starten.",
       "complianceFramework": "Compliance-Framework",
@@ -4092,7 +4098,10 @@
     },
     "status": {
       "salt": "Salt-Fingerabdruck",
-      "saltMissing": "Salt fehlt",
+      "saltMissing": "Noch keines",
+      "saltKept": "Im geheimen Speicher von VS Code aufbewahrt",
+      "saltFromEnvironment": "Aus SANDFORGE_FROZEN_SALT",
+      "saltMadeOnExtraction": "Bei der ersten Extraktion erstellt und aufbewahrt",
       "dataset": "Eingefrorener Datensatz",
       "records_one": "{{count}} Datensatz",
       "records_other": "{{count}} Datensätze",
@@ -4100,11 +4109,14 @@
       "selection": "Auswahl",
       "noSelection": "Noch keine Auswahl",
       "lastVerify": "Letzte Prüfung",
-      "saltMismatch": "Das Salt dieser Umgebung ({{current}}) ist nicht das, mit dem dieser Datensatz erstellt wurde ({{manifest}}). Eine neue Extraktion damit gäbe denselben Datensätzen andere Pseudonyme als in diesem Datensatz. Setzen Sie SANDFORGE_FROZEN_SALT zuerst wieder auf dieses Salt."
+      "saltMismatch": "Das Salt dieses Editors ({{current}}) ist nicht das, mit dem dieser Datensatz erstellt wurde ({{manifest}}). Eine neue Extraktion damit gäbe denselben Datensätzen andere Pseudonyme als in diesem Datensatz. Setzen Sie zuerst wieder dieses Salt, mit „SandForge: Ein Salt für das Frozen Dataset verwenden“ oder SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extrahieren",
       "load": "Laden"
+    },
+    "salt": {
+      "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team diesen Datensatz extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des Frozen Dataset kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das Frozen Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde."
     },
     "manifest": {
       "version": "Datensatz v{{version}}"
@@ -4163,7 +4175,8 @@
       "title": "Extraktion & Pseudonymisierung",
       "run": "Extraktion starten",
       "summary_one": "{{count}} Datensatz in {{files}} Dateien eingefroren",
-      "summary_other": "{{count}} Datensätze in {{files}} Dateien eingefroren"
+      "summary_other": "{{count}} Datensätze in {{files}} Dateien eingefroren",
+      "saltHint": "Jedes Pseudonym wird mit dem Salt dieses Editors gezogen, das bei der ersten Extraktion erstellt und im geheimen Speicher von VS Code aufbewahrt wird. Um dieselben Pseudonyme wie jemand im Team zu extrahieren, setzen Sie dessen Salt mit „SandForge: Ein Salt für das Frozen Dataset verwenden“; Ihres geben Sie mit „SandForge: Salt des Frozen Dataset kopieren“ weiter. SANDFORGE_FROZEN_SALT hat, wo es gesetzt ist, Vorrang vor beiden. Ein Laden braucht das Salt nicht."
     },
     "control": {
       "check": "Prüfung",
@@ -4177,13 +4190,11 @@
     },
     "guards": {
       "title": "Eingangsprüfungen",
-      "sandboxOnly": "Nur Sandbox",
+      "sandboxOnly": "Nie eine Produktions-Org",
       "protectedEnvs_one": "{{count}} geschützte Umgebung",
       "protectedEnvs_other": "{{count}} geschützte Umgebungen",
-      "mocksConfigured": "Mock-Erkennung konfiguriert",
-      "mocksNotConfigured": "Mock-Erkennung nicht konfiguriert",
-      "saltOk": "Salt geladen",
-      "saltMissing": "Salt fehlt"
+      "mocksConfigured": "Nicht gemockte Callouts geprüft",
+      "mocksNotConfigured": "Nicht gemockte Callouts nicht geprüft"
     },
     "load": {
       "targetOrg": "Ziel-Org (Sandbox)",

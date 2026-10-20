@@ -18,9 +18,7 @@ import {
   emailChecksOf,
   firedOnInsertOf,
   firedOnUpdateOf,
-  forgeTargetTier,
   formatMB,
-  isDeveloperEdition,
   isForgeRunGateError,
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
@@ -74,26 +72,6 @@ describe('the data storage a row takes, by the sizes Salesforce documents', () =
     expect(
       rowStorageBytes('EmailMessage', { Subject: 'Hello', TextBody: 'é'.repeat(10), Id: 'x' }),
     ).toBe(5 + 20 + 1);
-  });
-});
-
-describe('the tier a run takes its target for', () => {
-  it('takes a Developer Edition org, registered as production, for a development org', () => {
-    expect(forgeTargetTier('Production', 'Developer Edition')).toBe('development');
-    expect(isDeveloperEdition(' developer edition ')).toBe(true);
-  });
-
-  it('keeps every other production org, and one of unknown edition, production', () => {
-    expect(forgeTargetTier('Production', 'Enterprise Edition')).toBe('production');
-    expect(forgeTargetTier('Production', '')).toBe('production');
-    expect(forgeTargetTier('Production', undefined)).toBe('production');
-    expect(forgeTargetTier('', 'Developer Edition')).toBe('development');
-    expect(forgeTargetTier('', undefined)).toBe('production');
-  });
-
-  it('leaves sandboxes and scratch orgs as the guard tiers them', () => {
-    expect(forgeTargetTier('Sandbox', 'Enterprise Edition')).toBe('development');
-    expect(forgeTargetTier('Scratch', undefined)).toBe('scratch');
   });
 });
 

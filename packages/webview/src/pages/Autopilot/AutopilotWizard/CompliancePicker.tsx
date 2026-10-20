@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import type { ComplianceFrameworkType } from '@sandforge/shared';
 import { cn } from '../../../theme';
 
-/** Step3Compliance component props. */
-export interface Step3ComplianceProps {
+/** CompliancePicker component props. */
+export interface CompliancePickerProps {
   /** Currently selected compliance framework */
   readonly selectedFramework: ComplianceFrameworkType;
   /** Callback when framework is selected */
@@ -53,15 +53,21 @@ const FRAMEWORK_OPTIONS: FrameworkOption[] = [
   },
 ];
 
-/** Step 3: Select compliance framework for PII anonymization. */
-export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
+/**
+ * The compliance framework a run anonymizes by, behind the review step's
+ * "Advanced" disclosure. It was a step of its own, between the objects and
+ * the review, whose default — None, "transfer data as-is" — copied every
+ * email and phone number into the target; the run now neutralizes those by
+ * default, and a framework is what anonymizes beyond them.
+ */
+export const CompliancePicker: React.FC<CompliancePickerProps> = ({
   selectedFramework,
   onSelect,
 }) => {
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-(--sf-space-3)" data-testid="step3-compliance">
+    <div className="flex flex-col gap-(--sf-space-3)" data-testid="compliance-picker">
       <p className="text-sm text-text-secondary">{t('autopilot.step3.description')}</p>
 
       <div className="flex flex-col gap-2" data-testid="framework-options">

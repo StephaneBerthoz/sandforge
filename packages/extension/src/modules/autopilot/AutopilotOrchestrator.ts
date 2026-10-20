@@ -37,7 +37,11 @@ import type { ComplianceEngine } from './ComplianceEngine.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import type { ExecutionPlanGenerator } from './ExecutionPlanGenerator.js';
 import type { RecordIdRemapper } from './RecordIdRemapper.js';
-import type { AutopilotExecutor, ExecutionResult } from './AutopilotExecutor.js';
+import type {
+  AutopilotExecutor,
+  AutopilotRunOptions,
+  ExecutionResult,
+} from './AutopilotExecutor.js';
 import type { AutopilotGrappeAdapter } from './AutopilotGrappeAdapter.js';
 
 /** Local alias matching the autopilot domain name. */
@@ -315,6 +319,8 @@ export class AutopilotOrchestrator {
      * references are copied.
      */
     parentIds?: ReadonlyMap<string, readonly string[]>,
+    /** Whether the run keeps the emails and phone numbers as read: see `AutopilotRunOptions`. */
+    options?: AutopilotRunOptions,
   ): Promise<ExecutionResult> {
     const totalRecords = Array.from(recordCounts.values()).reduce((s, c) => s + c, 0);
     const grappeActive = this.isGrappeActive(totalRecords);
@@ -354,7 +360,15 @@ export class AutopilotOrchestrator {
     this.runningExecutors.push(executor);
     let result: ExecutionResult;
     try {
-      result = await executor.execute(plan, graph.edges, rules, recordCounts, signal, parentIds);
+      result = await executor.execute(
+        plan,
+        graph.edges,
+        rules,
+        recordCounts,
+        signal,
+        parentIds,
+        options,
+      );
     } finally {
       this.runningExecutors.splice(this.runningExecutors.indexOf(executor), 1);
       offCompleted();

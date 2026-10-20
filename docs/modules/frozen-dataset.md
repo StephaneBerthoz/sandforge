@@ -8,7 +8,7 @@ Typical case: a Developer sandbox refresh leaves you with metadata and zero reco
 
 1. Open **Frozen Dataset** from the sidebar (or `SandForge: Open Frozen Dataset` from the command palette)
 2. **Extract** tab: fill in the root object, the coverage axes and the volume budget, then **Save configuration**
-3. Set the salt -- `export SANDFORGE_FROZEN_SALT="<stable-secret>"` (never in the repository) -- and create the pseudonymization rules file
+3. Create the pseudonymization rules file. The salt the pseudonyms are drawn with is made on the first extraction and kept in VS Code's secret storage -- see [the salt](#the-salt)
 4. **Run selection** (coverage matrix) -- the tab says the step it is at as it goes -- then **Run extraction**. The 4-point control must return PASS for the dataset to be written
 5. **Load** tab: pick the target sandbox, tick **Pilot** to try a single root graph first, **Preview** to see what the load would do with nothing written, then **Run load** -- **Cancel run** stops it before its next write. Post-load verification is chained automatically
 6. To take a load back, **Last load** on the same tab removes the records the last load into the selected target created -- see [Removing a Load](#removing-a-load)
@@ -102,7 +102,13 @@ The **Extract** tab edits `rootObject`, the budget, the axes and the edge cases 
 ### Security and the Quarantine Directory (Sas)
 
 - The **sas** (`~/.sandforge-sas` by default) is **outside the repository by construction**: `SasPathGuard` refuses any output path located inside the repo. The selection (source IDs), `rt-map.json`, the `{{TOKEN}}` values (`tokens.json`) and the `referenceId -> Id` mapping never leave it.
-- The **salt** comes from `SANDFORGE_FROZEN_SALT` and nowhere else; only its **fingerprint** (12 hex) is recorded. Never regenerate a second salt silently -- determinism across dataset versions would be lost.
+- The **salt** is kept in VS Code's secret storage, never in a file nor the repository; only its **fingerprint** (12 hex) is recorded and shown. A second salt is never made while one is kept -- determinism across dataset versions would be lost. See [the salt](#the-salt).
+
+### The Salt
+
+- **Made once, kept.** The first extraction makes the salt every pseudonym is drawn with, keeps it in VS Code's secret storage and says so; every later extraction pseudonymizes the same records the same way. The status strip shows its fingerprint and where it comes from. A load never needs it.
+- **Shared between teammates.** Two people extract the same pseudonyms only with the same salt: `SandForge: Copy Frozen Dataset Salt` copies yours to the clipboard, and `SandForge: Use a Frozen Dataset Salt` keeps the one a teammate gave you (it asks before it replaces one already kept). Give it as you would a password: whoever holds it can tell which source value a pseudonym was drawn from.
+- **CI and the command line.** `SANDFORGE_FROZEN_SALT`, where it is set, wins over the salt kept in the editor. `sandforge-frozen` reads that variable, or the file `--salt-file <file>` names, and never makes a salt: an extraction given none is refused.
 - The bridge **redacts**: the selection sent to the UI carries no source ID, and the details of `clear-empty` violations (which may embed a residual value) are redacted on the extension side.
 - All DML goes through the existing **Production Guard** (tier check; each decision is recorded with the load in the audit trail, unless `sandforge.safety.auditLogging` is off).
 

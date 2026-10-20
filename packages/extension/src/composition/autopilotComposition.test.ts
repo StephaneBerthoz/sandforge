@@ -232,6 +232,26 @@ describe('autopilotComposition', () => {
     });
   });
 
+  it("neutralizes an account's phone number from the target's describe before it creates the copy", async () => {
+    const { handlers, getOrchestrator } = createFakeHandlers();
+    await initAutopilotComposition({ handlers, log: vi.fn() });
+    const source = fakeOrg(1, [{ Id: 'src1', Name: 'Acme', Phone: '+1 415 555 0100' }], 'tgt1');
+    const target = fakeOrg(0, [], 'tgt1');
+    (target.conn as unknown as { describe: unknown }).describe = vi.fn(async () => ({
+      ...mockObjectDescribe('Account'),
+      fields: [
+        { name: 'Name', createable: true, type: 'string' },
+        { name: 'Phone', createable: true, type: 'phone', length: 40 },
+      ],
+    }));
+
+    await runOneAccountFlow(getOrchestrator(), source.conn, target.conn);
+
+    const [sent] = target.create.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(sent.Name).toBe('Acme');
+    expect(String(sent.Phone)).toMatch(/^\+3363998\d{4}$/);
+  });
+
   describe('a record type closed to the running user in the target', () => {
     const PARTNER = '012Fk00000RtDeFIAV';
 

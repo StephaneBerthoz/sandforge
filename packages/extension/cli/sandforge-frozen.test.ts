@@ -43,6 +43,13 @@ describe('parseArgs', () => {
     expect(args).toMatchObject({ step: 'extract', configPath: 'frozen.json', source: 'SRC' });
   });
 
+  it('reads the file the salt is kept in, for a shell that sets no SANDFORGE_FROZEN_SALT', () => {
+    const args = parseArgs(
+      argv('extract', '--config', 'f.json', '--source', 'SRC', '--salt-file', 'team.salt'),
+    );
+    expect(args.saltFile).toBe('team.salt');
+  });
+
   it('reads a load and its modes', () => {
     const args = parseArgs(
       argv('load', '--config', 'f.json', '--target', 'TGT', '--pilot', '--reload', '--yes'),
@@ -129,7 +136,7 @@ describe('typeOrg', () => {
     return { query, conn: { query } as never };
   }
 
-  it('gives a Developer Edition org its edition, which the guards of the load read', async () => {
+  it('types a Developer Edition org as one, with its edition, which the guards of the load read', async () => {
     // Typed from IsSandbox alone, it was registered as a production org with
     // no edition, and every guard of the load refused it.
     const { conn } = orgAnswering({ Id: '00D000000000001AAA', IsSandbox: false }, () => ({
@@ -138,8 +145,20 @@ describe('typeOrg', () => {
 
     await expect(typeOrg(conn)).resolves.toEqual({
       id: '00D000000000001AAA',
-      orgType: 'Production',
+      orgType: 'Developer',
       edition: 'Developer Edition',
+    });
+  });
+
+  it('keeps an org that is no sandbox and says another edition a production org', async () => {
+    const { conn } = orgAnswering({ Id: '00D000000000004AAA', IsSandbox: false }, () => ({
+      OrganizationType: 'Enterprise Edition',
+    }));
+
+    await expect(typeOrg(conn)).resolves.toEqual({
+      id: '00D000000000004AAA',
+      orgType: 'Production',
+      edition: 'Enterprise Edition',
     });
   });
 

@@ -52,7 +52,7 @@ import type {
   SyncRemovalResult,
   SyncSimulationResult,
 } from '@sandforge/shared';
-import { recordWriteHeaders } from '@sandforge/shared';
+import { isDeveloperEdition, orgTypeOf, recordWriteHeaders } from '@sandforge/shared';
 import {
   orgFileCopyDeps,
   targetAllowsDeletes,
@@ -68,7 +68,6 @@ import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.j
 import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
-import { isDeveloperEdition } from '../src/modules/forge/ForgeRunGate.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import {
   readRemovalState,
@@ -134,6 +133,10 @@ Options:
                          copies files does. The command keeps no record of
                          the files it copied: run again, it copies them
                          again                             (default: off)
+  --keep-contact-points  write emails and phone numbers as read. Without
+                         it, as in the panel, every address is written
+                         under .invalid and every phone number as a
+                         fictional one                     (default: off)
   --json                 emit the run summary as JSON      (default: off)
                          Saved to a file, it is what --remove takes the
                          run back from: it names what the run created.
@@ -156,10 +159,11 @@ Run a saved configuration:
                          the panel keeps them beside it: give every run of it
                          the same directory, and --remove too. A later run
                          points a lookup at the copy an earlier run wrote.
-  --object, --where, --operation, --batch-size and --files come from the file,
-  and are refused with it. A legacy attachment the source changed since it was
-  copied is replaced, its earlier copy deleted, on a sandbox only, as in the
-  panel: a Developer Edition is a production org for Sync, and keeps the copy.
+  --object, --where, --operation, --batch-size, --files and
+  --keep-contact-points come from the file (keepContactPoints), and are refused
+  with it. A legacy attachment the source changed since it was copied is
+  replaced, its earlier copy deleted, on a sandbox or a Developer Edition org,
+  as in the panel; a production org keeps the copy.
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
@@ -206,6 +210,8 @@ interface CliArgs {
   dryRun: boolean;
   /** Copy the files of the records each object writes. */
   files: boolean;
+  /** Write emails and phone numbers as read rather than neutralized. */
+  keepContactPoints: boolean;
   json: boolean;
   /** A saved configuration to run instead of the objects of the line. */
   configFile?: string;
@@ -220,6 +226,7 @@ const CONFIG_FILE_SETTINGS: readonly string[] = [
   '--operation',
   '--batch-size',
   '--files',
+  '--keep-contact-points',
 ];
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
@@ -275,6 +282,7 @@ export function parseArgs(argv: string[]): CliArgs {
       batchSize: 200,
       dryRun: has('--dry-run'),
       files: false,
+      keepContactPoints: false,
       json: has('--json'),
       configFile,
       store,
@@ -347,6 +355,7 @@ export function parseArgs(argv: string[]): CliArgs {
     batchSize,
     dryRun: has('--dry-run'),
     files: has('--files'),
+    keepContactPoints: has('--keep-contact-points'),
     json: has('--json'),
   };
 }
@@ -384,6 +393,8 @@ export function buildConfig(args: CliArgs): SyncConfig {
     updatedAt: now,
     // The panel's defaults for a configuration that copies files.
     ...(args.files ? { files: { maxFileSizeMB: 10, maxRunMB: 100 } } : {}),
+    // Absent, the run neutralizes emails and phone numbers, as the panel's does.
+    ...(args.keepContactPoints ? { keepContactPoints: true } : {}),
   };
 }
 
@@ -518,11 +529,12 @@ export function cliFileDeps(
 /**
  * Whether a run of the command may delete in its target, as the panel's run
  * may (`targetAllowsDeletes`): judged by Production Guard on what the org says
- * it is. A sandbox may; a Developer Edition, which says `IsSandbox` false, is a
- * production org for a Sync write, as the panel registers it, and may not.
+ * it is, typed as the panel types an org it connects (`orgTypeOf`). A sandbox
+ * and a Developer Edition org may; a production org may not.
  */
 export function cliAllowsDeletes(org: TypedTarget): boolean {
-  return targetAllowsDeletes(new ProductionGuard(), org.id, org.sandbox ? 'Sandbox' : 'Production');
+  const orgType = orgTypeOf({ isSandbox: org.sandbox, edition: org.edition });
+  return targetAllowsDeletes(new ProductionGuard(), org.id, { orgType });
 }
 
 /**

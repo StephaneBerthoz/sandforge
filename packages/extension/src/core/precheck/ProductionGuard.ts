@@ -46,6 +46,12 @@ export interface SafetyCheckResult {
   blockedReason?: string;
   warnings: string[];
   impactSummary: string;
+  /**
+   * What the confirmation asks, in plain words, the org named by its alias
+   * (`confirmationQuestionOf`). Set only by a guard that can name the org
+   * (`ProductionGuardOptions.orgNameOf`), and only on a result that asks.
+   */
+  question?: string;
 }
 
 const DESTRUCTIVE_OPERATIONS = new Set<string>(['delete', 'hardDelete']);
@@ -295,9 +301,22 @@ export interface ProductionGuardOptions {
    * (operations proceed, preserving pre-existing behavior).
    *
    * Handed the tier that asked: staging asks too, and the modal told every
-   * question that it wrote to a production org.
+   * question that it wrote to a production org. Handed the question in plain
+   * words too, when the guard can name the org ({@link orgNameOf}).
    */
-  requestConfirmation?: (impactSummary: string, orgTier: SafetyTier) => Promise<boolean>;
+  requestConfirmation?: (
+    impactSummary: string,
+    orgTier: SafetyTier,
+    question?: string,
+  ) => Promise<boolean>;
+  /**
+   * The name the user knows an org by — its alias — for the question the
+   * confirmation puts (`confirmationQuestionOf`). The impact summary names the
+   * org by its id, the operation in capitals, an internal name for a run of
+   * several objects and the module in brackets: "INSERT 500 SeedData
+   * record(s) on production org 00D… [module: seed]" was the whole question.
+   */
+  orgNameOf?: (orgId: string) => string | undefined;
   /**
    * Puts a run's question ({@link RunConfirmation}) to the user: what the
    * target runs as the run inserts, and the source tables it reads with no
@@ -372,6 +391,14 @@ export class ProductionGuard {
    * Returns whether the operation is allowed, requires confirmation, or is blocked.
    */
   check(request: OperationRequest): SafetyCheckResult {
+    const result = this.checkTier(request);
+    const { orgNameOf } = this.options;
+    if (!result.requiresConfirmation || !orgNameOf) return result;
+    return { ...result, question: confirmationQuestionOf(request, orgNameOf(request.orgId)) };
+  }
+
+  /** The rules of the request's tier. */
+  private checkTier(request: OperationRequest): SafetyCheckResult {
     switch (request.orgTier) {
       case 'production':
         return this.checkProduction(request);
@@ -430,7 +457,9 @@ export class ProductionGuard {
     if (!this.options.requestConfirmation) {
       return true;
     }
-    return this.options.requestConfirmation(result.impactSummary, orgTier);
+    return result.question === undefined
+      ? this.options.requestConfirmation(result.impactSummary, orgTier)
+      : this.options.requestConfirmation(result.impactSummary, orgTier, result.question);
   }
 
   /**
@@ -572,6 +601,50 @@ function countForThreshold(recordCount: OperationRequest['recordCount']): number
 /** What the operation's count counts: components for a deployment, records otherwise. */
 function unitOf(request: OperationRequest): string {
   return request.operation === 'deploy' ? 'components' : 'records';
+}
+
+/** What each operation does, as the question says it. */
+const OPERATION_WORDS: Readonly<Record<OperationRequest['operation'], string>> = {
+  insert: 'Insert',
+  update: 'Update',
+  upsert: 'Insert or update',
+  delete: 'Delete',
+  hardDelete: 'Permanently delete',
+  deploy: 'Deploy',
+};
+
+/**
+ * The names a run of several objects stands under in a request when it has
+ * none to give before it runs: no object of the org, and nothing for the
+ * person asked.
+ */
+const NO_OBJECT_NAMES = new Set(['SeedData', 'SyncData', 'CloneData', 'AutopilotData']);
+
+/**
+ * The question a confirmation puts, in plain words: what the operation does,
+ * how many records or components, of which objects, in which org — named by
+ * its alias, the tier said in words. No module tag, no stand-in object name,
+ * no org id but for an org nobody named.
+ *
+ * @param orgName - The alias the user knows the org by; absent, its id.
+ */
+export function confirmationQuestionOf(request: OperationRequest, orgName?: string): string {
+  const unit = request.operation === 'deploy' ? 'component' : 'record';
+  const { recordCount } = request;
+  const counted =
+    recordCount === 'unknown'
+      ? `${unit}s`
+      : typeof recordCount === 'number'
+        ? `${recordCount} ${unit}${recordCount === 1 ? '' : 's'}`
+        : `at most ${recordCount.atMost} ${unit}s`;
+  const objects = NO_OBJECT_NAMES.has(request.objectName) ? '' : ` (${request.objectName})`;
+  const besides = request.alsoWrites ? `, plus ${request.alsoWrites},` : '';
+  const where =
+    request.operation === 'deploy' ? 'to' : request.operation === 'insert' ? 'into' : 'in';
+  const org = orgName
+    ? `the ${request.orgTier} org "${orgName}"`
+    : `the ${request.orgTier} org ${request.orgId}`;
+  return `${OPERATION_WORDS[request.operation]} ${counted}${objects}${besides} ${where} ${org}.`;
 }
 
 /** Build a human-readable impact summary for an operation */

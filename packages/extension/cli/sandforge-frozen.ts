@@ -26,7 +26,9 @@
  *
  * The configuration is the panel's own (`FrozenProjectConfig`, as JSON) and
  * goes in through the handler's schema. The pseudonymization salt comes from
- * `SANDFORGE_FROZEN_SALT` and nowhere else, as in the editor.
+ * `SANDFORGE_FROZEN_SALT`, or from the file `--salt-file` names, and is never
+ * made up here: the editor keeps its own in VS Code's secret storage, and a
+ * teammate copies it from there (`FrozenSalt`).
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts select  --config frozen.json --source SRC
@@ -49,13 +51,16 @@ import type {
   FrozenDiscoveryOrigin,
   FrozenSelectProgress,
   FrozenSelectionStop,
+  OrgType,
 } from '@sandforge/shared';
+import { orgTypeOf } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { commandLineGuard } from './commandLineGuard.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
+import { commandLineSaltKeeper } from '../src/modules/frozendataset/FrozenSalt.js';
 
 const HELP = `sandforge-frozen — build and replay a Frozen Dataset, without the editor.
 
@@ -79,6 +84,8 @@ Options:
   --target <alias>       sf CLI alias of the sandbox, or Developer Edition org, it is
                          loaded into
   --author <name>        who froze the dataset, for the manifest   (default: sandforge)
+  --salt-file <file>     the file holding the pseudonymization salt, when
+                         SANDFORGE_FROZEN_SALT is not set
   --store <file>         where the run keeps its state   (default: <sasDir>/cli-store.json)
   --pilot                load one root folder only
   --reload               purge what earlier loads created, then load again
@@ -104,7 +111,9 @@ Options:
   --help                 this text
 
 The salt that makes pseudonyms repeatable is read from SANDFORGE_FROZEN_SALT,
-and only from there.
+or else from --salt-file, and never made up here: an extraction without one is
+refused. The editor keeps its own in VS Code's secret storage; copy it from there
+with "SandForge: Copy Frozen Dataset Salt" to extract the same pseudonyms.
 
 The graph a selection or an extraction discovers is kept in the sas
 (discovery.json) and reused by the next one while the source's schema has not
@@ -126,6 +135,8 @@ interface CliArgs {
   target?: string;
   author?: string;
   storePath?: string;
+  /** The file holding the salt, read when SANDFORGE_FROZEN_SALT is not set. */
+  saltFile?: string;
   pilot: boolean;
   reload: boolean;
   /** With load: what the load would do, and nothing written. */
@@ -189,6 +200,7 @@ export function parseArgs(argv: string[]): CliArgs {
     target,
     author: get('--author'),
     storePath: get('--store'),
+    saltFile: get('--salt-file'),
     pilot: args.includes('--pilot'),
     reload: args.includes('--reload'),
     dryRun: args.includes('--dry-run'),
@@ -211,10 +223,10 @@ interface KnownOrg {
   credentials: { accessToken: string; instanceUrl: string };
 }
 
-/** An org typed from its `Organization` record, as the panel registers it. */
+/** An org typed from its `Organization` record, as the panel registers it (`orgTypeOf`). */
 export interface TypedOrg {
   id: string;
-  orgType: 'Sandbox' | 'Production';
+  orgType: OrgType;
   /** `Organization.OrganizationType` of an org that is not a sandbox; absent when it said none. */
   edition?: string;
 }
@@ -241,7 +253,7 @@ export async function typeOrg(conn: Pick<Connection, 'query'>): Promise<TypedOrg
     );
     const edition = typed.records[0]?.OrganizationType;
     return typeof edition === 'string' && edition !== ''
-      ? { id: row.Id, orgType: 'Production', edition }
+      ? { id: row.Id, orgType: orgTypeOf({ isSandbox: false, edition }), edition }
       : { id: row.Id, orgType: 'Production' };
   } catch {
     return { id: row.Id, orgType: 'Production' };
@@ -1043,6 +1055,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // reads it, through Forge's reader.
   const targetConn = targetOrgId ? conns.get(targetOrgId) : undefined;
   if (targetConn) handler.setTargetAutomation(targetAutomationReader(targetConn));
+  // The salt from the environment, or the file given; none is made up here.
+  handler.setSaltKeeper(commandLineSaltKeeper(process.env, args.saltFile));
 
   const send = (type: string, payload: Record<string, unknown>): Promise<boolean> =>
     handler.handle({ id: `cli-${type}-${Date.now()}`, type, payload } as never);

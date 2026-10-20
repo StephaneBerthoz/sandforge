@@ -287,10 +287,25 @@ describe('replacing a changed attachment in the target', () => {
     const guard = new ProductionGuard({ requestConfirmation: async () => true });
 
     // A sandbox: the earlier copy can go once the new one is written.
-    expect(targetAllowsDeletes(guard, 'tgt-org', 'Sandbox')).toBe(true);
-    // A production org, a Developer Edition included: the guard allows no delete there.
-    expect(targetAllowsDeletes(guard, 'tgt-org', 'Production')).toBe(false);
+    expect(targetAllowsDeletes(guard, 'tgt-org', { orgType: 'Sandbox' })).toBe(true);
+    // A Developer Edition org, as a sandbox: it holds nobody's business,
+    // whether an earlier build registered it as production or not.
+    expect(
+      targetAllowsDeletes(guard, 'tgt-org', {
+        orgType: 'Production',
+        metadata: { edition: 'Developer Edition' },
+      }),
+    ).toBe(true);
+    expect(targetAllowsDeletes(guard, 'tgt-org', { orgType: 'Developer' })).toBe(true);
+    // A production org: the guard allows no delete there.
+    expect(
+      targetAllowsDeletes(guard, 'tgt-org', {
+        orgType: 'Production',
+        metadata: { edition: 'Enterprise Edition' },
+      }),
+    ).toBe(false);
+    expect(targetAllowsDeletes(guard, 'tgt-org', undefined)).toBe(false);
     // No guard to ask: no delete.
-    expect(targetAllowsDeletes(undefined, 'tgt-org', 'Sandbox')).toBe(false);
+    expect(targetAllowsDeletes(undefined, 'tgt-org', { orgType: 'Sandbox' })).toBe(false);
   });
 });

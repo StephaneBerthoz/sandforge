@@ -42,6 +42,7 @@ import {
 } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
+import { registerFrozenSaltCommands } from './composition/frozenSaltCommands';
 import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposition';
 import { wirePipelineTriggers } from './composition/pipelineTriggerComposition';
 import { fileTriggerClaims } from './modules/automation/TriggerClaims';
@@ -165,7 +166,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // 3. Infrastructure services + background operation registry
   const { performanceTracker, productionGuard, offlineManager, piiDetector, backgroundRegistry } =
-    createBackgroundComposition({ services, configStore });
+    createBackgroundComposition({
+      services,
+      configStore,
+      orgNameOf: (orgId) => orgManager.getOrg(orgId)?.alias,
+    });
   // Enable connectivity probing so the offline queue can drain on reconnect.
   // The probe only ticks while an operation is queued or the network is down.
   // Stopped by offlineManager.dispose().
@@ -314,6 +319,8 @@ export function activate(context: vscode.ExtensionContext): void {
   runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
   context.subscriptions.push(registerAIConfigListener({ services, run: runAI, log }));
   context.subscriptions.push(registerTokenBudgetReset({ services, log }));
+  // The Frozen dataset salt, kept in secret storage, shared between teammates.
+  context.subscriptions.push(...registerFrozenSaltCommands(secretVault));
 
   // 8. Register all message routes
   handlers.registerAll(router);

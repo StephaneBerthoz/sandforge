@@ -1362,6 +1362,10 @@
         "removed": "Lecture complète (un retrait a repris des copies écrites)"
       }
     },
+    "contactPoints": {
+      "toggle": "Neutraliser les e-mails et les numéros de téléphone (recommandé)",
+      "toggleHint": "Activé sauf si décoché. Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne. Décoché, ils sont copiés tels que la source les contient, et les Flows de la cible peuvent écrire et envoyer des SMS à de vraies personnes. Le champ sur lequel l'écriture fait correspondre est gardé tel que lu."
+    },
     "files": {
       "toggle": "Copier les fichiers de ces enregistrements",
       "toggleHint": "Désactivé sauf si coché. Une fois les enregistrements d'un objet écrits, la dernière version de chaque fichier Salesforce lié à l'un d'eux, et leurs pièces jointes classiques, sont copiées et liées aux copies des enregistrements dans la cible. Une configuration enregistrée retient quel fichier elle a copié où : l'exécuter de nouveau ne copie un fichier que si la source en a une version plus récente, ajoutée comme version de la copie, jamais comme second fichier. Avant que l'exécution n'écrive quoi que ce soit, le stockage de fichiers de la cible est lu et une exécution dont les fichiers ne tiendraient pas est refusée. Un fichier plus gros que la taille maximale, et les fichiers au-delà de ce qu'une exécution copie au plus, sont ignorés et comptés ; l'exécution suivante copie ces derniers. Retirer une exécution reprend, avec ses enregistrements, les fichiers qu'elle a créés ; une version ajoutée à une copie antérieure reste.",
@@ -2641,7 +2645,7 @@
     "sfStackExchangeDesc": "Questions-réponses de la communauté Salesforce",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Démarrer la visite guidée",
-    "autopilotContent": "Autopilot copie les objets que vous choisissez d'une org source vers une org cible, en quatre étapes :\n1. Choisissez l'org source et l'org cible\n2. Sélectionnez les objets à copier\n3. Choisissez un référentiel de conformité pour anonymiser les données personnelles (RGPD, CCPA, HIPAA ou PCI-DSS), ou aucun\n4. Relisez le plan (vagues, enregistrements, appels API, champs PII), puis lancez-le",
+    "autopilotContent": "Autopilot copie les objets que vous choisissez d'une org source vers une org cible, en trois étapes :\n1. Choisissez l'org source et l'org cible\n2. Sélectionnez les objets à copier\n3. Relisez le plan (vagues, enregistrements, appels API, champs PII), puis lancez-le. Les e-mails et les numéros de téléphone sont neutralisés sauf si vous décochez la case — chaque adresse sous .invalid, chaque numéro fictif — et Avancé choisit un référentiel de conformité qui anonymise davantage (RGPD, CCPA, HIPAA ou PCI-DSS)",
     "migrationContent": "Migration convertit une définition de migration existante en configuration Sync :\n- Importez un export.json SFDMU, ou un fichier .json ou .csv\n- L'import lit le fichier et ne modifie aucune org\n- Exécuter la configuration convertie écrit des enregistrements dans l'org cible",
     "reportsContent": "Rapports lit l'historique des exécutions que Forge et Sync conservent déjà :\n- Exécutions : chaque exécution avec son statut, sa durée et son nombre d'enregistrements, exportable en JSON\n- Analyses : taux de réussite calculés à partir de ces exécutions\n- Piste d'audit et lignage des données : bientôt disponible, rien ne les enregistre encore"
   },
@@ -3901,10 +3905,9 @@
       "countShown": "Compter les enregistrements des objets affichés ({{objects}})"
     },
     "step3": {
-      "title": "Cadre de Conformité",
       "selectFramework": "Sélectionner un cadre de conformité",
       "none": "Aucun",
-      "noneDesc": "Pas d'anonymisation — transférer les données telles quelles",
+      "noneDesc": "Aucun cadre : rien n'est anonymisé au-delà des e-mails et des numéros de téléphone que l'exécution neutralise, sauf si cette case est décochée",
       "gdpr": "RGPD",
       "gdprDesc": "Protection des données européenne — anonymiser les identifiants personnels",
       "ccpa": "CCPA",
@@ -3924,6 +3927,9 @@
       "waves": "Vagues d'Exécution",
       "piiFields": "Champs PII Détectés",
       "anonymizedFields": "Champs à Anonymiser",
+      "contactPoints": "Neutraliser les e-mails et les numéros de téléphone (recommandé)",
+      "contactPointsHint": "Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne. Décoché, ils sont copiés tels que la source les contient.",
+      "advancedCompliance": "Avancé : cadre de conformité",
       "execute": "Exécuter Autopilot",
       "description": "Vérifiez votre configuration avant de lancer l'autopilot.",
       "complianceFramework": "Cadre de conformité",
@@ -4092,7 +4098,10 @@
     },
     "status": {
       "salt": "Empreinte du sel",
-      "saltMissing": "Sel absent",
+      "saltMissing": "Pas encore",
+      "saltKept": "Gardé dans le stockage secret de VS Code",
+      "saltFromEnvironment": "Depuis SANDFORGE_FROZEN_SALT",
+      "saltMadeOnExtraction": "Créé et gardé à la première extraction",
       "dataset": "Jeu figé",
       "records_one": "{{count}} enregistrement",
       "records_other": "{{count}} enregistrements",
@@ -4100,11 +4109,14 @@
       "selection": "Sélection",
       "noSelection": "Aucune sélection",
       "lastVerify": "Dernière vérification",
-      "saltMismatch": "Le sel de cet environnement ({{current}}) n'est pas celui avec lequel ce jeu de données a été construit ({{manifest}}). Une nouvelle extraction avec ce sel donnerait aux mêmes enregistrements d'autres pseudonymes que ceux de ce jeu de données. Remettez d'abord ce sel dans SANDFORGE_FROZEN_SALT."
+      "saltMismatch": "Le sel de cet éditeur ({{current}}) n'est pas celui avec lequel ce jeu de données a été construit ({{manifest}}). Une nouvelle extraction avec ce sel donnerait aux mêmes enregistrements d'autres pseudonymes que ceux de ce jeu de données. Redéfinissez d'abord ce sel, avec « SandForge : Utiliser un sel de jeu de référence figé » ou SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extraire",
       "load": "Charger"
+    },
+    "salt": {
+      "created": "Cette première extraction a créé le sel avec lequel chaque pseudonyme est tiré, et le garde dans le stockage secret de VS Code : chaque extraction suivante pseudonymise les mêmes enregistrements de la même façon. Un collègue qui extrait ce jeu de données a besoin du même sel : copiez-le avec « SandForge : Copier le sel du jeu de référence figé » et transmettez-le-lui comme un mot de passe ; il le définit avec « SandForge : Utiliser un sel de jeu de référence figé ». Qui le détient peut savoir de quelle valeur source un pseudonyme a été tiré."
     },
     "manifest": {
       "version": "Jeu v{{version}}"
@@ -4163,7 +4175,8 @@
       "title": "Extraction & pseudonymisation",
       "run": "Lancer l'extraction",
       "summary_one": "{{count}} enregistrement figé dans {{files}} fichiers",
-      "summary_other": "{{count}} enregistrements figés dans {{files}} fichiers"
+      "summary_other": "{{count}} enregistrements figés dans {{files}} fichiers",
+      "saltHint": "Chaque pseudonyme est tiré avec le sel de cet éditeur, créé à la première extraction et gardé dans le stockage secret de VS Code. Pour extraire les mêmes pseudonymes qu'un collègue, définissez le sien avec « SandForge : Utiliser un sel de jeu de référence figé » ; transmettez le vôtre avec « SandForge : Copier le sel du jeu de référence figé ». SANDFORGE_FROZEN_SALT, là où il est défini, l'emporte sur les deux. Un chargement n'a pas besoin du sel."
     },
     "control": {
       "check": "Contrôle",
@@ -4177,13 +4190,11 @@
     },
     "guards": {
       "title": "Gardes d'entrée",
-      "sandboxOnly": "Sandbox uniquement",
+      "sandboxOnly": "Jamais une org de production",
       "protectedEnvs_one": "{{count}} env. protégé",
       "protectedEnvs_other": "{{count}} env. protégés",
-      "mocksConfigured": "Détection de mocks configurée",
-      "mocksNotConfigured": "Détection de mocks non configurée",
-      "saltOk": "Sel chargé",
-      "saltMissing": "Sel absent"
+      "mocksConfigured": "Callouts non simulés vérifiés",
+      "mocksNotConfigured": "Callouts non simulés non vérifiés"
     },
     "load": {
       "targetOrg": "Org cible (sandbox)",

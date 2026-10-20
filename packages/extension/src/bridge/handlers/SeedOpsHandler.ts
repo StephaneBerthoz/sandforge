@@ -9,7 +9,7 @@ import {
   recordWriteHeaders,
   integerDigitsOf,
   sanitizeSoqlObjectName,
-  orgTypeToGuardTier,
+  guardTierOf,
 } from '@sandforge/shared';
 import type {
   HandlerDeps,
@@ -792,7 +792,7 @@ export class SeedOpsHandler implements DomainHandler {
       }
       const guardRequest = {
         orgId: payload.orgId,
-        orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+        orgTier: guardTierOf(org),
         operation: 'insert' as const,
         objectName: 'SeedData',
         recordCount: plannedRecords,

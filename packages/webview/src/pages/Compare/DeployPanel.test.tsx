@@ -64,7 +64,7 @@ const org = (id: string, alias: string, orgType: OrgType): SalesforceOrg => ({
   authMethod: 'oauth_web',
   safetyTier: orgType === 'Sandbox' ? OrgSafetyTier.LOW : OrgSafetyTier.CRITICAL,
   appearance: { color: '#0070d2', icon: 'cloud', position: 0 },
-  metadata: { apiVersion: '66.0', edition: 'Developer Edition', features: [] },
+  metadata: { apiVersion: '66.0', edition: 'Enterprise Edition', features: [] },
   status: 'connected',
   lastConnected: '2026-09-01T00:00:00Z',
   tags: [],

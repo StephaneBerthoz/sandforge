@@ -228,6 +228,29 @@ describe('BridgeProvider', () => {
     });
   });
 
+  it('words the note that the first extraction made the Frozen dataset salt in the language of the page', () => {
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+    fireMessage({
+      id: 'n-salt',
+      type: 'notification',
+      timestamp: Date.now(),
+      payload: {
+        level: 'info',
+        title: 'Frozen dataset salt',
+        message: 'This first extraction made the salt (fingerprint 0123456789ab).',
+        code: 'FROZEN_SALT_CREATED',
+      },
+    });
+
+    const said = useNotificationStore.getState().notifications[0].message;
+    expect(said).toContain('SandForge: Copy Frozen Dataset Salt');
+    expect(said).toContain('SandForge: Use a Frozen Dataset Salt');
+  });
+
   it('should surface a bridge:error as an error notification', () => {
     // The broker drops the offending message, so nothing else will ever
     // report it — without this listener the sender just waits out a timeout.

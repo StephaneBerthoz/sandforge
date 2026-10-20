@@ -1,4 +1,5 @@
 import type { SalesforceOrg } from '@sandforge/shared';
+import { registeredOrgType } from '@sandforge/shared';
 import type { TFunction } from 'i18next';
 
 /** Environment tags recognized for org type resolution. */
@@ -28,22 +29,23 @@ const SANDBOX_TYPE_KEYS: Readonly<Record<string, string>> = {
  * Every label comes from the catalogue but an environment tag, which is the
  * user's own word. A Developer Edition org used to fall through to its raw
  * type upper-cased, and the org card called this without a translation
- * function, so it wrote the English labels in every language.
+ * function, so it wrote the English labels in every language. One an earlier
+ * build registered as a production org is read by its edition
+ * (`registeredOrgType`): it wore a red PROD badge.
  *
  * @param org - The Salesforce org.
  * @param t - The i18n translation function.
  */
 export function orgTypeLabel(org: SalesforceOrg, t: TFunction): string {
-  if (org.orgType === 'Production') return t('sidePanel.orgType.prod');
-  if (org.orgType === 'Scratch') return t('sidePanel.orgType.scratch');
+  const orgType = registeredOrgType(org.orgType, org.metadata?.edition);
+  if (orgType === 'Production') return t('sidePanel.orgType.prod');
+  if (orgType === 'Scratch') return t('sidePanel.orgType.scratch');
   const envTags = org.tags
     .map((tag) => tag.toUpperCase())
     .filter((tag): tag is string => (ENV_TAGS as readonly string[]).includes(tag));
   if (envTags.length > 0) return envTags[0];
   if (org.sandboxType) return t(SANDBOX_TYPE_KEYS[org.sandboxType] ?? 'sidePanel.orgType.sandbox');
-  return t(
-    org.orgType === 'Developer' ? 'sidePanel.orgType.developer' : 'sidePanel.orgType.sandbox',
-  );
+  return t(orgType === 'Developer' ? 'sidePanel.orgType.developer' : 'sidePanel.orgType.sandbox');
 }
 
 /**

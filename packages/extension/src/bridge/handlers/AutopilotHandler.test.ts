@@ -1317,6 +1317,55 @@ describe('AutopilotHandler', () => {
       expect(completed).toBeDefined();
     });
 
+    it('judges a Developer Edition target as the development org it is, registered as production or not', async () => {
+      // A Trailhead playground says IsSandbox false: every run into one opened
+      // the production question.
+      for (const orgType of ['Developer', 'Production']) {
+        const guard = wireGuard({ allowed: true });
+        (deps.orgManager.getOrg as Mock).mockReturnValue({
+          orgType,
+          metadata: { edition: 'Developer Edition' },
+        });
+        const orchestrator = createMockOrchestrator({
+          generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+        });
+        await scanAndPlan(orchestrator);
+
+        await handler.handle(executeMsg());
+
+        expect(guard.check.mock.calls[0][0]).toMatchObject({
+          orgId: 'tgt',
+          orgTier: 'development',
+          module: 'autopilot',
+        });
+      }
+    });
+
+    it('runs the plan neutralizing emails and phone numbers unless the review said to keep them', async () => {
+      wireGuard({ allowed: true });
+      mockTargetOrgType('Sandbox');
+      const orchestrator = createMockOrchestrator({
+        generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+      });
+      await scanAndPlan(orchestrator);
+
+      await handler.handle(executeMsg());
+      expect(vi.mocked(orchestrator.executePlan).mock.calls[0].at(-1)).toEqual({});
+
+      await scanAndPlan(orchestrator);
+      await handler.handle(
+        inboundRequest({
+          id: 'exec-keep',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0, keepContactPoints: true },
+        } as BaseMessage),
+      );
+      expect(vi.mocked(orchestrator.executePlan).mock.calls[1].at(-1)).toEqual({
+        keepContactPoints: true,
+      });
+    });
+
     it('refuses with NOT_INITIALIZED and inserts nothing when no Production Guard was injected', async () => {
       // A host that never wired the guard used to skip it and run the plan,
       // on a production target as on any other.

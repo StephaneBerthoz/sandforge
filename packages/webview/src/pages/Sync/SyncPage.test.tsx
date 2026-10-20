@@ -742,6 +742,47 @@ describe('SyncPage', () => {
       );
     });
 
+    it('neutralizes emails and phone numbers by default, and sends the choice to keep them only once unticked', () => {
+      const atConfigure = {
+        currentStep: 0,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      draft.value = atConfigure;
+      useOrgStore.setState({ orgs: mockOrgs });
+      const { unmount } = render(<SyncPage />);
+      const toggle = screen.getByTestId('sync-contact-points-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(true);
+      fireEvent.click(toggle);
+      expect(toggle.checked).toBe(false);
+      unmount();
+
+      // A run: nothing in its configuration asks to keep them.
+      draft.value = { ...atConfigure, currentStep: 4 };
+      const run = render(<SyncPage />);
+      fireEvent.click(screen.getByTestId('sync-run'));
+      const neutralizing = (
+        mockExecuteMutate.mock.calls[0][0] as { config: { keepContactPoints?: boolean } }
+      ).config;
+      expect(neutralizing.keepContactPoints).toBeUndefined();
+      run.unmount();
+
+      // Unticked, as a draft keeps it: the run is asked to keep them.
+      draft.value = { ...atConfigure, currentStep: 4, keepContactPoints: true };
+      render(<SyncPage />);
+      fireEvent.click(screen.getByTestId('sync-run'));
+      const keeping = (
+        mockExecuteMutate.mock.calls[1][0] as { config: { keepContactPoints?: boolean } }
+      ).config;
+      expect(keeping.keepContactPoints).toBe(true);
+    });
+
     it('offers the files off by default, and their two caps once turned on', () => {
       draft.value = {
         currentStep: 0,

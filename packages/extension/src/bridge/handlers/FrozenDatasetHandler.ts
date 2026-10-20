@@ -23,6 +23,7 @@ import type {
   ForgeTargetAutomation,
   GuardDecision,
 } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import {
@@ -42,7 +43,6 @@ import {
   type SweepInput,
 } from '../../modules/forge/ForgeRunSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
-import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -57,6 +57,7 @@ import type {
 import {
   buildResponse,
   sendHandlerError,
+  sendNotification,
   sendOperationStarted,
   sendOperationProgress,
   sendOperationCompleted,
@@ -164,6 +165,10 @@ import {
   type RuleSchemaField,
   type TargetOrgAccess,
 } from '../../modules/frozendataset/index.js';
+import {
+  commandLineSaltKeeper,
+  type FrozenSaltKeeper,
+} from '../../modules/frozendataset/FrozenSalt.js';
 
 /**
  * The writer of a preview: it writes nothing, and says so if a write ever
@@ -617,8 +622,10 @@ async function frozenCarried(
  *
  * Security invariants enforced at this boundary:
  *  - the sas/dataset paths go through SasPathGuard (refused inside the repo);
- *  - the pseudonymization salt comes from `SANDFORGE_FROZEN_SALT` only —
- *    its SHA-256 fingerprint is the only salt-derived value ever surfaced;
+ *  - the pseudonymization salt comes from its keeper (`FrozenSalt`): the
+ *    editor's secret storage, `SANDFORGE_FROZEN_SALT` where it is set, a file
+ *    on the command line — its SHA-256 fingerprint is the only salt-derived
+ *    value ever surfaced;
  *  - source record IDs never cross the bridge (selection summary redacted);
  *  - control violation details are redacted/truncated (residual values).
  */
@@ -628,6 +635,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   private liveTracker?: LiveOperationTracker;
   /** Reads what the target's flows create, for the sweep of a load's removal: Forge's reader. */
   private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
+  /** What keeps the pseudonymization salt between extractions: see {@link setSaltKeeper}. */
+  private saltKeeper: FrozenSaltKeeper = commandLineSaltKeeper();
 
   /** The mappings whose load is being removed, by file: one removal at a time each. */
   private readonly removing = new Set<string>();
@@ -697,6 +706,15 @@ export class FrozenDatasetHandler implements DomainHandler {
    */
   setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
     this.targetAutomation = reader;
+  }
+
+  /**
+   * Where the pseudonymization salt is kept: VS Code's secret storage in the
+   * editor (`secretStorageSaltKeeper`), the environment or a file on the
+   * command line. Until set, `SANDFORGE_FROZEN_SALT` alone.
+   */
+  setSaltKeeper(keeper: FrozenSaltKeeper): void {
+    this.saltKeeper = keeper;
   }
 
   /**
@@ -1551,9 +1569,13 @@ export class FrozenDatasetHandler implements DomainHandler {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
       const datasetDir = guard.assertOutsideRepo(this.resolveDatasetDir(config));
-      // The salt comes from the environment ONLY — MissingSaltError is
-      // actionable (never invent a second salt: determinism would be lost).
-      const pseudonymizer = DeterministicPseudonymizer.fromEnv();
+      // The salt kept, or — the first time, in the editor — one made and kept
+      // from now on: never a second one beside it, or the same records would
+      // get other pseudonyms. Where none is kept and none can be (the command
+      // line), MissingSaltError says how to give it.
+      const salt = await this.saltKeeper.forExtraction();
+      const pseudonymizer = new DeterministicPseudonymizer(salt.salt);
+      if (salt.created) this.sayTheSaltWasMade(pseudonymizer.saltFingerprint);
 
       if (!(await pathExists(path.join(sasDir, SELECTION_FILE_NAME)))) {
         sendHandlerError(
@@ -1795,16 +1817,16 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   /**
    * The tier a load, its preview and its removal take the target for: the one
-   * a Forge run takes it for (`forgeTargetTier`). A Developer Edition org
-   * says IsSandbox false and is registered as a production org while it holds
-   * nobody's business: Forge cloned into one, and the load refused it as
-   * production, leaving those with no sandbox of their own nowhere to load a
-   * dataset. A production org of any other edition, or of an edition not
-   * known, stays production, and every guard of the load refuses it.
+   * every guard takes it for (`guardTierOf`). A Developer Edition org says
+   * IsSandbox false while it holds nobody's business: Forge cloned into one,
+   * and the load refused it as production, leaving those with no sandbox of
+   * their own nowhere to load a dataset. A production org of any other
+   * edition, or of an edition not known, stays production, and every guard of
+   * the load refuses it.
    */
   private targetTier(orgId: string): SafetyTier {
     const org = this.deps.orgManager.getOrg(orgId);
-    return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);
+    return guardTierOf(org);
   }
 
   // ── frozen:load ────────────────────────────────────────────────────────
@@ -3092,6 +3114,26 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Say, once, that the first extraction made the salt, where it is kept and
+   * how a teammate gets it: kept for good, it is what every later extraction
+   * pseudonymizes with, and nobody had been asked.
+   */
+  private sayTheSaltWasMade(fingerprint: string): void {
+    sendNotification(
+      this.deps,
+      'info',
+      'Frozen dataset salt',
+      `This first extraction made the salt every pseudonym is drawn with (fingerprint ` +
+        `${fingerprint}) and keeps it in VS Code's secret storage: every later extraction ` +
+        'pseudonymizes the same records the same way. A teammate who extracts this dataset ' +
+        'needs the same salt: copy it with "SandForge: Copy Frozen Dataset Salt" and give it ' +
+        'to them as you would a password; they set it with "SandForge: Use a Frozen Dataset ' +
+        'Salt". Whoever holds it can tell which source value a pseudonym was drawn from.',
+      { autoDismissMs: null, code: 'FROZEN_SALT_CREATED' },
+    );
+  }
+
   // ── frozen:status ──────────────────────────────────────────────────────
 
   private async handleStatus(msg: InboundRequest): Promise<void> {
@@ -3101,7 +3143,14 @@ export class FrozenDatasetHandler implements DomainHandler {
 
     let salt: FrozenStatusInfo['salt'] = { present: false };
     try {
-      salt = { present: true, fingerprint: DeterministicPseudonymizer.fromEnv().saltFingerprint };
+      const kept = await this.saltKeeper.read();
+      if (kept) {
+        salt = {
+          present: true,
+          fingerprint: new DeterministicPseudonymizer(kept.salt).saltFingerprint,
+          source: kept.source,
+        };
+      }
     } catch {
       salt = { present: false };
     }

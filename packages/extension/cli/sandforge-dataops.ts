@@ -43,6 +43,7 @@ import { personAccountRules } from '../src/modules/dataops/personAccountMasking.
 import { ACCOUNT } from '../src/core/common/platformRecords.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 import type { AnonymizationTemplateRule } from '@sandforge/shared';
+import { orgTypeOf } from '@sandforge/shared';
 
 const HELP = `sandforge-dataops — mask an org's records, and put them back, without the editor.
 
@@ -478,15 +479,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   mkdirSync(args.storeDir, { recursive: true });
   const session = await loadOrg(args.org);
-  // Typed as the extension types an org it connects (`OrgHandler`): its
-  // `Organization` record, `IsSandbox` for its type and its edition with it.
+  // Typed as the extension types an org it connects (`orgTypeOf`): its
+  // `Organization` record, `IsSandbox` and its edition.
   const identity = await new AuthProvider().validateConnection(
     session.accessToken,
     session.instanceUrl,
   );
   const org = {
     alias: args.org,
-    orgType: identity.isSandbox ? 'Sandbox' : 'Production',
+    orgType: orgTypeOf({ isSandbox: identity.isSandbox, edition: identity.orgType }),
     metadata: { apiVersion: '66.0', edition: identity.orgType },
   };
   log(

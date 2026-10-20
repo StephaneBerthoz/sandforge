@@ -10,6 +10,7 @@ import type {
 import { Button } from '../../../components/ui/Button';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { uiLocale } from '../../../utils/formatters';
+import { CompliancePicker } from './CompliancePicker';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -33,6 +34,14 @@ export interface Step4ReviewProps {
   readonly anonymizedFields: number;
   /** Selected compliance framework */
   readonly complianceFramework: ComplianceFrameworkType;
+  /** Another framework picked: the plan is built again for it. */
+  readonly onFrameworkChange: (framework: ComplianceFrameworkType) => void;
+  /** Whether the run neutralizes emails and phone numbers before it writes them. */
+  readonly neutralizeContactPoints: boolean;
+  /** Tick or untick the neutralization. */
+  readonly onNeutralizeChange: (on: boolean) => void;
+  /** Whether the plan is being built again, after another framework was picked. */
+  readonly planning?: boolean;
   /** Whether execution is in progress */
   readonly isExecuting: boolean;
   /** Last execution error (e.g. production guard declined), if any */
@@ -45,7 +54,11 @@ export interface Step4ReviewProps {
   readonly onExecute: () => void;
 }
 
-/** Step 4: Review execution plan and start. */
+/**
+ * The review step, the last: the plan's numbers, the neutralization of emails
+ * and phone numbers — on unless unticked — and, behind a disclosure, the
+ * compliance framework the plan anonymizes by.
+ */
 export const Step4Review: React.FC<Step4ReviewProps> = ({
   sourceOrgId,
   targetOrgId,
@@ -57,6 +70,10 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   piiFields,
   anonymizedFields,
   complianceFramework,
+  onFrameworkChange,
+  neutralizeContactPoints,
+  onNeutralizeChange,
+  planning = false,
   isExecuting,
   error,
   scope,
@@ -64,6 +81,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   onExecute,
 }) => {
   const { t } = useTranslation();
+  const contactPointsHintId = React.useId();
 
   /** Why a lookup is left empty, in the interface language. */
   const reasonOf = (lookup: AutopilotLookupLeftEmpty): string => {
@@ -105,6 +123,46 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
       <p className="text-sm text-text-secondary">{t('autopilot.step4.description')}</p>
 
       {error && <ErrorBanner message={error} data-testid="autopilot-execute-error" />}
+
+      {/* Emails and phone numbers, neutralized unless unticked, as a Forge
+          run's are: the compliance step this replaces defaulted to copying
+          them as read into the target. */}
+      <div
+        className="flex flex-col gap-(--sf-space-2) p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
+        data-testid="step4-contact-points"
+      >
+        <label className="flex items-start gap-2 text-sm text-text-primary cursor-pointer">
+          <input
+            type="checkbox"
+            checked={neutralizeContactPoints}
+            onChange={(e) => onNeutralizeChange(e.target.checked)}
+            aria-describedby={contactPointsHintId}
+            className="mt-0.5 accent-(--sf-accent)"
+            data-testid="step4-contact-points-toggle"
+          />
+          {t('autopilot.step4.contactPoints')}
+        </label>
+        <p id={contactPointsHintId} className="text-xs text-text-secondary">
+          {t('autopilot.step4.contactPointsHint')}
+        </p>
+      </div>
+
+      <details
+        className="flex flex-col gap-2 p-3 rounded-sm border border-(--sf-border) bg-(--sf-bg-primary)"
+        data-testid="step4-compliance-advanced"
+      >
+        <summary className="text-sm font-medium text-text-primary cursor-pointer">
+          {t('autopilot.step4.advancedCompliance')}
+        </summary>
+        <div className="pt-(--sf-space-2)">
+          <CompliancePicker selectedFramework={complianceFramework} onSelect={onFrameworkChange} />
+        </div>
+      </details>
+      {planning && (
+        <p role="status" className="text-xs text-text-secondary" data-testid="step4-planning">
+          {t('autopilot.status.planning')}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <StatCard
@@ -272,7 +330,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           size="md"
           onClick={onExecute}
           loading={isExecuting}
-          disabled={isExecuting}
+          disabled={isExecuting || planning}
           data-testid="execute-button"
         >
           {isExecuting ? t('autopilot.step4.executing') : t('autopilot.step4.execute')}

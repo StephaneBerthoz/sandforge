@@ -67,6 +67,15 @@ export interface SyncConfig {
    * attachments. Off unless set; absent, no file is read.
    */
   files?: SyncFileCopyOption;
+  /**
+   * Write the email addresses and phone numbers of the rows as the source
+   * holds them. Absent or false — the default — every row a run writes has
+   * them neutralized first, as a Forge run's are: each address under
+   * `.invalid`, each phone number a fictional one. Copied as read into a
+   * sandbox whose record-triggered flows email and text the contacts they are
+   * written for, the copies were real people, reachable from the sandbox.
+   */
+  keepContactPoints?: boolean;
 }
 
 /**

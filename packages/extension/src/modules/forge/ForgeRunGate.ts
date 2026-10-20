@@ -28,7 +28,6 @@ import {
   firedOnRemovalOf,
   firedOnWriteOf,
   heldBypassPermissionsOf,
-  orgTypeToGuardTier,
 } from '@sandforge/shared';
 import type {
   ForgeEmailLimit,
@@ -53,38 +52,11 @@ import type {
   BypassToAssign,
   FiredOnInsert,
   RunUpdateStep,
-  SafetyTier,
   WriteConfirmationStorage,
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeWriteBoundary } from './ForgeExecutor.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { objectsTheRunWrites } from './TargetAutomationReader.js';
-
-/**
- * Whether an org's edition, as `Organization.OrganizationType` gives it, is a
- * Developer Edition org's — a Trailhead playground is one.
- *
- * Such an org says `IsSandbox` false, and is registered as a production org,
- * while it holds nobody's business: refused as one, it left those who try
- * SandForge with no sandbox of their own nowhere to clone into.
- */
-export function isDeveloperEdition(edition: unknown): boolean {
-  return typeof edition === 'string' && edition.trim().toLowerCase() === 'developer edition';
-}
-
-/**
- * The tier a Forge run takes its target for: the guard's tier of the org's
- * type, except a Developer Edition org, which the guard reads as production,
- * taken for the development org it is. An org whose edition is not known
- * stays production, as an org of unknown type does to the guard.
- *
- * @param orgType - The type the org was registered with.
- * @param edition - Its edition, as kept when it was connected.
- */
-export function forgeTargetTier(orgType: string, edition: unknown): SafetyTier {
-  const tier = orgTypeToGuardTier(orgType);
-  return tier === 'production' && isDeveloperEdition(edition) ? 'development' : tier;
-}
 
 /** The volume past which the extension asks before a run writes (`sandforge.safety.confirmAboveRecords`). */
 export const DEFAULT_CONFIRM_ABOVE_RECORDS = 2_000;

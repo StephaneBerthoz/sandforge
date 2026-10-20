@@ -184,10 +184,11 @@ async function advanceToObjects(page: Page, bridge: MockBridge): Promise<void> {
 }
 
 /**
- * Step 2 → Step 3: pick every listed object, advance, answer the scan of the
- * selection. Nothing is picked for the user, and the scan starts from what was.
+ * Step 2 → the plan: pick every listed object, advance, answer the scan of the
+ * selection, which asks for the plan at once. Nothing is picked for the user,
+ * and the scan starts from what was.
  */
-async function advanceToCompliance(page: Page): Promise<void> {
+async function advanceToPlan(page: Page, bridge: MockBridge): Promise<void> {
   await page.getByTestId('select-all-checkbox').check();
   await page.getByTestId('seed-wizard-next').click();
   await expect
@@ -196,12 +197,11 @@ async function advanceToCompliance(page: Page): Promise<void> {
   await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
     graph: buildMockGraph(),
   });
-  await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 10_000 });
+  await bridge.waitForMessage('autopilot:generate-plan', { timeout: 10_000 });
 }
 
-/** Step 3 → Step 4: answer the plan the wizard asks the extension to build. */
+/** The plan → Step 3: answer the plan the wizard asked the extension to build. */
 async function advanceToReview(page: Page, bridge: MockBridge): Promise<void> {
-  await page.getByTestId('seed-wizard-next').click();
   await bridge.waitForMessage('autopilot:generate-plan', { timeout: 10_000 });
   await respondToAll(page, 'autopilot:generate-plan', 'autopilot:plan-ready', {
     plan: MOCK_PLAN,
@@ -325,21 +325,34 @@ test.describe('Autopilot — Wizard Flow', () => {
     await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
       graph: buildMockGraph(),
     });
-    await expect(page.getByTestId('step3-compliance')).toBeVisible({ timeout: 10_000 });
+    // No compliance step between the objects and the review: the plan is
+    // asked for at once.
+    await bridge.waitForMessage('autopilot:generate-plan', { timeout: 10_000 });
   });
 
-  test('Step 3: displays compliance framework options', async ({ page }) => {
+  test('Review: neutralizes emails and phone numbers by default, the framework behind Advanced', async ({
+    page,
+  }) => {
     await advanceToObjects(page, bridge);
-    await advanceToCompliance(page);
+    await advanceToPlan(page, bridge);
+    await advanceToReview(page, bridge);
 
-    await expect(page.getByTestId('step3-compliance')).toBeVisible();
-    await expect(page.getByTestId('framework-options')).toBeVisible();
-    await expect(page.getByTestId('framework-gdpr')).toBeVisible();
+    await expect(page.getByTestId('step4-contact-points-toggle')).toBeChecked();
+    await expect(page.getByTestId('framework-gdpr')).toBeHidden();
+    await page.getByTestId('step4-compliance-advanced').locator('summary').click();
+    await page.getByTestId('framework-gdpr').click();
+    await expect
+      .poll(async () => (await outgoing(page, 'autopilot:generate-plan')).length, {
+        timeout: 10_000,
+      })
+      .toBe(2);
+    const replanned = (await outgoing(page, 'autopilot:generate-plan')).at(-1);
+    expect((replanned?.payload as Record<string, unknown>).complianceFramework).toBe('gdpr');
   });
 
   test('Step 4: displays review summary', async ({ page }) => {
     await advanceToObjects(page, bridge);
-    await advanceToCompliance(page);
+    await advanceToPlan(page, bridge);
     await advanceToReview(page, bridge);
 
     await expect(page.getByTestId('step4-review')).toBeVisible();
@@ -394,11 +407,15 @@ test.describe('Autopilot — Wizard Flow', () => {
     // second Enter pressed while the plan was built started a run nobody had
     // reviewed, as soon as the plan came.
     await advanceToObjects(page, bridge);
-    await advanceToCompliance(page);
+    await page.getByTestId('select-all-checkbox').check();
     const next = page.getByTestId('seed-wizard-next');
 
     await next.focus();
     await page.keyboard.press('Enter');
+    await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
+      graph: buildMockGraph(),
+    });
     await bridge.waitForMessage('autopilot:generate-plan', { timeout: 10_000 });
     const planning = page.getByTestId('autopilot-plan-loading');
     await expect(planning).toHaveRole('status');
@@ -423,7 +440,7 @@ test.describe('Autopilot — Wizard Flow', () => {
   }) => {
     // Execute leaves with the wizard, and the focus it held fell to the page.
     await advanceToObjects(page, bridge);
-    await advanceToCompliance(page);
+    await advanceToPlan(page, bridge);
     await advanceToReview(page, bridge);
 
     await page.getByTestId('execute-button').focus();
@@ -441,7 +458,7 @@ test.describe('Autopilot — Wizard Flow', () => {
     // the review came back with the focus on the page, where the keyboard
     // started again from the top of the panel.
     await advanceToObjects(page, bridge);
-    await advanceToCompliance(page);
+    await advanceToPlan(page, bridge);
     await advanceToReview(page, bridge);
     await page.getByTestId('execute-button').focus();
     await page.keyboard.press('Enter');
@@ -461,7 +478,7 @@ test.describe('Autopilot — Wizard Flow', () => {
 
   test('execute starts the run and leaves the wizard for the execution view', async ({ page }) => {
     await advanceToObjects(page, bridge);
-    await advanceToCompliance(page);
+    await advanceToPlan(page, bridge);
     await advanceToReview(page, bridge);
 
     await page.getByTestId('execute-button').click();

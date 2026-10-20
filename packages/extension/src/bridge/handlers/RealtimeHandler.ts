@@ -4,7 +4,7 @@ import type {
   GuardDecision,
   RealTimeSyncMetrics,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -568,7 +568,7 @@ export class RealtimeHandler implements DomainHandler {
     }
     const request = {
       orgId: targetOrgId,
-      orgTier: orgTypeToGuardTier(this.deps.orgManager.getOrg(targetOrgId)?.orgType ?? ''),
+      orgTier: guardTierOf(this.deps.orgManager.getOrg(targetOrgId)),
       operation: plans.some((p) => p.applyDeletes) ? ('delete' as const) : ('upsert' as const),
       objectName: plans.map((p) => p.objectApiName).join(', '),
       recordCount: 'unknown' as const,

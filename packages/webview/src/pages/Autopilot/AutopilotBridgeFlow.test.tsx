@@ -265,11 +265,20 @@ describe('Autopilot bridge flow', () => {
       includeStandardObjects: true,
     });
     dispatchBridgeMessage('autopilot:schema-result', { graph: GRAPH }, scanRequest.id);
-    expect(useAutopilotStore.getState().step).toBe('compliance');
 
-    // ── Step 3: framework + generate-plan ──────────────────────────────
+    // ── The plan of the scan, then the review ──────────────────────────
+    const firstPlan = lastRequestOfType('autopilot:generate-plan');
+    expect(firstPlan.payload).toEqual({
+      complianceFramework: 'none',
+      maxRecordsPerObject: 0,
+      objectFilters: {},
+      overrides: [],
+    });
+    dispatchBridgeMessage('autopilot:plan-ready', { plan: PLAN, graph: GRAPH }, firstPlan.id);
+    expect(useAutopilotStore.getState().step).toBe('review');
+
+    // ── Step 3: review — a framework, behind Advanced, plans again ──────
     fireEvent.click(screen.getByTestId('framework-gdpr'));
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
     const planRequest = lastRequestOfType('autopilot:generate-plan');
     expect(planRequest.payload).toEqual({
@@ -284,9 +293,10 @@ describe('Autopilot bridge flow', () => {
     expect(screen.getByTestId('stat-waves').textContent).toContain('2');
     expect(screen.getByTestId('stat-pii-fields').textContent).toContain('2');
 
-    // ── Step 4: execute ────────────────────────────────────────────────
+    // ── Execute ────────────────────────────────────────────────────────
     fireEvent.click(screen.getByTestId('execute-button'));
 
+    // Emails and phone numbers neutralized: nothing asks to keep them.
     const executeRequest = lastRequestOfType('autopilot:execute');
     expect(executeRequest.payload).toEqual({ grappeThreshold: 0 });
     expect(useAutopilotStore.getState().step).toBe('executing');

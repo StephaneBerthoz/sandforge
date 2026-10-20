@@ -114,13 +114,24 @@ export const FrozenPage: React.FC = () => {
 
       {/* Status strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="frozen-status-strip">
+        {/* The salt is made on the first extraction and kept in VS Code's
+            secret storage: none yet is no fault, and a load never needs it.
+            It used to read "Salt missing", in warning colours, until an
+            environment variable was set before VS Code started. */}
         <KPICard
           icon="key"
           label={t('frozen.status.salt')}
           value={
             status?.salt.present ? (status.salt.fingerprint ?? '') : t('frozen.status.saltMissing')
           }
-          variant={status?.salt.present ? 'success' : 'warning'}
+          subtitle={
+            status?.salt.source === 'environment'
+              ? t('frozen.status.saltFromEnvironment')
+              : status?.salt.present
+                ? t('frozen.status.saltKept')
+                : t('frozen.status.saltMadeOnExtraction')
+          }
+          variant={status?.salt.present ? 'success' : 'default'}
         />
         <KPICard
           icon="database"

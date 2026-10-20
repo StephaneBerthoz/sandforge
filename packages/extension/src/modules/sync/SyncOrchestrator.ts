@@ -37,6 +37,8 @@ import {
   type SimulatedRecord,
 } from './SyncSimulation.js';
 import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPreparation.js';
+import { contactPointsOfRun } from './syncContactPoints.js';
+import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import {
   CURRENCY_FIELD,
@@ -244,6 +246,8 @@ interface RunContext {
   currencies: () => Promise<RunCurrencies | undefined>;
   /** The currency change of each row sent in another currency, by its source id. */
   currencyChangesById: Map<string, CurrencyChange>;
+  /** What neutralizes the run's emails and phone numbers; absent when it keeps them. */
+  contactPoints?: ContactPointNeutralizer;
 }
 
 /** An active validation rule of the target as the simulation reads it. */
@@ -313,6 +317,7 @@ async function writeRunOf(
     sources,
     ...(recordTypes ? { recordTypes } : {}),
     ...(currencies ? { currencies, currencyChangesById: run.currencyChangesById } : {}),
+    ...(run.contactPoints ? { contactPoints: run.contactPoints } : {}),
   };
 }
 
@@ -439,6 +444,9 @@ export class SyncOrchestrator {
     const recordTypes = this.recordTypesOnce();
     const currencies = this.currenciesOnce();
     const currencyChangesById = new Map<string, CurrencyChange>();
+    // The emails and phone numbers of every row made unreachable before it is
+    // written, unless the configuration keeps them: see `syncContactPoints`.
+    const contactPoints = contactPointsOfRun(config);
 
     // What each write wrote or linked, added to the configuration's pairs as
     // it answers: see `idMap`.
@@ -634,7 +642,13 @@ export class SyncOrchestrator {
           config,
           objectConfig,
           leftOut,
-          { links, recordTypes, currencies, currencyChangesById },
+          {
+            links,
+            recordTypes,
+            currencies,
+            currencyChangesById,
+            ...(contactPoints ? { contactPoints } : {}),
+          },
           plan ? read : undefined,
           written,
           recorder || idMap

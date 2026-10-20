@@ -38,6 +38,7 @@
 
 import { z } from 'zod';
 import type {
+  OrgTypeAndEdition,
   SyncConfig,
   SyncFileCopyOption,
   SyncFilesOutcome,
@@ -47,7 +48,7 @@ import type {
 import {
   BYTES_PER_MB,
   formatFileSize,
-  orgTypeToGuardTier,
+  guardTierOf,
   sanitizeSoqlObjectName,
 } from '@sandforge/shared';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -169,25 +170,27 @@ export interface SyncFileDeps {
  * Whether Production Guard would let Sync delete in the target without
  * refusing it: a changed legacy attachment is replaced by writing its new copy
  * and deleting the earlier one, and the guard allows no delete on a production
- * org (a Developer Edition counts as one). Where it would refuse, the earlier
- * copy stays and the change is not copied, as before attachments were
- * replaced: a run never deletes where a delete of its own would be refused.
- * No guard, no delete. The panel asks it with the org's registered type, the
- * command line with what the org says it is (`IsSandbox`): one rule for both.
+ * org. A Developer Edition org is none (`guardTierOf`): it holds nobody's
+ * business, and its attachments are replaced as a sandbox's are. Where the
+ * guard would refuse, the earlier copy stays and the change is not copied, as
+ * before attachments were replaced: a run never deletes where a delete of its
+ * own would be refused. No guard, no delete. The panel asks it with the org's
+ * registered type and edition, the command line with what the org says it is
+ * (`IsSandbox`, `OrganizationType`): one rule for both.
  *
  * @param guard - The Production Guard the run is judged by.
  * @param targetOrgId - The org the run writes to.
- * @param targetOrgType - That org's type, as `orgTypeToGuardTier` reads it.
+ * @param targetOrg - That org's type and edition, as `guardTierOf` reads them.
  */
 export function targetAllowsDeletes(
   guard: Pick<ProductionGuard, 'check'> | undefined,
   targetOrgId: string,
-  targetOrgType: string | undefined,
+  targetOrg: OrgTypeAndEdition | undefined,
 ): boolean {
   if (!guard) return false;
   return guard.check({
     orgId: targetOrgId,
-    orgTier: orgTypeToGuardTier(targetOrgType ?? ''),
+    orgTier: guardTierOf(targetOrg),
     operation: 'delete',
     objectName: 'Attachment',
     recordCount: 1,

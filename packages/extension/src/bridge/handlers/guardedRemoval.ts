@@ -4,7 +4,7 @@ import type {
   GuardDecision,
   RemovalOutcome,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 
 import type { HandlerDeps } from './HandlerTypes.js';
 import {
@@ -114,7 +114,7 @@ export async function runGuardedRemoval(
   const org = deps.orgManager.getOrg(removal.orgId);
   const { check, decision } = await consultProductionGuard(productionGuard, {
     orgId: removal.orgId,
-    orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+    orgTier: guardTierOf(org),
     operation: removal.operation,
     objectName: removal.objectNames.join(', '),
     recordCount: removal.recordCount,

@@ -7,7 +7,7 @@ import type {
   ClonePreviewResult,
   CloneSecondPass,
 } from '@sandforge/shared';
-import { recordWriteHeaders, orgTypeToGuardTier } from '@sandforge/shared';
+import { recordWriteHeaders, guardTierOf } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -552,7 +552,7 @@ export class SeedCloneHandler implements DomainHandler {
       const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
       const guardRequest = {
         orgId: parsed.targetOrgId,
-        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        orgTier: guardTierOf(targetOrg),
         operation: (parsed.upsert ? 'upsert' : 'insert') as 'upsert' | 'insert',
         // Every object the run will write, not just the first one: a
         // production confirmation naming one object hid the rest of them.

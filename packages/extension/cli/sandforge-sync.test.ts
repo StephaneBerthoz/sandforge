@@ -252,6 +252,14 @@ describe('a saved configuration on the command line', () => {
 });
 
 describe('buildConfig', () => {
+  it('neutralizes emails and phone numbers unless --keep-contact-points is given', () => {
+    // Absent, the run neutralizes them, as the panel's run does.
+    expect('keepContactPoints' in buildConfig(parseArgs(argv(...MINIMAL)))).toBe(false);
+    expect(
+      buildConfig(parseArgs(argv(...MINIMAL, '--keep-contact-points'))).keepContactPoints,
+    ).toBe(true);
+  });
+
   it('numbers the objects so they are written in the order asked for', () => {
     const config = buildConfig(
       parseArgs(

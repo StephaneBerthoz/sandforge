@@ -56,6 +56,8 @@ interface SyncDraftState {
   propagateDeletes?: boolean;
   /** Copy the files of the records, with the two caps. Absent when off, and from older drafts. */
   files?: SyncFileCopyOption;
+  /** Write emails and phone numbers as read. Absent when off — the default — and from older drafts. */
+  keepContactPoints?: boolean;
   objectEntries: ObjectSetEntry[];
   /**
    * Field mappings, per object.
@@ -130,6 +132,14 @@ export interface SyncPageData {
   copyFiles: boolean;
   /** Turn the files on or off. */
   setCopyFiles: (on: boolean) => void;
+  /**
+   * Whether a run writes emails and phone numbers as the source holds them;
+   * off by default, when every address goes under `.invalid` and every number
+   * is a fictional one.
+   */
+  keepContactPoints: boolean;
+  /** Keep them as read, or neutralize them. */
+  setKeepContactPoints: (on: boolean) => void;
   /** The largest file copied, and the most a run copies, in MB, as typed. */
   fileCaps: SyncFileCopyOption;
   /** Set one of the two caps, kept within its bounds. */
@@ -396,6 +406,9 @@ export function useSyncPageData(): SyncPageData {
     initialDraft.current.propagateDeletes === true && initialDraft.current.mode === 'delta',
   );
   const [copyFiles, setCopyFiles] = useState<boolean>(initialDraft.current.files !== undefined);
+  const [keepContactPoints, setKeepContactPoints] = useState<boolean>(
+    initialDraft.current.keepContactPoints === true,
+  );
   const [fileCaps, setFileCaps] = useState<SyncFileCopyOption>(() =>
     fileCapsOf(initialDraft.current.files),
   );
@@ -467,6 +480,7 @@ export function useSyncPageData(): SyncPageData {
       mode,
       propagateDeletes,
       files,
+      ...(keepContactPoints ? { keepContactPoints: true } : {}),
       conflictStrategy,
       sourceOrgId,
       targetOrgId,
@@ -480,6 +494,7 @@ export function useSyncPageData(): SyncPageData {
     mode,
     propagateDeletes,
     files,
+    keepContactPoints,
     conflictStrategy,
     sourceOrgId,
     targetOrgId,
@@ -551,6 +566,7 @@ export function useSyncPageData(): SyncPageData {
     mode,
     propagateDeletes,
     files,
+    keepContactPoints,
     conflictStrategy,
     objectEntries,
     mappings,
@@ -591,6 +607,7 @@ export function useSyncPageData(): SyncPageData {
     mode,
     propagateDeletes,
     files,
+    keepContactPoints,
     conflictStrategy,
     objectEntries,
     mappingsByObject,
@@ -803,6 +820,8 @@ export function useSyncPageData(): SyncPageData {
     ...(mode === 'delta' && propagateDeletes ? { propagateDeletes: true } : {}),
     // Sent only when on, as the extension reads its absence as off.
     ...(files ? { files } : {}),
+    // Sent only when on: absent, the run neutralizes emails and phone numbers.
+    ...(keepContactPoints ? { keepContactPoints: true } : {}),
     objects: objectEntries.map((entry, index): SyncObjectConfig => ({
       objectApiName: entry.objectApiName,
       operation: entry.operation,
@@ -996,6 +1015,8 @@ export function useSyncPageData(): SyncPageData {
     setPropagateDeletes,
     copyFiles,
     setCopyFiles,
+    keepContactPoints,
+    setKeepContactPoints,
     fileCaps,
     setFileCap,
     deltaBlockers,

@@ -7,7 +7,7 @@ import type {
   AutopilotRefusal,
   AutopilotStopLeftover,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -572,7 +572,7 @@ export class AutopilotHandler implements DomainHandler {
     const targetOrg = this.deps.orgManager.getOrg(operation.targetOrgId);
     const guardRequest = {
       orgId: operation.targetOrgId,
-      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      orgTier: guardTierOf(targetOrg),
       operation: 'insert' as const,
       objectName: plan.waves[0]?.objects[0] ?? 'AutopilotData',
       recordCount: totalRecords,
@@ -753,6 +753,9 @@ export class AutopilotHandler implements DomainHandler {
         // Of an object that was not selected, only the records the selection
         // references: read by id, as the scan found them.
         scanResult.parentIds,
+        // Emails and phone numbers neutralized unless the review step's box
+        // was unticked: see `AutopilotRunOptions`.
+        payload.keepContactPoints === true ? { keepContactPoints: true } : {},
       );
 
       // Send node-progress 'completed' or 'failed' per node based on execution result

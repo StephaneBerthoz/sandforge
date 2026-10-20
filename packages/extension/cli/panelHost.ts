@@ -28,7 +28,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { BaseMessage, SalesforceOrg } from '@sandforge/shared';
-import { OrgSafetyTier, PROTOCOL_VERSION, SF_LIMITS } from '@sandforge/shared';
+import { PROTOCOL_VERSION, SF_LIMITS, orgRegistrationOf, orgTypeOf } from '@sandforge/shared';
 import { loadOrg } from './sfSession.js';
 import type { SfOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
@@ -115,22 +115,23 @@ export interface PanelHostOptions {
  * The org a connection registers, typed the way `OrgHandler` types it.
  *
  * The id is the org's own (`Organization.Id`), which is what every handler is
- * addressed with, and the type comes from `Organization.IsSandbox`, never from
- * the alias or the instance URL: a sandbox's My Domain says "sandbox" only
- * until someone renames it.
+ * addressed with, and the type comes from `Organization.IsSandbox` and its
+ * edition (`orgTypeOf`), never from the alias or the instance URL: a
+ * sandbox's My Domain says "sandbox" only until someone renames it.
  */
 export function orgFromIdentity(session: SfOrg, identity: OrgIdentity): SalesforceOrg {
-  const sandbox = identity.isSandbox;
+  const orgType = orgTypeOf({ isSandbox: identity.isSandbox, edition: identity.orgType });
+  const { safetyTier, color } = orgRegistrationOf(orgType);
   return {
     id: identity.orgId,
     alias: session.alias,
     username: identity.username || session.username,
     instanceUrl: session.instanceUrl,
     orgId: identity.orgId,
-    orgType: sandbox ? 'Sandbox' : 'Production',
+    orgType,
     authMethod: 'sfdx_import',
-    safetyTier: sandbox ? OrgSafetyTier.LOW : OrgSafetyTier.CRITICAL,
-    appearance: { color: sandbox ? '#4a9eff' : '#e74c3c', icon: 'cloud', position: 0 },
+    safetyTier,
+    appearance: { color, icon: 'cloud', position: 0 },
     metadata: {
       apiVersion: SF_LIMITS.DEFAULT_API_VERSION,
       edition: identity.orgType,

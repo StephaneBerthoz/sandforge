@@ -14,7 +14,8 @@ import type {
   SyncRunControlAnswer,
   SyncSimulationResult,
 } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, orgTypeToGuardTier, recordWriteHeaders } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, guardTierOf, recordWriteHeaders } from '@sandforge/shared';
+import type { OrgTypeAndEdition } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -170,14 +171,15 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
  * refused by the run as a delete once the steps before it had run.
  *
  * @param config - The sync config about to be executed.
- * @param targetOrgType - The type the target org is registered with; empty or
+ * @param targetOrg - The target org as the registry holds it, its type and
+ *   edition (`guardTierOf`: a Developer Edition org is a development one);
  *   absent for one the registry does not know, which the guard reads as
  *   production.
  * @returns The guard request for its target org.
  */
 export function syncGuardRequest(
   config: SyncConfig,
-  targetOrgType: string | undefined,
+  targetOrg: OrgTypeAndEdition | undefined,
 ): OperationRequest {
   const objects = config.objects ?? [];
   let operation: SyncOperation = 'insert';
@@ -190,7 +192,7 @@ export function syncGuardRequest(
   const objectNames = objects.map((o) => o.objectApiName);
   return {
     orgId: config.targetOrgId,
-    orgTier: orgTypeToGuardTier(targetOrgType ?? ''),
+    orgTier: guardTierOf(targetOrg),
     operation,
     objectName: objectNames.length > 0 ? objectNames.join(', ') : 'SyncData',
     recordCount: 'unknown',
@@ -648,7 +650,7 @@ export class SyncOpsHandler implements DomainHandler {
 
   /** The Production Guard request a run of `config` is judged by: see {@link syncGuardRequest}. */
   private buildGuardRequest(config: SyncConfig): OperationRequest {
-    return syncGuardRequest(config, this.deps.orgManager.getOrg(config.targetOrgId)?.orgType);
+    return syncGuardRequest(config, this.deps.orgManager.getOrg(config.targetOrgId));
   }
 
   /**
@@ -1324,7 +1326,7 @@ export class SyncOpsHandler implements DomainHandler {
       targetAllowsDeletes(
         this.deps.infraServices?.productionGuard,
         config.targetOrgId,
-        this.deps.orgManager.getOrg(config.targetOrgId)?.orgType,
+        this.deps.orgManager.getOrg(config.targetOrgId),
       )
         ? {
             deleteFromTarget: async (objectApiName: string, ids: string[]) =>

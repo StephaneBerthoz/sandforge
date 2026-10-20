@@ -198,6 +198,14 @@
       {
         "command": "sandforge.ai.resetTokenBudget",
         "title": "%command.resetTokenBudget%"
+      },
+      {
+        "command": "sandforge.frozen.copySalt",
+        "title": "%command.copyFrozenSalt%"
+      },
+      {
+        "command": "sandforge.frozen.useSalt",
+        "title": "%command.useFrozenSalt%"
       }
     ],
     "keybindings": [

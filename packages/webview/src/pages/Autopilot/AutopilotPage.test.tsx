@@ -170,6 +170,18 @@ describe('AutopilotPage', () => {
     expect(state.setStep).toHaveBeenCalledWith('executing');
   });
 
+  it('asks the run to keep emails and phone numbers as read only when the review unticked the box', () => {
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'review',
+      selectedObjects: ['Account'],
+      neutralizeContactPoints: false,
+    };
+    render(<AutopilotPage />);
+    fireEvent.click(screen.getByTestId('execute-button'));
+    expect(mockExecuteMutate).toHaveBeenCalledWith({ grappeThreshold: 0, keepContactPoints: true });
+  });
+
   it('hands the keyboard to the running view’s heading when Execute takes the wizard away', () => {
     // Execute leaves with the wizard, and the focus it held fell to the page.
     mockAutopilotState = {

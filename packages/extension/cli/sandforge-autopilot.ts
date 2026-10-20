@@ -50,6 +50,7 @@ import {
   type ExecutionResult,
 } from '../src/modules/autopilot/AutopilotExecutor.js';
 import { AutopilotGrappeAdapter } from '../src/modules/autopilot/AutopilotGrappeAdapter.js';
+import type { FieldInfo } from '../src/modules/forge/ForgeExecutor.js';
 import { toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import {
   parseRecordTypeCounts,
@@ -106,6 +107,10 @@ Options:
                                                                    (default: 50)
   --max-total <n>        most records the run may write in all    (default: 10000)
   --compliance <name>    none | gdpr | ccpa | hipaa | pci_dss      (default: none)
+  --keep-contact-points  write emails and phone numbers as read. Without it,
+                         as in the panel, every address is written under
+                         .invalid and every phone number as a fictional one,
+                         whatever the framework                   (default: off)
   --batch-size <n>       records per write call                   (default: 200)
   --plan-only            scan, graph and plan, then stop          (default: off)
   --json                 emit the run summary as JSON, with the id
@@ -134,6 +139,8 @@ interface CliArgs {
   maxObjects: number;
   maxTotal: number;
   planOnly: boolean;
+  /** Write emails and phone numbers as read rather than neutralized. */
+  keepContactPoints: boolean;
   json: boolean;
 }
 
@@ -209,6 +216,7 @@ export function parseArgs(argv: string[]): CliArgs {
     maxObjects,
     maxTotal,
     planOnly: args.includes('--plan-only'),
+    keepContactPoints: args.includes('--keep-contact-points'),
     json: args.includes('--json'),
   };
 }
@@ -259,6 +267,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       keyPrefix: string | null;
       lookups: DescribedLookup[];
       currencyFields: ReadonlyMap<string, number | undefined>;
+      fields: FieldInfo[];
     }
   >();
   const describeTarget = async (objectApiName: string) => {
@@ -271,6 +280,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       keyPrefix: described.keyPrefix ?? null,
       lookups: describedLookups(described.fields),
       currencyFields: currencyFieldsOf(described.fields),
+      // What the emails and phone numbers are found by, as the panel finds them.
+      fields: described.fields.map((f): FieldInfo => ({
+        name: f.name,
+        queryable: true,
+        createable: f.createable,
+        isReference: f.type === 'reference',
+        type: f.type,
+        ...(f.length > 0 ? { length: f.length } : {}),
+        ...(f.externalId ? { externalId: true } : {}),
+      })),
     };
     targetByObject.set(objectApiName, answer);
     return answer;
@@ -338,6 +357,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         queryTarget: everyPage(targetConn),
         describeKeyPrefix: async (objectApiName) => (await describeTarget(objectApiName)).keyPrefix,
         describeLookups: async (objectApiName) => (await describeTarget(objectApiName)).lookups,
+        // Emails and phone numbers neutralized before they are written, unless
+        // --keep-contact-points: found by the target's types.
+        describeFields: async (objectApiName) => (await describeTarget(objectApiName)).fields,
         anonymizer,
         remapper: new RecordIdRemapper(),
         describeCreateableFields: async (objectApiName) =>
@@ -468,6 +490,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     undefined,
     undefined,
     scan.parentIds,
+    args.keepContactPoints ? { keepContactPoints: true } : {},
   );
   const elapsedMs = Date.now() - t0;
 
@@ -484,8 +507,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   );
   if (result.skippedObjects.length > 0) log(`  skipped: ${result.skippedObjects.join(', ')}`);
   if (result.fatalError) log(`  the run died with: ${result.fatalError}`);
+  for (const line of contactPointLines(result)) log(line);
   for (const line of outcomeLines(result)) log(line);
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+/**
+ * What the run did with the emails and phone numbers it wrote: how many it
+ * neutralized, in which fields, or that it kept them as read. Exported so it
+ * can be tested.
+ */
+export function contactPointLines(result: Pick<ExecutionResult, 'contactPoints'>): string[] {
+  const report = result.contactPoints;
+  if (!report) return ['emails and phone numbers: written as read (--keep-contact-points)'];
+  if (report.values === 0) return ['emails and phone numbers: none to neutralize'];
+  const fields = report.fields.map((f) => `${f.objectApiName}.${f.field} ${f.values}`).join(', ');
+  return [
+    `emails and phone numbers: ${report.values} neutralized (${fields}) -- addresses under ` +
+      '.invalid, numbers fictional',
+  ];
 }
 
 /**

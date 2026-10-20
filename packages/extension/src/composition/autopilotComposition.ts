@@ -15,6 +15,7 @@ import {
 } from '../core/metadata/recordTypeAvailability';
 import { describedLookups, type DescribedLookup } from '../core/metadata/describedLookups';
 import { currencyFieldsOf } from '../core/common/recordCurrencies';
+import type { FieldInfo } from '../modules/forge/ForgeExecutor';
 
 /** Inputs required to wire the Autopilot orchestrator. */
 export interface AutopilotCompositionDeps {
@@ -125,6 +126,8 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
           keyPrefix: string | null;
           lookups: DescribedLookup[];
           currencyFields: ReadonlyMap<string, number | undefined>;
+          /** Every field with its type and length: what a contact point is found by. */
+          fields: FieldInfo[];
         };
         const describedByTarget = new WeakMap<Connection, Map<string, TargetDescribe>>();
         const describeTarget = async (
@@ -155,6 +158,15 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             lookups: describedLookups(described.fields),
             currencyFields: currencyFieldsOf(
               described.fields as Array<{ name: string; type?: string; scale?: number }>,
+            ),
+            fields: contactPointFieldInfos(
+              described.fields as Array<{
+                name: string;
+                type?: string;
+                length?: number;
+                createable?: boolean;
+                externalId?: boolean;
+              }>,
             ),
           };
           byObject.set(objectApiName, answer);
@@ -248,6 +260,10 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               // and what the second pass may fill.
               describeLookups: async (objectApiName: string) =>
                 (await describeTarget(target, objectApiName)).lookups,
+              // From the same describe: the email and phone fields whose
+              // values the run neutralizes before it writes them.
+              describeFields: async (objectApiName: string) =>
+                (await describeTarget(target, objectApiName)).fields,
               anonymizer,
               // Per-execution remapper: source→target ID mappings are scoped to
               // a single run — a shared instance would remap lookups to IDs
@@ -304,6 +320,30 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
       },
     )
     .catch((err) => log(`Failed to init Autopilot module: ${String(err)}`));
+}
+
+/**
+ * The fields of a describe as the contact-point neutralizer reads them: name,
+ * type, length and whether an upsert may match on it.
+ */
+function contactPointFieldInfos(
+  fields: ReadonlyArray<{
+    name: string;
+    type?: string;
+    length?: number;
+    createable?: boolean;
+    externalId?: boolean;
+  }>,
+): FieldInfo[] {
+  return fields.map((field) => ({
+    name: field.name,
+    queryable: true,
+    createable: field.createable === true,
+    isReference: field.type === 'reference',
+    ...(field.type !== undefined ? { type: field.type } : {}),
+    ...(typeof field.length === 'number' && field.length > 0 ? { length: field.length } : {}),
+    ...(field.externalId === true ? { externalId: true } : {}),
+  }));
 }
 
 /** Ids as a SOQL list, each quoted and escaped. */

@@ -339,9 +339,6 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 ? t('frozen.guards.mocksConfigured')
                 : t('frozen.guards.mocksNotConfigured')}
             </Badge>
-            <Badge variant={status?.salt.present ? 'success' : 'warning'}>
-              {status?.salt.present ? t('frozen.guards.saltOk') : t('frozen.guards.saltMissing')}
-            </Badge>
           </div>
         </CardBody>
       </Card>

@@ -1,9 +1,10 @@
 import type { SalesforceOrg, OrgConnectRequest, UUID } from '@sandforge/shared';
 import {
-  OrgSafetyTier,
   SF_CLI_INSTALL_URL,
   SF_CLI_MISSING_MESSAGE,
   SF_LIMITS,
+  orgRegistrationOf,
+  orgTypeOf,
 } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
@@ -364,17 +365,21 @@ export class OrgHandler implements DomainHandler {
         authResult.instanceUrl,
       );
 
+      // Typed as an org imported from the CLI is (`orgTypeOf`): a Developer
+      // Edition org, which says IsSandbox false, is no production org.
+      const orgType = orgTypeOf({ isSandbox: identity.isSandbox, edition: identity.orgType });
+      const { safetyTier, color } = orgRegistrationOf(orgType);
       const org: SalesforceOrg = {
         id: identity.orgId,
         alias: payload.alias ?? payload.username ?? identity.username,
         username: identity.username,
         instanceUrl: authResult.instanceUrl,
         orgId: identity.orgId,
-        orgType: identity.isSandbox ? 'Sandbox' : 'Production',
+        orgType,
         authMethod: 'usernamePassword',
-        safetyTier: identity.isSandbox ? OrgSafetyTier.LOW : OrgSafetyTier.CRITICAL,
+        safetyTier,
         appearance: {
-          color: identity.isSandbox ? '#4a9eff' : '#e74c3c',
+          color,
           icon: 'cloud',
           position: 0,
         },

@@ -353,3 +353,44 @@ describe('an org stored by an older build', () => {
     expect(healStoredOrg(stored).tags).toEqual([]);
   });
 });
+
+describe('a Developer Edition org an earlier build registered as a production org', () => {
+  const legacy = (color: string, edition = 'Developer Edition'): SalesforceOrg => ({
+    ...createTestOrg('de'),
+    orgType: 'Production',
+    safetyTier: OrgSafetyTier.CRITICAL,
+    appearance: { color, icon: 'cloud', position: 2 },
+    metadata: { apiVersion: '66.0', edition, features: [] },
+  });
+
+  it('is read as the Developer org it is, low, its production red given up', () => {
+    expect(healStoredOrg(legacy('#e74c3c'))).toMatchObject({
+      orgType: 'Developer',
+      safetyTier: OrgSafetyTier.LOW,
+      appearance: { color: '#4a9eff', icon: 'cloud', position: 2 },
+    });
+  });
+
+  it('keeps a colour the user picked', () => {
+    expect(healStoredOrg(legacy('#22aa66')).appearance.color).toBe('#22aa66');
+  });
+
+  it('is what the registry loads, so every guard and badge reads it as one', () => {
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    configStore.initialize();
+    configStore.set('org.de', legacy('#e74c3c'), 'orgs');
+    const orgManager = new OrgManager();
+    new OrgRegistry(configStore, new SecretVault(createMockSecretStorage()), orgManager).loadAll();
+
+    expect(orgManager.getOrg('de')?.orgType).toBe('Developer');
+  });
+
+  it('leaves a real production org, and one whose edition was never read, a production org', () => {
+    expect(healStoredOrg(legacy('#e74c3c', 'Enterprise Edition'))).toMatchObject({
+      orgType: 'Production',
+      safetyTier: OrgSafetyTier.CRITICAL,
+      appearance: { color: '#e74c3c' },
+    });
+    expect(healStoredOrg(legacy('#e74c3c', '')).orgType).toBe('Production');
+  });
+});

@@ -14,11 +14,40 @@ const defaultProps = {
   piiFields: 4,
   anonymizedFields: 3,
   complianceFramework: 'gdpr' as const,
+  onFrameworkChange: vi.fn(),
+  neutralizeContactPoints: true,
+  onNeutralizeChange: vi.fn(),
   isExecuting: false,
   onExecute: vi.fn(),
 };
 
 describe('Step4_Review', () => {
+  it('neutralizes emails and phone numbers unless the box is unticked', () => {
+    const onNeutralizeChange = vi.fn();
+    render(<Step4Review {...defaultProps} onNeutralizeChange={onNeutralizeChange} />);
+    const toggle = screen.getByTestId('step4-contact-points-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+
+    fireEvent.click(toggle);
+    expect(onNeutralizeChange).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps the compliance framework behind an Advanced disclosure, which picks another', () => {
+    const onFrameworkChange = vi.fn();
+    render(<Step4Review {...defaultProps} onFrameworkChange={onFrameworkChange} />);
+    const advanced = screen.getByTestId('step4-compliance-advanced') as HTMLDetailsElement;
+    expect(advanced.open).toBe(false);
+
+    fireEvent.click(screen.getByTestId('framework-hipaa'));
+    expect(onFrameworkChange).toHaveBeenCalledWith('hipaa');
+  });
+
+  it('holds Execute while the plan is built again', () => {
+    render(<Step4Review {...defaultProps} planning />);
+    expect(screen.getByTestId('step4-planning')).toBeDefined();
+    expect((screen.getByTestId('execute-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('should render without crashing', () => {
     render(<Step4Review {...defaultProps} />);
     expect(screen.getByTestId('step4-review')).toBeDefined();

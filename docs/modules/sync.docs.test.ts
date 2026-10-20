@@ -286,9 +286,7 @@ describe('docs/modules/sync.md', () => {
     );
     expect(SYNC_REMOVAL_HANDLER).toContain("case 'sync:remove':");
     expect(SYNC_REMOVAL_HANDLER).toContain("operation: 'delete',");
-    expect(SYNC_REMOVAL_HANDLER).toContain(
-      "return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);",
-    );
+    expect(SYNC_REMOVAL_HANDLER).toContain('return guardTierOf(org);');
     expect(SYNC_REMOVAL_HANDLER).toContain("action: 'cleanup_delete',");
     expect(SYNC_DELTA).toContain(
       "if (entry.removedAt !== undefined) return { read: 'full', reason: 'removed', fingerprint };",
@@ -301,7 +299,7 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain('the records it inserted, or upserted where the target held none');
     expect(DOC).toContain('Past 4 MB the runs whose creations were all removed go first');
     expect(DOC).toContain(
-      'while a Developer Edition -- which Sync writes to once you confirm -- is not taken for one',
+      'while a Developer Edition -- which Sync writes to as to a sandbox -- is not taken for one',
     );
     expect(DOC).toContain('as `cleanup_delete` from Sync');
     expect(DOC).toContain('a later delta run never takes a removed copy for still there');

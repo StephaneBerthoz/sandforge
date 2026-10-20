@@ -23,6 +23,8 @@
   "command.cheers": "SandForge: Cheers!",
   "command.openOrgInBrowser": "SandForge: Open Org in Browser",
   "command.resetTokenBudget": "SandForge: Reset AI Token Budget",
+  "command.copyFrozenSalt": "SandForge: Copy Frozen Dataset Salt",
+  "command.useFrozenSalt": "SandForge: Use a Frozen Dataset Salt",
   "walkthrough.gettingStarted.title": "Get started with SandForge",
   "walkthrough.gettingStarted.description": "Connect a Salesforce org and populate your first sandbox with realistic data.",
   "walkthrough.step.connectOrg.title": "Connect your first org",

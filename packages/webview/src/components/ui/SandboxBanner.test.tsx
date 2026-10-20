@@ -43,7 +43,7 @@ function createSandboxOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg
     authMethod: 'oauth_web',
     safetyTier: OrgSafetyTier.LOW,
     appearance: { color: '#3B82F6', icon: 'cloud', position: 0 },
-    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+    metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
     status: 'connected',
     lastConnected: '2024-01-01T00:00:00Z',
     tags: [],

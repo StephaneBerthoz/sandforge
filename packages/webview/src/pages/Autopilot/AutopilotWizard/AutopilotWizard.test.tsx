@@ -176,13 +176,23 @@ describe('AutopilotWizard', () => {
     rerender(wizard());
   };
 
-  /** From the object step: pick Account and Contact, Next, answer the scan. */
-  const toCompliance = (rerender: (ui: React.ReactElement) => void): void => {
+  /**
+   * From the object step: pick Account and Contact, Next, answer the scan —
+   * which asks for the plan of the selection.
+   */
+  const toScanned = (rerender: (ui: React.ReactElement) => void): void => {
     toObjects(rerender);
     fireEvent.click(screen.getByTestId('object-Account'));
     fireEvent.click(screen.getByTestId('object-Contact'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
     scanState = { ...scanState, data: { graph: GRAPH } };
+    rerender(wizard());
+  };
+
+  /** Scanned, and the plan answered: the review step. */
+  const toReview = (rerender: (ui: React.ReactElement) => void): void => {
+    toScanned(rerender);
+    planState = { ...planState, data: { plan: PLAN, graph: GRAPH } };
     rerender(wizard());
   };
 
@@ -323,7 +333,7 @@ describe('AutopilotWizard', () => {
     expect(useAutopilotStore.getState().step).toBe('connect');
   });
 
-  it('scans the objects picked, and lands on compliance with the selection as picked', () => {
+  it('scans the objects picked, then asks for their plan, the selection kept as picked', () => {
     const { rerender } = render(wizard());
     toObjects(rerender);
 
@@ -340,7 +350,19 @@ describe('AutopilotWizard', () => {
 
     scanState = { ...scanState, data: { graph: GRAPH } };
     rerender(wizard());
-    expect(useAutopilotStore.getState().step).toBe('compliance');
+    // No compliance step between the objects and the review: the plan is
+    // asked at once, for the framework chosen so far.
+    expect(mockPlanMutate).toHaveBeenCalledTimes(1);
+    expect(mockPlanMutate).toHaveBeenLastCalledWith({
+      complianceFramework: 'none',
+      maxRecordsPerObject: 0,
+      objectFilters: {},
+      overrides: [],
+    });
+    expect(useAutopilotStore.getState().step).toBe('objects');
+    // Asked once per scan answer, however often the wizard renders again.
+    rerender(wizard());
+    expect(mockPlanMutate).toHaveBeenCalledTimes(1);
     // The scan's parents are not picked for the user.
     expect(useAutopilotStore.getState().selectedObjects).toEqual(['Account']);
   });
@@ -372,28 +394,36 @@ describe('AutopilotWizard', () => {
     expect(useAutopilotStore.getState().selectedObjects).toEqual(['Contact']);
   });
 
-  it('should post autopilot:generate-plan on next from compliance', () => {
+  it('has three steps: the compliance framework is an advanced choice of the review', () => {
+    render(wizard());
+    expect(screen.queryByText(en.autopilot.step4.title)).not.toBeNull();
+    expect(screen.queryByText('Compliance Framework')).toBeNull();
+  });
+
+  it('builds the plan again when the review picks a framework, and neutralizes contact points by default', () => {
     const { rerender } = render(wizard());
-    toCompliance(rerender);
+    toReview(rerender);
 
+    expect((screen.getByTestId('step4-contact-points-toggle') as HTMLInputElement).checked).toBe(
+      true,
+    );
     fireEvent.click(screen.getByTestId('framework-gdpr'));
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
 
-    expect(mockPlanMutate).toHaveBeenCalledWith({
+    expect(useAutopilotStore.getState().complianceFramework).toBe('gdpr');
+    expect(mockPlanMutate).toHaveBeenLastCalledWith({
       complianceFramework: 'gdpr',
       maxRecordsPerObject: 0,
       objectFilters: {},
       overrides: [],
     });
+
+    fireEvent.click(screen.getByTestId('step4-contact-points-toggle'));
+    expect(useAutopilotStore.getState().neutralizeContactPoints).toBe(false);
   });
 
   it('should land on review with plan stats on plan-ready', () => {
     const { rerender } = render(wizard());
-    toCompliance(rerender);
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
-
-    planState = { ...planState, data: { plan: PLAN, graph: GRAPH } };
-    rerender(wizard());
+    toReview(rerender);
 
     expect(useAutopilotStore.getState().step).toBe('review');
     expect(screen.getByTestId('step4-review')).toBeDefined();
@@ -403,10 +433,7 @@ describe('AutopilotWizard', () => {
 
   it('should call onExecute when the execute button is clicked', () => {
     const { rerender } = render(wizard());
-    toCompliance(rerender);
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
-    planState = { ...planState, data: { plan: PLAN, graph: GRAPH } };
-    rerender(wizard());
+    toReview(rerender);
 
     fireEvent.click(screen.getByTestId('execute-button'));
     expect(onExecute).toHaveBeenCalled();
@@ -440,8 +467,7 @@ describe('AutopilotWizard', () => {
 
   it('says why Next waits while the plan is built, as a status a screen reader reads out', () => {
     const { rerender } = render(wizard());
-    toCompliance(rerender);
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    toScanned(rerender);
 
     planState = { ...planState, loading: true };
     rerender(wizard());

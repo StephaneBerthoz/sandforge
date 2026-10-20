@@ -80,6 +80,7 @@ import {
   removalBypassesOf,
   forgeWriteHeaders,
   formatFileSize,
+  isDeveloperEdition,
   leftOutAsEmptyTable,
   removalRisksOf,
 } from '@sandforge/shared';
@@ -191,7 +192,6 @@ import {
   bypassesToAssign,
   emailCheckLines,
   emailChecksOf,
-  isDeveloperEdition,
   objectsUpdatedAfterInsert,
   removalAutomationLines,
   removalAutomationRefusal,

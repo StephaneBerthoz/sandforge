@@ -15,6 +15,7 @@ import {
   type SyncWriteRun,
 } from './syncRowPreparation.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
+import { neutralizeSyncRows } from './syncContactPoints.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Function to upsert records using an external ID field */
@@ -183,6 +184,19 @@ export class DataSync {
     }
 
     const prepared = prepareSyncRows({ config, records: sourceRecords, target, run });
+    // What the target's automation could reach — its email and phone fields —
+    // made unreachable before anything is sent, the key the write matches on
+    // left as read: see `syncContactPoints`.
+    if (run?.contactPoints && target?.fields) {
+      const neutralized = neutralizeSyncRows(
+        run.contactPoints,
+        config.objectApiName,
+        target.fields,
+        prepared.payloads,
+        config.externalIdField,
+      );
+      if (neutralized) prepared.notes.push(neutralized);
+    }
     const ownerLeftOut = leaveOutRefusedOwners(prepared.payloads, prepared.settled, run);
     const heldAt = new Map(prepared.held.map(({ index, reason }) => [index, reason]));
     /**

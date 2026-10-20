@@ -208,8 +208,17 @@ describe('sandforge-sync --config-file', () => {
     expect(destroy).toHaveBeenCalledWith([fakeId('00P', 1)]);
   });
 
-  it('deletes nothing in a Developer Edition, a production org for a Sync write', async () => {
+  it('replaces a changed attachment in a Developer Edition, which holds nobody’s business, as on a sandbox', async () => {
     orgSays({ IsSandbox: false, OrganizationType: 'Developer Edition' });
+    engine.run = async (_deps, config) => answered(config);
+
+    await run();
+
+    expect(engine.deps[0].files?.deleteFromTarget).toBeDefined();
+  });
+
+  it('deletes nothing in a production org', async () => {
+    orgSays({ IsSandbox: false, OrganizationType: 'Enterprise Edition' });
     engine.run = async (_deps, config) => answered(config);
 
     await run();

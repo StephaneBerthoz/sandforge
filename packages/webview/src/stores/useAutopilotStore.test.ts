@@ -61,6 +61,8 @@ describe('useAutopilotStore', () => {
     expect(state.targetOrgId).toBeNull();
     expect(state.selectedObjects).toEqual([]);
     expect(state.complianceFramework).toBe('none');
+    // Emails and phone numbers are neutralized unless the review unticks it.
+    expect(state.neutralizeContactPoints).toBe(true);
     expect(state.graph).toBeNull();
     expect(state.plan).toBeNull();
     expect(state.rules).toEqual([]);
@@ -184,6 +186,7 @@ describe('useAutopilotStore', () => {
     getState().setExecutionStatus('executing');
     getState().addError('something went wrong');
     getState().updateLiveStats({ recordsProcessed: 100 });
+    getState().setNeutralizeContactPoints(false);
 
     getState().reset();
 
@@ -193,6 +196,8 @@ describe('useAutopilotStore', () => {
     expect(state.targetOrgId).toBeNull();
     expect(state.selectedObjects).toEqual([]);
     expect(state.complianceFramework).toBe('none');
+    // Emails and phone numbers are neutralized unless the review unticks it.
+    expect(state.neutralizeContactPoints).toBe(true);
     expect(state.graph).toBeNull();
     expect(state.plan).toBeNull();
     expect(state.rules).toEqual([]);

@@ -129,6 +129,20 @@ describe('SyncOrchestrator', () => {
       expect(deps.dataSync.sync).toHaveBeenCalled();
     });
 
+    it('hands every write of a run the neutralizer of its emails and phone numbers, unless the configuration keeps them', async () => {
+      // Copied as read into a sandbox whose flows email and text the contacts
+      // they are written for, the copies were real people.
+      await orchestrator.execute(createConfig());
+      const neutralizing = vi.mocked(deps.dataSync.sync).mock.calls[0][2];
+      expect(neutralizing?.contactPoints).toBeDefined();
+
+      vi.mocked(deps.dataSync.sync).mockClear();
+      await orchestrator.execute(createConfig({ keepContactPoints: true }));
+      const keeping = vi.mocked(deps.dataSync.sync).mock.calls[0][2];
+      expect(keeping).toBeDefined();
+      expect(keeping?.contactPoints).toBeUndefined();
+    });
+
     it('should ignore script fields left in an old config', async () => {
       const config = {
         ...createConfig(),

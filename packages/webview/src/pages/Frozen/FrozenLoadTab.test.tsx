@@ -152,6 +152,16 @@ describe('FrozenLoadTab', () => {
     });
   });
 
+  it('lists the guards a load meets in plain words, without the salt, which only an extraction needs', () => {
+    render(tab());
+
+    const guards = screen.getByTestId('frozen-guards').textContent ?? '';
+    expect(guards).toContain('Never a production org');
+    expect(guards).toContain('Unmocked callouts');
+    expect(guards).not.toMatch(/salt/i);
+    expect(guards).not.toContain('Sandbox only');
+  });
+
   describe('the last load, and taking it back', () => {
     // One mapping per sas, a load into a second org replaced the first org's,
     // and the card offered only the load the sas held last.

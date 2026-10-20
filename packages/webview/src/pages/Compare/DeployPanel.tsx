@@ -1,6 +1,6 @@
 import React, { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DEPLOY_MAX_TESTS, DEPLOY_WAIT_MINUTES, orgTypeToGuardTier } from '@sandforge/shared';
+import { DEPLOY_MAX_TESTS, DEPLOY_WAIT_MINUTES, guardTierOf } from '@sandforge/shared';
 import type {
   CompareReport,
   CompareResult,
@@ -93,7 +93,7 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
   const sourceLabel = orgLabel(source, t('compare.source'));
   const targetLabel = orgLabel(target, t('compare.target'));
   // The guard's own reading: an org SandForge does not know is production.
-  const targetRefused = orgTypeToGuardTier(target?.orgType ?? '') === 'production';
+  const targetRefused = guardTierOf(target) === 'production';
 
   const suggestion = useMemo(() => suggestDeployment(result.diffs, report), [result, report]);
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());

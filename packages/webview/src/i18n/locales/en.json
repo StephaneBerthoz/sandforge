@@ -1362,6 +1362,10 @@
         "removed": "Full read (a removal took back copies it had written)"
       }
     },
+    "contactPoints": {
+      "toggle": "Neutralize emails and phone numbers (recommended)",
+      "toggleHint": "On unless unticked. Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them, and the target's flows can email and text real people. The field a write matches on is kept as read."
+    },
     "files": {
       "toggle": "Copy the files of these records",
       "toggleHint": "Off unless ticked. Once an object's records are written, the latest version of each Salesforce File linked to one of them, and their legacy attachments, are copied and linked to the records' copies in the target. A saved configuration remembers which file it copied where: running it again copies a file only when the source holds a newer version, which is added as a version of the copy, never as a second file. Before the run writes anything, the target's file storage is read and a run whose files would not fit is refused. A file larger than the largest size, and the files past the most a run copies, are skipped and counted; the next run copies the latter. Removing a run takes back the files it created with its records; a version it added to an earlier copy stays.",
@@ -2641,7 +2645,7 @@
     "sfStackExchangeDesc": "Community Q&A for Salesforce developers",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Start Guided Tour",
-    "autopilotContent": "Autopilot copies the objects you pick from a source org into a target org, in four steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Choose a compliance framework to anonymize personal data (GDPR, CCPA, HIPAA or PCI-DSS), or none\n4. Review the plan (waves, records, API calls, PII fields), then run it",
+    "autopilotContent": "Autopilot copies the objects you pick from a source org into a target org, in three steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Review the plan (waves, records, API calls, PII fields), then run it. Emails and phone numbers are neutralized unless you untick it — every address under .invalid, every number a fictional one — and Advanced picks a compliance framework that anonymizes more (GDPR, CCPA, HIPAA or PCI-DSS)",
     "migrationContent": "Migration turns an existing migration definition into a Sync configuration:\n- Import an SFDMU export.json, or a .json or .csv file\n- Importing reads the file and changes nothing in any org\n- Running the converted configuration writes records to the target org",
     "reportsContent": "Reports reads the run history Forge and Sync already keep:\n- Executions: each run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit trail and data lineage: coming soon, nothing records them yet"
   },
@@ -3901,10 +3905,9 @@
       "countShown": "Count the records of the objects shown ({{objects}})"
     },
     "step3": {
-      "title": "Compliance Framework",
       "selectFramework": "Select a compliance framework",
       "none": "None",
-      "noneDesc": "No anonymization — transfer data as-is",
+      "noneDesc": "No framework: nothing is anonymized beyond the emails and phone numbers the run neutralizes, unless that box is unticked",
       "gdpr": "GDPR",
       "gdprDesc": "European data protection — anonymize personal identifiers",
       "ccpa": "CCPA",
@@ -3924,6 +3927,9 @@
       "waves": "Execution Waves",
       "piiFields": "PII Fields Detected",
       "anonymizedFields": "Fields to Anonymize",
+      "contactPoints": "Neutralize emails and phone numbers (recommended)",
+      "contactPointsHint": "Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them.",
+      "advancedCompliance": "Advanced: compliance framework",
       "execute": "Execute Autopilot",
       "description": "Review your configuration before launching autopilot.",
       "complianceFramework": "Compliance Framework",
@@ -4092,7 +4098,10 @@
     },
     "status": {
       "salt": "Salt fingerprint",
-      "saltMissing": "Salt missing",
+      "saltMissing": "None yet",
+      "saltKept": "Kept in VS Code's secret storage",
+      "saltFromEnvironment": "From SANDFORGE_FROZEN_SALT",
+      "saltMadeOnExtraction": "Made and kept on the first extraction",
       "dataset": "Frozen dataset",
       "records_one": "{{count}} record",
       "records_other": "{{count}} records",
@@ -4100,11 +4109,14 @@
       "selection": "Selection",
       "noSelection": "No selection yet",
       "lastVerify": "Last verification",
-      "saltMismatch": "The salt in this environment ({{current}}) is not the one this dataset was built with ({{manifest}}). A new extraction with it would give the same records different pseudonyms than this dataset holds. Set SANDFORGE_FROZEN_SALT back to that salt first."
+      "saltMismatch": "The salt in this editor ({{current}}) is not the one this dataset was built with ({{manifest}}). A new extraction with it would give the same records different pseudonyms than this dataset holds. Set that salt again first, with \"SandForge: Use a Frozen Dataset Salt\" or SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extract",
       "load": "Load"
+    },
+    "salt": {
+      "created": "This first extraction made the salt every pseudonym is drawn with, and keeps it in VS Code's secret storage: every later extraction pseudonymizes the same records the same way. A teammate who extracts this dataset needs the same salt: copy it with \"SandForge: Copy Frozen Dataset Salt\" and give it to them as you would a password; they set it with \"SandForge: Use a Frozen Dataset Salt\". Whoever holds it can tell which source value a pseudonym was drawn from."
     },
     "manifest": {
       "version": "Dataset v{{version}}"
@@ -4163,7 +4175,8 @@
       "title": "Extraction & pseudonymization",
       "run": "Run extraction",
       "summary_one": "{{count}} record frozen across {{files}} files",
-      "summary_other": "{{count}} records frozen across {{files}} files"
+      "summary_other": "{{count}} records frozen across {{files}} files",
+      "saltHint": "Every pseudonym is drawn with this editor's salt, made on the first extraction and kept in VS Code's secret storage. To extract the same pseudonyms as a teammate, set theirs with \"SandForge: Use a Frozen Dataset Salt\"; give yours with \"SandForge: Copy Frozen Dataset Salt\". SANDFORGE_FROZEN_SALT, where it is set, wins over both. A load does not need the salt."
     },
     "control": {
       "check": "Check",
@@ -4177,13 +4190,11 @@
     },
     "guards": {
       "title": "Entry guards",
-      "sandboxOnly": "Sandbox only",
+      "sandboxOnly": "Never a production org",
       "protectedEnvs_one": "{{count}} protected env",
       "protectedEnvs_other": "{{count}} protected envs",
-      "mocksConfigured": "Mock detection configured",
-      "mocksNotConfigured": "Mock detection not configured",
-      "saltOk": "Salt loaded",
-      "saltMissing": "Salt missing"
+      "mocksConfigured": "Unmocked callouts checked",
+      "mocksNotConfigured": "Unmocked callouts not checked"
     },
     "load": {
       "targetOrg": "Target org (sandbox)",

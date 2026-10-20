@@ -73,6 +73,16 @@ describe('syncConfigSchema', () => {
     expect(result.enableRollback).toBe(true);
   });
 
+  it('carries the choice to keep emails and phone numbers as read, and nothing when it is not made', () => {
+    // Dropped by the parse, the choice never reached the run: a saved
+    // configuration that kept them would have them neutralized.
+    expect(
+      syncConfigSchema.parse({ ...createValidSyncConfig(), keepContactPoints: true })
+        .keepContactPoints,
+    ).toBe(true);
+    expect('keepContactPoints' in syncConfigSchema.parse(createValidSyncConfig())).toBe(false);
+  });
+
   it('should not carry script fields', () => {
     const result = syncConfigSchema.parse({
       ...createValidSyncConfig(),

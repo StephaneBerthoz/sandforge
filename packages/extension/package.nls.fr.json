@@ -23,6 +23,8 @@
   "command.cheers": "SandForge : Cheers !",
   "command.openOrgInBrowser": "SandForge : Ouvrir l'org dans le navigateur",
   "command.resetTokenBudget": "SandForge : Réinitialiser le budget de jetons IA",
+  "command.copyFrozenSalt": "SandForge : Copier le sel du jeu de référence figé",
+  "command.useFrozenSalt": "SandForge : Utiliser un sel de jeu de référence figé",
   "walkthrough.gettingStarted.title": "Bien démarrer avec SandForge",
   "walkthrough.gettingStarted.description": "Connectez une org Salesforce et peuplez votre première sandbox avec des données réalistes.",
   "walkthrough.step.connectOrg.title": "Connectez votre première org",

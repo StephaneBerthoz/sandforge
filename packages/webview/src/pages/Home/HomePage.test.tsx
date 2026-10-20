@@ -116,6 +116,12 @@ function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
   };
 }
 
+/** A production org of a paid edition: the fixture's default edition is a Developer Edition's. */
+const PRODUCTION = {
+  orgType: 'Production' as const,
+  metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+};
+
 describe('HomePage', () => {
   beforeEach(() => {
     useAppStore.setState({ currentRoute: 'home' });
@@ -435,7 +441,7 @@ describe('HomePage', () => {
   });
 
   it('should not show sandbox banner when no sandbox org', () => {
-    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Production' })] });
+    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)] });
     render(<HomePage />);
     expect(screen.queryByTestId('sandbox-banner')).toBeNull();
   });
@@ -446,8 +452,24 @@ describe('HomePage', () => {
     expect(screen.getByTestId('populate-sandbox-btn')).toBeDefined();
   });
 
+  it('offers to populate a Developer Edition org, as a sandbox, and its banner', () => {
+    // A Trailhead playground is one: it was taken for a production org, and
+    // the Home page offered nothing to fill it with.
+    useOrgStore.setState({
+      orgs: [
+        createMockOrg({
+          orgType: 'Developer',
+          metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+        }),
+      ],
+    });
+    render(<HomePage />);
+    expect(screen.getByTestId('populate-sandbox-btn')).toBeDefined();
+    expect(screen.getByTestId('sandbox-banner')).toBeDefined();
+  });
+
   it('should not show populate sandbox button when no sandbox org', () => {
-    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Production' })] });
+    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)] });
     render(<HomePage />);
     expect(screen.queryByTestId('populate-sandbox-btn')).toBeNull();
   });

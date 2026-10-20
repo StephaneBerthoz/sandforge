@@ -9,8 +9,9 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 > notification, and an Approval waits for someone to approve the run in VS Code.
 > **The one step that writes to an org is Sync,** and it runs a configuration
 > saved on the Sync page, through Sync's own run and its Production Guard: a
-> Sync step into an org the guard asks about -- a production org, a Developer
-> Edition -- needs an Approval step before it, whose answer the guard takes.
+> Sync step into an org the guard asks about -- a production org; a sandbox, a
+> scratch org or a Developer Edition is never asked about -- needs an Approval
+> step before it, whose answer the guard takes.
 > Seed, Restore, Anonymize and Delete run only from their own pages. The Step
 > Palette offers only steps a pipeline runs; a pipeline that holds one it cannot
 > run -- from a template, an AI draft or an older save -- is refused before its
@@ -172,5 +173,5 @@ configuration, before the pipeline can run.
 - Use the AI Pipeline Generator to sketch a workflow from a natural language description; its steps are marked when they cannot run
 - Browse the Marketplace for templates that match your use case before building from scratch
 - Read Execution History for each run's status and for what each of its steps did
-- Put an Approval step before a Sync into a production org or a Developer Edition, and after a Compare, so the person who approves has the differences in front of them
+- Put an Approval step before a Sync into a production org, and after a Compare, so the person who approves has the differences in front of them
 - Remember that seeding, restoring, anonymizing and deleting run from their own pages: a pipeline writes to an org only through a saved Sync configuration

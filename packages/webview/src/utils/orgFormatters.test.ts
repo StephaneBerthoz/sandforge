@@ -56,6 +56,16 @@ describe('orgTypeLabel', () => {
     );
   });
 
+  it('names a Developer Edition org an earlier build registered as production by its edition, never PROD', () => {
+    const playground = org({
+      orgType: 'Production',
+      metadata: { apiVersion: '62.0', edition: 'Developer Edition', features: [] },
+    });
+    expect(orgTypeLabel(playground, keyOf)).toBe('«sidePanel.orgType.developer»');
+    // A production org of another edition keeps its PROD badge.
+    expect(orgTypeLabel(org({ orgType: 'Production' }), keyOf)).toBe('«sidePanel.orgType.prod»');
+  });
+
   it('shows an environment tag as the user wrote it', () => {
     expect(orgTypeLabel(org({ tags: ['uat'] }), keyOf)).toBe('UAT');
   });

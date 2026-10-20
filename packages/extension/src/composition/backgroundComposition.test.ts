@@ -235,6 +235,36 @@ describe('production confirmation modal (localized)', () => {
     );
   });
 
+  it('asks in plain words, the org named by its alias, without the module tag or the org id', async () => {
+    // "INSERT 500 SeedData record(s) on production org 00D… [module: seed]"
+    // was the whole question: an internal object name, a raw id, a tag.
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+      orgNameOf: (orgId) => (orgId === 'org-prod-1' ? 'Acme Prod' : undefined),
+    });
+    const check = productionGuard.check({
+      orgId: 'org-prod-1',
+      orgTier: 'production',
+      operation: 'insert',
+      objectName: 'SeedData',
+      recordCount: 500,
+      module: 'seed',
+    });
+
+    await productionGuard.confirmIfNeeded(check, 'production');
+
+    const options = vi.mocked(vscode.window.showWarningMessage).mock.calls[0][1] as {
+      detail: string;
+    };
+    expect(options.detail).toBe(
+      'Insert 500 records into the production org "Acme Prod".\n\n' +
+        'This operation writes data to a PRODUCTION org.',
+    );
+    expect(options.detail).not.toMatch(/SeedData|\[module:|org-prod-1/);
+  });
+
   it('does not tell a confirmation another tier asks for that it writes to production', async () => {
     // Staging asks before a delete, a deployment or a large volume, and the
     // modal said "SandForge: production operation … writes data to a

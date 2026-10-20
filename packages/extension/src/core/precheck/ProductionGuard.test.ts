@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProductionGuard, largeVolumeThreshold } from './ProductionGuard';
+import { ProductionGuard, confirmationQuestionOf, largeVolumeThreshold } from './ProductionGuard';
 import type { OperationRequest, RunConfirmation } from './ProductionGuard';
 
 function createRequest(overrides?: Partial<OperationRequest>): OperationRequest {
@@ -570,5 +570,68 @@ describe('ProductionGuard', () => {
 
       await expect(uiGuard.confirmRun(question)).resolves.toBe('declined');
     });
+  });
+});
+
+describe('the question a confirmation puts', () => {
+  it('says what the operation does, to which objects, in the org named by its alias', () => {
+    expect(
+      confirmationQuestionOf(
+        createRequest({ orgTier: 'production', objectName: 'Account, Contact', recordCount: 1 }),
+        'Acme Prod',
+      ),
+    ).toBe('Insert 1 record (Account, Contact) into the production org "Acme Prod".');
+    expect(
+      confirmationQuestionOf(
+        createRequest({
+          orgTier: 'production',
+          operation: 'upsert',
+          recordCount: { atMost: 60 },
+          alsoWrites: 'the related records the run adds',
+        }),
+        'Acme Prod',
+      ),
+    ).toBe(
+      'Insert or update at most 60 records (Account), plus the related records the run adds, ' +
+        'in the production org "Acme Prod".',
+    );
+    expect(
+      confirmationQuestionOf(
+        createRequest({
+          orgTier: 'production',
+          operation: 'deploy',
+          objectName: 'ApexClass',
+          recordCount: 3,
+        }),
+        'Acme Prod',
+      ),
+    ).toBe('Deploy 3 components (ApexClass) to the production org "Acme Prod".');
+  });
+
+  it('leaves out the name a run of several objects stands under, and names an org nobody named by its id', () => {
+    expect(
+      confirmationQuestionOf(
+        createRequest({ orgTier: 'production', objectName: 'SeedData', recordCount: 'unknown' }),
+      ),
+    ).toBe('Insert records into the production org org-001.');
+  });
+
+  it('is set on a result that asks, by a guard that can name the org, and handed to the modal', async () => {
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+    const named = new ProductionGuard({ requestConfirmation, orgNameOf: () => 'Acme Prod' });
+    const asks = named.check(createRequest({ orgTier: 'production' }));
+
+    expect(asks.question).toBe('Insert 100 records (Account) into the production org "Acme Prod".');
+    expect(named.check(createRequest({ orgTier: 'development' })).question).toBeUndefined();
+    await named.confirmIfNeeded(asks, 'production');
+    expect(requestConfirmation).toHaveBeenCalledWith(
+      asks.impactSummary,
+      'production',
+      asks.question,
+    );
+
+    // A guard that cannot name the org asks with the impact summary, as before.
+    const unnamed = new ProductionGuard({ requestConfirmation });
+    expect(unnamed.check(createRequest({ orgTier: 'production' })).question).toBeUndefined();
   });
 });

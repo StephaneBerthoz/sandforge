@@ -31,6 +31,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { orgTypeOf } from '@sandforge/shared';
 import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
@@ -213,15 +214,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  // Typed as the extension types an org it connects (`OrgHandler`): its
-  // `Organization` record, `IsSandbox` for its type and its edition with it.
-  // Handed neither, the Production Guard took every org for a production one,
-  // and a restore into a Developer Edition or a sandbox was refused as one
-  // into production: `--restore` wrote nowhere.
+  // Typed as the extension types an org it connects (`orgTypeOf`): its
+  // `Organization` record, `IsSandbox` and its edition. Handed neither, the
+  // Production Guard took every org for a production one, and a restore into
+  // a Developer Edition or a sandbox was refused as one into production:
+  // `--restore` wrote nowhere.
   const identity = await new AuthProvider().validateConnection(org.accessToken, org.instanceUrl);
   const typed = {
     alias: org.alias,
-    orgType: identity.isSandbox ? 'Sandbox' : 'Production',
+    orgType: orgTypeOf({ isSandbox: identity.isSandbox, edition: identity.orgType }),
     metadata: { apiVersion: '66.0', edition: identity.orgType },
   };
 

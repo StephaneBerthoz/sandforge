@@ -9,11 +9,12 @@
  * makes cross-object joins (dedup, beneficiary search) behave like
  * production.
  *
- * The salt comes from the `SANDFORGE_FROZEN_SALT` environment variable
- * (or a secrets manager) — never from the repo. Only its SHA-256
- * fingerprint (12 hex chars) is consigned in the manifest. A second salt
- * must never be generated silently: cross-version determinism would be
- * lost.
+ * The salt comes from what keeps it (`FrozenSalt`): VS Code's secret
+ * storage in the editor, made on the first extraction and kept from then on,
+ * or `SANDFORGE_FROZEN_SALT`, which wins where it is set, and on the command
+ * line a file — never the repo. Only its SHA-256 fingerprint (12 hex chars)
+ * is consigned in the manifest. A second salt is never made while one is
+ * kept: cross-version determinism would be lost.
  */
 
 import { createHash, createHmac } from 'node:crypto';
@@ -42,13 +43,21 @@ export const PSEUDONYM_GENERATORS = [
 /** Union of supported generator names. */
 export type PseudonymGenerator = (typeof PSEUDONYM_GENERATORS)[number];
 
-/** Thrown when the engine is started without a salt. */
+/**
+ * Thrown when the engine is started without a salt: on the command line,
+ * given none; in the editor, when its secret storage could not keep the one
+ * the first extraction made. The message said to `export` a variable — a
+ * bash line, which PowerShell does not read — and to restart nothing.
+ */
 export class MissingSaltError extends Error {
   constructor() {
     super(
-      `Pseudonymization salt is missing. Set the ${FROZEN_SALT_ENV_VAR} environment ` +
-        `variable (e.g. export ${FROZEN_SALT_ENV_VAR}="<your-stable-secret>") and retry. ` +
-        `Never invent a second salt: determinism across dataset versions would be lost.`,
+      'No pseudonymization salt. In VS Code, the first extraction makes one and keeps it in ' +
+        "the editor's secret storage, which could not keep it here. On the command line, give " +
+        `it with --salt-file <file>, or set ${FROZEN_SALT_ENV_VAR} (bash or zsh: export ` +
+        `${FROZEN_SALT_ENV_VAR}="<salt>"; PowerShell: $env:${FROZEN_SALT_ENV_VAR} = "<salt>") ` +
+        'and start VS Code from that shell. Use the salt the dataset was built with: another ' +
+        'one gives the same records other pseudonyms.',
     );
     this.name = 'MissingSaltError';
   }
@@ -201,34 +210,22 @@ function instantOf(value: string): number {
 const MS_PER_DAY = 86_400_000;
 
 /**
- * HMAC-based deterministic pseudonymizer. One instance per freeze run;
- * construct via {@link DeterministicPseudonymizer.fromEnv} in production
- * code so the salt never appears in the repository.
+ * HMAC-based deterministic pseudonymizer. One instance per freeze run, built
+ * with the salt its keeper gives (`FrozenSaltKeeper.forExtraction`), so the
+ * salt never appears in the repository.
  */
 export class DeterministicPseudonymizer {
   private readonly salt: string;
 
   /**
-   * @param salt - The pseudonymization salt. Must be non-empty; prefer
-   *               {@link fromEnv} so the value comes from the environment.
+   * @param salt - The pseudonymization salt. Must be non-empty: the one its
+   *               keeper gives, never one made up beside it.
    */
   constructor(salt: string) {
     if (!salt) {
       throw new MissingSaltError();
     }
     this.salt = salt;
-  }
-
-  /**
-   * Build a pseudonymizer from the `SANDFORGE_FROZEN_SALT` environment
-   * variable. Refuses to start without it (actionable error).
-   */
-  static fromEnv(env: NodeJS.ProcessEnv = process.env): DeterministicPseudonymizer {
-    const salt = env[FROZEN_SALT_ENV_VAR];
-    if (!salt) {
-      throw new MissingSaltError();
-    }
-    return new DeterministicPseudonymizer(salt);
   }
 
   /**

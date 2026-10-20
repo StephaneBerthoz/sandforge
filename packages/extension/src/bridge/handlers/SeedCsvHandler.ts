@@ -1,5 +1,5 @@
 import type { CsvValidationResult } from '@sandforge/shared';
-import { orgTypeToGuardTier } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -214,7 +214,7 @@ export class SeedCsvHandler implements DomainHandler {
       const targetOrg = this.deps.orgManager.getOrg(parsed.orgId);
       const guardRequest = {
         orgId: parsed.orgId,
-        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        orgTier: guardTierOf(targetOrg),
         operation: (parsed.externalIdField ? 'upsert' : 'insert') as 'upsert' | 'insert',
         objectName: parsed.objectApiName,
         recordCount: parsed.records.length,

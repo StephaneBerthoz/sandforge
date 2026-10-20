@@ -22,6 +22,10 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { FrozenDatasetHandler, toLoadReportInfo } from './FrozenDatasetHandler.js';
+import {
+  FROZEN_SALT_SECRET_KEY,
+  secretStorageSaltKeeper,
+} from '../../modules/frozendataset/FrozenSalt.js';
 import { ExecutionHandler } from './ExecutionHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
@@ -436,6 +440,45 @@ describe('FrozenDatasetHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('SALT_MISSING');
       expect(String(errors[0].payload.message)).toContain('SANDFORGE_FROZEN_SALT');
+    });
+
+    it('makes the salt on the first extraction in the editor, keeps it, and says so once', async () => {
+      // Required as SANDFORGE_FROZEN_SALT before VS Code started, its absence
+      // refused every extraction with SALT_MISSING and a bash export line.
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', '');
+      const kept = new Map<string, string>();
+      const secrets = {
+        getSecret: async (key: string) => kept.get(key),
+        storeSecret: async (key: string, value: string) => {
+          kept.set(key, value);
+        },
+      };
+      deps = createMockDeps(createMockConfig());
+      handler = new FrozenDatasetHandler(deps);
+      handler.setSaltKeeper(secretStorageSaltKeeper(secrets));
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      // Past the salt: what stops these two is the missing selection.
+      expect(posted(deps, 'frozen:extract:error').map((m) => m.payload.code)).toEqual([
+        'SELECTION_MISSING',
+        'SELECTION_MISSING',
+      ]);
+      expect(kept.get(FROZEN_SALT_SECRET_KEY)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      const said = posted(deps, 'notification').filter(
+        (m) => m.payload.code === 'FROZEN_SALT_CREATED',
+      );
+      expect(said).toHaveLength(1);
+      expect(String(said[0].payload.message)).toContain('SandForge: Copy Frozen Dataset Salt');
+      expect(String(said[0].payload.message)).not.toContain(kept.get(FROZEN_SALT_SECRET_KEY));
+
+      await handler.handle(buildMsg('frozen:status'));
+      const status = posted(deps, 'frozen:status:response')[0].payload.status as {
+        salt: { present: boolean; fingerprint?: string; source?: string };
+      };
+      expect(status.salt).toMatchObject({ present: true, source: 'secretStorage' });
+      expect(status.salt.fingerprint).toMatch(/^[0-9a-f]{12}$/);
     });
 
     it('fails with SELECTION_MISSING when the salt is set but no selection exists', async () => {

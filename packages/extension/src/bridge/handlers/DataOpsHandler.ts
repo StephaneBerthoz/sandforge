@@ -14,7 +14,7 @@ import type {
   DataOpsAnonymizationRule,
   ListedAnonymizationTemplate,
 } from '@sandforge/shared';
-import { recordWriteHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
+import { recordWriteHeaders, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -85,7 +85,6 @@ import {
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
-import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import {
@@ -277,9 +276,9 @@ function dmlStatus(succeeded: number, failed: number): 'success' | 'partial' | '
 /**
  * The tier Production Guard takes the org of a restore or a masking run for:
  * the tier of its type, but a Developer Edition org, which says `IsSandbox`
- * false and is registered as a production org, taken for the development org
- * it is — as a Forge run, a Frozen load and a Sync removal take it
- * (`forgeTargetTier`). Read from its type alone, DataOps asked before every
+ * false and was registered as a production org by earlier builds, taken for
+ * the development org it is — as every guard takes it (`guardTierOf`). Read
+ * from its type alone, DataOps asked before every
  * write to such an org as before one to production, and a command line, with
  * nobody to ask, could tell it from production by nothing. An org whose
  * edition is not known stays production.
@@ -287,7 +286,7 @@ function dmlStatus(succeeded: number, failed: number): 'success' | 'partial' | '
 function writeTier(
   org: { orgType?: string; metadata?: { edition?: unknown } } | undefined,
 ): SafetyTier {
-  return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);
+  return guardTierOf(org);
 }
 
 /** Append a bounded sample of what the org said about a rejected row. */

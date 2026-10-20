@@ -1,4 +1,5 @@
 import type { GuardDecision, SyncRemovalResult, SyncRunRemovalInfo } from '@sandforge/shared';
+import { guardTierOf } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import {
   ABORTED_BEFORE_START,
@@ -27,7 +28,6 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removalOrg } from '../../modules/forge/ForgeRunRemoval.js';
 import { removalAuditObjects, removalAuditOutcome } from '../../modules/forge/removalOutcome.js';
-import { forgeTargetTier } from '../../modules/forge/ForgeRunGate.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import {
@@ -112,18 +112,17 @@ export class SyncRemovalHandler implements DomainHandler {
   }
 
   /**
-   * The tier a removal takes the target for: the one a Forge removal and a
-   * Frozen removal take it for (`forgeTargetTier`). A Developer Edition says
-   * IsSandbox false and is registered as a production org while it holds
-   * nobody's business; Sync writes to one once the user confirms, and refused
-   * its removal, the run's own records would be left there with no way to
-   * take them back. A production org of any other edition, or of an edition
-   * not known, stays production, and the removal is refused with the guard's
-   * reason.
+   * The tier a removal takes the target for: the one the run's writes, a
+   * Forge removal and a Frozen removal take it for (`guardTierOf`). A
+   * Developer Edition says IsSandbox false while it holds nobody's business;
+   * Sync writes to one as to a sandbox, and refused its removal, the run's own
+   * records would be left there with no way to take them back. A production
+   * org of any other edition, or of an edition not known, stays production,
+   * and the removal is refused with the guard's reason.
    */
   private tierOf(targetOrgId: string): SafetyTier {
     const org = this.deps.orgManager.getOrg(targetOrgId);
-    return forgeTargetTier(org?.orgType ?? '', org?.metadata?.edition);
+    return guardTierOf(org);
   }
 
   /** What a run kept, as the page reads it, and why no removal can run when none can. */

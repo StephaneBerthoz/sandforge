@@ -41,6 +41,7 @@ import {
   type IdMapRow,
   leftOutByTheUser,
   removalRisksOf,
+  guardTierOf,
 } from '@sandforge/shared';
 import { z } from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -114,7 +115,6 @@ import {
   emailChecksOf,
   firedOnInsertOf,
   firedOnUpdateOf,
-  forgeTargetTier,
   formatMB,
   isForgeRunGateError,
   objectsAboveReadCeiling,
@@ -1709,7 +1709,7 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
-    const orgTier = forgeTargetTier(targetOrg?.orgType ?? '', targetOrg?.metadata?.edition);
+    const orgTier = guardTierOf(targetOrg);
     /** The target as the user knows it: its alias, or its id when the registry has none. */
     const targetName = targetOrg?.alias ?? config.targetOrgId;
     // A clone writes to sandboxes, scratch orgs and Developer Edition orgs
@@ -4250,7 +4250,7 @@ export class ForgeHandler implements DomainHandler {
     const targetOrg = this.deps.orgManager.getOrg(targetOrgId);
     // The tier the run that wrote them took the org for: a Developer
     // Edition org it may write to is one it may take its records back from.
-    const orgTier = forgeTargetTier(targetOrg?.orgType ?? '', targetOrg?.metadata?.edition);
+    const orgTier = guardTierOf(targetOrg);
     // A sweep alone deletes none of the run's records: Production Guard
     // judges its deletes once it has found them.
     const { check, decision } =
@@ -4963,7 +4963,7 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
-    const orgTier = forgeTargetTier(targetOrg?.orgType ?? '', targetOrg?.metadata?.edition);
+    const orgTier = guardTierOf(targetOrg);
     const targetName = targetOrg?.alias ?? config.targetOrgId;
     // Rolled back or not, the records go through the target's automation: a
     // platform event it publishes at once, a callout it makes, are not taken

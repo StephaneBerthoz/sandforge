@@ -167,5 +167,12 @@
   "Approve": "承認",
   "Reject": "却下",
   "SandForge: pipeline \"{0}\" waits for your approval at step \"{1}\", until {2}.": "SandForge: パイプライン「{0}」がステップ「{1}」で {2} まであなたの承認を待っています。",
-  "SandForge: step \"{0}\" no longer waits for an answer, so this one changed nothing.": "SandForge: ステップ「{0}」はもう回答を待っていないため、この回答では何も変わりませんでした。"
+  "SandForge: step \"{0}\" no longer waits for an answer, so this one changed nothing.": "SandForge: ステップ「{0}」はもう回答を待っていないため、この回答では何も変わりませんでした。",
+  "SandForge: the Frozen dataset salt (fingerprint {0}) is on the clipboard. Give it to a teammate as you would a password: whoever holds it can tell which source value a pseudonym was drawn from.": "SandForge: Frozen Dataset のソルト（フィンガープリント {0}）をクリップボードにコピーしました。パスワードと同じように扱ってチームメイトに渡してください。これを持つ人は、仮名がどのソース値から作られたかを知ることができます。",
+  "The Frozen dataset salt a teammate gave you: your extractions will draw the same pseudonyms as theirs.": "チームメイトから受け取った Frozen Dataset のソルト: あなたの抽出はその人と同じ仮名を作ります。",
+  "A salt holds 16 characters at least.": "ソルトは 16 文字以上です。",
+  "Replace": "置き換える",
+  "SandForge: this editor already keeps a Frozen dataset salt (fingerprint {0}). Replace it with {1}? An extraction made with the one kept now could no longer be made again with the same pseudonyms.": "SandForge: このエディターには Frozen Dataset のソルト（フィンガープリント {0}）がすでに保存されています。{1} に置き換えますか？今のソルトで作った抽出は、同じ仮名ではもう作り直せなくなります。",
+  "SandForge: the Frozen dataset salt {0} is kept, but SANDFORGE_FROZEN_SALT is set in this window and wins over it until it is unset.": "SandForge: Frozen Dataset のソルト {0} を保存しましたが、このウィンドウでは SANDFORGE_FROZEN_SALT が設定されており、解除されるまでそちらが優先されます。",
+  "SandForge: Frozen dataset extractions draw their pseudonyms with the salt {0} from now on.": "SandForge: Frozen Dataset の抽出は、今後ソルト {0} で仮名を作ります。"
 }

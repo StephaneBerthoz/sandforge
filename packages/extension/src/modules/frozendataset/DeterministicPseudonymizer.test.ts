@@ -31,15 +31,13 @@ const HMAC_DERIVED: Array<[PseudonymGenerator, unknown]> = [
 ];
 
 describe('DeterministicPseudonymizer — salt handling', () => {
-  it('refuses to start without a salt, with an actionable message', () => {
+  it('refuses to start without a salt, with a message that works in bash and in PowerShell', () => {
     expect(() => new DeterministicPseudonymizer('')).toThrow(MissingSaltError);
     expect(() => new DeterministicPseudonymizer('')).toThrow(FROZEN_SALT_ENV_VAR);
-    expect(() => DeterministicPseudonymizer.fromEnv({})).toThrow(MissingSaltError);
-  });
-
-  it('builds from the environment variable', () => {
-    const p = DeterministicPseudonymizer.fromEnv({ [FROZEN_SALT_ENV_VAR]: SALT_A });
-    expect(p.saltFingerprint).toBe(pA.saltFingerprint);
+    const said = new MissingSaltError().message;
+    expect(said).toContain(`export ${FROZEN_SALT_ENV_VAR}=`);
+    expect(said).toContain(`$env:${FROZEN_SALT_ENV_VAR} =`);
+    expect(said).toContain('--salt-file');
   });
 
   it('exposes a 12-hex SHA-256 fingerprint, never the salt', () => {

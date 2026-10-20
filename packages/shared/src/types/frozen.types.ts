@@ -890,8 +890,17 @@ export interface FrozenStatusInfo {
   sasDir: string;
   /** Resolved dataset directory. */
   datasetDir: string;
-  /** Salt presence + fingerprint (never the salt itself). */
-  salt: { present: boolean; fingerprint?: string };
+  /**
+   * Salt presence + fingerprint (never the salt itself), and where it is kept:
+   * VS Code's secret storage, made on the first extraction; the
+   * `SANDFORGE_FROZEN_SALT` environment variable, which wins where it is set;
+   * a file, on the command line. Absent before the first extraction.
+   */
+  salt: {
+    present: boolean;
+    fingerprint?: string;
+    source?: 'environment' | 'secretStorage' | 'file';
+  };
   /** True when unmocked-callout detection is configured. */
   mockDetectionConfigured: boolean;
   /** Selection snapshot, when a selection.json exists in the sas. */

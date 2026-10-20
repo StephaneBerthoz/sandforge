@@ -35,6 +35,7 @@ import {
 } from '../../core/metadata/recordTypeAvailability.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
+import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import {
   CURRENCY_FIELD,
   CurrencyReplacementTally,
@@ -175,6 +176,12 @@ export interface SyncWriteRun {
    * (`followParentCurrency`). Filled in as the run prepares its rows.
    */
   currencyChangesById?: Map<string, CurrencyChange>;
+  /**
+   * What neutralizes the emails and phone numbers of the rows before they
+   * are written (`neutralizeSyncRows`); absent for a run that keeps them as
+   * read (`SyncConfig.keepContactPoints`), and for a write on its own.
+   */
+  contactPoints?: ContactPointNeutralizer;
 }
 
 /** A row held back before the write. */

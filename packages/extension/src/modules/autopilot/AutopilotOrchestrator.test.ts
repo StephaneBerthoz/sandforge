@@ -573,7 +573,23 @@ describe('AutopilotOrchestrator', () => {
         new Map(),
         controller.signal,
         undefined,
+        undefined,
       );
+    });
+
+    it('hands the run its choice to keep the emails and phone numbers as read', async () => {
+      await orchestrator.executePlan(
+        mockPlan(),
+        mockGraph(),
+        [],
+        new Map(),
+        undefined,
+        undefined,
+        undefined,
+        { keepContactPoints: true },
+      );
+
+      expect(executors[0].execute.mock.calls[0].at(-1)).toEqual({ keepContactPoints: true });
     });
 
     it('pause with no running execution is a no-op and does not leak into the next one', async () => {

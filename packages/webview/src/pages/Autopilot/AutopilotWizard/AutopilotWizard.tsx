@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AutopilotGraph, AutopilotObjectListing, ExecutionPlan } from '@sandforge/shared';
+import type {
+  AutopilotGraph,
+  AutopilotObjectListing,
+  ComplianceFrameworkType,
+  ExecutionPlan,
+} from '@sandforge/shared';
 import { AUTOPILOT_COUNTS_PER_REQUEST } from '@sandforge/shared';
 import { SeedWizard } from '../../Seed/SeedWizard';
 import type { WizardStep } from '../../Seed/SeedWizard';
@@ -11,10 +16,14 @@ import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { Step1Connect } from './Step1_Connect';
 import { Step2Objects } from './Step2_Objects';
-import { Step3Compliance } from './Step3_Compliance';
 import { Step4Review } from './Step4_Review';
 
-/** Steps definition for the Autopilot wizard. */
+/**
+ * Steps definition for the Autopilot wizard: three. The compliance framework
+ * had a step of its own between the objects and the review, whose default
+ * copied every email and phone number as read; the review now neutralizes
+ * those unless unticked, and keeps the framework behind a disclosure.
+ */
 const AUTOPILOT_STEPS: WizardStep[] = [
   {
     id: 'connect',
@@ -27,11 +36,6 @@ const AUTOPILOT_STEPS: WizardStep[] = [
     descriptionKey: 'autopilot.step2.description',
   },
   {
-    id: 'compliance',
-    labelKey: 'autopilot.step3.title',
-    descriptionKey: 'autopilot.step3.description',
-  },
-  {
     id: 'review',
     labelKey: 'autopilot.step4.title',
     descriptionKey: 'autopilot.step4.description',
@@ -42,7 +46,6 @@ const AUTOPILOT_STEPS: WizardStep[] = [
 const WIZARD_STEP_IDS = [
   'connect',
   'objects',
-  'compliance',
   'review',
 ] as const satisfies readonly AutopilotStep[];
 
@@ -95,10 +98,11 @@ export interface AutopilotWizardProps {
 }
 
 /**
- * AutopilotWizard — 4-step wizard wired to the real autopilot bridge flow:
+ * AutopilotWizard — 3-step wizard wired to the real autopilot bridge flow:
  * list-objects (step 1→2), with count-objects for the objects picked →
- * scan-schema on the selection (step 2→3) → generate-plan (step 3→4) →
- * execute (delegated to the page via {@link AutopilotWizardProps.onExecute}).
+ * scan-schema on the selection, then generate-plan (step 2→3), again when
+ * the review picks another framework → execute (delegated to the page via
+ * {@link AutopilotWizardProps.onExecute}).
  *
  * The object step used to be filled by a scan with nothing selected, which
  * described every object of the org and counted every table before the user
@@ -124,6 +128,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
   const objectListing = useAutopilotStore((s) => s.objectListing);
   const objectCounts = useAutopilotStore((s) => s.objectCounts);
   const complianceFramework = useAutopilotStore((s) => s.complianceFramework);
+  const neutralizeContactPoints = useAutopilotStore((s) => s.neutralizeContactPoints);
   const graph = useAutopilotStore((s) => s.graph);
   const plan = useAutopilotStore((s) => s.plan);
   const errors = useAutopilotStore((s) => s.errors);
@@ -202,14 +207,44 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     if (data) useAutopilotStore.getState().addObjectCounts(data.counts);
   }, [countMutation.data]);
 
-  // Scan of the selection → the compliance step, the selection kept as picked.
+  /** The plan of the scanned selection, for a framework. */
+  const askPlan = planMutation.mutate;
+  const requestPlan = useCallback(
+    (framework: ComplianceFrameworkType) =>
+      askPlan({
+        complianceFramework: framework,
+        maxRecordsPerObject: 0,
+        objectFilters: {},
+        overrides: [],
+      }),
+    [askPlan],
+  );
+
+  // Scan of the selection → its plan, for the framework chosen so far (none
+  // unless the review picked one): the review step shows the plan's numbers.
+  // Asked once per scan answer, whatever else re-renders the wizard. Until it
+  // is asked, the scan's answer counts as pending: drawn once with nothing
+  // under way between the two, Next turned available under the keyboard, and
+  // the wizard took the focus off it.
+  const [plannedScan, setPlannedScan] = useState<SchemaResultPayload | null>(null);
+  const planOwed = scanMutation.data !== null && scanMutation.data !== plannedScan;
   useEffect(() => {
     const data = scanMutation.data;
-    if (!data) return;
+    if (!data || plannedScan === data) return;
+    setPlannedScan(data);
     const store = useAutopilotStore.getState();
     store.setGraph(data.graph);
-    store.setStep('compliance');
-  }, [scanMutation.data]);
+    requestPlan(store.complianceFramework);
+  }, [scanMutation.data, plannedScan, requestPlan]);
+
+  /** Another framework on the review: the plan is built again for it. */
+  const handleFrameworkChange = useCallback(
+    (framework: ComplianceFrameworkType) => {
+      useAutopilotStore.getState().setComplianceFramework(framework);
+      requestPlan(framework);
+    },
+    [requestPlan],
+  );
 
   // Plan response → sync the store and land on the review step.
   useEffect(() => {
@@ -281,19 +316,13 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
           selectedObjects: store.selectedObjects,
           includeStandardObjects: true,
         });
-      } else if (currentStep === 2) {
-        planMutation.mutate({
-          complianceFramework: store.complianceFramework,
-          maxRecordsPerObject: 0,
-          objectFilters: {},
-          overrides: [],
-        });
       }
     },
-    [currentStep, sourceOrgId, targetOrgId, listMutation, scanMutation, planMutation],
+    [currentStep, sourceOrgId, targetOrgId, listMutation, scanMutation],
   );
 
-  const isPending = listMutation.loading || scanMutation.loading || planMutation.loading;
+  const isPending =
+    listMutation.loading || scanMutation.loading || planMutation.loading || planOwed;
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
@@ -302,9 +331,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
       case 1:
         return selectedObjects.length > 0 && !isPending;
       case 2:
-        return !isPending;
-      case 3:
-        return !isExecuting;
+        return !isExecuting && !isPending;
       default:
         return true;
     }
@@ -387,16 +414,6 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
             {scanMutation.error && (
               <ErrorBanner message={scanMutation.error} data-testid="autopilot-scan-error" />
             )}
-          </>
-        )}
-        {currentStep === 2 && (
-          <>
-            <Step3Compliance
-              selectedFramework={complianceFramework}
-              onSelect={(framework) =>
-                useAutopilotStore.getState().setComplianceFramework(framework)
-              }
-            />
             {planMutation.loading && (
               <p
                 role="status"
@@ -411,7 +428,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
             )}
           </>
         )}
-        {currentStep === 3 && (
+        {currentStep === 2 && (
           <Step4Review
             sourceOrgId={sourceOrgId ?? ''}
             targetOrgId={targetOrgId ?? ''}
@@ -423,8 +440,12 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
             piiFields={plan?.anonymizationSummary.totalPiiFields ?? 0}
             anonymizedFields={plan?.anonymizationSummary.totalFieldsToAnonymize ?? 0}
             complianceFramework={complianceFramework}
+            onFrameworkChange={handleFrameworkChange}
+            neutralizeContactPoints={neutralizeContactPoints}
+            onNeutralizeChange={(on) => useAutopilotStore.getState().setNeutralizeContactPoints(on)}
+            planning={planMutation.loading}
             isExecuting={isExecuting}
-            error={lastError}
+            error={planMutation.error ?? lastError}
             scope={plan?.scope}
             notCovered={plan?.anonymizationSummary.notCovered}
             onExecute={onExecute}

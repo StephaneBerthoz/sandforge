@@ -34,7 +34,7 @@ const AutopilotGrappePanel: React.FC = () => {
 };
 
 /** The steps the wizard shows; the others are the running view's. */
-const WIZARD_STEPS: readonly AutopilotStep[] = ['connect', 'objects', 'compliance', 'review'];
+const WIZARD_STEPS: readonly AutopilotStep[] = ['connect', 'objects', 'review'];
 
 /** Main Autopilot page layout. */
 export const AutopilotPage: React.FC = () => {
@@ -201,7 +201,11 @@ export const AutopilotPage: React.FC = () => {
       currentWave: 0,
       totalWaves: plan?.waves.length ?? 0,
     });
-    executeMutation.mutate({ grappeThreshold: 0 });
+    // Emails and phone numbers neutralized unless the review's box was unticked.
+    executeMutation.mutate({
+      grappeThreshold: 0,
+      ...(store.neutralizeContactPoints === false ? { keepContactPoints: true } : {}),
+    });
   }, [executeMutation]);
 
   // Execute rejected (validation, production guard declined, execution crash):

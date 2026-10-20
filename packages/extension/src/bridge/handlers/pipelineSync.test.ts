@@ -53,7 +53,9 @@ function result(overrides: Partial<SyncExecutionResult> = {}): SyncExecutionResu
 
 describe('syncGuardRequest', () => {
   it('judges the run by its most severe object, on the target org, as Sync does', () => {
-    expect(syncGuardRequest(config(['insert', 'delete', 'upsert']), 'Sandbox')).toEqual({
+    expect(
+      syncGuardRequest(config(['insert', 'delete', 'upsert']), { orgType: 'Sandbox' }),
+    ).toEqual({
       orgId: 'org-b',
       orgTier: 'development',
       operation: 'delete',
@@ -68,20 +70,34 @@ describe('syncGuardRequest', () => {
     // through beforehand, and the run then refused it as a delete.
     const deleting: SyncConfig = { ...config(['upsert']), mode: 'delta', propagateDeletes: true };
 
-    expect(syncGuardRequest(deleting, 'Sandbox').operation).toBe('delete');
+    expect(syncGuardRequest(deleting, { orgType: 'Sandbox' }).operation).toBe('delete');
     expect(
       syncGuardVerdict(
         new ProductionGuard({ requestConfirmation: vi.fn() }),
-        syncGuardRequest(deleting, 'Production'),
+        syncGuardRequest(deleting, { orgType: 'Production' }),
       ),
     ).toEqual(expect.objectContaining({ decision: 'refused' }));
   });
 
   it('reads a target registered as production, and one the registry does not know, as production', () => {
-    // A Developer Edition is registered as a production org: the guard asks
-    // about it as about any production org.
-    expect(syncGuardRequest(config(['insert']), 'Production').orgTier).toBe('production');
+    const production = { orgType: 'Production', metadata: { edition: 'Enterprise Edition' } };
+    expect(syncGuardRequest(config(['insert']), production).orgTier).toBe('production');
     expect(syncGuardRequest(config(['insert']), undefined).orgTier).toBe('production');
+  });
+
+  it('reads a Developer Edition target as the development org it is, registered by an earlier build as production or not', () => {
+    // A Trailhead playground is one: a Sync into it asked as into production
+    // before every run, though it holds nobody's business.
+    const legacy = { orgType: 'Production', metadata: { edition: 'Developer Edition' } };
+    const developer = { orgType: 'Developer', metadata: { edition: 'Developer Edition' } };
+    expect(syncGuardRequest(config(['insert']), legacy).orgTier).toBe('development');
+    expect(syncGuardRequest(config(['insert']), developer).orgTier).toBe('development');
+    expect(
+      syncGuardVerdict(
+        new ProductionGuard({ requestConfirmation: vi.fn() }),
+        syncGuardRequest(config(['upsert']), legacy),
+      ),
+    ).toEqual({ decision: 'allowed' });
   });
 });
 
@@ -89,25 +105,34 @@ describe('syncGuardVerdict', () => {
   const guard = new ProductionGuard({ requestConfirmation: vi.fn() });
 
   it('lets a sandbox target through without a question', () => {
-    expect(syncGuardVerdict(guard, syncGuardRequest(config(['upsert']), 'Sandbox'))).toEqual({
+    expect(
+      syncGuardVerdict(guard, syncGuardRequest(config(['upsert']), { orgType: 'Sandbox' })),
+    ).toEqual({
       decision: 'allowed',
     });
   });
 
   it('says the guard asks about a production target', () => {
-    expect(syncGuardVerdict(guard, syncGuardRequest(config(['upsert']), 'Production'))).toEqual({
+    expect(
+      syncGuardVerdict(guard, syncGuardRequest(config(['upsert']), { orgType: 'Production' })),
+    ).toEqual({
       decision: 'asks',
     });
   });
 
   it('says the guard refuses a delete on production, and why', () => {
-    const verdict = syncGuardVerdict(guard, syncGuardRequest(config(['delete']), 'Production'));
+    const verdict = syncGuardVerdict(
+      guard,
+      syncGuardRequest(config(['delete']), { orgType: 'Production' }),
+    );
     expect(verdict.decision).toBe('refused');
     expect(verdict).toMatchObject({ reason: expect.stringContaining('delete is not allowed') });
   });
 
   it('refuses where no guard runs, as Sync does', () => {
-    expect(syncGuardVerdict(undefined, syncGuardRequest(config(['insert']), 'Sandbox'))).toEqual({
+    expect(
+      syncGuardVerdict(undefined, syncGuardRequest(config(['insert']), { orgType: 'Sandbox' })),
+    ).toEqual({
       decision: 'refused',
       reason: 'no Production Guard runs in this window',
     });
@@ -117,7 +142,7 @@ describe('syncGuardVerdict', () => {
     const ask = vi.fn();
     syncGuardVerdict(
       new ProductionGuard({ requestConfirmation: ask }),
-      syncGuardRequest(config(['upsert']), 'Production'),
+      syncGuardRequest(config(['upsert']), { orgType: 'Production' }),
     );
     expect(ask).not.toHaveBeenCalled();
   });
@@ -128,7 +153,10 @@ describe('runPipelineSync', () => {
     const ask = vi.fn().mockResolvedValue(false);
     const guard = new ProductionGuard({ requestConfirmation: ask });
     const execute = vi.fn(async (run: SyncConfig) => {
-      const { decision } = await consultProductionGuard(guard, syncGuardRequest(run, 'Production'));
+      const { decision } = await consultProductionGuard(
+        guard,
+        syncGuardRequest(run, { orgType: 'Production' }),
+      );
       return result({ error: decision });
     });
 

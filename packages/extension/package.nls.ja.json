@@ -23,6 +23,8 @@
   "command.cheers": "SandForge: 乾杯！",
   "command.openOrgInBrowser": "SandForge: ブラウザーで組織を開く",
   "command.resetTokenBudget": "SandForge: AI トークン予算をリセット",
+  "command.copyFrozenSalt": "SandForge: Frozen Dataset のソルトをコピー",
+  "command.useFrozenSalt": "SandForge: Frozen Dataset のソルトを使用",
   "walkthrough.gettingStarted.title": "SandForge をはじめよう",
   "walkthrough.gettingStarted.description": "Salesforce 組織に接続し、最初のサンドボックスにリアルなデータを投入します。",
   "walkthrough.step.connectOrg.title": "最初の組織に接続",

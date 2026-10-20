@@ -1,16 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
-import { Step3Compliance } from './Step3_Compliance';
+import { CompliancePicker } from './CompliancePicker';
 
-describe('Step3_Compliance', () => {
+describe('CompliancePicker', () => {
   it('should render without crashing', () => {
-    render(<Step3Compliance selectedFramework="none" onSelect={vi.fn()} />);
-    expect(screen.getByTestId('step3-compliance')).toBeDefined();
+    render(<CompliancePicker selectedFramework="none" onSelect={vi.fn()} />);
+    expect(screen.getByTestId('compliance-picker')).toBeDefined();
   });
 
   it('should display all framework options', () => {
-    render(<Step3Compliance selectedFramework="none" onSelect={vi.fn()} />);
+    render(<CompliancePicker selectedFramework="none" onSelect={vi.fn()} />);
     expect(screen.getByTestId('framework-none')).toBeDefined();
     expect(screen.getByTestId('framework-gdpr')).toBeDefined();
     expect(screen.getByTestId('framework-ccpa')).toBeDefined();
@@ -20,13 +20,13 @@ describe('Step3_Compliance', () => {
 
   it('should call onSelect when framework is clicked', () => {
     const onSelect = vi.fn();
-    render(<Step3Compliance selectedFramework="none" onSelect={onSelect} />);
+    render(<CompliancePicker selectedFramework="none" onSelect={onSelect} />);
     fireEvent.click(screen.getByTestId('framework-gdpr'));
     expect(onSelect).toHaveBeenCalledWith('gdpr');
   });
 
   it('should show selected framework as checked', () => {
-    render(<Step3Compliance selectedFramework="hipaa" onSelect={vi.fn()} />);
+    render(<CompliancePicker selectedFramework="hipaa" onSelect={vi.fn()} />);
     const hipaaOption = screen.getByTestId('framework-hipaa');
     const radioInput = hipaaOption.querySelector('input[type="radio"]') as HTMLInputElement;
     expect(radioInput.checked).toBe(true);

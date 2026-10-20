@@ -1,4 +1,5 @@
 import type { SalesforceOrg, ConnectionConfig, UUID } from '@sandforge/shared';
+import { PRODUCTION_ORG_COLOR, orgRegistrationOf, registeredOrgType } from '@sandforge/shared';
 import type { ConfigStore } from '../storage/ConfigStore';
 import type { SecretVault } from '../storage/SecretVault';
 import type { OrgManager } from './OrgManager';
@@ -48,13 +49,35 @@ const VAULT_READ_TIMEOUT_MS = 10_000;
  * list is untrusted input; this is where it stops being one.
  */
 export function healStoredOrg(org: SalesforceOrg): SalesforceOrg {
-  return {
+  const healed: SalesforceOrg = {
     ...org,
     tags: Array.isArray(org.tags) ? org.tags : [],
     appearance: {
       color: org.appearance?.color ?? '#4a9eff',
       icon: org.appearance?.icon ?? 'cloud',
       position: org.appearance?.position ?? 0,
+    },
+  };
+  return retypedDeveloperEdition(healed);
+}
+
+/**
+ * A Developer Edition org an earlier build registered as a production org,
+ * read as the `Developer` org it is (`registeredOrgType`): its badge, the
+ * banners and every guard read the type. Its safety tier goes with the type,
+ * and so does the production red it was given — a colour the user picked is
+ * kept. Any other org comes back as it is.
+ */
+function retypedDeveloperEdition(org: SalesforceOrg): SalesforceOrg {
+  if (org.orgType === registeredOrgType(org.orgType, org.metadata?.edition)) return org;
+  const { safetyTier, color } = orgRegistrationOf('Developer');
+  return {
+    ...org,
+    orgType: 'Developer',
+    safetyTier,
+    appearance: {
+      ...org.appearance,
+      color: org.appearance.color === PRODUCTION_ORG_COLOR ? color : org.appearance.color,
     },
   };
 }

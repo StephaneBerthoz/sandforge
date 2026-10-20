@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { sanitizeSoqlObjectName, orgTypeToGuardTier } from './sf-utils.js';
+import { sanitizeSoqlObjectName } from './sf-utils.js';
 
 describe('sanitizeSoqlObjectName', () => {
   it('should return valid standard object names unchanged', () => {
@@ -33,33 +33,5 @@ describe('sanitizeSoqlObjectName', () => {
 
   it('should throw for names with spaces', () => {
     expect(() => sanitizeSoqlObjectName('My Object')).toThrow('Invalid Salesforce object API name');
-  });
-});
-
-describe('orgTypeToGuardTier', () => {
-  it('should map Production to production', () => {
-    expect(orgTypeToGuardTier('Production')).toBe('production');
-  });
-
-  it('should map Sandbox to development', () => {
-    expect(orgTypeToGuardTier('Sandbox')).toBe('development');
-  });
-
-  it('should map Scratch to scratch', () => {
-    expect(orgTypeToGuardTier('Scratch')).toBe('scratch');
-  });
-
-  it('should map Developer to development', () => {
-    expect(orgTypeToGuardTier('Developer')).toBe('development');
-  });
-
-  it('should give an unknown or empty type the production tier, the most restrictive one', () => {
-    expect(orgTypeToGuardTier('Unknown')).toBe('production');
-    expect(orgTypeToGuardTier('')).toBe('production');
-  });
-
-  it('should not read an inherited property name as a known type', () => {
-    expect(orgTypeToGuardTier('constructor')).toBe('production');
-    expect(orgTypeToGuardTier('toString')).toBe('production');
   });
 });
