@@ -10,6 +10,7 @@ import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { Step3ConfigureFields } from './Step3_ConfigureFields';
 import { SeedRelationsEditor } from './SeedRelationsEditor';
 import { SeedRecordTypePicker } from './SeedRecordTypePicker';
+import { fieldsForAccountKind } from './seedRecordTypeChoices';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { PIIObjectResult } from './useSeedWizardState';
 
@@ -50,6 +51,7 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
 }) => {
   const { t } = useTranslation();
   const selectedObjects = useSeedWizardStore((s) => s.selectedObjects);
+  const recordTypeChoices = useSeedWizardStore((s) => s.recordTypeChoices);
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-configure-content">
@@ -68,8 +70,12 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
           as a person account type changes what the accounts are. */}
       <SeedRecordTypePicker fieldConfigs={fieldConfigs} />
 
+      {/* Each account's fields as the run sends them for the record types
+          chosen above: a person account's or a business account's. */}
       <Step3ConfigureFields
-        objectConfigs={fieldConfigs.filter((c) => selectedObjects.includes(c.objectApiName))}
+        objectConfigs={fieldConfigs
+          .filter((c) => selectedObjects.includes(c.objectApiName))
+          .map((c) => fieldsForAccountKind(c, recordTypeChoices[c.objectApiName] ?? []))}
         onChangeRule={onChangeRule}
         onChangeConfig={onChangeConfig}
       />

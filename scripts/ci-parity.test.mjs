@@ -864,7 +864,7 @@ test('a blocking workflow packages the VSIX and runs the pre-publish gates', () 
   assert.ok(packs < gates, 'the pre-publish gates run before the VSIX they judge exists');
   // A job that is skipped, or whose failure does not fail the run, packages and
   // gates nothing anyone has to act on.
-  assert.ok(!/^    if:/m.test(job), 'the package job runs only under a condition');
+  assert.ok(!/^ {4}if:/m.test(job), 'the package job runs only under a condition');
   assert.ok(!/continue-on-error/.test(job), 'a failure in the package job does not fail the run');
   // A command whose status is thrown away gates nothing: the step goes green
   // whatever the script found.
@@ -1005,7 +1005,7 @@ test('the secret scan reads the whole history, pins what it runs, and redacts wh
   // secrets nobody has to act on, and a green ci.yml run then lets the
   // release gate through.
   const scanJob = jobOf(yaml, 'secret-scan');
-  assert.ok(!/^    if:/m.test(scanJob), 'the secret-scan job runs only under a condition');
+  assert.ok(!/^ {4}if:/m.test(scanJob), 'the secret-scan job runs only under a condition');
   assert.ok(
     !/continue-on-error/.test(scanJob),
     'a failure in the secret-scan job does not fail the run',
@@ -1025,7 +1025,7 @@ test('the packaging and secret-scan jobs can only read the repository', () => {
     const body = jobOf(yaml, job);
     assert.match(
       body,
-      /^    permissions:\n      contents: read\n(?!      )/m,
+      /^ {4}permissions:\n {6}contents: read\n(?! {6})/m,
       `the ${job} job runs with the default token scopes instead of read-only`,
     );
   }
@@ -1205,10 +1205,10 @@ test('the validate legs keep the check names the branch ruleset requires', () =>
   // its own, which is what makes each leg's name `validate (<os>)`.
   const validate = jobOf(workflow('ci.yml'), 'validate');
   assert.ok(
-    !/^    name:/m.test(validate),
+    !/^ {4}name:/m.test(validate),
     'the validate job names itself, so its legs are renamed',
   );
-  const matrix = validate.match(/^      matrix:\n((?:^ {8,}.*\n?)+)/m)?.[1];
+  const matrix = validate.match(/^ {6}matrix:\n((?:^ {8,}.*\n?)+)/m)?.[1];
   assert.ok(matrix, 'the validate job has no matrix');
   const keys = [...matrix.matchAll(/^ {8}([\w-]+):/gm)].map((match) => match[1]);
   assert.deepEqual(

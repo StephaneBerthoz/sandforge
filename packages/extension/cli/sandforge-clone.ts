@@ -2000,13 +2000,21 @@ export function jsonResult(summary: ExecutionSummary) {
  * executor gives: with the objects written and failed alone, a clone that
  * left objects out named none of them. So is an object a cancel stopped while
  * it was written, whose line says what it wrote and what it never sent.
- * Exported so it can be tested.
+ * So is what the scan of an object added to the run as it read it — the
+ * standard price book entries the custom prices depend on, the prices of a
+ * currency the target lacks replaced — which the panel shows as the object's
+ * status and the command line printed nowhere: a clone carried records nobody
+ * had asked for, unsaid. The scan's opening, at 0, is not: the object's own
+ * line follows. Exported so it can be tested.
  */
 export function objectOutcomeLine(event: ForgeProgressEvent): string | undefined {
   // What a dry run's read brings is a step the simulated write ends: printed
   // as it was before the write was simulated, the line the read says it on.
   if (event.status === 'running' && event.message.startsWith('[dry-run] ')) {
     return `  ${event.message}`;
+  }
+  if (event.status === 'scanning') {
+    return event.progress > 0 && event.message ? `  ${event.message}` : undefined;
   }
   if (
     event.status !== 'done' &&

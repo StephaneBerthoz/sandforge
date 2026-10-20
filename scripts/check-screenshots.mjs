@@ -20,7 +20,6 @@
  *
  *   node scripts/check-screenshots.mjs
  */
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';

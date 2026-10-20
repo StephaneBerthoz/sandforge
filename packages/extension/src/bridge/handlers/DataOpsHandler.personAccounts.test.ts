@@ -599,6 +599,32 @@ describe('DataOps masking asked for no object, on an org with person accounts or
     expect(rows.Account[0]).toMatchObject({ Name: 'Birchwood Dental' });
   });
 
+  it('names Account among the objects the Backup tab reads for the CCPA template, as the masking run plans it', async () => {
+    // The tab read the objects the rules name: Contact and Lead, and no
+    // backup of the person accounts the run masks too.
+    orgWith(true);
+    await send('backup:objects', { orgId: 'org-1', templateId: 'tpl-ccpa-california' });
+    expect(last('backup:objects:response')?.payload).toEqual({
+      objects: ['Contact', 'Lead', 'Account'],
+    });
+
+    // Every template listed, with none picked: Account once.
+    await send('backup:objects', { orgId: 'org-1' });
+    const every = last('backup:objects:response')?.payload.objects as string[];
+    expect(every.filter((o) => o === 'Account')).toEqual(['Account']);
+    expect(every).toEqual(expect.arrayContaining(['Contact', 'Lead', 'Opportunity']));
+    expect(every).not.toContain('*');
+  });
+
+  it('leaves Account out of the Backup tab for the CCPA template on an org without person accounts', async () => {
+    orgWith(false);
+    await send('backup:objects', { orgId: 'org-1', templateId: 'tpl-ccpa-california' });
+    expect(last('backup:objects:response')?.payload).toEqual({ objects: ['Contact', 'Lead'] });
+
+    await send('backup:objects', { orgId: 'org-1', templateId: 'tpl-none' });
+    expect(last('dataops:error')?.payload).toMatchObject({ code: 'TEMPLATE_NOT_FOUND' });
+  });
+
   it('counts every account under a template with rules of its own on Account, as before', async () => {
     orgWith(true);
 

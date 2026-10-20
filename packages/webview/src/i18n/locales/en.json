@@ -902,6 +902,7 @@
       "historyPartlyRemoved": "partly removed on {{date}}: what is left can be removed",
       "historyNothingLeft": "nothing left to remove",
       "historyRefused": "cannot be removed from here",
+      "historyUnfinished": "partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what it wrote until then",
       "historyShow": "Show",
       "historyHide": "Hide"
     }

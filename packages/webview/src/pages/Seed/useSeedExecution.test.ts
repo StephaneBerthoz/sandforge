@@ -540,4 +540,53 @@ describe('useSeedExecution', () => {
       },
     ]);
   });
+
+  it('sends an account the fields the Configure step listed for the kind of account chosen', () => {
+    const PERSON_TYPE = '012000000000001AAA';
+    const rule = (fieldApiName: string) => ({
+      fieldApiName,
+      label: fieldApiName,
+      type: 'string',
+      required: false,
+      ruleType: 'faker' as const,
+      config: { fakerMethod: 'lastName' },
+    });
+    const accounts: ObjectFieldConfig[] = [
+      {
+        objectApiName: 'Account',
+        objectLabel: 'Account',
+        fields: [rule('Name'), rule('LastName'), rule('PersonEmail')],
+        recordTypes: [
+          {
+            recordTypeId: PERSON_TYPE,
+            developerName: 'PersonAccount',
+            label: 'Person Account',
+            person: true,
+            isDefault: false,
+          },
+        ],
+      },
+    ];
+    const run = (choices: Record<string, string[]>) => {
+      const { result } = renderHook(() =>
+        useSeedExecution(
+          'org-1',
+          ['Account'],
+          { Account: { count: 5, batchSize: 200 } },
+          accounts,
+          ((key: string) => key) as unknown as TFunction,
+          [],
+          choices,
+        ),
+      );
+      act(() => {
+        result.current.handleExecute();
+      });
+      const payload = bridge.mutate.mock.calls.at(-1)?.[0] as { template: SeedTemplate };
+      return payload.template.objects[0].fieldRules.map((r) => r.fieldApiName);
+    };
+
+    expect(run({ Account: [PERSON_TYPE] })).toEqual(['LastName', 'PersonEmail', 'RecordTypeId']);
+    expect(run({})).toEqual(['Name']);
+  });
 });

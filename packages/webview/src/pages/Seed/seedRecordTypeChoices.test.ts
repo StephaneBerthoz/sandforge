@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { SeedRecordTypeOption } from '@sandforge/shared';
 
 import {
+  fieldsForAccountKind,
   offersRecordTypes,
   recordTypeFieldRule,
   recordTypesMixed,
   recordTypesPerson,
 } from './seedRecordTypeChoices';
+import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 
 const PERSON: SeedRecordTypeOption = {
   recordTypeId: '012000000000001AAA',
@@ -65,5 +67,44 @@ describe('record type choices', () => {
       ruleType: 'picklist_random',
       config: { picklistValues: [CUSTOMER.recordTypeId, PARTNER.recordTypeId] },
     });
+  });
+});
+
+describe("an object's fields for the kind of account chosen", () => {
+  const config = (objectApiName: string): ObjectFieldConfig => ({
+    objectApiName,
+    objectLabel: objectApiName,
+    fields: ['Name', 'Phone', 'LastName', 'PersonEmail'].map((fieldApiName) => ({
+      fieldApiName,
+      label: fieldApiName,
+      type: 'string',
+      required: false,
+      ruleType: 'faker',
+      config: {},
+    })),
+    recordTypes: [PERSON, CUSTOMER],
+  });
+  const names = (c: ObjectFieldConfig) =>
+    c.fields.map((f) => `${f.fieldApiName}${f.required ? '*' : ''}`);
+
+  it('follows the rule the extension writes accounts by: no Name on a person account, its last name required', () => {
+    expect(names(fieldsForAccountKind(config('Account'), [PERSON.recordTypeId]))).toEqual([
+      'Phone',
+      'LastName*',
+      'PersonEmail',
+    ]);
+    expect(names(fieldsForAccountKind(config('Account'), [CUSTOMER.recordTypeId]))).toEqual([
+      'Name*',
+      'Phone',
+    ]);
+  });
+
+  it('leaves every field to a mix, to a type it does not know, and to any other object', () => {
+    const all = ['Name', 'Phone', 'LastName', 'PersonEmail'];
+    expect(
+      names(fieldsForAccountKind(config('Account'), [PERSON.recordTypeId, CUSTOMER.recordTypeId])),
+    ).toEqual(all);
+    expect(names(fieldsForAccountKind(config('Account'), ['012000000000009AAA']))).toEqual(all);
+    expect(names(fieldsForAccountKind(config('Contact'), []))).toEqual(all);
   });
 });

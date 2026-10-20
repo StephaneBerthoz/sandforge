@@ -93,6 +93,7 @@ import {
   bypassPermissionsOf,
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
+import type { Connection } from 'jsforce';
 import { z } from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordCreatesOf } from './flowRecordCreates.js';
@@ -445,6 +446,57 @@ export function toolingRetrievesOver(
       }),
       reads.length,
     );
+}
+
+/**
+ * What reads an org's automation over the connection to it: the flows over
+ * the regular API, the triggers and the start conditions over the Tooling
+ * API, the start conditions and definitions many a request, the flow versions
+ * and rules retrieved by id. Review's read in the extension, and a Seed
+ * removal's sweep, read through it.
+ *
+ * @param connect - The connection to an org, by its id.
+ */
+export function targetAutomationQueries(
+  connect: (orgId: string) => Promise<Connection>,
+): Required<TargetAutomationDeps> {
+  return {
+    query: async (orgId, soql) => {
+      const conn = await connect(orgId);
+      return answerOf(
+        {
+          query: async (q) => conn.query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      );
+    },
+    toolingQuery: async (orgId, soql) => {
+      const conn = await connect(orgId);
+      return answerOf(
+        {
+          query: async (q) => conn.tooling.query<Record<string, unknown>>(q),
+          queryMore: async (url) => conn.tooling.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      );
+    },
+    // The start conditions and definitions, many a request: one query each
+    // left most flows of a large org unread.
+    toolingQueries: async (orgId, soqls) => {
+      const conn = await connect(orgId);
+      const answer = await conn.request({
+        method: 'POST',
+        url: '/tooling/composite',
+        body: JSON.stringify(toolingCompositeBody(`/services/data/v${conn.version}`, soqls)),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return toolingAnswersOf(answer, soqls.length);
+    },
+    // The flow versions and rules themselves, retrieved by id: five times as
+    // many a request as queries.
+    toolingRetrieves: async (orgId, reads) => toolingRetrievesOver(await connect(orgId))(reads),
+  };
 }
 
 /**

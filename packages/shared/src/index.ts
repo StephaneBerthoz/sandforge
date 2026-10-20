@@ -164,6 +164,7 @@ export * from './utils/sf-utils.js';
 export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
+export * from './utils/account-kinds.js';
 export {
   forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,

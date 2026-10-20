@@ -215,6 +215,38 @@ describe('SeedRemovalHandler', () => {
       expect(listed[0].refusal).toBeUndefined();
     });
 
+    it('lists a run whose window closed under it as unfinished, dated by its last write, and removes what it wrote', async () => {
+      const recorder = runs.recorder({
+        runId: 'op-cut',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      });
+      const cut = fakeId('003', 7);
+      recorder.note('Contact', [cut]);
+      await vi.waitFor(async () => expect(await runs.get('op-cut')).toBeDefined());
+      const written = (await runs.get('op-cut'))?.lastWrittenAt;
+      org.add('Contact', { Id: cut }, new Date(Date.now() - 60_000).toISOString());
+
+      await handler.handle(buildMsg('seed:removal:list', {}));
+
+      const [listed] = lists();
+      const unfinished = listed.find((run) => run.runId === 'op-cut');
+      expect(unfinished).toMatchObject({
+        unfinished: true,
+        endedAt: written,
+        created: 1,
+        left: [{ objectApiName: 'Contact', count: 1 }],
+      });
+      expect(unfinished?.refusal).toBeUndefined();
+      expect(listed.find((run) => run.runId === 'op-1')?.unfinished).toBeUndefined();
+
+      await remove({ runId: 'op-cut' });
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [{ objectApiName: 'Contact', planned: 1, deleted: 1 }],
+      });
+    });
+
     it('lists no run in a window given nowhere to keep them', async () => {
       const bare = new SeedRemovalHandler(deps);
 

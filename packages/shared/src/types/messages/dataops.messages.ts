@@ -33,6 +33,24 @@ export interface BackupListRequest extends BaseMessage {
 }
 
 /**
+ * The objects a backup taken before masking reads, in one org (validated by
+ * dataOpsBackupObjectsPayloadSchema): those a masking run of the template
+ * plans there, or of every template listed when none is named — Account among
+ * them for a template that masks contacts, in an org with person accounts.
+ * Read-only: at most a describe of Account.
+ */
+export interface BackupObjectsRequest extends BaseMessage {
+  type: 'backup:objects';
+  payload: { orgId: string; templateId?: string };
+}
+
+/** What `backup:objects` answers: the objects, in the order the templates' rules first name them. */
+export interface BackupObjectsResponse extends BaseMessage {
+  type: 'backup:objects:response';
+  payload: { objects: string[] };
+}
+
+/**
  * Result of `backup:list`. The channel is `:result`, not `:response`, because
  * that is what the DataOps page has always listened on — the request side was
  * simply never declared, so the broker rejected it before any handler saw it

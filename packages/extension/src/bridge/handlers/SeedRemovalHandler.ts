@@ -96,8 +96,17 @@ export class SeedRemovalHandler implements DomainHandler {
   private creations?: SeedRunCreations;
   private registry?: BackgroundOperationRegistry;
   private liveTracker?: LiveOperationTracker;
-  /** Reads what the target's flows create, for a sweep: Forge's reader. */
-  private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
+  /**
+   * Reads what the target's flows create, for a sweep: a reader of the
+   * handler's own, over its connections, loaded on its first read. It was
+   * Forge's, handed over once Forge's composition had loaded: a sweep listed
+   * before then said the target's automation was not read.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
   /** The runs being removed now: one removal at a time each. */
   private readonly removing = new Set<string>();
 
@@ -110,12 +119,25 @@ export class SeedRemovalHandler implements DomainHandler {
   }
 
   /**
-   * What reads the target's automation — Forge's, which its sweep reads too:
-   * the objects the target's flows create as a run's records are written,
-   * which the sweep of a run's removal looks at.
+   * Another reader of the target's automation than the handler's own: the
+   * objects the target's flows create as a run's records are written, which
+   * the sweep of a run's removal looks at.
    */
   setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
     this.targetAutomation = reader;
+  }
+
+  /** The handler's own reader of the target's automation, as Forge reads it, off the activation path. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
   }
 
   /** The registry a removal runs on, where Live Operations' Cancel reaches it. */
@@ -150,7 +172,9 @@ export class SeedRemovalHandler implements DomainHandler {
       runId: run.runId,
       targetOrgId: run.targetOrgId,
       startedAt: run.startedAt,
-      endedAt: run.end?.at ?? run.startedAt,
+      endedAt: run.end?.at ?? run.lastWrittenAt ?? run.startedAt,
+      // A run is kept as it writes: one whose window closed under it has no end.
+      ...(run.end ? {} : { unfinished: true as const }),
       created: createdCount(run),
       left: plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
@@ -239,21 +263,17 @@ export class SeedRemovalHandler implements DomainHandler {
   ): Promise<SweepInput> {
     const reader = this.targetAutomation;
     let automation: ForgeTargetAutomation | { error: string };
-    if (!reader) {
-      automation = { error: 'Target automation reader not configured' };
-    } else {
-      try {
-        automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
-          `${context} automation`,
-          () =>
-            reader.read(
-              run.targetOrgId,
-              run.created.map((object) => object.objectApiName),
-            ),
-        );
-      } catch (err: unknown) {
-        automation = { error: extractErrorMessage(err) };
-      }
+    try {
+      automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
+        `${context} automation`,
+        () =>
+          reader.read(
+            run.targetOrgId,
+            run.created.map((object) => object.objectApiName),
+          ),
+      );
+    } catch (err: unknown) {
+      automation = { error: extractErrorMessage(err) };
     }
     return seedSweepInput(removalOrg(conn, context), run.created, automation, signal);
   }

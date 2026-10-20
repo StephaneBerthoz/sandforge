@@ -109,6 +109,19 @@ describe('SeedRunHistory', () => {
     expect(sentAll('seed:removal:info').pop()?.payload).toEqual({ runId: 'op-2' });
   });
 
+  it('says a seed that stopped before it ended is partial, and still offers its removal', () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [{ ...RUNS[0], runId: 'op-cut', unfinished: true }, RUNS[1]],
+    });
+
+    expect(screen.getByTestId('seed-run-history-unfinished-op-cut').textContent).toBe(
+      'partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what it wrote until then',
+    );
+    expect(screen.getByTestId('seed-run-history-state-op-cut').textContent).toBe('can be removed');
+    expect(screen.queryByTestId('seed-run-history-unfinished-op-1')).toBeNull();
+  });
+
   it('shows nothing when no seed is kept', () => {
     render(<SeedRunHistory />);
     answer('seed:removal:list', 'seed:removal:list:response', { runs: [] });

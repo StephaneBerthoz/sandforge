@@ -902,6 +902,7 @@
       "historyPartlyRemoved": "removido em parte em {{date}}: o que resta pode ser removido",
       "historyNothingLeft": "nada mais a remover",
       "historyRefused": "não pode ser removido daqui",
+      "historyUnfinished": "parcial: o seed parou antes de terminar — a janela foi fechada ou a extensão parou — e lista o que tinha gravado até então",
       "historyShow": "Mostrar",
       "historyHide": "Ocultar"
     }

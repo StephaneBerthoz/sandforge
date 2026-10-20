@@ -77,6 +77,16 @@ export const SeedRunHistory: React.FC = () => {
                         formatted: formatNumber(run.created),
                       })}
                     </span>
+                    {/* A seed is kept as it writes: one whose window closed
+                        under it lists what it wrote until then, and no end. */}
+                    {run.unfinished && (
+                      <span
+                        className="text-status-warning"
+                        data-testid={`seed-run-history-unfinished-${run.runId}`}
+                      >
+                        {t('seed.removal.historyUnfinished')}
+                      </span>
+                    )}
                     <span
                       className="text-text-secondary"
                       data-testid={`seed-run-history-state-${run.runId}`}

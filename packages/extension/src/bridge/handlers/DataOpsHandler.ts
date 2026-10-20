@@ -49,6 +49,7 @@ import {
   validatePayload,
   dataOpsBackupPayloadSchema,
   dataOpsBackupListPayloadSchema,
+  dataOpsBackupObjectsPayloadSchema,
   dataOpsBackupExportPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
@@ -163,6 +164,7 @@ function describeToObjectDescribe(desc: Record<string, unknown>): ObjectDescribe
 const DATAOPS_TYPES = new Set([
   'backup:execute',
   'backup:list',
+  'backup:objects',
   'backup:export',
   'dataops:rollback',
   'dataops:anonymize',
@@ -954,7 +956,11 @@ export class DataOpsHandler implements DomainHandler {
    * notification alone, and the page's request waited out its hour.
    */
   private refuseUnknownTemplate(
-    context: 'dataops:anonymize' | 'dataops:anonymize:coverage' | 'dataops:anonymize:preview',
+    context:
+      | 'dataops:anonymize'
+      | 'dataops:anonymize:coverage'
+      | 'dataops:anonymize:preview'
+      | 'backup:objects',
     msg: InboundRequest,
     templateId: string,
   ): void {
@@ -1030,6 +1036,9 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'backup:list':
         this.handleBackupList(msg);
+        return true;
+      case 'backup:objects':
+        await this.handleBackupObjects(msg);
         return true;
       case 'backup:export':
         await this.handleBackupExport(msg);
@@ -3458,15 +3467,66 @@ export class DataOpsHandler implements DomainHandler {
 
   private handleAnonymizationTemplates(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const templates: ListedAnonymizationTemplate[] = [
-      ...ANONYMIZATION_TEMPLATES,
-      ...this.savedTemplates.list(),
-    ];
+    const templates = this.listedTemplates();
     const response = buildResponse(this.deps, msg, 'dataops:anonymization-templates:response', {
       templates,
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] dataops:anonymization-templates:response`);
+  }
+
+  /** Every template the page lists: those that ship, then those the user saved. */
+  private listedTemplates(): ListedAnonymizationTemplate[] {
+    return [...ANONYMIZATION_TEMPLATES, ...this.savedTemplates.list()];
+  }
+
+  /**
+   * Answer `backup:objects`: the objects the Backup tab reads before an
+   * Anonymize — those a masking run of the template picked plans in the org,
+   * or of every template listed when none is picked, in the order their rules
+   * first name them (`plannedAnonymizeObjects`). The tab read the objects the
+   * rules name, so a template masking contacts in an org with person accounts
+   * took no backup of the accounts the run masks too, which the run's own
+   * snapshot holds. Whether the org has person accounts is asked once, and
+   * only for a template that needs it. Read-only.
+   */
+  private async handleBackupObjects(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      dataOpsBackupObjectsPayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const picked =
+      parsed.templateId !== undefined ? this.findTemplate(parsed.templateId) : undefined;
+    if (parsed.templateId !== undefined && !picked) {
+      this.refuseUnknownTemplate('backup:objects', msg, parsed.templateId);
+      return;
+    }
+    try {
+      let persons: Promise<boolean> | undefined;
+      const personAccounts = (): Promise<boolean> =>
+        (persons ??= getJsforceConnection(
+          parsed.orgId,
+          this.deps.orgRegistry,
+          this.deps.orgManager,
+        ).then((conn) => orgHasPersonAccounts(conn, this.deps.log)));
+      const objects: string[] = [];
+      for (const template of picked ? [picked] : this.listedTemplates()) {
+        const withPersons = personRowsOnly({}, template, ACCOUNT) && (await personAccounts());
+        for (const name of plannedAnonymizeObjects({}, template, withPersons)) {
+          // A wildcard rule names no object a backup can read.
+          if (name !== '' && name !== '*' && !objects.includes(name)) objects.push(name);
+        }
+      }
+      const response = buildResponse(this.deps, msg, 'backup:objects:response', { objects });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} objects=${objects.length}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'backup:objects', 'dataops:error', msg, err);
+    }
   }
 
   /**

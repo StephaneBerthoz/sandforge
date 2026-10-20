@@ -120,6 +120,10 @@ let mockCoverageData: Record<string, unknown> | null = null;
 let coverageAsked: { payload?: Record<string, unknown>; skip?: boolean } | null = null;
 const mockCoverageRefetch = vi.fn();
 
+/** What `backup:objects` answers, and how the page last asked it. */
+let mockBackupObjectsData: { objects: string[] } | null = null;
+let backupObjectsAsked: { payload?: Record<string, unknown>; skip?: boolean } | null = null;
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (
     type: string,
@@ -128,6 +132,10 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   ) => {
     if (type === 'backup:list') {
       return mockBackupsQueryState;
+    }
+    if (type === 'backup:objects') {
+      backupObjectsAsked = { payload, skip: options?.skip };
+      return { data: mockBackupObjectsData, loading: false, error: null, refetch: vi.fn() };
     }
     if (type === 'dataops:anonymization-templates') {
       return mockTemplatesQueryState;
@@ -185,6 +193,8 @@ describe('DataOpsPage', () => {
 
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    mockBackupObjectsData = null;
+    backupObjectsAsked = null;
     mockNavigate.mockClear();
     mockBackupMutate.mockClear();
     mockBackupReset.mockClear();
@@ -410,6 +420,48 @@ describe('DataOpsPage', () => {
       fireEvent.click(screen.getByTestId('create-backup-btn'));
 
       expect(mockBackupMutate).toHaveBeenCalledWith({ orgId: 'org-1', objects: ['Lead'] });
+    });
+
+    it('backs up the objects the host plans for the masking, Account with a template masking contacts in an org with person accounts', () => {
+      mockTemplatesQueryState = {
+        data: {
+          templates: [
+            {
+              id: 'tpl-ccpa',
+              name: 'CCPA Template',
+              description: '',
+              complianceFramework: 'ccpa',
+              rules: [
+                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Lead.Email', ruleType: 'hash', description: '' },
+              ],
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      // The masking run plans Account too: its person accounts hold a contact's fields.
+      mockBackupObjectsData = { objects: ['Contact', 'Lead', 'Account'] };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      render(<DataOpsPage />);
+
+      expect(backupObjectsAsked).toEqual({ payload: { orgId: 'org-1' }, skip: false });
+      expect(screen.getByTestId('backup-objects').textContent).toBe(
+        'Backs up Contact, Lead, Account: the objects the anonymization templates mask.',
+      );
+      fireEvent.click(screen.getByTestId('create-backup-btn'));
+      expect(mockBackupMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        objects: ['Contact', 'Lead', 'Account'],
+      });
+
+      fireEvent.click(screen.getByText('Anonymize'));
+      fireEvent.change(screen.getByTestId('template-select'), {
+        target: { value: 'tpl-ccpa' },
+      });
+      expect(backupObjectsAsked?.payload).toEqual({ orgId: 'org-1', templateId: 'tpl-ccpa' });
     });
 
     it('should not run a backup when no org is selected', () => {

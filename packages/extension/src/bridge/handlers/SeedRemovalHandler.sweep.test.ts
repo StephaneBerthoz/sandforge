@@ -326,6 +326,77 @@ describe('a sweep asked with the removal of a Seed run', () => {
     ]);
   });
 
+  it("reads the target's automation through its own reader, with none handed to it, on the first sweep listed", async () => {
+    // The reader was Forge's, handed over once Forge's composition had
+    // loaded: listed before, the sweep said the automation was not read.
+    const VERSION = '301000000000001AAA';
+    const asked: string[] = [];
+    const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+    const regular = org.conn.query;
+    const conn = {
+      ...org.conn,
+      version: '66.0',
+      query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+        if (
+          /FROM (FlowDefinitionView|DuplicateRule|UserSetupEntityAccess|CustomPermission)/.test(
+            soql,
+          )
+        ) {
+          asked.push(soql);
+          if (!/FROM FlowDefinitionView/.test(soql) || /ProcessType/.test(soql)) return page([]);
+          return page([
+            {
+              ApiName: 'Welcome_Call',
+              Label: 'Welcome call',
+              TriggerType: 'RecordAfterSave',
+              RecordTriggerType: 'Create',
+              TriggerObjectOrEvent: { QualifiedApiName: 'Contact' },
+              ActiveVersionId: VERSION,
+            },
+          ]);
+        }
+        return regular(soql, options);
+      }),
+      tooling: {
+        query: vi.fn(async (soql: string) => {
+          asked.push(soql);
+          return page([]);
+        }),
+        queryMore: vi.fn(async () => page([])),
+      },
+      // The flow version, retrieved by id in a Tooling composite: it opens a task.
+      request: vi.fn(async ({ body }: { body: string }) => {
+        const { compositeRequest } = JSON.parse(body) as {
+          compositeRequest: Array<{ url: string; referenceId: string }>;
+        };
+        return {
+          compositeResponse: compositeRequest.map((sub) => ({
+            referenceId: sub.referenceId,
+            httpStatusCode: 200,
+            body: sub.url.endsWith(`/Flow/${VERSION}`)
+              ? { Id: VERSION, Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] } }
+              : { totalSize: 0, done: true, records: [] },
+          })),
+        };
+      }),
+    };
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    const own = new SeedRemovalHandler(deps);
+    own.setRunCreations(nodeSeedRunCreations(storage));
+
+    await own.handle(buildMsg('seed:remove:sweep', { runId: 'op-seed' }));
+
+    expect(errors('seed:remove:sweep:error')).toEqual([]);
+    const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+      'seed:remove:sweep:response',
+    );
+    expect(asked.some((soql) => /FROM FlowDefinitionView/.test(soql))).toBe(true);
+    expect(response.payload.listing.automationGaps?.error).toBeUndefined();
+    expect(response.payload.listing.found).toEqual([
+      expect.objectContaining({ objectApiName: 'Task', count: 1, names: ['Welcome call'] }),
+    ]);
+  });
+
   it('leaves the task the flow opened to a removal asked without the sweep', async () => {
     await handler.handle(buildMsg('seed:remove', { runId: 'op-seed' }));
 

@@ -841,6 +841,7 @@
       "historyPartlyRemoved": "{{date}} に一部削除済み: 残りは削除できます",
       "historyNothingLeft": "削除するものは残っていません",
       "historyRefused": "ここからは削除できません",
+      "historyUnfinished": "部分的: シードは終了前に停止しました (ウィンドウが閉じられたか、拡張機能が停止しました)。それまでに書き込んだものを一覧にしています",
       "historyShow": "表示",
       "historyHide": "隠す"
     }

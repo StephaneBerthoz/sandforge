@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
   BackupExportResult,
+  BackupObjectsResponse,
   BackupSummary,
   DataOpsAnonymizeCoverageResponse,
   DataOpsAnonymizePreviewResponse,
@@ -143,6 +144,22 @@ export const DataOpsPage: React.FC = () => {
   );
 
   /**
+   * Bridge query: the objects Create Backup reads in the org — those a masking
+   * run of the picked template plans there, or of every template listed.
+   */
+  const backupObjectsQuery = useBridgeQuery<BackupObjectsResponse['payload']>(
+    'backup:objects',
+    currentOrg
+      ? { orgId: currentOrg.id, ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}) }
+      : undefined,
+    {
+      responseType: 'backup:objects:response',
+      errorType: 'dataops:error',
+      skip: !currentOrg,
+    },
+  );
+
+  /**
    * Bridge query: for the selected template, each object's rows in the org
    * against those its latest backup holds — what a restore can bring back,
    * said before Apply masks every row. Asked again whenever the tab opens, so
@@ -193,10 +210,15 @@ export const DataOpsPage: React.FC = () => {
   // picked, every object a listed template masks — what an Anonymize writes
   // over. It read Account and Contact whatever the templates masked, and the
   // shipped ones also mask Lead and Opportunity, which never had a backup.
+  //
+  // The host says which, as a masking run plans them in the org: Account
+  // too, for a template that masks contacts in an org with person accounts,
+  // which the rules do not name. Until it answers, the rules' objects.
   const templates = templatesQuery.data?.templates ?? [];
   const pickedTemplate = templates.find((tpl) => tpl.id === selectedTemplateId);
   const templateObjects = maskedObjects(pickedTemplate ? [pickedTemplate] : templates);
-  const backupObjects = templateObjects.length > 0 ? templateObjects : DEFAULT_BACKUP_OBJECTS;
+  const plannedObjects = backupObjectsQuery.data?.objects ?? templateObjects;
+  const backupObjects = plannedObjects.length > 0 ? plannedObjects : DEFAULT_BACKUP_OBJECTS;
 
   // A run that stopped short leaves a checkpoint to resume, and one that
   // finished forgets it: the coverage answer says which, so it is asked again
@@ -280,6 +302,8 @@ export const DataOpsPage: React.FC = () => {
 
   const forgetDeletedTemplate = useLatestRef((templateId: string) => {
     templatesQuery.refetch();
+    // With none picked, Backup reads what every template listed masks.
+    backupObjectsQuery.refetch();
     setSelectedTemplateId((current) => (current === templateId ? '' : current));
   });
   const deleted = deleteTemplateMutation.data;

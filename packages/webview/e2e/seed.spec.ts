@@ -779,6 +779,104 @@ test.describe('Seed — the record types of the accounts a run writes', () => {
   });
 });
 
+/** Account as an org with person accounts describes it: a company's name and a person's. */
+const PERSON_ORG_ACCOUNT = [
+  seedField('Name', 'string', { length: 255 }),
+  seedField('Phone', 'phone', { length: 40 }),
+  seedField('FirstName', 'string', { length: 40 }),
+  seedField('LastName', 'string', { length: 80 }),
+  seedField('PersonEmail', 'email', { length: 80 }),
+];
+
+test.describe("Seed — the configure step lists an account's fields for the kind of account chosen", () => {
+  test('a person account without Name, its last name required; a business account without the person fields', async ({
+    page,
+  }) => {
+    // The step listed every field the describe gave: Name was set a rule on a
+    // person account, which the extension dropped before the run.
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs(MOCK_ORGS);
+    await page.getByTestId('mode-card-ai').click();
+    await page.getByTestId('fork-card-scratch').click();
+    await page.getByTestId('org-selector').selectOption('org-src-1');
+    await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+    await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+      objects: ['Account', 'Contact'].map((apiName) => ({
+        apiName,
+        label: apiName,
+        recordCount: 0,
+        dependencies: [],
+      })),
+    });
+    await page.getByTestId('obj-Account').click();
+    await page.getByTestId('obj-Contact').click();
+    await page.getByTestId('seed-wizard-next').click();
+    // Two objects skip the configure step; the link on the next one leads back.
+    await page.getByTestId('adaptive-customize-link').click();
+    const answered = new Set<string>();
+    await expect
+      .poll(
+        async () => {
+          for (const request of await outgoing(page, 'seed:describe-object')) {
+            const id = String(request.id);
+            if (answered.has(id)) continue;
+            answered.add(id);
+            const objectApiName = String(
+              (request.payload as Record<string, unknown>).objectApiName,
+            );
+            await sendExtensionMessage(page, {
+              type: 'seed:describe-object:response',
+              id: `resp-${id}`,
+              correlationId: id,
+              payload: {
+                objectApiName,
+                objectLabel: objectApiName,
+                ...(objectApiName === 'Account'
+                  ? { fields: PERSON_ORG_ACCOUNT, recordTypes: ACCOUNT_RECORD_TYPES }
+                  : { fields: SEED_DESCRIBES[objectApiName] }),
+              },
+            });
+          }
+          return page.getByTestId('obj-header-Contact').count();
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(1);
+    const fields = page.getByTestId('step-configure-fields');
+    const row = (name: string) => fields.getByTestId(`field-Account-${name}`);
+
+    await page.getByTestId('seed-record-type-Account-PersonAccount').check();
+    await expect(row('Name')).toHaveCount(0);
+    await expect(row('FirstName')).toBeVisible();
+    await expect(row('LastName')).toContainText('*');
+    await expect(row('PersonEmail')).toBeVisible();
+
+    await page.getByTestId('seed-record-type-Account-PersonAccount').uncheck();
+    await page.getByTestId('seed-record-type-Account-Customer').check();
+    await expect(row('Name')).toContainText('*');
+    await expect(row('Phone')).toBeVisible();
+    await expect(row('FirstName')).toHaveCount(0);
+    await expect(row('LastName')).toHaveCount(0);
+    await expect(row('PersonEmail')).toHaveCount(0);
+
+    await page.getByTestId('seed-wizard-next').click();
+    await expect(page.getByTestId('seed-step-execute-content')).toBeVisible();
+    await page.getByTestId('seed-wizard-next').click();
+    await page.getByTestId('seed-wizard-finish').click();
+    const template = await sentTemplate(bridge);
+    expect(
+      template.objects
+        .find((o) => o.objectApiName === 'Account')
+        ?.fieldRules.map((r) => r.fieldApiName),
+    ).toEqual(['Name', 'Phone', 'RecordTypeId']);
+  });
+});
+
 test.describe('Seed — earlier seeds, removable after a reload', () => {
   test('lists the seeds kept and opens one onto its removal', async ({ page }) => {
     // What a seed from the panel created was kept for the window's life:

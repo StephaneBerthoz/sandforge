@@ -161,9 +161,13 @@ export class SeedOrchestrator {
    * Steps: validate template, build plan, generate data per object
    * in dependency order, insert records, and collect results.
    * Activates grappe mode when total records exceed the configured threshold.
+   *
+   * @param runId - The run's id, which its result carries as `operationId`:
+   *   one the caller keeps the run's creations under as it writes them, or a
+   *   new one.
    */
-  async execute(template: SeedTemplate, orgId: string): Promise<SeedExecutionResult> {
-    const operationId = this.deps.generateId();
+  async execute(template: SeedTemplate, orgId: string, runId?: UUID): Promise<SeedExecutionResult> {
+    const operationId = runId ?? this.deps.generateId();
     const startTime = Date.now();
 
     const validation = this.deps.validator.validate(template);

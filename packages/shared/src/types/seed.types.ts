@@ -373,8 +373,17 @@ export interface SeedRunRemovalInfo {
   targetOrgId: string;
   /** When the run started, by this machine's clock. */
   startedAt: ISODateString;
-  /** When it ended, by this machine's clock. */
+  /**
+   * When it ended, by this machine's clock; for a run that did not end, when
+   * it last wrote.
+   */
   endedAt: ISODateString;
+  /**
+   * Set for a run kept with no end: it stopped part way — its window closed,
+   * or the extension stopped under it — and what is kept is what it had
+   * written until then, removable as any run's.
+   */
+  unfinished?: true;
   /** Records it created, in all. */
   created: number;
   /**

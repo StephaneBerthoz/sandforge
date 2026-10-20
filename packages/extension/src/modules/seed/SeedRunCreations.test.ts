@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,6 +80,44 @@ describe('SeedRunCreations', () => {
     // Beside a Sync run's, never among them.
     expect(readdirSync(join(dir, SEED_RUNS_DIR))).toEqual(['op-1.ndjson']);
     expect(await nodeSyncRunCreations(dir).list()).toEqual([]);
+  });
+
+  it('writes each insert down as it is noted, so a run that never ended is read back with what it wrote', async () => {
+    const recorder = nodeSeedRunCreations(dir).recorder({
+      runId: 'op-cut',
+      targetOrgId: 'org-target',
+      startedAt: '2026-10-17T10:00:00.000Z',
+    });
+    recorder.note('Account', [fakeId('001', 1), fakeId('001', 2)]);
+    recorder.note('Contact', [fakeId('003', 1)]);
+
+    // The window closed: no end. A store made after the reload reads the file.
+    await vi.waitFor(async () =>
+      expect((await nodeSeedRunCreations(dir).get('op-cut'))?.created).toHaveLength(2),
+    );
+    const kept = await nodeSeedRunCreations(dir).get('op-cut');
+    expect(kept?.end).toBeUndefined();
+    expect(kept?.lastWrittenAt).toBeDefined();
+    expect(kept?.created).toEqual([
+      { objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] },
+      { objectApiName: 'Contact', ids: [fakeId('003', 1)] },
+    ]);
+    expect(syncRemovalPlan(kept!).map((o) => o.objectApiName)).toEqual(['Contact', 'Account']);
+  });
+
+  it('ends a run it wrote as it went with what its result holds that no insert noted, once', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({ runId: 'op-1', targetOrgId: 'org-target' });
+    recorder.note('Account', [fakeId('001', 1)]);
+
+    await recorder.end(run('op-1'));
+
+    const kept = await runs.get('op-1');
+    expect(kept?.end).toMatchObject({ status: 'success', at: '2026-10-17T10:01:00.000Z' });
+    expect(kept?.created).toEqual([
+      { objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] },
+      { objectApiName: 'Contact', ids: [fakeId('003', 1)] },
+    ]);
   });
 
   it('keeps every id of an object past what one line of the file holds', async () => {

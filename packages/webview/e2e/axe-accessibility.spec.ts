@@ -6283,6 +6283,25 @@ const SEED_DESCRIBES: Record<string, Record<string, unknown>> = {
         referenceTo: ['Account'],
         length: 18,
       },
+      // A person account's names, which an org with person accounts lists on Account.
+      {
+        fieldApiName: 'FirstName',
+        label: 'First Name',
+        type: 'string',
+        required: false,
+        picklistValues: [],
+        referenceTo: [],
+        length: 40,
+      },
+      {
+        fieldApiName: 'LastName',
+        label: 'Last Name',
+        type: 'string',
+        required: false,
+        picklistValues: [],
+        referenceTo: [],
+        length: 80,
+      },
     ],
     // The record types the wizard offers, a person account's marked.
     recordTypes: [
@@ -6387,6 +6406,25 @@ async function answerSeedDescribes(page: Page, answered: Set<string>): Promise<v
  * all on screen.
  */
 async function openSeedRelations(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+  await openSeedConfigure(bridge, page, theme);
+  await page.getByRole('button', { name: 'Advanced Settings' }).click();
+  await page.getByTestId('add-relation-btn').click();
+  await page.getByTestId('add-relation-btn').click();
+  await page.getByTestId('relation-1-mode').selectOption('ratio');
+  await page.getByTestId('relation-1-ratio').fill('0.05');
+  await expect(page.getByTestId('relation-0-planned')).toHaveText(
+    'Contact: up to 300 records — parents: 100 × Account, created by this run.',
+  );
+  const problem = page.getByTestId('relation-1-problem');
+  await problem.waitFor({ state: 'visible', timeout: 10_000 });
+  await problem.scrollIntoViewIfNeeded();
+}
+
+/**
+ * Open the Seed wizard's configure step with Account and Contact selected,
+ * both described and their personal data scanned.
+ */
+async function openSeedConfigure(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await openPanel(bridge, page, 'seed', theme);
   await bridge.seedOrgs(MOCK_ORGS);
   await page.getByTestId('mode-card-ai').click();
@@ -6420,17 +6458,6 @@ async function openSeedRelations(bridge: MockBridge, page: Page, theme: StateThe
     success: true,
     results: [],
   });
-  await page.getByRole('button', { name: 'Advanced Settings' }).click();
-  await page.getByTestId('add-relation-btn').click();
-  await page.getByTestId('add-relation-btn').click();
-  await page.getByTestId('relation-1-mode').selectOption('ratio');
-  await page.getByTestId('relation-1-ratio').fill('0.05');
-  await expect(page.getByTestId('relation-0-planned')).toHaveText(
-    'Contact: up to 300 records — parents: 100 × Account, created by this run.',
-  );
-  const problem = page.getByTestId('relation-1-problem');
-  await problem.waitFor({ state: 'visible', timeout: 10_000 });
-  await problem.scrollIntoViewIfNeeded();
 }
 
 /**
@@ -7758,6 +7785,18 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="seed-record-types"]');
     });
 
+    test("Seed configure step, an account's fields for the person account type chosen", async ({
+      page,
+    }) => {
+      await openSeedConfigure(bridge, page, theme);
+      await page.getByTestId('seed-record-type-Account-PersonAccount').check();
+      const fields = page.getByTestId('step-configure-fields');
+      await fields.getByTestId('field-Account-LastName').waitFor({ timeout: 10_000 });
+      await expect(fields.getByTestId('field-Account-Name')).toHaveCount(0);
+
+      await expectReadable(page, theme, '[data-testid="seed-step-configure-content"]');
+    });
+
     test('Seed earlier seeds, one opened onto its removal', async ({ page }) => {
       await openPanel(bridge, page, 'seed', theme);
       await bridge.seedOrgs(MOCK_ORGS);
@@ -7769,6 +7808,8 @@ for (const theme of STATE_THEMES) {
             targetOrgId: 'org-src-1',
             startedAt: '2026-10-02T09:59:00.000Z',
             endedAt: '2026-10-02T10:00:00.000Z',
+            // Its window closed before it ended: listed as partial.
+            unfinished: true,
             created: 12,
             left: [{ objectApiName: 'Contact', count: 12 }],
           },
@@ -7802,6 +7843,7 @@ for (const theme of STATE_THEMES) {
         },
       });
       await page.getByTestId('seed-removal-remove').waitFor({ timeout: 10_000 });
+      await page.getByTestId('seed-run-history-unfinished-op-axe-2').waitFor({ timeout: 10_000 });
 
       await expectReadable(page, theme, '[data-testid="seed-run-history"]');
     });

@@ -866,6 +866,13 @@ export class SeedOpsHandler implements DomainHandler {
         },
       });
       const handlerDeps = this.deps;
+      // What the run creates, written down as each insert returns: a window
+      // closed under the run, or a host that stopped, left what it had
+      // inserted with nothing to take it back from, the run being kept once
+      // it ended. The orchestrator runs under this id, which its result and
+      // the page's removal name.
+      const runId = crypto.randomUUID();
+      const kept = this.runCreations?.recorder({ runId, targetOrgId: payload.orgId, startedAt });
       // Records written before the insert now running, and the run's total,
       // from the orchestrator's report before each object and each partition.
       // The bulk paths count within one insert call; offsetting them keeps the
@@ -879,7 +886,7 @@ export class SeedOpsHandler implements DomainHandler {
         this.liveTracker?.updateProgress(operationId, pct, overall, overallTotal, step);
       };
 
-      const insertFn = async (
+      const insertRecords = async (
         _orgId: string,
         objectApiName: string,
         records: Record<string, unknown>[],
@@ -1004,6 +1011,22 @@ export class SeedOpsHandler implements DomainHandler {
 
         return { successIds, errors, rows };
       };
+      const insertFn = async (
+        orgId: string,
+        objectApiName: string,
+        records: Record<string, unknown>[],
+        batchSize: number,
+      ): Promise<InsertResult> => {
+        const answer = await insertRecords(orgId, objectApiName, records, batchSize);
+        kept?.note(objectApiName, answer.successIds);
+        return answer;
+      };
+      /** Say a run's creations could not all be kept, and let the run end as it did. */
+      const keptFailed = (err: unknown): void =>
+        this.deps.log(
+          `[WARN] seed:execute ${operationId}: what the run created could not all be kept, ` +
+            `so removing it may leave some of it in the org: ${extractErrorMessage(err)}`,
+        );
 
       // Lazy-import seed dependencies
       const { SeedValidator } = await import('../../modules/seed/SeedValidator.js');
@@ -1088,27 +1111,28 @@ export class SeedOpsHandler implements DomainHandler {
         1,
         'Validating template and building plan',
       );
-      const result = await orchestrator.execute(template, payload.orgId);
+      let result: Awaited<ReturnType<typeof orchestrator.execute>>;
+      try {
+        result = await orchestrator.execute(template, payload.orgId, runId);
+      } catch (err: unknown) {
+        // What it inserted before it threw stays removable, the run ended failed.
+        await kept
+          ?.end({ status: 'failure', finishedAt: new Date().toISOString(), objectResults: [] })
+          .catch(keptFailed);
+        throw err;
+      }
       // Kept whole before the lists are cut for the page, a stopped run's too:
       // what it wrote before the cancel can be taken back from its results,
       // or after a reload from the list of earlier seeds. A store that cannot
       // keep it is said, and the run ends as it did.
-      await this.runCreations
-        ?.record({
-          runId: result.operationId,
-          targetOrgId: payload.orgId,
-          startedAt,
+      await kept
+        ?.end({
           finishedAt: new Date().toISOString(),
           status: result.status,
           ...(result.cancelled ? { cancelled: true } : {}),
           objectResults: result.objectResults,
         })
-        .catch((err: unknown) =>
-          this.deps.log(
-            `[WARN] seed:execute ${operationId}: what the run created could not all be kept, ` +
-              `so removing it may leave some of it in the org: ${extractErrorMessage(err)}`,
-          ),
-        );
+        .catch(keptFailed);
       if (!result.cancelled) {
         sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
       }
@@ -1170,7 +1194,8 @@ export class SeedOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
-      // What the run inserted before it threw is not known here.
+      // What the run inserted before it threw is not counted here: it is
+      // kept, for its removal, with the run's creations.
       recordWriteRun(this.deps, {
         action: 'seed_execute',
         module: 'seed',

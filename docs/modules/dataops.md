@@ -22,7 +22,9 @@ Take a snapshot of the objects an Anonymize writes over:
 - The objects follow the templates: a backup reads the objects the template
   picked on the Anonymize tab masks or, with none picked, every object a
   listed template masks -- Contact, Lead, Account and Opportunity for the
-  templates that ship. The Backup tab names them before the click. Each is
+  templates that ship -- as a masking run of them plans them in the org:
+  Account too for a template that masks contacts, in an org with person
+  accounts. The Backup tab names them before the click. Each is
   read whole, every field, page after page -- 2,000 records a page on a
   sandbox, 500 on production or a Developer Edition -- up to a cap of
   records per object, `sandforge.backup.maxRecordsPerObject` (50,000 unless

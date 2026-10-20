@@ -15,7 +15,7 @@ import type { ObjectProgress } from './Step7_Execute';
 import type { CheckedRelation } from './seedRelationDrafts';
 import { lookupsClosingACycle } from './seedLookupCycles';
 import type { RunLookup } from './seedLookupCycles';
-import { recordTypeFieldRule } from './seedRecordTypeChoices';
+import { fieldsForAccountKind, recordTypeFieldRule } from './seedRecordTypeChoices';
 
 /** Return type for the useSeedExecution hook. */
 export interface SeedExecutionState {
@@ -147,9 +147,12 @@ export function useSeedExecution(
       strategy: 'faker',
       objects: selectedObjects.map((apiName, index): SeedObjectConfig => {
         const vol = volumes[apiName] ?? { count: 100, batchSize: 200 };
-        const objConfig = fieldConfigs.find((c) => c.objectApiName === apiName);
         const related = sent.find((s) => s.relation.childObject === apiName);
         const recordTypes = recordTypeChoices[apiName] ?? [];
+        // The fields the Configure step listed: an account's for the kind of
+        // account its record types write.
+        const described = fieldConfigs.find((c) => c.objectApiName === apiName);
+        const objConfig = described && fieldsForAccountKind(described, recordTypes);
         return {
           objectApiName: apiName,
           // A relation plans its child's records from the parents it finds;

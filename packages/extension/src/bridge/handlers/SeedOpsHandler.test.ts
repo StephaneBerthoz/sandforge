@@ -2276,13 +2276,18 @@ describe('SeedOpsHandler', () => {
     }
 
     function runWith(
-      execute: (seedDeps: { onProgress?: (event: Record<string, unknown>) => void }) => unknown,
+      execute: (
+        seedDeps: { onProgress?: (event: Record<string, unknown>) => void },
+        runId: string,
+      ) => unknown,
     ): Promise<boolean> {
       deps.services = {
         isAIEnabled: () => false,
         getSandforgeSetting: vi.fn(() => 200),
         seedOrchestrator: vi.fn((seedDeps) => ({
-          execute: vi.fn(async () => execute(seedDeps)),
+          execute: vi.fn(async (_template: unknown, _orgId: string, runId: string) =>
+            execute(seedDeps, runId),
+          ),
         })),
       } as unknown as HandlerDeps['services'];
       mockGetConn.mockResolvedValue({} as never);
@@ -2341,9 +2346,9 @@ describe('SeedOpsHandler', () => {
         { length: 5000 },
         (_, i) => `003${String(i).padStart(12, '0')}`,
       );
-      await runWith(() => ({
+      await runWith((_seedDeps, runId) => ({
         templateId: 'tpl-1',
-        operationId: 'op-kept',
+        operationId: runId,
         status: 'success',
         objectResults: [
           {
@@ -2360,11 +2365,97 @@ describe('SeedOpsHandler', () => {
         timestamp: '2026-01-01T00:00:00.000Z',
       }));
 
-      // Read back by a store over the same storage, as after a reload.
-      const kept = await nodeSeedRunCreations(storage).get('op-kept');
+      // Read back by a store over the same storage, as after a reload, under
+      // the id the page's removal names.
+      const response = postedMessages().find((m) => m.type === 'seed:execute:response');
+      const kept = await nodeSeedRunCreations(storage).get(String(response?.payload?.operationId));
       rmSync(storage, { recursive: true, force: true });
       expect(kept?.targetOrgId).toBe('org-1');
       expect(kept?.created).toEqual([{ objectApiName: 'Contact', ids: createdIds }]);
+    });
+
+    it('keeps what a run inserted as each insert returns, so a run whose window closed under it stays removable', async () => {
+      // Kept once the run ended, a seed whose window closed part way left the
+      // records it had inserted with nothing to take them back from.
+      const storage = mkdtempSync(join(tmpdir(), 'sandforge-seed-kept-'));
+      handler.setRunCreations(nodeSeedRunCreations(storage));
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      const create = vi.fn(async (batch: unknown[]) =>
+        batch.map((_, i) => ({ success: true, id: `001${String(i + 1).padStart(12, '0')}` })),
+      );
+      mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
+      let ran: string | undefined;
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps: SeedOrchestratorDependencies) => ({
+          execute: vi.fn(async (_template: unknown, _orgId: string, runId: string) => {
+            await seedDeps.insert('org-1', 'Account', [{ Name: 'a' }, { Name: 'b' }], 200);
+            ran = runId;
+            // The window closes here: the run never ends.
+            return new Promise<SeedExecutionResult>(() => undefined);
+          }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-window-closed',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+      await vi.waitFor(() => expect(ran).toBeDefined());
+
+      // What the next window reads, over the same storage.
+      await vi.waitFor(async () =>
+        expect(await nodeSeedRunCreations(storage).list()).toHaveLength(1),
+      );
+      const [kept] = await nodeSeedRunCreations(storage).list();
+      registry.dispose();
+      rmSync(storage, { recursive: true, force: true });
+      expect(kept.runId).toBe(ran);
+      expect(kept.targetOrgId).toBe('org-1');
+      expect(kept.end).toBeUndefined();
+      expect(kept.created).toEqual([
+        { objectApiName: 'Account', ids: ['001000000000001', '001000000000002'] },
+      ]);
+    });
+
+    it('keeps what a run inserted before it threw, ended as failed', async () => {
+      const storage = mkdtempSync(join(tmpdir(), 'sandforge-seed-kept-'));
+      handler.setRunCreations(nodeSeedRunCreations(storage));
+      const create = vi.fn(async (batch: unknown[]) =>
+        batch.map((_, i) => ({ success: true, id: `003${String(i + 1).padStart(12, '0')}` })),
+      );
+      mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps: SeedOrchestratorDependencies) => ({
+          execute: vi.fn(async () => {
+            await seedDeps.insert('org-1', 'Contact', [{ LastName: 'a' }], 200);
+            throw new Error('socket hang up');
+          }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-threw',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+
+      const [kept] = await nodeSeedRunCreations(storage).list();
+      rmSync(storage, { recursive: true, force: true });
+      expect(kept?.end).toMatchObject({ status: 'failure' });
+      expect(kept?.created).toEqual([{ objectApiName: 'Contact', ids: ['003000000000001'] }]);
+      expect(postedMessages().some((m) => m.type === 'seed:error')).toBe(true);
     });
 
     it('does not flag an object whose ids all fit', async () => {

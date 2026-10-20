@@ -208,6 +208,8 @@ import type {
   BackupExecuteRequest,
   BackupListRequest,
   BackupListResult,
+  BackupObjectsRequest,
+  BackupObjectsResponse,
   BackupExportRequest,
   BackupExportResult,
   AnonymizationTemplatesRequest,
@@ -592,6 +594,7 @@ export type WebViewToExtensionMessage =
   | CompareDeployRequest
   | BackupExecuteRequest
   | BackupListRequest
+  | BackupObjectsRequest
   | BackupExportRequest
   | AnonymizationTemplatesRequest
   | AnonymizationTemplateSaveRequest
@@ -825,6 +828,7 @@ export type ExtensionToWebViewMessage =
   | DataOpsAnonymizePreviewResponse
   | PIIScanResponse
   | BackupListResult
+  | BackupObjectsResponse
   | BackupExportResult
   | DataOpsBackupResponse
   | DataOpsRollbackResponse

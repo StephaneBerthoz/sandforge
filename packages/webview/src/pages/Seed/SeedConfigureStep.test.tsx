@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { SeedConfigureStep } from './SeedConfigureStep';
@@ -83,5 +83,98 @@ describe('SeedConfigureStep', () => {
     });
     renderStep();
     expect(screen.getByTestId('remove-relation-0')).toBeDefined();
+  });
+
+  describe("an account's fields, by the kind of account its record types write", () => {
+    const field = (fieldApiName: string, required = false) => ({
+      fieldApiName,
+      label: fieldApiName,
+      type: 'string',
+      required,
+      ruleType: 'faker' as const,
+      config: {},
+    });
+    /** An Account of an org with person accounts, as its describe lists it. */
+    const account: ObjectFieldConfig = {
+      objectApiName: 'Account',
+      objectLabel: 'Account',
+      fields: ['Name', 'Phone', 'FirstName', 'LastName', 'PersonEmail', 'Region__pc'].map((f) =>
+        field(f),
+      ),
+      recordTypes: [
+        {
+          recordTypeId: '012000000000001AAA',
+          developerName: 'PersonAccount',
+          label: 'Person Account',
+          person: true,
+          isDefault: false,
+        },
+        {
+          recordTypeId: '012000000000002AAA',
+          developerName: 'Business',
+          label: 'Business',
+          person: false,
+          isDefault: true,
+        },
+      ],
+    };
+    const renderAccount = () =>
+      render(
+        <SeedConfigureStep
+          fieldConfigs={[account]}
+          onChangeRule={vi.fn()}
+          onChangeConfig={vi.fn()}
+          volumes={{ Account: { count: 10, batchSize: 200 } }}
+          onChangeBatchSize={vi.fn()}
+          piiLoading={false}
+          hasPiiWarnings={false}
+          piiResults={[]}
+        />,
+      );
+    const listed = (): string[] =>
+      within(screen.getByTestId('step-configure-fields'))
+        .queryAllByTestId(/^field-Account-/)
+        .map((row) => row.getAttribute('data-testid')!.replace('field-Account-', ''));
+    const required = (name: string): boolean =>
+      within(screen.getByTestId(`field-Account-${name}`)).queryByText('*') !== null;
+
+    it('lists a person account without Name, its first and last names among its fields, the last name required', () => {
+      renderAccount();
+      fireEvent.click(screen.getByTestId('seed-record-type-Account-PersonAccount'));
+
+      // The extension drops Name before the run: a rule set on it here went nowhere.
+      expect(listed()).toEqual(['Phone', 'FirstName', 'LastName', 'PersonEmail', 'Region__pc']);
+      expect(required('LastName')).toBe(true);
+    });
+
+    it("lists a business account without a person account's fields, Name required", () => {
+      renderAccount();
+      fireEvent.click(screen.getByTestId('seed-record-type-Account-Business'));
+
+      expect(listed()).toEqual(['Name', 'Phone']);
+      expect(required('Name')).toBe(true);
+    });
+
+    it('lists a business account so with no record type chosen, as the run writes one', () => {
+      renderAccount();
+
+      expect(listed()).toEqual(['Name', 'Phone']);
+    });
+
+    it('lists every field while the two kinds are mixed, which the run refuses', () => {
+      renderAccount();
+      fireEvent.click(screen.getByTestId('seed-record-type-Account-PersonAccount'));
+      fireEvent.click(screen.getByTestId('seed-record-type-Account-Business'));
+
+      expect(screen.getByTestId('seed-record-types-mixed-Account')).toBeDefined();
+      expect(listed()).toEqual([
+        'Name',
+        'Phone',
+        'FirstName',
+        'LastName',
+        'PersonEmail',
+        'Region__pc',
+      ]);
+    });
   });
 });

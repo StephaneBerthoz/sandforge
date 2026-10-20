@@ -565,11 +565,11 @@ export class ExtensionHandlers {
     this.forgeHandler.setForgeOrchestrator(orchestrator, services);
     // The sweep of a Frozen load's removal reads the target's automation as
     // Forge's does, and so does an Autopilot run's gate, for the emails its
-    // flows send.
+    // flows send. A Seed run's sweep reads it through a reader of its own,
+    // there from the start.
     if (services?.targetAutomation) {
       this.frozenHandler.setTargetAutomation(services.targetAutomation);
       this.autopilotHandler.setTargetAutomation(services.targetAutomation);
-      this.seedRemovalHandler.setTargetAutomation(services.targetAutomation);
     }
   }
 
@@ -748,6 +748,7 @@ export class ExtensionHandlers {
       [
         'backup:execute',
         'backup:list',
+        'backup:objects',
         'backup:export',
         'dataops:rollback',
         'dataops:anonymize',

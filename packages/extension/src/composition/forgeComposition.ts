@@ -5,7 +5,6 @@ import { SchemaCache } from '../core/metadata/SchemaCache';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
 import type { ForgeExecutorDeps } from '../modules/forge/ForgeExecutor';
-import type { ToolingRetrieve } from '../modules/forge/TargetAutomationReader';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
@@ -199,13 +198,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeRehearser },
         { getJsforceConnection },
         fileTransfer,
-        {
-          TargetAutomationReader,
-          answerOf,
-          toolingAnswersOf,
-          toolingCompositeBody,
-          toolingRetrievesOver,
-        },
+        { TargetAutomationReader, targetAutomationQueries },
         { TargetGapReader },
         { ForgeRemovalPlanStore },
         { nodeRunJournal },
@@ -605,44 +598,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
 
         // Review's read of the target's flows and triggers: the regular API for
         // the flows, the Tooling API for the triggers and the start conditions.
-        const targetQueries = {
-          query: async (orgId: string, soql: string) => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            return answerOf(
-              {
-                query: async (q) => conn.query<Record<string, unknown>>(q),
-                queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
-              },
-              soql,
-            );
-          },
-          toolingQuery: async (orgId: string, soql: string) => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            return answerOf(
-              {
-                query: async (q) => conn.tooling.query<Record<string, unknown>>(q),
-                queryMore: async (url) => conn.tooling.queryMore<Record<string, unknown>>(url),
-              },
-              soql,
-            );
-          },
-          // The start conditions and definitions, many a request: one query
-          // each left most flows of a large org unread.
-          toolingQueries: async (orgId: string, soqls: readonly string[]) => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const answer = await conn.request({
-              method: 'POST',
-              url: '/tooling/composite',
-              body: JSON.stringify(toolingCompositeBody(`/services/data/v${conn.version}`, soqls)),
-              headers: { 'Content-Type': 'application/json' },
-            });
-            return toolingAnswersOf(answer, soqls.length);
-          },
-          // The flow versions and rules themselves, retrieved by id: five times
-          // as many a request as queries.
-          toolingRetrieves: async (orgId: string, reads: readonly ToolingRetrieve[]) =>
-            toolingRetrievesOver(await getJsforceConnection(orgId, orgRegistry, orgManager))(reads),
-        };
+        const targetQueries = targetAutomationQueries((orgId) =>
+          getJsforceConnection(orgId, orgRegistry, orgManager),
+        );
         const targetAutomation = new TargetAutomationReader(targetQueries);
 
         // Review's read of what the target holds against the rows: its rules

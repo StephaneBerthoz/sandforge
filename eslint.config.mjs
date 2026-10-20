@@ -25,6 +25,37 @@ const PALETTE_SELECTORS = [
   { selector: `TemplateElement[value.raw=/${PALETTE}/]`, message: PALETTE_MSG },
 ];
 
+/**
+ * The globals Node gives a module, which the repository's own scripts and
+ * gates use: without them every `process` and `console` was an undefined name,
+ * and the scripts were linted by nothing. Written out, as the `globals`
+ * package is no dependency of the workspace.
+ */
+const NODE_GLOBALS = Object.fromEntries(
+  [
+    'AbortController',
+    'AbortSignal',
+    'Blob',
+    'Buffer',
+    'URL',
+    'URLSearchParams',
+    'TextDecoder',
+    'TextEncoder',
+    'clearImmediate',
+    'clearInterval',
+    'clearTimeout',
+    'console',
+    'fetch',
+    'performance',
+    'process',
+    'queueMicrotask',
+    'setImmediate',
+    'setInterval',
+    'setTimeout',
+    'structuredClone',
+  ].map((name) => [name, 'readonly']),
+);
+
 export default tseslint.config(
   {
     ignores: [
@@ -41,6 +72,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,
+  {
+    // The repository's scripts and gates, run by `node` and `node --test`
+    // outside any package: the root `lint` script reads them.
+    files: ['scripts/**/*.mjs', 'docs/**/*.mjs', '*.mjs'],
+    languageOptions: { globals: NODE_GLOBALS },
+  },
   {
     files: [
       'packages/*/src/**/*.{ts,tsx}',

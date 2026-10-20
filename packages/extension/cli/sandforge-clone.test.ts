@@ -1079,9 +1079,25 @@ describe('sandforge-clone object outcomes', () => {
     ).toBe('  Stopped Contact: 200 succeeded, 0 failed, 250 not sent');
   });
 
+  it('prints what the scan of an object added to the run, as the panel shows it', () => {
+    const scanned = (message: string): ForgeProgressEvent => ({
+      objectName: 'PricebookEntry',
+      status: 'scanning',
+      progress: 50,
+      message,
+    });
+    expect(
+      objectOutcomeLine(scanned('Added 2 standard price book entries the custom prices depend on')),
+    ).toBe('  Added 2 standard price book entries the custom prices depend on');
+    expect(objectOutcomeLine({ ...scanned(''), message: '' })).toBeUndefined();
+  });
+
   it('prints nothing for a step on the way, or an end that says nothing', () => {
     expect(objectOutcomeLine(event('running', 'Contact: reading'))).toBeUndefined();
-    expect(objectOutcomeLine(event('scanning', 'Querying Contact records...'))).toBeUndefined();
+    // The scan's opening, at 0, as the executor sends it: the object's own line follows.
+    expect(
+      objectOutcomeLine({ ...event('scanning', 'Querying Contact records...'), progress: 0 }),
+    ).toBeUndefined();
     expect(objectOutcomeLine(event('done', ''))).toBeUndefined();
     expect(objectOutcomeLine(event('skipped', ''))).toBeUndefined();
   });

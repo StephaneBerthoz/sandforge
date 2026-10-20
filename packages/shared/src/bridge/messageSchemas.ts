@@ -236,6 +236,9 @@ const DataOpsMessages = [
   msg('backup:execute'),
   msg('backup:list'),
   msg('backup:list:result'),
+  // The objects the Backup tab reads, as a masking run of the templates plans them in the org.
+  msg('backup:objects'),
+  msg('backup:objects:response'),
   msg('backup:export'),
   msg('backup:export:result'),
   msg('dataops:rollback'),

@@ -645,6 +645,11 @@ export const dataOpsBackupPayloadSchema = z.object({
 export const dataOpsBackupListPayloadSchema = z.object({
   orgId: orgIdSchema,
 });
+/** `backup:objects`: the objects a backup before masking reads, for one template or every one. */
+export const dataOpsBackupObjectsPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  templateId: z.string().min(1).max(200).optional(),
+});
 export const dataOpsBackupExportPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: z.string().min(1).max(200),
