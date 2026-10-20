@@ -59,6 +59,12 @@ export function useBridgeMutation<T>(
      * from the request type (the convention used by bridge handlers).
      */
     errorType?: string;
+    /**
+     * Whether the request starts a run that goes on once the page stops
+     * waiting for it: its timeout then says the run may still be writing and
+     * where to follow it, never to try again.
+     */
+    runOutlivesWait?: boolean;
   },
 ): BridgeMutationState<T> {
   const sendMessage = useSendMessage();
@@ -80,6 +86,7 @@ export function useBridgeMutation<T>(
     responseType,
     timeoutMs,
     errorType,
+    runOutlivesWait: options?.runOutlivesWait ?? false,
   });
 
   const [requestId, setRequestId] = useState<string | null>(null);

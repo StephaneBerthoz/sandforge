@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { useWebviewPersistedState } from '../../../hooks/useWebviewPersistedState';
 import { useLatestRef } from '../../../hooks/useLatestRef';
-import { SYNC_RUN_TIMEOUT_MS } from '../useSyncRunControls';
 
 /** Step in the Quick Sync 3-screen flow. */
 export type QuickSyncStep = 'orgs' | 'objects' | 'preview' | 'executing' | 'results';
@@ -133,7 +133,7 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   const syncMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
     // A bulk write runs past the 30 s default on real volumes, and a paused
     // run waits on a person; operation:progress keeps flowing meanwhile.
-    timeoutMs: SYNC_RUN_TIMEOUT_MS,
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
   });
 
   // Sync preview mutation response into state (handler wraps it in { preview })

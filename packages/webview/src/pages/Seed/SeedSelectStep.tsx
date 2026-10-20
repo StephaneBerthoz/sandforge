@@ -4,15 +4,11 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
-import { Badge } from '../../components/ui/Badge';
-import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { orgOptionLabel } from '../../utils/orgFormatters';
-import type { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { Step2SelectObjects } from './Step2_SelectObjects';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
-import type { PIIObjectResult } from './useSeedWizardState';
 
 /** Props for the SeedSelectStep section. */
 export interface SeedSelectStepProps {
@@ -24,36 +20,23 @@ export interface SeedSelectStepProps {
   volumes: Record<string, { count: number; batchSize: number }>;
   /** Update the record count for an object. */
   onChangeVolume: (objectApiName: string, count: number) => void;
-  /** Whether any object has PII warnings. */
-  hasPiiWarnings: boolean;
-  /** PII scan results per object. */
-  piiResults: PIIObjectResult[];
-  /** NL2SOQL query input value. */
-  nl2soqlQuery: string;
-  /** Update the NL2SOQL query input. */
-  onNl2soqlQueryChange: (q: string) => void;
-  /** Trigger NL2SOQL conversion. */
-  onNl2soqlSubmit: () => void;
-  /** NL2SOQL mutation state. */
-  nl2soql: ReturnType<typeof useNL2SOQL>;
 }
 
 /**
- * Step 1 (Select) of the Seed wizard: org selector, object multi-select
- * with inline volumes, PII warnings, and the NL2SOQL helper.
+ * Step 1 (Select) of the Seed wizard: org selector, then the object
+ * multi-select with inline volumes.
  * Subscribes to org/object selection slices from `useSeedWizardStore`.
+ *
+ * It also showed a natural-language SOQL helper, whose query nothing in the
+ * seed read — it could only be copied — and a warning that the objects held
+ * personal data to anonymize before seeding, on a run whose every value is
+ * generated. Both stood between the objects and the counts; both are gone.
  */
 export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
   availableObjects,
   loadingObjects,
   volumes,
   onChangeVolume,
-  hasPiiWarnings,
-  piiResults,
-  nl2soqlQuery,
-  onNl2soqlQueryChange,
-  onNl2soqlSubmit,
-  nl2soql,
 }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
@@ -120,122 +103,6 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                 ))}
               </div>
             )}
-
-            {/* PII badge warnings on selected objects */}
-            {hasPiiWarnings && (
-              <div
-                className="flex flex-col gap-(--sf-space-2) p-(--sf-space-3) rounded-sm border border-status-warning bg-status-warning/10"
-                role="alert"
-                data-testid="pii-scan-warning"
-              >
-                <span className="text-sm font-medium text-status-warning">
-                  {t('seed.piiWarningTitle')}
-                </span>
-                {piiResults
-                  .filter((r: PIIObjectResult) => r.piiFields.length > 0)
-                  .map((r: PIIObjectResult) => (
-                    <div key={r.objectName} className="flex flex-col gap-1">
-                      <span className="text-xs font-medium text-text-primary">{r.objectName}</span>
-                      <div className="flex flex-wrap gap-1">
-                        {r.piiFields.map((f: PIIObjectResult['piiFields'][number]) => (
-                          <Badge key={`${r.objectName}-${f.fieldName}`} variant="warning">
-                            {f.fieldName} ({f.piiType} — {Math.round(f.confidence * 100)}%)
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                <span className="text-xs text-status-warning">{t('seed.piiWarningHint')}</span>
-              </div>
-            )}
-
-            {/* NL2SOQL Helper */}
-            <div
-              className="flex flex-col gap-(--sf-space-2) p-(--sf-space-3) rounded-sm border border-(--sf-border-input) bg-(--sf-bg-primary)"
-              data-testid="nl2soql-helper"
-            >
-              <span className="text-xs font-medium text-text-primary">
-                {t('seed.nl2soqlTitle')}
-              </span>
-              <div className="flex gap-(--sf-space-2) items-end">
-                <div className="flex-1">
-                  <Input
-                    placeholder={t('seed.nl2soqlPlaceholder')}
-                    value={nl2soqlQuery}
-                    onChange={(e) => onNl2soqlQueryChange(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && onNl2soqlSubmit()}
-                    disabled={nl2soql.loading || !selectedOrgId}
-                    data-testid="nl2soql-input"
-                  />
-                </div>
-                {/* While the draft waits on the model it can be stopped, as a
-                    chat question can: a slow provider held the helper under
-                    a spinner until its answer or its timeout. */}
-                {nl2soql.loading ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={nl2soql.stop}
-                    data-testid="nl2soql-stop"
-                  >
-                    {t('ai.stop')}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={!nl2soqlQuery.trim() || !selectedOrgId}
-                    onClick={onNl2soqlSubmit}
-                    data-testid="nl2soql-button"
-                  >
-                    {t('seed.nl2soqlGenerate')}
-                  </Button>
-                )}
-              </div>
-              {nl2soql.data?.soql && (
-                <div className="relative group" data-testid="nl2soql-result">
-                  <pre className="text-xs p-2.5 rounded-sm bg-(--sf-bg-input) font-mono text-text-primary overflow-x-auto whitespace-pre-wrap">
-                    {nl2soql.data.soql}
-                  </pre>
-                  <button
-                    className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => navigator.clipboard.writeText(nl2soql.data?.soql ?? '')}
-                    data-testid="nl2soql-copy"
-                  >
-                    {t('common.copy')}
-                  </button>
-                </div>
-              )}
-              {nl2soql.data?.explanation && (
-                <span className="text-xs text-text-secondary">{nl2soql.data.explanation}</span>
-              )}
-              {/* An accepted draft comes in two kinds and they must not look
-                  alike: one whose field names were compared to the org's, and
-                  one where nothing was compared. Only the second says so, and
-                  it says which of the two things went missing — the org's
-                  field list, or anything in the draft worth comparing. */}
-              {nl2soql.data?.success === true && nl2soql.data.verified === false && (
-                <span
-                  className="text-xs text-status-warning"
-                  role="status"
-                  data-testid="nl2soql-unverified"
-                >
-                  {nl2soql.data.unverifiedReason === 'nothing-to-check'
-                    ? t('seed.nl2soqlNothingToCheck')
-                    : t('seed.nl2soqlUnverified')}
-                </span>
-              )}
-              {(nl2soql.error ??
-                (nl2soql.data && !nl2soql.data.success ? nl2soql.data.error : null)) && (
-                <span
-                  className="text-xs text-status-error"
-                  role="alert"
-                  data-testid="nl2soql-error"
-                >
-                  {nl2soql.error ?? nl2soql.data?.error ?? t('seed.nl2soqlError')}
-                </span>
-              )}
-            </div>
           </>
         ))}
     </div>

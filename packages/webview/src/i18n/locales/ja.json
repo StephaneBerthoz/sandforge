@@ -591,11 +591,6 @@
     "advancedSettings": "詳細設定",
     "exportCsv": "CSVをエクスポート",
     "seedAgain": "もう一度Seed",
-    "nl2soqlTitle": "NL2SOQLヘルパー",
-    "nl2soqlPlaceholder": "必要なデータを平易な言葉で記述してください...",
-    "nl2soqlGenerate": "SOQLを生成",
-    "piiWarningTitle": "PII項目が検出されました",
-    "piiWarningHint": "Seed実行前にこれらの項目の匿名化またはマスクを検討してください。",
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloudスターター",
@@ -616,10 +611,8 @@
       "objects_other": "{{count}}個のオブジェクト",
       "records_other": "{{count}}件のレコード",
       "useThis": "これを使う",
-      "customize": "レコード数をカスタマイズ",
-      "startSeeding": "Seedを開始",
-      "orCustomize": "または自分で作成",
-      "templateMissing": "この保存済みテンプレートはもう存在しません。"
+      "templateMissing": "この保存済みテンプレートはもう存在しません。",
+      "recommended": "ここから開始"
     },
     "quickSeed": {
       "title": "クイックSeed",
@@ -682,22 +675,16 @@
       }
     },
     "modeSelect": {
-      "title": "Seedモードを選択",
-      "ai": "AI生成",
-      "aiDesc": "AIを使用してリアルなテストデータを生成",
+      "generate": "データを生成",
+      "generateDesc": "オブジェクト、件数、項目のルールを自分で選択",
       "csv": "CSVアップロード",
       "csvDesc": "CSVファイルからデータをインポート",
       "clone": "組織からクローン",
-      "cloneDesc": "別の組織からレコードをクローン",
-      "backToModes": "モード選択に戻る"
+      "cloneDesc": "別の組織からレコードをクローン"
     },
     "persona": {
       "title": "AIペルソナ",
       "subtitle": "業界ペルソナを選んで項目の生成ルールを事前入力",
-      "forkPersonaTitle": "ペルソナを選択",
-      "forkPersonaDesc": "事前構築された項目パターンを持つ業界ペルソナを選択",
-      "forkScratchTitle": "ゼロから作成",
-      "forkScratchDesc": "空のキャンバスから独自の項目ルールを構築",
       "card": {
         "preview": "プレビュー",
         "select": "選択",
@@ -720,7 +707,8 @@
         "rangeMax": "最大",
         "values": "値"
       },
-      "backToFork": "AIモードに戻る"
+      "optional": "業界ペルソナから項目のルールを設定（任意）",
+      "chosen": "選択したペルソナ： {{name}}"
     },
     "adaptive": {
       "usingDefaults": "デフォルトの項目ルールを使用しています。",
@@ -811,15 +799,25 @@
       "step3": "オブジェクトとレコード数を選択",
       "step4": "実行して結果を確認"
     },
-    "nl2soqlError": "その説明を SOQL に変換できませんでした。オブジェクトとフィルターを明示してください。",
-    "nl2soqlUnverified": "SandForge はこの下書きの項目名を組織と照合できませんでした。実行して動作するかご確認ください。",
-    "nl2soqlNothingToCheck": "この下書きは関連レコードの値または合計のみを求めているため、SandForge に照合できる項目名がありませんでした。実行して動作するかご確認ください。",
     "graph": {
       "title": "依存関係グラフ"
     },
     "results": {
       "aiFallback": "AI が値を返さなかったため、次の項目には生成された文が入りました: {{fields}}。AI がオフになっているか、呼び出しが拒否されました（理由は SandForge のログに記録されます）。",
-      "aiFallbackShort": "AI の応答に値が欠けていたため、次の項目には生成された文が入りました: {{fields}}。"
+      "aiFallbackShort": "AI の応答に値が欠けていたため、次の項目には生成された文が入りました: {{fields}}。",
+      "errorGroup": "{{n}} 件 × {{reason}}",
+      "errorsListed": "拒否された {{failed}} 件のレコードのうち、最初の {{listed}} 件をまとめています。",
+      "openRecord": "作成した {{object}} を {{org}} で開く",
+      "errorHint": {
+        "requiredFieldMissing": "組織が必要とする値を、この実行は指定していません。ウィザードから Seed を実行し、設定ステップでその項目にルールを指定してください。",
+        "validationRule": "組織の入力規則が生成された値を拒否しました。規則が確認する項目に、受け入れられる値のルールを指定するか、Seed の間その規則を無効にしてください。",
+        "restrictedPicklist": "生成された値が、この制限付き選択リストまたはレコードタイプで使用できる値ではありません。組織がその項目に定義している値を指定してください。",
+        "duplicateValue": "一意の項目に、組織の既存レコードがすでに持つ値が入りました。値が重複しないルールをその項目に指定してください。",
+        "duplicateRule": "「ブロック」に設定された組織の重複ルールが、生成されたレコードを拒否しました。Seed の間そのルールを無効にするか、作成時のアクションを「許可」にしてください。",
+        "storageFull": "組織のデータストレージに空きがありません。Developer Edition の容量は 5 MB です。以前の Seed を削除するか、レコード数を減らしてください。",
+        "standardPrice": "Salesforce では、標準価格表に価格がある商品にのみ、カスタム価格表の価格を設定できます。先にこれらの商品に標準価格を設定してください。",
+        "flowFailed": "レコードの保存時に組織のフローが失敗し、組織がレコードを拒否しました。フローを修正するか、Seed の間フローを無効にしてください。"
+      }
     },
     "sampleRecordCount_other": "{{count}}件のサンプルレコード",
     "failedRecordCount_other": "{{count}}件失敗",
@@ -844,7 +842,16 @@
       "historyUnfinished": "部分的: シードは終了前に停止しました (ウィンドウが閉じられたか、拡張機能が停止しました)。それまでに書き込んだものを一覧にしています",
       "historyShow": "表示",
       "historyHide": "隠す"
-    }
+    },
+    "start": {
+      "subtitle": "組織にリアルなデータを投入",
+      "otherWays": "その他のSeed方法"
+    },
+    "objectSearch": "オブジェクトを検索",
+    "commonObjects": "よく使うオブジェクト",
+    "otherObjects": "その他のすべてのオブジェクト",
+    "parentSuggestion": "{{child}} のレコードは {{parent}} に関連付けられますが、この実行では {{parent}} を生成しません。",
+    "addParent": "{{parent}} を追加"
   },
   "sync": {
     "title": "データ同期",
@@ -2144,7 +2151,8 @@
       "rateLimited": "SandForge が一度に受け付ける数を超えるリクエストを受信したため、1 件を破棄しました。しばらくしてからもう一度お試しください。",
       "unhandled": "このパネルが SandForge の処理しないリクエストを送信したため、破棄されました。パネルと拡張機能が同じバージョンで動作するよう、ウィンドウを再読み込みしてください。",
       "other": "SandForge はこのパネルからのリクエストを破棄しました。理由は SandForge の出力チャネルに表示されます。"
-    }
+    },
+    "runOutlivedWait": "SandForge は {{hours}} 時間後に {{request}} の待機を終了しましたが、実行はまだ書き込み中の可能性があります。モニターのライブオペレーションで進行状況を確認できます。もう一度開始するとレコードが二重に書き込まれます。"
   },
   "onboarding": {
     "welcomeTitle": "SandForgeへようこそ",
@@ -2174,10 +2182,7 @@
     "populateSandbox": "Sandboxにデータを投入",
     "syncFirstStepTitle": "Syncを始める",
     "syncFirstStepDesc": "クイックSyncで3クリックでSalesforce組織間のデータを転送",
-    "seedFirstStepTitle": "Seedを始める",
-    "seedFirstStepDesc": "テンプレートを選んでワンクリックでリアルなデータをSandboxに投入",
     "startQuickSync": "クイックSyncを開始",
-    "startQuickSeed": "テンプレートを参照",
     "suggestSeedAndSync": "Sandboxの準備ができました。Seedでテストデータを投入するか、Syncで別の組織からコピーしましょう。",
     "dontShowAgain": "今後表示しない",
     "tryItNow": "今すぐ試す",

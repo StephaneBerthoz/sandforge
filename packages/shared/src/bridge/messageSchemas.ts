@@ -84,6 +84,10 @@ const SeedMessages = [
   msg('seed:remove:sweep'),
   msg('seed:remove:sweep:response'),
   msg('seed:remove:sweep:error'),
+  // A record a Seed run created, opened in the org it wrote to.
+  msg('seed:open-record'),
+  msg('seed:open-record:response'),
+  msg('seed:open-record:error'),
   msg('seed:template:save'),
   msg('seed:template:load'),
   msg('seed:template:list'),

@@ -6422,13 +6422,12 @@ async function openSeedRelations(bridge: MockBridge, page: Page, theme: StateThe
 
 /**
  * Open the Seed wizard's configure step with Account and Contact selected,
- * both described and their personal data scanned.
+ * both described.
  */
 async function openSeedConfigure(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await openPanel(bridge, page, 'seed', theme);
   await bridge.seedOrgs(MOCK_ORGS);
-  await page.getByTestId('mode-card-ai').click();
-  await page.getByTestId('fork-card-scratch').click();
+  await page.getByTestId('mode-card-generate').click();
   await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
   await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
   await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
@@ -6454,10 +6453,6 @@ async function openSeedConfigure(bridge: MockBridge, page: Page, theme: StateThe
       )
       .toBe(1);
   }
-  await answerAll(page, 'precheck:pii-scan', 'precheck:pii-scan:response', {
-    success: true,
-    results: [],
-  });
 }
 
 /**
@@ -6500,8 +6495,7 @@ async function openSeedExecuteSkipped(
 ): Promise<void> {
   await openPanel(bridge, page, 'seed', theme);
   await bridge.seedOrgs(MOCK_ORGS);
-  await page.getByTestId('mode-card-ai').click();
-  await page.getByTestId('fork-card-scratch').click();
+  await page.getByTestId('mode-card-generate').click();
   await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
   await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
   await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
@@ -6525,6 +6519,126 @@ async function openSeedExecuteSkipped(
     .toBe('Using default field rules.');
   await page.getByTestId('add-relation-btn').click();
   await page.getByTestId('relation-0-planned').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/**
+ * Open the Seed page on its start, the saved templates answered: the gallery,
+ * the recommended template first, the other ways to seed under it.
+ */
+async function openSeedStart(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+  await openPanel(bridge, page, 'seed', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await bridge.waitForMessage('seed:template:list', { timeout: 10_000 });
+  await answerAll(page, 'seed:template:list', 'seed:template:list:response', { templates: [] });
+  await bridge.waitForMessage('seed:removal:list', { timeout: 10_000 });
+  await answerAll(page, 'seed:removal:list', 'seed:removal:list:response', { runs: [] });
+  await page
+    .getByTestId('template-card-prebuilt-minimal-demo')
+    .waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/** The Quick Seed confirmation of the small demo: its counts, and the org selected in the panel. */
+async function openQuickSeedConfirm(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+): Promise<void> {
+  await openSeedStart(bridge, page, theme);
+  await page
+    .getByTestId('template-card-prebuilt-minimal-demo')
+    .getByTestId('btn-use-template')
+    .click();
+  await page.getByTestId('quick-seed-confirm').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/** The Quick Seed of the small demo running, the progress it reported, its Cancel offered. */
+async function openQuickSeedRunning(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+): Promise<string> {
+  await openQuickSeedConfirm(bridge, page, theme);
+  await page.getByTestId('btn-quick-seed-start').click();
+  const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+  const operationId = String(request.id);
+  await bridge.stream([
+    {
+      type: 'operation:progress',
+      payload: {
+        operationId,
+        percentage: 30,
+        processedRecords: 105,
+        totalRecords: 350,
+        currentStep: 'Insert Contact',
+      },
+    },
+  ]);
+  await page.getByTestId('btn-quick-seed-cancel').waitFor({ state: 'visible', timeout: 10_000 });
+  return operationId;
+}
+
+/** What the run of the small demo answers: accounts created, contacts refused for two reasons. */
+function quickSeedResult(operationId: string): Record<string, unknown> {
+  return {
+    templateId: 'prebuilt-minimal-demo',
+    operationId,
+    status: 'partial',
+    objectResults: [
+      {
+        objectApiName: 'Account',
+        recordsCreated: 50,
+        recordsFailed: 0,
+        createdIds: ['001000000000001AAA', '001000000000002AAA'],
+        errors: [],
+      },
+      {
+        objectApiName: 'Contact',
+        recordsCreated: 40,
+        recordsFailed: 60,
+        createdIds: [],
+        errors: [
+          ...Array.from(
+            { length: 55 },
+            () =>
+              'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33 X XX XX XX XX. [Phone]',
+          ),
+          ...Array.from(
+            { length: 5 },
+            () => 'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+          ),
+        ],
+      },
+    ],
+    totalRecordsCreated: 90,
+    totalRecordsFailed: 60,
+    duration: 3_000,
+    timestamp: '2026-10-01T10:00:00.000Z',
+  };
+}
+
+/**
+ * Open the Seed wizard's select step with a contact ticked: the common objects
+ * pinned above the others, the contact's account offered, the persona folded.
+ */
+async function openSeedSelectWithSuggestion(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+): Promise<void> {
+  await openPanel(bridge, page, 'seed', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('mode-card-generate').click();
+  await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
+  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+  await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: ['AcceptedEventRelation', 'Invoice__c', 'Opportunity', 'Account', 'Contact'].map(
+      (apiName) => ({ apiName, label: apiName, recordCount: 0, dependencies: [] }),
+    ),
+  });
+  await page.getByTestId('obj-Contact').click();
+  await page
+    .getByTestId('seed-parent-suggestion-Account')
+    .waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 for (const theme of STATE_THEMES) {
@@ -7899,6 +8013,49 @@ for (const theme of STATE_THEMES) {
       );
 
       await expectReadable(page, theme, '[data-testid="seed-step-results-content"]');
+    });
+
+    test('Seed start: the template gallery first, the small demo marked, the other ways under it', async ({
+      page,
+    }) => {
+      await openSeedStart(bridge, page, theme);
+      await page.getByTestId('template-recommended').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="seed-page"]');
+    });
+
+    test('Seed Quick Seed confirmation: the counts, the org preselected, one Start', async ({
+      page,
+    }) => {
+      await openQuickSeedConfirm(bridge, page, theme);
+
+      await expectReadable(page, theme, '[data-testid="quick-seed-confirm"]');
+    });
+
+    test('Seed Quick Seed running, with its Cancel', async ({ page }) => {
+      await openQuickSeedRunning(bridge, page, theme);
+
+      await expectReadable(page, theme, '[data-testid="quick-seed-executing"]');
+    });
+
+    test('Seed Quick Seed results: refusals grouped by reason, a created account to open', async ({
+      page,
+    }) => {
+      const operationId = await openQuickSeedRunning(bridge, page, theme);
+      await answerAll(page, 'seed:execute', 'seed:execute:response', quickSeedResult(operationId));
+      await page.getByTestId('seed-result-errors-Contact').waitFor({ timeout: 10_000 });
+      await answerAll(page, 'seed:removal:info', 'seed:removal:info:response', { info: null });
+      await page.getByTestId('btn-seed-open-record').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="quick-seed-results"]');
+    });
+
+    test("Seed select step: the common objects pinned, a contact's account offered, the persona an option", async ({
+      page,
+    }) => {
+      await openSeedSelectWithSuggestion(bridge, page, theme);
+
+      await expectReadable(page, theme, '[data-testid="seed-page"]');
     });
 
     test('AI chat saying where a question awaits its answer, then where the answer went', async ({

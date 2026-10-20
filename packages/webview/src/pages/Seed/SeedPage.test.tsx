@@ -91,8 +91,12 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   },
 }));
 
+/** Every request type the page set up a mutation for. */
+const mutationTypes = vi.hoisted(() => new Set<string>());
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
+    mutationTypes.add(type);
     if (type === 'seed:describe-object') {
       return mockDescribeFieldsState;
     }
@@ -177,9 +181,12 @@ vi.mock('./useQuickSeed', async (importOriginal) => {
             overallPercent: 0,
             elapsedMs: 0,
             error: null,
+            operationId: null,
             startQuickSeed: vi.fn(),
+            setCount: vi.fn(),
             selectOrg: vi.fn(),
             execute: vi.fn(),
+            cancel: vi.fn(),
             reset: vi.fn(),
             setError: vi.fn(),
           }
@@ -209,38 +216,31 @@ vi.mock('../../components/ui/VirtualList', () => ({
 /* Mock TemplateGallery: picking a template is the only part exercised here, and
    the real gallery loads its catalogue over the bridge. */
 vi.mock('./TemplateGallery', () => ({
-  TemplateGallery: ({
-    onSelectTemplate,
-  }: {
-    onSelectTemplate: (template: unknown, counts: Record<string, number>) => void;
-  }) => (
+  TemplateGallery: ({ onSelectTemplate }: { onSelectTemplate: (template: unknown) => void }) => (
     <div data-testid="template-gallery">
       <button
         data-testid="mock-template-select"
         onClick={() =>
-          onSelectTemplate(
-            {
-              id: 'prebuilt-minimal-demo',
-              name: 'Minimal Demo',
-              description: 'A minimal demo template',
-              version: 1,
-              strategy: 'faker',
-              objects: [
-                {
-                  objectApiName: 'Account',
-                  recordCount: 10,
-                  fieldRules: [],
-                  excludedFields: [],
-                  insertOrder: 0,
-                  batchSize: 200,
-                },
-              ],
-              tags: [],
-              createdAt: '2026-01-01T00:00:00.000Z',
-              updatedAt: '2026-01-01T00:00:00.000Z',
-            },
-            {},
-          )
+          onSelectTemplate({
+            id: 'prebuilt-minimal-demo',
+            name: 'Minimal Demo',
+            description: 'A minimal demo template',
+            version: 1,
+            strategy: 'faker',
+            objects: [
+              {
+                objectApiName: 'Account',
+                recordCount: 10,
+                fieldRules: [],
+                excludedFields: [],
+                insertOrder: 0,
+                batchSize: 200,
+              },
+            ],
+            tags: [],
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          })
         }
       >
         Use this template
@@ -312,8 +312,7 @@ function listObjects(names: string[]): void {
 /** Open the wizard on org-1, pick `names` and leave the select step. */
 function pickAndMoveOn(names: string[]): ReturnType<typeof render> {
   const view = render(<SeedPage />);
-  fireEvent.click(screen.getByTestId('mode-card-ai'));
-  fireEvent.click(screen.getByTestId('fork-card-scratch'));
+  fireEvent.click(screen.getByTestId('mode-card-generate'));
   fireEvent.change(screen.getByTestId('org-selector'), { target: { value: 'org-1' } });
   for (const name of names) fireEvent.click(screen.getByTestId(`obj-${name}`));
   fireEvent.click(screen.getByTestId('seed-wizard-next'));
@@ -340,6 +339,7 @@ const THREE_OBJECT_DESCRIBES: Record<string, Record<string, unknown>[]> = {
 describe('SeedPage', () => {
   beforeEach(() => {
     quickSeed.forceIdle = false;
+    mutationTypes.clear();
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useAppStore.setState({ navigationIntent: null });
     mockCloneDescribeMutate.mockClear();
@@ -382,11 +382,27 @@ describe('SeedPage', () => {
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
   });
 
-  it('should render seed page with mode selector', () => {
+  it('opens on the template gallery, the other ways to seed listed under it', () => {
+    // The gallery sat behind "AI Generate" then "Start from Scratch": a
+    // trailblazer without an AI key read both as the opposite of a quick start.
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
     expect(screen.getByTestId('seed-page')).toBeDefined();
+    const gallery = screen.getByTestId('template-gallery');
+    const otherWays = screen.getByTestId('seed-other-ways');
+    expect(gallery.compareDocumentPosition(otherWays) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(otherWays.textContent).toContain('Other ways to seed');
     expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
+    expect(screen.queryByTestId('back-to-modes')).toBeNull();
+  });
+
+  it('offers no card that does nothing above the gallery', () => {
+    // "Browse Templates" had a handler that did nothing: the gallery was below it.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    expect(screen.queryByTestId('guided-first-step-card')).toBeNull();
   });
 
   it('should show title in page header', () => {
@@ -396,22 +412,24 @@ describe('SeedPage', () => {
     expect(screen.getByText('Seed Data')).toBeDefined();
   });
 
-  it('should render 3 mode cards in selector', () => {
+  it('lists the three other ways to seed, the first named for what it does', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
-    expect(screen.getByTestId('mode-card-ai')).toBeDefined();
+    expect(screen.getByTestId('mode-card-generate').textContent).toContain('Generate data');
     expect(screen.getByTestId('mode-card-csv')).toBeDefined();
     expect(screen.getByTestId('mode-card-clone')).toBeDefined();
+    expect(screen.queryByText('AI Generate')).toBeNull();
   });
 
-  it('should show AI fork selector when clicking AI card', () => {
+  it('opens the wizard straight from Generate data, a persona an option in it', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    expect(screen.getByTestId('ai-fork-selector')).toBeDefined();
-    expect(screen.getByTestId('fork-card-persona')).toBeDefined();
-    expect(screen.getByTestId('fork-card-scratch')).toBeDefined();
-    expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
+    expect(screen.getByTestId('seed-step-select-content')).toBeDefined();
+    expect(screen.getByTestId('org-selector')).toBeDefined();
+    expect(screen.getByTestId('seed-persona-choice').textContent).toContain('(optional)');
+    expect(screen.queryByTestId('persona-gallery')).toBeNull();
+    expect(screen.queryByTestId('template-gallery')).toBeNull();
   });
 
   it('should show CsvUploadWizard when clicking CSV card', () => {
@@ -430,42 +448,37 @@ describe('SeedPage', () => {
     expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
   });
 
-  it('should return to mode selector when clicking back', () => {
+  it('goes back to the gallery from another way to seed', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
     fireEvent.click(screen.getByTestId('mode-card-csv'));
     expect(screen.getByTestId('csv-upload-wizard')).toBeDefined();
 
     fireEvent.click(screen.getByTestId('back-to-modes'));
+    expect(screen.getByTestId('template-gallery')).toBeDefined();
     expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
   });
 
-  it('should show wizard with org selector after navigating AI > Start from Scratch', () => {
+  it('goes back to the gallery from the wizard', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    fireEvent.click(screen.getByTestId('fork-card-scratch'));
-    expect(screen.getByTestId('seed-step-select-content')).toBeDefined();
-    expect(screen.getByTestId('org-selector')).toBeDefined();
-  });
-
-  it('should show PersonaGallery after navigating AI > Choose a Persona', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    fireEvent.click(screen.getByTestId('fork-card-persona'));
-    expect(screen.getByTestId('persona-gallery')).toBeDefined();
-  });
-
-  it('should navigate back from AI sub-mode to fork selector', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    fireEvent.click(screen.getByTestId('fork-card-scratch'));
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
     expect(screen.getByTestId('seed-wizard')).toBeDefined();
 
     fireEvent.click(screen.getByTestId('back-to-modes'));
-    expect(screen.getByTestId('ai-fork-selector')).toBeDefined();
+    expect(screen.getByTestId('template-gallery')).toBeDefined();
+  });
+
+  it('asks the extension for neither a personal-data scan nor a SOQL draft', () => {
+    // Both were set up on every render of the page, the scan sent on the
+    // configure step: neither served a seed, whose values are all generated.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
+
+    expect(mutationTypes.has('seed:describe-object')).toBe(true);
+    expect(mutationTypes.has('precheck:pii-scan')).toBe(false);
+    expect(mutationTypes.has('ai:nl2soql')).toBe(false);
   });
 
   it('should display error from bridge query', () => {
@@ -477,9 +490,8 @@ describe('SeedPage', () => {
     };
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
-    // Switch to AI scratch mode to trigger error display
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    fireEvent.click(screen.getByTestId('fork-card-scratch'));
+    // Open the wizard, where the error is displayed
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
 
     expect(screen.getByTestId('seed-error')).toBeDefined();
     expect(screen.getByText('Connection failed')).toBeDefined();
@@ -488,18 +500,23 @@ describe('SeedPage', () => {
   it('should show InfoTooltip on the Select step header', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    fireEvent.click(screen.getByTestId('fork-card-scratch'));
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
     expect(screen.getByTestId('info-tooltip-help.seed.selectObjects')).toBeDefined();
   });
 
-  it('should switch to wizard when persona is selected from gallery', () => {
+  it('takes a persona chosen in the wizard, and says which, the choice folded away', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    fireEvent.click(screen.getByTestId('fork-card-persona'));
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
+    const choice = screen.getByTestId('seed-persona-choice') as HTMLDetailsElement;
+    // jsdom does not unfold a <details> on a click of its summary: unfolded by hand.
+    choice.open = true;
+    fireEvent(choice, new Event('toggle'));
+    expect(choice.open).toBe(true);
     fireEvent.click(screen.getByTestId('mock-persona-select'));
-    // After persona selection, should switch to ai-scratch mode (wizard)
+
+    expect(choice.open).toBe(false);
+    expect(choice.textContent).toContain('Persona chosen: Test');
     expect(screen.getByTestId('seed-wizard')).toBeDefined();
   });
 
@@ -525,9 +542,8 @@ describe('SeedPage', () => {
 
     render(<SeedPage />);
 
-    expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+    expect(screen.getByTestId('template-gallery')).toBeDefined();
     expect(screen.queryByTestId('clone-wizard-container')).toBeNull();
-    expect(screen.getByTestId('back-to-modes')).toBeDefined();
   });
 
   it('selects the recommended org once a template is picked', () => {
@@ -543,7 +559,7 @@ describe('SeedPage', () => {
     expect(selector.value).toBe('org-2');
   });
 
-  it('asks for the org when the recommendation named none', () => {
+  it('preselects the org selected in the panel when the recommendation named none', () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     useAppStore.setState({ navigationIntent: { route: 'seed', seedMode: 'quick-seed' } });
 
@@ -551,15 +567,23 @@ describe('SeedPage', () => {
     fireEvent.click(screen.getByTestId('mock-template-select'));
 
     const selector = screen.getByTestId('quick-seed-org-selector') as HTMLSelectElement;
-    expect(selector.value).toBe('');
+    expect(selector.value).toBe('org-1');
   });
 
-  it('opens on the mode selector when it was reached without a recommendation', () => {
-    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+  it('reached without a recommendation, opens on the gallery and a template on its one confirmation, the org preselected', () => {
+    // From the launcher or Welcome the page opened on a mode selector, and the
+    // template's org step asked for an org the panel had selected already.
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-2' });
 
     render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mock-template-select'));
 
-    expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
+    expect(screen.getByTestId('quick-seed-confirm')).toBeDefined();
+    expect((screen.getByTestId('quick-seed-org-selector') as HTMLSelectElement).value).toBe(
+      'org-2',
+    );
+    expect(screen.getAllByRole('button', { name: 'Start Seeding' })).toHaveLength(1);
+    expect(screen.queryByTestId('template-gallery')).toBeNull();
   });
   it('saves the template the run was sent when Save as template is clicked on the results', () => {
     quickSeed.forceIdle = true;
@@ -573,8 +597,7 @@ describe('SeedPage', () => {
       refetch: mockDescribeGlobalRefetch,
     };
     const { rerender } = render(<SeedPage />);
-    fireEvent.click(screen.getByTestId('mode-card-ai'));
-    fireEvent.click(screen.getByTestId('fork-card-scratch'));
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
     fireEvent.change(screen.getByTestId('org-selector'), { target: { value: 'org-1' } });
     fireEvent.click(screen.getByTestId('obj-Account'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));

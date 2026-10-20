@@ -26,6 +26,7 @@
     "org.tagsPlaceholder",
     "reports.context.decisionCount",
     "seed.csv.mapper.incompatible",
+    "seed.results.errorGroup",
     "seed.templates.salesCloudStarter.name",
     "seed.templates.serviceCloudStarter.name",
     "sidePanel.orgType.devPro",

@@ -102,13 +102,11 @@ See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough. It als
 No real data to copy yet? The **Seed** module generates test data instead:
 
 1. Navigate to **Seed** from the launcher's Modules list
-2. Choose a seed mode from the mode selector: **AI Generate**, **CSV Upload**, or **Clone from Org**
-3. For **AI Generate**: Select your org, pick objects, set record counts, configure field rules, then execute
+2. Pick a template from the gallery Seed opens on -- **Minimal Demo**, marked _Start here_, fits a Developer Edition -- check its record counts and the org, preselected, and press **Start Seeding**; or pick one of the other ways under it: **Generate data**, **CSV Upload**, or **Clone from Org**
+3. For **Generate data**: Select your org, pick objects, set record counts, configure field rules, then execute
 4. For **CSV Upload**: Select your org and object, drag-and-drop a CSV file, map columns, validate, then execute
 5. For **Clone from Org**: Select source and target orgs, pick objects to clone, preview the insertion order, then execute
-6. View results with per-object record counts, error details, and export options
-
-The **NL2SOQL** helper in Step 1 lets you describe what you want in plain English (e.g., "All accounts created this month with more than 10 employees") and generates the SOQL query for you.
+6. View results with per-object record counts, refusals grouped by what refused them, a created record to open in Salesforce, and export options
 
 ---
 

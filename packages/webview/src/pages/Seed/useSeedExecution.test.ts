@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import type { SeedTemplate } from '@sandforge/shared';
 
 import { useSeedExecution } from './useSeedExecution';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { CheckedRelation } from './seedRelationDrafts';
 
@@ -24,15 +25,21 @@ const bridge = vi.hoisted(() => ({
   >(),
 }));
 
+/** The options each mutation was set up with, by request type. */
+const mutationOptions = vi.hoisted(() => new Map<string, unknown>());
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: bridge.mutate,
-    data: null,
-    loading: bridge.loading,
-    error: null,
-    reset: vi.fn(),
-    requestId: bridge.requestId,
-  }),
+  useBridgeMutation: (type: string, options: unknown) => {
+    mutationOptions.set(type, options);
+    return {
+      mutate: bridge.mutate,
+      data: null,
+      loading: bridge.loading,
+      error: null,
+      reset: vi.fn(),
+      requestId: bridge.requestId,
+    };
+  },
 }));
 
 vi.mock('../../hooks/useOperationProgress', () => ({
@@ -70,6 +77,25 @@ describe('useSeedExecution', () => {
     bridge.loading = false;
     bridge.requestId = null;
     bridge.progress.clear();
+  });
+
+  it('waits on its run as long as a write run takes, and says the run may still be writing when it stops waiting', () => {
+    // Held to 120 s, a long run lost its page and said "Try again" while it
+    // went on writing in the extension.
+    renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Account'],
+        {},
+        [],
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    expect(mutationOptions.get('seed:execute')).toMatchObject({
+      timeoutMs: WRITE_RUN_TIMEOUT_MS,
+      runOutlivesWait: true,
+    });
   });
 
   it('shows the progress of the run it started, not of another run reporting at the same time', () => {

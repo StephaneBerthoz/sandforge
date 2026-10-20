@@ -251,7 +251,10 @@ describe('SeedOpsHandler REST insert error accounting', () => {
     expect(result.rows).toEqual([
       { id: '003000000000001' },
       {
-        error: 'Phone must be written +33 X XX XX XX XX.',
+        // The refusal's text carries its code and the fields it named, as
+        // the results group it by them.
+        error:
+          'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33 X XX XX XX XX. [Phone]',
         errorDetails: [
           {
             statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',

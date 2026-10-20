@@ -11,7 +11,6 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type { SeedRelationDraft, SeedRelationDraftPatch } from '../../stores/useSeedWizardStore';
-import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
@@ -22,7 +21,6 @@ import { useSeedFieldConfig } from './useSeedFieldConfig';
 import { useSeedRelations } from './useSeedRelations';
 import type { CheckedRelation, RelationLookup } from './seedRelationDrafts';
 import { useSeedExecution } from './useSeedExecution';
-import { useSeedNL2SOQL } from './useSeedNL2SOQL';
 import { recordTypesMixed } from './seedRecordTypeChoices';
 
 /** Draft state safe to persist (no credentials, no execution results, no PII). */
@@ -31,13 +29,6 @@ interface SeedDraftState {
   selectedOrgId: string;
   selectedObjects: string[];
   volumes: Record<string, { count: number; batchSize: number }>;
-  nl2soqlQuery: string;
-}
-
-/** PII field detection result for a single object. */
-export interface PIIObjectResult {
-  objectName: string;
-  piiFields: Array<{ fieldName: string; piiType: string; confidence: number }>;
 }
 
 /** Return type for the useSeedWizardState hook. */
@@ -94,17 +85,6 @@ export interface SeedWizardState {
   handleRemoveRelation: (index: number) => void;
   handleChangeRelation: (index: number, patch: SeedRelationDraftPatch) => void;
 
-  /* NL2SOQL */
-  nl2soqlQuery: string;
-  setNl2soqlQuery: (q: string) => void;
-  handleNl2soql: () => void;
-  nl2soql: ReturnType<typeof useNL2SOQL>;
-
-  /* PII */
-  piiResults: PIIObjectResult[];
-  hasPiiWarnings: boolean;
-  piiLoading: boolean;
-
   /* Execution */
   isRunning: boolean;
   executionResult: SeedExecutionResult | undefined;
@@ -153,7 +133,6 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     selectedOrgId: '',
     selectedObjects: [],
     volumes: {},
-    nl2soqlQuery: '',
   };
 
   const [draft, setDraft] = useWebviewPersistedState<SeedDraftState>('seedDraft', defaultSeedDraft);
@@ -175,10 +154,8 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     orgSelection.selectedOrgId,
     objectSelection.selectedObjects,
     currentStep,
-    t,
   );
   const relations = useSeedRelations(fieldConfig.fieldConfigs, fieldConfig.volumes);
-  const nl2soqlState = useSeedNL2SOQL(orgSelection.selectedOrgId);
   const execution = useSeedExecution(
     orgSelection.selectedOrgId,
     objectSelection.selectedObjects,
@@ -204,9 +181,6 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     for (const objName of saved.selectedObjects) {
       store.handleToggleObject(objName);
     }
-    if (saved.nl2soqlQuery) {
-      nl2soqlState.setNl2soqlQuery(saved.nl2soqlQuery);
-    }
   });
   useEffect(() => {
     restoreDraft.current();
@@ -222,14 +196,12 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
       selectedOrgId: orgSelection.selectedOrgId,
       selectedObjects: objectSelection.selectedObjects,
       volumes: fieldConfig.volumes,
-      nl2soqlQuery: nl2soqlState.nl2soqlQuery,
     });
   }, [
     currentStep,
     orgSelection.selectedOrgId,
     objectSelection.selectedObjects,
     fieldConfig.volumes,
-    nl2soqlState.nl2soqlQuery,
     setDraft,
   ]);
 
@@ -344,7 +316,6 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     ...objectSelection,
     ...fieldConfig,
     ...relations,
-    ...nl2soqlState,
     ...execution,
     selectedPersona,
     setSelectedPersona,

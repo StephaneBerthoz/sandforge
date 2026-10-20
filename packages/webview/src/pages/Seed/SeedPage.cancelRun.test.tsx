@@ -87,11 +87,20 @@ const mockOrgs: SalesforceOrg[] = [
   },
 ];
 
-/** Navigate the mode selector down to the AI-from-scratch wizard. */
+/** The aborts the page posted: the gallery it opens on asks for the saved templates too. */
+function aborts(): Array<{ type: string; payload: { operationId: string } }> {
+  return mockPostMessage.mock.calls
+    .map(
+      ([envelope]) =>
+        (envelope as { payload: { type: string; payload: { operationId: string } } }).payload,
+    )
+    .filter((message) => message.type === 'execution:abort');
+}
+
+/** Open the wizard from the other ways to seed, under the gallery. */
 function openWizard(): void {
   render(<SeedPage />);
-  fireEvent.click(screen.getByTestId('mode-card-ai'));
-  fireEvent.click(screen.getByTestId('fork-card-scratch'));
+  fireEvent.click(screen.getByTestId('mode-card-generate'));
 }
 
 /** Emit the `operation:progress` event the run's id is carried on. */
@@ -150,12 +159,8 @@ describe('SeedPage — cancelling a running seed', () => {
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Cancel' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
-    expect(mockPostMessage).toHaveBeenCalledOnce();
-    const envelope = mockPostMessage.mock.calls[0][0] as {
-      payload: { type: string; payload: { operationId: string } };
-    };
-    expect(envelope.payload.type).toBe('execution:abort');
-    expect(envelope.payload.payload.operationId).toBe('op-own');
+    expect(aborts()).toHaveLength(1);
+    expect(aborts()[0].payload.operationId).toBe('op-own');
   });
 
   it('sends nothing when the confirmation is dismissed', () => {
@@ -166,6 +171,6 @@ describe('SeedPage — cancelling a running seed', () => {
     expect(screen.getByTestId('danger-title')).toBeDefined();
     fireEvent.click(screen.getByTestId('danger-overlay'));
 
-    expect(mockPostMessage).not.toHaveBeenCalled();
+    expect(aborts()).toEqual([]);
   });
 });

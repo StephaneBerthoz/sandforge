@@ -3,17 +3,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '../../i18n';
 import { TemplateGallery } from './TemplateGallery';
 
-/* Polyfill dialog showModal/close for jsdom */
-HTMLDialogElement.prototype.showModal =
-  HTMLDialogElement.prototype.showModal ??
-  function showModal(this: HTMLDialogElement) {
-    this.setAttribute('open', '');
-  };
-HTMLDialogElement.prototype.close =
-  HTMLDialogElement.prototype.close ??
-  function close(this: HTMLDialogElement) {
-    this.removeAttribute('open');
-  };
 import type { TemplateGalleryItem } from './useTemplateGallery';
 
 /* ------------------------------------------------------------------ */
@@ -29,6 +18,7 @@ const mockItems: TemplateGalleryItem[] = [
     totalRecords: 7601,
     tags: ['prebuilt', 'sales'],
     isPrebuilt: true,
+    recommended: false,
     updatedAt: '2026-01-01T00:00:00.000Z',
     template: {
       id: 'prebuilt-sales-cloud-starter',
@@ -67,6 +57,7 @@ const mockItems: TemplateGalleryItem[] = [
     totalRecords: 350,
     tags: ['prebuilt', 'demo'],
     isPrebuilt: true,
+    recommended: false,
     updatedAt: '2026-01-01T00:00:00.000Z',
     template: null,
   },
@@ -116,22 +107,34 @@ describe('TemplateGallery', () => {
     expect(screen.getByTestId('template-card-prebuilt-minimal-demo')).toBeDefined();
   });
 
-  it('opens customization modal when Use This is clicked', async () => {
+  it('hands the template whose Use This was pressed straight to the run, with no dialog first', async () => {
     const salesTemplate = mockItems[0].template;
     mockLoadFullTemplate.mockResolvedValue(salesTemplate);
+    const onSelectTemplate = vi.fn();
 
-    render(<TemplateGallery onSelectTemplate={vi.fn()} />);
+    render(<TemplateGallery onSelectTemplate={onSelectTemplate} />);
 
     const useThisButtons = screen.getAllByTestId('btn-use-template');
     fireEvent.click(useThisButtons[0]);
 
     await waitFor(() => {
-      expect(mockLoadFullTemplate).toHaveBeenCalledWith('prebuilt-sales-cloud-starter');
+      expect(onSelectTemplate).toHaveBeenCalledWith(salesTemplate);
     });
+    expect(mockLoadFullTemplate).toHaveBeenCalledWith('prebuilt-sales-cloud-starter');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('hands nothing on when the saved template could not be loaded', async () => {
+    mockLoadFullTemplate.mockResolvedValue(null);
+    const onSelectTemplate = vi.fn();
+
+    render(<TemplateGallery onSelectTemplate={onSelectTemplate} />);
+    fireEvent.click(screen.getAllByTestId('btn-use-template')[1]);
 
     await waitFor(() => {
-      expect(screen.getByTestId('template-customize-modal')).toBeDefined();
+      expect(mockLoadFullTemplate).toHaveBeenCalledWith('prebuilt-minimal-demo');
     });
+    expect(onSelectTemplate).not.toHaveBeenCalled();
   });
 
   it('renders gallery title and subtitle', () => {

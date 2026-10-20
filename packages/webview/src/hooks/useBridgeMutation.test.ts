@@ -205,6 +205,25 @@ describe('useBridgeMutation', () => {
     expect(result.current.data).toBeNull();
   });
 
+  it('says a run it stopped waiting for may still be writing when asked to', () => {
+    const { result } = renderHook(() =>
+      useBridgeMutation<unknown>('seed:execute', {
+        responseType: 'seed:execute:response',
+        timeoutMs: 2 * 60 * 60 * 1000,
+        runOutlivesWait: true,
+      }),
+    );
+
+    act(() => {
+      result.current.mutate({ orgId: 'org-1' });
+    });
+    act(() => {
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+    });
+
+    expect(result.current.error).toContain('after 2 h, but the run may still be writing');
+  });
+
   it('should support mutate without payload', () => {
     const { result } = renderHook(() => useBridgeMutation<{ orgs: string[] }>('org:list'));
 

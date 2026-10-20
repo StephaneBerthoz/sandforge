@@ -4,14 +4,6 @@ import type { ExecutionAbortResponse, SyncRunControlAnswer } from '@sandforge/sh
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 
-/**
- * How long the page waits for the answer of a run it started. A paused run
- * waits on a person, for as long as that person takes; held to the two
- * minutes a run used to be given, a long or paused run lost its page — the
- * bar, its Pause and its Cancel — while it went on writing.
- */
-export const SYNC_RUN_TIMEOUT_MS = 12 * 60 * 60 * 1000;
-
 /** What the page can do with the run, or the simulation, it started. */
 export interface SyncRunControls {
   /** Whether the extension said the run is held before its next object or batch. */

@@ -409,45 +409,6 @@ const MOCK_SEED_TEMPLATES = {
 };
 
 /**
- * Objects a `seed:describe-global` answers with, dependencies included.
- *
- * A three-entry list would shoot a panel no real org produces: the describe
- * returns every createable object, and the dependency badges — the thing that
- * makes the picker worth looking at — only appear on objects that have one.
- */
-const MOCK_SEED_OBJECTS = {
-  objects: [
-    { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
-    { apiName: 'Contact', label: 'Contact', recordCount: 0, dependencies: ['Account'] },
-    { apiName: 'Lead', label: 'Lead', recordCount: 0, dependencies: [] },
-    {
-      apiName: 'Opportunity',
-      label: 'Opportunity',
-      recordCount: 0,
-      dependencies: ['Account', 'Pricebook2'],
-    },
-    { apiName: 'Case', label: 'Case', recordCount: 0, dependencies: ['Account', 'Contact'] },
-    { apiName: 'Campaign', label: 'Campaign', recordCount: 0, dependencies: [] },
-    {
-      apiName: 'CampaignMember',
-      label: 'Campaign Member',
-      recordCount: 0,
-      dependencies: ['Campaign', 'Contact', 'Lead'],
-    },
-    { apiName: 'Product2', label: 'Product', recordCount: 0, dependencies: [] },
-    { apiName: 'Pricebook2', label: 'Price Book', recordCount: 0, dependencies: [] },
-    {
-      apiName: 'PricebookEntry',
-      label: 'Price Book Entry',
-      recordCount: 0,
-      dependencies: ['Pricebook2', 'Product2'],
-    },
-    { apiName: 'Task', label: 'Task', recordCount: 0, dependencies: ['Account', 'Contact'] },
-    { apiName: 'Event', label: 'Event', recordCount: 0, dependencies: ['Account', 'Contact'] },
-  ],
-};
-
-/**
  * Objects a `sync:describe-global` answers with — API names only, per the
  * contract. Long enough that the "Add Object" picker reads like a real org's
  * describe rather than a fixture with room for three.
@@ -1042,12 +1003,8 @@ test.describe('Marketplace Screenshots', () => {
     const bridge = await openModule(page, 'seed');
     await page.waitForSelector('[data-testid="seed-page"]');
 
-    // Seed lands on its three-card mode selector; the gallery that carries the
-    // product's promise ("fill an empty dev org") is two clicks in, down the
-    // AI branch, and nothing fetches until it mounts.
-    await page.getByTestId('mode-card-ai').click();
-    await page.getByTestId('fork-card-scratch').click();
-
+    // Seed lands on its template gallery, the product's promise ("fill an
+    // empty dev org"), with the other ways to seed under it.
     // Unanswered, the gallery renders three grey 180px slabs instead of cards.
     await bridge.waitForMessage('seed:template:list', { timeout: 10_000 });
     await respondToAll(
@@ -1057,19 +1014,8 @@ test.describe('Marketplace Screenshots', () => {
       MOCK_SEED_TEMPLATES,
     );
 
-    // The object picker is gated on a chosen org — leaving it unpicked shoots
-    // a wizard step holding one empty dropdown.
-    await page.getByTestId('org-selector').selectOption('org-tgt-1');
-    await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
-    await respondToAll(
-      page,
-      'seed:describe-global',
-      'seed:describe-global:response',
-      MOCK_SEED_OBJECTS,
-    );
-
     await page.waitForSelector('[data-testid="template-card-tpl-uat-refresh"]');
-    await page.waitForSelector('[data-testid="obj-Account"]');
+    await page.waitForSelector('[data-testid="seed-mode-selector"]');
     await settle(page);
     await shoot(page, 'seed');
   });

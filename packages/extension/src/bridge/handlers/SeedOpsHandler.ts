@@ -66,7 +66,11 @@ import type {
   InsertResult,
   SeedProgressEvent,
 } from '../../modules/seed/SeedOrchestrator.js';
-import { bulkSaveErrorDetail, saveErrorDetail } from '../../core/common/existingRecordMatch.js';
+import {
+  bulkSaveErrorDetail,
+  formatSaveError,
+  saveErrorDetail,
+} from '../../core/common/existingRecordMatch.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import {
   personRecordTypes,
@@ -152,11 +156,16 @@ const MAX_ERRORS_PER_RECORD = 5;
  * {@link MAX_ERRORS_PER_RECORD}. Only the first used to be: a row refused for
  * a missing name and a bad email said only the first, and the run that fixed
  * it met the second.
+ *
+ * Each error is written with its code and the fields it named
+ * (`formatSaveError`), as a Bulk API job's `sf__Error` carries them: the
+ * message alone was kept, and the results could neither group the refusals of
+ * a run by what refused them nor say what to do about one.
  */
-function recordErrorText(errors: Array<{ message?: string }> | undefined): string {
+function recordErrorText(errors: readonly unknown[] | undefined): string {
   const messages = (errors ?? [])
-    .map((error) => error.message)
-    .filter((message): message is string => typeof message === 'string' && message !== '');
+    .map((error) => formatSaveError(error))
+    .filter((message) => message !== '' && message !== 'Unknown error');
   if (messages.length === 0) return 'Unknown insert error';
   const kept = messages.slice(0, MAX_ERRORS_PER_RECORD).join('; ');
   const more = messages.length - MAX_ERRORS_PER_RECORD;

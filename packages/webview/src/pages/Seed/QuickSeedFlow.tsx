@@ -1,14 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { Input } from '../../components/ui/Input';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
+import { SeedResultErrors } from './SeedResultErrors';
+import { SeedOpenRecord } from './SeedOpenRecord';
 import type { QuickSeedState } from './useQuickSeed';
 import type { BadgeVariant } from '../../components/ui/Badge';
 
@@ -27,15 +31,32 @@ const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   failure: 'error',
 };
 
-/** Renders the Quick Seed flow based on current phase. */
+/**
+ * Renders the Quick Seed flow based on current phase: one confirmation of the
+ * template picked — its record counts and the org, preselected, and a single
+ * Start — then the run, which can be stopped, and its results.
+ *
+ * The counts used to be set in a dialog whose "Start Seeding" started
+ * nothing, before a second step that asked for the org and had its own
+ * "Start Seeding": two buttons of one name, of which the first was not one.
+ */
 export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs }) => {
   const { t } = useTranslation();
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
-  const templateName = quickSeed.selectedTemplate
-    ? quickSeed.selectedTemplate.name.startsWith('seed.')
-      ? t(quickSeed.selectedTemplate.name)
-      : quickSeed.selectedTemplate.name
+  const template = quickSeed.selectedTemplate;
+  const templateName = template
+    ? template.name.startsWith('seed.')
+      ? t(template.name)
+      : template.name
     : '';
+  const countOf = (objectApiName: string, recordCount: number): number =>
+    quickSeed.customizedCounts[objectApiName] ?? recordCount;
+  const totalRecords = template
+    ? template.objects.reduce((sum, obj) => sum + countOf(obj.objectApiName, obj.recordCount), 0)
+    : 0;
+  const runOrg = orgs.find((org) => org.id === quickSeed.selectedOrgId);
+  const runOrgName = runOrg ? runOrg.alias || runOrg.username : '';
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-flow">
@@ -47,68 +68,100 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
         />
       )}
 
-      {/* ----- SELECT ORG PHASE ----- */}
-      {quickSeed.phase === 'selectOrg' && (
-        <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-select-org">
-          <Card>
-            <CardHeader
-              title={t('seed.quickSeed.templateSelected', { name: templateName })}
-              action={
-                <Badge variant="default">
-                  {t('seed.gallery.objects', {
-                    count: quickSeed.selectedTemplate?.objects.length ?? 0,
-                  })}
-                </Badge>
-              }
-            />
-            <CardBody>
-              <div className="flex flex-col gap-3">
-                <Select
-                  label={t('seed.quickSeed.selectOrg')}
-                  options={orgs.map((org) => ({
-                    value: org.id,
-                    label: orgOptionLabel(org, t),
-                  }))}
-                  value={quickSeed.selectedOrgId}
-                  onChange={(e) => quickSeed.selectOrg(e.target.value)}
-                  placeholder={t('seed.quickSeed.selectOrg')}
-                  data-testid="quick-seed-org-selector"
-                />
-
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={quickSeed.reset}
-                    data-testid="btn-quick-seed-back"
-                  >
-                    {t('common.back')}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={!quickSeed.selectedOrgId}
-                    onClick={quickSeed.execute}
-                    data-testid="btn-quick-seed-start"
-                  >
-                    {t('seed.quickSeed.startSeeding')}
-                  </Button>
-                </div>
+      {/* ----- CONFIRM PHASE: counts, org, Start ----- */}
+      {quickSeed.phase === 'confirm' && template && (
+        <Card data-testid="quick-seed-confirm">
+          <CardHeader
+            title={t('seed.quickSeed.templateSelected', { name: templateName })}
+            action={
+              <Badge variant="default">{t('seed.gallery.records', { count: totalRecords })}</Badge>
+            }
+          />
+          <CardBody>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1" data-testid="quick-seed-counts">
+                <span className="text-xs font-medium text-(--sf-text-primary)">
+                  {t('seed.recordCount')}
+                </span>
+                {template.objects.map((obj) => (
+                  <div key={obj.objectApiName} className="flex items-center gap-3 text-xs">
+                    <span className="w-40 truncate text-(--sf-text-primary)">
+                      {obj.objectApiName}
+                    </span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={countOf(obj.objectApiName, obj.recordCount)}
+                      onChange={(e) =>
+                        quickSeed.setCount(obj.objectApiName, parseInt(e.target.value, 10) || 1)
+                      }
+                      className="w-24"
+                      aria-label={t('a11y.recordCountFor', { object: obj.objectApiName })}
+                      data-testid={`quick-seed-count-${obj.objectApiName}`}
+                    />
+                  </div>
+                ))}
               </div>
-            </CardBody>
-          </Card>
-        </div>
+
+              <Select
+                label={t('seed.quickSeed.selectOrg')}
+                options={orgs.map((org) => ({
+                  value: org.id,
+                  label: orgOptionLabel(org, t),
+                }))}
+                value={quickSeed.selectedOrgId}
+                onChange={(e) => quickSeed.selectOrg(e.target.value)}
+                placeholder={t('seed.quickSeed.selectOrg')}
+                data-testid="quick-seed-org-selector"
+              />
+
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={quickSeed.reset}
+                  data-testid="btn-quick-seed-back"
+                >
+                  {t('common.back')}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={!quickSeed.selectedOrgId}
+                  onClick={quickSeed.execute}
+                  data-testid="btn-quick-seed-start"
+                >
+                  {t('seed.quickSeed.startSeeding')}
+                </Button>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
       )}
 
       {/* ----- EXECUTING PHASE ----- */}
       {quickSeed.phase === 'executing' && (
-        <div data-testid="quick-seed-executing">
+        <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-executing">
           <Step7Execute
             isRunning={quickSeed.isRunning}
             objectProgress={quickSeed.objectProgress}
             overallPercent={quickSeed.overallPercent}
             elapsedMs={quickSeed.elapsedMs}
           />
+          {/* Offered once the run has reported progress, i.e. is registered:
+              the wizard's Cancel, which the one-click path did not have. */}
+          {quickSeed.isRunning && quickSeed.operationId && (
+            <div>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => setShowCancelConfirm(true)}
+                data-testid="btn-quick-seed-cancel"
+              >
+                {t('common.cancelRun')}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -161,13 +214,11 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   />
                   {obj.errors.length > 0 && (
                     <CardBody>
-                      <div className="flex flex-col gap-1">
-                        {obj.errors.map((err, i) => (
-                          <p key={i} className="text-[10px] text-status-error">
-                            {err}
-                          </p>
-                        ))}
-                      </div>
+                      <SeedResultErrors
+                        objectApiName={obj.objectApiName}
+                        errors={obj.errors}
+                        recordsFailed={obj.recordsFailed}
+                      />
                     </CardBody>
                   )}
                 </Card>
@@ -177,7 +228,9 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 <SeedRunRemoval runId={quickSeed.executionResult.operationId} />
               )}
 
-              <div className="flex gap-2 pt-2" data-testid="quick-seed-result-actions">
+              <div className="flex flex-wrap gap-2 pt-2" data-testid="quick-seed-result-actions">
+                {/* The seeded data, in the org: the payoff, first. */}
+                <SeedOpenRecord result={quickSeed.executionResult} orgName={runOrgName} />
                 <Button
                   variant="secondary"
                   size="sm"
@@ -187,7 +240,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   {t('seed.quickSeed.backToGallery')}
                 </Button>
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
                   onClick={quickSeed.execute}
                   data-testid="btn-seed-again-quick"
@@ -203,6 +256,18 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
           )}
         </div>
       )}
+
+      <DangerConfirm
+        open={showCancelConfirm}
+        onClose={() => setShowCancelConfirm(false)}
+        onConfirm={() => {
+          setShowCancelConfirm(false);
+          quickSeed.cancel();
+        }}
+        title={t('common.cancelRun')}
+        description={t('seed.cancelRunConfirm')}
+        confirmText={t('common.cancel')}
+      />
     </div>
   );
 };

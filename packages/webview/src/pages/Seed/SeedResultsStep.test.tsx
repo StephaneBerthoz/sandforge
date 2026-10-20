@@ -5,6 +5,7 @@ import '../../i18n';
 import { SeedResultsStep } from './SeedResultsStep';
 
 const saveTemplateMutate = vi.hoisted(() => vi.fn());
+const openRecordMutate = vi.hoisted(() => vi.fn());
 const fileSaveMutate = vi.hoisted(() => vi.fn());
 const saveTemplateState = vi.hoisted(() => ({
   data: null as Record<string, unknown> | null,
@@ -20,6 +21,16 @@ vi.mock('../../hooks/useBridgeMutation', async (importOriginal) => {
   return {
     useBridgeMutation: (...args: Parameters<typeof actual.useBridgeMutation>) => {
       if (saveTemplateState.real) return actual.useBridgeMutation(...args);
+      if (args[0] === 'seed:open-record') {
+        return {
+          mutate: openRecordMutate,
+          data: null,
+          loading: false,
+          error: null,
+          reset: vi.fn(),
+          requestId: null,
+        };
+      }
       // The export goes through `file:save`, the template through its own route.
       if (args[0] === 'file:save') {
         return {
@@ -104,6 +115,7 @@ function executionResult(objectResults: SeedObjectResult[]): SeedExecutionResult
 describe('SeedResultsStep', () => {
   beforeEach(() => {
     saveTemplateMutate.mockClear();
+    openRecordMutate.mockClear();
     fileSaveMutate.mockClear();
     saveTemplateState.data = null;
     saveTemplateState.loading = false;
@@ -117,6 +129,7 @@ describe('SeedResultsStep', () => {
     // offered nothing, and the records stayed in the org.
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={seedTemplate()}
@@ -129,9 +142,105 @@ describe('SeedResultsStep', () => {
     expect(asked.map((message) => message.payload)).toEqual([{ runId: 'op-1' }]);
   });
 
+  it('opens first a created account in the org the run wrote to, Seed Again after it', () => {
+    // The results said how many records were written and led nowhere near them.
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({ createdIds: ['003000000000001AAA'] }),
+          objectResult({ objectApiName: 'Account', createdIds: ['001000000000001AAA'] }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    const buttons = screen.getAllByRole('button').map((b) => b.getAttribute('data-testid'));
+    expect(buttons.indexOf('btn-seed-open-record')).toBeLessThan(buttons.indexOf('btn-seed-again'));
+    const open = screen.getByTestId('btn-seed-open-record');
+    expect(open.textContent).toBe('Open a created Account in dev1');
+    fireEvent.click(open);
+
+    expect(openRecordMutate).toHaveBeenCalledWith({
+      runId: 'op-1',
+      recordId: '001000000000001AAA',
+    });
+  });
+
+  it('opens a record of the first object that created one when the run created no account', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({ createdIds: [] }),
+          objectResult({ objectApiName: 'Lead', createdIds: ['00Q000000000001AAA'] }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.getByTestId('btn-seed-open-record').textContent).toBe(
+      'Open a created Lead in dev1',
+    );
+  });
+
+  it('offers no record to open when the run listed none', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([objectResult()])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    expect(screen.queryByTestId('btn-seed-open-record')).toBeNull();
+  });
+
+  it('groups the refusals by reason, opens the three largest, and says what to do about the ones it knows', () => {
+    render(
+      <SeedResultsStep
+        orgName="dev1"
+        executionResult={executionResult([
+          objectResult({
+            recordsCreated: 0,
+            recordsFailed: 1_200,
+            errors: [
+              ...Array.from({ length: 4 }, () => 'STANDARD_PRICE_NOT_DEFINED: No standard price'),
+              'A_CODE: a',
+              'A_CODE: a',
+              'A_CODE: a',
+              'B_CODE: b',
+              'B_CODE: b',
+              'C_CODE: c',
+            ],
+          }),
+        ])}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    const open = [0, 1, 2, 3].map(
+      (i) =>
+        (screen.getByTestId(`seed-result-error-group-Contact-${i}`) as HTMLDetailsElement).open,
+    );
+    expect(open).toEqual([true, true, true, false]);
+    const first = screen.getByTestId('seed-result-error-group-Contact-0');
+    expect(first.textContent).toContain('4 × STANDARD_PRICE_NOT_DEFINED');
+    expect(first.textContent).toContain('standard price book');
+    // Ten refusals listed of the 1,200 the run counted.
+    expect(screen.getByTestId('seed-result-errors-listed-Contact').textContent).toBe(
+      'Grouped from the first 10 of the 1200 records refused.',
+    );
+  });
+
   it('offers no removal for a run that created nothing', () => {
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={{
           ...executionResult([objectResult({ recordsCreated: 0, recordsFailed: 10 })]),
           totalRecordsCreated: 0,
@@ -151,6 +260,7 @@ describe('SeedResultsStep', () => {
     template.objects.push({ ...template.objects[0], objectApiName: 'Account', recordCount: 5 });
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([
           objectResult({
             recordsCreated: 8,
@@ -191,6 +301,7 @@ describe('SeedResultsStep', () => {
   it('leaves the requested count empty when the step has no template', () => {
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult({ createdIds: [] })])}
         onSeedAgain={vi.fn()}
         template={null}
@@ -207,6 +318,7 @@ describe('SeedResultsStep', () => {
     saveTemplateState.saving = true;
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={seedTemplate()}
@@ -219,6 +331,7 @@ describe('SeedResultsStep', () => {
   it('calls a seed a cancel stopped cancelled, not partially complete, with what it created', () => {
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={{
           ...executionResult([objectResult()]),
           status: 'partial',
@@ -238,6 +351,7 @@ describe('SeedResultsStep', () => {
   it('names the fields that received generated sentences instead of AI values', () => {
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([
           objectResult({ aiFallback: { fields: ['Description', 'Title'], reason: 'no-answer' } }),
           objectResult({ objectApiName: 'Account' }),
@@ -255,6 +369,7 @@ describe('SeedResultsStep', () => {
   it('says a short AI answer apart from no answer', () => {
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([
           objectResult({ aiFallback: { fields: ['Title'], reason: 'short-answer' } }),
         ])}
@@ -272,6 +387,7 @@ describe('SeedResultsStep', () => {
   it('shows no fallback row when every AI field got an AI value', () => {
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={seedTemplate()}
@@ -286,6 +402,7 @@ describe('SeedResultsStep', () => {
     // a configuration worth keeping had to be rebuilt by hand every time.
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={seedTemplate()}
@@ -305,6 +422,7 @@ describe('SeedResultsStep', () => {
   it('cannot save a template before a run has produced one', () => {
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={null}
@@ -318,6 +436,7 @@ describe('SeedResultsStep', () => {
     saveTemplateState.data = { success: true, id: 'tpl-7' };
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={seedTemplate()}
@@ -332,6 +451,7 @@ describe('SeedResultsStep', () => {
     saveTemplateState.real = true;
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={seedTemplate()}
@@ -368,6 +488,7 @@ describe('SeedResultsStep', () => {
     saveTemplateState.loading = true;
     render(
       <SeedResultsStep
+        orgName="dev1"
         executionResult={executionResult([objectResult()])}
         onSeedAgain={vi.fn()}
         template={seedTemplate()}

@@ -12,6 +12,8 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SeedRunRemoval } from './SeedRunRemoval';
+import { SeedResultErrors } from './SeedResultErrors';
+import { SeedOpenRecord } from './SeedOpenRecord';
 
 const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   success: 'success',
@@ -58,6 +60,8 @@ export interface SeedResultsStepProps {
   executionResult: SeedExecutionResult | undefined;
   /** The template the run was built from, saved by "Save as template". */
   template: SeedTemplate | null;
+  /** How the org the run wrote to is named: its alias, or its username. */
+  orgName: string;
   /** Restart the wizard at the select step. */
   onSeedAgain: () => void;
 }
@@ -66,6 +70,7 @@ export interface SeedResultsStepProps {
 export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   executionResult,
   template,
+  orgName,
   onSeedAgain,
 }) => {
   const { t } = useTranslation();
@@ -170,11 +175,11 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                             })}
                       </p>
                     )}
-                    {obj.errors.map((err, i) => (
-                      <p key={i} className="text-[10px] text-status-error">
-                        {err}
-                      </p>
-                    ))}
+                    <SeedResultErrors
+                      objectApiName={obj.objectApiName}
+                      errors={obj.errors}
+                      recordsFailed={obj.recordsFailed}
+                    />
                   </div>
                 </CardBody>
               )}
@@ -187,8 +192,10 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
             <SeedRunRemoval runId={executionResult.operationId} />
           )}
 
-          {/* Action buttons: Save, Export CSV, Seed Again */}
-          <div className="flex gap-2 pt-2" data-testid="result-actions">
+          {/* Action buttons: the seeded data in the org first, then Save,
+              Export CSV, Seed Again */}
+          <div className="flex flex-wrap gap-2 pt-2" data-testid="result-actions">
+            <SeedOpenRecord result={executionResult} orgName={orgName} />
             <Button
               variant="secondary"
               size="sm"
@@ -209,7 +216,12 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
             >
               {t('seed.exportCsv')}
             </Button>
-            <Button variant="primary" size="sm" onClick={onSeedAgain} data-testid="btn-seed-again">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onSeedAgain}
+              data-testid="btn-seed-again"
+            >
               {t('seed.seedAgain')}
             </Button>
             {saveTemplate.data?.success === true && (

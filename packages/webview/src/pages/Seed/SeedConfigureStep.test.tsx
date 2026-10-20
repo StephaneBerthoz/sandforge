@@ -31,9 +31,6 @@ const renderStep = (): ReturnType<typeof render> =>
       onChangeConfig={vi.fn()}
       volumes={{ Account: { count: 100, batchSize: 200 } }}
       onChangeBatchSize={vi.fn()}
-      piiLoading={false}
-      hasPiiWarnings={false}
-      piiResults={[]}
     />,
   );
 
@@ -126,9 +123,6 @@ describe('SeedConfigureStep', () => {
           onChangeConfig={vi.fn()}
           volumes={{ Account: { count: 10, batchSize: 200 } }}
           onChangeBatchSize={vi.fn()}
-          piiLoading={false}
-          hasPiiWarnings={false}
-          piiResults={[]}
         />,
       );
     const listed = (): string[] =>

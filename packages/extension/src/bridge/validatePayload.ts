@@ -797,6 +797,14 @@ export const dataOpsSubjectRequestPayloadSchema = z.object({
 /** A Salesforce record Id, 15 or 18 characters. */
 const recordIdSchema = z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/, 'Not a record Id');
 
+// ── seed:open-record payload schema ─────────────────────────────────────────
+// The run and the record, never an address: the page opened is built from the
+// org the run kept, for a record it says the run created. Any other key is
+// refused, so no address or object can come from the page.
+export const seedOpenRecordPayloadSchema = z
+  .object({ runId: opaqueIdSchema, recordId: recordIdSchema })
+  .strict();
+
 /** `dataops:dsr:erase`: records of the request, per object, and how to erase them. */
 export const dataOpsSubjectErasePayloadSchema = dataOpsSubjectRequestPayloadSchema.extend({
   mode: z.enum(['anonymize', 'delete']),

@@ -1,17 +1,36 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type {
+  SalesforceOrg,
   SeedTemplate,
   SeedExecutionResult,
   SeedObjectConfig,
   FieldRuleConfig,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
+import { useSendMessage } from '../../hooks/useMessageBus';
+import { buildMessage } from '../../bridge/messageHelpers';
 import { useOrgStore } from '../../stores/useOrgStore';
 import type { ObjectProgress } from './Step7_Execute';
 
-/** Phase of the Quick Seed state machine. */
-export type QuickSeedPhase = 'idle' | 'selectOrg' | 'executing' | 'results';
+/**
+ * Phase of the Quick Seed state machine: the gallery, then one confirmation —
+ * the counts, the org, Start — then the run and its results.
+ */
+export type QuickSeedPhase = 'idle' | 'confirm' | 'executing' | 'results';
+
+/**
+ * Whether an org is one a seed may be aimed at without being asked for: it is
+ * connected, and it is not a production org. A Developer Edition is registered
+ * as production, as the platform says it is not a sandbox, and holds nobody's
+ * business: Seed is for it as for a sandbox, as Production Guard reads it.
+ */
+export function isSeedTargetCandidate(org: SalesforceOrg): boolean {
+  if (org.status !== 'connected') return false;
+  if (org.orgType !== 'Production') return true;
+  return org.metadata?.edition?.trim().toLowerCase() === 'developer edition';
+}
 
 /** State and actions for the Quick Seed flow. */
 export interface QuickSeedState {
@@ -36,13 +55,28 @@ export interface QuickSeedState {
   /** Error message, if any. */
   error: string | null;
 
-  /** Enter Quick Seed mode with a template and customized counts. */
-  startQuickSeed: (template: SeedTemplate, counts: Record<string, number>) => void;
+  /**
+   * Id of the running seed once the extension has reported progress for it,
+   * which is when it can be stopped; null otherwise. It is the id of the
+   * seed:execute request this hook sent.
+   */
+  operationId: string | null;
+
+  /** Open the confirmation of a template, with the counts given or its own. */
+  startQuickSeed: (template: SeedTemplate, counts?: Record<string, number>) => void;
+  /** Set how many records of an object the run writes. */
+  setCount: (objectApiName: string, count: number) => void;
   /** Set the target org ID. */
   selectOrg: (orgId: string) => void;
   /** Trigger seed execution. */
   execute: () => void;
-  /** Reset to idle. */
+  /**
+   * Stop the running seed, as the wizard's Cancel does: before its next
+   * object or batch, what it wrote staying in the org. Nothing is sent before
+   * the run has reported progress, as it is not registered until then.
+   */
+  cancel: () => void;
+  /** Back to the gallery. The org chosen stays chosen for the next template. */
   reset: () => void;
   /** Set or clear error. */
   setError: (e: string | null) => void;
@@ -50,14 +84,14 @@ export interface QuickSeedState {
 
 /** Landing instructions for a Quick Seed opened from another page. */
 export interface QuickSeedOptions {
-  /** Org the caller already named, preselected on the selection step. */
+  /** Org the caller already named, preselected on the confirmation. */
   initialOrgId?: string;
 }
 
 /**
  * Hook managing the Quick Seed state machine.
  *
- * Phases: idle -> selectOrg -> executing -> results.
+ * Phases: idle -> confirm -> executing -> results.
  * Uses the template's field rules directly as Smart Suggest defaults.
  */
 export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
@@ -71,9 +105,11 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
 
   const executeMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // The run goes on in the extension until it ends, and answers then: held
+    // to two minutes, a long seed lost its page and said "Try again" while
+    // it went on writing.
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   const isRunning = executeMutation.loading;
@@ -119,30 +155,39 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const initialOrgConsumedRef = useRef(false);
 
   const startQuickSeed = useCallback(
-    (template: SeedTemplate, counts: Record<string, number>) => {
+    (template: SeedTemplate, counts: Record<string, number> = {}) => {
       setSelectedTemplate(template);
       setCustomizedCounts(counts);
-      /* Whoever opened this flow already named an org; preselecting it saves the
-         user from naming it twice. Read at this moment, and only while it is
-         still connected: a stale id would aim the write at an org the selection
-         step no longer offers. The step still shows, and the run still needs a
-         click on Start. */
-      if (initialOrgId && !initialOrgConsumedRef.current) {
-        initialOrgConsumedRef.current = true;
-        const stillConnected = useOrgStore
-          .getState()
-          .orgs.some((org) => org.id === initialOrgId && org.status === 'connected');
-        if (stillConnected) {
-          setSelectedOrgId(initialOrgId);
-        }
-      }
-      setPhase('selectOrg');
+      /* The org is preselected, so that a first seed is a click on Start:
+         the one whoever opened this flow named, on the first template only;
+         else the one chosen for an earlier template; else the org selected in
+         the panel, unless it is a production org. Each is read at this moment,
+         and only while it is still connected: a stale id would aim the write
+         at an org the confirmation no longer offers. The confirmation still
+         shows, and the run still needs a click on Start. */
+      const orgs = useOrgStore.getState().orgs;
+      const connected = (id: string | null | undefined): boolean =>
+        !!id && orgs.some((org) => org.id === id && org.status === 'connected');
+      const named = initialOrgConsumedRef.current ? undefined : initialOrgId;
+      initialOrgConsumedRef.current = true;
+      setSelectedOrgId((chosen) => {
+        if (named && connected(named)) return named;
+        if (connected(chosen)) return chosen;
+        const panelOrgId = useOrgStore.getState().selectedOrgId;
+        const panelOrg = orgs.find((org) => org.id === panelOrgId);
+        return panelOrg && isSeedTargetCandidate(panelOrg) ? panelOrg.id : '';
+      });
+      setPhase('confirm');
       setError(null);
       setExecutionResult(undefined);
       setElapsedMs(0);
     },
     [initialOrgId],
   );
+
+  const setCount = useCallback((objectApiName: string, count: number) => {
+    setCustomizedCounts((prev) => ({ ...prev, [objectApiName]: Math.max(1, count) }));
+  }, []);
 
   const selectOrg = useCallback((orgId: string) => {
     setSelectedOrgId(orgId);
@@ -187,11 +232,17 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     });
   }, [selectedTemplate, selectedOrgId, customizedCounts, executeMutation]);
 
+  const sendMessage = useSendMessage();
+  const operationId = progress ? runId : null;
+  const cancel = useCallback(() => {
+    if (!operationId) return;
+    sendMessage(buildMessage<{ operationId: string }>('execution:abort', { operationId }));
+  }, [operationId, sendMessage]);
+
   const reset = useCallback(() => {
     setPhase('idle');
     setSelectedTemplate(null);
     setCustomizedCounts({});
-    setSelectedOrgId('');
     setExecutionResult(undefined);
     setError(null);
     setElapsedMs(0);
@@ -242,9 +293,12 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     overallPercent,
     elapsedMs,
     error,
+    operationId,
     startQuickSeed,
+    setCount,
     selectOrg,
     execute,
+    cancel,
     reset,
     setError,
   };

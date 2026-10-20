@@ -1,13 +1,10 @@
 import { useMemo } from 'react';
 
-import type { TFunction } from 'i18next';
 import type { FieldRuleType, PersonaMsg } from '@sandforge/shared';
 
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
-import type { PIIObjectResult } from './useSeedWizardState';
 import { useSeedFieldRules } from './useSeedFieldRules';
 import { useSeedVolumes } from './useSeedVolumes';
-import { useSeedPIIScan } from './useSeedPIIScan';
 
 /** Return type for the useSeedFieldConfig hook. */
 export interface SeedFieldConfigState {
@@ -34,40 +31,33 @@ export interface SeedFieldConfigState {
   fieldsError: string | null;
   /** Ask again for the objects not described yet. */
   retryFieldDescribes: () => void;
-  /** PII scan results per object. */
-  piiResults: PIIObjectResult[];
-  /** Whether any object has PII warnings. */
-  hasPiiWarnings: boolean;
-  /** Whether the PII scan is in progress. */
-  piiLoading: boolean;
   /** Volume configuration per object. */
   volumes: Record<string, { count: number; batchSize: number }>;
   /** Update the record count for an object. */
   handleChangeVolume: (objectApiName: string, count: number) => void;
   /** Update the batch size for an object. */
   handleChangeBatchSize: (objectApiName: string, size: number) => void;
-  /** Error from field describe or PII scan mutations, if any. */
-  fieldError: string | undefined;
 }
 
 /**
- * Composition facade that orchestrates field rules, volume settings,
- * and PII scanning for the Seed wizard.
+ * Composition facade that orchestrates field rules and volume settings for
+ * the Seed wizard.
  *
- * Delegates to three focused sub-hooks:
+ * Delegates to two focused sub-hooks:
  * - `useSeedFieldRules` — field selection and rule management
  * - `useSeedVolumes` — record counts and batch sizes per object
- * - `useSeedPIIScan` — PII scan mutation, results, error notification
+ *
+ * It also scanned the objects for personal data on the configure step, and
+ * listed what it found as fields to anonymize: on a seed, whose every value
+ * is generated, there was nothing to anonymize.
  */
 export function useSeedFieldConfig(
   selectedOrgId: string,
   selectedObjects: string[],
   currentStep: number,
-  t: TFunction,
 ): SeedFieldConfigState {
   const fieldRules = useSeedFieldRules(selectedOrgId, selectedObjects, currentStep);
   const volumeConfig = useSeedVolumes();
-  const piiScan = useSeedPIIScan(selectedOrgId, selectedObjects, currentStep, t);
 
   return useMemo(
     (): SeedFieldConfigState => ({
@@ -78,13 +68,9 @@ export function useSeedFieldConfig(
       fieldsReady: fieldRules.fieldsReady,
       fieldsError: fieldRules.fieldsError,
       retryFieldDescribes: fieldRules.retryFieldDescribes,
-      piiResults: piiScan.piiResults,
-      hasPiiWarnings: piiScan.hasPiiWarnings,
-      piiLoading: piiScan.piiLoading,
       volumes: volumeConfig.volumes,
       handleChangeVolume: volumeConfig.handleChangeVolume,
       handleChangeBatchSize: volumeConfig.handleChangeBatchSize,
-      fieldError: piiScan.piiError,
     }),
     [
       fieldRules.fieldConfigs,
@@ -94,10 +80,6 @@ export function useSeedFieldConfig(
       fieldRules.fieldsReady,
       fieldRules.fieldsError,
       fieldRules.retryFieldDescribes,
-      piiScan.piiResults,
-      piiScan.hasPiiWarnings,
-      piiScan.piiLoading,
-      piiScan.piiError,
       volumeConfig.volumes,
       volumeConfig.handleChangeVolume,
       volumeConfig.handleChangeBatchSize,

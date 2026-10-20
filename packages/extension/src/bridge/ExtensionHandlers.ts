@@ -672,7 +672,13 @@ export class ExtensionHandlers {
     // What a Sync run created, and its removal
     route(['sync:removal:info', 'sync:removal:list', 'sync:remove'], this.syncRemovalHandler);
     route(
-      ['seed:removal:info', 'seed:removal:list', 'seed:remove', 'seed:remove:sweep'],
+      [
+        'seed:removal:info',
+        'seed:removal:list',
+        'seed:remove',
+        'seed:remove:sweep',
+        'seed:open-record',
+      ],
       this.seedRemovalHandler,
     );
 

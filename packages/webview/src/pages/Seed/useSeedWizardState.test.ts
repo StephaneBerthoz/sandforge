@@ -81,15 +81,6 @@ function describeOf(objectApiName: string): Record<string, unknown> {
   };
 }
 
-vi.mock('../../hooks/useAIFeatures', () => ({
-  useNL2SOQL: () => ({
-    mutate: vi.fn(),
-    data: null,
-    loading: false,
-    error: null,
-  }),
-}));
-
 vi.mock('../../stores/useNotificationStore', () => ({
   useNotificationStore: () => vi.fn(),
 }));

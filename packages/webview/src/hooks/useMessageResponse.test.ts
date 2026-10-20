@@ -108,6 +108,33 @@ describe('useMessageResponse', () => {
     }
   });
 
+  it('says a run it stopped waiting for may still be writing, and never to try again', () => {
+    // A seed's page gave up after 120 s and said "Try again" while the run went
+    // on in the extension: a second run wrote its records twice.
+    const { result } = renderHook(() =>
+      useMessageResponse<unknown>({
+        requestType: 'seed:execute',
+        responseType: 'seed:execute:response',
+        timeoutMs: 12 * 60 * 60 * 1000,
+        runOutlivesWait: true,
+      }),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-run');
+    });
+    act(() => {
+      vi.advanceTimersByTime(12 * 60 * 60 * 1000);
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBe(
+      "SandForge stopped waiting for seed:execute after 12 h, but the run may still be writing. Monitor's Live Operations shows where it is; starting it again would write its records twice.",
+    );
+    expect(result.current.error).not.toContain('Try again');
+  });
+
   it('names the unanswered request in the timeout message', () => {
     const { result } = renderHook(() =>
       useMessageResponse<unknown>({

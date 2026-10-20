@@ -78,6 +78,9 @@ import type {
   SeedRemoveErrorResponse,
   SeedRemoveSweepResponse,
   SeedRemoveSweepErrorResponse,
+  SeedOpenRecordRequest,
+  SeedOpenRecordResponse,
+  SeedOpenRecordErrorResponse,
   SeedDescribeGlobalRequest,
   SeedDescribeObjectRequest,
   SeedTemplateSaveRequest,
@@ -535,6 +538,7 @@ export type WebViewToExtensionMessage =
   | SeedRemovalListRequest
   | SeedRemoveRequest
   | SeedRemoveSweepRequest
+  | SeedOpenRecordRequest
   | SeedDescribeGlobalRequest
   | SeedDescribeObjectRequest
   | SeedTemplateSaveRequest
@@ -771,6 +775,8 @@ export type ExtensionToWebViewMessage =
   | SeedRemoveErrorResponse
   | SeedRemoveSweepResponse
   | SeedRemoveSweepErrorResponse
+  | SeedOpenRecordResponse
+  | SeedOpenRecordErrorResponse
   // Sync
   | SyncConfigSaveResponse
   | SyncConfigLoadResponse

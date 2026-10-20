@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import Papa from 'papaparse';
 import type { CsvColumnMapping, CsvValidationResult, SeedFieldInfo } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 
 /** Step in the CSV import wizard. */
 export type CsvImportStep = 'upload' | 'map' | 'validate' | 'execute';
@@ -138,9 +139,10 @@ export function useCsvImport(t: TFunction): CsvImportState {
   const executeMutation = useBridgeMutation<CsvExecutionResult>('seed:csv:execute', {
     // SeedCsvHandler reports failures here, correlated to the request.
     errorType: 'seed:csv:error',
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // The import goes on in the extension until it ends, and answers then:
+    // held to two minutes, a long import lost its page while it went on writing.
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   const handleFileSelected = useCallback((selectedFile: File) => {

@@ -7,6 +7,7 @@ import type {
   CloneExecutionResult,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { useMessageListener } from '../../../hooks/useMessageBus';
 
 /** Clone wizard step identifiers. */
@@ -143,9 +144,10 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     // production guard blocking or its confirmation being declined included,
     // is reported on operation:failed alone: see the listener below.
     errorType: 'seed:clone:error',
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // The clone goes on in the extension until it ends, and answers then:
+    // held to two minutes, a long clone lost its page while it went on writing.
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   /* ------------------------------------------------------------------ */

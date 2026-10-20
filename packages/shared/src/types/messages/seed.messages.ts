@@ -196,6 +196,44 @@ export interface SeedRemoveErrorResponse extends BaseMessage {
   payload: { message: string; code: string; retryable: boolean };
 }
 
+/**
+ * `seed:open-record`. WebView -> Extension. Open in the browser the page of a
+ * record a Seed run created, in the org it wrote to.
+ *
+ * The request names the run and the record, never an address: the extension
+ * takes the object and the org from what the run kept, and opens only a
+ * record the run says it created.
+ */
+export interface SeedOpenRecordRequest extends BaseMessage {
+  type: 'seed:open-record';
+  payload: {
+    /** The run's id: its result's `operationId`. */
+    runId: string;
+    /** The record's id in the org the run wrote to. */
+    recordId: string;
+  };
+}
+
+/**
+ * `seed:open-record:response`. Extension -> WebView. What the browser did:
+ * VS Code may decline to open the page.
+ */
+export interface SeedOpenRecordResponse extends BaseMessage {
+  type: 'seed:open-record:response';
+  payload: { status: 'opened' } | { status: 'error'; message: string };
+}
+
+/**
+ * `seed:open-record:error`. Extension -> WebView. The record was not opened:
+ * the run is no longer kept (`NOT_KEPT`), it did not create that record
+ * (`NOT_CREATED`), or its org is gone or has no address a page can be built
+ * from (`ORG_NOT_FOUND`, `INVALID_INSTANCE_URL`).
+ */
+export interface SeedOpenRecordErrorResponse extends BaseMessage {
+  type: 'seed:open-record:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
 /** Request to save a seed template (create or update). */
 export interface SeedTemplateSaveRequest extends BaseMessage {
   type: 'seed:template:save';

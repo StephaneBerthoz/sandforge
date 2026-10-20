@@ -5,6 +5,14 @@ import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 
+/**
+ * The template a first seed is pointed at: a few hundred accounts, contacts
+ * and opportunities, which a Developer Edition's 5 MB of data storage holds.
+ * It came last, after two starters of thousands of records each; it is listed
+ * first and marked.
+ */
+const FIRST_SEED_TEMPLATE_ID = 'prebuilt-minimal-demo';
+
 /** Item shape for the template gallery grid. */
 export interface TemplateGalleryItem {
   /** Unique identifier. */
@@ -21,6 +29,8 @@ export interface TemplateGalleryItem {
   tags: string[];
   /** Whether this is a pre-built (constant) template. */
   isPrebuilt: boolean;
+  /** Whether this is the template a first seed is pointed at, listed first. */
+  recommended: boolean;
   /** Last update timestamp. */
   updatedAt: string;
   /** Full template for pre-built, null for saved (loaded on demand). */
@@ -79,10 +89,10 @@ export function useTemplateGallery(): TemplateGalleryState {
   const [loadResolve, setLoadResolve] = useState<((t: SeedTemplate | null) => void) | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  /* Map pre-built templates to gallery items */
+  /* Map pre-built templates to gallery items, the one for a first seed first */
   const prebuiltItems: TemplateGalleryItem[] = useMemo(
     () =>
-      PREBUILT_SEED_TEMPLATES.map((tpl) => ({
+      PREBUILT_SEED_TEMPLATES.map((tpl): TemplateGalleryItem => ({
         id: tpl.id,
         name: tpl.name,
         description: tpl.description,
@@ -90,9 +100,10 @@ export function useTemplateGallery(): TemplateGalleryState {
         totalRecords: tpl.objects.reduce((sum, o) => sum + o.recordCount, 0),
         tags: tpl.tags,
         isPrebuilt: true,
+        recommended: tpl.id === FIRST_SEED_TEMPLATE_ID,
         updatedAt: tpl.updatedAt,
         template: tpl,
-      })),
+      })).sort((a, b) => Number(b.recommended) - Number(a.recommended)),
     [],
   );
 
@@ -107,6 +118,7 @@ export function useTemplateGallery(): TemplateGalleryState {
         totalRecords: s.totalRecords,
         tags: s.tags,
         isPrebuilt: false,
+        recommended: false,
         updatedAt: s.updatedAt,
         template: null,
       })),

@@ -33,12 +33,12 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { useElapsedSince } from '../../hooks/useElapsedSince';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { FieldInfo } from './FieldMappingCanvas';
 import type { ObjectSetEntry } from './ObjectSetEditor';
-import { SYNC_RUN_TIMEOUT_MS } from './useSyncRunControls';
 
 /** Draft state safe to persist (no credentials, no execution results). */
 interface SyncDraftState {
@@ -511,13 +511,13 @@ export function useSyncPageData(): SyncPageData {
     responseType: 'sync:execute:response',
     // A bulk write runs past the 30 s default on real volumes, and a paused
     // run waits on a person; operation:progress keeps flowing meanwhile.
-    timeoutMs: SYNC_RUN_TIMEOUT_MS,
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
   });
 
   // Bridge mutation: simulate sync — the same reads, nothing written
   const simulateMutation = useBridgeMutation<SyncSimulationResult>('sync:simulate', {
     responseType: 'sync:simulate:response',
-    timeoutMs: SYNC_RUN_TIMEOUT_MS,
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
   });
 
   // Bridge mutation: persist the configuration a schedule runs by id

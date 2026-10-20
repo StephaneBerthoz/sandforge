@@ -33,6 +33,13 @@ export interface UseMessageResponseOptions {
    * where a caller wants such a push to stand in for its answer.
    */
   acceptUncorrelated?: boolean;
+  /**
+   * Whether the request starts a run the extension goes on with once the page
+   * stops waiting (default `false`): the timeout then says the run may still
+   * be writing, and that Live Operations shows it, instead of "Try again" —
+   * a second run would write its records twice.
+   */
+  runOutlivesWait?: boolean;
 }
 
 /** Duration in milliseconds before the `timedOut` flag is set. */
@@ -46,8 +53,8 @@ const FEEDBACK_TIMEOUT_MS = 10_000;
  * returned, as `t` does for a missing one.
  */
 function requestError(
-  key: 'bridge.timedOut' | 'bridge.failed' | 'bridge.rejected',
-  options: { request: string; seconds?: number },
+  key: 'bridge.timedOut' | 'bridge.runOutlivedWait' | 'bridge.failed' | 'bridge.rejected',
+  options: { request: string; seconds?: number; hours?: number },
 ): string {
   return i18n.isInitialized ? i18n.t(key, options) : key;
 }
@@ -136,7 +143,14 @@ export interface MessageResponseHandler<T> {
 export function useMessageResponse<T>(
   options: UseMessageResponseOptions,
 ): MessageResponseHandler<T> {
-  const { requestType, responseType, timeoutMs, errorType, acceptUncorrelated = false } = options;
+  const {
+    requestType,
+    responseType,
+    timeoutMs,
+    errorType,
+    acceptUncorrelated = false,
+    runOutlivesWait = false,
+  } = options;
 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
@@ -178,10 +192,15 @@ export function useMessageResponse<T>(
         if (mountedRef.current && activeRequestId.current === messageId) {
           setLoading(false);
           setError(
-            requestError('bridge.timedOut', {
-              request: requestType,
-              seconds: Math.round(timeoutMs / 1000),
-            }),
+            runOutlivesWait
+              ? requestError('bridge.runOutlivedWait', {
+                  request: requestType,
+                  hours: Math.round(timeoutMs / 3_600_000),
+                })
+              : requestError('bridge.timedOut', {
+                  request: requestType,
+                  seconds: Math.round(timeoutMs / 1000),
+                }),
           );
           activeRequestId.current = null;
         }
@@ -327,7 +346,7 @@ export function useMessageResponse<T>(
         removeErrorListener?.();
       };
     },
-    [requestType, responseType, timeoutMs, errorType, acceptUncorrelated],
+    [requestType, responseType, timeoutMs, errorType, acceptUncorrelated, runOutlivesWait],
   );
 
   const reset = useCallback(() => {

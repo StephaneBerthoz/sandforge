@@ -12,6 +12,7 @@ const mockItem: TemplateGalleryItem = {
   totalRecords: 7601,
   tags: ['prebuilt', 'sales'],
   isPrebuilt: true,
+  recommended: false,
   updatedAt: '2026-01-01T00:00:00.000Z',
   template: null,
 };
@@ -24,6 +25,7 @@ const savedItem: TemplateGalleryItem = {
   totalRecords: 500,
   tags: ['custom'],
   isPrebuilt: false,
+  recommended: false,
   updatedAt: '2026-02-01T00:00:00.000Z',
   template: null,
 };
@@ -58,6 +60,17 @@ describe('TemplateCard', () => {
 
     expect(screen.getByText('My Custom Template')).toBeDefined();
     expect(screen.getByText('A custom template for testing')).toBeDefined();
+  });
+
+  it('marks the template a first seed starts from, and no other', () => {
+    const { unmount } = render(
+      <TemplateCard item={{ ...mockItem, recommended: true }} onUseThis={vi.fn()} />,
+    );
+    expect(screen.getByTestId('template-recommended').textContent).toBe('Start here');
+    unmount();
+
+    render(<TemplateCard item={mockItem} onUseThis={vi.fn()} />);
+    expect(screen.queryByTestId('template-recommended')).toBeNull();
   });
 
   it('renders tag badges', () => {

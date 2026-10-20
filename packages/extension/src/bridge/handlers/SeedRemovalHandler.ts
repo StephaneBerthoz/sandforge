@@ -18,6 +18,7 @@ import {
 } from './HandlerTypes.js';
 import {
   validatePayload,
+  seedOpenRecordPayloadSchema,
   seedRemovalInfoPayloadSchema,
   seedRemovePayloadSchema,
   seedRemoveSweepPayloadSchema,
@@ -54,6 +55,8 @@ import {
   type SweepInput,
 } from '../../modules/forge/ForgeRunSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { recordPageUrl } from '../../modules/forge/recordPageUrl.js';
+import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 
 /** Message types handled by SeedRemovalHandler. */
 const SEED_REMOVAL_TYPES = new Set([
@@ -61,6 +64,7 @@ const SEED_REMOVAL_TYPES = new Set([
   'seed:removal:list',
   'seed:remove',
   'seed:remove:sweep',
+  'seed:open-record',
 ]);
 
 /** How long the read of what the target's flows create may take, for a sweep: as Forge's. */
@@ -91,6 +95,8 @@ const SWEEP_LIST_TIMEOUT_MS = 120_000;
  *   registry and in Live Operations under the id of the request, where Cancel
  *   stops it between two calls to the org, and recorded in the audit trail
  *   whatever its outcome.
+ * - `seed:open-record` — the page of a record the run created, opened in the
+ *   browser in the org it wrote to: the results' way to the data they seeded.
  */
 export class SeedRemovalHandler implements DomainHandler {
   private creations?: SeedRunCreations;
@@ -110,8 +116,19 @@ export class SeedRemovalHandler implements DomainHandler {
   /** The runs being removed now: one removal at a time each. */
   private readonly removing = new Set<string>();
 
-  /** @param deps - Injected handler dependencies. */
-  constructor(private readonly deps: HandlerDeps) {}
+  /** Opens a record's page in the browser, through VS Code. */
+  private readonly externalBrowser: ExternalBrowserAdapter;
+
+  /**
+   * @param deps - Injected handler dependencies.
+   * @param externalBrowser - Injected for tests; defaults to VS Code's `openExternal`.
+   */
+  constructor(
+    private readonly deps: HandlerDeps,
+    externalBrowser?: ExternalBrowserAdapter,
+  ) {
+    this.externalBrowser = externalBrowser ?? new ExternalBrowserAdapter();
+  }
 
   /** Where the Seed runs keep what they created. */
   setRunCreations(store: SeedRunCreations): void {
@@ -155,6 +172,7 @@ export class SeedRemovalHandler implements DomainHandler {
     if (msg.type === 'seed:removal:info') await this.handleInfo(msg);
     else if (msg.type === 'seed:removal:list') await this.handleList(msg);
     else if (msg.type === 'seed:remove:sweep') await this.handleSweepList(msg);
+    else if (msg.type === 'seed:open-record') await this.handleOpenRecord(msg);
     else await this.handleRemove(msg);
     return true;
   }
@@ -229,6 +247,86 @@ export class SeedRemovalHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'seed:removal:info', 'seed:remove:error', msg, err);
+    }
+  }
+
+  /**
+   * Open in the browser the page of a record a run created, in the org the
+   * run wrote to: what the results offer once a seed has written, so the
+   * records it made are one click away rather than a search through the org.
+   *
+   * The page names the run and the record, and nothing else: the schema
+   * refuses any other key, so no address comes from the page. What the run
+   * kept says what it created, of which object, and where; a record it does
+   * not name as created is refused, and the address is built from the org's
+   * stored instance URL behind the HTTPS gate, as Forge's results open theirs.
+   * Refusals leave on `seed:open-record:error`; the response carries what the
+   * browser did.
+   */
+  private async handleOpenRecord(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      seedOpenRecordPayloadSchema,
+      msg,
+      'seed:open-record:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const refuse = (message: string, code: string): void => {
+      sendHandlerError(
+        this.deps,
+        'seed:open-record',
+        'seed:open-record:error',
+        msg,
+        new Error(message),
+        { code },
+      );
+    };
+    try {
+      const run = await this.creations?.get(parsed.runId);
+      if (!run) {
+        refuse('Nothing of this run is kept any more.', 'NOT_KEPT');
+        return;
+      }
+      // The same record whichever length its id is written in.
+      const wanted = parsed.recordId.slice(0, 15);
+      let created: { objectApiName: string; id: string } | undefined;
+      for (const { objectApiName, ids } of run.created) {
+        const id = ids.find((candidate) => candidate.slice(0, 15) === wanted);
+        if (id) {
+          created = { objectApiName, id };
+          break;
+        }
+      }
+      if (!created) {
+        refuse('This record is not one this run created.', 'NOT_CREATED');
+        return;
+      }
+      const org = this.deps.orgManager.getOrg(run.targetOrgId);
+      if (!org) {
+        refuse('The org this run wrote to is no longer connected.', 'ORG_NOT_FOUND');
+        return;
+      }
+      const target = recordPageUrl(org.instanceUrl, created.objectApiName, created.id);
+      if (!target.ok) {
+        const why =
+          target.reason === 'not-https'
+            ? `its instance URL must use HTTPS, got "${target.protocol}"`
+            : target.reason === 'invalid'
+              ? 'its instance URL is not a valid URL'
+              : 'the record is not one an address can be built for';
+        refuse(
+          `Cannot open the record in "${org.alias}": ${why}.`,
+          target.reason === 'not-a-record' ? 'NOT_CREATED' : 'INVALID_INSTANCE_URL',
+        );
+        return;
+      }
+      const outcome = await this.externalBrowser.open(target.url);
+      const response = buildResponse(this.deps, msg, 'seed:open-record:response', outcome);
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} status=${outcome.status}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:open-record', 'seed:open-record:error', msg, err);
     }
   }
 

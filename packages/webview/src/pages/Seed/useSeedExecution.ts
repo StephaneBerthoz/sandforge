@@ -8,6 +8,7 @@ import type {
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { useElapsedSince } from '../../hooks/useElapsedSince';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
@@ -80,9 +81,11 @@ export function useSeedExecution(
 
   const executeSeedMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
-    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
-    // events keep flowing while the response is pending.
-    timeoutMs: 120_000,
+    // The run goes on in the extension until it ends, and answers then: held
+    // to two minutes, a long seed lost its page and said "Try again" while
+    // it went on writing.
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   const isRunning = executeSeedMutation.loading;

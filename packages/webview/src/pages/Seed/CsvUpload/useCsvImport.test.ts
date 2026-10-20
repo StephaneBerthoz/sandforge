@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import '../../../i18n/index';
 import { useCsvImport } from './useCsvImport';
+import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import type { TFunction } from 'i18next';
 
 /* -------------------------------------------------------------------------- */
@@ -47,10 +48,13 @@ let mockMutationState = {
 
 /** Every mutation the hook creates, with the error channel it asked for. */
 const mutationCalls: Array<{ type: string; errorType?: string }> = [];
+/** The options each mutation was set up with, by request type. */
+const mutationOptions = new Map<string, unknown>();
 
 vi.mock('../../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string, options?: { errorType?: string }) => {
     mutationCalls.push({ type, errorType: options?.errorType });
+    mutationOptions.set(type, options);
     return mockMutationState;
   },
 }));
@@ -192,6 +196,17 @@ describe('useCsvImport', () => {
 
     expect(result.current.executionStatus).toBe('error');
     expect(result.current.error).toBe('Bridge timeout');
+  });
+
+  it('waits on its run as long as a write run takes, and says the run may still be writing when it stops waiting', () => {
+    // Held to 120 s, a long run lost its page and said "Try again" while it
+    // went on writing in the extension.
+    renderHook(() => useCsvImport(tMock));
+
+    expect(mutationOptions.get('seed:csv:execute')).toMatchObject({
+      timeoutMs: WRITE_RUN_TIMEOUT_MS,
+      runOutlivesWait: true,
+    });
   });
 
   it('listens for validate and execute failures on seed:csv:error', () => {

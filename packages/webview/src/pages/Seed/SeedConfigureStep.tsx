@@ -3,8 +3,6 @@ import { useTranslation } from 'react-i18next';
 import type { FieldRuleType } from '@sandforge/shared';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { Input } from '../../components/ui/Input';
-import { Badge } from '../../components/ui/Badge';
-import { Skeleton } from '../../components/ui/Skeleton';
 import { Accordion } from '../../components/ui/Accordion';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { Step3ConfigureFields } from './Step3_ConfigureFields';
@@ -12,7 +10,6 @@ import { SeedRelationsEditor } from './SeedRelationsEditor';
 import { SeedRecordTypePicker } from './SeedRecordTypePicker';
 import { fieldsForAccountKind } from './seedRecordTypeChoices';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
-import type { PIIObjectResult } from './useSeedWizardState';
 
 /** Props for the SeedConfigureStep section. */
 export interface SeedConfigureStepProps {
@@ -26,17 +23,11 @@ export interface SeedConfigureStepProps {
   volumes: Record<string, { count: number; batchSize: number }>;
   /** Update the batch size for an object. */
   onChangeBatchSize: (objectApiName: string, size: number) => void;
-  /** Whether the PII scan is in progress. */
-  piiLoading: boolean;
-  /** Whether any object has PII warnings. */
-  hasPiiWarnings: boolean;
-  /** PII scan results per object. */
-  piiResults: PIIObjectResult[];
 }
 
 /**
  * Step 2 (Configure) of the Seed wizard: per-object field rules, then batch
- * sizes, relations and PII toggles in the advanced accordion.
+ * sizes and relations in the advanced accordion.
  * Subscribes to the object slice of `useSeedWizardStore`.
  */
 export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
@@ -45,9 +36,6 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
   onChangeConfig,
   volumes,
   onChangeBatchSize,
-  piiLoading,
-  hasPiiWarnings,
-  piiResults,
 }) => {
   const { t } = useTranslation();
   const selectedObjects = useSeedWizardStore((s) => s.selectedObjects);
@@ -58,14 +46,6 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
       <div className="flex items-center gap-1.5">
         <InfoTooltip id="help.seed.configureFields" content={t('help.seed.configureFields')} />
       </div>
-      {/* Collapsible field tree per object */}
-      {piiLoading && (
-        <div className="flex flex-col gap-(--sf-space-2)" data-testid="pii-scan-loading">
-          <Skeleton variant="text" width="40%" height="1em" />
-          <Skeleton variant="rect" height="80px" />
-        </div>
-      )}
-
       {/* The record types the records take: outside the advanced settings,
           as a person account type changes what the accounts are. */}
       <SeedRecordTypePicker fieldConfigs={fieldConfigs} />
@@ -120,26 +100,6 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
                   </span>
                   <SeedRelationsEditor fieldConfigs={fieldConfigs} volumes={volumes} />
                 </div>
-
-                {/* PII toggles */}
-                {hasPiiWarnings && (
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-status-warning">
-                      {t('seed.piiWarningTitle')}
-                    </span>
-                    {piiResults
-                      .filter((r: PIIObjectResult) => r.piiFields.length > 0)
-                      .map((r: PIIObjectResult) => (
-                        <div key={r.objectName} className="flex flex-wrap gap-1">
-                          {r.piiFields.map((f: PIIObjectResult['piiFields'][number]) => (
-                            <Badge key={`${r.objectName}-${f.fieldName}`} variant="warning">
-                              {f.fieldName} ({f.piiType})
-                            </Badge>
-                          ))}
-                        </div>
-                      ))}
-                  </div>
-                )}
               </div>
             ),
           },

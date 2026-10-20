@@ -6,6 +6,7 @@ import { initReactI18next } from 'react-i18next';
 import en from '../../../i18n/locales/en.json';
 import fr from '../../../i18n/locales/fr.json';
 import { useClone, type UseCloneReturn } from './useClone';
+import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 
 /* ------------------------------------------------------------------ */
 /* Mocks                                                               */
@@ -46,10 +47,13 @@ let mockExecuteState = {
 
 /** Every mutation the hook creates, with the error channel it asked for. */
 const mutationCalls: Array<{ type: string; errorType?: string }> = [];
+/** The options each mutation was set up with, by request type. */
+const mutationOptions = new Map<string, unknown>();
 
 vi.mock('../../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string, options?: { errorType?: string }) => {
     mutationCalls.push({ type, errorType: options?.errorType });
+    mutationOptions.set(type, options);
     if (type === 'seed:clone:describe-source') return mockDescribeState;
     if (type === 'seed:clone:preview') return mockPreviewState;
     if (type === 'seed:clone:execute') return mockExecuteState;
@@ -801,6 +805,17 @@ describe('useClone', () => {
   /* ------------------------------------------------------------------ */
   /* seed:clone:error channel (fail fast, no 30 s timeout)               */
   /* ------------------------------------------------------------------ */
+
+  it('waits on its run as long as a write run takes, and says the run may still be writing when it stops waiting', () => {
+    // Held to 120 s, a long run lost its page and said "Try again" while it
+    // went on writing in the extension.
+    renderHook(() => useClone('target-1'));
+
+    expect(mutationOptions.get('seed:clone:execute')).toMatchObject({
+      timeoutMs: WRITE_RUN_TIMEOUT_MS,
+      runOutlivesWait: true,
+    });
+  });
 
   it('listens for describe, preview and execute failures on seed:clone:error', () => {
     // The handler posts its failures on this channel, correlated to the

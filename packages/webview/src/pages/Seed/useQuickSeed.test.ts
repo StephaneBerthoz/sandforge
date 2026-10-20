@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useQuickSeed } from './useQuickSeed';
+import { useQuickSeed, isSeedTargetCandidate } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg, SeedTemplate } from '@sandforge/shared';
 
@@ -40,8 +41,26 @@ let mockMutationState = {
   requestId: null as string | null,
 };
 
+/** The options each useBridgeMutation call was given. */
+const mutationOptions = vi.hoisted(() => ({ calls: [] as Array<[string, unknown]> }));
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => mockMutationState,
+  useBridgeMutation: (type: string, options: unknown) => {
+    mutationOptions.calls.push([type, options]);
+    return mockMutationState;
+  },
+}));
+
+/* What the hook posts outside the mutation: the abort of its run. */
+const mockPostMessage = vi.fn();
+const vscodeApi = {
+  postMessage: mockPostMessage,
+  getState: () => undefined,
+  setState: () => undefined,
+};
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => vscodeApi,
+  getVscodeApi: () => vscodeApi,
 }));
 
 /* operation:progress events by operationId, as useOperationProgress hands them over. */
@@ -108,7 +127,9 @@ describe('useQuickSeed', () => {
       requestId: null,
     };
     progressStream.byId.clear();
-    useOrgStore.setState({ orgs: [] });
+    mutationOptions.calls.length = 0;
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
   });
 
   it('shows the progress the extension reports while the seed runs, not a fixed figure', () => {
@@ -218,14 +239,14 @@ describe('useQuickSeed', () => {
     expect(result.current.selectedOrgId).toBe('');
   });
 
-  it('startQuickSeed transitions to selectOrg phase', () => {
+  it('startQuickSeed opens the confirmation', () => {
     const { result } = renderHook(() => useQuickSeed());
 
     act(() => {
       result.current.startQuickSeed(mockTemplate, { Account: 200 });
     });
 
-    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.phase).toBe('confirm');
     expect(result.current.selectedTemplate).toBe(mockTemplate);
     expect(result.current.customizedCounts).toEqual({ Account: 200 });
   });
@@ -267,7 +288,7 @@ describe('useQuickSeed', () => {
     expect(contactObj?.recordCount).toBe(100);
   });
 
-  it('reset returns to idle and clears all state', () => {
+  it('reset returns to the gallery, clearing the template but keeping the org chosen', () => {
     const { result } = renderHook(() => useQuickSeed());
 
     act(() => {
@@ -281,7 +302,7 @@ describe('useQuickSeed', () => {
 
     expect(result.current.phase).toBe('idle');
     expect(result.current.selectedTemplate).toBeNull();
-    expect(result.current.selectedOrgId).toBe('');
+    expect(result.current.selectedOrgId).toBe('org-123');
     expect(result.current.customizedCounts).toEqual({});
     expect(result.current.error).toBeNull();
     expect(mockReset).toHaveBeenCalled();
@@ -295,12 +316,12 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate, {});
     });
 
-    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.phase).toBe('confirm');
     expect(result.current.selectedOrgId).toBe('org-7');
     expect(mockMutate).not.toHaveBeenCalled();
   });
 
-  it('preselects the given org only once: a template picked after going back keeps the selection empty', () => {
+  it('preselects the given org only once: a template picked after going back keeps the org chosen since', () => {
     useOrgStore.setState({
       orgs: [createMockOrg({ id: 'org-2' }), createMockOrg({ id: 'org-3' })],
     });
@@ -321,8 +342,8 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate, {});
     });
 
-    expect(result.current.phase).toBe('selectOrg');
-    expect(result.current.selectedOrgId).toBe('');
+    expect(result.current.phase).toBe('confirm');
+    expect(result.current.selectedOrgId).toBe('org-3');
   });
 
   it('leaves the selection empty when the given org has lost its connection', () => {
@@ -335,7 +356,7 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate, {});
     });
 
-    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.phase).toBe('confirm');
     expect(result.current.selectedOrgId).toBe('');
   });
 
@@ -347,12 +368,12 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate, {});
     });
 
-    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.phase).toBe('confirm');
     expect(result.current.selectedOrgId).toBe('');
     expect(mockMutate).not.toHaveBeenCalled();
   });
 
-  it('leaves the selection empty when no org was given', () => {
+  it('leaves the selection empty when no org was given and none is selected in the panel', () => {
     useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-7' })] });
     const { result } = renderHook(() => useQuickSeed());
 
@@ -361,6 +382,140 @@ describe('useQuickSeed', () => {
     });
 
     expect(result.current.selectedOrgId).toBe('');
+  });
+
+  it('preselects the org selected in the panel when no org was given', () => {
+    // Reached from the launcher or Welcome, the one-click seed asked for an org
+    // the panel had already selected.
+    useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-7' })], selectedOrgId: 'org-7' });
+    const { result } = renderHook(() => useQuickSeed());
+
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+
+    expect(result.current.phase).toBe('confirm');
+    expect(result.current.selectedOrgId).toBe('org-7');
+    expect(result.current.customizedCounts).toEqual({});
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it('preselects a Developer Edition selected in the panel, though it is registered as production', () => {
+    useOrgStore.setState({
+      orgs: [
+        createMockOrg({
+          id: 'org-de',
+          orgType: 'Production',
+          metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+        }),
+      ],
+      selectedOrgId: 'org-de',
+    });
+    const { result } = renderHook(() => useQuickSeed());
+
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+
+    expect(result.current.selectedOrgId).toBe('org-de');
+  });
+
+  it('never preselects a production org, nor one that lost its connection', () => {
+    useOrgStore.setState({
+      orgs: [
+        createMockOrg({
+          id: 'org-prod',
+          orgType: 'Production',
+          metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+        }),
+      ],
+      selectedOrgId: 'org-prod',
+    });
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+    expect(result.current.selectedOrgId).toBe('');
+
+    useOrgStore.setState({
+      orgs: [createMockOrg({ id: 'org-7', status: 'expired' })],
+      selectedOrgId: 'org-7',
+    });
+    act(() => {
+      result.current.reset();
+    });
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+    expect(result.current.selectedOrgId).toBe('');
+  });
+
+  it('sets the count of an object, never below one record', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+
+    act(() => {
+      result.current.setCount('Account', 12);
+    });
+    expect(result.current.customizedCounts).toEqual({ Account: 12 });
+
+    act(() => {
+      result.current.setCount('Contact', 0);
+    });
+    expect(result.current.customizedCounts).toEqual({ Account: 12, Contact: 1 });
+  });
+
+  it('waits on its run as long as a write run takes, and says the run may still be writing when it stops waiting', () => {
+    // Held to 120 s, a long seed lost its page and said "Try again" while it
+    // went on writing: a second run wrote its records twice.
+    renderHook(() => useQuickSeed());
+
+    const execute = mutationOptions.calls.find(([type]) => type === 'seed:execute');
+    expect(execute?.[1]).toMatchObject({
+      timeoutMs: WRITE_RUN_TIMEOUT_MS,
+      runOutlivesWait: true,
+    });
+  });
+
+  it('stops its own run once the run has reported progress, and sends nothing before', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-1');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = { ...mockMutationState, loading: true, requestId: 'op-1' };
+    rerender();
+
+    expect(result.current.operationId).toBeNull();
+    act(() => {
+      result.current.cancel();
+    });
+    expect(mockPostMessage).not.toHaveBeenCalled();
+
+    progressStream.byId.set('op-1', {
+      operationId: 'op-1',
+      percentage: 10,
+      processedRecords: 15,
+      totalRecords: 150,
+      currentStep: 'Insert Account',
+    });
+    rerender();
+    expect(result.current.operationId).toBe('op-1');
+    act(() => {
+      result.current.cancel();
+    });
+
+    expect(mockPostMessage).toHaveBeenCalledOnce();
+    const envelope = mockPostMessage.mock.calls[0][0] as {
+      payload: { type: string; payload: { operationId: string } };
+    };
+    expect(envelope.payload.type).toBe('execution:abort');
+    expect(envelope.payload.payload.operationId).toBe('op-1');
   });
 
   it('derives objectProgress from template objects', () => {
@@ -375,5 +530,29 @@ describe('useQuickSeed', () => {
     expect(result.current.objectProgress[0].total).toBe(300);
     expect(result.current.objectProgress[1].objectApiName).toBe('Contact');
     expect(result.current.objectProgress[1].total).toBe(100);
+  });
+});
+
+describe('isSeedTargetCandidate', () => {
+  it('takes a connected sandbox, scratch org or Developer Edition, and no production org', () => {
+    expect(isSeedTargetCandidate(createMockOrg())).toBe(true);
+    expect(isSeedTargetCandidate(createMockOrg({ orgType: 'Scratch' }))).toBe(true);
+    expect(
+      isSeedTargetCandidate(
+        createMockOrg({
+          orgType: 'Production',
+          metadata: { apiVersion: '59.0', edition: ' developer edition ', features: [] },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isSeedTargetCandidate(
+        createMockOrg({
+          orgType: 'Production',
+          metadata: { apiVersion: '59.0', edition: 'Unlimited Edition', features: [] },
+        }),
+      ),
+    ).toBe(false);
+    expect(isSeedTargetCandidate(createMockOrg({ status: 'error' }))).toBe(false);
   });
 });

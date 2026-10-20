@@ -90,4 +90,64 @@ describe('Step2SelectObjects', () => {
     );
     expect(screen.getAllByText('Account').length).toBeGreaterThan(0);
   });
+
+  /** About 670 objects on a Developer Edition, in the order describe-global gives them. */
+  const orgObjects: SeedObjectInfo[] = [
+    'AcceptedEventRelation',
+    'ActionCadence',
+    'Opportunity',
+    'Invoice__c',
+    'Account',
+    'Contact',
+  ].map((apiName) => ({ apiName, label: apiName, recordCount: 0, dependencies: [] }));
+
+  /** The object rows in the order they are drawn. */
+  const rows = (): string[] =>
+    screen
+      .getAllByRole('checkbox')
+      .map((row) => (row.getAttribute('data-testid') ?? '').replace(/^obj-/, ''));
+
+  it('pins the common objects at the top, the others under them in the order the org gave', () => {
+    // Opportunity sat wherever the API put it, in a frame of a few rows.
+    render(
+      <Step2SelectObjects availableObjects={orgObjects} selectedObjects={[]} onToggle={vi.fn()} />,
+    );
+
+    expect(rows()).toEqual([
+      'Account',
+      'Contact',
+      'Opportunity',
+      'AcceptedEventRelation',
+      'ActionCadence',
+      'Invoice__c',
+    ]);
+    expect(screen.getByTestId('seed-common-objects').textContent).toContain('Common objects');
+  });
+
+  it('finds an object by a part of its name', () => {
+    render(
+      <Step2SelectObjects availableObjects={orgObjects} selectedObjects={[]} onToggle={vi.fn()} />,
+    );
+
+    fireEvent.change(screen.getByTestId('seed-object-search'), { target: { value: 'invo' } });
+    expect(rows()).toEqual(['Invoice__c']);
+
+    fireEvent.change(screen.getByTestId('seed-object-search'), { target: { value: 'nothing' } });
+    expect(screen.queryAllByRole('checkbox')).toEqual([]);
+    expect(screen.getByText('No objects selected')).toBeDefined();
+  });
+
+  it('offers the parent of an object ticked without it', () => {
+    const onToggle = vi.fn();
+    render(
+      <Step2SelectObjects
+        availableObjects={orgObjects}
+        selectedObjects={['Opportunity']}
+        onToggle={onToggle}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('seed-add-parent-Account'));
+    expect(onToggle).toHaveBeenCalledWith('Account');
+  });
 });

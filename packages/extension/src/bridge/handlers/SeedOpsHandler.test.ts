@@ -959,9 +959,10 @@ describe('SeedOpsHandler', () => {
 
     /**
      * Run a seed and hand back the insert function the handler built, so the
-     * routing it performs can be exercised with any record count.
+     * routing it performs can be exercised with any record count. `conn` is
+     * the connection the insert writes through.
      */
-    async function captureInsert(): Promise<InsertFn> {
+    async function captureInsert(conn: unknown = {}): Promise<InsertFn> {
       let captured: InsertFn | undefined;
       deps.services = {
         isAIEnabled: () => false,
@@ -971,7 +972,7 @@ describe('SeedOpsHandler', () => {
           return { execute: vi.fn().mockResolvedValue(seedResult(5)) };
         }),
       } as unknown as HandlerDeps['services'];
-      mockGetConn.mockResolvedValue({} as never);
+      mockGetConn.mockResolvedValue(conn as never);
 
       await handler.handle(
         inboundRequest({
@@ -1071,6 +1072,45 @@ describe('SeedOpsHandler', () => {
           },
         ],
       });
+    });
+
+    it("writes a refused record's errors with their codes and the fields they named, as the Bulk API path does", async () => {
+      // Only the message was kept: a run refused 50 times for one reason could
+      // not be told from one refused for 50, and nothing said what to fix.
+      const create = vi.fn(async (records: Record<string, unknown>[]) =>
+        records.map((_, i) =>
+          i === 0
+            ? {
+                success: false,
+                errors: [
+                  {
+                    statusCode: 'REQUIRED_FIELD_MISSING',
+                    message: 'Required fields are missing: [LastName]',
+                    fields: ['LastName'],
+                  },
+                ],
+              }
+            : {
+                success: false,
+                errors: [
+                  {
+                    statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+                    message: 'Phone must be written +33 X XX XX XX XX.',
+                    fields: ['Phone'],
+                  },
+                  { statusCode: 'INVALID_EMAIL_ADDRESS', message: 'Email: invalid email address' },
+                ],
+              },
+        ),
+      );
+      const insert = await captureInsert({ sobject: vi.fn(() => ({ create })) });
+      const result = await insert('org-1', 'Contact', makeRecords(2), 200);
+
+      expect(create).toHaveBeenCalledOnce();
+      expect(result.errors).toEqual([
+        'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33 X XX XX XX XX. [Phone]; INVALID_EMAIL_ADDRESS: Email: invalid email address',
+      ]);
     });
 
     it('gives no answer per record for a Bulk API job one of whose rows matched no record', async () => {

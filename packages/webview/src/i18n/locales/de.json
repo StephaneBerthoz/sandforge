@@ -637,11 +637,6 @@
     "advancedSettings": "Erweiterte Einstellungen",
     "exportCsv": "CSV exportieren",
     "seedAgain": "Seed wiederholen",
-    "nl2soqlTitle": "NL2SOQL-Helfer",
-    "nl2soqlPlaceholder": "Beschreiben Sie die benötigten Daten in einfacher Sprache...",
-    "nl2soqlGenerate": "SOQL generieren",
-    "piiWarningTitle": "PII-Felder erkannt",
-    "piiWarningHint": "Erwägen Sie, diese Felder vor dem Seed zu anonymisieren oder zu maskieren.",
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud Starter",
@@ -664,10 +659,8 @@
       "records_one": "{{count}} Datensatz",
       "records_other": "{{count}} Datensätze",
       "useThis": "Diese verwenden",
-      "customize": "Datensatzanzahlen anpassen",
-      "startSeeding": "Seed starten",
-      "orCustomize": "oder erstellen Sie eine eigene",
-      "templateMissing": "Diese gespeicherte Vorlage existiert nicht mehr."
+      "templateMissing": "Diese gespeicherte Vorlage existiert nicht mehr.",
+      "recommended": "Hier beginnen"
     },
     "quickSeed": {
       "title": "Schnell-Seed",
@@ -734,22 +727,16 @@
       }
     },
     "modeSelect": {
-      "title": "Seed-Modus wählen",
-      "ai": "KI-Generierung",
-      "aiDesc": "Realistische Testdaten mit KI generieren",
+      "generate": "Daten generieren",
+      "generateDesc": "Objekte, Anzahlen und Feldregeln selbst wählen",
       "csv": "CSV-Upload",
       "csvDesc": "Daten aus einer CSV-Datei importieren",
       "clone": "Von Org klonen",
-      "cloneDesc": "Datensätze aus einer anderen Org klonen",
-      "backToModes": "Zurück zur Modusauswahl"
+      "cloneDesc": "Datensätze aus einer anderen Org klonen"
     },
     "persona": {
       "title": "KI-Personas",
       "subtitle": "Wählen Sie eine Branchen-Persona, um Feldgenerierungsregeln vorab auszufüllen",
-      "forkPersonaTitle": "Persona wählen",
-      "forkPersonaDesc": "Wählen Sie eine Branchen-Persona mit vorgefertigten Feldmustern",
-      "forkScratchTitle": "Von Grund auf neu",
-      "forkScratchDesc": "Erstellen Sie eigene Feldregeln von einer leeren Basis aus",
       "card": {
         "preview": "Vorschau",
         "select": "Auswählen",
@@ -773,7 +760,8 @@
         "rangeMax": "Max.",
         "values": "Werte"
       },
-      "backToFork": "Zurück zum KI-Modus"
+      "optional": "Feldregeln aus einer Branchen-Persona füllen (optional)",
+      "chosen": "Gewählte Persona: {{name}}"
     },
     "adaptive": {
       "usingDefaults": "Standard-Feldregeln werden verwendet.",
@@ -868,15 +856,25 @@
       "step3": "Objekte und Datensatzmengen festlegen",
       "step4": "Ausführen und Ergebnisse prüfen"
     },
-    "nl2soqlError": "Diese Beschreibung konnte nicht in SOQL übersetzt werden. Nennen Sie Objekt und Filter explizit.",
-    "nl2soqlUnverified": "SandForge konnte die Feldnamen dieses Entwurfs nicht gegen Ihre Org prüfen. Führen Sie die Abfrage aus, um zu sehen, ob sie funktioniert.",
-    "nl2soqlNothingToCheck": "Dieser Entwurf fragt nur Werte aus verknüpften Datensätzen oder Summen ab, also hatte SandForge keinen eigenen Feldnamen zum Prüfen. Führen Sie die Abfrage aus, um zu sehen, ob sie funktioniert.",
     "graph": {
       "title": "Abhängigkeitsgraph"
     },
     "results": {
       "aiFallback": "Die KI hat keine Werte geliefert, daher erhielten diese Felder generierte Sätze: {{fields}}. Die KI ist ausgeschaltet, oder der Aufruf wurde abgelehnt (das SandForge-Protokoll nennt den Grund).",
-      "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}."
+      "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}.",
+      "errorGroup": "{{n}} × {{reason}}",
+      "errorsListed": "Gruppiert aus den ersten {{listed}} der {{failed}} abgelehnten Datensätze.",
+      "openRecord": "Ein erstelltes {{object}} in {{org}} öffnen",
+      "errorHint": {
+        "requiredFieldMissing": "Die Org verlangt einen Wert, den der Lauf nicht geliefert hat. Starten Sie den Seed über den Assistenten und geben Sie dem Feld im Schritt Konfigurieren eine Regel.",
+        "validationRule": "Eine Validierungsregel der Org hat die generierten Werte abgelehnt. Geben Sie den Feldern, die sie prüft, Regeln mit Werten, die sie annimmt, oder deaktivieren Sie die Regel während des Seeds.",
+        "restrictedPicklist": "Ein generierter Wert gehört nicht zu dieser eingeschränkten Auswahlliste oder wird vom Datensatztyp nicht akzeptiert. Geben Sie dem Feld die Werte, die die Org dafür vorsieht.",
+        "duplicateValue": "Ein eindeutiges Feld hat einen Wert erhalten, den ein Datensatz der Org bereits trägt. Geben Sie dem Feld eine Regel, deren Werte sich nicht wiederholen.",
+        "duplicateRule": "Eine auf Blockieren gesetzte Duplikatregel der Org hat den generierten Datensatz abgelehnt. Deaktivieren Sie die Regel während des Seeds oder setzen Sie ihre Aktion beim Erstellen auf Zulassen.",
+        "storageFull": "Die Org hat keinen Datenspeicher mehr: Eine Developer Edition fasst 5 MB. Entfernen Sie einen früheren Seed oder erzeugen Sie weniger Datensätze.",
+        "standardPrice": "Salesforce nimmt den Preis eines Produkts in einem benutzerdefinierten Preisbuch erst an, wenn das Produkt einen Preis im Standardpreisbuch hat. Geben Sie diesen Produkten zuerst einen Standardpreis.",
+        "flowFailed": "Ein Flow der Org ist beim Speichern des Datensatzes fehlgeschlagen, und die Org hat den Datensatz abgelehnt. Korrigieren Sie den Flow oder deaktivieren Sie ihn während des Seeds."
+      }
     },
     "sampleRecordCount_one": "{{count}} Beispieldatensatz",
     "sampleRecordCount_other": "{{count}} Beispieldatensätze",
@@ -905,7 +903,16 @@
       "historyUnfinished": "unvollständig: der Seed hielt vor seinem Ende an — sein Fenster wurde geschlossen oder die Erweiterung angehalten — und listet, was er bis dahin geschrieben hat",
       "historyShow": "Anzeigen",
       "historyHide": "Ausblenden"
-    }
+    },
+    "start": {
+      "subtitle": "Eine Org mit realistischen Daten füllen",
+      "otherWays": "Weitere Wege, eine Org zu befüllen"
+    },
+    "objectSearch": "Objekte suchen",
+    "commonObjects": "Häufige Objekte",
+    "otherObjects": "Alle anderen Objekte",
+    "parentSuggestion": "{{child}}-Datensätze hängen an {{parent}}, das dieser Lauf nicht befüllt.",
+    "addParent": "{{parent}} hinzufügen"
   },
   "sync": {
     "title": "Daten synchronisieren",
@@ -2285,7 +2292,8 @@
       "rateLimited": "SandForge hat mehr Anfragen auf einmal erhalten, als es annimmt, und eine davon verworfen. Versuchen Sie es gleich noch einmal.",
       "unhandled": "Dieses Panel hat eine Anfrage gesendet, die SandForge nicht verarbeitet, und sie wurde verworfen. Laden Sie das Fenster neu, damit Panel und Erweiterung dieselbe Version ausführen.",
       "other": "SandForge hat eine Anfrage dieses Panels verworfen. Der SandForge-Ausgabekanal nennt den Grund."
-    }
+    },
+    "runOutlivedWait": "SandForge hat nach {{hours}} h aufgehört, auf {{request}} zu warten, doch der Lauf schreibt möglicherweise noch. Die Live-Operationen im Monitor zeigen, wo er steht; ein erneuter Start würde seine Datensätze doppelt schreiben."
   },
   "onboarding": {
     "welcomeTitle": "Willkommen bei SandForge",
@@ -2315,10 +2323,7 @@
     "populateSandbox": "Sandbox füllen",
     "syncFirstStepTitle": "Erste Schritte mit Sync",
     "syncFirstStepDesc": "Übertragen Sie Daten zwischen Ihren Salesforce-Orgs in 3 Klicks mit Schnell-Sync",
-    "seedFirstStepTitle": "Erste Schritte mit Seed",
-    "seedFirstStepDesc": "Wählen Sie eine Vorlage und füllen Sie Ihre Sandbox mit einem Klick mit realistischen Daten",
     "startQuickSync": "Schnell-Sync starten",
-    "startQuickSeed": "Vorlagen durchsuchen",
     "suggestSeedAndSync": "Ihre Sandbox ist bereit. Füllen Sie sie mit Seed für Testdaten oder mit Sync, um Daten aus einer anderen Org zu kopieren.",
     "dontShowAgain": "Nicht mehr anzeigen",
     "tryItNow": "Jetzt ausprobieren",

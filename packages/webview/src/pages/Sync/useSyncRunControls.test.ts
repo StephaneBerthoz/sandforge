@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import '../../i18n';
-import { useSyncRunControls, SYNC_RUN_TIMEOUT_MS } from './useSyncRunControls';
+import { useSyncRunControls } from './useSyncRunControls';
 
 const posted = vi.hoisted(() => ({ messages: [] as Array<Record<string, unknown>> }));
 const notified = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>> }));
@@ -151,9 +151,5 @@ describe('useSyncRunControls', () => {
     });
 
     expect(posted.messages).toEqual([]);
-  });
-
-  it('waits on a run for longer than a person may keep it paused through a working day', () => {
-    expect(SYNC_RUN_TIMEOUT_MS).toBeGreaterThanOrEqual(8 * 60 * 60 * 1000);
   });
 });

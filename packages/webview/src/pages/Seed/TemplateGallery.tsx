@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SeedTemplate } from '@sandforge/shared';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -6,46 +6,32 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { useTemplateGallery } from './useTemplateGallery';
 import type { TemplateGalleryItem } from './useTemplateGallery';
 import { TemplateCard } from './TemplateCard';
-import { TemplateCustomizeModal } from './TemplateCustomizeModal';
 
 /** Props for the TemplateGallery component. */
 export interface TemplateGalleryProps {
-  /** Called when user confirms a template with customized record counts. */
-  onSelectTemplate: (template: SeedTemplate, customizedCounts: Record<string, number>) => void;
+  /** Called with the template whose Use This was pressed, loaded whole. */
+  onSelectTemplate: (template: SeedTemplate) => void;
 }
 
-/** Responsive grid gallery of pre-built and saved seed templates. */
+/**
+ * Responsive grid gallery of pre-built and saved seed templates. Use This
+ * goes straight to the run's one confirmation, where the counts and the org
+ * are set: a dialog of counts came first, whose own "Start Seeding" started
+ * nothing.
+ */
 export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTemplate }) => {
   const { t } = useTranslation();
   const { items, loading, error, loadFullTemplate } = useTemplateGallery();
-
-  const [selectedTemplate, setSelectedTemplate] = useState<SeedTemplate | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleUseThis = useCallback(
     async (item: TemplateGalleryItem) => {
       const template = await loadFullTemplate(item.id);
       // A saved template that is gone or refused has its reason in the banner.
       if (!template) return;
-      setSelectedTemplate(template);
-      setIsModalOpen(true);
+      onSelectTemplate(template);
     },
-    [loadFullTemplate],
+    [loadFullTemplate, onSelectTemplate],
   );
-
-  const handleModalConfirm = useCallback(
-    (template: SeedTemplate, customizedCounts: Record<string, number>) => {
-      setIsModalOpen(false);
-      setSelectedTemplate(null);
-      onSelectTemplate(template, customizedCounts);
-    },
-    [onSelectTemplate],
-  );
-
-  const handleModalClose = useCallback(() => {
-    setIsModalOpen(false);
-    setSelectedTemplate(null);
-  }, []);
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="template-gallery">
@@ -73,15 +59,6 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
             <TemplateCard key={item.id} item={item} onUseThis={handleUseThis} />
           ))}
         </div>
-      )}
-
-      {selectedTemplate && (
-        <TemplateCustomizeModal
-          template={selectedTemplate}
-          isOpen={isModalOpen}
-          onClose={handleModalClose}
-          onConfirm={handleModalConfirm}
-        />
       )}
     </div>
   );

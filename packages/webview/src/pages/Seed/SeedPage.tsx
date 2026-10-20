@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, Upload, Copy, ArrowLeft, Users } from 'lucide-react';
+import { Sparkles, Upload, Copy, ArrowLeft } from 'lucide-react';
 import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -14,7 +14,6 @@ import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
 import { Card, CardBody } from '../../components/ui/Card';
-import { Divider } from '../../components/ui/Divider';
 import { SeedWizard } from './SeedWizard';
 import type { WizardStep } from './SeedWizard';
 import { SeedSelectStep } from './SeedSelectStep';
@@ -25,14 +24,16 @@ import { TemplateGallery } from './TemplateGallery';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import { useSeedWizardState } from './useSeedWizardState';
 import { useQuickSeed } from './useQuickSeed';
-import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { CsvUploadWizard } from './CsvUpload/CsvUploadWizard';
 import { CloneWizard } from './Clone/CloneWizard';
 import { PersonaGallery } from './Persona/PersonaGallery';
 import { SeedRunHistory } from './SeedRunHistory';
 
-/** Seed mode selection with AI sub-modes. */
-type SeedMode = 'select' | 'ai' | 'ai-persona' | 'ai-scratch' | 'csv' | 'clone';
+/**
+ * What the Seed page shows: its start — the template gallery, the other ways
+ * to seed under it, and the seeds kept — or one of those other ways.
+ */
+type SeedMode = 'start' | 'generate' | 'csv' | 'clone';
 
 const SEED_STEPS: WizardStep[] = [
   { id: 'select', labelKey: 'seed.stepSelect' },
@@ -44,22 +45,31 @@ const SEED_STEPS: WizardStep[] = [
 /** Threshold below which wizard auto-advances past Configure step. */
 const AUTO_ADVANCE_THRESHOLD = 5;
 
-/** Mode a Home recommendation opens on: clone wizard, quick-seed gallery, or the selector. */
+/**
+ * Mode a Home recommendation opens on: the clone wizard, or the start, whose
+ * gallery a quick-seed recommendation names and which every other way in
+ * opens on too.
+ */
 function modeForIntent(intent: NavigationIntent | null): SeedMode {
-  if (intent?.seedMode === 'clone') return 'clone';
-  if (intent?.seedMode === 'quick-seed') return 'ai-scratch';
-  return 'select';
+  return intent?.seedMode === 'clone' ? 'clone' : 'start';
 }
 
-/** Main Seed page -- mode selector + 4-step wizard with progressive disclosure. */
+/**
+ * Main Seed page. It opens on the template gallery, the one-click way to fill
+ * an empty org, with the other ways to seed listed under it.
+ *
+ * The gallery used to be reached through "AI Generate" then "Start from
+ * Scratch", two labels that point away from a template that needs no AI and
+ * no field rule, and its "Browse Templates" button did nothing.
+ */
 export const SeedPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const navigate = useAppStore((s) => s.navigate);
   const state = useSeedWizardState(t);
   // Home's recommendation, read once on open: the page lands on the mode it
-  // names instead of the selector, the clone wizard on its source org and the
-  // template gallery on the org the confirmation named.
+  // names, the clone wizard on its source org and the template gallery on the
+  // org the confirmation named.
   const [intent] = useState<NavigationIntent | null>(() => {
     const pending = useAppStore.getState().navigationIntent;
     return pending?.route === 'seed' ? pending : null;
@@ -86,19 +96,26 @@ export const SeedPage: React.FC = () => {
   const setCurrentStep = state.setCurrentStep;
   const sendMessage = useSendMessage();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  /** Whether the persona choice of the wizard is unfolded. */
+  const [personaOpen, setPersonaOpen] = useState(false);
 
-  const handleSelectTemplate = (
-    template: SeedTemplate,
-    customizedCounts: Record<string, number>,
-  ) => {
-    quickSeed.startQuickSeed(template, customizedCounts);
-  };
+  const startQuickSeed = quickSeed.startQuickSeed;
+  const handleSelectTemplate = useCallback(
+    (template: SeedTemplate) => {
+      startQuickSeed(template);
+    },
+    [startQuickSeed],
+  );
 
-  /** Handle persona selection from the PersonaGallery. Stores persona and switches to wizard. */
+  /**
+   * A persona picked in the wizard: its patterns fill the field rules of the
+   * objects described, and of those described after. Optional, and chosen in
+   * the wizard itself: it was a fork of its own before the wizard.
+   */
   const handlePersonaSelected = useCallback(
     (persona: PersonaMsg) => {
       setSelectedPersona(persona);
-      setSeedMode('ai-scratch');
+      setPersonaOpen(false);
     },
     [setSelectedPersona],
   );
@@ -181,12 +198,15 @@ export const SeedPage: React.FC = () => {
   const getPageSubtitle = (): string => {
     if (seedMode === 'csv') return t('seed.modeSelect.csv');
     if (seedMode === 'clone') return t('seed.modeSelect.clone');
-    if (seedMode === 'ai-persona') return t('seed.persona.title');
     if (quickSeed.phase !== 'idle') return t('seed.quickSeed.title');
-    if (seedMode === 'ai-scratch') return t(SEED_STEPS[state.currentStep].labelKey);
-    if (seedMode === 'ai') return t('seed.modeSelect.ai');
-    return t('seed.modeSelect.title');
+    if (seedMode === 'generate') return t(SEED_STEPS[state.currentStep].labelKey);
+    return t('seed.start.subtitle');
   };
+
+  const selectedPersona = state.selectedPersona;
+  const wizardOrgName = state.selectedOrg
+    ? state.selectedOrg.alias || state.selectedOrg.username
+    : '';
 
   return (
     <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="seed-page">
@@ -214,221 +234,176 @@ export const SeedPage: React.FC = () => {
         />
       )}
 
-      {/* Back navigation button */}
-      {seedMode !== 'select' && quickSeed.phase === 'idle' && (
+      {/* Back to the start, from another way to seed */}
+      {seedMode !== 'start' && (
         <button
           className="flex items-center gap-1 text-xs text-(--sf-text-link) hover:underline self-start"
-          onClick={() => {
-            if (seedMode === 'ai-persona' || seedMode === 'ai-scratch') {
-              setSeedMode('ai');
-            } else {
-              setSeedMode('select');
-            }
-          }}
+          onClick={() => setSeedMode('start')}
           data-testid="back-to-modes"
         >
           <ArrowLeft className="w-3 h-3" />
-          {seedMode === 'ai-persona' || seedMode === 'ai-scratch'
-            ? t('seed.persona.backToFork')
-            : t('seed.modeSelect.backToModes')}
+          {t('seed.quickSeed.backToGallery')}
         </button>
       )}
 
-      {/* ----- MODE SELECTOR ----- */}
-      {seedMode === 'select' && quickSeed.phase === 'idle' && (
-        <div className="grid grid-cols-3 gap-3" data-testid="seed-mode-selector">
-          <Card hoverable onClick={() => setSeedMode('ai')} data-testid="mode-card-ai">
-            <CardBody>
-              <div className="flex flex-col items-center gap-2 py-4">
-                <Sparkles className="w-8 h-8 text-(--sf-text-link)" />
-                <span className="text-sm font-semibold text-text-primary">
-                  {t('seed.modeSelect.ai')}
-                </span>
-                <span className="text-xs text-text-secondary text-center">
-                  {t('seed.modeSelect.aiDesc')}
-                </span>
-              </div>
-            </CardBody>
-          </Card>
+      {/* ----- START: the gallery, a template's run, the other ways ----- */}
+      {seedMode === 'start' &&
+        (quickSeed.phase !== 'idle' ? (
+          <QuickSeedFlow quickSeed={quickSeed} orgs={orgs} />
+        ) : (
+          <>
+            <TemplateGallery onSelectTemplate={handleSelectTemplate} />
 
-          <Card hoverable onClick={() => setSeedMode('csv')} data-testid="mode-card-csv">
-            <CardBody>
-              <div className="flex flex-col items-center gap-2 py-4">
-                <Upload className="w-8 h-8 text-hue-green" />
-                <span className="text-sm font-semibold text-text-primary">
-                  {t('seed.modeSelect.csv')}
-                </span>
-                <span className="text-xs text-text-secondary text-center">
-                  {t('seed.modeSelect.csvDesc')}
-                </span>
-              </div>
-            </CardBody>
-          </Card>
+            <section className="flex flex-col gap-(--sf-space-2)" data-testid="seed-other-ways">
+              <h2 className="text-sm font-semibold text-(--sf-text-primary)">
+                {t('seed.start.otherWays')}
+              </h2>
+              <div className="grid grid-cols-3 gap-3" data-testid="seed-mode-selector">
+                <Card
+                  hoverable
+                  onClick={() => setSeedMode('generate')}
+                  data-testid="mode-card-generate"
+                >
+                  <CardBody>
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <Sparkles className="w-8 h-8 text-(--sf-text-link)" />
+                      <span className="text-sm font-semibold text-text-primary">
+                        {t('seed.modeSelect.generate')}
+                      </span>
+                      <span className="text-xs text-text-secondary text-center">
+                        {t('seed.modeSelect.generateDesc')}
+                      </span>
+                    </div>
+                  </CardBody>
+                </Card>
 
-          <Card hoverable onClick={() => setSeedMode('clone')} data-testid="mode-card-clone">
-            <CardBody>
-              <div className="flex flex-col items-center gap-2 py-4">
-                <Copy className="w-8 h-8 text-hue-amber" />
-                <span className="text-sm font-semibold text-text-primary">
-                  {t('seed.modeSelect.clone')}
-                </span>
-                <span className="text-xs text-text-secondary text-center">
-                  {t('seed.modeSelect.cloneDesc')}
-                </span>
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      )}
+                <Card hoverable onClick={() => setSeedMode('csv')} data-testid="mode-card-csv">
+                  <CardBody>
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <Upload className="w-8 h-8 text-hue-green" />
+                      <span className="text-sm font-semibold text-text-primary">
+                        {t('seed.modeSelect.csv')}
+                      </span>
+                      <span className="text-xs text-text-secondary text-center">
+                        {t('seed.modeSelect.csvDesc')}
+                      </span>
+                    </div>
+                  </CardBody>
+                </Card>
 
-      {/* The seeds kept, which a reload left removable */}
-      {seedMode === 'select' && quickSeed.phase === 'idle' && <SeedRunHistory />}
+                <Card hoverable onClick={() => setSeedMode('clone')} data-testid="mode-card-clone">
+                  <CardBody>
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <Copy className="w-8 h-8 text-hue-amber" />
+                      <span className="text-sm font-semibold text-text-primary">
+                        {t('seed.modeSelect.clone')}
+                      </span>
+                      <span className="text-xs text-text-secondary text-center">
+                        {t('seed.modeSelect.cloneDesc')}
+                      </span>
+                    </div>
+                  </CardBody>
+                </Card>
+              </div>
+            </section>
+
+            {/* The seeds kept, which a reload left removable */}
+            <SeedRunHistory />
+          </>
+        ))}
 
       {/* ----- CSV UPLOAD MODE ----- */}
-      {seedMode === 'csv' && <CsvUploadWizard onBack={() => setSeedMode('select')} />}
+      {seedMode === 'csv' && <CsvUploadWizard onBack={() => setSeedMode('start')} />}
 
       {/* ----- CLONE MODE ----- */}
       {seedMode === 'clone' && (
         <CloneWizard
-          onBack={() => setSeedMode('select')}
+          onBack={() => setSeedMode('start')}
           initialSourceOrgId={recommendedCloneSource}
         />
       )}
 
-      {/* ----- AI GENERATE MODE: Fork selection ----- */}
-      {seedMode === 'ai' && quickSeed.phase === 'idle' && (
-        <div className="grid grid-cols-2 gap-4" data-testid="ai-fork-selector">
-          <Card hoverable onClick={() => setSeedMode('ai-persona')} data-testid="fork-card-persona">
-            <CardBody>
-              <div className="flex flex-col items-center gap-2 py-6">
-                <Users className="w-8 h-8 text-(--sf-text-link)" />
-                <span className="text-sm font-semibold text-text-primary">
-                  {t('seed.persona.forkPersonaTitle')}
-                </span>
-                <span className="text-xs text-text-secondary text-center">
-                  {t('seed.persona.forkPersonaDesc')}
-                </span>
-              </div>
-            </CardBody>
-          </Card>
-
-          <Card hoverable onClick={() => setSeedMode('ai-scratch')} data-testid="fork-card-scratch">
-            <CardBody>
-              <div className="flex flex-col items-center gap-2 py-6">
-                <Sparkles className="w-8 h-8 text-(--sf-text-link)" />
-                <span className="text-sm font-semibold text-text-primary">
-                  {t('seed.persona.forkScratchTitle')}
-                </span>
-                <span className="text-xs text-text-secondary text-center">
-                  {t('seed.persona.forkScratchDesc')}
-                </span>
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      )}
-
-      {/* ----- AI PERSONA MODE ----- */}
-      {seedMode === 'ai-persona' && <PersonaGallery onPersonaSelected={handlePersonaSelected} />}
-
-      {/* ----- AI SCRATCH MODE (existing wizard behavior) ----- */}
-      {seedMode === 'ai-scratch' && (
+      {/* ----- GENERATE: the wizard, a persona optional ----- */}
+      {seedMode === 'generate' && (
         <>
-          {/* QUICK SEED FLOW (replaces gallery + wizard when active) */}
-          {quickSeed.phase !== 'idle' ? (
-            <QuickSeedFlow quickSeed={quickSeed} orgs={orgs} />
-          ) : (
-            <>
-              {/* GUIDED FIRST STEP (visible on step 0, idle) */}
-              {state.currentStep === 0 && (
-                <GuidedFirstStepCard
-                  variant="seed"
-                  icon="database"
-                  titleKey="onboarding.seedFirstStepTitle"
-                  descKey="onboarding.seedFirstStepDesc"
-                  actionKey="onboarding.startQuickSeed"
-                  onAction={() => {
-                    /* Gallery is right below */
-                  }}
-                />
+          {state.currentStep === 0 && (
+            <details
+              open={personaOpen}
+              onToggle={(e) => setPersonaOpen(e.currentTarget.open)}
+              className="rounded-sm border border-(--sf-border) px-(--sf-space-3) py-(--sf-space-2)"
+              data-testid="seed-persona-choice"
+            >
+              <summary className="cursor-pointer text-xs font-medium text-(--sf-text-primary)">
+                {selectedPersona
+                  ? t('seed.persona.chosen', { name: selectedPersona.name })
+                  : t('seed.persona.optional')}
+              </summary>
+              {personaOpen && (
+                <div className="mt-(--sf-space-2)">
+                  <PersonaGallery onPersonaSelected={handlePersonaSelected} />
+                </div>
               )}
-
-              {/* QUICK SEED GALLERY (visible on step 0) */}
-              {state.currentStep === 0 && (
-                <>
-                  <TemplateGallery onSelectTemplate={handleSelectTemplate} />
-                  <Divider label={t('seed.gallery.orCustomize')} />
-                </>
-              )}
-
-              <SeedWizard
-                steps={SEED_STEPS}
-                currentStep={state.currentStep}
-                onStepChange={handleStepChange}
-                canGoNext={state.canGoNext}
-                isFinished={state.isFinished}
-                onFinish={state.handleExecute}
-                onCancel={canCancelRun ? () => setShowCancelConfirm(true) : undefined}
-                cancelLabelKey="common.cancelRun"
-              >
-                {/* STEP 1: SELECT */}
-                {state.currentStep === 0 && (
-                  <SeedSelectStep
-                    availableObjects={state.availableObjects}
-                    loadingObjects={state.loadingObjects}
-                    volumes={state.volumes}
-                    onChangeVolume={state.handleChangeVolume}
-                    hasPiiWarnings={state.hasPiiWarnings}
-                    piiResults={state.piiResults}
-                    nl2soqlQuery={state.nl2soqlQuery}
-                    onNl2soqlQueryChange={state.setNl2soqlQuery}
-                    onNl2soqlSubmit={state.handleNl2soql}
-                    nl2soql={state.nl2soql}
-                  />
-                )}
-
-                {/* STEP 2: CONFIGURE */}
-                {state.currentStep === 1 && (
-                  <SeedConfigureStep
-                    fieldConfigs={state.fieldConfigs}
-                    onChangeRule={state.handleChangeFieldRule}
-                    onChangeConfig={state.handleChangeFieldConfig}
-                    volumes={state.volumes}
-                    onChangeBatchSize={state.handleChangeBatchSize}
-                    piiLoading={state.piiLoading}
-                    hasPiiWarnings={state.hasPiiWarnings}
-                    piiResults={state.piiResults}
-                  />
-                )}
-
-                {/* STEP 3: EXECUTE */}
-                {state.currentStep === 2 && (
-                  <SeedExecuteStep
-                    isRunning={state.isRunning}
-                    objectProgress={state.objectProgress}
-                    overallPercent={state.overallPercent}
-                    elapsedMs={state.elapsedMs}
-                    configSkipped={configSkipped}
-                    onCustomize={handleCustomize}
-                    fieldsReady={state.fieldsReady}
-                    fieldsError={state.fieldsError}
-                    onRetryFields={state.retryFieldDescribes}
-                    fieldConfigs={state.fieldConfigs}
-                    volumes={state.volumes}
-                  />
-                )}
-
-                {/* STEP 4: RESULTS */}
-                {state.currentStep === 3 && (
-                  <SeedResultsStep
-                    executionResult={state.executionResult}
-                    template={state.lastTemplate}
-                    onSeedAgain={handleSeedAgain}
-                  />
-                )}
-              </SeedWizard>
-            </>
+            </details>
           )}
+
+          <SeedWizard
+            steps={SEED_STEPS}
+            currentStep={state.currentStep}
+            onStepChange={handleStepChange}
+            canGoNext={state.canGoNext}
+            isFinished={state.isFinished}
+            onFinish={state.handleExecute}
+            onCancel={canCancelRun ? () => setShowCancelConfirm(true) : undefined}
+            cancelLabelKey="common.cancelRun"
+          >
+            {/* STEP 1: SELECT */}
+            {state.currentStep === 0 && (
+              <SeedSelectStep
+                availableObjects={state.availableObjects}
+                loadingObjects={state.loadingObjects}
+                volumes={state.volumes}
+                onChangeVolume={state.handleChangeVolume}
+              />
+            )}
+
+            {/* STEP 2: CONFIGURE */}
+            {state.currentStep === 1 && (
+              <SeedConfigureStep
+                fieldConfigs={state.fieldConfigs}
+                onChangeRule={state.handleChangeFieldRule}
+                onChangeConfig={state.handleChangeFieldConfig}
+                volumes={state.volumes}
+                onChangeBatchSize={state.handleChangeBatchSize}
+              />
+            )}
+
+            {/* STEP 3: EXECUTE */}
+            {state.currentStep === 2 && (
+              <SeedExecuteStep
+                isRunning={state.isRunning}
+                objectProgress={state.objectProgress}
+                overallPercent={state.overallPercent}
+                elapsedMs={state.elapsedMs}
+                configSkipped={configSkipped}
+                onCustomize={handleCustomize}
+                fieldsReady={state.fieldsReady}
+                fieldsError={state.fieldsError}
+                onRetryFields={state.retryFieldDescribes}
+                fieldConfigs={state.fieldConfigs}
+                volumes={state.volumes}
+              />
+            )}
+
+            {/* STEP 4: RESULTS */}
+            {state.currentStep === 3 && (
+              <SeedResultsStep
+                executionResult={state.executionResult}
+                template={state.lastTemplate}
+                orgName={wizardOrgName}
+                onSeedAgain={handleSeedAgain}
+              />
+            )}
+          </SeedWizard>
         </>
       )}
 

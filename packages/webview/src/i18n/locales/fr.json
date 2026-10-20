@@ -637,11 +637,6 @@
     "advancedSettings": "Paramètres avancés",
     "exportCsv": "Exporter CSV",
     "seedAgain": "Relancer le Seed",
-    "nl2soqlTitle": "Assistant NL2SOQL",
-    "nl2soqlPlaceholder": "Décrivez les données dont vous avez besoin...",
-    "nl2soqlGenerate": "Générer SOQL",
-    "piiWarningTitle": "Champs PII détectés",
-    "piiWarningHint": "Pensez à anonymiser ou masquer ces champs avant le seeding.",
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud - Démarrage",
@@ -664,10 +659,8 @@
       "records_one": "{{count}} enregistrement",
       "records_other": "{{count}} enregistrements",
       "useThis": "Utiliser",
-      "customize": "Personnaliser les volumes",
-      "startSeeding": "Lancer le seed",
-      "orCustomize": "ou configurez manuellement",
-      "templateMissing": "Ce modèle enregistré n'existe plus."
+      "templateMissing": "Ce modèle enregistré n'existe plus.",
+      "recommended": "Commencez ici"
     },
     "quickSeed": {
       "title": "Seed rapide",
@@ -734,22 +727,16 @@
       }
     },
     "modeSelect": {
-      "title": "Choisir un mode de Seed",
-      "ai": "Génération IA",
-      "aiDesc": "Générez des données de test réalistes avec l'IA",
+      "generate": "Générer des données",
+      "generateDesc": "Choisissez vous-même les objets, les volumes et les règles des champs",
       "csv": "Import CSV",
       "csvDesc": "Importez des données depuis un fichier CSV",
       "clone": "Cloner depuis une org",
-      "cloneDesc": "Clonez des enregistrements depuis une autre org",
-      "backToModes": "Retour à la sélection du mode"
+      "cloneDesc": "Clonez des enregistrements depuis une autre org"
     },
     "persona": {
       "title": "Personas IA",
       "subtitle": "Choisissez un persona métier pour pré-remplir les règles de génération",
-      "forkPersonaTitle": "Choisir un Persona",
-      "forkPersonaDesc": "Sélectionnez un persona métier avec des patterns de champs pré-construits",
-      "forkScratchTitle": "Partir de zero",
-      "forkScratchDesc": "Construisez vos propres règles de champs depuis une page blanche",
       "card": {
         "preview": "Aperçu",
         "select": "Sélectionner",
@@ -773,7 +760,8 @@
         "rangeMax": "Max",
         "values": "Valeurs"
       },
-      "backToFork": "Retour au mode IA"
+      "optional": "Remplir les règles des champs à partir d'un persona sectoriel (facultatif)",
+      "chosen": "Persona choisi : {{name}}"
     },
     "adaptive": {
       "usingDefaults": "Utilisation des règles de champ par défaut.",
@@ -868,15 +856,25 @@
       "step3": "Choisissez les objets et les volumes d'enregistrements",
       "step4": "Exécutez puis consultez les résultats"
     },
-    "nl2soqlError": "Impossible de convertir cette description en SOQL. Essayez de nommer explicitement l’objet et le filtre.",
-    "nl2soqlUnverified": "SandForge n'a pas pu vérifier les noms de champs de ce brouillon dans votre org. Lancez la requête pour savoir si elle fonctionne.",
-    "nl2soqlNothingToCheck": "Ce brouillon ne demande que des valeurs d'enregistrements liés ou des totaux : SandForge n'avait donc aucun nom de champ à vérifier. Lancez la requête pour savoir si elle fonctionne.",
     "graph": {
       "title": "Graphe de dépendances"
     },
     "results": {
       "aiFallback": "L'IA n'a renvoyé aucune valeur, ces champs ont donc reçu des phrases générées : {{fields}}. L'IA est désactivée, ou l'appel a été refusé (le journal SandForge en donne la raison).",
-      "aiFallbackShort": "La réponse de l'IA omettait des valeurs, ces champs ont donc reçu des phrases générées : {{fields}}."
+      "aiFallbackShort": "La réponse de l'IA omettait des valeurs, ces champs ont donc reçu des phrases générées : {{fields}}.",
+      "errorGroup": "{{n}} × {{reason}}",
+      "errorsListed": "Regroupés à partir des {{listed}} premiers des {{failed}} enregistrements refusés.",
+      "openRecord": "Ouvrir un {{object}} créé dans {{org}}",
+      "errorHint": {
+        "requiredFieldMissing": "L'org exige une valeur que le seed n'a pas fournie. Passez par l'assistant et donnez une règle au champ à son étape Configuration.",
+        "validationRule": "Une règle de validation de l'org a refusé les valeurs générées. Donnez aux champs qu'elle vérifie des règles dont elle accepte les valeurs, ou désactivez-la le temps du seed.",
+        "restrictedPicklist": "Une valeur générée ne fait pas partie de cette liste de sélection restreinte, ou n'est pas acceptée par le type d'enregistrement. Donnez au champ les valeurs que l'org prévoit pour lui.",
+        "duplicateValue": "Un champ unique a reçu une valeur qu'un enregistrement de l'org porte déjà. Donnez au champ une règle dont les valeurs ne se répètent pas.",
+        "duplicateRule": "Une règle de doublons de l'org réglée sur Bloquer a refusé l'enregistrement généré. Désactivez-la le temps du seed, ou réglez son action à la création sur Autoriser.",
+        "storageFull": "L'org n'a plus d'espace de stockage de données : une Developer Edition en compte 5 Mo. Supprimez un seed précédent, ou générez moins d'enregistrements.",
+        "standardPrice": "Salesforce n'accepte le prix d'un produit dans un catalogue de prix personnalisé qu'une fois que ce produit a un prix dans le catalogue standard. Donnez d'abord un prix standard à ces produits.",
+        "flowFailed": "Un Flow de l'org a échoué à l'enregistrement, et l'org a refusé l'enregistrement. Corrigez le Flow, ou désactivez-le le temps du seed."
+      }
     },
     "sampleRecordCount_one": "{{count}} enregistrement d'exemple",
     "sampleRecordCount_other": "{{count}} enregistrements d'exemple",
@@ -905,7 +903,16 @@
       "historyUnfinished": "partiel : le seed s'est arrêté avant sa fin — sa fenêtre fermée, ou l'extension arrêtée — et liste ce qu'il avait écrit jusque-là",
       "historyShow": "Afficher",
       "historyHide": "Masquer"
-    }
+    },
+    "start": {
+      "subtitle": "Remplir une org de données réalistes",
+      "otherWays": "Autres façons d'alimenter une org"
+    },
+    "objectSearch": "Rechercher des objets",
+    "commonObjects": "Objets courants",
+    "otherObjects": "Tous les autres objets",
+    "parentSuggestion": "Les enregistrements {{child}} se rattachent à {{parent}}, que ce seed n'alimente pas.",
+    "addParent": "Ajouter {{parent}}"
   },
   "sync": {
     "title": "Synchroniser les données",
@@ -2285,7 +2292,8 @@
       "rateLimited": "SandForge a reçu plus de requêtes à la fois qu'il n'en accepte et en a abandonné une. Réessayez dans un instant.",
       "unhandled": "Ce panneau a envoyé une requête que SandForge ne traite pas, et elle a été abandonnée. Rechargez la fenêtre pour que le panneau et l'extension exécutent la même version.",
       "other": "SandForge a abandonné une requête de ce panneau. Le canal de sortie SandForge en donne la raison."
-    }
+    },
+    "runOutlivedWait": "SandForge a cessé d'attendre {{request}} au bout de {{hours}} h, mais l'exécution écrit peut-être encore. Les Opérations en cours du Moniteur montrent où elle en est ; la relancer écrirait ses enregistrements deux fois."
   },
   "onboarding": {
     "welcomeTitle": "Bienvenue sur SandForge",
@@ -2315,10 +2323,7 @@
     "populateSandbox": "Alimenter la Sandbox",
     "syncFirstStepTitle": "Démarrer avec Sync",
     "syncFirstStepDesc": "Transférez des données entre vos orgs Salesforce en 3 clics avec Quick Sync",
-    "seedFirstStepTitle": "Démarrer avec Seed",
-    "seedFirstStepDesc": "Choisissez un modèle et alimentez votre sandbox avec des données réalistes en un clic",
     "startQuickSync": "Lancer Quick Sync",
-    "startQuickSeed": "Parcourir les modèles",
     "suggestSeedAndSync": "Votre sandbox est prête. Alimentez-la avec Seed pour des données de test, ou Sync pour copier depuis une autre org.",
     "dontShowAgain": "Ne plus afficher",
     "tryItNow": "Essayer maintenant",

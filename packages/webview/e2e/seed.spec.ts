@@ -495,8 +495,7 @@ async function pickThreeObjectsAndMoveOn(page: Page): Promise<MockBridge> {
   });
   await page.goto('/');
   await bridge.seedOrgs(MOCK_ORGS);
-  await page.getByTestId('mode-card-ai').click();
-  await page.getByTestId('fork-card-scratch').click();
+  await page.getByTestId('mode-card-generate').click();
   await page.getByTestId('org-selector').selectOption('org-src-1');
   await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
   await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
@@ -801,8 +800,7 @@ test.describe("Seed — the configure step lists an account's fields for the kin
     });
     await page.goto('/');
     await bridge.seedOrgs(MOCK_ORGS);
-    await page.getByTestId('mode-card-ai').click();
-    await page.getByTestId('fork-card-scratch').click();
+    await page.getByTestId('mode-card-generate').click();
     await page.getByTestId('org-selector').selectOption('org-src-1');
     await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
     await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
@@ -911,6 +909,157 @@ test.describe('Seed — earlier seeds, removable after a reload', () => {
     await page.getByTestId('seed-run-history-toggle-op-earlier').click();
     const asked = await bridge.waitForMessage('seed:removal:info', { timeout: 10_000 });
     expect(asked.payload).toEqual({ runId: 'op-earlier' });
+  });
+});
+
+/** Boot the Seed page on its start, the saved templates and the kept seeds answered. */
+async function openSeedStart(page: Page): Promise<MockBridge> {
+  const bridge = new MockBridge();
+  await bridge.setup(page);
+  await page.addInitScript(() => {
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+  });
+  await page.goto('/');
+  await bridge.seedOrgs(MOCK_ORGS);
+  await bridge.waitForMessage('seed:template:list', { timeout: 10_000 });
+  await respondToAll(page, 'seed:template:list', 'seed:template:list:response', {
+    templates: [],
+  });
+  return bridge;
+}
+
+test.describe('Seed — the start, and a template seeded from its one confirmation', () => {
+  test('opens on the gallery, the small demo first, and seeds it on the panel’s org after one Start', async ({
+    page,
+  }) => {
+    // The gallery sat behind "AI Generate" then "Start from Scratch"; Use This
+    // opened a dialog whose "Start Seeding" started nothing, then a step asked
+    // for an org the panel had already selected, under a second "Start Seeding".
+    const bridge = await openSeedStart(page);
+
+    const cards = page.getByTestId('template-gallery').locator('[data-testid^="template-card-"]');
+    await expect(cards.first()).toHaveAttribute(
+      'data-testid',
+      'template-card-prebuilt-minimal-demo',
+    );
+    await expect(cards.first().getByTestId('template-recommended')).toHaveText('Start here');
+    await expect(page.getByTestId('seed-other-ways')).toContainText('Generate data');
+    await expect(page.getByTestId('guided-first-step-card')).toHaveCount(0);
+
+    await cards.first().getByTestId('btn-use-template').click();
+    await expect(page.getByTestId('quick-seed-confirm')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByTestId('quick-seed-org-selector')).toHaveValue('org-src-1');
+    await expect(page.getByRole('button', { name: 'Start Seeding' })).toHaveCount(1);
+    await page.getByTestId('quick-seed-count-Contact').fill('10');
+
+    await page.getByTestId('btn-quick-seed-start').click();
+    const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+    const sent = request.payload as {
+      orgId: string;
+      template: { id: string; objects: Array<{ objectApiName: string; recordCount: number }> };
+    };
+    expect(sent.orgId).toBe('org-src-1');
+    expect(sent.template.id).toBe('prebuilt-minimal-demo');
+    expect(sent.template.objects.find((o) => o.objectApiName === 'Contact')?.recordCount).toBe(10);
+
+    // Running: its Cancel, which the one-click path did not have, stops it by its id.
+    const operationId = String(request.id);
+    await bridge.stream([
+      {
+        type: 'operation:progress',
+        payload: {
+          operationId,
+          percentage: 20,
+          processedRecords: 30,
+          totalRecords: 260,
+          currentStep: 'Insert Account',
+        },
+      },
+    ]);
+    await page.getByTestId('btn-quick-seed-cancel').click();
+    await page.getByTestId('danger-input').fill('Cancel');
+    await page.getByTestId('danger-confirm-btn').click();
+    const abort = await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
+    expect(abort.payload).toEqual({ operationId });
+
+    // Its results: the refusals grouped, and the data one click away.
+    await respondToAll(page, 'seed:execute', 'seed:execute:response', {
+      templateId: 'prebuilt-minimal-demo',
+      operationId,
+      status: 'partial',
+      cancelled: true,
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          recordsCreated: 50,
+          recordsFailed: 0,
+          createdIds: ['001000000000001AAA', '001000000000002AAA'],
+          errors: [],
+        },
+        {
+          objectApiName: 'Contact',
+          recordsCreated: 0,
+          recordsFailed: 10,
+          createdIds: [],
+          errors: Array.from(
+            { length: 10 },
+            () => 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33. [Phone]',
+          ),
+        },
+      ],
+      totalRecordsCreated: 50,
+      totalRecordsFailed: 10,
+      duration: 2_000,
+      timestamp: '2026-10-20T08:00:00.000Z',
+    });
+    await expect(page.getByTestId('quick-seed-results')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByTestId('seed-result-error-group-Contact-0').locator('summary'),
+    ).toHaveText('10 × FIELD_CUSTOM_VALIDATION_EXCEPTION (Phone)');
+    await expect(page.getByTestId('seed-result-errors-Contact').locator('details')).toHaveCount(1);
+
+    await page.getByRole('button', { name: 'Open a created Account in DevSandbox' }).click();
+    const open = await bridge.waitForMessage('seed:open-record', { timeout: 10_000 });
+    expect(open.payload).toEqual({ runId: operationId, recordId: '001000000000001AAA' });
+  });
+});
+
+test.describe('Seed — the objects of the wizard', () => {
+  test('pins the common objects, finds one by name, and offers the parent of a child ticked', async ({
+    page,
+  }) => {
+    // About 670 objects in the API's order in a frame of a few rows, with no
+    // search: Opportunity was a long scroll away.
+    const bridge = await openSeedStart(page);
+    await page.getByTestId('mode-card-generate').click();
+    await page.getByTestId('org-selector').selectOption('org-src-1');
+    await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+    await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+      objects: ['AcceptedEventRelation', 'Invoice__c', 'Opportunity', 'Account', 'Contact'].map(
+        (apiName) => ({ apiName, label: apiName, recordCount: 0, dependencies: [] }),
+      ),
+    });
+
+    const common = page.getByTestId('seed-common-objects').getByRole('checkbox');
+    await expect(common).toHaveCount(3);
+    await expect(common.nth(0)).toHaveAttribute('data-testid', 'obj-Account');
+    await expect(common.nth(2)).toHaveAttribute('data-testid', 'obj-Opportunity');
+    await expect(page.getByTestId('nl2soql-helper')).toHaveCount(0);
+
+    await page.getByTestId('seed-object-search').fill('invoice');
+    await expect(page.getByRole('checkbox')).toHaveCount(1);
+    await expect(page.getByTestId('obj-Invoice__c')).toBeVisible();
+    await page.getByTestId('seed-object-search').fill('');
+
+    await page.getByTestId('obj-Contact').click();
+    await expect(page.getByTestId('seed-parent-suggestion-Account')).toContainText(
+      'Contact records hang from Account',
+    );
+    await page.getByTestId('seed-add-parent-Account').click();
+    await expect(page.getByTestId('obj-Account')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('seed-parent-suggestions')).toHaveCount(0);
+    await expect(page.getByTestId('volume-Account')).toBeVisible();
   });
 });
 

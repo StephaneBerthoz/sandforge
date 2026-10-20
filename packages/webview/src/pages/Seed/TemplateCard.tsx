@@ -26,6 +26,11 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({ item, onUseThis }) =
         title={displayName}
         action={
           <div className="flex gap-1">
+            {item.recommended && (
+              <Badge variant="info" data-testid="template-recommended">
+                {t('seed.gallery.recommended')}
+              </Badge>
+            )}
             {item.tags.map((tag) => (
               <Badge key={tag} variant="default">
                 {tag}

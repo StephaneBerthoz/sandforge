@@ -69,9 +69,17 @@ describe('useTemplateGallery', () => {
 
     expect(result.current.items.length).toBe(3);
     expect(result.current.items.every((i) => i.isPrebuilt)).toBe(true);
-    expect(result.current.items.map((i) => i.id)).toEqual([
-      'prebuilt-sales-cloud-starter',
-      'prebuilt-service-cloud-starter',
+    expect(result.current.items.map((i) => i.id)).toContain('prebuilt-sales-cloud-starter');
+    expect(result.current.items.map((i) => i.id)).toContain('prebuilt-service-cloud-starter');
+  });
+
+  it('lists the small demo first, marked as where a first seed starts, and no other', () => {
+    // It came after two starters of thousands of records: the first card a
+    // trailblazer on a Developer Edition met was more than the org holds.
+    const { result } = renderHook(() => useTemplateGallery());
+
+    expect(result.current.items[0].id).toBe('prebuilt-minimal-demo');
+    expect(result.current.items.filter((i) => i.recommended).map((i) => i.id)).toEqual([
       'prebuilt-minimal-demo',
     ]);
   });

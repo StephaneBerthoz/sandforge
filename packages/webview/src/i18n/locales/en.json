@@ -637,11 +637,6 @@
     "advancedSettings": "Advanced Settings",
     "exportCsv": "Export CSV",
     "seedAgain": "Seed Again",
-    "nl2soqlTitle": "NL2SOQL Helper",
-    "nl2soqlPlaceholder": "Describe the data you need in plain English...",
-    "nl2soqlGenerate": "Generate SOQL",
-    "piiWarningTitle": "PII Fields Detected",
-    "piiWarningHint": "Consider anonymizing or masking these fields before seeding.",
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud Starter",
@@ -664,10 +659,8 @@
       "records_one": "{{count}} record",
       "records_other": "{{count}} records",
       "useThis": "Use This",
-      "customize": "Customize Record Counts",
-      "startSeeding": "Start Seeding",
-      "orCustomize": "or build your own",
-      "templateMissing": "This saved template no longer exists."
+      "templateMissing": "This saved template no longer exists.",
+      "recommended": "Start here"
     },
     "quickSeed": {
       "title": "Quick Seed",
@@ -734,22 +727,16 @@
       }
     },
     "modeSelect": {
-      "title": "Choose a Seed Mode",
-      "ai": "AI Generate",
-      "aiDesc": "Generate realistic test data using AI",
+      "generate": "Generate data",
+      "generateDesc": "Pick the objects, the counts and the field rules yourself",
       "csv": "CSV Upload",
       "csvDesc": "Import data from a CSV file",
       "clone": "Clone from Org",
-      "cloneDesc": "Clone records from another org",
-      "backToModes": "Back to mode selection"
+      "cloneDesc": "Clone records from another org"
     },
     "persona": {
       "title": "AI Personas",
       "subtitle": "Choose an industry persona to pre-fill field generation rules",
-      "forkPersonaTitle": "Choose a Persona",
-      "forkPersonaDesc": "Pick an industry persona with pre-built field patterns",
-      "forkScratchTitle": "Start from Scratch",
-      "forkScratchDesc": "Build your own field rules from a blank canvas",
       "card": {
         "preview": "Preview",
         "select": "Select",
@@ -773,7 +760,8 @@
         "rangeMax": "Max",
         "values": "Values"
       },
-      "backToFork": "Back to AI mode"
+      "optional": "Fill the field rules from an industry persona (optional)",
+      "chosen": "Persona chosen: {{name}}"
     },
     "adaptive": {
       "usingDefaults": "Using default field rules.",
@@ -868,15 +856,25 @@
       "step3": "Choose objects and record volumes",
       "step4": "Execute and review the results"
     },
-    "nl2soqlError": "Could not turn that description into SOQL. Try naming the object and the filter explicitly.",
-    "nl2soqlUnverified": "SandForge could not check this draft's field names against your org. Run the query to find out whether it works.",
-    "nl2soqlNothingToCheck": "This draft asks only for values from related records or for totals, so SandForge had no field name of its own to check. Run the query to find out whether it works.",
     "graph": {
       "title": "Dependency Graph"
     },
     "results": {
       "aiFallback": "AI returned no values, so these fields received generated sentences: {{fields}}. AI is off, or the call was refused (the SandForge log gives the reason).",
-      "aiFallbackShort": "The AI answer left values out, so these fields received generated sentences: {{fields}}."
+      "aiFallbackShort": "The AI answer left values out, so these fields received generated sentences: {{fields}}.",
+      "errorGroup": "{{n}} × {{reason}}",
+      "errorsListed": "Grouped from the first {{listed}} of the {{failed}} records refused.",
+      "openRecord": "Open a created {{object}} in {{org}}",
+      "errorHint": {
+        "requiredFieldMissing": "The org requires a value the run did not give. Seed from the wizard, and give the field a rule on its Configure step.",
+        "validationRule": "A validation rule of the org refused the values generated. Give the fields it checks rules whose values it accepts, or deactivate the rule while you seed.",
+        "restrictedPicklist": "A value generated is not one this restricted picklist takes, or not one the record type takes. Give the field the values the org lists for it.",
+        "duplicateValue": "A unique field got a value a record of the org already holds. Give the field a rule whose values do not repeat.",
+        "duplicateRule": "A duplicate rule of the org set to Block refused the record generated. Deactivate the rule while you seed, or set its action on create to Allow.",
+        "storageFull": "The org has no data storage left: a Developer Edition holds 5 MB. Remove an earlier seed, or seed fewer records.",
+        "standardPrice": "Salesforce prices a product in a custom price book only once the product has a price in the standard price book. Give these products a standard price first.",
+        "flowFailed": "A Flow of the org failed as the record was saved, and the org refused the record. Fix the Flow, or deactivate it while you seed."
+      }
     },
     "sampleRecordCount_one": "{{count}} sample record",
     "sampleRecordCount_other": "{{count}} sample records",
@@ -905,7 +903,16 @@
       "historyUnfinished": "partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what it wrote until then",
       "historyShow": "Show",
       "historyHide": "Hide"
-    }
+    },
+    "start": {
+      "subtitle": "Fill an org with realistic data",
+      "otherWays": "Other ways to seed"
+    },
+    "objectSearch": "Search objects",
+    "commonObjects": "Common objects",
+    "otherObjects": "All other objects",
+    "parentSuggestion": "{{child}} records hang from {{parent}}, which this run does not seed.",
+    "addParent": "Add {{parent}}"
   },
   "sync": {
     "title": "Sync Data",
@@ -2285,7 +2292,8 @@
       "rateLimited": "SandForge received more requests at once than it takes and dropped one. Try again in a moment.",
       "unhandled": "This panel sent a request SandForge does not handle, and it was dropped. Reload the window so the panel and the extension run the same version.",
       "other": "SandForge dropped a request from this panel. The SandForge output channel says why."
-    }
+    },
+    "runOutlivedWait": "SandForge stopped waiting for {{request}} after {{hours}} h, but the run may still be writing. Monitor's Live Operations shows where it is; starting it again would write its records twice."
   },
   "onboarding": {
     "welcomeTitle": "Welcome to SandForge",
@@ -2315,10 +2323,7 @@
     "populateSandbox": "Populate Sandbox",
     "syncFirstStepTitle": "Get Started with Sync",
     "syncFirstStepDesc": "Transfer data between your Salesforce orgs in 3 clicks with Quick Sync",
-    "seedFirstStepTitle": "Get Started with Seed",
-    "seedFirstStepDesc": "Pick a template and populate your sandbox with realistic data in one click",
     "startQuickSync": "Start Quick Sync",
-    "startQuickSeed": "Browse Templates",
     "suggestSeedAndSync": "Your sandbox is ready. Populate it with Seed for test data, or Sync to copy from another org.",
     "dontShowAgain": "Don't show again",
     "tryItNow": "Try it now",

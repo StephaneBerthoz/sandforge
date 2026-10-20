@@ -12,7 +12,7 @@ Chat about your Salesforce work, draft pipelines and SOQL in plain English, and 
 
 - **Chat** -- conversations on the AI Assistant page. A saved chat continues after a restart or an AI setting change, and the model is given its last 20 messages of it
 - **Pipeline drafts** -- in Automation, the AI Pipeline Generator drafts a pipeline from a description in natural language; its steps are marked when they cannot run (see [Automation](automation.md))
-- **NL2SOQL** -- in Seed, describe the records you want in plain English and get the SOQL query (see [Seed](seed.md))
+- **NL2SOQL** -- in Forge's AI tab, describe the records to clone in plain English and get the SOQL query discovery starts from (see [Seed](seed.md))
 - **Custom personas and AI field rules** -- in Seed; an AI field rule is picked by you or set by a built-in persona
 - **One model, one budget** -- `sandforge.ai.model` picks the model every AI feature uses (chat, NL2SOQL, pipeline drafts, error resolution, Seed), and `sandforge.ai.tokenBudgetMaxPerSession` caps the tokens of a window session, shared by all of them, with a warning at 80%. Anthropic is the only provider
 
