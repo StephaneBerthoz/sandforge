@@ -33,6 +33,7 @@ import type {
   ExecutionObjectError,
   FieldInfo,
   ForgeExecutorDeps,
+  InsertResult,
 } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
@@ -67,8 +68,10 @@ import {
   fieldsToLeaveOut,
   sentAgainNote,
   without,
+  type InsertCallJournal,
   type WrittenWithoutFields,
 } from './BatchWriter.js';
+import { whatTheWriteLeft } from '../../../core/common/thrownWrite.js';
 import type { ContactPointNeutralizer } from './ContactPointNeutralizer.js';
 import {
   CURRENCY_FIELD,
@@ -235,6 +238,14 @@ export interface OrphanExpansionInput {
    * a contact is copied as any parent is. Absent, none does.
    */
   contactOnItsOwn?: (sourceId: string) => boolean;
+  /**
+   * Where each insert of a parent is kept before it goes, and closed once the
+   * parent is registered: the run's journal, as for its own rows
+   * (`WriteNodeInput.calls`). A process killed while one was under way left a
+   * parent in the target that the journal did not name, and the part that
+   * took the run up copied it again. Absent, none is kept.
+   */
+  calls?: InsertCallJournal;
 }
 
 /**
@@ -243,7 +254,14 @@ export interface OrphanExpansionInput {
  * answered, for the expansion's report.
  */
 type ParentCopy =
-  | { id: string; existing: boolean; owedStatus?: string; source: Record<string, unknown> }
+  | {
+      id: string;
+      existing: boolean;
+      owedStatus?: string;
+      source: Record<string, unknown>;
+      /** The insert that created it, as the journal keeps it: closed once it is registered. */
+      callId?: string;
+    }
   | { refused: string[] };
 
 /** What the expansion of a parent the platform writes itself comes to: nothing sent, nothing failed. */
@@ -353,6 +371,9 @@ export class OrphanExpander {
                   remapper.add(entry.sourceId, parent.id, entry.object);
                   if (parent.owedStatus)
                     input.oweStatus?.(entry.object, parent.id, parent.owedStatus);
+                  // Closed once the parent is registered: a reader of the
+                  // call finds the record first.
+                  if (parent.callId !== undefined) input.calls?.answered(parent.callId);
                   // On disk before the other expansions are awaited: see `IdRemapper.persist`.
                   remapper.persist();
                 }
@@ -596,7 +617,9 @@ export class OrphanExpander {
     // Draft" — and the child that needed it with it. It goes in as a draft,
     // as the run's own do, and gets its status back with theirs.
     const owedStatus = startAsDraft ? await startAsDraft(objectName, payload) : undefined;
-    let written = (await this.deps.insertRecords(targetOrgId, objectName, [payload]))[0];
+    const first = await this.insertParent(input, objectName, sourceRecordId, payload);
+    let written = first.written;
+    let callId = first.callId;
     if (!written) return null;
     // Refused by a validation rule on fields it named — a phone the target
     // wants in another format — or on a restricted picklist's value its record
@@ -605,13 +628,17 @@ export class OrphanExpander {
     const leftOut = written.success ? undefined : fieldsToLeaveOut(written, payload, undefined);
     const firstRefusal = written.errors;
     if (leftOut) {
-      const again = (
-        await this.deps.insertRecords(targetOrgId, objectName, [without(payload, leftOut)])
-      )[0];
-      if (!again) {
+      const again = await this.insertParent(
+        input,
+        objectName,
+        sourceRecordId,
+        without(payload, leftOut),
+      );
+      if (!again.written) {
         return { refused: ['No result returned for record', sentAgainNote(leftOut, firstRefusal)] };
       }
-      written = again;
+      written = again.written;
+      callId = again.callId;
     }
     if (written.success) {
       if (leftOut) {
@@ -620,7 +647,13 @@ export class OrphanExpander {
           fields: leftOut.map((field) => ({ ...field, rows: 1 })),
         });
       }
-      return { id: written.id, existing: false, owedStatus, source: r };
+      return {
+        id: written.id,
+        existing: false,
+        owedStatus,
+        source: r,
+        ...(callId !== undefined ? { callId } : {}),
+      };
     }
     // The parent is often in the target already — which is why it was not in
     // the graph's reach to begin with. When the refusal names it, the child
@@ -636,6 +669,39 @@ export class OrphanExpander {
     return {
       refused: leftOut ? [...written.errors, sentAgainNote(leftOut, firstRefusal)] : written.errors,
     };
+  }
+
+  /**
+   * Send a parent in an insert of its own, kept in the run's journal before
+   * it goes (`OrphanExpansionInput.calls`): its source id and the fingerprint
+   * of what it writes, as a row of the run is kept. An answer that created
+   * nothing closes the call at once, and so does a throw that proves the
+   * target never wrote it; one that created the parent is closed by the
+   * caller once the parent is registered (`callId`), and one that may have
+   * written it stays open, for a run taken up to look for it.
+   */
+  private async insertParent(
+    input: OrphanExpansionInput,
+    objectName: string,
+    sourceRecordId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ written: InsertResult | undefined; callId?: string }> {
+    const callId = input.calls?.sending(objectName, [{ sourceId: sourceRecordId, payload }]);
+    let written: InsertResult | undefined;
+    try {
+      written = (await this.deps.insertRecords(input.targetOrgId, objectName, [payload]))[0];
+    } catch (err) {
+      if (callId !== undefined && whatTheWriteLeft(err) !== 'may-have-written') {
+        input.calls?.answered(callId);
+      }
+      throw err;
+    }
+    if (callId === undefined) return { written };
+    if (!written?.success) {
+      input.calls?.answered(callId);
+      return { written };
+    }
+    return { written, callId };
   }
 
   /**

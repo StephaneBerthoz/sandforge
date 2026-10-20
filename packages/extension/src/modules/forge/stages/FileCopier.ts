@@ -30,9 +30,12 @@ import type {
 import { BYTES_PER_MB, formatFileSize } from '@sandforge/shared';
 import type { ExecutionObjectError, ForgeProgressEvent, InsertResult } from '../ForgeExecutor.js';
 import type { IdRemapper } from '../IdRemapper.js';
+import { createHash } from 'node:crypto';
 import { idLists } from '../../dataops/RecordRemoval.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
+import { whatTheWriteLeft } from '../../../core/common/thrownWrite.js';
+import type { InsertCallJournal } from './BatchWriter.js';
 
 /** The objects a file's content is read from and written to, and the field holding it. */
 export const FILE_BODY_FIELDS = {
@@ -598,6 +601,41 @@ export interface FileCopyInput {
   onProgress: (event: ForgeProgressEvent) => void;
   /** Told of each file once it and its links are written: what Sync keeps to not copy it twice. */
   onCopied?: (file: FileToCopy, copy: CopiedFile) => void;
+  /**
+   * Where each file's insert is kept before it goes, and closed once the
+   * file is registered: the run's journal, as for its records
+   * (`WriteNodeInput.calls`), fingerprinted by what the target reads back of
+   * it (`fileFingerprint`). A process killed while a file was under way left
+   * it in the target unnamed, and the part that took the run up copied it a
+   * second time. Its links are not kept: the platform refuses a second link of
+   * a document to a record, and a part taking the run up reads the links of
+   * each copy back (`takeUpFilesCopiedBefore`). Absent, none is kept.
+   */
+  calls?: InsertCallJournal;
+}
+
+/**
+ * What a file's insert is fingerprinted by in the run's journal: what the
+ * target reads back of the record it creates — a version's title, the MD5 of
+ * its content the platform keeps as its `Checksum`, and its size; an
+ * attachment's name, size and parent — never the content itself.
+ *
+ * @param content - The file's content, base64-encoded, as it is sent.
+ * @param parentId - The record an attachment goes under, in the target.
+ */
+export function fileFingerprint(
+  file: Pick<FileToCopy, 'body' | 'name' | 'bytes' | 'fields'>,
+  content: string,
+  parentId: string | undefined,
+): Record<string, unknown> {
+  if (file.body.objectApiName === 'Attachment') {
+    return { Name: file.fields['Name'] ?? file.name, BodyLength: file.bytes, ParentId: parentId };
+  }
+  return {
+    Title: file.fields['Title'] ?? file.name,
+    Checksum: createHash('md5').update(Buffer.from(content, 'base64')).digest('hex'),
+    ContentSize: file.bytes,
+  };
 }
 
 /** A version's fields: its title and file name. Who sees the document stays as the copy has it. */
@@ -816,13 +854,24 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
         : { ...file.fields, Body: content, ParentId: publishedOn };
     let written: InsertResult;
     attempt(file.objectApiName, 'insert');
+    // Kept before it goes: see `FileCopyInput.calls`.
+    const callId = input.calls?.sending(file.body.objectApiName, [
+      { sourceId: file.sourceId, payload: fileFingerprint(file, content, publishedOn) },
+    ]);
+    /** Close the call: once the file is registered, or once it is known to have written nothing. */
+    const answered = (): void => {
+      if (callId !== undefined) input.calls?.answered(callId);
+    };
     try {
       written = await deps.insertFile(targetOrgId, file.body.objectApiName, record);
     } catch (err) {
+      // One that may have written the file stays open, for a run taken up to look for it.
+      if (whatTheWriteLeft(err) !== 'may-have-written') answered();
       failFile(file, 'insert', extractErrorMessage(err));
       continue;
     }
     if (!written.success || !written.id) {
+      answered();
       failFile(file, 'insert', written.errors.join('; ') || 'The target gave no reason.');
       continue;
     }
@@ -830,6 +879,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
 
     if (file.body.objectApiName === 'Attachment') {
       remapper.add(file.sourceId, written.id, 'Attachment');
+      answered();
       remapper.persist?.();
       onCopied?.(file, {
         targetId: written.id,
@@ -841,6 +891,7 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
 
     if (into) {
       remapper.add(file.sourceId, into.documentId, 'ContentDocument');
+      answered();
       remapper.persist?.();
       const linked = await link(file, into.documentId, unlinked);
       onCopied?.(file, { targetId: into.documentId, linked, asVersion: true });
@@ -852,9 +903,11 @@ export async function copyFiles(input: FileCopyInput): Promise<number> {
     // left a file in the target that the journal did not name. Kept so, the
     // part that takes the run up reads the document back instead of copying
     // the file again (`takeUpFilesCopiedBefore`), and a removal of the run
-    // takes the version's document. What is left is the insert itself: a
-    // process killed while it is under way leaves a file no one names.
+    // takes the version's document. The insert itself is kept before it goes
+    // (`calls`): a process killed while it is under way leaves a file the
+    // part taking the run up looks for first, and links to once found.
     remapper.add(file.sourceId, written.id, 'ContentVersion');
+    answered();
     remapper.persist?.();
 
     // The document the version created: what removing the run deletes, which

@@ -9,6 +9,8 @@ import type {
 } from './ForgeExecutor.js';
 import type { RecordTypePicklists } from '../../core/metadata/recordTypePicklists.js';
 import { toSaveOutcome } from '../../core/common/existingRecordMatch.js';
+import { ForgeRunStore, memoryRunFile } from './ForgeRunStore.js';
+import { callsInFlight } from './ForgeInFlight.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -434,5 +436,32 @@ describe('ForgeExecutor, a parent copied from outside the graph', () => {
     expect(inserted.find(({ object }) => object === 'Account')?.rows).toEqual([
       { Name: 'Acme', RecordTypeId: TARGET_RETAIL, Level__c: 'Silver' },
     ]);
+  });
+});
+
+describe("ForgeExecutor, a parent copied from outside the graph, in the run's journal", () => {
+  it('keeps the insert of the parent before it goes, as the run keeps its own, closed once the parent is registered', async () => {
+    const { deps } = orgs({ ...BUSINESS_ACCOUNT, Tier__c: 'Silver' });
+    const disk = memoryRunFile();
+    const store = ForgeRunStore.open(disk);
+
+    await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+      ...OPTIONS,
+      stream: { store },
+    });
+    store.close();
+
+    const lines = disk.text().split('\n');
+    const sent = lines
+      .filter((line) => line.startsWith('["x"'))
+      .map((line) => JSON.parse(line) as unknown[]);
+    expect(sent.map((line) => line[2])).toEqual(['Account', 'Asset']);
+    expect(sent[0]?.[5]).toEqual([[ACCOUNT, expect.stringMatching(/^[0-9a-z]{14}$/)]]);
+    // Its record before the line that closes its call.
+    const created = lines.findIndex((line) => line.startsWith(`["c","${ACCOUNT}"`));
+    const closed = lines.indexOf(JSON.stringify(['a', sent[0]?.[1]]));
+    expect(created).toBeGreaterThan(0);
+    expect(closed).toBeGreaterThan(created);
+    expect(callsInFlight(memoryRunFile(disk.text()))).toBe(0);
   });
 });

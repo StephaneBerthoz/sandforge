@@ -15,6 +15,9 @@ import {
   CurrencyReplacementTally,
   orgCurrenciesOf,
 } from '../../../core/common/recordCurrencies.js';
+import { insertCallsIn } from '../ForgeExecutor.js';
+import { ForgeRunStore, memoryRunFile } from '../ForgeRunStore.js';
+import { callsInFlight, reconcileInFlight } from '../ForgeInFlight.js';
 
 const ORPHAN_ID = '001AP00ORPHAN12'; // 15 alnum — passes SF_RECORD_ID_RE
 
@@ -1493,6 +1496,97 @@ describe('OrphanExpander', () => {
         expect(input.remapper.get(ORPHAN_ID)).toBe('001NEW');
         expect(linkPersonContacts).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe("in a run's journal", () => {
+    /** The parent's id in the target, as the org gives one. */
+    const PARENT = '001000000000NEWAAA';
+    const HEAD = `${JSON.stringify({ run: { journalId: 'j', targetOrgId: 'tgt', startedAt: '2026-10-20T10:00:00.000Z' } })}\n`;
+
+    /** A run's journal, its part begun, and the remapper the run writes through it. */
+    function journal() {
+      const file = memoryRunFile(HEAD);
+      const store = ForgeRunStore.open(file);
+      store.beginPart(new Date());
+      return { file, store, remapper: new IdRemapper(store) };
+    }
+
+    /** The tags of the journal's lines past its head and its part, in order. */
+    const tags = (text: string): string[] =>
+      text
+        .split('\n')
+        .filter((line) => line.startsWith('["'))
+        .map((line) => String((JSON.parse(line) as unknown[])[0]));
+
+    it('keeps the insert of a parent before it goes, and closes it once the parent is registered', async () => {
+      const { file, store, remapper } = journal();
+      const deps = makeDeps({
+        insertRecords: vi.fn(async () => {
+          // The call is on disk before it goes.
+          expect(tags(file.text())).toEqual(['x']);
+          return [{ id: PARENT, success: true, errors: [] }];
+        }),
+      });
+      const { input } = makeInput(deps, { remapper, calls: insertCallsIn(store) });
+
+      await new OrphanExpander(deps).expandForNode(input);
+      store.flush();
+
+      expect(tags(file.text())).toEqual(['x', 'c', 'a']);
+      expect(callsInFlight(file)).toBe(0);
+    });
+
+    it('closes at once the call of a parent the target refused, which wrote nothing', async () => {
+      const { file, store, remapper } = journal();
+      const deps = makeDeps({
+        insertRecords: vi.fn(async () => [
+          { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: no'] },
+        ]),
+      });
+      const { input } = makeInput(deps, { remapper, calls: insertCallsIn(store) });
+
+      await new OrphanExpander(deps).expandForNode(input);
+      store.flush();
+
+      expect(tags(file.text())).toEqual(['x', 'a']);
+      expect(callsInFlight(file)).toBe(0);
+    });
+
+    it('finds in the target a parent whose answer was lost, and a run taken up does not copy it again', async () => {
+      const { file, store, remapper } = journal();
+      // The org wrote the parent; the connection broke before its answer came.
+      const deps = makeDeps({
+        insertRecords: vi.fn(async () => {
+          throw new Error('socket hang up');
+        }),
+      });
+      const { input } = makeInput(deps, { remapper, calls: insertCallsIn(store) });
+      await new OrphanExpander(deps).expandForNode(input);
+      store.flush();
+      expect(callsInFlight(file)).toBe(1);
+
+      const reconciled = await reconcileInFlight(file, {
+        queryPages: (soql) =>
+          (async function* page() {
+            expect(soql).toContain('FROM Account WHERE CreatedById = ');
+            yield [{ Id: PARENT, Name: 'Acme Insurance' }];
+          })(),
+        userId: async () => '005000000000001AAA',
+      });
+      expect(reconciled.found).toEqual([{ objectApiName: 'Account', rows: 1 }]);
+
+      const resumed = ForgeRunStore.open(file);
+      resumed.beginPart(new Date());
+      const again = makeDeps();
+      const taken = makeInput(again, {
+        remapper: new IdRemapper(resumed),
+        calls: insertCallsIn(resumed),
+      });
+      await new OrphanExpander(again).expandForNode(taken.input);
+
+      expect(again.insertRecords).not.toHaveBeenCalled();
+      expect(taken.input.remapper.get(ORPHAN_ID)).toBe(PARENT);
     });
   });
 });

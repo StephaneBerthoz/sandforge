@@ -17,6 +17,8 @@ import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
 import type { ExecuteOptions, ExecutionSummary } from '../../modules/forge/ForgeExecutor.js';
 import { ForgeRunJournal, HISTORY_IDS_BOUND } from '../../modules/forge/ForgeRunJournal.js';
 import { memoryRunFile, type ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
+import { fingerprintFields, rowFingerprint } from '../../modules/forge/ForgeInFlight.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
@@ -344,6 +346,8 @@ describe('a run whose ids are in its journal', () => {
   let saved: string[];
   let execute: ReturnType<typeof vi.fn>;
   let handler: ForgeHandler;
+  /** A window of the editor opened on the same storage: a handler of its own. */
+  let windowOpened: () => ForgeHandler;
 
   beforeEach(() => {
     removals.length = 0;
@@ -411,26 +415,30 @@ describe('a run whose ids are in its journal', () => {
         return { status: 'saved' as const, path: '/picked/id-map.csv', result };
       },
     } as unknown as SaveDialogAdapter;
-    handler = new ForgeHandler(deps, undefined, saveDialog);
     execute = vi.fn(endsPastTheBound);
-    handler.setForgeOrchestrator(
-      {
-        execute,
-        on: vi.fn().mockReturnValue(vi.fn()),
-        abort: vi.fn(),
-        pause: vi.fn(),
-        resume: vi.fn(),
-        clearDiscoveryCache: vi.fn(),
-      } as unknown as ForgeOrchestrator,
-      {
-        targetAutomation: {
-          readForGraph: vi.fn(async () => QUIET),
-          read: vi.fn(async () => QUIET),
-        } as unknown as TargetAutomationReader,
-        runJournal: disk.journal,
-        removalPlans: plans,
-      },
-    );
+    windowOpened = (): ForgeHandler => {
+      const opened = new ForgeHandler(deps, undefined, saveDialog);
+      opened.setForgeOrchestrator(
+        {
+          execute,
+          on: vi.fn().mockReturnValue(vi.fn()),
+          abort: vi.fn(),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          clearDiscoveryCache: vi.fn(),
+        } as unknown as ForgeOrchestrator,
+        {
+          targetAutomation: {
+            readForGraph: vi.fn(async () => QUIET),
+            read: vi.fn(async () => QUIET),
+          } as unknown as TargetAutomationReader,
+          runJournal: disk.journal,
+          removalPlans: plans,
+        },
+      );
+      return opened;
+    };
+    handler = windowOpened();
   });
 
   function send(id: string, type: string, payload: unknown): Promise<boolean> {
@@ -818,5 +826,170 @@ describe('a run whose ids are in its journal', () => {
     await listed();
 
     expect(disk.files.has(file)).toBe(false);
+  });
+
+  describe('removed once its window closed while an insert call was under way', () => {
+    /** The contact the call sent, as it sent it and as the target holds it once written. */
+    const SENT = { LastName: 'Marked', Email: 'marked@example.com.invalid' };
+    const USER = '005000000000001AAA';
+    const IN_FLIGHT = sourceOf('003', 900_001);
+    const FOUND = targetOf('003', 900_001);
+    /** What the target answers the read of the records the run's user created. */
+    let held: Array<Record<string, unknown>>;
+    /** Why the target cannot be reached, when it cannot. */
+    let unreachable: string | undefined;
+    /** When the target created each record, by its id. */
+    const createdAt = new Map([
+      [targetOf('001', 1), '2026-10-20T10:00:01.000+0000'],
+      [targetOf('003', 3), '2026-10-20T10:03:00.000+0000'],
+      [FOUND, '2026-10-20T10:04:30.000+0000'],
+    ]);
+
+    beforeEach(() => {
+      held = [];
+      unreachable = undefined;
+      vi.mocked(getJsforceConnection).mockImplementation(async () => {
+        if (unreachable) throw new Error(unreachable);
+        return {
+          query: vi.fn(async (soql: string) => {
+            if (soql.includes('WHERE CreatedById = ')) {
+              return { records: held, done: true, totalSize: held.length };
+            }
+            const dated = /^SELECT CreatedDate FROM \w+ WHERE Id = '(\w+)'$/.exec(soql);
+            const at = dated ? createdAt.get(dated[1]) : undefined;
+            return at
+              ? { records: [{ CreatedDate: at }], done: true, totalSize: 1 }
+              : { records: [], done: true, totalSize: 0 };
+          }),
+          queryMore: vi.fn(),
+          identity: vi.fn(async () => ({ user_id: USER })),
+          request: vi.fn(async () => ({ DataStorageMB: { Max: 200, Remaining: 150 } })),
+        } as never;
+      });
+    });
+
+    /**
+     * The run writes `contacts` contacts, keeps the call of one more as it
+     * goes, and its window closes before the call's answer; the window opened
+     * again lists it, interrupted.
+     */
+    async function closedDuringTheCall(contacts: number): Promise<ForgeExecutionResult> {
+      execute.mockImplementation(async (_graph: ForgeGraph, _config: ForgeConfig, options) => {
+        const store = (options as ExecuteOptions | undefined)?.stream?.store;
+        writeTheRun(store, contacts);
+        const fields = fingerprintFields([SENT]);
+        store?.sent('Contact', fields, [
+          { sourceId: IN_FLIGHT, fingerprint: rowFingerprint(SENT, fields) },
+        ]);
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      handler = windowOpened();
+      const { history } = await listed();
+      const entry = history[0];
+      expect(entry).toMatchObject({ interrupted: true });
+      return entry;
+    }
+
+    it('removes with the run the record the target holds of the call, which its journal did not name', async () => {
+      const entry = await closedDuringTheCall(3);
+      expect(entry.remapInJournal).toBeUndefined();
+      held = [{ Id: FOUND, ...SENT }];
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+      const contacts = removals[0]?.find((object) => object.objectApiName === 'Contact')?.ids;
+      expect(contacts).toHaveLength(4);
+      expect(contacts).toContain(FOUND);
+      expect(answerTo('wv-undo', 'forge:undo:response')?.result).not.toHaveProperty(
+        'mayHaveBeenWritten',
+      );
+      // The history takes it in, and the plan kept of the run too.
+      expect(stored()[0]).toMatchObject({ createdCount: 5 });
+      expect(stored()[0]?.idRemapTable?.[IN_FLIGHT]).toBe(FOUND);
+    });
+
+    it('dates the removal by when the target created the first and the last record its journal names, the one found last', async () => {
+      const entry = await closedDuringTheCall(3);
+      // Recorded as of when its part began, for no length of time: a record
+      // written ten seconds later would read as changed since the run.
+      expect(entry).toMatchObject({ duration: 0 });
+      held = [{ Id: FOUND, ...SENT }];
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+      expect(removalOptions[0]).toMatchObject({
+        runStartedAt: new Date('2026-10-20T10:00:01.000Z'),
+        runEndedAt: new Date('2026-10-20T10:04:30.000Z'),
+      });
+      expect(removalOptions[0]).not.toHaveProperty('runRecordedAt');
+    });
+
+    it('verifies the run dated from its journal as well', async () => {
+      const entry = await closedDuringTheCall(3);
+
+      await send('wv-verify', 'forge:verify:request', { forgeId: entry.forgeId });
+
+      expect(verified[0]).toMatchObject({
+        runStartedAt: new Date('2026-10-20T10:00:01.000Z'),
+        runEndedAt: new Date('2026-10-20T10:03:00.000Z'),
+      });
+      expect(verified[0]).not.toHaveProperty('runRecordedAt');
+    });
+
+    it('removes it with a run whose ids are in its journal, counted with the rest', async () => {
+      const entry = await closedDuringTheCall(PAST_THE_BOUND - 1);
+      expect(entry.remapInJournal).toBe(true);
+      held = [{ Id: FOUND, ...SENT }];
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+      const contacts = removals[0]?.find((object) => object.objectApiName === 'Contact')?.ids;
+      expect(contacts).toHaveLength(PAST_THE_BOUND);
+      expect(contacts).toContain(FOUND);
+    });
+
+    it('takes nothing of what the target may hold of the call, and says how many rows may be there', async () => {
+      const entry = await closedDuringTheCall(3);
+      // Two records like the one the call sent: which is the call's cannot be told.
+      held = [
+        { Id: FOUND, ...SENT },
+        { Id: targetOf('003', 900_002), ...SENT },
+      ];
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+      const removed = removals[0]?.flatMap((object) => object.ids) ?? [];
+      expect(removed).toHaveLength(4);
+      expect(removed).not.toContain(FOUND);
+      expect(answerTo('wv-undo', 'forge:undo:response')?.result).toMatchObject({
+        mayHaveBeenWritten: 1,
+      });
+    });
+
+    it('removes nothing when the target cannot be read for the call', async () => {
+      const entry = await closedDuringTheCall(3);
+      unreachable = 'ECONNREFUSED';
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+      expect(removals).toEqual([]);
+      expect(answerTo('wv-undo', 'forge:undo:error')).toMatchObject({
+        code: 'IN_FLIGHT_UNREAD',
+        message: expect.stringContaining('Nothing was deleted'),
+      });
+    });
+
+    it('reads nothing of the target for a run whose calls were all answered', async () => {
+      const entry = await runPastTheBound();
+      vi.mocked(getJsforceConnection).mockClear();
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+      expect(removals[0]?.[0]?.ids).toHaveLength(PAST_THE_BOUND - 1);
+      // The removal reaches the org once, to remove; no read before it.
+      expect(vi.mocked(getJsforceConnection)).toHaveBeenCalledTimes(1);
+    });
   });
 });

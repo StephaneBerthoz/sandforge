@@ -12,6 +12,9 @@
  * envelope as it does for a webview, and orgs go through the product's own
  * registry.
  *
+ * Forge, whose composition and Production Guard read the editor's API, is
+ * hosted beside it (`forgeHost.ts`), through the same host.
+ *
  * The stand-ins are only what VS Code hands over at activation: the memento
  * behind the ConfigStore (a JSON file, see `fileConfigStore`), the
  * SecretStorage behind the vault (memory, so a token never reaches the disk),
@@ -109,6 +112,23 @@ export interface PanelHostOptions {
    * comes late is seen as late rather than as none. Default five minutes.
    */
   waitMs?: number;
+  /**
+   * Hands the handlers the late services a module's composition builds, as
+   * the extension does before it routes them (`applyLateServices`): told of
+   * what the host built, before `registerAll`. Forge's host builds the
+   * background composition here (see `forgeHost.ts`).
+   */
+  compose?: (wiring: PanelHostWiring) => void;
+}
+
+/** What the host built, as a composition of a module is handed it: see `PanelHostOptions.compose`. */
+export interface PanelHostWiring {
+  handlers: ExtensionHandlers;
+  configStore: ReturnType<typeof fileConfigStore>;
+  orgRegistry: OrgRegistry;
+  orgManager: OrgManager;
+  services: Services;
+  log: (line: string) => void;
 }
 
 /**
@@ -246,6 +266,7 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
   const broker = new MessageBroker();
   broker.setLogFunction(log);
   const router = new MessageRouter(broker);
+  const services = headlessServices(configStore, log);
   const handlers = new ExtensionHandlers({
     log,
     broker,
@@ -256,10 +277,11 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
     secretVault,
     authProvider,
     sfdxBridge,
-    services: headlessServices(configStore, log),
+    services,
   });
   // The late service the Monitor reads (see composition/lateServices.ts).
   handlers.setLiveOperationTracker(new LiveOperationTracker());
+  options.compose?.({ handlers, configStore, orgRegistry, orgManager, services, log });
   handlers.registerAll(router);
 
   // The webview at the far end: it records what it is sent and hands what it

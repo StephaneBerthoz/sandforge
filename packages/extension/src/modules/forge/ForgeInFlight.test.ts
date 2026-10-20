@@ -201,12 +201,13 @@ describe('the insert calls a journal names no answer of, looked for in the targe
       notFound: [],
       uncertain: [],
       unread: [],
+      lookedFor: new Set([source(3), source(4), source(5)]),
     });
     const lines = added(text, file.text());
     expect(lines.filter(([tag]) => tag === 'c')).toEqual([
-      ['c', source(3), target(3), 'Contact', 'found'],
-      ['c', source(4), target(4), 'Contact', 'found'],
-      ['c', source(5), target(5), 'Contact', 'found'],
+      ['c', source(3), target(3), 'Contact', 'found-owed'],
+      ['c', source(4), target(4), 'Contact', 'found-owed'],
+      ['c', source(5), target(5), 'Contact', 'found-owed'],
     ]);
     expect(lines.at(-1)?.[0]).toBe('a');
     // Taken up again, nothing is left open.
@@ -236,8 +237,12 @@ describe('the insert calls a journal names no answer of, looked for in the targe
     const outcome = await reconcileInFlight(file, org);
 
     expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 2 }]);
-    expect(file.text()).toContain(JSON.stringify(['c', source(1), target(8), 'Contact', 'found']));
-    expect(file.text()).toContain(JSON.stringify(['c', source(2), target(9), 'Contact', 'found']));
+    expect(file.text()).toContain(
+      JSON.stringify(['c', source(1), target(8), 'Contact', 'found-owed']),
+    );
+    expect(file.text()).toContain(
+      JSON.stringify(['c', source(2), target(9), 'Contact', 'found-owed']),
+    );
   });
 
   it('leaves to the resume the rows the target does not hold, and closes the call', async () => {
@@ -302,7 +307,7 @@ describe('the insert calls a journal names no answer of, looked for in the targe
 
     expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
     expect(added(text, file.text()).filter(([tag]) => tag === 'c')).toEqual([
-      ['c', source(3), target(3), 'Contact', 'found'],
+      ['c', source(3), target(3), 'Contact', 'found-owed'],
     ]);
   });
 
@@ -353,5 +358,97 @@ describe('the insert calls a journal names no answer of, looked for in the targe
     const store = ForgeRunStore.open(file);
     store.beginPart(new Date());
     expect(store.mapping(source(2))).toMatchObject({ kind: 'created', earlier: true });
+  });
+
+  describe('what a row found owes the second pass', () => {
+    /** The contact the call sent second went in without the one it reports to, not written yet. */
+    const REPORTS_TO = idOf('003S', 40);
+
+    function journalOwing(): string {
+      const disk = memoryRunFile(HEAD);
+      const store = ForgeRunStore.open(disk);
+      store.beginPart(new Date(SENT_AT));
+      const payloads = [3, 4].map(contact);
+      const fields = fingerprintFields(payloads);
+      store.sent(
+        'Contact',
+        fields,
+        [
+          { sourceId: source(3), fingerprint: rowFingerprint(payloads[0], fields), owes: [] },
+          {
+            sourceId: source(4),
+            fingerprint: rowFingerprint(payloads[1], fields),
+            owes: [
+              { field: 'ReportsToId', sourceRefId: REPORTS_TO },
+              { field: 'MasterRecordId', sourceRefId: REPORTS_TO, insertOnly: true },
+            ],
+          },
+        ],
+        new Date(SENT_AT),
+      );
+      store.flush();
+      return disk.text();
+    }
+
+    it('owes a row it finds the lookups its call says it went in without, and no other', async () => {
+      const text = journalOwing();
+      const file = memoryRunFile(text);
+
+      await reconcileInFlight(file, targetHolding([held(3), held(4)]));
+
+      const lines = added(text, file.text());
+      expect(lines.filter(([tag]) => tag === 'c')).toEqual([
+        ['c', source(3), target(3), 'Contact', 'found-owed'],
+        ['c', source(4), target(4), 'Contact', 'found-owed'],
+      ]);
+      // As the call's answer would have owed them (`ForgeRunStore.owe`): its
+      // account, set as it went in, is owed nothing.
+      expect(lines.filter(([tag]) => tag === 'o' || tag === 'w')).toEqual([
+        ['o', 'Contact', target(4), source(4), 'ReportsToId', REPORTS_TO, 0],
+        ['o', 'Contact', target(4), source(4), 'MasterRecordId', REPORTS_TO, 1],
+      ]);
+      const store = ForgeRunStore.open(file);
+      expect(store.owed).toBe(2);
+      expect(store.wasFoundAfterStop(source(4))).toBe(true);
+      expect(store.owesUntold(source(4))).toBe(false);
+    });
+
+    it('takes a call a journal of 1.61 kept, which says nothing of what its rows went in without, as one whose rows owe what they name', async () => {
+      const payloads = [3].map(contact);
+      const fields = fingerprintFields(payloads);
+      const text =
+        HEAD +
+        `${JSON.stringify({ part: { n: 0, startedAt: SENT_AT } })}\n` +
+        `${JSON.stringify(['x', '0.1', 'Contact', SENT_AT, fields, [[source(3), rowFingerprint(payloads[0], fields)]]])}\n`;
+      const file = memoryRunFile(text);
+
+      const outcome = await reconcileInFlight(file, targetHolding([held(3)]));
+
+      expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+      const lines = added(text, file.text());
+      expect(lines.filter(([tag]) => tag === 'c')).toEqual([
+        ['c', source(3), target(3), 'Contact', 'found'],
+      ]);
+      expect(lines.some(([tag]) => tag === 'o')).toBe(false);
+      const store = ForgeRunStore.open(file);
+      expect(store.wasFoundAfterStop(source(3))).toBe(true);
+      expect(store.owesUntold(source(3))).toBe(true);
+    });
+
+    it('reads nothing of a sent line that says what its rows owe in a form it does not write', async () => {
+      const payloads = [3].map(contact);
+      const fields = fingerprintFields(payloads);
+      const sent = [source(3), rowFingerprint(payloads[0], fields)];
+      const text =
+        HEAD +
+        `${JSON.stringify({ part: { n: 0, startedAt: SENT_AT } })}\n` +
+        `${JSON.stringify(['x', '0.1', 'Contact', SENT_AT, fields, [sent], [[5, 'ReportsToId', REPORTS_TO, 0]]])}\n`;
+      const file = memoryRunFile(text);
+
+      const outcome = await reconcileInFlight(file, targetHolding([held(3)]));
+
+      expect(outcome.calls).toBe(0);
+      expect(file.text()).toBe(text);
+    });
   });
 });

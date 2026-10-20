@@ -186,9 +186,11 @@ The Forge page lists your recent runs under **Recent runs**. A run that created 
 Every clone that writes keeps a journal of what it writes as it goes — the
 ids of the records it created and linked to, put on disk as each call's
 answer comes back, where each object's read stood, the lookups and statuses
-it still owed, and those it filled in; and, before each insert call goes, the
-source ids of its rows with a fingerprint of what each writes, which holds
-none of it; never a value of a record — in the extension's own storage. One that stopped before its end — you cancelled it,
+it still owed, and those it filled in; and, before each insert call goes — a
+parent it copies from outside the clone and a file included — the source ids
+of its rows with a fingerprint of what each writes, a file's by its title, its
+size and its checksum, which holds none of it, and the lookups each row goes
+in without; never a value of a record — in the extension's own storage. One that stopped before its end — you cancelled it,
 it failed past its first objects, or VS Code closed under it — offers
 **Resume where it stopped** on its results, **Resume** under **Recent runs**,
 and **Resume** in Live Operations while it is listed there: the clone runs
@@ -200,7 +202,8 @@ of — VS Code closed, or the process was killed, while it was under way — is
 looked for in the target first: the records the run's user created as the run
 stopped that the journal does not name, matched to the call's rows by their
 fingerprints and the order the call sent them in. A row found is linked to,
-given what it still owed, and removed with the run's records; a row the target
+given the lookups it went in without and nothing more — an account it went in
+with is not written to again — and removed with the run's records; a row the target
 may hold already — more records like it than rows, or a record left unmatched
 beside it that the target's automation may have changed as it saved it — is
 not written without your word: the confirmation before the run writes says how
@@ -208,7 +211,12 @@ many of each object, and **Execute** writes them all the same, each then
 perhaps there twice. Its lines say the records it links to were written
 before the run stopped. A run VS Code closed under is listed
 under **Recent runs** as interrupted, with what it created, removable from
-there. Resume is refused, writing nothing, when the org the run wrote to was
+there: its removal looks for the call it had under way first, as a resume
+does, and takes back what it finds; a row the target may hold that the
+journal does not name stays, and the removal's result counts it among the
+records it cannot reach. Such a run is dated, for its removal and its
+**Verify**, by when the target created the first and the last records its
+journal names, not by when it began. Resume is refused, writing nothing, when the org the run wrote to was
 refreshed or replaced since, or is no longer registered; when the clone on
 the page, or `sandforge.forge.maxRecordsPerObject`, changed since it stopped;
 and when its records were removed, or it was resumed already. Each part is a

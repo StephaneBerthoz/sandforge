@@ -1136,6 +1136,44 @@ describe('a run of whole tables read page by page', () => {
         },
       );
 
+      it.each([
+        [6, 'contacts, whose account each went in with'],
+        [2, 'accounts, some of which went in without the parent they name'],
+        [1, 'accounts, the first of the run'],
+      ] as const)(
+        'fills in on the rows of call %i (%s) found in the target only the lookups they went in without, as the whole run did',
+        async (killedDuring, _rows) => {
+          const { graph, whole, orgs, disk } = await killedDuringACall(killedDuring);
+          const file = memoryRunFile(disk.text());
+          await reconcileInFlight(file, readBack(orgs));
+          // The rows found, by their source id and the record the target holds.
+          const found = file
+            .text()
+            .split('\n')
+            .filter((line) => line.startsWith('["c"') && line.includes('"found'))
+            .map((line) => JSON.parse(line) as string[]);
+          expect(found).toHaveLength(5);
+          const updatesBefore = updatedIds(orgs.deps).length;
+
+          const store = ForgeRunStore.open(file);
+          await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+            stream: { pageSize: 5, store },
+          });
+          store.close();
+
+          // What the resume sent to each row found, against what the whole
+          // run sent to the same row: an update only for a lookup the row's
+          // insert left out, never one for each lookup it names.
+          const resumed = new Set(updatedIds(orgs.deps).slice(updatesBefore));
+          const wholeUpdated = new Set(updatedIds(whole.deps));
+          for (const [, sourceRow, targetRow] of found) {
+            const updatedByWhole = wholeUpdated.has(whole.summary.remapTable[sourceRow] ?? '');
+            expect(resumed.has(targetRow)).toBe(updatedByWhole);
+          }
+          expect(orgs.written()).toEqual(whole.written());
+        },
+      );
+
       it('writes the call again when nothing looks for it first: what the journal alone leaves', async () => {
         const { graph, whole, orgs, disk } = await killedDuringACall(3);
         const store = ForgeRunStore.open(memoryRunFile(disk.text()));

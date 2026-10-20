@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeFilesReport } from '@sandforge/shared';
 import {
   copyFiles,
+  fileFingerprint,
   lookupFailure,
   plannedFilesReport,
   selectFiles,
@@ -12,7 +14,9 @@ import {
   type FileToCopy,
 } from './FileCopier.js';
 import { IdRemapper } from '../IdRemapper.js';
-import type { ExecutionObjectError, InsertResult } from '../ForgeExecutor.js';
+import { insertCallsIn, type ExecutionObjectError, type InsertResult } from '../ForgeExecutor.js';
+import { ForgeRunStore, memoryRunFile } from '../ForgeRunStore.js';
+import { callsInFlight, reconcileInFlight } from '../ForgeInFlight.js';
 import { selectRows, type FakeRow } from '../../../test/fakeSoql.js';
 
 const MB = 1_048_576;
@@ -656,6 +660,151 @@ describe('copyFiles', () => {
     expect(deps.insertFile).toHaveBeenCalledTimes(1);
     expect(remapper.get(DOC_A)).toBe('069NEW001');
     expect(report.objects[0].copied).toBe(1);
+  });
+
+  describe("in a run's journal", () => {
+    const HEAD = `${JSON.stringify({ run: { journalId: 'j', targetOrgId: 'tgt', startedAt: '2026-10-20T10:00:00.000Z' } })}\n`;
+    /** The version the target created, as the org gives its id. */
+    const VERSION = id('068', 40);
+    /** A content no fingerprint or line of the journal may hold. */
+    const CONTENT = Buffer.from('the content of the file').toString('base64');
+
+    /** A journal with the run's two cases in it, and the remapper the stage writes through. */
+    function journal() {
+      const disk = memoryRunFile(HEAD);
+      const store = ForgeRunStore.open(disk);
+      store.beginPart(new Date());
+      const remapper = new IdRemapper(store);
+      remapper.add(CASE_1, id('500', 41), 'Case');
+      remapper.add(CASE_2, id('500', 42), 'Case');
+      return { disk, store, remapper };
+    }
+
+    const bytes = Buffer.byteLength('the content of the file');
+
+    it('keeps the insert of a file before it goes, by what the target reads back of it and never its content, and closes it once the file is registered', async () => {
+      const { disk, store, remapper } = journal();
+      const deps = targetDeps({
+        readFileBody: vi.fn(async () => CONTENT),
+        insertFile: vi.fn(async () => ({ id: VERSION, success: true, errors: [] })),
+      });
+
+      await copyFiles({
+        files: [file({ bytes })],
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        remapper,
+        deps,
+        report: emptyReport(),
+        errors: [],
+        waitIfPaused: async () => undefined,
+        onProgress: () => undefined,
+        calls: insertCallsIn(store),
+      });
+      store.flush();
+
+      const lines = disk
+        .text()
+        .split('\n')
+        .filter((line) => line.startsWith('["x"') || line.startsWith('["a"'));
+      expect(lines.map((line) => String((JSON.parse(line) as unknown[])[0]))).toEqual(['x', 'a']);
+      expect(JSON.parse(lines[0] ?? '[]')).toEqual([
+        'x',
+        expect.any(String),
+        'ContentVersion',
+        expect.any(String),
+        ['Checksum', 'ContentSize', 'Title'],
+        [[DOC_A, expect.stringMatching(/^[0-9a-z]{14}$/)]],
+        [],
+      ]);
+      expect(disk.text()).not.toContain(CONTENT);
+      expect(callsInFlight(disk)).toBe(0);
+    });
+
+    it('finds in the target a file whose answer was lost, by its title, checksum and size, and a run taken up links to it instead of copying it again', async () => {
+      const { disk, store, remapper } = journal();
+      const deps = targetDeps({
+        readFileBody: vi.fn(async () => CONTENT),
+        insertFile: vi.fn(async (): Promise<InsertResult> => {
+          throw new Error('socket hang up');
+        }),
+      });
+      await copyFiles({
+        files: [file({ bytes })],
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        remapper,
+        deps,
+        report: emptyReport(),
+        errors: [],
+        waitIfPaused: async () => undefined,
+        onProgress: () => undefined,
+        calls: insertCallsIn(store),
+      });
+      store.flush();
+      expect(callsInFlight(disk)).toBe(1);
+
+      // What the org holds of the version it wrote: the MD5 of its content as
+      // its checksum, its size, its title.
+      const checksum = createHash('md5').update(Buffer.from(CONTENT, 'base64')).digest('hex');
+      const reconciled = await reconcileInFlight(disk, {
+        queryPages: (soql) =>
+          (async function* page() {
+            expect(soql).toMatch(/^SELECT Id, Checksum, ContentSize, Title FROM ContentVersion /);
+            yield [
+              // Another version the run's user created meanwhile, of another file.
+              { Id: id('068', 41), Title: 'Other', Checksum: checksum, ContentSize: bytes },
+              { Id: VERSION, Title: 'Report', Checksum: checksum, ContentSize: bytes },
+            ];
+          })(),
+        userId: async () => id('005', 1),
+      });
+      expect(reconciled.found).toEqual([{ objectApiName: 'ContentVersion', rows: 1 }]);
+
+      const resumed = ForgeRunStore.open(disk);
+      resumed.beginPart(new Date());
+      expect(resumed.mapping(DOC_A)).toMatchObject({
+        kind: 'created',
+        targetId: VERSION,
+        objectApiName: 'ContentVersion',
+        earlier: true,
+      });
+      // The part that takes the run up reads its document back and links it.
+      const taken = await takeUpFilesCopiedBefore({
+        files: [file({ bytes })],
+        targetOrgId: 'tgt',
+        copiedBefore: (sourceId) => {
+          const mapping = resumed.mapping(sourceId);
+          return mapping?.objectApiName
+            ? { objectApiName: mapping.objectApiName, targetId: mapping.targetId }
+            : undefined;
+        },
+        queryRecords: async (_org, soql) =>
+          soql.startsWith('SELECT Id, ContentDocumentId FROM ContentVersion')
+            ? [{ Id: VERSION, ContentDocumentId: id('069', 40) }]
+            : [],
+      });
+      expect(taken.files[0]?.into).toEqual({
+        documentId: id('069', 40),
+        linked: [],
+        unchanged: true,
+      });
+    });
+
+    it('fingerprints an attachment by its name, its size and the record it goes under', () => {
+      expect(
+        fileFingerprint(
+          {
+            body: { objectApiName: 'Attachment', id: id('00P', 1) },
+            name: 'notes.txt',
+            bytes: 12,
+            fields: { Name: 'notes.txt', IsPrivate: false },
+          },
+          CONTENT,
+          id('500', 41),
+        ),
+      ).toEqual({ Name: 'notes.txt', BodyLength: 12, ParentId: id('500', 41) });
+    });
   });
 });
 

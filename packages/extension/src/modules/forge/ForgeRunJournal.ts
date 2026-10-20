@@ -9,8 +9,11 @@ import {
   forgeGraphSchema,
   forgeRunCreatedRecords,
   type ForgeRemovalPlan,
+  type ForgeWrittenBetween,
   type IdMapRow,
 } from '@sandforge/shared';
+import type { Connection } from 'jsforce';
+import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { ForgeRunStore, journalLines, nodeRunFile, type RunFile } from './ForgeRunStore.js';
 import type { RunRecords } from './ForgeRunRemoval.js';
 import {
@@ -20,6 +23,17 @@ import {
   type InFlightTarget,
 } from './ForgeInFlight.js';
 import { HashedKeys, JournalPart } from './journalRecords.js';
+
+/** What dating a run from its journal reads of the org it wrote to: see `ForgeRunJournal.writtenBetween`. */
+export type JournalDatesTarget = Pick<Connection, 'query'>;
+
+/**
+ * How long past the journal's last line, on the clock of the machine that
+ * wrote it, the last write a run dated from its journal ends at may be: a
+ * record written to since — edited by hand, a day later — does not stretch
+ * the run's window to that day.
+ */
+export const JOURNAL_LAST_WRITE_SLACK_MS = 10 * 60_000;
 
 /** File-system operations the journal needs, injected so it stays testable. */
 export interface ForgeRunJournalDeps {
@@ -358,9 +372,16 @@ export class ForgeRunJournal {
    * summary saying no window (`writtenBetween`), read from the target. None
    * for a journal that names no record it created.
    */
-  writeBoundsAt(filePath: string): {
+  writeBoundsAt(
+    filePath: string,
+    part?: number,
+  ): {
     first?: { objectApiName: string; id: string };
     lastCreated?: { objectApiName: string; id: string };
+    /** Of the part `part`, when asked of one, the first record it created. */
+    firstInPart?: { objectApiName: string; id: string };
+    /** Of the part `part`, when asked of one, the last record it created. */
+    lastCreatedInPart?: { objectApiName: string; id: string };
     lastUpdated?: { objectApiName: string; id: string };
     /** The latest time a line of the journal holds, on the clock of the machine that wrote it. */
     lastAt?: string;
@@ -369,6 +390,10 @@ export class ForgeRunJournal {
     try {
       let first: { objectApiName: string; id: string } | undefined;
       let lastCreated: { objectApiName: string; id: string } | undefined;
+      let firstInPart: { objectApiName: string; id: string } | undefined;
+      let lastCreatedInPart: { objectApiName: string; id: string } | undefined;
+      /** The part the lines read belong to: -1 before the first begins. */
+      let current = -1;
       let lastUpdated: { objectApiName: string; id: string } | undefined;
       /** The last record the second pass filled a lookup of, told by its id alone. */
       let lastFilled: string | undefined;
@@ -384,6 +409,7 @@ export class ForgeRunJournal {
           const epoch = time === undefined ? Number.NaN : Date.parse(time);
           if (Number.isFinite(epoch)) lastAt = Math.max(lastAt, epoch);
         }
+        if (line.text.startsWith('{"part":')) current++;
         if (
           !line.text.startsWith('["c"') &&
           !line.text.startsWith('["p"') &&
@@ -404,6 +430,10 @@ export class ForgeRunJournal {
           const created = { objectApiName: String(c), id: String(b) };
           first ??= created;
           lastCreated = created;
+          if (current === part) {
+            firstInPart ??= created;
+            lastCreatedInPart = created;
+          }
           objectOfPrefix.set(String(b).slice(0, 3), String(c));
         } else if (tag === 'g') {
           if (!idSchema.safeParse(b).success || !objectSchema.safeParse(a).success) continue;
@@ -418,12 +448,100 @@ export class ForgeRunJournal {
       return {
         ...(first ? { first } : {}),
         ...(lastCreated ? { lastCreated } : {}),
+        ...(firstInPart ? { firstInPart } : {}),
+        ...(lastCreatedInPart ? { lastCreatedInPart } : {}),
         ...(lastUpdated ? { lastUpdated } : {}),
         ...(Number.isFinite(lastAt) ? { lastAt: new Date(lastAt).toISOString() } : {}),
       };
     } finally {
       file.close();
     }
+  }
+
+  /**
+   * When the target dated the writes of the run of the journal `journalId`,
+   * every part of it (`writeBoundsAt`): from when the first record it created
+   * was created to its last write — the last record it created, or, later, the
+   * last it wrote to since, as that record was last modified, no later than
+   * {@link JOURNAL_LAST_WRITE_SLACK_MS} past the journal's last line allows.
+   * None for a journal that names no record the target still holds.
+   *
+   * What a run taken back from its journal alone is dated by: a run a closed
+   * window stopped, or a summary built from its journal. Dated by when its
+   * part began, with no length, a run killed a minute in had every record
+   * written past its tenth second kept by its removal as changed since.
+   *
+   * Asked for a part (`part`), it ends no earlier than the last record that
+   * part created, and begins with the first one it created when the
+   * journal's first is gone: the first and last records of the journal may
+   * be another part's, removed already. That is what a removal of the part
+   * reads a change since the run against: a part taking the run up filled in
+   * the lookups its rows owed, and those records were the run's to write.
+   * A verification counts the records the run's user created in the span
+   * against what the part wrote: it asks for the part's own (`scope` of
+   * `'part'`), from the first record the part created to the last.
+   */
+  writtenBetween(
+    journalId: string,
+    target: JournalDatesTarget,
+    part?: number,
+    scope: 'run' | 'part' = 'run',
+  ): Promise<ForgeWrittenBetween | undefined> {
+    return this.writtenBetweenAt(this.filePath(journalId), target, part, scope);
+  }
+
+  /** {@link writtenBetween}, of the journal at `filePath`. */
+  async writtenBetweenAt(
+    filePath: string,
+    target: JournalDatesTarget,
+    part?: number,
+    scope: 'run' | 'part' = 'run',
+  ): Promise<ForgeWrittenBetween | undefined> {
+    const bounds = this.writeBoundsAt(filePath, part);
+    const { firstInPart, lastCreatedInPart, lastAt } = bounds;
+    // The part's own span: its first record to its last, nothing else's.
+    const [first, lastCreated, lastUpdated] =
+      scope === 'part'
+        ? [firstInPart, lastCreatedInPart, undefined]
+        : [bounds.first, bounds.lastCreated, bounds.lastUpdated];
+    if (!first || !lastCreated) return undefined;
+    const dateOf = async (
+      { objectApiName, id }: { objectApiName: string; id: string },
+      field: 'CreatedDate' | 'LastModifiedDate',
+    ): Promise<number | undefined> => {
+      try {
+        const answer = await target.query<Record<string, unknown>>(
+          `SELECT ${field} FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id = '${id}'`,
+        );
+        const date = answer.records[0]?.[field];
+        const epoch = typeof date === 'string' ? Date.parse(date) : Number.NaN;
+        return Number.isFinite(epoch) ? epoch : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const from =
+      (await dateOf(first, 'CreatedDate')) ??
+      (firstInPart && firstInPart.id !== first.id
+        ? await dateOf(firstInPart, 'CreatedDate')
+        : undefined);
+    const ends: number[] = [];
+    const inPart = lastCreatedInPart?.id !== lastCreated.id ? lastCreatedInPart : undefined;
+    for (const last of [lastCreated, inPart]) {
+      const at = last ? await dateOf(last, 'CreatedDate') : undefined;
+      if (at !== undefined) ends.push(at);
+    }
+    let to = ends.length > 0 ? Math.max(...ends) : undefined;
+    if (from === undefined || to === undefined || to < from) return undefined;
+    if (lastUpdated) {
+      const updated = await dateOf(lastUpdated, 'LastModifiedDate');
+      const bound =
+        lastAt === undefined ? Number.NaN : Date.parse(lastAt) + JOURNAL_LAST_WRITE_SLACK_MS;
+      if (updated !== undefined && updated > to && (!Number.isFinite(bound) || updated <= bound)) {
+        to = updated;
+      }
+    }
+    return { first: new Date(from).toISOString(), last: new Date(to).toISOString() };
   }
 
   /** The insert calls the journal `journalId` names no answer of: see {@link reconcile}. */

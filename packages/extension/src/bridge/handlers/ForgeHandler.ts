@@ -17,6 +17,7 @@ import type {
   ForgeTargetAutomation,
   ForgeRehearsal,
   ForgeRehearsalProgress,
+  ForgeWrittenBetween,
   ComplianceFrameworkType,
   GuardDecision,
 } from '@sandforge/shared';
@@ -191,12 +192,15 @@ import {
   HISTORY_IDS_BOUND,
   type ForgeRunJournalRead,
   type ForgeRunResumeHead,
+  type JournalDatesTarget,
 } from '../../modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
 import {
   inFlightLines,
   inFlightTargetOf,
+  uncertainRows,
   type InFlightObjectRows,
+  type InFlightReconciliation,
 } from '../../modules/forge/ForgeInFlight.js';
 import { forgeRunFingerprint, sameRunSetup } from '../../modules/forge/runFingerprint.js';
 import { ForgeStops, MAX_DISCOVERIES } from '../../modules/forge/ForgeStops.js';
@@ -724,11 +728,51 @@ type RunToRemove = Pick<
      * none: what a removal leaves is kept beside it, and counted on the entry.
      */
     inJournal?: { journalId: string; part: number };
+    /** The run's journal, and its part, which date a run its entry does not (`datedByItsJournal`). */
+    journalId?: string;
+    journalPart?: number;
   };
 
 /** The rows of a run a call may have written before its answer was lost. */
 function unreachableOf(entry: Pick<ForgeExecutionResult, 'mayHaveBeenWritten'>): number {
   return (entry.mayHaveBeenWritten ?? []).reduce((sum, { sourceIds }) => sum + sourceIds.length, 0);
+}
+
+/**
+ * What a removal says a call of the run may have written under ids no one
+ * knows, once the rows of the calls it had under way were looked for in the
+ * target (`reconcileInFlight`): those the target may hold, and those the
+ * run's own count names that no call looked for sent — an upsert, which its
+ * journal does not keep. A call that threw before its answer stays open in
+ * the journal: found since, its rows are the run's, and removed. Without a
+ * reconciliation, the run's own count.
+ */
+function unreachableAfter(
+  mayHaveBeenWritten: ForgeExecutionResult['mayHaveBeenWritten'],
+  reconciled: InFlightReconciliation | undefined,
+): number {
+  if (!reconciled || reconciled.calls === 0) return unreachableOf({ mayHaveBeenWritten });
+  const looked = reconciled.lookedFor ?? new Set<string>();
+  const notLooked = (mayHaveBeenWritten ?? []).reduce(
+    (sum, { sourceIds }) => sum + sourceIds.filter((id) => !looked.has(id)).length,
+    0,
+  );
+  return uncertainRows(reconciled) + notLooked;
+}
+
+/** A run's counts per object, the rows found in the target of its calls under way added as created. */
+function withFoundCounted(
+  byObject: ForgeExecutionResult['idRemapByObject'],
+  found: readonly InFlightObjectRows[],
+): ForgeExecutionResult['idRemapByObject'] {
+  if (!byObject) return undefined;
+  const counts = byObject.map((entry) => ({ ...entry }));
+  for (const { objectApiName, rows } of found) {
+    const known = counts.find((entry) => entry.objectApiName === objectApiName);
+    if (known) known.created += rows;
+    else counts.push({ objectApiName, created: rows, linked: 0 });
+  }
+  return counts;
 }
 
 /** ConfigStore category for all forge data. */
@@ -2140,6 +2184,12 @@ export class ForgeHandler implements DomainHandler {
                 logger.info(`Forge resume: ${line.trim()}`);
               }
               mayBeInTarget = reconciled.uncertain;
+              // The rows found are the part's that sent them: its entry
+              // takes them in, and a removal of it takes them back.
+              const resumed = this.loadHistory().find((e) => e.forgeId === resume.forgeId);
+              if (resumed && reconciled.found.length > 0) {
+                await this.withRowsFoundAfterStop(resumed, reconciled.found);
+              }
             })
           : journal.begin(
               id,
@@ -3333,11 +3383,45 @@ export class ForgeHandler implements DomainHandler {
     const sweep = parsed.sweep === true;
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
-    const entry = this.loadHistory().find((e) => e.forgeId === forgeId);
+    let entry = this.loadHistory().find((e) => e.forgeId === forgeId);
     // A run the history no longer lists is taken back from the plan kept of
     // it: the history keeps twenty runs, and the twenty-first could no longer
     // be removed from the panel.
-    const kept = entry ? undefined : await this.keptRemovalPlan(forgeId);
+    let kept = entry ? undefined : await this.keptRemovalPlan(forgeId);
+    // The insert calls the run had under way when it stopped, their answer
+    // never kept, are looked for in the target before the removal is planned,
+    // as the command line's `--remove` and the panel's resume look for them:
+    // removed from what its journal named alone, a run whose window closed
+    // during a call left that call's records in the target.
+    let reconciled: InFlightReconciliation | undefined;
+    const target = entry?.targetOrgId ?? kept?.targetOrgId;
+    const journalId = entry ? entry.journalId : kept?.inJournal?.journalId;
+    if (target && journalId && (!entry || entry.idRemapCreated)) {
+      if (this.removing.has(forgeId)) {
+        refuse('The records of this run are being removed already.', 'DUPLICATE');
+        return;
+      }
+      this.removing.add(forgeId);
+      try {
+        const looked = await this.callsLookedForBeforeRemoval({
+          forgeId,
+          targetOrgId: target,
+          journalId,
+          removedBefore: (entry ?? kept)?.undo !== undefined,
+        });
+        if ('unread' in looked) {
+          refuse(looked.unread, 'IN_FLIGHT_UNREAD');
+          return;
+        }
+        reconciled = looked.reconciled;
+        if (reconciled && reconciled.found.length > 0) {
+          if (entry) entry = await this.withRowsFoundAfterStop(entry, reconciled.found);
+          else if (kept) kept = await this.planWithRowsFoundAfterStop(kept, reconciled.found);
+        }
+      } finally {
+        this.removing.delete(forgeId);
+      }
+    }
     let run: RunToRemove;
     let plan: ForgeRunObjectRecords[] | RunRecords;
     /** Lets the journal the records are read from go, once the removal is through. */
@@ -3358,7 +3442,7 @@ export class ForgeHandler implements DomainHandler {
       run = {
         ...entry,
         targetOrgId: entry.targetOrgId,
-        unreachable: unreachableOf(entry),
+        unreachable: unreachableAfter(entry.mayHaveBeenWritten, reconciled),
         ...(inJournal ? { inJournal } : {}),
       };
       if (entry.remapInJournal) {
@@ -3384,7 +3468,15 @@ export class ForgeHandler implements DomainHandler {
         refuse(SWEEP_NEEDS_HISTORY, 'SWEEP_UNAVAILABLE');
         return;
       }
-      run = { ...kept, unreachable: kept.mayHaveBeenWritten ?? 0 };
+      // A plan counts what a call may have written, and names none of it: once
+      // the calls under way were looked for, the rows the target may hold.
+      run = {
+        ...kept,
+        unreachable:
+          reconciled && reconciled.calls > 0
+            ? uncertainRows(reconciled)
+            : (kept.mayHaveBeenWritten ?? 0),
+      };
       const { inJournal } = kept;
       if (inJournal && forgeRemovalPlanCountsLeft(kept).length > 0) {
         const read = await this.journalRecordsOf(inJournal, kept.undo);
@@ -3585,6 +3677,154 @@ export class ForgeHandler implements DomainHandler {
       logger.warn(`Forge removal plans could not be read: ${extractErrorMessage(err)}`);
       return undefined;
     }
+  }
+
+  /**
+   * Look in the target for the rows of the insert calls a run's journal names
+   * no answer of, before its records are removed (`reconcileInFlight`): what
+   * it finds goes into the journal as the run's, and is removed with the
+   * rest; what the target may hold is never guessed at, and stays.
+   *
+   * Only for the run the journal's last part is — a later part's calls are
+   * that part's — while no part of it is under way, and before any removal of
+   * it: a removal that marked the run took what it planned, and the plans of
+   * a run removed before calls were looked for say so. A journal with no call
+   * left open reads nothing of the target. `unread` when the target could not
+   * be reached: removed without them, the call's records would stay behind.
+   */
+  private async callsLookedForBeforeRemoval(run: {
+    forgeId: string;
+    targetOrgId: string;
+    journalId: string;
+    removedBefore: boolean;
+  }): Promise<{ reconciled?: InFlightReconciliation } | { unread: string }> {
+    const journal = this.runJournal;
+    const { forgeId, journalId } = run;
+    if (!journal || run.removedBefore || this.journalsRunning.has(journalId)) return {};
+    try {
+      const end = await journal.lastEnd(journalId);
+      if (end?.forgeId !== forgeId || journal.callsInFlight(journalId) === 0) return {};
+    } catch {
+      // A journal that cannot be read has no call to look for: the removal
+      // says so of its records in its turn.
+      return {};
+    }
+    const org = this.deps.orgManager.getOrg(run.targetOrgId)?.alias ?? run.targetOrgId;
+    try {
+      const conn = await getJsforceConnection(
+        run.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const reconciled = await journal.reconcile(journalId, inFlightTargetOf(conn));
+      for (const line of inFlightLines(reconciled, org, 'removal')) {
+        logger.info(`Forge removal: ${line.trim()}`);
+      }
+      return { reconciled };
+    } catch (err: unknown) {
+      return {
+        unread:
+          `${org} could not be read for the insert calls this run had under way when it ` +
+          `stopped (${extractErrorMessage(err)}): removed without them, the records those ` +
+          'calls wrote would stay behind. Nothing was deleted.',
+      };
+    }
+  }
+
+  /**
+   * When the target dated the writes of the run of the journal `journalId`,
+   * read from the journal and the target (`ForgeRunJournal.writtenBetween`);
+   * nothing when the run keeps no journal, the journal is gone, or the target
+   * does not answer. What a run its history entry does not date is dated by
+   * before its removal or its verification: a run a closed window stopped is
+   * recorded as of when its part began, for no length of time.
+   */
+  private async datedByItsJournal(
+    run: { journalId?: string; part?: number; scope?: 'run' | 'part' },
+    conn: JournalDatesTarget,
+  ): Promise<ForgeWrittenBetween | undefined> {
+    const journal = this.runJournal;
+    const { journalId, part, scope } = run;
+    if (!journal || !journalId) return undefined;
+    try {
+      // Asked of a journal that is gone, the store would open an empty one.
+      if (!(await journal.present([journalId])).has(journalId)) return undefined;
+      return await journal.writtenBetween(journalId, conn, part, scope);
+    } catch (err: unknown) {
+      logger.warn(`Forge run not dated from its journal: ${extractErrorMessage(err)}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * A run's history entry once its journal took in the rows found in the
+   * target of the calls it had under way: its ids read again from the journal
+   * — or, for a run whose ids stay there, its counts raised — kept in the
+   * history and in its removal plan, so that the removal, and every one after
+   * it, takes them.
+   */
+  private async withRowsFoundAfterStop(
+    entry: ForgeExecutionResult,
+    found: readonly InFlightObjectRows[],
+  ): Promise<ForgeExecutionResult> {
+    const journal = this.runJournal;
+    const { journalId, journalPart } = entry;
+    if (!journal || !journalId || journalPart === undefined) return entry;
+    const added = found.reduce((sum, { rows }) => sum + rows, 0);
+    const byObject = withFoundCounted(entry.idRemapByObject, found);
+    let updated: ForgeExecutionResult;
+    if (entry.remapInJournal) {
+      updated = {
+        ...entry,
+        idRemapCount: entry.idRemapCount + added,
+        createdCount: (entry.createdCount ?? 0) + added,
+        ...(byObject ? { idRemapByObject: byObject } : {}),
+      };
+    } else {
+      const ids = await journal.idsOf(journalId, journalPart).catch(() => undefined);
+      if (!ids) return entry;
+      updated = {
+        ...entry,
+        idRemapTable: ids.table,
+        idRemapExisting: ids.existing,
+        idRemapCreated: ids.createdByObject,
+        idRemapCount: Object.keys(ids.table).length,
+        createdCount: ids.createdByObject.reduce((sum, { sourceIds }) => sum + sourceIds.length, 0),
+        ...(byObject ? { idRemapByObject: byObject } : {}),
+      };
+    }
+    this.saveHistory(this.loadHistory().map((e) => (e.forgeId === updated.forgeId ? updated : e)));
+    const plan = forgeRemovalPlanOf(updated);
+    if (plan) {
+      await this.removalPlans?.put(plan).catch((err: unknown) => {
+        logger.warn(`Forge removal plan not kept: ${extractErrorMessage(err)}`);
+      });
+    }
+    return updated;
+  }
+
+  /**
+   * The plan kept of a run the history dropped, once its journal took in the
+   * rows found in the target of the calls it had under way: what it counts
+   * left raised by them — its records are read from the journal — and kept.
+   */
+  private async planWithRowsFoundAfterStop(
+    kept: ForgeRemovalPlan,
+    found: readonly InFlightObjectRows[],
+  ): Promise<ForgeRemovalPlan> {
+    const { inJournal } = kept;
+    if (!inJournal) return kept;
+    const left = inJournal.left.map((entry) => ({ ...entry }));
+    for (const { objectApiName, rows } of found) {
+      const known = left.find((entry) => entry.objectApiName === objectApiName);
+      if (known) known.count += rows;
+      else left.unshift({ objectApiName, count: rows });
+    }
+    const updated: ForgeRemovalPlan = { ...kept, inJournal: { ...inJournal, left } };
+    await this.removalPlans?.put(updated).catch((err: unknown) => {
+      logger.warn(`Forge removal plan not kept: ${extractErrorMessage(err)}`);
+    });
+    return updated;
   }
 
   /**
@@ -4075,15 +4315,24 @@ export class ForgeHandler implements DomainHandler {
         target: verifiedOrg(conn, 'forge:verify'),
         source: await this.verificationSource(entry.sourceOrgId),
       });
-      // The run's end as the target dated it, as its removal reads it; one the
-      // target did not date is dated by when it was recorded.
+      // The run's end as the target dated it, as its removal reads it — from
+      // its journal for a run a closed window stopped, its own part's span
+      // alone, since the records its user created in it are counted against
+      // what the part wrote; one the target did not date is dated by when it
+      // was recorded.
+      const dated =
+        entry.writtenBetween ??
+        (await this.datedByItsJournal(
+          { journalId: entry.journalId, part: entry.journalPart, scope: 'part' },
+          conn,
+        ));
       const verification = await verifier.verify({
         records,
         remapTable: withIds.idRemapTable ?? {},
-        ...(entry.writtenBetween
+        ...(dated
           ? {
-              runStartedAt: new Date(entry.writtenBetween.first),
-              runEndedAt: new Date(entry.writtenBetween.last),
+              runStartedAt: new Date(dated.first),
+              runEndedAt: new Date(dated.last),
             }
           : { runRecordedAt: new Date(entry.timestamp) }),
         ...(withIds.removalStamps ? { removalStamps: withIds.removalStamps } : {}),
@@ -4353,12 +4602,22 @@ export class ForgeHandler implements DomainHandler {
         this.deps.orgManager,
       );
       // The run's span as the target dated it; this machine's clock is never
-      // compared with the org's. A run the target did not date — recorded
-      // before runs kept it, or whose dates could not all be read back — is
-      // dated by its records and by when it was recorded, read on the org's
-      // clock as the removal starts.
-      const span = entry.writtenBetween;
+      // compared with the org's. A run whose journal says what it wrote — one
+      // a closed window stopped — is dated by the target from that journal
+      // (`datedByItsJournal`). A run the target did not date otherwise —
+      // recorded before runs kept it, or whose dates could not all be read
+      // back — is dated by its records and by when it was recorded, read on
+      // the org's clock as the removal starts.
       const { inJournal } = entry;
+      const span =
+        entry.writtenBetween ??
+        (await this.datedByItsJournal(
+          {
+            journalId: entry.journalId ?? inJournal?.journalId,
+            part: entry.journalPart ?? inJournal?.part,
+          },
+          conn,
+        ));
       // What earlier removals stamped: on the entry, or, for a run whose ids
       // are in its journal, beside the journal.
       const stampedBefore = {

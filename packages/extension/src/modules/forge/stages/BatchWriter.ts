@@ -58,6 +58,7 @@ import { logger } from '../../../logger.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
 import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import type { CleanedRecord } from './RecordCleaner.js';
+import type { OwedAtInsert } from '../ForgeRunStore.js';
 import type { PicklistField } from './RecordTypePicklists.js';
 import type { IdRemapper } from '../IdRemapper.js';
 
@@ -259,13 +260,19 @@ export interface WriteNodeInput {
   onProgress: (event: ForgeProgressEvent) => void;
 }
 
+/** A row of an insert call as its journal keeps it: see {@link InsertCallJournal.sending}. */
+export interface RowSent {
+  sourceId: string | undefined;
+  /** What it writes: fingerprinted, never kept. */
+  payload: Record<string, unknown>;
+  /** The lookups it goes in without, owed to the second pass once it is in. */
+  owes?: readonly OwedAtInsert[];
+}
+
 /** Where a node's insert calls are kept: see {@link WriteNodeInput.calls}. */
 export interface InsertCallJournal {
   /** Keep the call about to go, its rows in the order sent; says its id. */
-  sending(
-    objectApiName: string,
-    rows: ReadonlyArray<{ sourceId: string | undefined; payload: Record<string, unknown> }>,
-  ): string | undefined;
+  sending(objectApiName: string, rows: readonly RowSent[]): string | undefined;
   /** Keep that the call's answer is counted, once what it created is registered. */
   answered(callId: string): void;
 }
@@ -405,6 +412,19 @@ function leftOutOf(row: RowToWrite): FieldToLeaveOut[] {
 function sourceIdOf(row: RowToWrite): string | undefined {
   const id = row.built?.source['Id'];
   return typeof id === 'string' ? id : undefined;
+}
+
+/**
+ * The lookups a row goes in without, which its answer owes the second pass
+ * (`settle`): kept with the call, for a row found in the target once the
+ * answer is lost.
+ */
+function owedBy(row: RowToWrite): OwedAtInsert[] {
+  return (row.built?.nullifiedFks ?? []).map(({ field, sourceRefId, insertOnly }) => ({
+    field,
+    sourceRefId,
+    ...(insertOnly ? { insertOnly } : {}),
+  }));
 }
 
 /** What a row is sent as now: the payload first sent, without each field refused since. */
@@ -908,7 +928,11 @@ export class BatchWriter {
         ? undefined
         : write.calls?.sending(
             write.objectApiName,
-            rows.map((row, i) => ({ sourceId: sourceIdOf(row), payload: payloads[i] })),
+            rows.map((row, i) => ({
+              sourceId: sourceIdOf(row),
+              payload: payloads[i],
+              owes: owedBy(row),
+            })),
           );
       try {
         const answers = await this.send(write, payloads);

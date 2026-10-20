@@ -465,6 +465,97 @@ describe("a run's journal", () => {
     });
   });
 
+  describe('dated as the target dated its writes', () => {
+    /** The target: when it created each record it still holds, by id. */
+    const holding = (created: Record<string, string>) => {
+      const asked: string[] = [];
+      return {
+        asked,
+        query: async <T>(soql: string) => {
+          asked.push(soql);
+          const id = /WHERE Id = '(\w+)'$/.exec(soql)?.[1] ?? '';
+          const at = created[id];
+          return {
+            totalSize: at ? 1 : 0,
+            done: true,
+            records: (at ? [{ CreatedDate: at }] : []) as T[],
+          };
+        },
+      };
+    };
+    const LATER_CONTACT = '003000000000102AAA';
+
+    /** The run of `runThatWrote`, taken up by a second part that created one more contact. */
+    async function takenUp(journal: ForgeRunJournal): Promise<void> {
+      await runThatWrote(journal, 'run-3');
+      const store = journal.open('run-3');
+      store.beginPart(new Date('2026-10-13T11:00:00.000Z'));
+      store.setMapping('created', '003000000000002AAA', LATER_CONTACT, 'Contact');
+      store.close();
+    }
+
+    it('from when it created its first record to when it created its last', async () => {
+      const journal = new ForgeRunJournal(memoryDisk().deps);
+      await takenUp(journal);
+      const target = holding({
+        [NEW_ACCOUNT_A]: '2026-10-13T10:00:02.000+0000',
+        [NEW_CONTACT_A]: '2026-10-13T10:00:09.000+0000',
+        [LATER_CONTACT]: '2026-10-13T11:00:03.000+0000',
+      });
+
+      expect(await journal.writtenBetween('run-3', target as never)).toEqual({
+        first: '2026-10-13T10:00:02.000Z',
+        last: '2026-10-13T11:00:03.000Z',
+      });
+    });
+
+    it('of a part, to the last record that part created once the later part was removed', async () => {
+      const journal = new ForgeRunJournal(memoryDisk().deps);
+      await takenUp(journal);
+      // The second part's contact is gone: its part was removed first.
+      const target = holding({
+        [NEW_ACCOUNT_A]: '2026-10-13T10:00:02.000+0000',
+        [NEW_CONTACT_A]: '2026-10-13T10:00:09.000+0000',
+      });
+
+      expect(await journal.writtenBetween('run-3', target as never)).toBeUndefined();
+      expect(await journal.writtenBetween('run-3', target as never, 0)).toEqual({
+        first: '2026-10-13T10:00:02.000Z',
+        last: '2026-10-13T10:00:09.000Z',
+      });
+    });
+
+    it("of a part alone, as a verification counts what its user created, from the part's first record to its last", async () => {
+      const journal = new ForgeRunJournal(memoryDisk().deps);
+      await takenUp(journal);
+      const target = holding({
+        [NEW_ACCOUNT_A]: '2026-10-13T10:00:02.000+0000',
+        [NEW_CONTACT_A]: '2026-10-13T10:00:09.000+0000',
+        [LATER_CONTACT]: '2026-10-13T11:00:03.000+0000',
+      });
+
+      expect(await journal.writtenBetween('run-3', target as never, 0, 'part')).toEqual({
+        first: '2026-10-13T10:00:02.000Z',
+        last: '2026-10-13T10:00:09.000Z',
+      });
+      expect(await journal.writtenBetween('run-3', target as never, 1, 'part')).toEqual({
+        first: '2026-10-13T11:00:03.000Z',
+        last: '2026-10-13T11:00:03.000Z',
+      });
+    });
+
+    it('of a part, from the first record that part created once the earlier part was removed', async () => {
+      const journal = new ForgeRunJournal(memoryDisk().deps);
+      await takenUp(journal);
+      const target = holding({ [LATER_CONTACT]: '2026-10-13T11:00:03.000+0000' });
+
+      expect(await journal.writtenBetween('run-3', target as never, 1)).toEqual({
+        first: '2026-10-13T11:00:03.000Z',
+        last: '2026-10-13T11:00:03.000Z',
+      });
+    });
+  });
+
   it('keeps a journal whose window closed during its first insert call, with no record it names', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

@@ -168,9 +168,47 @@ export const SENT_TAG = 'x';
 export const ANSWERED_TAG = 'a';
 /**
  * What ends the line of a record a call under way when the run stopped had
- * created, found in the target since: see `ForgeRunStore.wasFoundAfterStop`.
+ * created, found in the target since, whose call never said what its rows
+ * went in without — a journal of 1.61: see `ForgeRunStore.owesUntold`.
  */
 export const FOUND_AFTER_STOP = 'found';
+/**
+ * What ends the line of such a record when its call said what each row went
+ * in without (`ForgeRunStore.sent`): the lookups it owes are in the journal
+ * beside it, as the call's answer would have left them, and nothing else is.
+ */
+export const FOUND_OWING_KEPT = 'found-owed';
+
+/**
+ * A lookup a row goes in without, its record not in the target yet: what the
+ * second pass fills in once it is (`NullifiedFk`), kept with the call that
+ * sends the row.
+ */
+export interface OwedAtInsert {
+  /** The field, as the target names it. */
+  field: string;
+  /** The source id of the record it names. */
+  sourceRefId: string;
+  /** Set when only an insert sets it: the second pass says it is left empty. */
+  insertOnly?: true;
+}
+
+/**
+ * The line that owes `update` to the second pass, as the store writes it
+ * (`ForgeRunStore.owe`), and as a reconciliation writes it for a row it
+ * found (`reconcileInFlight`).
+ */
+export function owedLine(update: PendingFkUpdate, toRowWrittenBefore = false): string {
+  return JSON.stringify([
+    toRowWrittenBefore ? 'w' : 'o',
+    update.objectApiName,
+    update.newId,
+    update.sourceId ?? '',
+    update.fieldName,
+    update.sourceRefId,
+    update.insertOnly ? 1 : 0,
+  ]);
+}
 
 /** Lines held before they are written, past which they are written at once. */
 const FLUSH_BYTES = 1024 * 1024;
@@ -419,6 +457,8 @@ export class ForgeRunStore {
    * at most, the rows of the calls a run had under way.
    */
   private readonly foundAfterStop = new Set<string>();
+  /** Of those, the rows whose call never said what they went in without: see `owesUntold`. */
+  private readonly foundOwingUntold = new Set<string>();
 
   private constructor(private readonly file: RunFile) {
     this.index = new SourceIdIndex((offset, length) => this.idOfLine(offset, length));
@@ -636,17 +676,7 @@ export class ForgeRunStore {
   /** Owe a lookup to the second pass. */
   owe(update: PendingFkUpdate, toRowWrittenBefore = false): void {
     this.owedCount++;
-    this.write(
-      JSON.stringify([
-        toRowWrittenBefore ? 'w' : 'o',
-        update.objectApiName,
-        update.newId,
-        update.sourceId ?? '',
-        update.fieldName,
-        update.sourceRefId,
-        update.insertOnly ? 1 : 0,
-      ]),
-    );
+    this.write(owedLine(update, toRowWrittenBefore));
   }
 
   /** Lookups owed, in every part. */
@@ -808,15 +838,22 @@ export class ForgeRunStore {
    * Keep, before an insert call goes, what it sends: its object, the rows'
    * source ids in the order sent, the fields whose values fingerprint them
    * and each row's fingerprint (`ForgeInFlight.rowFingerprint`) — no value of
-   * a record. Written at once, with what is held: a process killed while the
-   * call is under way leaves the line, which a run taken up reads the call's
-   * rows back from in the target (`reconcileInFlight`). Says the call's id,
-   * which {@link answered} closes.
+   * a record — and the lookups each row goes in without, owed to the second
+   * pass once it is in, as `[row, field, source id named, insert only]`.
+   * Written at once, with what is held: a process killed while the call is
+   * under way leaves the line, which a run taken up reads the call's rows back
+   * from in the target (`reconcileInFlight`). Says the call's id, which
+   * {@link answered} closes.
+   *
+   * A row found so is owed what it went in without, and nothing more. Kept
+   * without it, a run taken up owed every lookup of every row it found: run
+   * for real, 200 contacts found after a kill each had their account written
+   * to again, one update each, though the insert had set it.
    */
   sent(
     objectApiName: string,
     fields: readonly string[],
-    rows: ReadonlyArray<{ sourceId: string; fingerprint: string }>,
+    rows: ReadonlyArray<{ sourceId: string; fingerprint: string; owes?: readonly OwedAtInsert[] }>,
     at: Date = new Date(),
   ): string {
     this.callsSent++;
@@ -829,6 +866,14 @@ export class ForgeRunStore {
         at.toISOString(),
         fields,
         rows.map(({ sourceId, fingerprint }) => [sourceId, fingerprint]),
+        rows.flatMap(({ owes }, row) =>
+          (owes ?? []).map(({ field, sourceRefId, insertOnly }) => [
+            row,
+            field,
+            sourceRefId,
+            insertOnly ? 1 : 0,
+          ]),
+        ),
       ]),
     );
     this.flush();
@@ -850,6 +895,16 @@ export class ForgeRunStore {
    */
   wasFoundAfterStop(sourceId: string): boolean {
     return this.foundAfterStop.has(sourceId);
+  }
+
+  /**
+   * Whether `sourceId` is such a row whose call never said what its rows went
+   * in without (`FOUND_AFTER_STOP`): a journal of 1.61, whose rows found are
+   * owed again every lookup they name. One whose call said it is owed that
+   * alone, in the journal beside it (`FOUND_OWING_KEPT`).
+   */
+  owesUntold(sourceId: string): boolean {
+    return this.foundOwingUntold.has(sourceId);
   }
 
   /* ---- the file ---- */
@@ -1010,7 +1065,10 @@ export class ForgeRunStore {
     const code = CODE_OF_TAG[tag];
     if (code === undefined) return;
     const sourceId = String(value[1]);
-    if (code === CREATED && value[4] === FOUND_AFTER_STOP) this.foundAfterStop.add(sourceId);
+    if (code === CREATED && (value[4] === FOUND_AFTER_STOP || value[4] === FOUND_OWING_KEPT)) {
+      this.foundAfterStop.add(sourceId);
+      if (value[4] === FOUND_AFTER_STOP) this.foundOwingUntold.add(sourceId);
+    }
     const a = hashA(sourceId);
     const b = hashB(sourceId);
     const found = this.index.find(sourceId, a, b);

@@ -634,6 +634,28 @@ describe('a run taken up where it stopped', () => {
       ).toBeDefined();
     });
 
+    it('puts the contact it found among the records of the part that sent it, which its removal takes', async () => {
+      const entry = await closedDuringTheCall();
+      expect(entry.idRemapCreated).toEqual([]);
+      targetHolding([{ Id: NEW_CONTACT, ...SENT }]);
+      const { handler } = windowRunning(async (_graph, _config, options) => {
+        options?.stream?.store?.beginPart(new Date());
+        return DONE;
+      });
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: entry.forgeId });
+
+      // The part's entry in the history, and the plan kept of it, name it.
+      const part = configStore
+        .get<ForgeExecutionResult[]>('forge:history')
+        ?.find((e) => e.forgeId === entry.forgeId);
+      expect(part).toMatchObject({
+        idRemapTable: { [CONTACT]: NEW_CONTACT },
+        idRemapCreated: [{ objectApiName: 'Contact', sourceIds: [CONTACT] }],
+        createdCount: 1,
+      });
+    });
+
     it('asks before it writes a row the target may hold already, and writes nothing when declined', async () => {
       const entry = await closedDuringTheCall();
       // Two records like the one the call sent: which is the call's cannot be told.

@@ -231,7 +231,6 @@ import {
 } from '../src/modules/forge/ForgeInFlight.js';
 import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
-import { assertSoqlIdentifier } from '../src/core/common/soqlValidator.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import {
@@ -4067,23 +4066,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 }
 
 /**
- * How long past the journal's last line, on the clock of the machine that
- * wrote it, the last write a summary taken from the journal is dated by may
- * be: a record written to since — edited by hand, a day later — does not
- * stretch the run's window to that day.
- */
-const JOURNAL_LAST_WRITE_SLACK_MS = 10 * 60_000;
-
-/**
  * A summary taken from a run's journal alone, dated as the target dated the
- * run's writes (`writtenBetween`): from when the first record its journal
- * says it created was created to its last write — the last record it created,
- * or, later, the last it wrote to since, a lookup the second pass filled in or
- * a status given back, as that record was last modified, no later than the
- * journal's last line allows. Built from the journal, a summary said no
- * window, and `--remove <journal> --sweep` was refused for want of one. A
- * summary that says its window, or whose journal names no record the target
- * still holds, is left as it is. Exported so it can be tested.
+ * run's writes (`writtenBetween`, read by `ForgeRunJournal.writtenBetweenAt`,
+ * as the panel dates a run a closed window stopped): from when the first
+ * record its journal says it created was created to its last write — the last
+ * record it created, or, later, the last it wrote to since, a lookup the
+ * second pass filled in or a status given back, as that record was last
+ * modified, no later than the journal's last line allows. Built from the
+ * journal, a summary said no window, and `--remove <journal> --sweep` was
+ * refused for want of one. A summary that says its window, or whose journal
+ * names no record the target still holds, is left as it is. Exported so it
+ * can be tested.
  */
 export async function datedFromItsJournal(
   conn: Pick<Connection, 'query'>,
@@ -4092,41 +4085,9 @@ export async function datedFromItsJournal(
 ): Promise<RunSummary> {
   if (summary.result.writtenBetween || summary.journal === undefined) return summary;
   if (!existsSync(summary.journal)) return summary;
-  const { first, lastCreated, lastUpdated, lastAt } = journals.writeBoundsAt(summary.journal);
-  if (!first || !lastCreated) return summary;
-  const dateOf = async (
-    { objectApiName, id }: { objectApiName: string; id: string },
-    field: 'CreatedDate' | 'LastModifiedDate',
-  ): Promise<number | undefined> => {
-    try {
-      const answer = await conn.query<Record<string, unknown>>(
-        `SELECT ${field} FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id = '${id}'`,
-      );
-      const date = answer.records[0]?.[field];
-      const epoch = typeof date === 'string' ? Date.parse(date) : Number.NaN;
-      return Number.isFinite(epoch) ? epoch : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  const from = await dateOf(first, 'CreatedDate');
-  let to = await dateOf(lastCreated, 'CreatedDate');
-  if (from === undefined || to === undefined || to < from) return summary;
-  if (lastUpdated) {
-    const updated = await dateOf(lastUpdated, 'LastModifiedDate');
-    const bound =
-      lastAt === undefined ? Number.NaN : Date.parse(lastAt) + JOURNAL_LAST_WRITE_SLACK_MS;
-    if (updated !== undefined && updated > to && (!Number.isFinite(bound) || updated <= bound)) {
-      to = updated;
-    }
-  }
-  return {
-    ...summary,
-    result: {
-      ...summary.result,
-      writtenBetween: { first: new Date(from).toISOString(), last: new Date(to).toISOString() },
-    },
-  };
+  const writtenBetween = await journals.writtenBetweenAt(summary.journal, conn);
+  if (!writtenBetween) return summary;
+  return { ...summary, result: { ...summary.result, writtenBetween } };
 }
 
 /** Whether two ids name the same record, whichever length each is written in. */

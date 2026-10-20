@@ -11,6 +11,7 @@ import type {
 } from './ForgeExecutor.js';
 import { ForgeFilesRefusedError } from './stages/FileCopier.js';
 import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
+import { callsInFlight } from './ForgeInFlight.js';
 import { finishedRunStatus } from './runResult.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
@@ -748,6 +749,37 @@ describe('ForgeExecutor, taking up a run that copied files when its process was 
     };
     return { ...orgs, deps };
   }
+
+  it("keeps each file's insert in the run's journal before it goes, closed once the file is registered", async () => {
+    const { deps } = fakeOrgs();
+    const disk = memoryRunFile();
+    const store = ForgeRunStore.open(disk);
+
+    await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+      ...SCOPED,
+      files: FILES,
+      stream: { store },
+    });
+    store.close();
+
+    const sent = disk
+      .text()
+      .split('\n')
+      .filter((line) => line.startsWith('["x"'))
+      .map((line) => JSON.parse(line) as unknown[]);
+    expect(sent.map((line) => line[2])).toEqual([
+      'Account',
+      'Contact',
+      'ContentVersion',
+      'Attachment',
+    ]);
+    expect(sent.find((line) => line[2] === 'ContentVersion')?.[4]).toEqual([
+      'Checksum',
+      'ContentSize',
+      'Title',
+    ]);
+    expect(callsInFlight(memoryRunFile(disk.text()))).toBe(0);
+  });
 
   it('reads back the document of the file it copied before its document was read, never copies it again, and copies the rest onto the records that run wrote', async () => {
     const orgs = takenUpOrgs();

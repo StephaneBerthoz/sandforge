@@ -2797,21 +2797,24 @@ function marksIn(store: ForgeRunStore): NonNullable<CycleFkPatchInput['onPatched
 
 /**
  * Where a node's insert calls are kept in the run's journal: each before it
- * goes, its rows' source ids and the fingerprints of what it writes
- * (`ForgeRunStore.sent`), and its answer once counted. A row without a source
- * id is kept under none, and looked for by no one.
+ * goes, its rows' source ids, the fingerprints of what it writes and the
+ * lookups each goes in without (`ForgeRunStore.sent`), and its answer once
+ * counted. A row without a source id is kept under none, and looked for by
+ * no one. The parents an expansion copies (`OrphanExpander`) and the files
+ * (`copyFiles`) are kept here too. Exported so that the stages' tests keep
+ * their calls as a run does.
  */
-function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
+export function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
   return {
     sending: (objectApiName, rows) => {
       const fields = fingerprintFields(rows.map(({ payload }) => payload));
       return store.sent(
         objectApiName,
         fields,
-        rows.flatMap(({ sourceId, payload }) =>
+        rows.flatMap(({ sourceId, payload, owes }) =>
           sourceId === undefined
             ? []
-            : [{ sourceId, fingerprint: rowFingerprint(payload, fields) }],
+            : [{ sourceId, fingerprint: rowFingerprint(payload, fields), owes }],
         ),
       );
     },
@@ -6087,6 +6090,8 @@ export class ForgeExecutor {
       errors: state.errors,
       waitIfPaused: () => this.waitIfPaused(),
       onProgress: state.onProgress,
+      // Each file's insert kept before it goes, as the run's records are.
+      ...(state.store ? { calls: insertCallsIn(state.store) } : {}),
     });
   }
 
@@ -9601,8 +9606,10 @@ export class ForgeExecutor {
         if (typeof value !== 'string' || !value) continue;
         // A lookup at a record written before was filled in by the run that
         // wrote both — but on a row a call under way had written when the run
-        // stopped, found since, which owed nothing the journal kept.
-        if (config.writtenBefore.has(value) && !state.store?.wasFoundAfterStop(sourceId)) continue;
+        // stopped, found since, whose call never said what it went in
+        // without (a journal of 1.61). One whose call said it owes that
+        // alone, kept beside it as it was found (`reconcileInFlight`).
+        if (config.writtenBefore.has(value) && !state.store?.owesUntold(sourceId)) continue;
         const owed: PendingFkUpdate = {
           objectApiName: node.objectApiName,
           newId,
@@ -10625,6 +10632,8 @@ export class ForgeExecutor {
         businessAccountsAmong: (rows, recordTypeWritten) =>
           this.takenAsBusinessAccounts(state, rows, recordTypeWritten),
         contactOnItsOwn: (sourceId) => state.contactsOnTheirOwn.has(sourceId),
+        // Each parent's insert kept before it goes, as the node's own calls are.
+        ...(state.store ? { calls: insertCallsIn(state.store) } : {}),
       });
       // A parent the expansion found to be one the platform writes itself was
       // not sent: the rows that cannot go in without it go with it.

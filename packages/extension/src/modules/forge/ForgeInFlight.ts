@@ -20,7 +20,9 @@
  * and matched to a row one for one — by fingerprint, then by the order the
  * call sent them, which is the order the org created them in. A row matched
  * is in the target: it goes into the journal as a record the run created,
- * which the run links to and a removal takes back, and is never sent again.
+ * which the run links to and a removal takes back, and is never sent again;
+ * the lookups it went in without, which the sent line names, are owed to the
+ * second pass as the call's answer would have owed them, and no other.
  * A row matched to nothing is written by the resume when nothing is left
  * unexplained in the window. A row the target may hold — more records than
  * rows under its fingerprint, or records left unmatched beside it, which the
@@ -39,10 +41,13 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   ANSWERED_TAG,
   FOUND_AFTER_STOP,
+  FOUND_OWING_KEPT,
   hashA,
   hashB,
   journalLines,
+  owedLine,
   SENT_TAG,
+  type OwedAtInsert,
   type RunFile,
 } from './ForgeRunStore.js';
 import { HashedKeys } from './journalRecords.js';
@@ -139,6 +144,14 @@ export function rowFingerprint(row: Record<string, unknown>, fields: readonly st
   return hashA(text).toString(36).padStart(7, '0') + hashB(text).toString(36).padStart(7, '0');
 }
 
+/** A row of a call the journal says was sent. */
+interface SentRow {
+  sourceId: string;
+  fingerprint: string;
+  /** The lookups it went in without, owed to the second pass once it is in. */
+  owes: OwedAtInsert[];
+}
+
 /** A call the journal says was sent, as {@link reconcileInFlight} reads it back. */
 interface SentCall {
   callId: string;
@@ -147,7 +160,26 @@ interface SentCall {
   at: number;
   fields: string[];
   /** Its rows, in the order sent: each source id and fingerprint. */
-  rows: Array<{ sourceId: string; fingerprint: string }>;
+  rows: SentRow[];
+  /**
+   * Whether the line says what each row went in without: not one of 1.61,
+   * whose rows found are owed again every lookup they name.
+   */
+  owesKept: boolean;
+}
+
+/** The lookups a sent line says its rows went in without, onto `rows`; false for a line that says it wrongly. */
+function readOwes(owed: unknown, rows: SentRow[]): boolean {
+  if (!Array.isArray(owed)) return false;
+  for (const entry of owed) {
+    if (!Array.isArray(entry) || entry.length < 4) return false;
+    const [row, field, sourceRefId, insertOnly] = entry as unknown[];
+    if (typeof row !== 'number' || !Number.isInteger(row) || !rows[row]) return false;
+    if (typeof field !== 'string' || !API_NAME.test(field)) return false;
+    if (typeof sourceRefId !== 'string' || !RECORD_ID.test(sourceRefId)) return false;
+    rows[row].owes.push({ field, sourceRefId, ...(insertOnly === 1 ? { insertOnly: true } : {}) });
+  }
+  return true;
 }
 
 /** The call a sent line holds; nothing for any other line. */
@@ -160,21 +192,23 @@ function sentCallOf(text: string): SentCall | undefined {
     return undefined;
   }
   if (!Array.isArray(value) || value.length < 6) return undefined;
-  const [, callId, objectApiName, at, fields, rows] = value as unknown[];
+  const [, callId, objectApiName, at, fields, rows, owed] = value as unknown[];
   if (typeof callId !== 'string' || typeof objectApiName !== 'string') return undefined;
   if (!API_NAME.test(objectApiName) || typeof at !== 'string') return undefined;
   const sentAt = Date.parse(at);
   if (!Number.isFinite(sentAt) || !Array.isArray(fields) || !Array.isArray(rows)) return undefined;
   if (!fields.every((field) => typeof field === 'string' && API_NAME.test(field))) return undefined;
-  const read: SentCall['rows'] = [];
+  const read: SentRow[] = [];
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 2) return undefined;
     const [sourceId, fingerprint] = row as unknown[];
     if (typeof sourceId !== 'string' || !RECORD_ID.test(sourceId)) return undefined;
     if (typeof fingerprint !== 'string') return undefined;
-    read.push({ sourceId, fingerprint });
+    read.push({ sourceId, fingerprint, owes: [] });
   }
-  return { callId, objectApiName, at: sentAt, fields: fields as string[], rows: read };
+  const owesKept = owed !== undefined;
+  if (owesKept && !readOwes(owed, read)) return undefined;
+  return { callId, objectApiName, at: sentAt, fields: fields as string[], rows: read, owesKept };
 }
 
 /** The call id an answered line closes; nothing for any other line. */
@@ -264,6 +298,13 @@ export interface InFlightReconciliation {
   uncertain: InFlightObjectRows[];
   /** Per object, why the target could not be read: its rows are among the uncertain. */
   unread: Array<{ objectApiName: string; reason: string }>;
+  /**
+   * The source ids of the rows of those calls, each looked for: a call that
+   * threw before its answer is among them, and the rows a run's own count
+   * says it may have written (`ForgeExecutionResult.mayHaveBeenWritten`) are
+   * known once looked for. None when no call was under way.
+   */
+  lookedFor?: ReadonlySet<string>;
 }
 
 /** A reconciliation that found no call under way. */
@@ -361,6 +402,7 @@ export async function reconcileInFlight(
   outcome.calls = calls.length;
   const objects = new Set(calls.map((call) => call.objectApiName));
   const openSources = new Set(calls.flatMap((call) => call.rows.map((row) => row.sourceId)));
+  outcome.lookedFor = openSources;
   // What the journal names already: the rows of the open calls it mapped —
   // their answer came in, and the line that closes their call did not —
   // and, of their objects, every record it names, which is none of theirs.
@@ -461,7 +503,7 @@ export async function reconcileInFlight(
     const doubtful = new Set<string>();
     for (const { call, rows } of rowsLeft) {
       const key = call.fields.join(',');
-      const byFingerprint = new Map<string, Array<{ sourceId: string }>>();
+      const byFingerprint = new Map<string, SentRow[]>();
       for (const row of rows) {
         const same = byFingerprint.get(row.fingerprint) ?? [];
         same.push(row);
@@ -479,18 +521,33 @@ export async function reconcileInFlight(
           continue;
         }
         // As many or fewer: the call's, in the order it sent them, which is
-        // the order the org created them in.
+        // the order the org created them in. Each is kept as the call's
+        // answer would have kept it: the record, and the lookups the row
+        // went in without, owed to the second pass.
         held.forEach((candidate, index) => {
           candidate.taken = true;
+          const row = same[index];
           lines.push(
             JSON.stringify([
               'c',
-              same[index].sourceId,
+              row.sourceId,
               candidate.id,
               objectApiName,
-              FOUND_AFTER_STOP,
+              call.owesKept ? FOUND_OWING_KEPT : FOUND_AFTER_STOP,
             ]),
           );
+          for (const { field, sourceRefId, insertOnly } of row.owes) {
+            lines.push(
+              owedLine({
+                objectApiName,
+                newId: candidate.id,
+                sourceId: row.sourceId,
+                fieldName: field,
+                sourceRefId,
+                ...(insertOnly ? { insertOnly } : {}),
+              }),
+            );
+          }
           tally(outcome.found, objectApiName);
         });
         for (const row of same.slice(held.length)) {

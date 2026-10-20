@@ -311,7 +311,7 @@ describe('ForgeRunStore', () => {
       );
       // On disk before the run awaits the call: a process killed meanwhile leaves it.
       expect(file.text().trim().split('\n').at(-1)).toBe(
-        `["x","${callId}","Contact","${at.toISOString()}",["LastName"],[["${src('003', 1)}","abcdefg1234567"]]]`,
+        `["x","${callId}","Contact","${at.toISOString()}",["LastName"],[["${src('003', 1)}","abcdefg1234567"]],[]]`,
       );
       store.setMapping('created', src('003', 1), tgt('003', 1), 'Contact');
       store.answered(callId);
@@ -322,6 +322,50 @@ describe('ForgeRunStore', () => {
       ]);
       // Neither line is a record the run mapped.
       expect([...store.mappings()].map((mapping) => mapping.sourceId)).toEqual([src('003', 1)]);
+    });
+
+    it('keeps with an insert call the lookups each of its rows goes in without, by its place in the call', () => {
+      const { store, file } = freshStore();
+      store.sent(
+        'Contact',
+        ['LastName'],
+        [
+          { sourceId: src('003', 1), fingerprint: 'abcdefg1234567' },
+          {
+            sourceId: src('003', 2),
+            fingerprint: 'hijklmn1234567',
+            owes: [
+              { field: 'ReportsToId', sourceRefId: src('003', 1) },
+              { field: 'MasterRecordId', sourceRefId: src('003', 1), insertOnly: true },
+            ],
+          },
+        ],
+        at,
+      );
+      const line = JSON.parse(file.text().trim().split('\n').at(-1) ?? '') as unknown[];
+      expect(line[6]).toEqual([
+        [1, 'ReportsToId', src('003', 1), 0],
+        [1, 'MasterRecordId', src('003', 1), 1],
+      ]);
+    });
+
+    it('tells a row found after a stop whose call said what it owed from one of a journal of 1.61', () => {
+      const file = memoryRunFile(
+        [
+          JSON.stringify({ run: { journalId: 'j', targetOrgId: 'org', startedAt: at } }),
+          JSON.stringify({ part: { n: 0, startedAt: at } }),
+          JSON.stringify(['c', src('003', 1), tgt('003', 1), 'Contact', 'found']),
+          JSON.stringify(['c', src('003', 2), tgt('003', 2), 'Contact', 'found-owed']),
+          JSON.stringify(['c', src('003', 3), tgt('003', 3), 'Contact']),
+        ].join('\n') + '\n',
+      );
+      const store = ForgeRunStore.open(file);
+      expect([1, 2, 3].map((n) => store.wasFoundAfterStop(src('003', n)))).toEqual([
+        true,
+        true,
+        false,
+      ]);
+      expect([1, 2, 3].map((n) => store.owesUntold(src('003', n)))).toEqual([true, false, false]);
     });
 
     it('starts each part with a line of its own', () => {
