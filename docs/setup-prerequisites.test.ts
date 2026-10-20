@@ -66,15 +66,19 @@ describe('docs/getting-started.md', () => {
     expect(GETTING_STARTED).toContain('pnpm build:shared');
   });
 
-  it('names SFDX Import as the way to add an org on another Salesforce cloud', () => {
+  it('names the Salesforce CLI import as the way to add an org on another Salesforce cloud', () => {
     // OAuth Web and Username/Password refuse any host outside the Salesforce
-    // login hosts, so an org on another cloud has exactly one way in.
+    // login hosts, so an org on another cloud has exactly one way in: the
+    // import, named as the Organizations page labels it.
     const section = GETTING_STARTED.split('## Connect Your Org')[1]?.split('\n## ')[0] ?? '';
     const paragraph = section.split('\n\n').find((p) => /another Salesforce cloud/.test(p));
 
     expect(paragraph).toBeDefined();
     expect(paragraph).toContain('sf org login web --instance-url');
-    expect(paragraph).toContain('SFDX Import');
+    const { auth } = JSON.parse(read('packages/webview/src/i18n/locales/en.json')) as {
+      auth: { sfdxImport: string };
+    };
+    expect(paragraph).toContain(`**${auth.sfdxImport}**`);
     for (const host of [
       'login.salesforce.com',
       'test.salesforce.com',

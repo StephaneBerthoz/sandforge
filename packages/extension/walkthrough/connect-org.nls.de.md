@@ -5,7 +5,7 @@ SandForge setzt auf Ihren bereits authentifizierten Salesforce-Orgs auf. Beide W
 1. Klicken Sie auf **Aus SF CLI importieren**, um alle in der Salesforce CLI authentifizierten Orgs zu übernehmen — der schnellste Weg.
 2. Oder verbinden Sie eine Org über **OAuth (Web)** in Ihrem Browser.
 
-Nach der Verbindung erscheint jede Org als Karte mit Alias, Typ-Badge (PROD/SBX) und Status.
+Nach der Verbindung erscheint jede Org als Karte mit Alias, Typ-Badge (PROD, DEVELOPER für eine Developer Edition, SCRATCH oder die Art einer Sandbox: DEV, DEV PRO, PARTIAL, FULL) und Status.
 
 [Organisationen öffnen](command:sandforge.openOrgs)
 

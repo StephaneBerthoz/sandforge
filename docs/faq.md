@@ -12,6 +12,10 @@ SandForge works with any Salesforce edition that exposes the REST, Bulk 2.0, and
 
 No. A free Developer Edition org works for all SandForge features. Scratch orgs created with Salesforce CLI also work. The main constraint is API limits, which are lower on Developer Edition.
 
+### I have one empty org. Where do I start?
+
+With Seed's templates: no second org, no AI key. Connect the org (the launcher's **Connect your first org** card), click **Fill \<alias\> with demo data** at the top of the launcher, or **Seed** in its Modules list, and Seed opens on its template gallery. **CRM Starter**, marked _Start here_, writes accounts with their contacts, priced opportunities with their line items, and cases: 295 records, about 0.6 MB of the 5 MB a Developer Edition holds. **Use This**, check the counts and the org, **Start Seeding**. A seed that would not fit in the org's data storage, or would make its automation send more emails than it has left today, is refused before it writes anything, and **Earlier seeds** removes a seed whenever you want. See [Getting Started](getting-started.md#one-empty-org-fill-it-with-seed).
+
 ### Does SandForge modify production data?
 
 SandForge includes a **Production Guard**, and it knows two kinds of org. A sandbox, a scratch org and a Developer Edition org — a Trailhead playground is one — are development orgs: nothing asks before a write there, and a cleanup deletes there. Any other org, and one whose edition SandForge never read, is a production org. Forge refuses to write to a production org — any org it cannot tell is a sandbox, a scratch org or a Developer Edition org — for a run and for a rehearsal alike. The other modules ask before writing to a production org (one confirmation, which `sandforge.safety.requireProdConfirmation` turns off), and DELETE operations are blocked there. Each safety-check decision is recorded with the run it concerns in the audit trail, which keeps the newest 2000 runs across sessions and is read in Reports → Audit Trail; `sandforge.safety.auditLogging` turns that recording off. You can configure these protections in `sandforge.safety.requireProdConfirmation`.
@@ -36,21 +40,80 @@ Only to Anthropic, the only provider SandForge offers, and nothing before you tu
 
 VSCode auto-updates extensions from the Marketplace. For manual updates, go to Extensions (`Ctrl+Shift+X`), find SandForge, and click Update. If you installed from a `.vsix` file, download the latest version and reinstall.
 
-### What is the difference between Seed and Sync?
+### Which tool copies my data?
 
-**Seed** generates or imports data into a target org: from a template of its gallery, in one confirmation, or one of three other ways -- Generate data (objects, counts and field rules of your own, with Faker or AI), CSV Upload (from a CSV file), or Clone from Org (copy records from another org). **Sync** copies existing data between two orgs with field mapping, transforms, and conflict resolution. Use Seed to populate empty sandboxes; use Sync to keep sandboxes in sync with each other or with production.
+Several modules write records into an org; which one depends on what the org needs, and each says differently how a run is taken back:
+
+| What the org needs                                     | Use                                      | Taking it back                                                                   |
+| ------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------------------------- |
+| Nothing copied: realistic records in an empty org      | **Seed**, from a template of its gallery | **What this run created**, on the results, or **Earlier seeds**                  |
+| One record and what hangs on it                        | **Forge**                                | **Remove the records this run created**, on the results or under **Recent runs** |
+| Whole objects, filtered and mapped, as often as needed | **Sync**                                 | **Remove what this run created**, on the results or the run's history entry      |
+| Whole objects in dependency order, in one go           | **Autopilot**                            | None: a run cannot be removed, so try it on an org you can refresh or throw away |
+| The same set after every sandbox refresh               | **Frozen Dataset**                       | **Remove the records this load created**, under **Last load** on the Load tab    |
+
+**Seed** generates or imports data into one org: from a template of its gallery, in one confirmation, or one of three other ways -- Generate data (objects, counts and field rules of your own, with Faker or AI), CSV Upload (from a CSV file), or Clone from Org (copy records from another org). **Sync** copies existing data between two orgs with field mapping, transforms, and conflict resolution, and can run a saved configuration again, on a schedule or in delta mode. Seed's Clone from Org copies objects too, but keeps no list of what it created: prefer Sync, whose runs can be removed. See [How do I undo what SandForge wrote?](#how-do-i-undo-what-sandforge-wrote).
+
+### How do I undo what SandForge wrote?
+
+A run that keeps the list of the records it created can be taken back: its records are deleted from the org it wrote to, the last object written first, into the recycle bin, a record changed since the run kept unless you include it, and a record the target already held never taken. Production Guard judges the delete, and refuses it on a production org.
+
+| Module                                      | Taken back from                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Forge                                       | **Remove the records this run created**, on the results, under **Recent runs**, and under **Older runs** once a run leaves that list |
+| Seed: a template (Quick Seed) or the wizard | **What this run created**, on the results, and **Earlier seeds**, under the gallery: the last 20 seeds                               |
+| Sync                                        | **Remove what this run created**, on the results, on the run's history entry, and under **Runs that never ended**                    |
+| Frozen Dataset                              | **Remove the records this load created**, under **Last load** on the Load tab                                                        |
+| Seed: CSV Upload, Clone from Org            | Not removable: neither keeps a list of what it created                                                                               |
+| Autopilot                                   | Not removable: a run keeps no list of what it created                                                                                |
+| DataOps Anonymize                           | **Restore** puts back the values a snapshot holds; it deletes nothing                                                                |
+
+From the command line, `sandforge-clone`, `sandforge-seed` and `sandforge-sync` take a run back with `--remove` and the summary it printed with `--json`, and `sandforge-frozen` with its `remove` step ([Command line & CI](../ci-examples/README.md)). For a run nothing can take back, `sandforge-cleanup` deletes every record your user created on the target in a window of time, whether a run wrote it or not: preview it with `--dry-run`, then narrow it with `--objects`. The safest course is to try a module that cannot be undone on an org you can refresh or throw away, such as a scratch org.
 
 ### How do I import data from a CSV file?
 
-Navigate to **Seed**, select **CSV Upload** under the template gallery, choose your target org and object, then drag-and-drop your CSV file. SandForge auto-maps CSV column headers to Salesforce fields using case-insensitive, underscore-tolerant matching. You can override any mapping manually. The validator checks for type mismatches, missing required fields, length violations, invalid picklist values, and duplicate external IDs before execution. Supported format: UTF-8 CSV with headers (BOM is stripped automatically).
+Navigate to **Seed**, select **CSV Upload** under the template gallery, choose your target org and object, then drag-and-drop your CSV file. SandForge auto-maps CSV column headers to Salesforce fields using case-insensitive, underscore-tolerant matching. You can override any mapping manually. The validator checks for type mismatches, missing required fields, length violations, invalid picklist values, and duplicate external IDs before execution. Supported format: UTF-8 CSV with headers (BOM is stripped automatically). An import keeps no list of the records it created, and cannot be removed from the panel.
 
 ### How do I clone records from another org?
 
-Navigate to **Seed**, select **Clone from Org** under the template gallery, choose the source org (where records come from) and verify the target org (where records will be inserted). Select the objects to clone and optionally add SOQL WHERE filters per object. SandForge fetches records using cursor-based pagination, resolves relationships in topological order, and remaps IDs during insert. The results include an ID mapping table (source ID to new ID) that you can export as CSV.
+With **Forge**, for a record and what hangs on it: paste the record's Id or URL, pick the source and the target, **Discover Graph**, then **Review & Execute** -- see the [Forge Quickstart](forge-quickstart.md). For whole objects, **Sync** copies the objects you name, filtered and mapped, and **Autopilot** copies the objects you select in the order their dependencies set. Forge and Sync runs can be removed; an Autopilot run cannot.
+
+Seed's **Clone from Org**, under the template gallery, copies the objects you pick, with an optional SOQL WHERE filter per object, in dependency order, and gives an ID mapping table (source ID to new ID) you can export as CSV. It keeps no list of what it created, so nothing in the panel takes it back.
 
 ### Can I clone self-referential objects (e.g., Account.ParentId)?
 
 Yes. SandForge detects self-referential relationships and uses a two-pass insert: the first pass inserts records without self-references, the second pass updates self-referential fields with the remapped IDs. A cycle between objects -- an account pointing at its key contact while the contact points at its account -- is written the same way: the lookup that points at the object written later goes in empty and is filled in by the second pass. Only a cycle of lookups that must be set when the record is created is reported as an error, before anything is written.
+
+### Does SandForge handle person accounts?
+
+Yes. In an org with person accounts, an account is written as its kind: a person account with its first and last name, its email and phones and its `__pc` fields, and without the `Name` the platform builds from them; a business account without the fields only a person account holds. The platform writes a person account's contact itself with the account: Forge and a Frozen Dataset load never send it, and point what points at it -- a case, a contact role -- at the one the platform wrote. Into a target without person accounts, Forge and Sync write the account as a business account by its name, and Forge writes its contact as a contact of that account.
+
+- **Forge**: [Person accounts](forge-record-scoped.md#person-accounts)
+- **Seed**: a person account's record type, picked on the wizard's Configure step or with `--record-type`, writes person accounts -- see [Generate data](modules/seed.md#generate-data-seed-wizard)
+- **Sync**: [What a run writes](modules/sync.md#what-a-run-writes)
+- **Autopilot**: writes each account as its kind, by the rule Forge and Sync share -- see the [Autopilot guide](modules/autopilot.md)
+- **Frozen Dataset**: [Load Flow](modules/frozen-dataset.md#load-flow-replayable)
+- **DataOps**: an anonymization template masks a person account's own name, email and phones as it masks a contact's -- see [Anonymize](modules/dataops.md#anonymize)
+
+### Does SandForge handle multi-currency orgs?
+
+Yes, between two orgs with several currencies. Forge, Sync and Autopilot read both orgs' currencies before writing: a record in a currency the target does not hold active, which the target would refuse, goes in a currency it holds -- the default its record type gives the field, or the target's corporate currency -- each of its amounts converted at the source's rates, an opportunity's at the dated rates of its close date where advanced currency management is on. Line items follow their parent's currency, and a price goes in the currency of the records its lines belong to. The run says which records it converted, from which currency into which.
+
+- **Forge**: [Simulate a run](forge-reference.md#simulate-a-run), where a currency the target lacks is a gap
+- **Sync**: [What a run writes](modules/sync.md#what-a-run-writes)
+- **Autopilot**: the plan lists the currencies the target does not hold active -- see the [Autopilot guide](modules/autopilot.md)
+
+### What does SandForge keep on my machine?
+
+What lets a run be resumed, checked or taken back, and nothing it does not need. On your machine, outside the orgs:
+
+- **VS Code's secret storage**: the session of each org you connect, the Anthropic key once you store one, and the Frozen Dataset salt.
+- **VS Code's global state**: the list of orgs, the Forge and Sync run history, saved Sync configurations, and the audit trail, the newest 2000 runs.
+- **The extension's own storage folder** (VS Code's global storage for SandForge): the ids of the records each Forge, Sync and Seed run created -- the last 20 Seed runs, and for Forge and Sync up to a few megabytes, the oldest runs going first -- and each Forge run's journal, ids only, in `forge-runs/`; and the DataOps backups, which hold the records' values, up to `sandforge.backup.maxCount` per org.
+- **Your workspace**: Forge templates, in `.sandforge/forge-templates.json`, so they can be committed and shared.
+- **Your home folder**: a Frozen Dataset's working folder, `~/.sandforge-sas` unless its configuration names another, never inside a repository; and the journals of the command-line clone, in `~/.sandforge/forge-runs/` (`SANDFORGE_JOURNAL_DIR` names another folder).
+
+Telemetry is off by default and, turned on, only writes error reports to a local log.
 
 ### Can I automate recurring operations?
 
@@ -58,7 +121,7 @@ Partly. The **Automation** module provides a visual pipeline builder where you c
 
 ### Does SandForge support Salesforce DX and scratch orgs?
 
-Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all org types that `sf` can authenticate: scratch orgs, sandboxes, Developer Edition, and production. Import your CLI-authenticated orgs using the SFDX Import auth method in the Org Manager.
+Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all org types that `sf` can authenticate: scratch orgs, sandboxes, Developer Edition, and production. Import your CLI-authenticated orgs with **Import from SF CLI** on the Organizations page.
 
 ---
 
@@ -77,13 +140,13 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 
 ### Cannot connect to org
 
-**Symptoms:** The Org Manager shows no orgs, or connection fails with an authentication error.
+**Symptoms:** The Organizations page shows no orgs, or connection fails with an authentication error.
 
 **Solutions:**
 
 1. Verify your Salesforce CLI is authenticated: `sf org list` should show your org
 2. Re-authenticate if needed: `sf org login web --alias my-sandbox`
-3. For SFDX Import: make sure the CLI session is not expired. Run `sf org open --target-org my-sandbox` to refresh.
+3. For Import from SF CLI: make sure the CLI session is not expired. Run `sf org open --target-org my-sandbox` to refresh.
 4. For Username/Password auth: verify your security token is correct (check your email for the token from Salesforce)
 5. Check that your org is accessible (not locked or deactivated)
 

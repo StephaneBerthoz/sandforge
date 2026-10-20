@@ -1,6 +1,6 @@
 # Seed
 
-Generate realistic test data in your Salesforce sandboxes with AI, Faker profiles, CSV import, org-to-org cloning, or reusable templates. Seed handles object dependencies automatically.
+Fill a Salesforce sandbox, scratch org or Developer Edition with realistic test data: from a built-in template in one confirmation, with no AI key, or generated with Faker profiles or AI, imported from a CSV file, or copied from another org. Seed handles object dependencies automatically.
 
 Seed opens on its template gallery -- **Quick Seed**, a template seeded from one confirmation -- with three other ways to seed listed under it:
 
@@ -11,7 +11,7 @@ Seed opens on its template gallery -- **Quick Seed**, a template seeded from one
 ## Quick Start
 
 1. Navigate to **Seed** from the sidebar
-2. Pick a template from the gallery -- **Minimal Demo**, marked _Start here_, fits a Developer Edition's 5 MB -- check its record counts and the org, and press **Start Seeding**; or pick one of the other ways under it: **Generate data**, **CSV Upload**, or **Clone from Org**
+2. Pick a template from the gallery -- **CRM Starter**, marked _Start here_ and listed first, fits a Developer Edition's 5 MB -- check its record counts and the org, and press **Start Seeding**; or pick one of the other ways under it: **Generate data**, **CSV Upload**, or **Clone from Org**
 3. Follow the guided wizard of the way you chose
 4. View results with per-object record counts, error details, and export options
 
@@ -59,6 +59,8 @@ Import data from a CSV file with a 4-step wizard:
 
 **Supported formats:** UTF-8 CSV with headers. BOM is stripped automatically. Papaparse handles parsing with `dynamicTyping: false` for predictable type conversion.
 
+An import keeps no list of the records it created: it is not listed under **Earlier seeds**, and nothing in the panel removes it.
+
 ### Clone from Org
 
 Clone records from one Salesforce org to another with a 4-step wizard:
@@ -67,6 +69,8 @@ Clone records from one Salesforce org to another with a 4-step wizard:
 - **Step 2 -- Select Objects:** Browse objects from the source org with a searchable list. Check objects to clone and optionally add a SOQL WHERE clause per object to filter records (e.g., `Industry = 'Technology'`). Next asks for the preview, which needs a target as well as a source: the target is the org selected in SandForge, and with none selected Next stays disabled and the step says to pick one on the Organizations page.
 - **Step 3 -- Preview:** While the preview is prepared, the step says so, and Back sets it aside. View the insertion order (topological sort of dependencies), the lookups a second pass fills in (see below), record counts per object, and sample records. The order and those lookups are read as the run reads them: from the target org's describe, and only from the lookups the source org's describe has too. A lookup only the target has is never read, so it orders nothing and every record goes in with it empty; one the target requires -- a master-detail, or a lookup made required, deployed to the target alone -- is named above Execute, as the target will refuse every record of its object. A lookup only the source has is listed apart: the target has no field for its values, and the clone leaves them out of every record. An object either org cannot describe stops the preview, which names the object and the org, as it would stop the run before anything is written. A warning appears for clones exceeding 10,000 records. The run goes to the orgs the preview was made for: select another org after it and the preview is set aside, the wizard says why, and Next previews again for the org selected now. The extension refuses a run that names no preview, names one it no longer holds (it keeps the last 50 and forgets them when it restarts), or is not for the orgs of the preview it follows, before reading either org; each refusal says which.
 - **Step 4 -- Execute:** Execute, or Next on the preview, runs the clone and shows it running; the wizard stays on the run until it ends. Records are fetched from the source org (cursor-based pagination, 2000/batch), relationships are remapped, and records are inserted in dependency order. A field the target org does not have is left out of every record -- sent, the org would refuse the whole record -- and the results name it under its object. Per-object progress is shown during execution. Results open on a badge saying how the clone ended -- complete, partially complete or failed -- and include an ID mapping table (source ID to target ID) with CSV export. A clone stopped with Cancel reads Cancelled instead: the results say how many records it had created, which stay in the target org, list only the objects it reached, and, when the cancel came before its second pass, say that the lookups it owed stay empty. A clone that fails, including one the production guard blocks or whose confirmation you decline, shows its error as soon as the extension reports it; a request SandForge refuses before reading either org, such as a filter that does more than select records, is said in words, and the SandForge output channel names the part it refused. A clone that ends without results goes back to its preview, to run again; dismissing its error keeps the objects picked and the preview.
+
+A clone keeps no list of the records it created: it is not listed under **Earlier seeds**, and nothing in the panel removes it. To copy records from another org and be able to take them back, use [Forge](../forge-quickstart.md) for a record and what hangs on it, or [Sync](sync.md) for whole objects.
 
 **Self-referential objects and cycles** (e.g., Account.ParentId, or an account's key contact while each contact points at its account) are written in two passes, as Forge writes them: the records go in with those lookups empty, and a second pass fills them in once the record they point at is in the target. An account's parent the clone does not copy is sent as it was read, like any lookup at a record outside the clone. The results say how many lookups the second pass filled in, and why it could not fill the others -- a cycle's lookup at a record that was never cloned stays empty. Only a cycle of lookups that must be set when the record is created -- required, or not updatable -- stops the clone, before anything is written, with the lookups named.
 
@@ -144,8 +148,8 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 ## Tips
 
 - Use **CSV Upload** when you have existing data in spreadsheets or exports from other systems
-- Use **Clone from Org** to replicate production data into a sandbox with full relationship integrity
 - Use **Generate data** when you need realistic but synthetic data of objects and rules of your own (no production data exposure)
-- Start with Quick Seed for simple operations; use Forge when you need cross-org cloning or complex dependency graphs
+- Start with Quick Seed on an empty org: a template, one confirmation, no AI key
+- To copy real records from another org, use Forge for a record and what hangs on it, or Sync for whole objects: both runs can be removed, a **Clone from Org** cannot
 - Enable "Anonymize PII" in Forge to automatically mask sensitive fields during cloning
 - Keep batch sizes at 200 (the default) unless you hit governor limits, then reduce

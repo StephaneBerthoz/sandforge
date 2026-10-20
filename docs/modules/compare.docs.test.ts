@@ -168,6 +168,28 @@ describe('docs/modules/compare.md', () => {
     expect(section).toMatch(/A production target is refused/);
   });
 
+  it('names every org the guard lets a deployment reach, a Developer Edition among them', () => {
+    // The guard refuses a deployment only on the production tier; since one
+    // rule types a Developer Edition, it is a development org, as a sandbox
+    // is, and a scratch org has a tier of its own. The page said "sandboxes
+    // only", and a Developer Edition user read Deploy as closed to them.
+    const kind = readFileSync(resolve(REPO_ROOT, 'packages/shared/src/utils/org-kind.ts'), 'utf8');
+    const tiers = /const GUARD_TIERS[^=]*= \{([\s\S]*?)\};/.exec(kind)?.[1] ?? '';
+    expect(tiers).toMatch(/Sandbox: 'development'/);
+    expect(tiers).toMatch(/Scratch: 'scratch'/);
+    expect(tiers).toMatch(/Developer: 'development'/);
+    const guard = readFileSync(
+      resolve(REPO_ROOT, 'packages/extension/src/core/precheck/ProductionGuard.ts'),
+      'utf8',
+    );
+    expect(guard).toMatch(/if \(request\.operation === 'deploy'\) \{[\s\S]{0,400}?allowed: false/);
+
+    const section = sectionBody(DOC, 'Deploy from Diff').replace(/\s+/g, ' ');
+    expect(section).not.toMatch(/sandboxes only/);
+    expect(section).toMatch(/a sandbox, a scratch org or a Developer Edition org/);
+    expect(DOC.split('\n')[2]).toMatch(/a sandbox, a scratch org or a Developer Edition org/);
+  });
+
   it('promises no permission grid, since only names are read', () => {
     // `handlePermissions` queries PermissionSet and Profile by name and splits
     // the names three ways. It never touches ObjectPermissions, so there is no

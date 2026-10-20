@@ -5,7 +5,7 @@ SandForge works on top of your authenticated Salesforce orgs. Both paths below n
 1. Click **Import from SF CLI** to pull in every org already authenticated in the Salesforce CLI — the fastest path.
 2. Or use **OAuth (Web)** to connect an org through your browser.
 
-Once connected, each org shows up as a card with its alias, type badge (PROD/SBX), and status.
+Once connected, each org shows up as a card with its alias, type badge (PROD, DEVELOPER for a Developer Edition, SCRATCH, or a sandbox's kind: DEV, DEV PRO, PARTIAL, FULL), and status.
 
 [Open Organizations](command:sandforge.openOrgs)
 

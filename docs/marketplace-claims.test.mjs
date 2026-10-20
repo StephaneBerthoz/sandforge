@@ -592,6 +592,57 @@ test('the Get Started walkthrough fills the org it just connected with Seed, bef
   }
 });
 
+/**
+ * The Forge step, after the step that fills the one org a newcomer has, told
+ * them to paste a record "from your UAT org" into "your dev sandbox", as if
+ * everyone held both. Forge copies from one org into another: the step says so,
+ * and the UAT sandbox is an example of the first.
+ */
+const ANOTHER_ORG = {
+  en: /from another org into the one you fill/,
+  fr: /d'une autre org vers celle que vous remplissez/,
+  de: /aus einer anderen Org in die Org, die Sie füllen/,
+  es: /desde otra org hacia la que llenas/,
+  ja: /別の組織から投入先の組織へ/,
+  'pt-br': /de outra org para a que você preenche/,
+};
+
+test('the Forge step of the walkthrough copies from another org into the one you fill, in six languages', () => {
+  const offenders = [];
+  for (const locale of WALKTHROUGH_LOCALES) {
+    const file = `forge-clone${locale === 'en' ? '' : `.nls.${locale}`}.md`;
+    const body = read(...EXT, 'walkthrough', file);
+    if (!ANOTHER_ORG[locale].test(body)) offenders.push(`${file}: no second org named`);
+    if (
+      /votre org UAT|Ihrer UAT-Org|tu org de UAT|sua org de UAT|UAT 組織の|your UAT org/.test(body)
+    ) {
+      offenders.push(`${file}: a UAT org is assumed`);
+    }
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+test('the connect step names only the badges an org card shows, in six languages', () => {
+  const badges = Object.values(
+    readJson('packages', 'webview', 'src', 'i18n', 'locales', 'en.json').sidePanel.orgType,
+  );
+  assert.ok(badges.includes('DEVELOPER'), 'the badge labels are not read — re-point this gate');
+  const offenders = [];
+  for (const locale of WALKTHROUGH_LOCALES) {
+    const file = `connect-org${locale === 'en' ? '' : `.nls.${locale}`}.md`;
+    const body = read(...EXT, 'walkthrough', file);
+    // The badges are named in capitals, in the parenthesis after the badge's word.
+    const named = [...body.matchAll(/\b[A-Z]{2,}(?: PRO)?\b/g)]
+      .map((m) => m[0])
+      .filter((word) => !['PATH', 'CLI', 'OAuth', 'SF'].includes(word));
+    const unknown = named.filter((word) => !badges.includes(word));
+    if (unknown.length > 0) offenders.push(`${file}: ${[...new Set(unknown)].join(', ')}`);
+    if (!named.includes('DEVELOPER'))
+      offenders.push(`${file}: a Developer Edition's badge is not named`);
+  }
+  assert.deepEqual(offenders, [], `badges no org card shows:\n  ${offenders.join('\n  ')}`);
+});
+
 // ── onboarding that fails on the machine it is read on ────────────────────
 
 /**
@@ -1098,9 +1149,11 @@ test('anchor: Migration imports CSV and JSON files, as both READMEs say', () => 
   }
 });
 
-test('anchor: startup refreshes expired org sessions through the sf CLI, as both READMEs say', () => {
+test('anchor: the first SandForge view of a window refreshes expired org sessions through the sf CLI, as both READMEs say', () => {
   // The sweep runs once per window, with the first SandForge view rather than
-  // at activation: the start of a SandForge session, not of every VS Code window.
+  // at activation: the start of a SandForge session, not of every VS Code
+  // window. "At startup", which the rows and the setting said, is a VS Code
+  // window opening, which no longer validates anything.
   assert.match(
     read(...EXT, 'src', 'extension.ts'),
     /if \(services\.getSandforgeSetting\('orgs\.validateOnStartup', true\)\) \{\s*eventBroker\.onFirstWebview\(\(\) => \{\s*void validateOrgsOnStartup\(/,
@@ -1121,9 +1174,33 @@ test('anchor: startup refreshes expired org sessions through the sf CLI, as both
     assert.ok(row, `${relPath}: the Organizations row is gone`);
     assert.match(
       row,
-      /at startup, expired sessions are refreshed through the sf CLI/,
-      `${relPath}: the Organizations row no longer says what startup does`,
+      /when SandForge first opens a view in a window, expired sessions are refreshed through the sf CLI/,
+      `${relPath}: the Organizations row no longer says when the sessions are refreshed`,
     );
+    const setting = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => line.startsWith('| `sandforge.orgs.validateOnStartup`'));
+    assert.ok(setting, `${relPath}: the validateOnStartup row is gone`);
+    assert.doesNotMatch(
+      `${row}\n${setting}`,
+      /at startup/i,
+      `${relPath}: a window opening validates nothing; the first SandForge view does`,
+    );
+  }
+  // The setting said "at startup" in the six languages the Settings editor shows.
+  const AT_STARTUP = {
+    en: /at startup/i,
+    fr: /au démarrage/i,
+    de: /beim Start/i,
+    es: /al iniciar/i,
+    ja: /起動時/,
+    'pt-br': /na inicialização/i,
+  };
+  const described = resolveNls('%config.orgs.validateOnStartup.description%');
+  assert.match(described.en, /when SandForge first opens a view in a window/);
+  for (const [locale, text] of Object.entries(described)) {
+    assert.ok(AT_STARTUP[locale], `${locale}: no rule written for this locale`);
+    assert.doesNotMatch(text, AT_STARTUP[locale], `${locale}: the setting still says at startup`);
   }
 });
 

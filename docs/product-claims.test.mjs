@@ -2305,15 +2305,24 @@ test("anchor: Production Guard's decisions are recorded with the run they concer
 /**
  * The wordings that kept the guard's decisions to the session, as they
  * shipped in the six languages: session only, never written to disk, a
- * persisted trail still to come, no screen reading it back.
+ * persisted trail still to come, no screen reading it back — and a log kept
+ * in memory, which the Get Started step on the settings said in six
+ * languages long after the trail was written to the store.
  */
 const SESSION_ONLY =
-  /session only|for the session|never written to disk|still to come|no screen reads|pour cette session|jamais [ée]crite?s? sur disque|nur f[üu]r diese sitzung|nie auf die festplatte|solo para esta sesi[oó]n|nunca escrit[oa]s? en disco|apenas nesta sess[ãa]o|nunca gravad[oa]s? em disco|このセッション限り|ディスクには書き込まれません/iu;
+  /session only|for the session|never written to disk|still to come|no screen reads|in-memory|in memory|pour cette session|jamais [ée]crite?s? sur disque|en mémoire|nur f[üu]r diese sitzung|nie auf die festplatte|im Arbeitsspeicher|solo para esta sesi[oó]n|nunca escrit[oa]s? en disco|en memoria|apenas nesta sess[ãa]o|nunca gravad[oa]s? em disco|em memória|このセッション限り|ディスクには書き込まれません|メモリ上/iu;
+
+/**
+ * Production Guard, by its name or as the six languages call the guardrails
+ * it is: the settings step named them so, never by name.
+ */
+const GUARD_NAMED =
+  /production guard|garde-fous? (?:de )?production|Produktions-Schutz|protecciones de producción|本番ガードレール|proteções de produção/iu;
 
 /** Units that keep Production Guard's decisions to the session, as `label: text`. */
 function guardSessionOnlyClaims(units) {
   return units
-    .filter(({ text }) => /production guard/i.test(text) && SESSION_ONLY.test(text))
+    .filter(({ text }) => GUARD_NAMED.test(text) && SESSION_ONLY.test(text))
     .map(({ label, text }) => `${label}: ${text.trim().slice(0, 140)}`);
 }
 
@@ -2345,6 +2354,13 @@ test("no user-facing surface keeps Production Guard's decisions to the session",
     'Registrar cada decisión de comprobación de seguridad de Production Guard en un registro en memoria (las últimas 1000, solo para esta sesión, nunca escritas en disco).',
     'Registrar cada decisão de verificação de segurança do Production Guard em um log em memória (os últimos 1000, apenas nesta sessão, nunca gravados em disco).',
     'Production Guard の安全性チェックの判定をメモリ上のログに記録します（直近 1000 件、このセッション限り、ディスクには書き込まれません）。',
+    // The Get Started step on the settings, as it shipped in the six languages.
+    'Batch sizes, production guardrails, the in-memory safety-check log, and the AI assistant.',
+    'Tailles de lots, garde-fous production, journal des contrôles de sécurité en mémoire et assistant IA.',
+    'Batchgrößen, Produktions-Schutzmaßnahmen, das Sicherheitsprüfungs-Protokoll im Arbeitsspeicher und der KI-Assistent.',
+    'Tamaños de lote, protecciones de producción, el registro de comprobaciones de seguridad en memoria y el asistente de IA.',
+    'バッチサイズ、本番ガードレール、メモリ上の安全性チェックログ、AI アシスタント。',
+    'Tamanhos de lote, proteções de produção, o log de verificações de segurança em memória e o assistente de IA.',
   ];
   assert.deepEqual(
     refused.filter((text) => guardSessionOnlyClaims([{ label: 'fixture', text }]).length === 0),
@@ -5218,8 +5234,11 @@ test('the Forge guide sends the rows a lookup filter refuses to the rehearsal', 
     /lookup filter is not among them[^\n]*rehearsal/i,
     'the simulation section does not say that a lookup filter is left to the rehearsal',
   );
-  const metadataLine = guide.split('\n').find((line) => line.startsWith('- **Lookup filters.**'));
-  assert.ok(metadataLine, 'docs/forge-quickstart.md no longer lists lookup filters in the read');
+  // The read of the target's metadata is described in the reference the quickstart links to.
+  const metadataLine = read('docs', 'forge-reference.md')
+    .split('\n')
+    .find((line) => line.startsWith('- **Lookup filters.**'));
+  assert.ok(metadataLine, 'docs/forge-reference.md no longer lists lookup filters in the read');
   assert.match(
     metadataLine,
     /rehearsal[^\n]*FIELD_FILTER_VALIDATION_EXCEPTION/i,

@@ -1,6 +1,6 @@
 # Compare
 
-Compare metadata, permission names, and five Organization settings between two Salesforce orgs, from a single tabbed interface, and deploy to a sandbox what the source holds differently, validated first -- see [Deploy from Diff](#deploy-from-diff).
+Compare metadata, permission names, and five Organization settings between two Salesforce orgs, from a single tabbed interface, and deploy to a sandbox, a scratch org or a Developer Edition org what the source holds differently, validated first -- see [Deploy from Diff](#deploy-from-diff).
 
 ## Quick Start
 
@@ -121,8 +121,9 @@ Each report gives the deployment's id, under which the target lists it in
 Setup › Deployment Status, validations included.
 
 A production target is refused, validation included, and so is an org whose
-type SandForge cannot tell: SandForge deploys metadata to sandboxes only. The
-Production Guard decides it, as it decides every write.
+type SandForge cannot tell: SandForge deploys metadata to a sandbox, a scratch
+org or a Developer Edition org -- a Trailhead playground is one -- and to no
+other. The Production Guard decides it, as it decides every write.
 
 ### Schema Advice
 
