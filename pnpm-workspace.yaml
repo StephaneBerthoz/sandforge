@@ -86,6 +86,11 @@ overrides:
   # GHSA-68fv-2mgg-jv7q (event-loop denial of service through indexed
   # source-map section offsets) and keeps the 1.x API.
   'source-map-js@<1.2.2': '>=1.2.2 <2'
+  # Dev only: the webview's dev server and Vitest run it, and its built output is
+  # what ships, not Vite itself. 8.3.3 takes the launch-editor that closes the
+  # editor CLI flag misinterpretation and the two Windows escaping advisories
+  # Dependabot raised on 8.3.1, and keeps the 8.x API.
+  'vite@>=8.0.0 <8.3.3': '>=8.3.3 <9'
 
 # Dev only. Vitest 5 matches testNamePattern against the suite chain joined
 # with ' > ', and the Stryker runner names a test with its chain joined by a
