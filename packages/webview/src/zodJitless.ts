@@ -8,6 +8,6 @@
  * be in place before the shared schemas are: this module is the first import of
  * each entry (main.tsx, main.sidepanel.tsx), ahead of anything that loads them.
  */
-import { z } from 'zod';
+import * as z from 'zod';
 
 z.config({ jitless: true });

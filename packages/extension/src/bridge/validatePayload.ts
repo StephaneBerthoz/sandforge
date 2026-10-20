@@ -30,7 +30,7 @@ import {
 } from '@sandforge/shared';
 import type { PipelineStepType, RetiredPipelineStepType } from '@sandforge/shared';
 import { isAbsolute } from 'node:path';
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   isSafeSoqlOrderBy,
   isSafeSoqlWhere,

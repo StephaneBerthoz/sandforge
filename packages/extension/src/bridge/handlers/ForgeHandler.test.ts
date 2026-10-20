@@ -57,7 +57,7 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
-import { inboundRequest } from '../../test/mockFactories.js';
+import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 const mockQueryFallback = vi.mocked(queryWithFieldsFallback);
@@ -170,7 +170,7 @@ function createMockDeps(): HandlerDeps {
   let idCounter = 0;
   return {
     log: vi.fn(),
-    broker: { postToWebview: vi.fn() } as unknown as HandlerDeps['broker'],
+    broker: createMockBroker(),
     stateSync: {} as HandlerDeps['stateSync'],
     // A sandbox: a clone refuses a production org, and an org of no known
     // type, before anything is read.

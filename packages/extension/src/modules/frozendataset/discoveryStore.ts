@@ -21,7 +21,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { ForgeGraph } from '@sandforge/shared';
 import type { ObjectDescribe } from '../forge/GraphDiscoveryService.js';
 import { SasPathGuard } from './SasPathGuard.js';

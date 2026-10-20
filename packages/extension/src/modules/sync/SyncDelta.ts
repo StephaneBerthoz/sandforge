@@ -27,7 +27,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
+import * as z from 'zod';
 import type {
   SyncConfig,
   SyncDeltaOutcome,

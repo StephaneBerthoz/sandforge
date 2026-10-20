@@ -9,7 +9,7 @@
  * first, and what a second pass may fill.
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 
 /** One lookup of an object, as the describe reports it. */
 export interface DescribedLookup {

@@ -18,7 +18,13 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { collectRequested, requestedAssets } from './check-webview-assets.mjs';
+import {
+  bundleFiles,
+  chunkImports,
+  collectRequested,
+  requestedAssets,
+  zodJitlessVerdict,
+} from './check-webview-assets.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PROVIDERS = join(repoRoot, 'packages', 'extension', 'src', 'providers');
@@ -124,4 +130,53 @@ test('importing the gate judges no build, and running it does', () => {
 
   const run = spawnSync(process.execPath, [gate], { cwd: repoRoot, encoding: 'utf8' });
   assert.match(`${run.stdout}${run.stderr}`, /^(PASS|FAIL): /m);
+});
+
+test('it reads the imports a minified ES chunk writes, and no package name', () => {
+  const source =
+    'import{r as e,t}from"./chunks/rolldown-runtime-a1.js";import"./chunks/side-b2.js";' +
+    'export{x as y}from"../shared-c3.js";import{createRoot as k}from"react-dom";' +
+    'const p=()=>import(`./chunks/SeedPage-d4.js`),q=()=>import("./chunks/Forge-e5.js");';
+  assert.deepEqual(chunkImports(source), [
+    './chunks/rolldown-runtime-a1.js',
+    './chunks/side-b2.js',
+    '../shared-c3.js',
+    './chunks/SeedPage-d4.js',
+    './chunks/Forge-e5.js',
+  ]);
+});
+
+test('it follows a bundle into the chunks its chunks import, and names a missing one with its importer', () => {
+  const built = new Map([
+    ['assets/index.js', 'import"./chunks/a.js";const p=()=>import(`./chunks/page.js`);'],
+    ['assets/chunks/a.js', 'export const a=1;'],
+    ['assets/chunks/page.js', 'import{a}from"./a.js";import"./lost.js";'],
+  ]);
+  const { files, missing } = bundleFiles('assets/index.js', (path) => built.get(path));
+  assert.deepEqual(files.sort(), [
+    'assets/chunks/a.js',
+    'assets/chunks/lost.js',
+    'assets/chunks/page.js',
+    'assets/index.js',
+  ]);
+  assert.deepEqual([...missing], [['assets/chunks/lost.js', 'assets/chunks/page.js']]);
+});
+
+test('it requires the file holding zod to turn its compiler off', () => {
+  const zod = 'var t=e(`$ZodType`,(n,r)=>{});';
+  assert.deepEqual(
+    zodJitlessVerdict(new Map([['assets/chunks/zod.js', `${zod}S({jitless:!0});`]])),
+    { path: 'assets/chunks/zod.js', jitless: true },
+  );
+  // The call left in another file, which runs after the chunks it imports.
+  assert.deepEqual(
+    zodJitlessVerdict(
+      new Map([
+        ['assets/index.js', 'import"./chunks/zod.js";S({jitless:!0});'],
+        ['assets/chunks/zod.js', zod],
+      ]),
+    ),
+    { path: 'assets/chunks/zod.js', jitless: false },
+  );
+  assert.equal(zodJitlessVerdict(new Map([['assets/sidepanel.js', 'no schema here']])), undefined);
 });

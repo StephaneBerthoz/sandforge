@@ -23,6 +23,12 @@ const DEFAULT_RATE_LIMIT_MAX = 100;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 1000;
 /** Number of consecutive protocol mismatches before we show the reload banner. */
 const MISMATCH_BANNER_THRESHOLD = 3;
+/**
+ * Requests whose sender is remembered, the oldest forgotten first: far more
+ * than are ever in flight, and a bound on what a sender that is never
+ * answered through {@link MessageBroker.replyToRequester} leaves behind.
+ */
+const MAX_REMEMBERED_SENDERS = 1_000;
 
 /** A suggested fix for a failed operation, and where it came from. */
 export interface FixSuggestion {
@@ -133,6 +139,12 @@ export class MessageBroker {
   private readonly telemetry: BrokerTelemetry | undefined;
   private readonly fixSuggestionNotifier: ((suggestion: FixSuggestion) => void) | undefined;
   private mismatchCount = 0;
+  /** Whether a webview has registered yet, in this broker's life. */
+  private webviewSeen = false;
+  /** What waits for the first webview, emptied when it registers. */
+  private firstWebviewCallbacks: Array<() => void> = [];
+  /** The webview each recent request came from, by request id. */
+  private readonly senders = new Map<string, vscode.WebviewPanel | vscode.WebviewView>();
 
   /**
    * @param options - Optional configuration for rate limiting, telemetry and the host notifier.
@@ -165,15 +177,47 @@ export class MessageBroker {
     // extension or external page can inject messages into this handler.
     const subscription = inbound
       ? panel.webview.onDidReceiveMessage((msg: unknown) => {
-          this.dispatch(msg);
+          this.dispatch(msg, panel);
         })
       : undefined;
+    if (!this.webviewSeen) {
+      this.webviewSeen = true;
+      for (const callback of this.firstWebviewCallbacks.splice(0)) this.runFirstWebview(callback);
+    }
     return {
       dispose: () => {
         this.panels.delete(panel);
         subscription?.dispose();
+        for (const [id, sender] of this.senders) {
+          if (sender === panel) this.senders.delete(id);
+        }
       },
     };
+  }
+
+  /**
+   * Run `callback` once, when the first webview registers: the sidebar or a
+   * panel, whichever the user opens first. At once if one already has.
+   *
+   * What only a SandForge view needs starts here rather than at activation,
+   * which happens in every VS Code window after startup, most of which never
+   * show SandForge at all.
+   */
+  onFirstWebview(callback: () => void): void {
+    if (this.webviewSeen) {
+      this.runFirstWebview(callback);
+      return;
+    }
+    this.firstWebviewCallbacks.push(callback);
+  }
+
+  /** A callback that throws must not stop the others, nor the registration under way. */
+  private runFirstWebview(callback: () => void): void {
+    try {
+      callback();
+    } catch (err: unknown) {
+      this.logError('first webview', err);
+    }
   }
 
   /**
@@ -201,6 +245,29 @@ export class MessageBroker {
     }
   }
 
+  /**
+   * Send a response to the webview whose request it answers, and to no other:
+   * to every webview when that one is not known or is gone.
+   *
+   * For an answer no other webview reads. `postToWebview` copies a message to
+   * every open panel and the sidebar, each of which deserializes it: a panel
+   * opened in French had the whole French catalogue, about 320 kB, sent to
+   * every panel already open, and a Forge discovery its whole graph. Not for
+   * an answer the other webviews act on too, such as `org:selected` or
+   * `settings:response`, which each panel takes by its type.
+   */
+  replyToRequester(message: BaseMessage): void {
+    const sender =
+      typeof message.correlationId === 'string'
+        ? this.senders.get(message.correlationId)
+        : undefined;
+    if (sender && this.panels.has(sender)) {
+      sender.webview.postMessage(message);
+      return;
+    }
+    this.postToWebview(message);
+  }
+
   /** Get the number of currently registered panels. */
   get panelCount(): number {
     return this.panels.size;
@@ -220,6 +287,8 @@ export class MessageBroker {
   dispose(): void {
     this.handlers.clear();
     this.panels.clear();
+    this.firstWebviewCallbacks = [];
+    this.senders.clear();
   }
 
   /** Log function for handler errors. Can be overridden for testing. */
@@ -261,7 +330,7 @@ export class MessageBroker {
    *        best-effort functionality survives during hot-reload dev loops.
    *      - success → reset `mismatchCount`, dispatch payload.
    */
-  private dispatch(raw: unknown): void {
+  private dispatch(raw: unknown, sender?: vscode.WebviewPanel | vscode.WebviewView): void {
     if (!isEnvelopeShape(raw)) {
       this.logFn?.('[MessageBroker] Received malformed message: not an envelope');
       return;
@@ -299,7 +368,18 @@ export class MessageBroker {
       this.mismatchCount = 0;
     }
 
+    if (sender) this.rememberSender(envelope.payload.id, sender);
     this.continueDispatch(envelope.payload);
+  }
+
+  /** Remember which webview sent request `id`, forgetting the oldest past the bound. */
+  private rememberSender(id: string, sender: vscode.WebviewPanel | vscode.WebviewView): void {
+    this.senders.delete(id);
+    this.senders.set(id, sender);
+    if (this.senders.size > MAX_REMEMBERED_SENDERS) {
+      const oldest = this.senders.keys().next().value;
+      if (oldest !== undefined) this.senders.delete(oldest);
+    }
   }
 
   /**

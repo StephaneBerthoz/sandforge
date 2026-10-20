@@ -201,6 +201,14 @@ describe('WebviewPanelManager', () => {
       expect(html).toContain('SandForge: monitor');
     });
 
+    it('loads the panel bundle as a module script, which imports each page when it is shown', () => {
+      managerWithUri.openPanel({ viewType: 'sandforge.forge', title: 'Forge', moduleId: 'forge' });
+
+      expect(lastCreatedPanel.webview.html).toMatch(
+        /<script nonce="[^"]+" type="module" src="[^"]*index\.js"/,
+      );
+    });
+
     it('should include a CSP meta tag with a nonce', () => {
       managerWithUri.openPanel({
         viewType: 'sandforge.seed',

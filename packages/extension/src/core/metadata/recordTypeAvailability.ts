@@ -14,7 +14,7 @@
  * before the write, which record type stops which records, and what to do.
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 
 /** A record type as the describe reports it for the running user. */
 export interface RecordTypeAvailability {

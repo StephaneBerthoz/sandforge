@@ -16,16 +16,6 @@ import { exec, execFile } from 'child_process';
 const mockExec = vi.mocked(exec);
 const mockExecFile = vi.mocked(execFile);
 
-/**
- * `getDefaultOrgUsername` branches on `process.platform`:
- * - Windows uses `exec` (shell required for `sf.cmd` PATHEXT resolution)
- * - POSIX uses `execFile` with argv-as-array (no shell — no interpolation)
- *
- * Tests pick the active mock for the current platform so they stay
- * platform-agnostic (same pattern as ConnectionHelper.test.ts).
- */
-const mockCliInvoker = process.platform === 'win32' ? mockExec : mockExecFile;
-
 function makeSfOrgListOutput(
   nonScratchOrgs: Record<string, unknown>[] = [],
   scratchOrgs: Record<string, unknown>[] = [],
@@ -725,6 +715,14 @@ describe('SfdxBridge', () => {
       });
     });
 
+    it('keeps the expiration date the CLI lists for a scratch org, and none for the others', async () => {
+      const orgs = await importReal();
+
+      expect(orgs.get('00D000000000004AAA')?.metadata.expirationDate).toBe('2026-09-26');
+      expect(orgs.get('00D000000000001AAA')?.metadata).not.toHaveProperty('expirationDate');
+      expect(orgs.get('00D000000000002AAA')?.metadata).not.toHaveProperty('expirationDate');
+    });
+
     it('leaves out a scratch org its Dev Hub reports expired, and a pinged org it cannot reach', async () => {
       const orgs = await importReal();
 
@@ -844,45 +842,6 @@ describe('SfdxBridge', () => {
         expect(mockExec).not.toHaveBeenCalled();
         expect(mockExecFile).not.toHaveBeenCalled();
       });
-    });
-  });
-
-  describe('getDefaultOrgUsername', () => {
-    it('returns the target-org value reported by the CLI', async () => {
-      const json = JSON.stringify({
-        result: [{ key: 'target-org', value: 'ACME-DEV', success: true }],
-      });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: json, stderr: '' } as never);
-
-      await expect(bridge.getDefaultOrgUsername()).resolves.toBe('ACME-DEV');
-    });
-
-    it('accepts the legacy targetusername key', async () => {
-      const json = JSON.stringify({
-        result: [{ key: 'targetusername', value: 'dev@example.com', success: true }],
-      });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: json, stderr: '' } as never);
-
-      await expect(bridge.getDefaultOrgUsername()).resolves.toBe('dev@example.com');
-    });
-
-    it('returns undefined when no default is configured', async () => {
-      const json = JSON.stringify({ result: [] });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: json, stderr: '' } as never);
-
-      await expect(bridge.getDefaultOrgUsername()).resolves.toBeUndefined();
-    });
-
-    it('returns undefined when the CLI call fails — never throws', async () => {
-      mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
-
-      await expect(bridge.getDefaultOrgUsername()).resolves.toBeUndefined();
-    });
-
-    it('returns undefined on unparseable output', async () => {
-      mockCliInvoker.mockResolvedValueOnce({ stdout: 'not json at all', stderr: '' } as never);
-
-      await expect(bridge.getDefaultOrgUsername()).resolves.toBeUndefined();
     });
   });
 });

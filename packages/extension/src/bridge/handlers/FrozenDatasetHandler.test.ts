@@ -2489,6 +2489,28 @@ describe('FrozenDatasetHandler', () => {
       expect(forgottenRun).toBe(firstRun);
     });
 
+    it('lets the describes of a discovery go once they are five minutes old, read or not', async () => {
+      // Kept until read, the describes of a large org's discovery stayed on
+      // the extension host's heap for the life of the window.
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      try {
+        const { conn } = fakeOrg();
+        vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+        deps = createMockDeps(realConfig());
+        handler = new FrozenDatasetHandler(deps);
+        const held = (): number =>
+          (handler as unknown as { describeCache: { size: number } }).describeCache.size;
+
+        await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+        expect(held()).toBeGreaterThan(0);
+
+        vi.advanceTimersByTime(5 * 60_000 + 1_000);
+        expect(held()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('discovers the graph once for the whole run', async () => {
       const { conn, soqls } = fakeOrg();
       vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);

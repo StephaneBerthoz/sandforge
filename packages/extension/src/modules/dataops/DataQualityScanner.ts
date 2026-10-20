@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { isPlatformRequiredField } from '@sandforge/shared';
 import type {
   DataQualityCheckError,

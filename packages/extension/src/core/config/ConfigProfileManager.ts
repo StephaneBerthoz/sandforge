@@ -6,7 +6,7 @@
  * can be shared between team members.
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 import type { ForgeTemplate } from '@sandforge/shared';
 import type { ConfigStore } from '../storage/ConfigStore.js';
 import {

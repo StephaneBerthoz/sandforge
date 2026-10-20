@@ -57,6 +57,45 @@ const mockL10nT = vi.fn(substituteL10n);
 /** The options every MessageBroker was built with, in construction order. */
 const brokerOptions: Array<MessageBrokerOptions | undefined> = [];
 
+/**
+ * Every process the extension starts and every call it sends a Salesforce org,
+ * counted: what an activation costs is asserted below, not guessed. A process
+ * fails at once, the way a CLI the host cannot run does; an org refuses the
+ * token, the way an expired session does, which sends the extension to the CLI.
+ */
+const activationCost = { processes: [] as string[], identityCalls: [] as string[] };
+
+vi.mock('child_process', () => {
+  const start =
+    (kind: string) =>
+    (...args: unknown[]): { pid: undefined; kill: () => void } => {
+      const argv = Array.isArray(args[1]) ? (args[1] as string[]) : [];
+      activationCost.processes.push([kind, String(args[0]), ...argv].join(' '));
+      const callback = args.at(-1);
+      if (typeof callback === 'function') {
+        queueMicrotask(() => (callback as (err: Error) => void)(new Error('not run in tests')));
+      }
+      return { pid: undefined, kill: () => undefined };
+    };
+  return { exec: start('exec'), execFile: start('execFile'), spawn: start('spawn') };
+});
+
+vi.mock('./core/connection/jsforceEntry.js', () => ({
+  jsforce: {
+    Connection: class {
+      constructor(private readonly options: { instanceUrl: string }) {}
+      identity(): Promise<never> {
+        activationCost.identityCalls.push(this.options.instanceUrl);
+        return Promise.reject(
+          Object.assign(new Error('INVALID_SESSION_ID: Session expired or invalid'), {
+            errorCode: 'INVALID_SESSION_ID',
+          }),
+        );
+      }
+    },
+  },
+}));
+
 vi.mock('./bridge/MessageBroker', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./bridge/MessageBroker')>();
   class OptionsCapturingBroker extends actual.MessageBroker {
@@ -127,6 +166,7 @@ vi.mock('vscode', () => ({
 import { activate, deactivate, buildStatusBarLabel, localizedFixSuggestion } from './extension';
 import { knownErrorTexts } from './core/common/errorKnowledgeBase';
 import { OrgManager } from './core/connection/OrgManager';
+import { OrgRegistry } from './core/connection/OrgRegistry';
 import { WebviewStateSync } from './bridge/WebviewStateSync';
 import { BackgroundOperationRegistry } from './core/engine/BackgroundOperationRegistry';
 import { MODULE_COMMANDS } from './composition/moduleCommands';
@@ -504,6 +544,144 @@ describe('extension', () => {
 
   it('should handle double deactivation without error', async () => {
     await expect(deactivate()).resolves.toBeUndefined();
+  });
+});
+
+describe('what an activation costs before a SandForge view opens', () => {
+  /** Lets every promise chain the activation started run to its end. */
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50));
+
+  let spies: MockInstance[] = [];
+  /** Org ids unique across the file: the connection pool and circuit breakers outlive a test. */
+  let orgSeq = 0;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    await deactivate();
+    activationCost.processes.length = 0;
+    activationCost.identityCalls.length = 0;
+    // Hermetic: the CLI's default org is read from this variable before any
+    // file, so the machine's own configuration is never read.
+    vi.stubEnv('SF_TARGET_ORG', 'nobody@example.invalid');
+  });
+
+  afterEach(() => {
+    for (const spy of spies) spy.mockRestore();
+    spies = [];
+    vi.unstubAllEnvs();
+  });
+
+  /** Registers `count` orgs, each with a token every org will refuse. */
+  function registerOrgs(count: number): void {
+    const orgs = Array.from({ length: count }, (_, index) => ({
+      id: `org-${++orgSeq}`,
+      alias: `org${index}`,
+      username: `admin${index}@example.com`,
+      instanceUrl: `https://org${index}.my.salesforce.com`,
+      orgType: 'Sandbox',
+      status: 'connected',
+      metadata: { apiVersion: '62.0', edition: 'Developer Edition', features: [] },
+    })) as unknown as ReturnType<OrgManager['getAllOrgs']>;
+    spies.push(
+      vi.spyOn(OrgManager.prototype, 'getAllOrgs').mockReturnValue(orgs),
+      vi
+        .spyOn(OrgManager.prototype, 'getOrg')
+        .mockImplementation((id: string) => orgs.find((org) => org.id === id)),
+      vi.spyOn(OrgRegistry.prototype, 'getCredentials').mockImplementation(async (id: string) => ({
+        loginUrl: 'https://login.salesforce.com',
+        accessToken: `token-${id}`,
+        instanceUrl: orgs.find((org) => org.id === id)?.instanceUrl,
+      })),
+    );
+  }
+
+  async function openSidebar(): Promise<void> {
+    const vscode = await import('vscode');
+    const provider = vi.mocked(vscode.window.registerWebviewViewProvider).mock
+      .calls[0][1] as unknown as SidebarViewProvider;
+    provider.resolveWebviewView(
+      {
+        webview: {
+          options: undefined,
+          html: '',
+          cspSource: 'https://test.csp.source',
+          onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })),
+          postMessage: vi.fn(),
+          asWebviewUri: vi.fn((uri: { toString: () => string }) => ({
+            toString: () => String(uri),
+          })),
+        },
+        onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+      } as never,
+      undefined,
+      undefined,
+    );
+  }
+
+  const logged = (): string[] => mockOutputChannel.appendLine.mock.calls.map((c) => String(c[0]));
+
+  it('starts no process and calls no org when no org is registered', async () => {
+    activate(createContext());
+    await settle();
+
+    expect(activationCost.processes).toEqual([]);
+    expect(activationCost.identityCalls).toEqual([]);
+  });
+
+  it('starts no process and calls no org with three orgs registered, until a view opens', async () => {
+    registerOrgs(3);
+    activate(createContext());
+    await settle();
+
+    expect(activationCost.processes).toEqual([]);
+    expect(activationCost.identityCalls).toEqual([]);
+    expect(logged().some((line) => line.includes('Validating 3 registered org(s)'))).toBe(false);
+
+    await openSidebar();
+    await vi.waitFor(() => expect(activationCost.identityCalls).toHaveLength(3));
+    await settle();
+
+    // Each refused token is still taken to the CLI, as before; only when has
+    // moved. Every process is one of those refreshes: the default org is read
+    // from the CLI's files, not by running it.
+    expect(activationCost.identityCalls).toEqual([
+      'https://org0.my.salesforce.com',
+      'https://org1.my.salesforce.com',
+      'https://org2.my.salesforce.com',
+    ]);
+    const refreshed = new Set(
+      activationCost.processes.map((line) => /admin(\d)@example\.com/.exec(line)?.[1]),
+    );
+    expect(refreshed).toEqual(new Set(['0', '1', '2']));
+  });
+
+  it('checks the orgs once per window, however many views open after the first', async () => {
+    registerOrgs(2);
+    activate(createContext());
+    await openSidebar();
+    await vi.waitFor(() => expect(activationCost.identityCalls).toHaveLength(2));
+
+    registeredCommands.get('sandforge.openMonitor')?.();
+    registeredCommands.get('sandforge.openSeed')?.();
+    await openSidebar();
+    await settle();
+
+    expect(activationCost.identityCalls).toHaveLength(2);
+  });
+
+  it('wires Forge, Autopilot and the analysis modules with the first view, not at activation', async () => {
+    activate(createContext());
+    await settle();
+    const wired = (): string[] =>
+      logged().filter((line) =>
+        /Forge v2 module initialized|Autopilot module initialized|Rule-based analysis modules initialized/.test(
+          line,
+        ),
+      );
+    expect(wired()).toEqual([]);
+
+    registeredCommands.get('sandforge.openMonitor')?.();
+    await vi.waitFor(() => expect(wired()).toHaveLength(3), { timeout: 10_000 });
   });
 });
 

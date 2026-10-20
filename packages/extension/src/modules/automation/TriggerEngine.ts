@@ -1,5 +1,5 @@
 import { CronExpressionParser } from 'cron-parser';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { PipelineTrigger, PipelineTriggerIdleReason } from '@sandforge/shared';
 import { isKnownTimezone, nextCronRun } from '../../core/common/cronSchedule.js';
 import type { CronRefusal } from '../../core/common/cronSchedule.js';

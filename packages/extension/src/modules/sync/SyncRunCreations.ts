@@ -33,7 +33,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import * as path from 'node:path';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { ForgeRemovalSpan, ForgeUndoMark } from '@sandforge/shared';
 import { forgeRemovalPlanLeft } from '@sandforge/shared';
 import { SyncIdMap } from './SyncIdMap.js';

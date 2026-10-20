@@ -36,7 +36,7 @@
  *   fit in what the target has left is refused, with the numbers.
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 import type {
   OrgTypeAndEdition,
   SyncConfig,

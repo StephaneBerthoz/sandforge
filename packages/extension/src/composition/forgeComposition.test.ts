@@ -30,6 +30,7 @@ import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
 import type { ForgeServices } from '../bridge/handlers/ForgeHandler.js';
 import { ForgeRemovalPlanStore } from '../modules/forge/ForgeRemovalPlanStore.js';
 import { PIIDetector } from '../core/precheck/PIIDetector.js';
+import { SchemaCache } from '../core/metadata/SchemaCache.js';
 
 /** A field as jsforce's describe returns it, reduced to what Forge reads. */
 function field(name: string, type: string, referenceTo: string[] = []) {
@@ -1081,6 +1082,29 @@ describe('initForgeComposition', () => {
 
     expect(describeCalls.get('src::Account')).toBe(1);
     expect(describeCalls.get('tgt::Account')).toBe(1);
+  });
+
+  it('lets its describes go once they are five minutes old, read or not', async () => {
+    // Kept until read, the describes of a run stayed on the extension host's
+    // heap, which every extension shares, for the life of the window.
+    const { services } = await compose();
+    const set = vi.spyOn(SchemaCache.prototype, 'set');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      await services.metadataDiff?.compare('src', 'tgt', ['Account']);
+      const holders = set.mock.contexts.filter(
+        (_cache, call) => set.mock.calls[call][0] === 'tgt::Account',
+      ) as SchemaCache<unknown>[];
+      expect(holders).toHaveLength(1);
+      expect(holders[0].size).toBeGreaterThan(0);
+
+      vi.advanceTimersByTime(5 * 60_000 + 1_000);
+
+      expect(holders[0].size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+      set.mockRestore();
+    }
   });
 
   it('describes an object again once the caller re-discovers', async () => {

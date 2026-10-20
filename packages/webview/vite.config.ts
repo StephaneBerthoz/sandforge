@@ -10,16 +10,18 @@ const pkg = JSON.parse(
 };
 
 /**
- * Single-file IIFE bundles for the VSCode webview — no ES module imports.
- *
- * The bundler cannot emit several IIFE inputs from one build that splits no
- * code, so the build runs TWICE (see the package.json build script):
- *   vite build                  → assets/index.js + assets/style.css
- *                                 (full panel bundle, entry src/main.tsx)
+ * The two bundles of the VSCode webview, built in two passes (see the
+ * package.json build script):
+ *   vite build                  → assets/index.js + assets/style.css + assets/chunks/*.js
+ *                                 (panel bundle, entry src/main.tsx, an ES module
+ *                                 that loads each page as a chunk of its own)
  *   vite build --mode sidepanel → assets/sidepanel.js + assets/sidepanel.css
- *                                 (sidebar-only bundle, entry src/main.sidepanel.tsx)
+ *                                 (sidebar-only bundle, entry src/main.sidepanel.tsx,
+ *                                 a single IIFE file)
  * The sidepanel pass uses emptyOutDir:false so it doesn't wipe the first pass.
- * Those four names are what the extension links to — see `assetFileNames`.
+ * The four names are what the extension links to — see `assetFileNames`; the
+ * chunks are what index.js imports, and scripts/check-webview-assets.mjs
+ * follows those imports into the build and the VSIX.
  */
 export default defineConfig(({ mode }) => {
   const isSidepanel = mode === 'sidepanel';
@@ -35,7 +37,10 @@ export default defineConfig(({ mode }) => {
           isSidepanel ? 'src/main.sidepanel.tsx' : 'src/main.tsx',
         ),
         name: 'SandForge',
-        formats: ['iife'],
+        /* The panel shell loads index.js as a module script, which is what
+           lets it import a page's chunk when the page is first shown. The
+           sidebar needs no page, and stays one classic script. */
+        formats: [isSidepanel ? 'iife' : 'es'],
         fileName: () => (isSidepanel ? 'assets/sidepanel.js' : 'assets/index.js'),
       },
       rolldownOptions: {
@@ -64,20 +69,57 @@ export default defineConfig(({ mode }) => {
             }
             return 'assets/[name].[ext]';
           },
-          /* Inline everything — webview CSP blocks dynamic imports. Rolldown
-             names this codeSplitting; the inlineDynamicImports Rollup took
-             is ignored under Vite 8, with a warning. */
-          codeSplitting: false,
+          /* The sidebar is one file. The panel bundle splits a chunk per
+             page: the CSP lets a module the nonced script imports run, and
+             localResourceRoots keeps every fetch inside webview-dist. Vite
+             leaves the whitespace of an ES library in place for the bundler
+             of whoever installs it; this one is run as it is, so it is
+             minified in full, as the IIFE was. */
+          ...(isSidepanel
+            ? { codeSplitting: false }
+            : {
+                minify: true,
+                /* zod and the module that turns its compiler off share a
+                   chunk. A chunk's imports run before it, so the shared
+                   schemas, built as their chunks load, ran ahead of
+                   zodJitless in index.js: each one probed `new Function` and
+                   the CSP reported a script-src eval at every panel start.
+                   In zod's chunk, the call runs right after zod and before
+                   any chunk that imports it. */
+                codeSplitting: {
+                  groups: [
+                    {
+                      name: 'zod',
+                      test: /node_modules[\\/]zod[\\/]|[\\/]src[\\/]zodJitless\.ts$/,
+                      priority: 10,
+                    },
+                  ],
+                },
+              }),
+          chunkFileNames: 'assets/chunks/[name]-[hash].js',
         },
       },
       cssCodeSplit: false,
     },
     resolve: {
-      alias: {
-        '@': path.resolve(import.meta.dirname, './src'),
+      alias: [
+        { find: '@', replacement: path.resolve(import.meta.dirname, './src') },
         /* Map @sandforge/shared to TypeScript source so Vite can bundle value exports */
-        '@sandforge/shared': path.resolve(import.meta.dirname, '../shared/src/index.ts'),
-      },
+        {
+          find: '@sandforge/shared',
+          replacement: path.resolve(import.meta.dirname, '../shared/src/index.ts'),
+        },
+        /* The sidebar's English is its own namespaces of the catalogue, not
+           all of it: see src/i18n/sidepanelCatalogue.ts. */
+        ...(isSidepanel
+          ? [
+              {
+                find: /^\.\/locales\/en\.json$/,
+                replacement: path.resolve(import.meta.dirname, 'src/i18n/sidepanelCatalogue.ts'),
+              },
+            ]
+          : []),
+      ],
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify('production'),

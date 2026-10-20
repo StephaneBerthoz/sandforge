@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { SEED_RELATION_LIMITS } from '../utils/seed-relations.js';
 
 /** Configuration for a single field generation rule */

@@ -348,4 +348,61 @@ describe('SchemaCache', () => {
       expect(cache.estimatedBytes).toBeLessThanOrEqual(byteCap);
     });
   });
+
+  describe('releasing expired entries', () => {
+    it('drops each entry once its TTL has passed, with no read to notice it', () => {
+      const cache = new SchemaCache<{ fields: Array<{ name: string }> }>({
+        defaultTtl: 1000,
+        releaseExpired: true,
+      });
+      cache.set('org::Account', { fields: [{ name: 'Name' }] });
+      vi.advanceTimersByTime(500);
+      cache.set('org::Contact', { fields: [{ name: 'LastName' }] });
+      expect(cache.estimatedBytes).toBeGreaterThan(0);
+
+      // Still alive at exactly its TTL, gone just after it.
+      vi.advanceTimersByTime(500);
+      expect(cache.size).toBe(2);
+      vi.advanceTimersByTime(1);
+      expect(cache.size).toBe(1);
+
+      vi.advanceTimersByTime(500);
+      expect(cache.size).toBe(0);
+      expect(cache.estimatedBytes).toBe(0);
+      // Nothing left to drop: no timer stays behind.
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('keeps an entry rewritten before its TTL for a TTL from the rewrite', () => {
+      const cache = new SchemaCache<string>({ defaultTtl: 1000, releaseExpired: true });
+      cache.set('k', 'first');
+      vi.advanceTimersByTime(800);
+      cache.set('k', 'second');
+
+      vi.advanceTimersByTime(500);
+      expect(cache.get('k')).toBe('second');
+      vi.advanceTimersByTime(600);
+      expect(cache.size).toBe(0);
+    });
+
+    it('leaves expired entries in place until read when not asked to release them', () => {
+      const cache = new SchemaCache<string>({ defaultTtl: 1000 });
+      cache.set('k', 'v');
+
+      vi.advanceTimersByTime(5000);
+
+      expect(cache.size).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('stops its timer when cleared', () => {
+      const cache = new SchemaCache<string>({ defaultTtl: 1000, releaseExpired: true });
+      cache.set('k', 'v');
+      expect(vi.getTimerCount()).toBe(1);
+
+      cache.clear();
+
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
 });

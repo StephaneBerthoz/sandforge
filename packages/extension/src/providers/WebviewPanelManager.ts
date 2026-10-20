@@ -216,6 +216,8 @@ export class WebviewPanelManager {
       cspSource: webview.cspSource,
       scriptUri,
       styleUri,
+      // index.js is an ES module that imports each page as it is shown.
+      moduleScript: true,
       title: `SandForge: ${moduleId}`,
       moduleId,
       // Read per panel, not per manager: the user can switch language between

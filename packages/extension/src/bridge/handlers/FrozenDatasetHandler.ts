@@ -662,6 +662,9 @@ export class FrozenDatasetHandler implements DomainHandler {
     // org pushed out its own first describes before the extraction asked.
     maxSize: 2_000,
     maxSizeBytes: 200 * 1024 * 1024,
+    // Gone once their five minutes are up, read or not: kept until read, the
+    // describes of a large org's discovery stayed for the life of the window.
+    releaseExpired: true,
   });
 
   private readonly describeGlobalCache = new SchemaCache<

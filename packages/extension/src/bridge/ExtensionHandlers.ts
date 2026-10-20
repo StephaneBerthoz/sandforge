@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import type { MessageBroker } from './MessageBroker.js';
 import type { MessageRouter } from './MessageRouter.js';
 import type { WebviewStateSync } from './WebviewStateSync.js';

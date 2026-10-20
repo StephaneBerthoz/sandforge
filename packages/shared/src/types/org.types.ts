@@ -34,6 +34,12 @@ export interface OrgMetadata {
   features: string[];
   namespace?: string;
   isSandboxOf?: string;
+  /**
+   * A scratch org's expiration date (`YYYY-MM-DD`), as the Salesforce CLI
+   * listed it when the org was imported. Past it the org is deleted, and no
+   * token the CLI holds brings it back.
+   */
+  expirationDate?: string;
 }
 
 /** Salesforce org configuration */

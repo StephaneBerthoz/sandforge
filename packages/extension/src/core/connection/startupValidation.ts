@@ -1,4 +1,4 @@
-import type { UUID } from '@sandforge/shared';
+import type { SalesforceOrg, UUID } from '@sandforge/shared';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
 import { getJsforceConnection, withDeadline } from './ConnectionHelper';
@@ -17,12 +17,36 @@ export interface StartupValidationDeps {
   orgManager: OrgManager;
   orgRegistry: OrgRegistry;
   log: (message: string) => void;
+  /** The current time; a test passes a fixed one. */
+  now?: () => Date;
 }
 
 /**
- * Proactively validate every registered org once per activation, so an expired
+ * The expiration date of a scratch org that is past it, or undefined.
+ *
+ * Such an org is deleted: its token is refused, and the CLI it would be
+ * refreshed through no longer holds a session for it either. Checking it cost
+ * an identity call and an `sf org display` in every window, each time a window
+ * opened, for an org that stays expired until the user removes or replaces it.
+ *
+ * @param today - The current day, `YYYY-MM-DD`.
+ */
+export function expiredScratchDate(
+  org: Pick<SalesforceOrg, 'orgType' | 'metadata'>,
+  today: string,
+): string | undefined {
+  const expires = org.metadata?.expirationDate;
+  if (org.orgType !== 'Scratch' || typeof expires !== 'string') return undefined;
+  return /^\d{4}-\d{2}-\d{2}$/.test(expires) && expires < today ? expires : undefined;
+}
+
+/**
+ * Proactively validate every registered org once per window, so an expired
  * token is refreshed (via the SF CLI self-heal in getJsforceConnection) BEFORE
- * the user's first operation hits an auth wall mid-run.
+ * the user's first operation hits an auth wall mid-run. The activation root
+ * runs it when the first SandForge view opens: run at activation, it loaded
+ * jsforce and called every org in every VS Code window, SandForge shown or not.
+ * A scratch org past its expiration date is marked `expired` without a call.
  *
  * Per-org statuses are updated with the RESULT (`connected` / `expired` /
  * `error`), which feeds the sidebar tree and org pickers through the
@@ -50,8 +74,17 @@ export async function validateOrgsOnStartup(deps: StartupValidationDeps): Promis
   }
 
   log(`[startup] Validating ${orgs.length} registered org(s) in the background…`);
+  const today = (deps.now?.() ?? new Date()).toISOString().slice(0, 10);
   for (const org of orgs) {
     const orgId = org.id as UUID;
+    const expiredOn = expiredScratchDate(org, today);
+    if (expiredOn) {
+      orgManager.updateStatus(orgId, 'expired');
+      log(
+        `[startup] Org "${org.alias}" is a scratch org that expired on ${expiredOn}: not checked.`,
+      );
+      continue;
+    }
     // No intermediate 'refreshing' flip: status changes only on a RESULT.
     // Flipping every org to 'refreshing' first made connected-counts tick
     // down one by one during the sweep — the panel looked like orgs were

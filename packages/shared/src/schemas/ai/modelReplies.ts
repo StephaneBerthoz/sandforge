@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 /**
  * Shapes of the JSON the extension asks a model for, and the one way to read a

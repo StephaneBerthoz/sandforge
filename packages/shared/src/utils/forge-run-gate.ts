@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 /**
  * Why a Forge run stopped at its gate — the checks between Execute and the

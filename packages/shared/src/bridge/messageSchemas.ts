@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 /**
  * Domain-level Zod discriminated unions for every bridge message type.

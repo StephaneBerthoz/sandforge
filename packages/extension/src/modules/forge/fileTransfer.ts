@@ -7,7 +7,7 @@
  * here once, over the one method of a connection they need, so neither
  * learns alone how a file comes back from the API.
  */
-import { z } from 'zod';
+import * as z from 'zod';
 import type { InsertResult } from './ForgeExecutor.js';
 import { FILE_BODY_FIELDS, type FileBodyObject } from './stages/FileCopier.js';
 import { formatSaveError, toSaveOutcome } from '../../core/common/existingRecordMatch.js';

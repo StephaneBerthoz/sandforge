@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { ForgeRemovalPlan } from '@sandforge/shared';
 
 /**

@@ -16,7 +16,7 @@ import {
   approvalDefect,
   approvalTimeoutMinutes,
 } from '@sandforge/shared';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import {
   StepCancelledError,

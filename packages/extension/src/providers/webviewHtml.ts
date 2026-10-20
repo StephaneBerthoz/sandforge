@@ -14,6 +14,12 @@ export interface WebviewHtmlAssets {
   scriptUri: { toString(): string };
   /** Resolved URI of the stylesheet (panels: `webview-dist/assets/style.css`, sidebar: `webview-dist/assets/sidepanel.css`). */
   styleUri: { toString(): string };
+  /**
+   * Load the bundle as a module script. The panel bundle is an ES module that
+   * imports each page's chunk when the page is first shown; the sidebar's is a
+   * single classic script.
+   */
+  moduleScript?: boolean;
   /** Content of the HTML `<title>` tag. */
   title: string;
   /** Module id injected as `window.__SANDFORGE_MODULE__` for routing. */
@@ -73,10 +79,14 @@ export function generateNonce(): string {
  * webview origin + 'unsafe-inline' (the dialog scroll lock inserts a <style>
  * element at runtime and a few components render <style> blocks; SECURITY.md
  * lists them). Both script tags share one nonce; the module id and the editor
- * display language are injected before the bundle loads.
+ * display language are injected before the bundle loads. A module bundle runs
+ * after the document is parsed, so after that inline script too, and the
+ * chunks it imports run on the nonce of the script that imports them: the
+ * policy names no other script source.
  */
 export function buildWebviewHtml(assets: WebviewHtmlAssets): string {
-  const { cspSource, scriptUri, styleUri, title, moduleId, lang, editorLanguage } = assets;
+  const { cspSource, scriptUri, styleUri, moduleScript, title, moduleId, lang, editorLanguage } =
+    assets;
   const nonce = generateNonce();
   // Whitelisted, never interpolated raw: the value originates in a
   // hand-editable config store and lands inside an HTML attribute.
@@ -98,7 +108,7 @@ export function buildWebviewHtml(assets: WebviewHtmlAssets): string {
 <body>
   <div id="root"></div>
   <script nonce="${nonce}">window.__SANDFORGE_MODULE__="${moduleId}";${editorLanguageScript}</script>
-  <script nonce="${nonce}" src="${String(scriptUri)}"></script>
+  <script nonce="${nonce}"${moduleScript ? ' type="module"' : ''} src="${String(scriptUri)}"></script>
 </body>
 </html>`;
 }

@@ -94,7 +94,7 @@ import {
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
 import type { Connection } from 'jsforce';
-import { z } from 'zod';
+import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordCreatesOf } from './flowRecordCreates.js';
 import { queryAllPages, type PagedQuerySource } from './queryAllPages.js';

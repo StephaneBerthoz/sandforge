@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 /**
  * Compliance status for a governance rule evaluation. `unknown` is a rule

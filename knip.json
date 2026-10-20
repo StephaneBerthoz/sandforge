@@ -12,7 +12,12 @@
       "project": ["src/**/*.ts"]
     },
     "packages/webview": {
-      "entry": ["src/main.sidepanel.tsx", "src/PanelApp.tsx", "vite.config.e2e.ts"],
+      "entry": [
+        "src/main.sidepanel.tsx",
+        "src/PanelApp.tsx",
+        "src/i18n/sidepanelCatalogue.ts",
+        "vite.config.e2e.ts"
+      ],
       "project": ["src/**/*.{ts,tsx,css}"]
     }
   },

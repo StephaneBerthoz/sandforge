@@ -15,6 +15,11 @@ const I18N_TYPES = new Set(['i18n:locale']);
  * {@link i18nLocalePayloadSchema} before it ever reaches the filesystem —
  * no arbitrary paths. Read/parse failures answer with `{ lng, error }` so the
  * webview falls back to English instead of hanging.
+ *
+ * Answered to the panel that asked and to no other: a catalogue is about
+ * 320 kB, and every panel opened in a language other than English used to
+ * send its own to each panel already open, which only the one waiting for it
+ * reads.
  */
 export class I18nHandler implements DomainHandler {
   /**
@@ -52,14 +57,14 @@ export class I18nHandler implements DomainHandler {
         lng,
         error: 'Locale files are not available in this extension host.',
       });
-      this.deps.broker.postToWebview(response);
+      this.deps.broker.replyToRequester(response);
       return;
     }
 
     try {
       const bundle = await readLocaleBundle(this.localesDir, lng);
       const response = buildResponse(this.deps, msg, 'i18n:locale:response', { lng, bundle });
-      this.deps.broker.postToWebview(response);
+      this.deps.broker.replyToRequester(response);
       this.deps.log(`[TX] i18n:locale:response (${lng})`);
     } catch (err: unknown) {
       this.deps.log(`[ERR] i18n:locale (${lng}): ${extractErrorMessage(err)}`);
@@ -67,7 +72,7 @@ export class I18nHandler implements DomainHandler {
         lng,
         error: extractErrorMessage(err),
       });
-      this.deps.broker.postToWebview(response);
+      this.deps.broker.replyToRequester(response);
     }
   }
 }

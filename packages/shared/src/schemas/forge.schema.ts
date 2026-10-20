@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { anonymizationMethodSchema } from './autopilot.schema.js';
 import { FILE_COPY_CEILING_MB } from '../constants/file-copy.js';
 import { forgeGapParts } from '../utils/forge-gaps.js';

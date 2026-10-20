@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import type { SubjectRequestEvent, SubjectRequestLogEntry } from '@sandforge/shared';
 import { SUBJECT_REQUEST_LOG_LIMIT } from '@sandforge/shared';
 

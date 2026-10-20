@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 import { BridgeProvider } from './bridge/BridgeProvider';
@@ -8,10 +8,7 @@ import { FloatingToasts } from './components/ui/FloatingToasts';
 import { SkipLink } from './components/ui/SkipLink';
 import { ProtocolMismatchBanner } from './components/ProtocolMismatchBanner';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
-import { WelcomePage } from './pages/Welcome/WelcomePage';
 import type { WelcomePageHandle } from './pages/Welcome/WelcomePage';
-import { WhatsNewPage } from './pages/Welcome/WhatsNewPage';
-import { MojitoOverlay } from './components/EasterEgg/MojitoOverlay';
 import { PanelRouter } from './PanelRouter';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { useFocusTrap } from './hooks/useFocusTrap';
@@ -19,6 +16,23 @@ import { useKonamiCode } from './hooks/useKonamiCode';
 import { useSendMessage } from './hooks/useMessageBus';
 import { buildMessage } from './bridge/messageHelpers';
 import { useAppStore } from './stores/useAppStore';
+
+/*
+ * The overlays a panel shows now and then — the welcome wizard on a first
+ * run, What's New after an update, the easter egg — each come in a chunk of
+ * their own, loaded when one opens: every panel used to parse them up front.
+ */
+const WelcomePage = lazy(() =>
+  import('./pages/Welcome/WelcomePage').then((module) => ({ default: module.WelcomePage })),
+);
+const WhatsNewPage = lazy(() =>
+  import('./pages/Welcome/WhatsNewPage').then((module) => ({ default: module.WhatsNewPage })),
+);
+const MojitoOverlay = lazy(() =>
+  import('./components/EasterEgg/MojitoOverlay').then((module) => ({
+    default: module.MojitoOverlay,
+  })),
+);
 
 /** Props for PanelApp. */
 export interface PanelAppProps {
@@ -200,15 +214,23 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
           label={t('a11y.welcomeWizard', 'Welcome wizard')}
           onEscape={handleWelcomeEscape}
         >
-          <WelcomePage ref={welcomeRef} onComplete={handleWelcomeComplete} />
+          <Suspense fallback={null}>
+            <WelcomePage ref={welcomeRef} onComplete={handleWelcomeComplete} />
+          </Suspense>
         </OverlayDialog>
       )}
       {showWhatsNew && (
         <OverlayDialog label={t('a11y.whatsNew', "What's new")} onEscape={handleWhatsNewDismiss}>
-          <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />
+          <Suspense fallback={null}>
+            <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />
+          </Suspense>
         </OverlayDialog>
       )}
-      {showEasterEgg && <MojitoOverlay onClose={() => setShowEasterEgg(false)} />}
+      {showEasterEgg && (
+        <Suspense fallback={null}>
+          <MojitoOverlay onClose={() => setShowEasterEgg(false)} />
+        </Suspense>
+      )}
       <FloatingToasts />
     </>
   );

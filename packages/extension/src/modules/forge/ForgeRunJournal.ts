@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { appendFile, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { createInterface } from 'node:readline';
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   forgeAnonymizationRulesSchema,
   forgeConfigSchema,

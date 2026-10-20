@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import type { Connection } from 'jsforce';
 import type { RelatedRecordCount, RemovalOutcome } from '@sandforge/shared';
 import { recordWriteHeaders } from '@sandforge/shared';

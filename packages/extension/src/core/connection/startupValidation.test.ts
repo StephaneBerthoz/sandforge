@@ -81,6 +81,47 @@ describe('validateOrgsOnStartup', () => {
     expect(statuses).toEqual(['expired']);
   });
 
+  it('marks a scratch org past its expiration date expired without calling it', async () => {
+    const spent = {
+      ...makeOrg('org-1', 'spent'),
+      orgType: 'Scratch' as const,
+      metadata: { apiVersion: '62.0', edition: '', features: [], expirationDate: '2026-09-26' },
+    };
+    const current = {
+      ...makeOrg('org-2', 'feature'),
+      orgType: 'Scratch' as const,
+      metadata: { apiVersion: '62.0', edition: '', features: [], expirationDate: '2026-10-20' },
+    };
+    const deps = { ...makeDeps([spent, current]), now: () => new Date('2026-10-20T09:00:00Z') };
+    mockGetJsforceConnection.mockResolvedValueOnce({});
+
+    await validateOrgsOnStartup(deps);
+
+    // The org expiring today is still checked; only the one past its day is not.
+    expect(mockGetJsforceConnection).toHaveBeenCalledTimes(1);
+    expect(mockGetJsforceConnection.mock.calls[0][0]).toBe('org-2');
+    expect(vi.mocked(deps.orgManager.updateStatus).mock.calls).toEqual([
+      ['org-1', 'expired'],
+      ['org-2', 'connected'],
+    ]);
+    expect(deps.log).toHaveBeenCalledWith(
+      '[startup] Org "spent" is a scratch org that expired on 2026-09-26: not checked.',
+    );
+  });
+
+  it('checks an org of any other kind whatever date its metadata holds', async () => {
+    const sandbox = {
+      ...makeOrg('org-1', 'uat'),
+      metadata: { apiVersion: '62.0', edition: '', features: [], expirationDate: '2020-01-01' },
+    };
+    const deps = { ...makeDeps([sandbox]), now: () => new Date('2026-10-20T09:00:00Z') };
+    mockGetJsforceConnection.mockResolvedValueOnce({});
+
+    await validateOrgsOnStartup(deps);
+
+    expect(mockGetJsforceConnection).toHaveBeenCalledTimes(1);
+  });
+
   it('marks an org error on a non-auth failure', async () => {
     const org = makeOrg('org-1', 'dev');
     const deps = makeDeps([org]);

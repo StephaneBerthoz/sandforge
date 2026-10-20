@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { z } from 'zod';
+import * as z from 'zod';
 import type { AnonymizationTemplateRule } from '@sandforge/shared';
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 

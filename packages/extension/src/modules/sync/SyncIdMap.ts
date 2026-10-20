@@ -36,7 +36,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import * as path from 'node:path';
-import { z } from 'zod';
+import * as z from 'zod';
 
 /** The directory, under the store, that the configurations' files go in. */
 export const SYNC_LINKS_DIR = 'sync-links';

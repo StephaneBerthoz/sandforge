@@ -1076,10 +1076,12 @@ test('anchor: Migration imports CSV and JSON files, as both READMEs say', () => 
 });
 
 test('anchor: startup refreshes expired org sessions through the sf CLI, as both READMEs say', () => {
+  // The sweep runs once per window, with the first SandForge view rather than
+  // at activation: the start of a SandForge session, not of every VS Code window.
   assert.match(
     read(...EXT, 'src', 'extension.ts'),
-    /if \(services\.getSandforgeSetting\('orgs\.validateOnStartup', true\)\) \{\s*void validateOrgsOnStartup\(/,
-    'activation no longer validates the registered orgs — the Organizations rows promise it',
+    /if \(services\.getSandforgeSetting\('orgs\.validateOnStartup', true\)\) \{\s*eventBroker\.onFirstWebview\(\(\) => \{\s*void validateOrgsOnStartup\(/,
+    'the window no longer validates the registered orgs — the Organizations rows promise it',
   );
   assert.match(
     read(...EXT, 'src', 'core', 'connection', 'startupValidation.ts'),

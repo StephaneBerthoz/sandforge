@@ -132,16 +132,17 @@ describe('PanelApp', () => {
     expect(screen.queryByTestId('welcome-page-stub')).toBeNull();
   });
 
-  it('should render the welcome overlay when showWelcome is set (onboarding:show)', () => {
+  it('should render the welcome overlay when showWelcome is set (onboarding:show)', async () => {
     useAppStore.setState({ showWelcome: true });
     render(<PanelApp moduleId="monitor" />);
-    expect(screen.getByTestId('welcome-page-stub')).toBeDefined();
+    // The overlays load on demand: the first render waits for the chunk.
+    expect(await screen.findByTestId('welcome-page-stub')).toBeDefined();
   });
 
-  it('should hide the welcome overlay and notify the extension on completion', () => {
+  it('should hide the welcome overlay and notify the extension on completion', async () => {
     useAppStore.setState({ showWelcome: true });
     render(<PanelApp moduleId="monitor" />);
-    fireEvent.click(screen.getByTestId('welcome-page-stub'));
+    fireEvent.click(await screen.findByTestId('welcome-page-stub'));
 
     expect(useAppStore.getState().showWelcome).toBe(false);
     expect(screen.queryByTestId('welcome-page-stub')).toBeNull();
@@ -156,34 +157,34 @@ describe('PanelApp', () => {
     expect(screen.queryByTestId('whats-new-page-stub')).toBeNull();
   });
 
-  it('should render the whats-new overlay when showWhatsNew is set (whats-new:show)', () => {
+  it('should render the whats-new overlay when showWhatsNew is set (whats-new:show)', async () => {
     useAppStore.setState({ showWhatsNew: true, whatsNewVersion: '1.6.0' });
     render(<PanelApp moduleId="monitor" />);
-    expect(screen.getByTestId('whats-new-page-stub').textContent).toContain('1.6.0');
+    expect((await screen.findByTestId('whats-new-page-stub')).textContent).toContain('1.6.0');
   });
 
-  it('should hide the whats-new overlay on dismiss', () => {
+  it('should hide the whats-new overlay on dismiss', async () => {
     useAppStore.setState({ showWhatsNew: true, whatsNewVersion: '1.6.0' });
     render(<PanelApp moduleId="monitor" />);
-    fireEvent.click(screen.getByTestId('whats-new-page-stub'));
+    fireEvent.click(await screen.findByTestId('whats-new-page-stub'));
 
     expect(useAppStore.getState().showWhatsNew).toBe(false);
     expect(screen.queryByTestId('whats-new-page-stub')).toBeNull();
   });
 
-  it('should show the mojito overlay on easter-egg:show (sandforge.cheers)', () => {
+  it('should show the mojito overlay on easter-egg:show (sandforge.cheers)', async () => {
     render(<PanelApp moduleId="monitor" />);
     expect(screen.queryByTestId('mojito-overlay-stub')).toBeNull();
 
     fireEvent(window, new MessageEvent('message', { data: { type: 'easter-egg:show' } }));
 
-    expect(screen.getByTestId('mojito-overlay-stub')).toBeDefined();
+    expect(await screen.findByTestId('mojito-overlay-stub')).toBeDefined();
   });
 
-  it('should hide the mojito overlay on close', () => {
+  it('should hide the mojito overlay on close', async () => {
     render(<PanelApp moduleId="monitor" />);
     fireEvent(window, new MessageEvent('message', { data: { type: 'easter-egg:show' } }));
-    fireEvent.click(screen.getByTestId('mojito-overlay-stub'));
+    fireEvent.click(await screen.findByTestId('mojito-overlay-stub'));
 
     expect(screen.queryByTestId('mojito-overlay-stub')).toBeNull();
   });

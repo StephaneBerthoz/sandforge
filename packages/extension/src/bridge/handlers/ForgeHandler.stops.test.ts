@@ -10,7 +10,7 @@ import type {
   ForgeGraph,
   ForgeGraphNode,
 } from '@sandforge/shared';
-import { forgeRunCountsLeft } from '@sandforge/shared';
+import { PROTOCOL_VERSION, forgeRunCountsLeft } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
@@ -302,6 +302,45 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
       ]);
       expect(taken(panelA, 'forge:discover:error')).toEqual([]);
       expect(taken(panelB, 'forge:discover:error')).toEqual([]);
+    });
+
+    it('sends the graph of a discovery to the page that asked, and to no other', async () => {
+      // Broadcast, a large org's graph was copied to every open panel and the
+      // sidebar, each deserializing it to find it was not theirs.
+      const asking: FakePanel = { posted: [], sent: new Set(['wv-discover-c']) };
+      let deliver: (raw: unknown) => void = () => undefined;
+      broker.registerPanel({
+        webview: {
+          postMessage: (message: BaseMessage) => {
+            asking.posted.push(message);
+            return Promise.resolve(true);
+          },
+          onDidReceiveMessage: (listener: (raw: unknown) => void) => {
+            deliver = listener;
+            return { dispose: () => {} };
+          },
+        },
+      } as unknown as vscode.WebviewPanel);
+      broker.on('forge:discover', async (message) => {
+        await handler.handle(inboundRequest(message));
+      });
+
+      deliver({
+        protocolVersion: PROTOCOL_VERSION,
+        payload: {
+          id: 'wv-discover-c',
+          type: 'forge:discover',
+          timestamp: Date.now(),
+          payload: { config: CONFIG },
+        },
+      });
+      await vi.waitFor(() => expect(walks).toHaveLength(1));
+      answerWalk[0](graphOf('Account'));
+
+      await vi.waitFor(() => expect(taken(asking, 'forge:discover:response')).toHaveLength(1));
+      for (const other of [panelA, panelB]) {
+        expect(other.posted.filter((m) => m.type === 'forge:discover:response')).toEqual([]);
+      }
     });
 
     it('correlates the progress of each discovery to its own request, which only its page takes', async () => {

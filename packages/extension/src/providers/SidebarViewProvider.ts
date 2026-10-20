@@ -1,5 +1,6 @@
 import type * as vscode from 'vscode';
 import type { OrgListResponse } from '@sandforge/shared';
+import { sidepanelLocaleSubset } from '@sandforge/shared';
 import { join } from 'node:path';
 import { buildWebviewHtml } from './webviewHtml';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
@@ -198,9 +199,11 @@ export class SidebarViewProvider {
 
   /**
    * Answer an `i18n:locale` request from the sidebar webview with the packaged
-   * locale JSON (`<extension>/webview-dist/locales/<lng>.json`). The locale
-   * code is whitelisted before it reaches the filesystem; failures answer
-   * with `{ lng, error }` so the sidebar falls back to English.
+   * locale JSON (`<extension>/webview-dist/locales/<lng>.json`), cut to the
+   * namespaces the sidebar renders: the whole catalogue, about 320 kB, went
+   * to it at every reveal for some fifty keys. The locale code is whitelisted
+   * before it reaches the filesystem; failures answer with `{ lng, error }`
+   * so the sidebar falls back to English.
    *
    * @param request - The inner bridge message (`envelope.payload`).
    */
@@ -226,7 +229,7 @@ export class SidebarViewProvider {
         join(this.extensionUri.fsPath, 'webview-dist', 'locales'),
         lng,
       );
-      this.postMessage({ ...base, payload: { lng, bundle } });
+      this.postMessage({ ...base, payload: { lng, bundle: sidepanelLocaleSubset(bundle) } });
     } catch (err: unknown) {
       this.postMessage({ ...base, payload: { lng, error: extractErrorMessage(err) } });
     }

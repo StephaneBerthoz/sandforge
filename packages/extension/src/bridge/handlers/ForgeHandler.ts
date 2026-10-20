@@ -43,7 +43,7 @@ import {
   removalRisksOf,
   guardTierOf,
 } from '@sandforge/shared';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -1523,7 +1523,8 @@ export class ForgeHandler implements DomainHandler {
         return;
       }
       const response = buildResponse(this.deps, msg, 'forge:discover:response', { graph });
-      this.deps.broker.postToWebview(response);
+      // The whole graph, to the page that asked: only its discovery waits on it.
+      this.deps.broker.replyToRequester(response);
       sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
       logger.info('Forge discover finished', {
         objects: graph.nodes?.length ?? 0,

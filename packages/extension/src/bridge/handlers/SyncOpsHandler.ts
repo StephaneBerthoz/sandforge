@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { assertSoqlOrderBy } from '../../core/common/soqlValidator.js';
 import type {
   AuditObjectCounts,

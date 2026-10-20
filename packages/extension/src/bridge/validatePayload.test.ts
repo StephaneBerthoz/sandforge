@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import {

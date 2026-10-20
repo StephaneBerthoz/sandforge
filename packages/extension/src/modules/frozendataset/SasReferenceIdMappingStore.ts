@@ -23,7 +23,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { ForgeRemovalSpan, ForgeUndoMark, ForgeWrittenBetween } from '@sandforge/shared';
 import { SasPathGuard, orgFileKey } from './SasPathGuard.js';
 import type {

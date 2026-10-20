@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type * as vscode from 'vscode';
 import { SidebarViewProvider } from './SidebarViewProvider';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
@@ -55,6 +58,8 @@ describe('SidebarViewProvider', () => {
     expect(mockWebview.html).toContain('__SANDFORGE_MODULE__="sidepanel"');
     expect(mockWebview.html).toContain('sidepanel.js');
     expect(mockWebview.html).toContain('sidepanel.css');
+    // One classic file: the sidebar loads no page on demand.
+    expect(mockWebview.html).not.toContain('type="module"');
   });
 
   it('enables scripts and limits local resource roots to the webview bundle', () => {
@@ -258,6 +263,57 @@ describe('SidebarViewProvider', () => {
       brokeredProvider.dispose();
 
       expect(broker.panelCount).toBe(0);
+    });
+  });
+
+  describe('the language the sidebar asks for', () => {
+    it('answers with the namespaces the sidebar renders, not the whole catalogue', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'sidebar-locale-'));
+      try {
+        await mkdir(join(root, 'webview-dist', 'locales'), { recursive: true });
+        const catalogue = {
+          sidePanel: { noOrg: 'Aucune org connectée' },
+          nav: { seed: 'Seed' },
+          common: { dateUnknown: 'Date inconnue' },
+          errorBoundary: { title: 'Un problème est survenu' },
+          home: { opStatus: { success: 'Réussi' } },
+          forge: { title: 'Forge', huge: 'x'.repeat(10_000) },
+          onboarding: { welcome: 'Bienvenue' },
+        };
+        await writeFile(
+          join(root, 'webview-dist', 'locales', 'fr.json'),
+          JSON.stringify(catalogue),
+        );
+        const located = new SidebarViewProvider(
+          { fsPath: root, toString: () => root } as unknown as vscode.Uri,
+          uriJoinPath,
+          executeCommand,
+        );
+        located.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+        messageHandler!({ payload: { type: 'i18n:locale', id: 'req-1', payload: { lng: 'fr' } } });
+
+        await vi.waitFor(() => expect(mockWebview.postMessage).toHaveBeenCalled());
+        const answer = vi.mocked(mockWebview.postMessage as (m: unknown) => void).mock
+          .calls[0][0] as {
+          type: string;
+          correlationId: string;
+          payload: { lng: string; bundle: Record<string, unknown> };
+        };
+        expect(answer.type).toBe('i18n:locale:response');
+        expect(answer.correlationId).toBe('req-1');
+        expect(answer.payload.lng).toBe('fr');
+        expect(Object.keys(answer.payload.bundle).sort()).toEqual([
+          'common',
+          'errorBoundary',
+          'home',
+          'nav',
+          'sidePanel',
+        ]);
+        expect(answer.payload.bundle.sidePanel).toEqual({ noOrg: 'Aucune org connectée' });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     });
   });
 });

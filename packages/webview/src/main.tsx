@@ -1,11 +1,15 @@
 import './zodJitless';
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import { PanelApp } from './PanelApp';
-import { SidePanel } from './SidePanel';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { MotionProvider } from './motion/MotionProvider';
 import { i18nReady } from './i18n';
+/* The graph library's stylesheet, ahead of ours. Every stylesheet lands in
+   style.css in the order its module is first imported, and this one is
+   imported by the graph pages, now loaded on demand: left to them, it moved
+   after ours, and its unlayered rules won the ties ours used to win. */
+import '@xyflow/react/dist/style.css';
 import './index.css';
 import './styles/glass.css';
 
@@ -14,6 +18,15 @@ declare global {
     __SANDFORGE_MODULE__?: string;
   }
 }
+
+/**
+ * The sidebar, for a document this bundle is loaded into as the sidebar. The
+ * extension's sidebar loads sidepanel.js, its own bundle, so a panel never
+ * takes this branch: loaded on demand, it costs a panel nothing.
+ */
+const SidePanel = lazy(() =>
+  import('./SidePanel').then((module) => ({ default: module.SidePanel })),
+);
 
 /**
  * Fallback when the host injected no module id (a plain dev-server session, for
@@ -38,7 +51,9 @@ if (root) {
           // the same motion context (LazyMotion features + reducedMotion="user").
           <ErrorBoundary>
             <MotionProvider>
-              <SidePanel />
+              <Suspense fallback={null}>
+                <SidePanel />
+              </Suspense>
             </MotionProvider>
           </ErrorBoundary>
         ) : moduleId ? (

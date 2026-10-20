@@ -1,6 +1,6 @@
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
 import { SF_LIMITS, orgRegistrationOf, orgTypeOf } from '@sandforge/shared';
-import { z } from 'zod';
+import * as z from 'zod';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { parseSalesforceLoginUrl } from '../common/salesforceLoginHost.js';
 import { isUsableAccessToken, refreshTokenViaCli } from './ConnectionHelper.js';
@@ -69,27 +69,6 @@ async function execAsync(
   const { exec } = await import('child_process');
   const { promisify } = await import('util');
   const result = await promisify(exec)(command, {
-    maxBuffer: MAX_BUFFER,
-    windowsHide: true,
-    env: { ...process.env, NO_COLOR: '1' },
-    ...options,
-  });
-  return { stdout: String(result.stdout), stderr: String(result.stderr) };
-}
-
-/**
- * Execute a command without a shell (POSIX argv-as-array hardening).
- * Mirrors the pattern used by ConnectionHelper.refreshTokenViaCli:
- * no shell means no interpolation, so args need no escaping.
- */
-async function execFileAsync(
-  file: string,
-  args: string[],
-  options?: { timeout?: number },
-): Promise<{ stdout: string; stderr: string }> {
-  const { execFile } = await import('child_process');
-  const { promisify } = await import('util');
-  const result = await promisify(execFile)(file, args, {
     maxBuffer: MAX_BUFFER,
     windowsHide: true,
     env: { ...process.env, NO_COLOR: '1' },
@@ -343,6 +322,8 @@ export interface SfdxOrgEntry {
   status?: string;
   /** Scratch entries: whether the org is past its expiration date. */
   isExpired?: boolean;
+  /** Scratch entries: the day the org expires, `YYYY-MM-DD`. */
+  expirationDate?: string;
   instanceApiVersion?: string;
   orgEdition?: string;
 }
@@ -443,34 +424,6 @@ export class SfdxBridge {
       return true;
     } catch {
       return false;
-    }
-  }
-
-  /**
-   * Read the CLI's default org (`sf config get target-org --json`).
-   * Returns the alias or username of the default org, or undefined when the
-   * CLI is missing, no default is set, or the output can't be parsed —
-   * callers must treat undefined as "no preference", never as an error.
-   * The command takes no user input, so the fixed-string invocation is safe
-   * on both the Windows (exec) and POSIX (execFile) branches.
-   */
-  async getDefaultOrgUsername(): Promise<string | undefined> {
-    try {
-      const { stdout } =
-        process.platform === 'win32'
-          ? await execAsync('sf config get target-org --json', { timeout: 15_000 })
-          : await execFileAsync('sf', ['config', 'get', 'target-org', '--json'], {
-              timeout: 15_000,
-            });
-      const parsed = JSON.parse(extractJson(stdout)) as {
-        result?: Array<{ key?: string; value?: string; success?: boolean }>;
-      };
-      const entry = (parsed.result ?? []).find(
-        (e) => (e.key === 'target-org' || e.key === 'targetusername') && e.success !== false,
-      );
-      return entry?.value || undefined;
-    } catch {
-      return undefined;
     }
   }
 
@@ -749,6 +702,11 @@ export class SfdxBridge {
         apiVersion: entry.instanceApiVersion ?? SF_LIMITS.DEFAULT_API_VERSION,
         edition: entry.orgEdition ?? '',
         features: [],
+        // Kept so a check made after that day can tell a deleted scratch org
+        // without asking the CLI for a token it no longer has.
+        ...(orgType === 'Scratch' && entry.expirationDate
+          ? { expirationDate: entry.expirationDate }
+          : {}),
       },
       status: 'connected',
       lastConnected: new Date().toISOString(),

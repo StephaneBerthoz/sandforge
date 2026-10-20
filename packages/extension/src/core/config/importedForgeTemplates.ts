@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { z } from 'zod';
+import * as z from 'zod';
 import type { ForgeTemplate } from '@sandforge/shared';
 import type { ConfigStore } from '../storage/ConfigStore.js';
 

@@ -25,7 +25,7 @@
  * only once checked.
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 
 /** The part of a jsforce connection a read goes through. */
 export interface UiApiConnection {

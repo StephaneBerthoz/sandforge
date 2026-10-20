@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '../constants/file-copy.js';
 
 /** The largest file a Sync configuration copies unless it sets another size, in MB. */

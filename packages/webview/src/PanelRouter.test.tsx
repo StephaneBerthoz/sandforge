@@ -31,49 +31,49 @@ vi.mock('./pages/Settings/SettingsPage', () => ({
 }));
 
 describe('PanelRouter', () => {
-  it('should render MonitorPage for moduleId "monitor"', () => {
+  it('should render MonitorPage for moduleId "monitor"', async () => {
     render(<PanelRouter moduleId="monitor" />);
-    expect(screen.getByTestId('page-monitor')).toBeDefined();
+    expect(await screen.findByTestId('page-monitor')).toBeDefined();
   });
 
-  it('should render SeedPage for moduleId "seed"', () => {
+  it('should render SeedPage for moduleId "seed"', async () => {
     render(<PanelRouter moduleId="seed" />);
-    expect(screen.getByTestId('page-seed')).toBeDefined();
+    expect(await screen.findByTestId('page-seed')).toBeDefined();
   });
 
-  it('should render SyncPage for moduleId "sync"', () => {
+  it('should render SyncPage for moduleId "sync"', async () => {
     render(<PanelRouter moduleId="sync" />);
-    expect(screen.getByTestId('page-sync')).toBeDefined();
+    expect(await screen.findByTestId('page-sync')).toBeDefined();
   });
 
-  it('should render ComparePage for moduleId "compare"', () => {
+  it('should render ComparePage for moduleId "compare"', async () => {
     render(<PanelRouter moduleId="compare" />);
-    expect(screen.getByTestId('page-compare')).toBeDefined();
+    expect(await screen.findByTestId('page-compare')).toBeDefined();
   });
 
-  it('should render DataOpsPage for moduleId "dataops"', () => {
+  it('should render DataOpsPage for moduleId "dataops"', async () => {
     render(<PanelRouter moduleId="dataops" />);
-    expect(screen.getByTestId('page-dataops')).toBeDefined();
+    expect(await screen.findByTestId('page-dataops')).toBeDefined();
   });
 
-  it('should render AutomationPage for moduleId "automation"', () => {
+  it('should render AutomationPage for moduleId "automation"', async () => {
     render(<PanelRouter moduleId="automation" />);
-    expect(screen.getByTestId('page-automation')).toBeDefined();
+    expect(await screen.findByTestId('page-automation')).toBeDefined();
   });
 
-  it('should render OrgManagerPage for moduleId "orgs"', () => {
+  it('should render OrgManagerPage for moduleId "orgs"', async () => {
     render(<PanelRouter moduleId="orgs" />);
-    expect(screen.getByTestId('page-orgs')).toBeDefined();
+    expect(await screen.findByTestId('page-orgs')).toBeDefined();
   });
 
-  it('should render SettingsPage for moduleId "settings"', () => {
+  it('should render SettingsPage for moduleId "settings"', async () => {
     render(<PanelRouter moduleId="settings" />);
-    expect(screen.getByTestId('page-settings')).toBeDefined();
+    expect(await screen.findByTestId('page-settings')).toBeDefined();
   });
 
-  it('should render ReportsPage for moduleId "reports"', () => {
+  it('should render ReportsPage for moduleId "reports"', async () => {
     render(<PanelRouter moduleId="reports" />);
-    expect(screen.getByTestId('page-reports')).toBeDefined();
+    expect(await screen.findByTestId('page-reports')).toBeDefined();
   });
 
   it('should render unknown module fallback for invalid moduleId', () => {

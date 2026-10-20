@@ -18,7 +18,7 @@
  * Kept apart from the executor, so the bridge reads it without loading it.
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   BYTES_PER_MB,
   FORGE_READ_CEILING_PER_OBJECT,

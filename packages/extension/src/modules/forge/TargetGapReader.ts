@@ -58,7 +58,7 @@ import {
   gapAssignments,
   mergeGaps,
 } from '@sandforge/shared';
-import { z } from 'zod';
+import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { ForgePlanGenerator } from './ForgePlanGenerator.js';
 import {

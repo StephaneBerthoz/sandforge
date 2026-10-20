@@ -19,7 +19,7 @@
  * `BillingAddress.City` on an Account is `BillingCity`).
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 
 /** One change, read off a CometD message. */
 export interface ChangeEvent {

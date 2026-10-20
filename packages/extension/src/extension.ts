@@ -47,7 +47,9 @@ import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposi
 import { wirePipelineTriggers } from './composition/pipelineTriggerComposition';
 import { fileTriggerClaims } from './modules/automation/TriggerClaims';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
+import { readSfDefaultOrg } from './core/connection/sfDefaultOrg';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
 import { knownErrorTexts } from './core/common/errorKnowledgeBase.js';
 import { parseHttpsUrl } from './core/common/parseHttpsUrl.js';
@@ -274,18 +276,14 @@ export function activate(context: vscode.ExtensionContext): void {
     fileTriggerClaims(path.join(context.globalStorageUri.fsPath, 'sync-schedules'), { log }),
   );
 
-  // 7. Async compositions — dynamic imports stay off the activation hot path,
-  // so these injections resolve AFTER registerAll (handlers guard with
-  // NOT_INITIALIZED / AI_NOT_CONFIGURED until then — contract documented in
-  // composition/lateServices.ts).
-  initForgeComposition({
-    handlers,
-    orgRegistry,
-    orgManager,
-    piiDetector,
-    log,
-    storagePath: context.globalStorageUri.fsPath,
-  });
+  // 7. Async compositions — their injections resolve AFTER registerAll
+  // (handlers guard with NOT_INITIALIZED / AI_NOT_CONFIGURED until then —
+  // contract documented in composition/lateServices.ts). They start with the
+  // first SandForge view, not here: the bundle splits no code, so esbuild
+  // inlines what each `import()` names, and calling them at activation
+  // evaluated Forge, Frozen, Autopilot and the analysis modules in every VS
+  // Code window. A view's first request comes once its bundle has loaded,
+  // long after these settle.
   context.subscriptions.push(registerForgeGraphViewListener(handlers));
   // The autopilot orchestrator's grappe lifecycle events go straight to the
   // webview (they correlate to no request), so they carry their own id source
@@ -293,16 +291,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // closure outlives this statement's narrowing of the module-level `broker`.
   const eventBroker = broker;
   let autopilotEventSeq = 0;
-  void initAutopilotComposition({
-    handlers,
-    log,
-    grappeConfig: readGrappeConfig(services),
-    onGrappeEvent: (event) =>
-      postGrappeEvent(
-        { broker: eventBroker, nextId: () => `autopilot-grappe-${++autopilotEventSeq}` },
-        event,
-      ),
-  });
   const runAI = (): Promise<void> =>
     initAIComposition({
       services,
@@ -316,7 +304,27 @@ export function activate(context: vscode.ExtensionContext): void {
   // A saved key must reach the adapter even when sandforge.ai.enabled was
   // already true and writing it raises no configuration event.
   services.reinitAI = createAIReinit({ services, run: runAI, log });
-  runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
+  eventBroker.onFirstWebview(() => {
+    initForgeComposition({
+      handlers,
+      orgRegistry,
+      orgManager,
+      piiDetector,
+      log,
+      storagePath: context.globalStorageUri.fsPath,
+    });
+    void initAutopilotComposition({
+      handlers,
+      log,
+      grappeConfig: readGrappeConfig(services),
+      onGrappeEvent: (event) =>
+        postGrappeEvent(
+          { broker: eventBroker, nextId: () => `autopilot-grappe-${++autopilotEventSeq}` },
+          event,
+        ),
+    });
+    runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
+  });
   context.subscriptions.push(registerAIConfigListener({ services, run: runAI, log }));
   context.subscriptions.push(registerTokenBudgetReset({ services, log }));
   // The Frozen dataset salt, kept in secret storage, shared between teammates.
@@ -416,21 +424,31 @@ export function activate(context: vscode.ExtensionContext): void {
     sidebarProvider,
   );
 
-  // 10b. Proactive org validation — refresh expired tokens at every launch so
+  // 10b. Proactive org validation — refresh expired tokens once per window so
   // the first operation does not hit an auth wall mid-run. Background-only,
-  // per-org isolated, gated by sandforge.orgs.validateOnStartup.
+  // per-org isolated, gated by sandforge.orgs.validateOnStartup. With the
+  // first SandForge view rather than at activation: each org costs jsforce,
+  // an identity call and, for a refused token, an `sf org display`, which
+  // every window opened without SandForge paid for nothing.
   if (services.getSandforgeSetting('orgs.validateOnStartup', true)) {
-    void validateOrgsOnStartup({ orgManager, orgRegistry, log }).catch((err: unknown) => {
-      log(`[startup] Org validation crashed: ${extractErrorMessage(err)}`);
+    eventBroker.onFirstWebview(() => {
+      void validateOrgsOnStartup({ orgManager, orgRegistry, log }).catch((err: unknown) => {
+        log(`[startup] Org validation crashed: ${extractErrorMessage(err)}`);
+      });
     });
   }
 
-  // 10c. Adopt the sf CLI's default org when nothing is selected yet — the
-  // CLI already knows which org this workspace targets ("Default Org" in
-  // sf org list), so SandForge shouldn't start on a blank or stale pick.
-  // Runs in the background; never blocks activation.
-  if (!selectedOrgId) {
-    void sfdxBridge.getDefaultOrgUsername().then((defaultName) => {
+  // 10c. Adopt the sf CLI's default org — the CLI already knows which org
+  // this workspace targets, so SandForge shouldn't start on a blank or stale
+  // pick. Read from the CLI's configuration files, which takes no process,
+  // and only when there is a registered org it could name. Runs in the
+  // background; never blocks activation.
+  if (orgManager.getAllOrgs().length > 0) {
+    void readSfDefaultOrg({
+      folders: (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
+      homeDir: os.homedir(),
+      env: process.env,
+    }).then((defaultName) => {
       if (!defaultName || selectedOrgId) return;
       const match = orgManager
         .getAllOrgs()

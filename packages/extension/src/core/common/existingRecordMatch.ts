@@ -19,7 +19,7 @@
  * The existing record is only pointed at, never written to.
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   ALREADY_EXISTS_ERROR,
   DUPLICATE_RULE_ERROR,

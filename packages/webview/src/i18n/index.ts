@@ -74,8 +74,10 @@ function persistLanguage(lng: string): void {
  *
  * Only English is bundled statically — the other five locale JSONs (~443 KB
  * minified) are packaged with the extension and fetched over the bridge on
- * demand (the webview CSP forbids fetch and dynamic import, so a postMessage
- * round-trip is the only channel). The initial language is always English;
+ * demand (the webview CSP forbids fetch, which is also how a JSON module
+ * loads, so a postMessage round-trip is the only channel). The sidebar build
+ * bundles only its own namespaces of English (./sidepanelCatalogue.ts), and is
+ * sent only those of another language. The initial language is always English;
  * the persisted language is restored asynchronously through the boot gate
  * ({@link i18nReady}). Interpolation escaping is disabled because React
  * handles XSS prevention.

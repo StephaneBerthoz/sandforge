@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import type { OrgInfo } from '@sandforge/shared';
 
 /** `GET /services/data`: every API version the org serves, oldest first. */

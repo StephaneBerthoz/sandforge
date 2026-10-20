@@ -56,6 +56,20 @@ describe('buildWebviewHtml', () => {
     expect(tagNonces[1]).toBe(cspNonce);
   });
 
+  it('loads the bundle as a module script when asked, and as a classic one otherwise', () => {
+    // The panel bundle imports each page's chunk when it is shown, which only
+    // a module script can do; the sidebar's is one classic file.
+    expect(build({ moduleScript: true })).toMatch(
+      /<script nonce="[A-Za-z0-9_-]{32}" type="module" src="vscode-webview:\/\/test\/index\.js"><\/script>/,
+    );
+    expect(build()).toMatch(
+      /<script nonce="[A-Za-z0-9_-]{32}" src="vscode-webview:\/\/test\/index\.js"><\/script>/,
+    );
+    // The chunks run on the nonce of the module that imports them: no other
+    // script source is opened for them.
+    expect(build({ moduleScript: true })).toMatch(/script-src 'nonce-[A-Za-z0-9_-]{32}';/);
+  });
+
   it('injects the module id before the bundle script', () => {
     const html = build({ moduleId: 'forge' });
     expect(html).toContain('window.__SANDFORGE_MODULE__="forge"');

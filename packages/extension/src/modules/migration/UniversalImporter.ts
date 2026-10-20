@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import type { SyncConfig, SyncObjectConfig, FieldMapping, MappingType } from '@sandforge/shared';
 
 // ── Import Options Zod Schema ─────────────────────────────

@@ -129,18 +129,27 @@ async function openModule(page: Page, moduleId: string, lng: 'en' | 'fr'): Promi
 
   const primed = PRIMED[moduleId];
   if (primed) {
-    await bridge.respondToNext(
-      primed.request,
-      primed.response,
-      primed.payload as Record<string, unknown>,
-      { timeout: 10_000 },
-    );
+    // The page is a chunk loaded after the shell, and may ask more than once
+    // as it mounts (a development build mounts it twice): its answer is the
+    // one to its last request, so every request it made is answered.
+    await bridge.waitForMessage(primed.request, { timeout: 10_000 });
+    await expect(page.getByTestId('panel-loading')).toHaveCount(0, { timeout: 15_000 });
+    for (const request of await bridge.getMessages(primed.request)) {
+      await bridge.respond(
+        primed.response,
+        primed.payload as Record<string, unknown>,
+        request.id as string,
+      );
+    }
   }
 }
 
 /** Read the panel as it stands and refuse any catalogue key on screen. */
 async function assertNoRawKey(page: Page, id: string, lng: string): Promise<void> {
   await page.waitForSelector('[data-testid="panel-app"]', { timeout: 15_000 });
+  // Each page is a chunk of its own, loaded once the panel shell is up: read
+  // the page, not the placeholder that holds its place until it comes.
+  await expect(page.getByTestId('panel-loading')).toHaveCount(0, { timeout: 15_000 });
   await expect(page.getByTestId('error-boundary')).toHaveCount(0);
 
   const visible = await page.getByTestId('panel-app').innerText();

@@ -133,6 +133,115 @@ describe('MessageBroker', () => {
     });
   });
 
+  describe('replyToRequester', () => {
+    /** A panel, and a way to send the broker a request from it. */
+    function asker() {
+      const panel = createMockPanel();
+      const registration = broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+      const inbound = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      return {
+        panel,
+        registration,
+        ask: (id: string) => inbound(enveloped(createMessage('i18n:locale', { id }))),
+      };
+    }
+    const answerTo = (id: string) => createMessage('i18n:locale:response', { correlationId: id });
+
+    beforeEach(() => {
+      broker.on('i18n:locale', vi.fn());
+    });
+
+    it('answers the webview that asked, and no other', () => {
+      const a = asker();
+      const b = asker();
+      const sidebar = createMockPanel();
+      broker.registerPanel(sidebar as unknown as vscode.WebviewView, { inbound: false });
+      a.ask('req-a');
+
+      const answer = answerTo('req-a');
+      broker.replyToRequester(answer);
+
+      expect(a.panel.webview.postMessage).toHaveBeenCalledWith(answer);
+      expect(b.panel.webview.postMessage).not.toHaveBeenCalled();
+      expect(sidebar.webview.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('sends to every webview when the one that asked is not known, or has closed', () => {
+      const a = asker();
+      const b = asker();
+      broker.replyToRequester(answerTo('never-asked'));
+      expect(a.panel.webview.postMessage).toHaveBeenCalledTimes(1);
+      expect(b.panel.webview.postMessage).toHaveBeenCalledTimes(1);
+
+      b.ask('req-b');
+      b.registration.dispose();
+      broker.replyToRequester(answerTo('req-b'));
+      expect(a.panel.webview.postMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('remembers a bounded number of askers, the oldest forgotten first', () => {
+      // A thousand requests at once: past the rate limit a request is
+      // dropped, with a bridge error to every webview.
+      broker = new MessageBroker({ rateLimitMax: 10_000 });
+      broker.on('i18n:locale', vi.fn());
+      const a = asker();
+      const b = asker();
+      a.ask('first');
+      for (let n = 0; n < 1_000; n++) b.ask(`later-${n}`);
+
+      broker.replyToRequester(answerTo('later-999'));
+      expect(a.panel.webview.postMessage).not.toHaveBeenCalled();
+
+      broker.replyToRequester(answerTo('first'));
+      // Forgotten, so sent to every webview rather than lost.
+      expect(a.panel.webview.postMessage).toHaveBeenCalledTimes(1);
+      expect(b.panel.webview.postMessage).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('onFirstWebview', () => {
+    it('waits for the first webview, then runs once whatever registers after', () => {
+      const callback = vi.fn();
+      broker.onFirstWebview(callback);
+      expect(callback).not.toHaveBeenCalled();
+
+      const sidebar = broker.registerPanel(createMockPanel() as unknown as vscode.WebviewView, {
+        inbound: false,
+      });
+      expect(callback).toHaveBeenCalledTimes(1);
+
+      sidebar.dispose();
+      broker.registerPanel(createMockPanel() as unknown as vscode.WebviewPanel);
+      broker.registerPanel(createMockPanel() as unknown as vscode.WebviewPanel);
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs at once when a webview has already registered', () => {
+      broker.registerPanel(createMockPanel() as unknown as vscode.WebviewPanel);
+      const callback = vi.fn();
+
+      broker.onFirstWebview(callback);
+
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs every waiting callback when one of them throws, and still registers the webview', () => {
+      const log = vi.fn();
+      broker.setLogFunction(log);
+      const after = vi.fn();
+      broker.onFirstWebview(() => {
+        throw new Error('composition failed');
+      });
+      broker.onFirstWebview(after);
+
+      broker.registerPanel(createMockPanel() as unknown as vscode.WebviewPanel);
+
+      expect(after).toHaveBeenCalledTimes(1);
+      expect(broker.panelCount).toBe(1);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('composition failed'));
+    });
+  });
+
   describe('on', () => {
     it('should register a handler for the given type', () => {
       const handler = vi.fn<MessageHandler>();

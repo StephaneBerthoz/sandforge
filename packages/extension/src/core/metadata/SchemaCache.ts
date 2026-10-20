@@ -35,6 +35,14 @@ export interface SchemaCacheOptions {
   defaultTtl?: number;
   /** Maximum estimated memory usage in bytes. Defaults to 5 MB. */
   maxSizeBytes?: number;
+  /**
+   * Drop each entry once its TTL has passed, on a timer, rather than when it
+   * is next read. For a cache whose entries are megabytes that may never be
+   * read again: the describes of a Forge or Frozen discovery stayed on the
+   * extension host's heap, shared with every other extension, as long as the
+   * window lived. Off by default.
+   */
+  releaseExpired?: boolean;
 }
 
 /**
@@ -48,11 +56,15 @@ export class SchemaCache<T = unknown> {
   private defaultTtl: number;
   private maxSizeBytes: number;
   private currentBytes = 0;
+  private readonly releaseExpired: boolean;
+  /** The timer that drops the next entries to expire, when one is set. */
+  private releaseTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options?: SchemaCacheOptions) {
     this.maxSize = options?.maxSize ?? 100;
     this.defaultTtl = options?.defaultTtl ?? 300_000; // 5 minutes
     this.maxSizeBytes = options?.maxSizeBytes ?? DEFAULT_MAX_SIZE_BYTES;
+    this.releaseExpired = options?.releaseExpired === true;
   }
 
   /** Get a value from cache (returns undefined if expired) */
@@ -109,6 +121,7 @@ export class SchemaCache<T = unknown> {
       this.sizeMap.set(key, entrySize);
       this.currentBytes += entrySize;
     }
+    if (this.releaseExpired) this.scheduleRelease();
   }
 
   /** Check if a key exists and is not expired */
@@ -148,6 +161,8 @@ export class SchemaCache<T = unknown> {
     this.cache.clear();
     this.sizeMap.clear();
     this.currentBytes = 0;
+    clearTimeout(this.releaseTimer);
+    this.releaseTimer = undefined;
   }
 
   /** Get current cache size (including expired entries) */
@@ -188,6 +203,31 @@ export class SchemaCache<T = unknown> {
       }
     }
     return count;
+  }
+
+  /**
+   * Set the timer that drops the entries to expire first, unless one is set.
+   * Each run sets the next while entries remain, so the cache empties itself
+   * a TTL after its last write. Unreferenced: it never keeps a process alive.
+   */
+  private scheduleRelease(): void {
+    if (this.releaseTimer !== undefined) return;
+    let firstExpiry = Infinity;
+    for (const entry of this.cache.values()) {
+      firstExpiry = Math.min(firstExpiry, entry.cachedAt + entry.ttl);
+    }
+    if (firstExpiry === Infinity) return;
+    // isExpired is strict: an entry is still alive at exactly its TTL.
+    const timer = setTimeout(
+      () => {
+        this.releaseTimer = undefined;
+        this.purgeExpired();
+        this.scheduleRelease();
+      },
+      Math.max(0, firstExpiry - Date.now()) + 1,
+    );
+    (timer as { unref?: () => void }).unref?.();
+    this.releaseTimer = timer;
   }
 
   /** Check if an entry has expired */
@@ -246,7 +286,7 @@ export class SchemaCache<T = unknown> {
    * content weight (~1-2 KB/field, ~150-400 KB for a realistic Account);
    * its extra real-heap slack (hidden classes, array over-allocation, up to
    * ~1-2 MB) is bounded by the count cap (`maxSize`), which is why the
-   * Forge composition caps describes at 50 entries.
+   * Forge composition caps describes at 100 entries.
    *
    * Non-describe values fall back to a per-key heuristic; arrays use a per-
    * element heuristic; primitives are cheap. Never throws.

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 /** Pino's numeric levels, by the name the output channel shows. */
 const LEVEL_NAMES: Readonly<Record<number, string>> = {

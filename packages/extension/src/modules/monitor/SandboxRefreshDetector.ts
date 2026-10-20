@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import type { SalesforceOrg } from '@sandforge/shared';
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { OrgManager } from '../../core/connection/OrgManager.js';

@@ -2,10 +2,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { SIDEPANEL_LOCALE_NAMESPACES } from '@sandforge/shared';
 import tailwindcss from '@tailwindcss/postcss';
 import postcss from 'postcss';
 import ts from 'typescript';
 import { describe, it, expect } from 'vitest';
+
+import en from './i18n/locales/en.json';
+import sidepanelEnglish from './i18n/sidepanelCatalogue';
 
 /**
  * What the sidebar entry pulls into `assets/sidepanel.js` and `sidepanel.css`.
@@ -23,6 +27,7 @@ const SRC = join(__dirname);
 const ENTRY = join(SRC, 'main.sidepanel.tsx');
 const SIDEPANEL_CSS = join(SRC, 'sidepanel.css');
 const SIDEPANEL_TAILWIND = join(SRC, '..', 'tailwind.sidepanel.config.ts');
+const VITE_CONFIG = join(SRC, '..', 'vite.config.ts');
 
 /** The file a relative specifier names, or undefined for a non-source import (CSS). */
 function resolveLocal(spec: string, from: string): string | undefined {
@@ -83,6 +88,39 @@ function sidebarGraph(): { files: Set<string>; packages: Map<string, string> } {
   return { files, packages };
 }
 
+/** Every string in `file` written whole and shaped like a catalogue key: `namespace.key…`. */
+function keyShapedStrings(file: string): string[] {
+  const source = ts.createSourceFile(
+    file,
+    readFileSync(file, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      /^[A-Za-z][A-Za-z0-9]*\.[A-Za-z0-9_.]+$/.test(node.text)
+    ) {
+      found.push(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+/** Whether `key` names an entry of the English catalogue, a string or a group of them. */
+function inEnglishCatalogue(key: string): boolean {
+  let entry: unknown = en;
+  for (const part of key.split('.')) {
+    if (typeof entry !== 'object' || entry === null || !(part in entry)) return false;
+    entry = (entry as Record<string, unknown>)[part];
+  }
+  return true;
+}
+
 describe('sidebar entry', () => {
   it('reaches the sidebar through its entry, and nothing of the panel pages', () => {
     const { files } = sidebarGraph();
@@ -120,5 +158,48 @@ describe('sidebar entry', () => {
     const { packages } = sidebarGraph();
     const motion = [...packages.entries()].filter(([spec]) => spec.startsWith('framer-motion'));
     expect(motion.map(([spec, from]) => `${spec} (imported by ${from})`)).toEqual([]);
+  });
+
+  it('carries the namespaces of the English catalogue the extension sends it in other languages', () => {
+    expect(Object.keys(sidepanelEnglish).sort()).toEqual([...SIDEPANEL_LOCALE_NAMESPACES].sort());
+    for (const namespace of SIDEPANEL_LOCALE_NAMESPACES) {
+      expect(sidepanelEnglish[namespace]).toEqual(en[namespace]);
+    }
+  });
+
+  it('finds every key the sidebar renders in those namespaces', () => {
+    // A key outside them would show as the key itself: the sidebar's English
+    // is only these namespaces, and so is what it is sent in a language.
+    const used = new Map<string, string>();
+    for (const file of sidebarGraph().files) {
+      for (const key of keyShapedStrings(file)) {
+        if (inEnglishCatalogue(key)) used.set(key, relative(SRC, file));
+      }
+    }
+    // Positive control: the walk reads the keys the sidebar is known to render.
+    expect(used.get('nav.seed')).toBe('SidePanel.tsx');
+    expect(used.get('home.opStatus.failed')).toBe('SidePanel.tsx');
+    const namespaces: readonly string[] = SIDEPANEL_LOCALE_NAMESPACES;
+    const outside = [...used]
+      .filter(([key]) => !namespaces.includes(key.split('.')[0]))
+      .map(([key, file]) => `${key} (${file})`);
+    expect(outside).toEqual([]);
+  });
+
+  it('points the sidebar build at that catalogue, and leaves the panel build the whole one', async () => {
+    // Loaded by URL, as the Tailwind config above is: it sits outside src/.
+    const { default: viteConfig } = (await import(pathToFileURL(VITE_CONFIG).href)) as {
+      default: (env: { mode: string; command: 'build' }) => {
+        resolve: { alias: Array<{ find: string | RegExp; replacement: string }> };
+      };
+    };
+    const catalogueAlias = (mode: string) =>
+      viteConfig({ mode, command: 'build' }).resolve.alias.filter(
+        (alias) => typeof alias.find !== 'string' && alias.find.test('./locales/en.json'),
+      );
+    const sidebar = catalogueAlias('sidepanel');
+    expect(sidebar).toHaveLength(1);
+    expect(relative(SRC, sidebar[0].replacement)).toBe(join('i18n', 'sidepanelCatalogue.ts'));
+    expect(catalogueAlias('production')).toEqual([]);
   });
 });

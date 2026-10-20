@@ -24,6 +24,15 @@
  *  - the panel and the sidebar link different stylesheets. Both Vite passes
  *    write into one `dist`, so one name for both means the second pass
  *    overwrites the first and the panels get the sidebar's CSS;
+ *  - every chunk a bundle imports, statically or on demand, and every chunk
+ *    those import, is in the build too. The panel bundle is an ES module that
+ *    loads each page as a chunk with a hashed name the providers never spell
+ *    out: a chunk the build or the VSIX lost is a page that never opens, and
+ *    nothing else would say so;
+ *  - the file that holds zod also turns its compiler off (`jitless`). zod
+ *    probes `new Function` as each schema is built, which the webview CSP
+ *    reports as a `script-src eval` violation. A chunk's imports run before
+ *    it, so a call left in index.js ran after the schemas its chunks built;
  *  - with `--vsix`, every one of those paths is in `sandforge.vsix` too. The
  *    VSIX is what a user installs, and `.vscodeignore` can drop a file the
  *    build produced. It is a flag rather than "check it if it is there"
@@ -38,7 +47,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,6 +82,63 @@ function providerSources() {
       file: join(PROVIDERS_DIR, name),
       source: readFileSync(join(dir, name), 'utf8'),
     }));
+}
+
+/**
+ * The relative modules a built script imports: `import … from "./x.js"`,
+ * `import "./x.js"`, `export … from "./x.js"` and `import("./x.js")`, the last
+ * with any of the three quotes a minifier writes. Bare specifiers (an npm
+ * package) are not files of the build and are left out.
+ */
+export function chunkImports(source) {
+  const found = [];
+  const staticForm =
+    /(?:^|[;}\s])(?:import|export)\s*(?:[^'"`()]*?\bfrom\s*)?(['"])(\.{1,2}\/[^'"`]+)\1/g;
+  const dynamicForm = /\bimport\(\s*(['"`])(\.{1,2}\/[^'"`]+)\1\s*\)/g;
+  for (const match of source.matchAll(staticForm)) found.push(match[2]);
+  for (const match of source.matchAll(dynamicForm)) found.push(match[2]);
+  return found;
+}
+
+/**
+ * Every file a bundle loads, as posix paths relative to `webview-dist`: the
+ * bundle and the chunks it imports, followed through the chunks they import.
+ * A file the build does not hold is listed too, for the caller to report.
+ *
+ * @param entry - The bundle, e.g. `assets/index.js`.
+ * @param read - Reads a path relative to `webview-dist`; undefined when absent.
+ */
+export function bundleFiles(entry, read) {
+  const seen = new Set();
+  const missing = new Map();
+  const queue = [entry];
+  while (queue.length > 0) {
+    const path = queue.shift();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const source = read(path);
+    if (source === undefined) continue;
+    for (const specifier of chunkImports(source)) {
+      const target = posix.normalize(posix.join(posix.dirname(path), specifier));
+      if (read(target) === undefined && !missing.has(target)) missing.set(target, path);
+      queue.push(target);
+    }
+  }
+  return { files: [...seen], missing };
+}
+
+/**
+ * Whether the file of `files` that defines zod's schema classes also turns
+ * zod's compiler off. Undefined when no file holds zod.
+ *
+ * @param files - Map of path to source.
+ */
+export function zodJitlessVerdict(files) {
+  // The name zod gives its base schema class, a string any minifier keeps.
+  const zodFile = [...files].find(([, source]) => /["'`]\$ZodType["'`]/.test(source));
+  if (!zodFile) return undefined;
+  const [path, source] = zodFile;
+  return { path, jitless: /jitless\s*:\s*(?:!0|true)\b/.test(source) };
 }
 
 /** Paths the extension asks for, each with the files that ask for it. */
@@ -126,7 +192,47 @@ function main() {
     );
   }
 
-  // 3. The VSIX carries them too, for a caller that just packaged one.
+  // 3. Every chunk a bundle loads is built, and the one holding zod turns
+  // its compiler off. Read once each, so a chunk two bundles share costs one
+  // read.
+  const builtDir = join(repoRoot, BUILT_DIR);
+  const cache = new Map();
+  const readBuilt = (path) => {
+    if (!cache.has(path)) {
+      const onDisk = join(builtDir, path);
+      cache.set(path, existsSync(onDisk) ? readFileSync(onDisk, 'utf8') : undefined);
+    }
+    return cache.get(path);
+  };
+  const loaded = new Set();
+  for (const bundle of [...requested.keys()].filter((path) => path.endsWith('.js')).sort()) {
+    if (readBuilt(bundle) === undefined) continue;
+    const { files, missing } = bundleFiles(bundle, readBuilt);
+    for (const file of files)
+      if (file !== bundle && readBuilt(file) !== undefined) loaded.add(file);
+    for (const [target, importer] of missing) {
+      note(
+        `${BUILT_DIR}/${target} does not exist, and ${importer} imports it — the page or the ` +
+          `code it needs would fail to load in ${bundle}`,
+      );
+    }
+    const sources = new Map(
+      files.flatMap((file) => {
+        const source = readBuilt(file);
+        return source === undefined ? [] : [[file, source]];
+      }),
+    );
+    const verdict = zodJitlessVerdict(sources);
+    if (verdict && !verdict.jitless) {
+      note(
+        `${BUILT_DIR}/${verdict.path} holds zod, and not the call that turns its compiler off ` +
+          `(src/zodJitless.ts): every schema ${bundle} builds would probe \`new Function\` and the ` +
+          'CSP would report a script-src eval. Keep zodJitless in the chunk that holds zod.',
+      );
+    }
+  }
+
+  // 4. The VSIX carries them too, for a caller that just packaged one.
   const checkVsix = process.argv.includes('--vsix');
   if (checkVsix) {
     if (!existsSync(join(repoRoot, VSIX))) {
@@ -135,7 +241,7 @@ function main() {
       );
     } else {
       const listing = execFileSync('unzip', ['-l', join(repoRoot, VSIX)], { encoding: 'utf8' });
-      for (const path of [...requested.keys()].sort()) {
+      for (const path of [...requested.keys(), ...loaded].sort()) {
         if (!listing.includes(`extension/webview-dist/${path}`)) {
           note(
             `${VSIX} has no extension/webview-dist/${path} — an install would render without it`,
@@ -152,7 +258,8 @@ function main() {
   }
 
   console.log(
-    `PASS: webview assets — ${requested.size} path(s) linked by the providers, all built` +
+    `PASS: webview assets — ${requested.size} path(s) linked by the providers and ` +
+      `${loaded.size} chunk(s) they import, all built` +
       (checkVsix ? ' and present in the VSIX' : '') +
       `: ${[...requested.keys()].sort().join(', ')}`,
   );

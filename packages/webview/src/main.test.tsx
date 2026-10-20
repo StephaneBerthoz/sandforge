@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
@@ -129,7 +131,8 @@ describe('main.tsx entry point', () => {
     await importAndOpenGate();
 
     render(rendered as React.ReactElement);
-    expect(screen.getByTestId('side-panel')).toBeDefined();
+    // Loaded on demand: a panel never takes this branch, so it costs a panel nothing.
+    expect(await screen.findByTestId('side-panel')).toBeDefined();
     expect(screen.queryByTestId('panel-app')).toBeNull();
   });
 
@@ -161,5 +164,17 @@ describe('main.tsx entry point', () => {
     gate.release();
     await flush();
     expect(rootRender).toHaveBeenCalledTimes(1);
+  });
+
+  it('imports the graph stylesheet ahead of the panel stylesheet', () => {
+    // style.css holds every stylesheet in the order its module is first
+    // imported. The graph pages load on demand, so their import of the graph
+    // library's stylesheet came last, and its unlayered rules won the ties the
+    // panel's own rules had won since the first build.
+    const source = readFileSync(join(__dirname, 'main.tsx'), 'utf8');
+    const graph = source.indexOf("import '@xyflow/react/dist/style.css';");
+    const panel = source.indexOf("import './index.css';");
+    expect(graph).toBeGreaterThan(-1);
+    expect(panel).toBeGreaterThan(graph);
   });
 });

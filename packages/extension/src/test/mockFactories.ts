@@ -20,16 +20,23 @@ import type { InboundRequest } from '../bridge/handlers/HandlerTypes.js';
  */
 export interface MockBroker extends MessageBroker {
   postToWebview: Mock<(message: BaseMessage) => void>;
+  replyToRequester: Mock<(message: BaseMessage) => void>;
 }
 
 /**
- * Creates a partial `MessageBroker` mock: only `postToWebview` is implemented.
- * Tests using this factory never touch the other broker members — the cast is
- * localized here so test files stay clean.
+ * Creates a partial `MessageBroker` mock: `postToWebview`, and
+ * `replyToRequester`, which hands its message to `postToWebview` so a test
+ * reads every message the handler sent in one place. Tests using this factory
+ * never touch the other broker members — the cast is localized here so test
+ * files stay clean.
  */
 export function createMockBroker(): MockBroker {
-  // Partial mock by design: only postToWebview is exercised by consumers.
-  return { postToWebview: vi.fn() } as unknown as MockBroker;
+  const postToWebview = vi.fn<(message: BaseMessage) => void>();
+  // Partial mock by design: only the two senders are exercised by consumers.
+  return {
+    postToWebview,
+    replyToRequester: vi.fn((message: BaseMessage) => postToWebview(message)),
+  } as unknown as MockBroker;
 }
 
 /**

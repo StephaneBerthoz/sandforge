@@ -106,7 +106,8 @@ const SRC_ROOTS = ['packages/extension/src', 'packages/shared/src', 'packages/we
  * because the first bundle marks it `--external`, and the host loads it with
  * `await import('./jsforceEntry.js')`. Webview: the `build.lib.entry` values
  * of `packages/webview/vite.config.ts`, the second reached with
- * `--mode sidepanel`.
+ * `--mode sidepanel`, and the English catalogue of that pass, which its
+ * `resolve.alias` puts where `src/i18n/index.ts` imports `./locales/en.json`.
  *
  * Deliberately excluded: `packages/extension/cli/*` and
  * `packages/extension/tools/*` (dev/CI utilities run through `tsx`, excluded
@@ -118,6 +119,7 @@ const ENTRIES = [
   'packages/extension/src/core/connection/jsforceEntry.ts',
   'packages/webview/src/main.tsx',
   'packages/webview/src/main.sidepanel.tsx',
+  'packages/webview/src/i18n/sidepanelCatalogue.ts',
 ];
 
 /** Extensions tried, in order, when a specifier carries none. */

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   TEMPLATE_MAX_RULES,
   TEMPLATE_NAME_MAX_LENGTH,

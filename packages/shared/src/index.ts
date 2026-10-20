@@ -86,6 +86,10 @@ export * from './constants/metadata-deploy.js';
 export { TRIGGERED_RUN_PREFIX, isTriggeredRun } from './constants/pipeline-triggers.js';
 export * from './constants/data-compliance.js';
 export {
+  SIDEPANEL_LOCALE_NAMESPACES,
+  sidepanelLocaleSubset,
+} from './constants/sidepanel-locale.js';
+export {
   ALLOW_DUPLICATE_RULE_HEADER,
   duplicateRuleHeaders,
   DUPLICATE_RULE_ERROR,

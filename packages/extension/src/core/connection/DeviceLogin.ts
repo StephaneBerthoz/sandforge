@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { SF_DEVICE_CODE_LIFETIME_MS } from '@sandforge/shared';
 import { parseHttpsUrl } from '../common/parseHttpsUrl.js';
 import { isSalesforceLoginHost } from '../common/salesforceLoginHost.js';
