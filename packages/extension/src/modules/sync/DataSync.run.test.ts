@@ -466,3 +466,170 @@ describe('DataSync — rows of one write that name each other', () => {
     ]);
   });
 });
+
+describe('DataSync — an owner the target refused earlier in the run', () => {
+  /** Another owner of the source, which the target holds. */
+  const OTHER_OWNER = '005000000000002AAA';
+  /** A custom lookup at a record no object of the run wrote. */
+  const CONTACT_WITH_LOOKUP = async () =>
+    targetWriteFieldsOf({
+      name: 'Contact',
+      fields: [
+        { name: 'LastName', createable: true, type: 'string' },
+        { name: 'OwnerId', createable: true, type: 'reference' },
+        { name: 'Referrer__c', createable: true, type: 'reference' },
+      ],
+    });
+  const invalidOwner: OperationOutcome = {
+    id: '',
+    success: false,
+    errors: ['INVALID_CROSS_REFERENCE_KEY: invalid cross reference id'],
+  };
+
+  /**
+   * An insert that refuses every row carrying `refused` as its owner, as the
+   * target refuses an id it does not have, and writes every other row.
+   */
+  function refusingOwner(refused: string) {
+    let next = 0;
+    return vi.fn(async (_object: string, records: Array<Record<string, unknown>>) =>
+      records.map((record): OperationOutcome =>
+        record.OwnerId === refused
+          ? invalidOwner
+          : { id: `003000000000${String(900 + next++)}AAA`, success: true, errors: [] },
+      ),
+    );
+  }
+
+  /** The case written first, then the contacts, in the same run. */
+  async function caseThenContacts(
+    insert: DataSyncDeps['insert'],
+    contacts: Array<Record<string, unknown>>,
+    links = new SyncRunLinks(),
+  ) {
+    const sync = new DataSync(deps(insert));
+    const cases = [{ Id: '500000000000001AAA', LastName: 'First', OwnerId: OWNER }];
+    const first = await sync.sync(objectConfig({ objectApiName: 'Case' }), cases, {
+      links,
+      sources: cases,
+    });
+    const second = await sync.sync(objectConfig(), contacts, { links, sources: contacts });
+    return { first, second };
+  }
+
+  it('sends the rows of the objects written after without that owner from the start, and says so once', async () => {
+    const insert = refusingOwner(OWNER);
+    const contacts = [
+      { Id: SOURCE_CONTACT, LastName: 'One', OwnerId: OWNER },
+      { Id: '003000000000002AAA', LastName: 'Two', OwnerId: OWNER },
+    ];
+
+    const { first, second } = await caseThenContacts(insert, contacts);
+
+    // The case: refused, then written again without its owner.
+    expect(first.errors).toEqual([
+      '1 record(s) written without OwnerId: the lookup held an id from the source org that the ' +
+        'target does not have.',
+    ]);
+    // The contacts: one request, without the owner the case showed the target refuses.
+    expect(insert).toHaveBeenCalledTimes(3);
+    expect(insert.mock.calls[2][1]).toEqual([{ LastName: 'One' }, { LastName: 'Two' }]);
+    expect(second).toMatchObject({ processed: 2, success: 2, failed: 0 });
+    expect(second.errors).toEqual([
+      '2 record(s) written without OwnerId, left out from the start: the target refused the ' +
+        'same owner earlier in this run, an id from the source org that the target does not have.',
+    ]);
+  });
+
+  it('keeps the owner of every row in a run that never saw it refused', async () => {
+    const insert = refusingOwner('005000000000099AAA');
+    const contacts = [{ Id: SOURCE_CONTACT, LastName: 'One', OwnerId: OWNER }];
+
+    const { second } = await caseThenContacts(insert, contacts);
+
+    expect(insert).toHaveBeenCalledTimes(2);
+    expect(insert.mock.calls[1][1]).toEqual([{ LastName: 'One', OwnerId: OWNER }]);
+    expect(second.errors).toEqual([]);
+  });
+
+  it('keeps another owner, which the target never refused', async () => {
+    const insert = refusingOwner(OWNER);
+    const contacts = [
+      { Id: SOURCE_CONTACT, LastName: 'One', OwnerId: OWNER },
+      { Id: '003000000000002AAA', LastName: 'Two', OwnerId: OTHER_OWNER },
+    ];
+
+    const { second } = await caseThenContacts(insert, contacts);
+
+    expect(insert.mock.calls[2][1]).toEqual([
+      { LastName: 'One' },
+      { LastName: 'Two', OwnerId: OTHER_OWNER },
+    ]);
+    expect(second.errors).toEqual([
+      '1 record(s) written without OwnerId, left out from the start: the target refused the ' +
+        'same owner earlier in this run, an id from the source org that the target does not have.',
+    ]);
+  });
+
+  it('learns the owner a refusal named, though the row went again without another lookup too', async () => {
+    const links = new SyncRunLinks();
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          ...invalidOwner,
+          errorDetails: [
+            {
+              statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+              message: 'invalid cross reference id',
+              fields: ['OwnerId'],
+            },
+          ],
+        },
+      ])
+      .mockResolvedValue([{ id: '003000000000901AAA', success: true, errors: [] }]);
+    const rows = [
+      { Id: SOURCE_CONTACT, LastName: 'One', OwnerId: OWNER, Referrer__c: '003000000000077AAA' },
+    ];
+
+    await new DataSync({ ...deps(insert), describeTargetFields: CONTACT_WITH_LOOKUP }).write(
+      objectConfig(),
+      rows,
+      { links, sources: rows },
+    );
+
+    expect(links.isOwnerRefused(OWNER)).toBe(true);
+  });
+
+  it('learns no owner from a row written again without several lookups, none of them named', async () => {
+    const links = new SyncRunLinks();
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([invalidOwner])
+      .mockResolvedValue([{ id: '003000000000901AAA', success: true, errors: [] }]);
+    const rows = [
+      { Id: SOURCE_CONTACT, LastName: 'One', OwnerId: OWNER, Referrer__c: '003000000000077AAA' },
+    ];
+
+    await new DataSync({ ...deps(insert), describeTargetFields: CONTACT_WITH_LOOKUP }).write(
+      objectConfig(),
+      rows,
+      { links, sources: rows },
+    );
+
+    expect(insert.mock.calls[1][1]).toEqual([{ LastName: 'One' }]);
+    expect(links.isOwnerRefused(OWNER)).toBe(false);
+  });
+
+  it('learns no owner from a refusal of another kind', async () => {
+    const links = new SyncRunLinks();
+    const insert = vi
+      .fn()
+      .mockResolvedValue([{ id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] }]);
+    const rows = [{ Id: SOURCE_CONTACT, LastName: 'One', OwnerId: OWNER }];
+
+    await new DataSync(deps(insert)).write(objectConfig(), rows, { links, sources: rows });
+
+    expect(links.isOwnerRefused(OWNER)).toBe(false);
+  });
+});

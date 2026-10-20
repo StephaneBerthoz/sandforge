@@ -183,6 +183,7 @@ export class DataSync {
     }
 
     const prepared = prepareSyncRows({ config, records: sourceRecords, target, run });
+    const ownerLeftOut = leaveOutRefusedOwners(prepared.payloads, prepared.settled, run);
     const heldAt = new Map(prepared.held.map(({ index, reason }) => [index, reason]));
     /**
      * One outcome per record handed over, in their order: the held ones'
@@ -222,8 +223,10 @@ export class DataSync {
       if (!(err instanceof WriteCancelledError)) throw err;
       // The cancel stopped the write before one of its batches: the records
       // sent before it are written, and what was held back is said with them.
+      const ownerNote = ownerLeftOutNote(ownerLeftOut, err.written);
       throw new WriteCancelledError(config.objectApiName, aligned(err.written), [
         ...prepared.notes,
+        ...(ownerNote ? [ownerNote] : []),
         ...err.notes,
       ]);
     }
@@ -235,9 +238,11 @@ export class DataSync {
       target?.references ?? null,
       prepared.settled,
     );
+    if (run) for (const owner of retried.ownersRefused) run.links.noteOwnerRefused(owner);
 
     const all = aligned(retried.outcomes);
-    const notes = [...prepared.notes, ...retried.notes];
+    const ownerNote = ownerLeftOutNote(ownerLeftOut, retried.outcomes);
+    const notes = [...prepared.notes, ...(ownerNote ? [ownerNote] : []), ...retried.notes];
     // Every record has been sent once, and keeps its refusal unless it was
     // tried again before the cancel: the run is told all of it, what was
     // dropped to write it, and that it was cancelled.
@@ -368,6 +373,11 @@ export class DataSync {
    * written stay written, notes and all. Thrown on, the error reported the
    * object as one failure whole, and nothing said what the first write had put
    * in the org.
+   *
+   * `ownersRefused` names the owners of the source the target refused, on
+   * `OwnerId`, for an id it does not have: a row refused for a lookup and
+   * written once sent again without its owner alone, or whose refusal named
+   * `OwnerId`. A row written again without several lookups names none of them.
    */
   private async retryRefused(
     config: SyncObjectConfig,
@@ -375,7 +385,12 @@ export class DataSync {
     outcomes: OperationOutcome[],
     references: ReadonlySet<string> | null,
     settled: readonly ReadonlySet<string>[],
-  ): Promise<{ outcomes: OperationOutcome[]; notes: string[]; cancelled: boolean }> {
+  ): Promise<{
+    outcomes: OperationOutcome[];
+    notes: string[];
+    cancelled: boolean;
+    ownersRefused: string[];
+  }> {
     const key = addressedBy(config) ?? undefined;
     const merged = [...outcomes];
     /** Each row as it was last sent. */
@@ -388,6 +403,8 @@ export class DataSync {
     const notes: string[] = [];
     let cancelledAt: WriteCancelledError | undefined;
 
+    /** The owners a refusal named `OwnerId` for, as the rows were first sent. */
+    const ownersNamed = new Set<string>();
     for (let pass = 0; pass < 2 && !cancelledAt; pass++) {
       const failedAt: number[] = [];
       const again: Record<string, unknown>[] = [];
@@ -398,6 +415,17 @@ export class DataSync {
         const record = current[index];
         const kept = settled[index] ?? new Set<string>();
         if (outcome.errors.some((m) => isCrossReferenceFailure(m))) {
+          const owner = records[index]?.[OWNER_FIELD];
+          if (
+            typeof owner === 'string' &&
+            !kept.has(OWNER_FIELD) &&
+            (outcome.errorDetails ?? []).some(
+              (detail) =>
+                isCrossReferenceFailure(detail.statusCode) && detail.fields.includes(OWNER_FIELD),
+            )
+          ) {
+            ownersNamed.add(owner);
+          }
           if (tried[index].has('lookup') || !references || references.size === 0) return;
           const stripped: Record<string, unknown> = {};
           let leftOut = false;
@@ -472,11 +500,22 @@ export class DataSync {
     const dropped = new Set<string>();
     let recoveredLookups = 0;
     let withoutFields: WrittenWithoutFields | undefined;
+    const ownersRefused = new Set(ownersNamed);
     merged.forEach((outcome, index) => {
       if (!outcome.success || tried[index].size === 0) return;
       if (lookupsLeft[index].length > 0) {
         recoveredLookups++;
         for (const field of lookupsLeft[index]) dropped.add(field);
+        // Written once its owner alone was left out: the owner was what the
+        // target refused.
+        const owner = records[index]?.[OWNER_FIELD];
+        if (
+          typeof owner === 'string' &&
+          lookupsLeft[index].length === 1 &&
+          lookupsLeft[index][0] === OWNER_FIELD
+        ) {
+          ownersRefused.add(owner);
+        }
       }
       if (fieldsLeft[index].length > 0) {
         withoutFields = addWrittenWithoutFields(withoutFields, {
@@ -498,6 +537,7 @@ export class DataSync {
       outcomes: merged,
       notes: [...written, ...notes, ...(cancelledAt?.notes ?? [])],
       cancelled: cancelledAt !== undefined,
+      ownersRefused: [...ownersRefused],
     };
   }
 
@@ -564,6 +604,57 @@ function isCrossReferenceFailure(message: string): boolean {
   return (
     CROSS_REFERENCE_CODES.some((code) => message.includes(code)) ||
     CROSS_REFERENCE_WORDS.test(message)
+  );
+}
+
+/** The owner a row carries from the source. */
+const OWNER_FIELD = 'OwnerId';
+
+/**
+ * Leave out of the payloads the owners the target refused earlier in the run
+ * (`SyncRunLinks.isOwnerRefused`), and say which rows went without theirs.
+ *
+ * Run between two scratch orgs, the account showed the target did not have
+ * the source's owner, and the 12 000 contacts after it went as one Bulk API
+ * job carrying it all the same: refused whole, every row on
+ * `INVALID_CROSS_REFERENCE_KEY`, nearly a minute, then sent again without it.
+ * A row whose owner the run settled — a copy it wrote — keeps it.
+ *
+ * @returns The places of the payloads written without their owner.
+ */
+function leaveOutRefusedOwners(
+  payloads: Array<Record<string, unknown>>,
+  settled: readonly ReadonlySet<string>[],
+  run: SyncWriteRun | undefined,
+): Set<number> {
+  const leftOut = new Set<number>();
+  if (!run) return leftOut;
+  payloads.forEach((payload, index) => {
+    const owner = payload[OWNER_FIELD];
+    if (typeof owner !== 'string' || settled[index]?.has(OWNER_FIELD)) return;
+    if (!run.links.isOwnerRefused(owner)) return;
+    delete payload[OWNER_FIELD];
+    leftOut.add(index);
+  });
+  return leftOut;
+}
+
+/**
+ * What is said once of the rows written without their owner from the start,
+ * as the retry says it of the rows it wrote without one; nothing when none of
+ * them was written.
+ */
+function ownerLeftOutNote(
+  leftOut: ReadonlySet<number>,
+  outcomes: readonly OperationOutcome[],
+): string | undefined {
+  let written = 0;
+  for (const index of leftOut) if (outcomes[index]?.success) written++;
+  if (written === 0) return undefined;
+  return (
+    `${written} record(s) written without ${OWNER_FIELD}, left out from the start: the target ` +
+    'refused the same owner earlier in this run, an id from the source org that the target ' +
+    'does not have.'
   );
 }
 

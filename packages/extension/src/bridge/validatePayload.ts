@@ -657,6 +657,8 @@ export const dataOpsBackupExportPayloadSchema = z.object({
 export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: opaqueIdSchema,
+  /** Write every row of the backup back, the ones the org holds as the backup does included. */
+  rewriteAll: z.boolean().optional(),
 });
 /**
  * The objects and the filter of a masking run, as its preview and its

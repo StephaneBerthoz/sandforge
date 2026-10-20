@@ -66,6 +66,7 @@ import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js
 import type { BackupRecord, BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import type { AnonymizationEngine } from '../../modules/dataops/AnonymizationEngine.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
+import { rowsToRestore } from '../../modules/dataops/restoreDiff.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
@@ -2305,6 +2306,8 @@ export class DataOpsHandler implements DomainHandler {
 
       let totalRestored = 0;
       let totalFailed = 0;
+      /** Rows the org already held as the backup does, which the restore did not write. */
+      let totalUnchanged = 0;
       const restoreErrors: Array<{ objectApiName: string; message: string }> = [];
       /** Per object, the rows read of the backup: fewer than it lists are said. */
       const rowsRead = new Map<string, number>();
@@ -2394,6 +2397,7 @@ export class DataOpsHandler implements DomainHandler {
         failure.batchSize = RESTORE_BATCH_SIZE;
         let successCount = 0;
         let failureCount = 0;
+        let unchangedCount = 0;
         let read = 0;
         for await (const batch of batches) {
           read += batch.length;
@@ -2415,9 +2419,33 @@ export class DataOpsHandler implements DomainHandler {
             }
             return copy;
           });
+          // Only the rows the org no longer holds as the backup does, unless
+          // the restore was asked to write every row back.
+          let toWrite = cleaned;
+          if (payload.rewriteAll !== true) {
+            const diff = await rowsToRestore(
+              {
+                query: async (soql) => {
+                  const answer = await conn.query<Record<string, unknown>>(soql);
+                  return { totalSize: answer.totalSize, records: answer.records };
+                },
+              },
+              safeObj,
+              cleaned,
+            );
+            if (diff.unread !== undefined) {
+              this.deps.log(
+                `[WARN] Rollback on ${safeObj}: the org's values could not be read, so ` +
+                  `${cleaned.length} row(s) are written back without comparing — ${diff.unread}`,
+              );
+            }
+            toWrite = diff.write;
+            unchangedCount += diff.unchanged;
+          }
+          if (toWrite.length === 0) continue;
           const results = (await conn
             .sobject(safeObj)
-            .upsert(cleaned as Array<Record<string, unknown> & { Id: string }>, 'Id', {
+            .upsert(toWrite as Array<Record<string, unknown> & { Id: string }>, 'Id', {
               headers: recordWriteHeaders(),
             })) as unknown as JsforceResult[];
           const arr = Array.isArray(results) ? results : [results];
@@ -2438,8 +2466,10 @@ export class DataOpsHandler implements DomainHandler {
         rowsRead.set(obj.objectApiName, read);
         totalRestored += successCount;
         totalFailed += failureCount;
+        totalUnchanged += unchangedCount;
         // An upsert on the record's own Id writes over a record that exists —
         // or was just brought back from the recycle bin — so it updates.
+        // A row the org already held as the backup does was not written.
         restored.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
 
         sendOperationProgress(
@@ -2448,7 +2478,8 @@ export class DataOpsHandler implements DomainHandler {
           Math.round(((i + 1) / backupMeta.objects.length) * 100),
           i + 1,
           backupMeta.objects.length,
-          `Restored ${safeObj} (${successCount}/${read})`,
+          `Restored ${safeObj} (${successCount}/${read}` +
+            `${unchangedCount > 0 ? `, ${unchangedCount} unchanged` : ''})`,
         );
       }
 
@@ -2457,7 +2488,12 @@ export class DataOpsHandler implements DomainHandler {
         unrecorded = false;
         recordWriteRun(this.deps, { ...run, outcome: status, objects: restored });
       }
-      sendOperationCompleted(this.deps, rollbackOpId, { status, totalRestored, totalFailed });
+      sendOperationCompleted(this.deps, rollbackOpId, {
+        status,
+        totalRestored,
+        totalFailed,
+        totalUnchanged,
+      });
       this.dmlTracker.markCompleted(rollbackOpId);
 
       // A backup that holds only part of an object — stopped at the cap, a
@@ -2467,9 +2503,12 @@ export class DataOpsHandler implements DomainHandler {
       // result, as a restore of the whole would not need saying.
       const shortfall = backupShortfall(backupMeta.objects, rowsRead);
       const ranMessage =
-        totalFailed === 0
+        (totalFailed === 0
           ? `Rollback completed: ${totalRestored} records restored`
-          : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`;
+          : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`) +
+        (totalUnchanged > 0
+          ? `; ${totalUnchanged} already held the backup's values and were not written`
+          : '');
       const message =
         shortfall === ''
           ? ranMessage
@@ -2481,6 +2520,8 @@ export class DataOpsHandler implements DomainHandler {
         message,
         totalRestored,
         totalFailed,
+        totalUnchanged,
+        ...(payload.rewriteAll === true ? { rewriteAll: true } : {}),
         errors: restoreErrors,
         ...(shortfall !== '' ? { partial: true } : {}),
       });

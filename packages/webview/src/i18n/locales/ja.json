@@ -1367,6 +1367,8 @@
     "backupObjectsAll": "{{objects}} をバックアップします: 匿名化テンプレートがマスクするオブジェクトです。",
     "selectBackup": "リストアするバックアップを選択してください",
     "restoreInProgress": "データをリストア中...",
+    "restoreRewriteAll": "バックアップのすべての行を書き戻します。組織がすでにバックアップと同じ値を持つ行も含みます。オフの場合、リストアはまず組織を読み取り、バックアップ以降に変更された行だけを書き込みます。",
+    "restoreResult": "前回のリストア — 書き込み: {{written}} · バックアップと同じため変更なし: {{unchanged}} · 拒否: {{failed}}",
     "selectTemplate": "テンプレートを選択",
     "noTemplates": "テンプレートがありません",
     "createTemplate": "テンプレートを作成",

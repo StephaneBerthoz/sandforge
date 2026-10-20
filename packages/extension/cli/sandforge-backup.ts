@@ -57,13 +57,18 @@ Options:
   --max-records <n>      most records of each object a snapshot reads, as
                          sandforge.backup.maxRecordsPerObject sets it
                          (default: 50000; 100 to 1000000)
+  --rewrite-all          with --restore: write every row of the snapshot back,
+                         the ones the org already holds as the snapshot does
+                         included
   --yes                  do not ask before a restore writes
   --json                 emit what the panel would receive
   --help                 this text
 
 A restore never deletes: it upserts on Id, so it overwrites the fields of
 records that are there, after bringing back from the recycle bin the ones
-deleted since the snapshot.
+deleted since the snapshot. It reads the org's values first and writes only
+the rows where one of them differs from the snapshot, and says how many it
+found unchanged; --rewrite-all writes them all.
 
 Exit codes: 0 the run finished, 1 it could not start, or the snapshot or the
 restore failed or was refused, 2 a bad command line.
@@ -78,6 +83,8 @@ interface CliArgs {
   storeDir: string;
   /** The cap of records per object a snapshot reads, when the line sets one. */
   maxRecords?: number;
+  /** A restore writes every row back, without comparing it with the org's. */
+  rewriteAll: boolean;
   yes: boolean;
   json: boolean;
 }
@@ -134,6 +141,11 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write(`Not a number of records: "${cap}"\n`);
     process.exit(2);
   }
+  const rewriteAll = args.includes('--rewrite-all');
+  if (rewriteAll && restoreId === undefined) {
+    process.stderr.write('--rewrite-all goes with --restore.\n');
+    process.exit(2);
+  }
 
   return {
     org,
@@ -142,6 +154,7 @@ export function parseArgs(argv: string[]): CliArgs {
     restoreId,
     storeDir: get('--store', join(tmpdir(), 'sandforge-backups')) ?? '',
     ...(cap !== undefined ? { maxRecords: Number(cap) } : {}),
+    rewriteAll,
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -286,12 +299,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         return;
       }
     }
-    log(`restoring ${args.restoreId} into ${args.org}…`);
+    log(
+      `restoring ${args.restoreId} into ${args.org}` +
+        `${args.rewriteAll ? ', every row written back' : ''}…`,
+    );
     await handler.handle({
       id: `cli-restore-${Date.now()}`,
       type: 'dataops:rollback',
-      payload: { orgId: args.org, operationId: args.restoreId },
+      payload: {
+        orgId: args.org,
+        operationId: args.restoreId,
+        ...(args.rewriteAll ? { rewriteAll: true } : {}),
+      },
     } as never);
+    // What the restore wrote, refused and found unchanged, as the panel hears it.
+    const answer = posted.find((message) => message.type === 'dataops:rollback:response');
+    const said = (answer?.payload as { message?: unknown } | undefined)?.message;
+    if (typeof said === 'string') log(said);
   } else {
     log(`snapshot ${args.org}: ${args.objects.join(', ')}`);
     await handler.handle({

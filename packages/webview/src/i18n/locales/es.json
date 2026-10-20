@@ -1459,6 +1459,8 @@
     "backupObjectsAll": "Respalda {{objects}}: los objetos que enmascaran las plantillas de anonimización.",
     "selectBackup": "Seleccione un respaldo para restaurar",
     "restoreInProgress": "Restaurando datos...",
+    "restoreRewriteAll": "Volver a escribir cada fila del respaldo, incluidas las que la org ya contiene tal como las guardó el respaldo. Sin marcar, una restauración lee primero la org y solo escribe las filas que cambiaron desde el respaldo.",
+    "restoreResult": "Última restauración — escritas: {{written}} · ya como en el respaldo, sin tocar: {{unchanged}} · rechazadas: {{failed}}",
     "selectTemplate": "Seleccionar una plantilla",
     "noTemplates": "No hay plantillas disponibles",
     "createTemplate": "Crear plantilla",

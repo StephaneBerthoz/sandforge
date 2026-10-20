@@ -215,4 +215,50 @@ describe('RestorePanel', () => {
     fireEvent.click(screen.getByTestId('restore-btn-op-1'));
     expect(onRestore).toHaveBeenCalledWith('op-1');
   });
+
+  describe('the choice to write every row back', () => {
+    it('is offered unchecked, says what each way does, and is told when checked', () => {
+      const onChange = vi.fn();
+      render(<RestorePanel backups={backups} onRewriteAllChange={onChange} />);
+
+      const box = screen.getByTestId('restore-rewrite-all') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      expect(
+        screen.getByLabelText(/Write every row of the backup back.*only the rows that changed/),
+      ).toBe(box);
+
+      fireEvent.click(box);
+      expect(onChange).toHaveBeenCalledWith(true);
+    });
+
+    it('cannot be changed while a restore writes', () => {
+      render(<RestorePanel backups={backups} onRewriteAllChange={vi.fn()} isRestoring />);
+      expect((screen.getByTestId('restore-rewrite-all') as HTMLInputElement).disabled).toBe(true);
+    });
+
+    it('is not offered with no backup to restore', () => {
+      render(<RestorePanel onRewriteAllChange={vi.fn()} />);
+      expect(screen.queryByTestId('restore-rewrite-all')).toBeNull();
+    });
+  });
+
+  it('says what the last restore wrote, left alone because it already held the backup values, and had refused', () => {
+    render(
+      <RestorePanel backups={backups} lastRestore={{ written: 3, unchanged: 11_997, failed: 0 }} />,
+    );
+    expect(screen.getByTestId('restore-result').textContent).toBe(
+      'Last restore — written: 3 · already as in the backup, left alone: 11997 · refused: 0',
+    );
+  });
+
+  it('says nothing of the last restore while another writes', () => {
+    render(
+      <RestorePanel
+        backups={backups}
+        isRestoring
+        lastRestore={{ written: 3, unchanged: 0, failed: 0 }}
+      />,
+    );
+    expect(screen.queryByTestId('restore-result')).toBeNull();
+  });
 });

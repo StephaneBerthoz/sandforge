@@ -1086,6 +1086,31 @@ describe('DataOpsPage', () => {
       expect(mockRollbackMutate).toHaveBeenCalledWith({ orgId: 'org-1', operationId: 'op-1' });
     });
 
+    it('asks the restore to write every row back once the box says so', () => {
+      selectBackup();
+
+      fireEvent.click(screen.getByTestId('restore-rewrite-all'));
+      fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+
+      expect(mockRollbackMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        operationId: 'op-1',
+        rewriteAll: true,
+      });
+    });
+
+    it('says what the restore wrote and what it found unchanged, from its answer', () => {
+      mockRollbackMutationState = {
+        ...mockRollbackMutationState,
+        data: { status: 'success', totalRestored: 3, totalFailed: 0, totalUnchanged: 39 },
+      };
+      selectBackup();
+
+      expect(screen.getByTestId('restore-result').textContent).toBe(
+        'Last restore — written: 3 · already as in the backup, left alone: 39 · refused: 0',
+      );
+    });
+
     it('offers a backup whose read failed part-way, marked partial, and restores it', () => {
       // Listed on the Backup tab, it could be restored from the command line only.
       mockBackupsQueryState = {

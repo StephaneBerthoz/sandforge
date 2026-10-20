@@ -29,14 +29,48 @@ import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
 import type { OrgSession } from '../dataops/RecordRemoval.js';
 import {
   idLists,
+  inPool,
   orgSession,
   readRecordsById,
   RECORDS_PER_CALL,
   workedObjects,
 } from '../dataops/RecordRemoval.js';
+import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 
 /** Reasons kept per object: an org repeats the same few. */
 const REASON_LIMIT = 5;
+
+/**
+ * Records of one object past which a removal deletes them through a Bulk API
+ * 2.0 `delete` job rather than in calls of {@link RECORDS_PER_CALL}. A job
+ * waits its turn in the org before it deletes anything: on a scratch org,
+ * 2 000 contacts went in 8.6 seconds by ten calls and in 25.6 by one job, 24
+ * of them waiting for the org; 6 000 took some 30 seconds either way; 12 000
+ * went in 33 seconds as one job, where calls take about 52. Past ten
+ * thousand, a job is the quicker, and its seven calls — opened, sent, closed,
+ * polled, read back three times — stand for the fifty a removal sent before.
+ */
+export const BULK_DELETE_THRESHOLD = 10_000;
+
+/**
+ * Records one delete job holds at most. A removal is stopped between two
+ * jobs, never within one the org has, so a job of a whole table held a stop
+ * for as long as the org took to delete it; fifty thousand records is about a
+ * minute and a half at the pace a scratch org deleted them, and every job
+ * past the first saves the wait the org makes it start with.
+ */
+export const BULK_DELETE_JOB_RECORDS = 50_000;
+
+/**
+ * Reads of an object's dependents sent at once. Each answers in a quarter of a
+ * second on a scratch org, most of it the way there and back, and a contact
+ * lists 23 relationships the check reads per 200 records: 12 000 contacts took
+ * 1 380 reads one after the other, nearly six minutes of a removal that spent
+ * less than one deleting. Four at a time, as the related records of a delete
+ * are counted (`countRelated`).
+ */
+const DEPENDENT_READS_AT_ONCE = 4;
 
 /**
  * Rows one read of an object's dependents takes. A list that fills it may
@@ -285,12 +319,124 @@ export type RemovalOrg = Pick<
    * record deleted from one the session cannot see.
    */
   queryDeleted(soql: string): Promise<{ records: unknown[] }>;
+  /**
+   * Delete `ids` of one object through one Bulk API 2.0 `delete` job — to the
+   * recycle bin, as a delete over REST sends them, never `hardDelete` — and
+   * answer each of them, in their order. A removal sends this way the records
+   * of an object past {@link BULK_DELETE_THRESHOLD}; absent, every delete
+   * goes over REST.
+   *
+   * @param signal - A stop before the job is closed aborts it, and the org
+   *   deletes none of its records; once closed, the job is awaited.
+   */
+  bulkDestroy?(
+    objectApiName: string,
+    ids: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<BulkDeleteAnswer>;
 };
 
 /**
+ * What a Bulk API 2.0 delete job answered: per record, in the order of the
+ * ids it was sent, deleted or the org's error (`sf__Error`, `CODE:message:fields`);
+ * or that it was aborted before the org had it; or that the org deleted none
+ * of them — the job could not be handed over, an object the Bulk API does not
+ * take, or it failed whole before it processed a record — which leaves them
+ * to be deleted over REST, which answers each one.
+ */
+export type BulkDeleteAnswer =
+  | { kind: 'answered'; rows: ReadonlyArray<{ success: true } | { success: false; error: string }> }
+  | { kind: 'aborted' }
+  | { kind: 'untouched'; reason: string };
+
+/**
+ * Delete `ids` of one object through one Bulk API 2.0 `delete` job, as
+ * {@link RemovalOrg.bulkDestroy} says: the CSV of their ids, the job's
+ * results read back and matched to them by the `Id` each row echoes
+ * (`normalizeBulkJobResults`). A row no result names is answered with why.
+ *
+ * Whatever fails before the job is closed — opened, sent — leaves the org
+ * holding nothing to process, and so does a job that failed with no record
+ * processed: `untouched`. A failure once it is closed throws, as the org may
+ * have deleted any of its records.
+ */
+export async function bulkDeleteJob(
+  connection: BulkApiConnection,
+  objectApiName: string,
+  ids: readonly string[],
+  signal?: AbortSignal,
+): Promise<BulkDeleteAnswer> {
+  let closed = false;
+  /** The job's last state, and its message, as the org last told it. */
+  let last: { state?: string; message?: string } = {};
+  /** Rows the job's results answer, written or refused: none, and it processed nothing. */
+  let processed = 0;
+  // The job, told what the org did with it: jsforce's handle, as the executor drives it.
+  const tracked: BulkApiConnection = {
+    bulk2: {
+      createJob: (options) => {
+        const job = connection.bulk2.createJob(options);
+        return {
+          get id() {
+            return job.id;
+          },
+          open: () => job.open(),
+          uploadData: (csv) => job.uploadData(csv),
+          close: async () => {
+            await job.close();
+            closed = true;
+          },
+          abort: () => job.abort(),
+          check: async () => {
+            const status = await job.check();
+            last = { state: status.state, message: status.errorMessage };
+            return status;
+          },
+          getAllResults: async () => {
+            const results = await job.getAllResults();
+            processed = Array.isArray(results)
+              ? results.length
+              : (results.successfulResults?.length ?? 0) + (results.failedResults?.length ?? 0);
+            return results;
+          },
+        };
+      },
+    },
+  };
+  let result: Awaited<ReturnType<BulkApiExecutor['executeBulk']>>;
+  try {
+    result = await new BulkApiExecutor().executeBulk(
+      // One job at a time, and nothing else of the removal's own shares them.
+      { connection: tracked, bulkManager: new BulkApiManager(1), ...(signal ? { signal } : {}) },
+      objectApiName,
+      // A delete sends the records to the recycle bin, as a REST delete does.
+      'delete',
+      ids.map((Id) => ({ Id })),
+    );
+  } catch (err: unknown) {
+    if (!closed) return { kind: 'untouched', reason: extractErrorMessage(err) };
+    throw err;
+  }
+  if (result.aborted) return { kind: 'aborted' };
+  if (last.state !== 'JobComplete' && processed === 0) {
+    return { kind: 'untouched', reason: last.message || `job ${last.state ?? 'not complete'}` };
+  }
+  const byRow = new Map(result.outcomes.map((outcome) => [outcome.recordIndex, outcome]));
+  return {
+    kind: 'answered',
+    rows: ids.map((_, at) => {
+      const outcome = byRow.get(at);
+      if (outcome?.success) return { success: true };
+      return { success: false, error: outcome?.error ?? 'The job gave no result for it.' };
+    }),
+  };
+}
+
+/**
  * The org a removal works on, over a jsforce connection: the session the
- * cleanup work uses, and the org's clock and the session's user, which only
- * the SOAP API tells.
+ * cleanup work uses, the org's clock and the session's user, which only the
+ * SOAP API tells, and its Bulk API 2.0 for the deletes past
+ * {@link BULK_DELETE_THRESHOLD}.
  *
  * @param conn - The run's target org.
  * @param context - Names the work in the API-usage warnings.
@@ -304,6 +450,8 @@ export function removalOrg(conn: Connection, context: string): RemovalOrg {
       const answer = await conn.query<Record<string, unknown>>(soql, { scanAll: true });
       return { records: answer.records };
     },
+    bulkDestroy: (objectApiName, ids, signal) =>
+      bulkDeleteJob(conn as unknown as BulkApiConnection, objectApiName, ids, signal),
   };
 }
 
@@ -442,6 +590,12 @@ type WriteError = NonNullable<z.infer<typeof writeResultSchema>['errors']>[numbe
 /** A record by its first fifteen characters: the same record, whichever length its id is written in. */
 function recordKey(id: string): string {
   return id.slice(0, 15);
+}
+
+/** Whether a query was refused for a column its object does not have. */
+function isMissingColumn(err: unknown): boolean {
+  const code = (err as { errorCode?: unknown } | null)?.errorCode;
+  return code === 'INVALID_FIELD' || /no such column/i.test(extractErrorMessage(err));
 }
 
 /** A date the org wrote, in epoch milliseconds; NaN when there is none to read. */
@@ -768,12 +922,22 @@ export async function removeRunRecords(
   const describes = new Map<string, Promise<unknown>>();
   /** Whether the removal has asked the org to write: until then it stamped nothing. */
   let wrote = false;
+  const bulkDestroy = org.bulkDestroy?.bind(org);
   const session: RemovalOrg = {
     query: (soql) => org.query(soql),
     destroy: (objectApiName, ids) => {
       wrote = true;
       return org.destroy(objectApiName, ids);
     },
+    ...(bulkDestroy
+      ? {
+          // The removal's stop aborts a job the org does not have yet.
+          bulkDestroy: (objectApiName: string, ids: readonly string[]) => {
+            wrote = true;
+            return bulkDestroy(objectApiName, ids, options.signal);
+          },
+        }
+      : {}),
     update: (objectApiName, records) => {
       wrote = true;
       return org.update(objectApiName, records);
@@ -970,12 +1134,41 @@ export async function removeRunRecords(
       continue;
     }
 
+    // Records read from a journal come a page of two thousand at a time: an
+    // object of a job's worth gathers its pages up to a job before they are
+    // checked and sent, or no page would ever reach the threshold, and twelve
+    // thousand contacts went in sixty calls. Every other object goes a page at
+    // a time, as it did.
+    const gathers =
+      session.bulkDestroy !== undefined &&
+      objectApiName !== FILE_VERSION &&
+      count >= BULK_DELETE_THRESHOLD;
+    let candidates: string[] = [];
+    /** The place among the object's records of each candidate, by its key. */
+    let placeOf = new Map<string, number>();
+    /** Check and send the candidates gathered so far; whether the removal was stopped. */
+    const sendGathered = async (): Promise<boolean> => {
+      const sent = candidates;
+      const places = placeOf;
+      candidates = [];
+      placeOf = new Map();
+      return removeCandidates(session, dependents, removal, sent, {
+        stopped,
+        placeOf: places,
+        onDeleted: (deleted) => {
+          settled += deleted;
+          options.onProgress?.(settled, total, objectApiName);
+        },
+        onHeld: (held) => {
+          settled += held;
+          options.onProgress?.(settled, total, objectApiName);
+        },
+      });
+    };
     let at = 0;
     for await (const page of records.pages(objectApiName)) {
       if (stopped()) return outcome(true);
-      const candidates: string[] = [];
-      /** The place among the object's records of each candidate, by its key. */
-      const placeOf = new Map<string, number>();
+      const gatheredBefore = candidates.length;
       for (const id of page) {
         const key = recordKey(id);
         const place = at++;
@@ -1000,21 +1193,13 @@ export async function removeRunRecords(
           'or deleted for good — are not counted as removed' +
           (snapshot.binError ? ` (the recycle bin could not be read: ${snapshot.binError})` : '.');
       }
-      settled += page.length - candidates.length;
-
-      const cancelledPart = await removeCandidates(session, dependents, removal, candidates, {
-        stopped,
-        placeOf,
-        onDeleted: (deleted) => {
-          settled += deleted;
-          options.onProgress?.(settled, total, objectApiName);
-        },
-        onHeld: (held) => {
-          settled += held;
-          options.onProgress?.(settled, total, objectApiName);
-        },
-      });
-      if (cancelledPart) return outcome(true);
+      settled += page.length - (candidates.length - gatheredBefore);
+      if (gathers && candidates.length < BULK_DELETE_JOB_RECORDS) continue;
+      if (await sendGathered()) return outcome(true);
+    }
+    if (gathers && candidates.length > 0) {
+      if (stopped()) return outcome(true);
+      if (await sendGathered()) return outcome(true);
     }
   }
 
@@ -1450,20 +1635,48 @@ async function stampsLeft(
   return stamps;
 }
 
+/** One delete of a removal: a call of up to {@link RECORDS_PER_CALL} records, or a job. */
+interface DeleteRound {
+  ids: string[];
+  /** Sent as a Bulk API 2.0 delete job rather than over REST. */
+  byJob: boolean;
+}
+
+/** `ids` cut into calls of {@link RECORDS_PER_CALL}. */
+function callsOf(ids: readonly string[]): DeleteRound[] {
+  const calls: DeleteRound[] = [];
+  for (let at = 0; at < ids.length; at += RECORDS_PER_CALL) {
+    calls.push({ ids: ids.slice(at, at + RECORDS_PER_CALL), byJob: false });
+  }
+  return calls;
+}
+
 /**
- * The batches `ids` of one object are deleted in: every custom price before
- * any standard one, which the org refuses while a custom price of its product
- * is left — `UNKNOWN_EXCEPTION` when both went in one call.
+ * The deletes `ids` of one object go in: every custom price before any
+ * standard one, which the org refuses while a custom price of its product is
+ * left — `UNKNOWN_EXCEPTION` when both went in one call. Each such group of
+ * {@link BULK_DELETE_THRESHOLD} records or more goes as jobs of up to
+ * {@link BULK_DELETE_JOB_RECORDS}, where the org takes jobs; the rest in calls
+ * of {@link RECORDS_PER_CALL}. A file's version is deleted by its document,
+ * read first (`deleteVersions`): never by a job.
  */
 async function deleteRounds(
   org: RemovalOrg,
   objectApiName: string,
   ids: string[],
-): Promise<string[][]> {
-  const rounds: string[][] = [];
+): Promise<DeleteRound[]> {
+  const rounds: DeleteRound[] = [];
+  const byJob = org.bulkDestroy !== undefined && objectApiName !== FILE_VERSION;
   const cut = (list: string[]): void => {
-    for (let at = 0; at < list.length; at += RECORDS_PER_CALL) {
-      rounds.push(list.slice(at, at + RECORDS_PER_CALL));
+    if (!byJob || list.length < BULK_DELETE_THRESHOLD) {
+      rounds.push(...callsOf(list));
+      return;
+    }
+    // Jobs of one size: 50 500 records go as two of 25 250, not as one of
+    // 50 000 and one of 500 that costs as long.
+    const size = Math.ceil(list.length / Math.ceil(list.length / BULK_DELETE_JOB_RECORDS));
+    for (let at = 0; at < list.length; at += size) {
+      rounds.push({ ids: list.slice(at, at + size), byJob: true });
     }
   };
   if (!isPricebookEntry(objectApiName) || ids.length === 0) {
@@ -1535,12 +1748,25 @@ async function removeCandidates(
   hooks.onHeld?.(heldNow.length);
 
   const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
-  for (const batch of await deleteRounds(org, objectApiName, toDelete)) {
+  const queue = await deleteRounds(org, objectApiName, toDelete);
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    const { ids: batch, byJob } = next;
     if (hooks.stopped()) return true;
     // Named before the delete: a file seen through its record may be out of
     // the session's reach once the record is gone.
     const files = await dependents.filesOn(batch);
-    const outcomes = await deleteBatch(org, objectApiName, batch);
+    const answer = byJob
+      ? await deleteByJob(org, objectApiName, batch)
+      : await deleteBatch(org, objectApiName, batch);
+    // Aborted before the org had it: nothing of it was deleted.
+    if (answer === 'aborted') return true;
+    // The org deleted none of them by the job: they go over REST, which
+    // answers each one, before anything after them.
+    if (answer === 'untouched') {
+      queue.unshift(...callsOf(batch));
+      continue;
+    }
+    const outcomes = answer;
     batch.forEach((id, index) => {
       const result = outcomes[index];
       if (result.kind === 'refused') {
@@ -1597,7 +1823,14 @@ async function readSnapshotPage(
   for (const { created, modified } of columnsTried) {
     try {
       const columns = created ? [created, modified] : [modified];
-      const rows = await readRecordsById(org, objectApiName, columns, page);
+      // A few lists at a time: a run of 12 000 records was read in 60 of them.
+      const rows = await readRecordsById(
+        org,
+        objectApiName,
+        columns,
+        page,
+        DEPENDENT_READS_AT_ONCE,
+      );
       const dates = new Map<string, number>();
       for (const row of rows) {
         if (typeof row.Id === 'string') dates.set(recordKey(row.Id), epochOf(row[modified]));
@@ -1811,6 +2044,61 @@ export async function deleteBatch(
 }
 
 /**
+ * Delete one job's worth of records through the org's Bulk API 2.0 and say
+ * what became of each, in the words a delete over REST gives it: deleted;
+ * already gone — `ENTITY_IS_DELETED`, deleted since it was read; or refused
+ * with the org's reason, `CODE: message` as {@link describeError} writes it,
+ * and refused for records still hanging from it on `DELETE_FAILED`, tried
+ * again as such. A job the org answered with an error that throws refuses
+ * every record of it, as a call the org refuses whole does: the org may have
+ * deleted any of them, and the second try reads which.
+ *
+ * @returns The outcomes; `aborted` when the stop came before the org had the
+ *   job; `untouched` when it deleted none of them, for REST to take them.
+ */
+async function deleteByJob(
+  org: RemovalOrg,
+  objectApiName: string,
+  batch: readonly string[],
+): Promise<DeleteOutcome[] | 'aborted' | 'untouched'> {
+  let answer: BulkDeleteAnswer | undefined;
+  try {
+    answer = await org.bulkDestroy?.(objectApiName, batch);
+  } catch (err: unknown) {
+    const reason = extractErrorMessage(err);
+    return batch.map(() => ({ kind: 'refused', reason, dependency: false }));
+  }
+  if (answer === undefined || answer.kind === 'untouched') return 'untouched';
+  if (answer.kind === 'aborted') return 'aborted';
+  const { rows } = answer;
+  return batch.map((_, at): DeleteOutcome => {
+    const row = rows[at];
+    if (row?.success === true) return { kind: 'deleted' };
+    const { code, message } = bulkErrorOf(row?.error ?? '');
+    if (code === 'ENTITY_IS_DELETED') return { kind: 'gone' };
+    return {
+      kind: 'refused',
+      reason:
+        code && message
+          ? `${code}: ${message}`
+          : row?.error || code || message || 'The org gave no reason.',
+      dependency: code === DEPENDENCY_REFUSAL,
+    };
+  });
+}
+
+/**
+ * The code and message of an error as Bulk API writes it in `sf__Error`:
+ * `CODE:message:fields`, the fields `--` when it names none. An error the job
+ * wrote of a row it gave no result for carries no code.
+ */
+function bulkErrorOf(text: string): { code?: string; message: string } {
+  const match = /^([A-Z][A-Z0-9_]*):([\s\S]*?)(?::(?:--|[\w.,]+))?$/.exec(text.trim());
+  if (!match) return { message: text.trim() };
+  return { code: match[1], message: match[2].trim() };
+}
+
+/**
  * Delete the file versions `batch` names by deleting their documents, and say
  * what became of each version: the org deletes no version on its own — its
  * describe says it is not deletable — and a run keeps a version alone when it
@@ -1933,6 +2221,11 @@ class DependentsCheck {
    * that the run did not create.
    */
   private readonly files = new Map<string, Set<string>>();
+  /**
+   * Per dependent object, the first of {@link DEPENDENT_DATE_COLUMNS} it may
+   * keep: the ones before it named a column it does not have.
+   */
+  private readonly datesKept = new Map<string, number>();
 
   constructor(
     private readonly org: RemovalOrg,
@@ -1975,13 +2268,40 @@ class DependentsCheck {
       return verdict;
     }
 
-    for (const relationship of relationships) {
-      for (let at = 0; at < candidates.length; at += RECORDS_PER_CALL) {
-        const chunk = candidates.slice(at, at + RECORDS_PER_CALL);
-        const holding = await this.holdingIn(relationship, chunk, verdict);
-        if (holding.size > 0) verdict.holders.add(relationship.childSObject);
-        holding.forEach((key) => verdict.held.add(key));
-      }
+    // Past one read's worth of records, a relationship no record of which
+    // points anywhere holds none of them: asked once, it is not read for
+    // each 200. A contact lists 23 relationships the check reads; a scratch
+    // org held records of one of them, and the other 22 were read 60 times
+    // each for 12 000 contacts, empty every time.
+    const chunks: string[][] = [];
+    for (let at = 0; at < candidates.length; at += RECORDS_PER_CALL) {
+      chunks.push(candidates.slice(at, at + RECORDS_PER_CALL));
+    }
+    const pointing =
+      chunks.length > 1
+        ? await inPool(
+            relationships.map((relationship) => () => this.anyPointing(relationship)),
+            DEPENDENT_READS_AT_ONCE,
+          )
+        : relationships.map(() => true);
+    const reads = relationships
+      .filter((_, at) => pointing[at])
+      .flatMap((relationship) =>
+        chunks.map((chunk) => async () => ({
+          relationship,
+          ...(await this.holdingIn(relationship, chunk)),
+        })),
+      );
+    // Read a few at a time, and settled in the order they were asked: the
+    // objects holding records are named in the same order however the reads
+    // came back.
+    for (const { relationship, holding, unchecked } of await inPool(
+      reads,
+      DEPENDENT_READS_AT_ONCE,
+    )) {
+      if (unchecked) verdict.unchecked.add(relationship.childSObject);
+      if (holding.size > 0) verdict.holders.add(relationship.childSObject);
+      holding.forEach((key) => verdict.held.add(key));
     }
     await this.lockedPastDraft(objectApiName, candidates, verdict);
     if (isPricebookEntry(objectApiName)) await this.standardPricesHeld(candidates, verdict);
@@ -2008,31 +2328,42 @@ class DependentsCheck {
    *
    * The links of a file to the records read also say which files stay in the
    * org once those records are gone: see {@link filesOn}.
+   *
+   * The dates an object does not keep are not asked of it again: a file's
+   * link refused `CreatedDate` for every 200 records, and was read twice each
+   * time.
+   *
+   * @returns The keys held, and whether the relationship could not be read.
    */
   private async holdingIn(
     relationship: DependentRelationship,
     chunk: readonly string[],
-    verdict: HeldVerdict,
-  ): Promise<Set<string>> {
+  ): Promise<{ holding: Set<string>; unchecked: boolean }> {
     const child = assertSoqlIdentifier(relationship.childSObject);
     const field = assertSoqlIdentifier(relationship.field);
     const [list] = idLists(chunk, chunk.length);
     // A record the platform adds is read with the ends that tie it to the
     // run, whichever one the relationship follows: see `PLATFORM_ADDED`.
     const columns = new Set(['Id', field, ...(PLATFORM_ADDED[child]?.ends ?? [])]);
-    for (const dates of DEPENDENT_DATE_COLUMNS) {
+    const first = this.datesKept.get(child) ?? 0;
+    for (let tried = first; tried < DEPENDENT_DATE_COLUMNS.length; tried++) {
+      const dates = DEPENDENT_DATE_COLUMNS[tried];
       let answer: { records: unknown[] };
       try {
         answer = await this.org.query(
           `SELECT ${[...columns, ...dates].join(', ')} FROM ${child} ` +
             `WHERE ${field} IN (${list}) LIMIT ${DEPENDENTS_READ_LIMIT}`,
         );
-      } catch {
+      } catch (err: unknown) {
+        // A column the object does not have, never one that failed by chance.
+        if (isMissingColumn(err)) this.datesKept.set(child, tried + 1);
         continue;
       }
       // A read that filled its limit may hold more than it read: every
       // record of the chunk is kept rather than guessed about.
-      if (answer.records.length >= DEPENDENTS_READ_LIMIT) return new Set(chunk.map(recordKey));
+      if (answer.records.length >= DEPENDENTS_READ_LIMIT) {
+        return { holding: new Set(chunk.map(recordKey)), unchecked: false };
+      }
       const holding = new Set<string>();
       for (const record of answer.records) {
         if (typeof record !== 'object' || record === null) continue;
@@ -2044,10 +2375,27 @@ class DependentsCheck {
         if (this.lockedUnder.get(recordKey(row.Id)) === recordKey(parent)) continue;
         if (this.stays(row, child, relationship.restricted)) holding.add(recordKey(parent));
       }
-      return holding;
+      return { holding, unchecked: false };
     }
-    if (!relationship.restricted) verdict.unchecked.add(relationship.childSObject);
-    return new Set();
+    return { holding: new Set(), unchecked: !relationship.restricted };
+  }
+
+  /**
+   * Whether any record of a relationship points at a record at all: one the
+   * org answers none for holds none of the records about to go. Asked of it
+   * whole, once, and read for each 200 records only when it answers one —
+   * or cannot answer: a file's link, which the org reads only by the records
+   * it links, is read as it always was.
+   */
+  private async anyPointing(relationship: DependentRelationship): Promise<boolean> {
+    try {
+      const child = assertSoqlIdentifier(relationship.childSObject);
+      const field = assertSoqlIdentifier(relationship.field);
+      const answer = await this.org.query(`SELECT Id FROM ${child} WHERE ${field} != null LIMIT 1`);
+      return answer.records.length > 0;
+    } catch {
+      return true;
+    }
   }
 
   /**

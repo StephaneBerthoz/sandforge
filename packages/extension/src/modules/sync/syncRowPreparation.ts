@@ -81,6 +81,22 @@ export class SyncRunLinks {
   private readonly refused = new Map<string, string>();
   /** Copies in the target the run deleted, by the first fifteen characters of their id. */
   private readonly deleted = new Set<string>();
+  /** Owners of the source the target refused in this run, by the first fifteen characters of their id. */
+  private readonly ownersRefused = new Set<string>();
+
+  /**
+   * An owner of the source the target refused in this run, on `OwnerId`, for
+   * an id it does not have: the objects written after send their rows
+   * without it from the start (`DataSync.write`).
+   */
+  noteOwnerRefused(ownerId: string): void {
+    this.ownersRefused.add(idKey(ownerId));
+  }
+
+  /** Whether the target refused this owner of the source earlier in the run. */
+  isOwnerRefused(ownerId: string): boolean {
+    return this.ownersRefused.has(idKey(ownerId));
+  }
 
   /**
    * @param earlier - What earlier runs of the configuration wrote, by the

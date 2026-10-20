@@ -1459,6 +1459,8 @@
     "backupObjectsAll": "Faz backup de {{objects}}: os objetos que os modelos de anonimização mascaram.",
     "selectBackup": "Selecione um backup para restaurar",
     "restoreInProgress": "Restaurando dados...",
+    "restoreRewriteAll": "Gravar de volta cada linha do backup, inclusive as que a org já contém como o backup as guardou. Desmarcado, uma restauração lê primeiro a org e grava apenas as linhas que mudaram desde o backup.",
+    "restoreResult": "Última restauração — gravadas: {{written}} · já como no backup, deixadas como estão: {{unchanged}} · recusadas: {{failed}}",
     "selectTemplate": "Selecionar um modelo",
     "noTemplates": "Nenhum modelo disponível",
     "createTemplate": "Criar modelo",

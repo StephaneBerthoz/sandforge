@@ -104,6 +104,19 @@ describe('parseArgs', () => {
     expect(parseArgs(argv('--org', 'T', '--restore', 'op-1')).yes).toBe(false);
     expect(parseArgs(argv('--org', 'T', '--restore', 'op-1', '--yes')).yes).toBe(true);
   });
+
+  it('writes only what differs unless --rewrite-all asks for every row', () => {
+    expect(parseArgs(argv('--org', 'T', '--restore', 'op-1')).rewriteAll).toBe(false);
+    expect(parseArgs(argv('--org', 'T', '--restore', 'op-1', '--rewrite-all')).rewriteAll).toBe(
+      true,
+    );
+  });
+
+  it('refuses --rewrite-all without a restore', () => {
+    const { code, message } = refuse('--org', 'T', '--object', 'Contact', '--rewrite-all');
+    expect(code).toBe(2);
+    expect(message).toContain('--rewrite-all goes with --restore');
+  });
 });
 
 /** `count` contacts with a title each. */
@@ -252,6 +265,7 @@ describe('against an org', () => {
       const rows = contactsOf(2);
       const { upsert } = orgOf(rows);
       const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+      rows[1].Title = 'Changed after the backup';
       const restore = await run(
         store,
         '--org',
@@ -263,6 +277,73 @@ describe('against an org', () => {
 
       expect(restore.code).toBeUndefined();
       expect(upsert).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('writes back only the rows changed since the snapshot, and says how many it found unchanged', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(5);
+      const { upsert } = orgOf(rows);
+      const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+      rows[1].Title = 'Changed after the backup';
+      rows[3].Title = 'Changed after the backup';
+
+      const restore = await run(
+        store,
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotOf(backup.posted),
+        '--yes',
+      );
+
+      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(upsert.mock.calls[0][0].map((row: Record<string, unknown>) => row.Id)).toEqual([
+        rows[1].Id,
+        rows[3].Id,
+      ]);
+      expect(rows.map((r) => r.Title)).toEqual(Array(5).fill('Original'));
+      expect(
+        restore.posted.find((m) => m.type === 'dataops:rollback:response')?.payload,
+      ).toMatchObject({
+        status: 'success',
+        totalRestored: 2,
+        totalUnchanged: 3,
+        message:
+          "Rollback completed: 2 records restored; 3 already held the backup's values and were " +
+          'not written',
+      });
+    });
+  });
+
+  it('writes every row back with --rewrite-all, the unchanged ones too', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(3);
+      const { upsert } = orgOf(rows);
+      const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+
+      const restore = await run(
+        store,
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotOf(backup.posted),
+        '--rewrite-all',
+        '--yes',
+      );
+
+      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(upsert.mock.calls[0][0]).toHaveLength(3);
+      expect(
+        restore.posted.find((m) => m.type === 'dataops:rollback:response')?.payload,
+      ).toMatchObject({
+        totalRestored: 3,
+        totalUnchanged: 0,
+        rewriteAll: true,
+        message: 'Rollback completed: 3 records restored',
+      });
     });
   });
 

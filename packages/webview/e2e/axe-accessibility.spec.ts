@@ -7433,6 +7433,21 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('page-tab-restore').click();
       await expect(page.getByTestId('restore-partial-bk-cap')).toContainText('the read failed');
       await expect(page.getByTestId('restore-partial-badge-bk-cap')).toHaveText('Partial');
+      // The choice to write every row back, and what the last restore wrote
+      // and found unchanged.
+      await expect(page.getByTestId('restore-rewrite-all')).toBeVisible();
+      await page.getByTestId('restore-backup-bk-cap').getByRole('button').first().click();
+      await page.getByTestId('restore-btn-bk-cap').click();
+      await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });
+      await answerAll(page, 'dataops:rollback', 'dataops:rollback:response', {
+        operationId: 'bk-cap',
+        status: 'success',
+        message: "Rollback completed: 3 records restored; 997 already held the backup's values",
+        totalRestored: 3,
+        totalFailed: 0,
+        totalUnchanged: 997,
+      });
+      await expect(page.getByTestId('restore-result')).toContainText('997');
       await expectReadable(page, theme);
 
       await page.getByTestId('page-tab-anonymize').click();

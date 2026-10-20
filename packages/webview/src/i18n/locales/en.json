@@ -1459,6 +1459,8 @@
     "backupObjectsAll": "Backs up {{objects}}: the objects the anonymization templates mask.",
     "selectBackup": "Select a backup to restore",
     "restoreInProgress": "Restoring data...",
+    "restoreRewriteAll": "Write every row of the backup back, including the ones the org already holds as the backup does. Unchecked, a restore reads the org first and writes only the rows that changed since the backup.",
+    "restoreResult": "Last restore — written: {{written}} · already as in the backup, left alone: {{unchanged}} · refused: {{failed}}",
     "selectTemplate": "Select a template",
     "noTemplates": "No templates available",
     "createTemplate": "Create Template",

@@ -1459,6 +1459,8 @@
     "backupObjectsAll": "Sauvegarde {{objects}} : les objets que masquent les modèles d’anonymisation.",
     "selectBackup": "Sélectionnez une sauvegarde à restaurer",
     "restoreInProgress": "Restauration en cours...",
+    "restoreRewriteAll": "Réécrire chaque ligne de la sauvegarde, y compris celles que l'org contient déjà telles que la sauvegarde les a gardées. Décoché, une restauration lit d'abord l'org et n'écrit que les lignes modifiées depuis la sauvegarde.",
+    "restoreResult": "Dernière restauration — écrites : {{written}} · déjà comme dans la sauvegarde, laissées telles quelles : {{unchanged}} · refusées : {{failed}}",
     "selectTemplate": "Sélectionner un modèle",
     "noTemplates": "Aucun modèle disponible",
     "createTemplate": "Créer un modèle",

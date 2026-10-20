@@ -67,6 +67,8 @@ export const DataOpsPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState('backup');
   const [selectedBackupId, setSelectedBackupId] = useState<string>('');
+  /** A restore writes every row back rather than the rows that changed since the backup. */
+  const [rewriteAll, setRewriteAll] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
 
   // Local UI state
@@ -331,8 +333,22 @@ export const DataOpsPage: React.FC = () => {
   const handleRestore = (operationId: string) => {
     if (!currentOrg) return;
     setError(null);
-    rollbackMutation.mutate({ orgId: currentOrg.id, operationId });
+    rollbackMutation.mutate({
+      orgId: currentOrg.id,
+      operationId,
+      ...(rewriteAll ? { rewriteAll: true } : {}),
+    });
   };
+  /** What the last restore wrote, left alone and had refused, from its answer. */
+  const restored = rollbackMutation.data;
+  const lastRestore =
+    restored && typeof restored.totalRestored === 'number'
+      ? {
+          written: restored.totalRestored,
+          unchanged: typeof restored.totalUnchanged === 'number' ? restored.totalUnchanged : 0,
+          failed: typeof restored.totalFailed === 'number' ? restored.totalFailed : 0,
+        }
+      : undefined;
 
   // dataops:backup writes record payloads into ConfigStore, which is VSCode
   // globalState: a backup lived on one laptop with no way out of it.
@@ -543,6 +559,9 @@ export const DataOpsPage: React.FC = () => {
               // Nothing disabled the button while the upserts ran, so a second
               // click started a second restore over the first one.
               isRestoring={rollbackMutation.loading}
+              rewriteAll={rewriteAll}
+              onRewriteAllChange={setRewriteAll}
+              lastRestore={lastRestore}
             />
           )}
 

@@ -9,6 +9,16 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { formatStoredDate, uiLocale } from '../../utils/formatters';
 import { BackupPartialNote } from './BackupPanel';
 
+/** What the last restore did, as its answer counts it. */
+export interface RestoreCounts {
+  /** Rows written back. */
+  written: number;
+  /** Rows the org already held as the backup does, which it left alone. */
+  unchanged: number;
+  /** Rows the org refused. */
+  failed: number;
+}
+
 /** RestorePanel component props. */
 export interface RestorePanelProps {
   backups?: BackupSummary[];
@@ -17,6 +27,14 @@ export interface RestorePanelProps {
   onRestore?: (operationId: string) => void;
   isRestoring?: boolean;
   restoreProgress?: { completed: number; total: number };
+  /**
+   * Write every row of the backup back, rather than read the org first and
+   * write only the rows that changed since.
+   */
+  rewriteAll?: boolean;
+  onRewriteAllChange?: (rewriteAll: boolean) => void;
+  /** What the last restore wrote, left alone and had refused. */
+  lastRestore?: RestoreCounts;
 }
 
 /** Panel for restoring data from backups. */
@@ -27,6 +45,9 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
   onRestore,
   isRestoring = false,
   restoreProgress,
+  rewriteAll = false,
+  onRewriteAllChange,
+  lastRestore,
 }) => {
   const { t } = useTranslation();
 
@@ -52,6 +73,32 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
             showPercent
           />
         </div>
+      )}
+
+      {/* A restore writes only what changed since the backup: a backup of
+          12 000 contacts, three of them changed, was written back whole. */}
+      {restorableBackups.length > 0 && onRewriteAllChange && (
+        <label className="flex items-start gap-2 text-xs text-text-secondary">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={rewriteAll}
+            disabled={isRestoring}
+            onChange={(e) => onRewriteAllChange(e.target.checked)}
+            data-testid="restore-rewrite-all"
+          />
+          <span>{t('dataops.restoreRewriteAll')}</span>
+        </label>
+      )}
+
+      {lastRestore && !isRestoring && (
+        <p className="text-xs text-text-secondary" role="status" data-testid="restore-result">
+          {t('dataops.restoreResult', {
+            written: lastRestore.written,
+            unchanged: lastRestore.unchanged,
+            failed: lastRestore.failed,
+          })}
+        </p>
       )}
 
       {restorableBackups.length === 0 && !isRestoring && (
@@ -84,20 +131,6 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                       </Badge>
                     )}
                     {isSelected && <Badge variant="info">{t('common.selected')}</Badge>}
-                    {isSelected && onRestore && (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRestore(backup.operationId);
-                        }}
-                        disabled={isRestoring}
-                        data-testid={`restore-btn-${backup.operationId}`}
-                      >
-                        {t('dataops.restore')}
-                      </Button>
-                    )}
                   </div>
                 }
               />
@@ -115,6 +148,22 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 )}
               </CardBody>
             </Card>
+            {/* Beside the card, not in it: the card is a button that selects
+                the backup, and a button inside it is one screen readers may
+                never announce (axe, nested-interactive). */}
+            {isSelected && onRestore && (
+              <div className="mt-2 flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => onRestore(backup.operationId)}
+                  disabled={isRestoring}
+                  data-testid={`restore-btn-${backup.operationId}`}
+                >
+                  {t('dataops.restore')}
+                </Button>
+              </div>
+            )}
           </div>
         );
       })}

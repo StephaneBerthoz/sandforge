@@ -326,7 +326,15 @@ export interface PIIScanResponse extends BaseMessage {
 /** Request to roll back a previous data operation (validated by dataOpsRollbackPayloadSchema). */
 export interface DataOpsRollbackRequest extends BaseMessage {
   type: 'dataops:rollback';
-  payload: { orgId: string; operationId: string };
+  payload: {
+    orgId: string;
+    operationId: string;
+    /**
+     * Write every row of the backup back. Absent, a restore reads the org's
+     * values first and writes only the rows where one differs.
+     */
+    rewriteAll?: boolean;
+  };
 }
 
 /** Request to anonymize data with a masking template (validated by dataOpsAnonymizePayloadSchema). */
@@ -381,6 +389,15 @@ export interface DataOpsRollbackResponse extends BaseMessage {
     status: string;
     message: string;
     totalRestored: number;
+    /** Rows the org refused. */
+    totalFailed?: number;
+    /**
+     * Rows the org already held with the backup's values, which the restore
+     * read and did not write. Zero when it was asked to write every row back.
+     */
+    totalUnchanged?: number;
+    /** The restore was asked to write every row back, without comparing. */
+    rewriteAll?: boolean;
     /**
      * The backup held only part of some object — it stopped at the cap, its
      * read failed, or its file is no longer all there — and the restore left

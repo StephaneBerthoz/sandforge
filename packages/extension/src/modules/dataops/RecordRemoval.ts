@@ -141,7 +141,7 @@ export interface RelatedRecords {
 }
 
 /** Run `tasks` with at most `limit` in flight; the results come back in the tasks' order. */
-async function inPool<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+export async function inPool<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
   const results: T[] = new Array<T>(tasks.length);
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -228,12 +228,16 @@ export async function countRelated(
 /**
  * Read `fields` of the records `ids` names, in lists the org takes. Records
  * deleted since they were found simply do not come back.
+ *
+ * @param atOnce - Lists read at once; the records come back in the order of
+ *   the lists all the same.
  */
 export async function readRecordsById(
   conn: Pick<OrgSession, 'query'>,
   objectApiName: string,
   fields: readonly string[],
   ids: readonly string[],
+  atOnce = 1,
 ): Promise<Array<Record<string, unknown>>> {
   const object = assertSoqlIdentifier(objectApiName);
   const names = [...new Set(['Id', ...fields])].map(assertSoqlIdentifier);
@@ -241,9 +245,14 @@ export async function readRecordsById(
   // A query travels in a URL: a wide object names fewer records per query, so
   // the columns and the Ids together stay short of what the org accepts.
   const perQuery = names.length > WIDE_OBJECT_COLUMNS ? RECORDS_PER_CALL / 4 : RECORDS_PER_CALL;
+  const answers = await inPool(
+    idLists(ids, perQuery).map(
+      (list) => () => conn.query(`SELECT ${columns} FROM ${object} WHERE Id IN (${list})`),
+    ),
+    atOnce,
+  );
   const records: Array<Record<string, unknown>> = [];
-  for (const list of idLists(ids, perQuery)) {
-    const answer = await conn.query(`SELECT ${columns} FROM ${object} WHERE Id IN (${list})`);
+  for (const answer of answers) {
     for (const record of answer.records) {
       if (typeof record !== 'object' || record === null) continue;
       const values: Record<string, unknown> = { ...(record as Record<string, unknown>) };

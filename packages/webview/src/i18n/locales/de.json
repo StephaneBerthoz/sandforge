@@ -1459,6 +1459,8 @@
     "backupObjectsAll": "Sichert {{objects}}: die Objekte, die die Anonymisierungsvorlagen maskieren.",
     "selectBackup": "Wählen Sie eine Sicherung zur Wiederherstellung",
     "restoreInProgress": "Wiederherstellung läuft...",
+    "restoreRewriteAll": "Jede Zeile der Sicherung zurückschreiben, auch die, die die Org bereits so enthält wie die Sicherung. Nicht angehakt, liest eine Wiederherstellung zuerst die Org und schreibt nur die Zeilen, die sich seit der Sicherung geändert haben.",
+    "restoreResult": "Letzte Wiederherstellung — geschrieben: {{written}} · bereits wie in der Sicherung, unverändert gelassen: {{unchanged}} · abgelehnt: {{failed}}",
     "selectTemplate": "Vorlage auswählen",
     "noTemplates": "Keine Vorlagen verfügbar",
     "createTemplate": "Vorlage erstellen",

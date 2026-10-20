@@ -77,10 +77,16 @@ What a restore does, in order:
 - Brings back from the recycle bin the records of the backup deleted since it
   was taken, so they return with their `Id` and what pointed at them; a record
   no longer in the recycle bin cannot, and is reported as refused
-- Upserts on `Id` in batches of 200, per object, reporting progress per object,
-  reading the backup 200 records at a time: backups taken before records went
-  one to a line, and those kept in extension state before files, are read as
-  they were written
+- Reads the org's values of each batch of 200, by `Id` and with the fields it
+  would write, and upserts on `Id` only the rows where one of them differs from
+  the backup; the others are counted as unchanged, and the result says how
+  many. A row the org no longer holds goes too, and its answer says what became
+  of it; a batch whose values cannot be read is written whole. **Write every
+  row of the backup back** on the Restore tab, or `--rewrite-all` with
+  `sandforge-backup --restore`, upserts every row, the unchanged ones included
+- Reports progress per object, reading the backup 200 records at a time:
+  backups taken before records went one to a line, and those kept in extension
+  state before files, are read as they were written
 - Says, with its result, when the backup held only part of an object -- the
   cap, a read that failed, a file no longer all there -- and that the rest of
   the object was left as it is
