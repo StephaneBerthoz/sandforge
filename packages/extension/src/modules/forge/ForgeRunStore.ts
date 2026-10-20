@@ -20,7 +20,9 @@ import type { PendingFkUpdate } from './stages/BatchWriter.js';
  * journal, as a part of its own (`beginPart`): what an earlier part wrote is
  * found, and linked to, and none of it is this part's own.
  *
- * Ids alone, never a value of a record — but for the status a draft is owed.
+ * Ids alone, never a value of a record — but for the status a draft is owed,
+ * and, of each insert call before it goes, a fingerprint of what each of its
+ * rows writes, which holds none of it (`sent`).
  */
 
 /** The journal file of a run, as its store writes and reads it. */
@@ -159,6 +161,16 @@ const CODE_OF_TAG: Readonly<Record<string, number>> = {
   u: UPDATED,
   i: READ,
 };
+
+/** The tag of a line that says an insert call is about to go: see `ForgeRunStore.sent`. */
+export const SENT_TAG = 'x';
+/** The tag of a line that says an insert call's answer is counted: see `ForgeRunStore.answered`. */
+export const ANSWERED_TAG = 'a';
+/**
+ * What ends the line of a record a call under way when the run stopped had
+ * created, found in the target since: see `ForgeRunStore.wasFoundAfterStop`.
+ */
+export const FOUND_AFTER_STOP = 'found';
 
 /** Lines held before they are written, past which they are written at once. */
 const FLUSH_BYTES = 1024 * 1024;
@@ -399,6 +411,14 @@ export class ForgeRunStore {
    */
   private readonly marks: SourceIdIndex;
   private readsHeld: string[] = [];
+  /** Insert calls this store kept the sending of: what numbers the next one. */
+  private callsSent = 0;
+  /**
+   * The source ids of the rows a call under way when the run stopped had
+   * written, found in the target since (`reconcileInFlight`): a few hundred
+   * at most, the rows of the calls a run had under way.
+   */
+  private readonly foundAfterStop = new Set<string>();
 
   private constructor(private readonly file: RunFile) {
     this.index = new SourceIdIndex((offset, length) => this.idOfLine(offset, length));
@@ -782,6 +802,56 @@ export class ForgeRunStore {
     }
   }
 
+  /* ---- the insert calls, sent and answered ---- */
+
+  /**
+   * Keep, before an insert call goes, what it sends: its object, the rows'
+   * source ids in the order sent, the fields whose values fingerprint them
+   * and each row's fingerprint (`ForgeInFlight.rowFingerprint`) — no value of
+   * a record. Written at once, with what is held: a process killed while the
+   * call is under way leaves the line, which a run taken up reads the call's
+   * rows back from in the target (`reconcileInFlight`). Says the call's id,
+   * which {@link answered} closes.
+   */
+  sent(
+    objectApiName: string,
+    fields: readonly string[],
+    rows: ReadonlyArray<{ sourceId: string; fingerprint: string }>,
+    at: Date = new Date(),
+  ): string {
+    this.callsSent++;
+    const callId = `${Math.max(0, this.parts - 1)}.${this.callsSent}`;
+    this.write(
+      JSON.stringify([
+        SENT_TAG,
+        callId,
+        objectApiName,
+        at.toISOString(),
+        fields,
+        rows.map(({ sourceId, fingerprint }) => [sourceId, fingerprint]),
+      ]),
+    );
+    this.flush();
+    return callId;
+  }
+
+  /**
+   * Keep that the answer of the call `callId` is counted: written after the
+   * lines of what it created, which a reader of the call finds first.
+   */
+  answered(callId: string): void {
+    this.write(JSON.stringify([ANSWERED_TAG, callId]));
+  }
+
+  /**
+   * Whether `sourceId` is a row a call under way when an earlier part stopped
+   * had written, found in the target since: its answer never came, and
+   * nothing it owed — the lookups it went in without — was kept with it.
+   */
+  wasFoundAfterStop(sourceId: string): boolean {
+    return this.foundAfterStop.has(sourceId);
+  }
+
   /* ---- the file ---- */
 
   /** Write every line held. */
@@ -940,6 +1010,7 @@ export class ForgeRunStore {
     const code = CODE_OF_TAG[tag];
     if (code === undefined) return;
     const sourceId = String(value[1]);
+    if (code === CREATED && value[4] === FOUND_AFTER_STOP) this.foundAfterStop.add(sourceId);
     const a = hashA(sourceId);
     const b = hashB(sourceId);
     const found = this.index.find(sourceId, a, b);

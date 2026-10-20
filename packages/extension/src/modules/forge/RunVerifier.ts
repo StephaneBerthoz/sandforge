@@ -13,6 +13,10 @@
  *   - **changes since the run**: each record's `LastModifiedDate` against the
  *     target's date of the run's last stamp, as the removal of the run's
  *     records reads it to keep a record changed since;
+ *   - **more than the run wrote**: per object, the records the run's user
+ *     created in the run's window, counted against those of the run read
+ *     back — a resume that wrote again a call under way when its run was
+ *     killed left 200 contacts twice, and every one the run named was there;
  *   - **settling**: the first reading comes after a pause, and readings
  *     repeat until two in a row agree (three at most, two seconds apart, as
  *     Frozen's post-load check does); otherwise the verdict is `unstable`.
@@ -209,6 +213,8 @@ interface ObjectReading {
   error?: string;
   recycleBinUnread?: string;
   linksUnchecked?: string;
+  /** Records the run's user created in the run's window: see `ForgeVerificationObject.moreInTheWindow`. */
+  createdInTheWindow?: number;
 }
 
 /**
@@ -297,13 +303,14 @@ export class RunVerifier {
     let last: ObjectReading[] = [];
     let attempts = 0;
     const explaining = this.explaining(run, runEnd);
+    const user = explaining.window ? await this.runUser(run) : undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       attempts = attempt;
       await sleep(intervalMs);
       last = [];
       for (const object of run.records) {
         last.push(
-          await this.read(run, object, runEnd, plans.get(object.objectApiName), explaining),
+          await this.read(run, object, runEnd, plans.get(object.objectApiName), explaining, user),
         );
       }
       const serialized = stableSerialize(last);
@@ -548,6 +555,51 @@ export class RunVerifier {
     }
   }
 
+  /**
+   * The user the run wrote as: who created the first of its records the
+   * target reads back. Undefined when none can be read.
+   */
+  private async runUser(run: RunToVerify): Promise<string | undefined> {
+    for (const object of run.records) {
+      const first = object.ids[0];
+      if (first === undefined) continue;
+      try {
+        const [row] = await readRecordsById(
+          this.deps.target,
+          object.objectApiName,
+          [CREATED_BY],
+          [first],
+        );
+        const user = row?.[CREATED_BY];
+        if (typeof user === 'string' && /^[A-Za-z0-9]{15,18}$/.test(user)) return user;
+      } catch {
+        // An object that keeps no creator: the next.
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The records of `objectApiName` the run's user created in the run's window,
+   * by the org's dates; undefined when they cannot be counted.
+   */
+  private async countInTheWindow(
+    objectApiName: string,
+    user: string,
+    window: { from: number; to: number },
+  ): Promise<number | undefined> {
+    const date = (epoch: number): string => new Date(epoch).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    try {
+      const answer = await this.deps.target.query(
+        `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${CREATED_BY} = '${user}' ` +
+          `AND ${CREATED_DATE} >= ${date(window.from)} AND ${CREATED_DATE} <= ${date(window.to)}`,
+      );
+      return answer.totalSize;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** One reading of one object's records in the target. */
   private async read(
     run: RunToVerify,
@@ -555,6 +607,7 @@ export class RunVerifier {
     runEnd: number,
     plan: LinkPlan | undefined,
     explaining: Explaining,
+    user?: string,
   ): Promise<ObjectReading> {
     const name = object.objectApiName;
     const reading: ObjectReading = {
@@ -607,6 +660,10 @@ export class RunVerifier {
       }
     }
     reading.present = read.size + archived;
+    if (user !== undefined && explaining.window) {
+      const counted = await this.countInTheWindow(name, user, explaining.window);
+      if (counted !== undefined) reading.createdInTheWindow = counted;
+    }
 
     // Changed since the run: modified after its last stamp, both by the org's
     // clock, and after what a removal of it left on the record, which was
@@ -745,13 +802,17 @@ function objectResult(reading: ObjectReading): ForgeVerificationObject {
     ...(reading.recycleBinUnread !== undefined
       ? { recycleBinUnread: reading.recycleBinUnread }
       : {}),
+    ...(reading.createdInTheWindow !== undefined && reading.createdInTheWindow > reading.present
+      ? { moreInTheWindow: reading.createdInTheWindow - reading.present }
+      : {}),
   };
 }
 
 /**
  * What the readings come to: `unstable` without two that agreed; `partial`
- * when a record is not there, a lookup does not hold, or a part could not be
- * checked; `verified` otherwise. A record changed since the run is there, and
+ * when a record is not there, a lookup does not hold, a part could not be
+ * checked, or the run's user created more records of an object in the run's
+ * window than the run's read back; `verified` otherwise. A record changed since the run is there, and
  * listed: it lowers nothing on its own, a lookup it changed being checked. A
  * lookup the target explains — left empty by its lookup filter, set by its
  * automation — holds as the target took it, and is counted apart.
@@ -768,7 +829,8 @@ function verdictOf(
       o.linksUnchecked !== undefined ||
       o.deleted > 0 ||
       o.notVisible > 0 ||
-      o.linksBroken > 0,
+      o.linksBroken > 0 ||
+      (o.moreInTheWindow ?? 0) > 0,
   );
   return short || linksUnchecked !== undefined ? 'partial' : 'verified';
 }

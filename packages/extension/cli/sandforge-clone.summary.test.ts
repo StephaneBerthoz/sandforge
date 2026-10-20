@@ -19,6 +19,7 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
 import { homedir } from 'node:os';
 import {
+  datedFromItsJournal,
   interruptedLine,
   journalDirOf,
   main,
@@ -108,32 +109,44 @@ const ACCOUNT_GUARD = {
   ActiveVersionId: null,
 };
 
+/** The user the fake orgs' connections are of. */
+const RUN_USER = '005000000000001AAA';
+
 /**
  * An org holding an account and its contact, a sandbox, running nothing on
  * insert; `flows` are its record-triggered flows. `onCreate` is told of each
- * object written, before its rows are created.
+ * object written, before its rows are created; `afterCreate` once they are,
+ * before the call is answered. What it created is read back as created by
+ * {@link RUN_USER}, with `alsoHeld`'s records beside it.
  */
 function fakeOrg(
   flows: unknown[] = [],
   onCreate: (name: string) => void = () => {},
   orgId: string = TARGET_ORG,
   onQuery: (soql: string) => void = () => {},
+  afterCreate: (name: string) => void = () => {},
+  alsoHeld: Record<string, Array<Record<string, unknown>>> = {},
 ) {
   const written: string[] = [];
+  /** What the org created, per object, each record with its id. */
+  const created: Record<string, Array<Record<string, unknown>>> = {};
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const conn = {
     sobject: (name: string) => ({
       describe: async () => DESCRIBES[name],
-      create: async (records: unknown[]) => {
+      create: async (records: Array<Record<string, unknown>>) => {
         onCreate(name);
         written.push(name);
-        return records.map((_, i) => ({
-          id: `${DESCRIBES[name].keyPrefix}00000000090${i}AAA`,
-          success: true,
-          errors: [],
-        }));
+        const answers = records.map((record, i) => {
+          const id = `${DESCRIBES[name].keyPrefix}00000000090${i}AAA`;
+          (created[name] ??= []).push({ ...record, Id: id });
+          return { id, success: true, errors: [] };
+        });
+        afterCreate(name);
+        return answers;
       },
     }),
+    identity: async () => ({ user_id: RUN_USER }),
     describeGlobal: async () => ({
       sobjects: Object.values(DESCRIBES).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
     }),
@@ -153,6 +166,15 @@ function fakeOrg(
       if (/ FROM (Account|Contact) WHERE Id IN /.test(soql) && soql.includes('CreatedDate')) {
         return page([]);
       }
+      // What the run's user created as the run went, read back field by field.
+      const byUser = /^SELECT (.+?) FROM (\w+) WHERE CreatedById = /.exec(soql);
+      if (byUser) {
+        const fields = byUser[1].split(', ');
+        const held = [...(created[byUser[2]] ?? []), ...(alsoHeld[byUser[2]] ?? [])];
+        return page(
+          held.map((record) => Object.fromEntries(fields.map((f) => [f, record[f] ?? null]))),
+        );
+      }
       return page(selectRows(ROWS, soql));
     },
     queryMore: async () => page([]),
@@ -163,7 +185,7 @@ function fakeOrg(
     request: async () => ({}),
     metadata: { read: async () => [] },
   };
-  return { conn: conn as unknown as Connection, written };
+  return { conn: conn as unknown as Connection, written, created };
 }
 
 describe('sandforge-clone --summary', () => {
@@ -528,6 +550,106 @@ describe('sandforge-clone --summary', () => {
       ).toBe(2);
     });
 
+    describe('a run whose insert call was under way when it stopped: the org wrote it, its answer was lost', () => {
+      /** Whether the connection breaks once the org has written the contact. */
+      let breaks = true;
+      /** The connection broken once the org has written the contact: the call may have written it. */
+      const brokenAfterTheContact = (name: string): void => {
+        if (name !== 'Contact' || !breaks) return;
+        throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      };
+
+      beforeEach(() => {
+        breaks = true;
+      });
+
+      /**
+       * The journal of the run `summary` names, as a process killed during
+       * that call leaves it: no end, the call's answer never kept. The
+       * connection is whole again.
+       */
+      const killedDuringTheCall = (summary: string): string => {
+        const journal = String(documentOf(summary).journal);
+        writeFileSync(
+          journal,
+          readFileSync(journal, 'utf8')
+            .split('\n')
+            .filter((line) => !line.startsWith('{"end"'))
+            .join('\n'),
+        );
+        rmSync(journal.replace(/\.ndjson$/, '.end.json'));
+        breaks = false;
+        return journal;
+      };
+
+      it('finds the contact in the target before it is taken up, and writes it no second time', async () => {
+        withOrgs(
+          fakeOrg(
+            [],
+            () => {},
+            TARGET_ORG,
+            () => {},
+            brokenAfterTheContact,
+          ),
+        );
+        const first = join(dir, 'first.json');
+        await run(argv('--summary', first));
+        expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+        const journal = killedDuringTheCall(first);
+        expect(readFileSync(journal, 'utf8')).toMatch(/^\["x",/m);
+
+        const second = join(dir, 'second.json');
+        expect(await run(argv('--summary', second, '--resume', journal))).toBeUndefined();
+
+        expect(printed).toContain(
+          '  found in TGT, kept as written by the run and not written again: 1 Contact',
+        );
+        // Nothing written again: the account and the contact are the first part's.
+        expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+        expect((documentOf(second).result as { linkedCount: number }).linkedCount).toBe(2);
+        // The journal, every part of it, takes both back.
+        const whole = await runSummaryOfFile(journal, readFileSync(journal, 'utf8'), 'TGT');
+        expect('summary' in whole && removalPlan(whole.summary)).toEqual([
+          { objectApiName: 'Contact', ids: ['003000000000900AAA'] },
+          { objectApiName: 'Account', ids: ['001000000000900AAA'] },
+        ]);
+      });
+
+      it('stops before it writes when the target holds records it cannot tell from the call, unless told to write them', async () => {
+        // A contact like the one the call sent, created by the same user since.
+        const twin = { Id: '003000000000777AAA', LastName: 'Key', AccountId: '001000000000900AAA' };
+        withOrgs(
+          fakeOrg(
+            [],
+            () => {},
+            TARGET_ORG,
+            () => {},
+            brokenAfterTheContact,
+            { Contact: [twin] },
+          ),
+        );
+        const first = join(dir, 'first.json');
+        await run(argv('--summary', first));
+        const journal = killedDuringTheCall(first);
+
+        expect(await run(argv('--resume', journal))).toBe(2);
+        expect(stderr).toContain('1 row(s) may already be in TGT (1 Contact)');
+        expect(stderr).toContain('--write-uncertain');
+        expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+
+        expect(await run(argv('--resume', journal, '--write-uncertain'))).toBeUndefined();
+        expect(orgs.TGT.written).toEqual(['Account', 'Contact', 'Contact']);
+      });
+
+      it('takes --write-uncertain with --resume alone', () => {
+        expect(() => parseArgs(argv('--write-uncertain'))).toThrow(ExitCalled);
+        expect(stderr).toContain('--write-uncertain goes with --resume');
+        expect(parseArgs(argv('--resume', 'some-run', '--write-uncertain')).writeUncertain).toBe(
+          true,
+        );
+      });
+    });
+
     it('refuses to take up a run that ended, one of another org, and one set up otherwise', async () => {
       withOrgs();
       const path = join(dir, 'clone-summary.json');
@@ -621,6 +743,73 @@ describe('sandforge-clone --summary', () => {
       expect(unnamed).toEqual({
         refusal: 'keeps the ids of its records in a journal it does not name.',
       });
+    });
+
+    it('takes the ids of a summary from its journal whenever it is there: the journal is written call by call', async () => {
+      withOrgs();
+      const path = join(dir, 'clone-summary.json');
+      expect(await run(argv('--summary', path))).toBeUndefined();
+      const document = documentOf(path);
+      const result = document.result as Record<string, unknown>;
+      // As a killed run of whole tables leaves it: what it said when its last
+      // object ended, short of what the journal holds.
+      const behind = {
+        ...document,
+        running: true,
+        result: {
+          ...result,
+          remapTable: { [ACCOUNT]: '001000000000900AAA' },
+          existingSourceIds: [],
+          updatedSourceIds: [],
+          createdByObject: [{ objectApiName: 'Account', sourceIds: [ACCOUNT] }],
+        },
+      };
+      const read = await runSummaryOfFile(path, JSON.stringify(behind), 'TGT');
+      expect('summary' in read && removalPlan(read.summary)).toEqual([
+        { objectApiName: 'Contact', ids: ['003000000000900AAA'] },
+        { objectApiName: 'Account', ids: ['001000000000900AAA'] },
+      ]);
+      // The journal gone, the summary's own ids stand.
+      rmSync(String(document.journal));
+      const alone = await runSummaryOfFile(path, JSON.stringify(behind), 'TGT');
+      expect('summary' in alone && removalPlan(alone.summary)).toEqual([
+        { objectApiName: 'Account', ids: ['001000000000900AAA'] },
+      ]);
+    });
+
+    it('dates a summary taken from its journal alone by its first and last records, as the target dated them', async () => {
+      withOrgs();
+      const path = join(dir, 'clone-summary.json');
+      expect(await run(argv('--summary', path))).toBeUndefined();
+      const journal = String(documentOf(path).journal);
+      const read = await runSummaryOfFile(journal, readFileSync(journal, 'utf8'), 'TGT');
+      if (!('summary' in read)) throw new Error('no summary');
+      expect(read.summary.result.writtenBetween).toBeUndefined();
+      const asked: string[] = [];
+      const created: Record<string, string> = {
+        '001000000000900AAA': '2026-10-20T10:00:01.000+0000',
+        '003000000000900AAA': '2026-10-20T10:04:30.000+0000',
+      };
+      const conn = {
+        query: async (soql: string) => {
+          asked.push(soql);
+          const id = /Id = '(\w+)'/.exec(soql)?.[1] ?? '';
+          return { totalSize: 1, done: true, records: [{ CreatedDate: created[id] }] };
+        },
+      } as unknown as Connection;
+
+      const dated = await datedFromItsJournal(conn, read.summary);
+
+      expect(dated.result.writtenBetween).toEqual({
+        first: '2026-10-20T10:00:01.000Z',
+        last: '2026-10-20T10:04:30.000Z',
+      });
+      expect(asked).toEqual([
+        "SELECT CreatedDate FROM Account WHERE Id = '001000000000900AAA'",
+        "SELECT CreatedDate FROM Contact WHERE Id = '003000000000900AAA'",
+      ]);
+      // A summary that says its window keeps it.
+      expect(await datedFromItsJournal(conn, dated)).toBe(dated);
     });
   });
 });

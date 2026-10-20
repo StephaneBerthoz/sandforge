@@ -96,9 +96,12 @@ What a restore does, in order:
 - Stops with an FLS error if a field _you_ may not write is in the payload,
   rather than restoring the record with that column silently missing
 
-A restore is **not** stopped when the window closes: it runs to the end. A
-restore cut in the middle leaves the org with some records put back and some
-not, and nothing records where it stopped, so finishing is the safer outcome.
+A restore stops between two batches when it is cancelled — from Live
+Operations, by Ctrl-C at `sandforge-dataops --restore`, or as the window
+closes — as a masking run does: the records it put back before are counted,
+the audit trail records it cancelled with them, and the same restore run
+again puts back the rest, writing only the rows that do not hold the backup's
+values yet.
 
 ### Anonymize
 

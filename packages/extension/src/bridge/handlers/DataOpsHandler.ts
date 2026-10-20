@@ -2149,6 +2149,15 @@ export class DataOpsHandler implements DomainHandler {
      * it stops at the first object it may not write, and must still be recorded.
      */
     let unrecorded = false;
+    /**
+     * What stops the restore between two batches: the Cancel of its entry in
+     * the registry, and Ctrl-C at the command line, which goes through it as
+     * a masking run's does. Without one, the command line's handler of
+     * Ctrl-C had nothing to stop, and the process died part way.
+     */
+    const stop = new AbortController();
+    /** Settles the restore's entry in the registry, once it is listed. */
+    let settleRestore: (error?: unknown) => void = () => {};
 
     try {
       if (this.dmlTracker.isDuplicate(rollbackOpId)) {
@@ -2302,6 +2311,20 @@ export class DataOpsHandler implements DomainHandler {
         `Rollback ${backupMeta.objects.length} object(s)`,
       );
       unrecorded = true;
+      this.deps.infraServices?.backgroundRegistry?.register(
+        rollbackOpId,
+        'dataops',
+        `Rollback ${backupMeta.objects.length} object(s)`,
+        new Promise<void>((resolve, reject) => {
+          settleRestore = (error) => {
+            if (error === undefined) resolve();
+            else reject(error instanceof Error ? error : new Error(String(error)));
+          };
+        }),
+        stop,
+      );
+      /** Whether a cancel stopped the restore before every batch was written. */
+      let cancelled = false;
 
       let totalRestored = 0;
       let totalFailed = 0;
@@ -2311,6 +2334,10 @@ export class DataOpsHandler implements DomainHandler {
       /** Per object, the rows read of the backup: fewer than it lists are said. */
       const rowsRead = new Map<string, number>();
       for (let i = 0; i < backupMeta.objects.length; i++) {
+        if (stop.signal.aborted) {
+          cancelled = true;
+          break;
+        }
         const obj = backupMeta.objects[i];
         const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
         failure.objectName = safeObj;
@@ -2402,6 +2429,12 @@ export class DataOpsHandler implements DomainHandler {
         let unchangedCount = 0;
         let read = 0;
         for await (const batch of batches) {
+          // Stopped between two batches, as a masking run stops between two
+          // pages: what the batches before wrote is counted and recorded.
+          if (stop.signal.aborted) {
+            cancelled = true;
+            break;
+          }
           read += batch.length;
           const cleaned = batch.map((r) => {
             // An account goes back without what its kind cannot hold, told
@@ -2473,6 +2506,7 @@ export class DataOpsHandler implements DomainHandler {
         // or was just brought back from the recycle bin — so it updates.
         // A row the org already held as the backup does was not written.
         restored.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
+        if (cancelled) break;
 
         sendOperationProgress(
           this.deps,
@@ -2485,17 +2519,38 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
 
-      const status = dmlStatus(totalRestored, totalFailed);
+      const status =
+        cancelled && totalFailed === 0 ? 'partial' : dmlStatus(totalRestored, totalFailed);
       if (run) {
         unrecorded = false;
-        recordWriteRun(this.deps, { ...run, outcome: status, objects: restored });
+        // Stopped by the user: cancelled once it wrote or had a row refused,
+        // stopped under the code of a run cancelled before it wrote otherwise.
+        recordWriteRun(this.deps, {
+          ...run,
+          ...(cancelled
+            ? totalRestored + totalFailed > 0
+              ? { outcome: 'cancelled' as const }
+              : { outcome: 'stopped' as const, code: RUN_CANCELLED }
+            : { outcome: status }),
+          objects: restored,
+        });
       }
-      sendOperationCompleted(this.deps, rollbackOpId, {
-        status,
-        totalRestored,
-        totalFailed,
-        totalUnchanged,
-      });
+      if (cancelled) {
+        this.deps.infraServices?.backgroundRegistry?.abort(rollbackOpId);
+        sendOperationCompleted(this.deps, rollbackOpId, {
+          aborted: true,
+          totalRestored,
+          totalFailed,
+          totalUnchanged,
+        });
+      } else {
+        sendOperationCompleted(this.deps, rollbackOpId, {
+          status,
+          totalRestored,
+          totalFailed,
+          totalUnchanged,
+        });
+      }
       this.dmlTracker.markCompleted(rollbackOpId);
 
       // A backup that holds only part of an object — stopped at the cap, a
@@ -2505,9 +2560,12 @@ export class DataOpsHandler implements DomainHandler {
       // result, as a restore of the whole would not need saying.
       const shortfall = backupShortfall(backupMeta.objects, rowsRead);
       const ranMessage =
-        (totalFailed === 0
-          ? `Rollback completed: ${totalRestored} records restored`
-          : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`) +
+        (cancelled
+          ? `Rollback cancelled: ${totalRestored} records restored before the cancel; the rest ` +
+            'still hold the values they had, and the same restore puts them back'
+          : totalFailed === 0
+            ? `Rollback completed: ${totalRestored} records restored`
+            : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`) +
         (totalUnchanged > 0
           ? `; ${totalUnchanged} already held the backup's values and were not written`
           : '');
@@ -2526,13 +2584,14 @@ export class DataOpsHandler implements DomainHandler {
         ...(payload.rewriteAll === true ? { rewriteAll: true } : {}),
         errors: restoreErrors,
         ...(shortfall !== '' ? { partial: true } : {}),
+        ...(cancelled ? { cancelled: true } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
       // The DataOps page reads only the error and notification channels: a
       // `partial` left in the response alone is as invisible as the count that
       // was dropped.
-      if (totalFailed > 0 || shortfall !== '') {
+      if (totalFailed > 0 || shortfall !== '' || cancelled) {
         sendNotification(
           this.deps,
           status === 'failure' ? 'error' : 'warning',
@@ -2551,6 +2610,7 @@ export class DataOpsHandler implements DomainHandler {
       });
     } finally {
       this.activeOrgOperations.delete(lockKey);
+      settleRestore();
       // A restore that stopped at an object it may not write, or threw, after
       // it started: recorded as failed, with the objects it had restored.
       if (unrecorded && run) {

@@ -46,6 +46,7 @@ import {
   type SweepInput,
   type SweepOptions,
 } from '../src/modules/forge/ForgeRunSweep.js';
+import { fingerprintFields, rowFingerprint } from '../src/modules/forge/ForgeInFlight.js';
 import {
   main,
   parseRunSummary,
@@ -242,6 +243,8 @@ describe('sandforge-clone --remove', () => {
   /** What the target runs on the objects the removal deletes: nothing, unless a test says. */
   let targetFlows: Array<Record<string, unknown>>;
   let targetTriggers: Array<Record<string, unknown>>;
+  /** What the run's user created in the target as a run went, read back field by field. */
+  let createdByTheUser: Array<Record<string, unknown>> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const tooling = {
     query: vi.fn(async (soql: string) => {
@@ -259,9 +262,11 @@ describe('sandforge-clone --remove', () => {
       if (soql.includes(' FROM FlowDefinitionView ') && !soql.includes("'Workflow'")) {
         return page(targetFlows);
       }
+      if (soql.includes(' WHERE CreatedById = ')) return page(createdByTheUser);
       return page([]);
     }),
     queryMore: vi.fn(async () => page([])),
+    identity: vi.fn(async () => ({ user_id: '005000000000001AAA' })),
     tooling,
     // A Tooling composite, each of its subrequests answered as the Tooling API
     // answers it alone: a flow version retrieved by id comes whole, and a
@@ -316,6 +321,7 @@ describe('sandforge-clone --remove', () => {
     stdout = [];
     stderr = [];
     organization = { Id: TARGET_ORG, IsSandbox: true };
+    createdByTheUser = [];
     targetFlows = [];
     targetTriggers = [];
     vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
@@ -622,6 +628,45 @@ describe('sandforge-clone --remove', () => {
         result: { status: 'success', planned: 3, objects: TOOK_ALL.objects },
       });
       expect(stderr).toContain('  Contact: 2');
+    });
+
+    it('looks for the call a killed run had under way before it plans the removal, and takes back what it found', async () => {
+      // The run created the account, then was killed while a call of one
+      // contact was under way: the org wrote the contact, the journal never
+      // named it.
+      const sent = { LastName: 'Key', AccountId: TGT('001', 1) };
+      const fields = fingerprintFields([sent]);
+      const journal = file(
+        [
+          {
+            run: { journalId: 'j', targetOrgId: TARGET_ORG, startedAt: '2026-10-01T10:00:00.000Z' },
+          },
+          { part: { n: 0, startedAt: '2026-10-01T10:00:00.000Z' } },
+          ['c', ACCOUNT, TGT('001', 1), 'Account'],
+          [
+            'x',
+            '0.1',
+            'Contact',
+            '2026-10-01T10:00:03.000Z',
+            fields,
+            [[CONTACTS[0], rowFingerprint(sent, fields)]],
+          ],
+        ]
+          .map((line) => JSON.stringify(line))
+          .join('\n') + '\n',
+        'killed.ndjson',
+      );
+      createdByTheUser = [{ Id: TGT('003', 1), ...sent }];
+
+      expect(await run(['--remove', journal, '--target', 'TGT'])).toBeUndefined();
+
+      expect(printed).toContain(
+        '  found in TGT, kept as written by the run and removed with its records: 1 Contact',
+      );
+      expect(vi.mocked(removeRunRecords).mock.calls[0][1]).toEqual([
+        { objectApiName: 'Contact', ids: [TGT('003', 1)] },
+        { objectApiName: 'Account', ids: [TGT('001', 1)] },
+      ]);
     });
 
     it('says there is nothing to remove of a run that created nothing, without contacting the org', async () => {

@@ -404,6 +404,8 @@ export interface DataOpsRollbackResponse extends BaseMessage {
      * the rest of that object as it is; `message` names each one.
      */
     partial?: boolean;
+    /** A cancel stopped the restore between two batches: what it restored before is counted. */
+    cancelled?: boolean;
   };
 }
 

@@ -5,9 +5,10 @@
  * Past {@link STREAMING_THRESHOLD} records, one Bulk API 2.0 job whose records
  * are gathered a chunk at a time, the cancel looked at between two, and
  * uploaded once (`ChunkedBulkExecutor`). Past the Bulk API threshold — 200 by
- * default, `RobustnessConfig.bulk.threshold` — one Bulk API job, unless an
- * active duplicate rule watches the object: a job carries no header that lets
- * the rule's matches be saved, so such an object goes through REST. Under the
+ * default, `RobustnessConfig.bulk.threshold` — one Bulk API job. Either way,
+ * an object an active duplicate rule watches goes through REST, however many
+ * records it holds: a job carries no header that lets the rule's matches be
+ * saved, and the rule refuses such a job's records wholesale. Under the
  * threshold, REST calls of `batchSize` records, each tried again on what a
  * retry can cure. A cancel stops the write before its next call, or aborts a
  * job still open.
@@ -114,7 +115,11 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
   // header lets the rule's matches be saved, rather than as a Bulk API job,
   // which carries none (`objectsUnderDuplicateRules`). Read once for the run.
   let duplicateRules: Promise<ReadonlySet<string> | undefined> | undefined;
-  const watchedByDuplicateRule = async (objectApiName: string): Promise<boolean> => {
+  const watchedByDuplicateRule = async (
+    objectApiName: string,
+    count: number,
+    batchSize: number,
+  ): Promise<boolean> => {
     duplicateRules ??= objectsUnderDuplicateRules(conn).then((ruled) => {
       if (!ruled) {
         deps.log(
@@ -129,15 +134,23 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
     if (watched) {
       deps.log(
         `[INFO] ${label}: ${objectApiName} goes through REST: an active ` +
-          'duplicate rule watches it, which a Bulk API job cannot waive',
+          'duplicate rule watches it, which a Bulk API job cannot waive' +
+          // Past the streaming threshold, the calls are many: said, as they take longer.
+          (count > STREAMING_THRESHOLD
+            ? ` — ${count} records in ${Math.ceil(count / Math.max(1, batchSize))} calls, slower than one job`
+            : ''),
       );
     }
     return watched;
   };
 
   return async (_orgId, objectApiName, records, batchSize) => {
+    // A job of either kind is not for an object a duplicate rule watches.
+    const throughRest =
+      (records.length > STREAMING_THRESHOLD || bulkExecutor.shouldUseBulkApi(records.length)) &&
+      (await watchedByDuplicateRule(objectApiName, records.length, batchSize));
     // Streaming path for large record sets
-    if (records.length > STREAMING_THRESHOLD) {
+    if (records.length > STREAMING_THRESHOLD && !throughRest) {
       // A cancel that came before the insert opens no job: see the Bulk
       // API path.
       if (signal.aborted) return { successIds: [], errors: [], stopped: true };
@@ -165,10 +178,7 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
       };
     }
 
-    if (
-      bulkExecutor.shouldUseBulkApi(records.length) &&
-      !(await watchedByDuplicateRule(objectApiName))
-    ) {
+    if (bulkExecutor.shouldUseBulkApi(records.length) && !throughRest) {
       // Bulk API 2.0 path. A cancel that came before the insert opens no
       // job: the executor opened one all the same, then aborted it before
       // its upload, which wrote nothing but asked the org for a job, and

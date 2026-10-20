@@ -1582,6 +1582,39 @@ describe('DataOpsHandler', () => {
         expect(trail).not.toContain('Industry');
       });
 
+      it('stops a restore cancelled through its registry entry before its next batch, and records it cancelled with what it wrote', async () => {
+        const { upsert } = await mockConnection();
+        const registry = new BackgroundOperationRegistry();
+        deps.infraServices = { ...deps.infraServices, backgroundRegistry: registry } as never;
+        upsert.mockImplementation(async (batch: Array<{ Id: string }>) => {
+          // The Cancel comes while the first batch is written.
+          for (const operation of registry.getRunning()) registry.abort(operation.operationId);
+          return batch.map((row) => ({ success: true, id: row.Id }));
+        });
+        const store = storeWithBackup(
+          Array.from({ length: 450 }, (_, i) => ({
+            ...backedUpRecord,
+            Id: `001000000000${String(i).padStart(3, '0')}`,
+          })),
+        );
+
+        await handler.handle(rollbackMsg('org-1'));
+
+        expect(upsert).toHaveBeenCalledTimes(1);
+        const answer = posted().find((m) => m.type === 'dataops:rollback:response')?.payload;
+        expect(answer).toMatchObject({ totalRestored: 200, cancelled: true });
+        expect(answer?.message).toContain(
+          'Rollback cancelled: 200 records restored before the cancel',
+        );
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'backup_restore',
+            outcome: 'cancelled',
+            objects: [expect.objectContaining({ objectApiName: 'Account', updated: 200 })],
+          }),
+        ]);
+      });
+
       it('records a restore that stopped at an object it may not write as failed', async () => {
         await mockConnection({
           ...accountDescribe,

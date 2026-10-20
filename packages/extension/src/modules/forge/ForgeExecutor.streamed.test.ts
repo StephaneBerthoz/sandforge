@@ -7,6 +7,7 @@ import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 import { ForgeAnonymizer } from './ForgeAnonymizer.js';
 import { ForgeAbortedError, ForgeExecutor } from './ForgeExecutor.js';
 import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
+import { reconcileInFlight, type InFlightTarget } from './ForgeInFlight.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
 import type {
@@ -1041,6 +1042,112 @@ describe('a run of whole tables read page by page', () => {
         expect(resumed.linkedCount).toBe(5);
       },
     );
+
+    describe('killed while an insert call was under way: the org committed it, its answer never reached the journal', () => {
+      /**
+       * The run killed as the target answers call `killedDuring`: what the
+       * call sent is in the target, and nothing the run writes after the
+       * call went — its answer, its records — reaches the disk.
+       */
+      async function killedDuringACall(killedDuring: number, build = selfLookups) {
+        const { schema, graph } = build();
+        const whole = await runOver(schema, graph);
+        const disk = memoryRunFile();
+        let killed = false;
+        const killable: RunFile = {
+          size: () => disk.size(),
+          append: (text: string) => {
+            if (!killed) disk.append(text);
+          },
+          read: (offset: number, length: number) => disk.read(offset, length),
+          close: () => {},
+        };
+        const orgOptions: FakeOrgOptions = {
+          onAnswer: (call) => {
+            if (call === killedDuring) killed = true;
+          },
+          insertsFail: () => killed,
+        };
+        const orgs = fakeOrgs(schema, orgOptions);
+        await orgs.executor
+          .execute(graph, 'src', 'tgt', () => {}, {
+            stream: { pageSize: 5, store: ForgeRunStore.open(killable) },
+          })
+          .catch(() => undefined);
+        expect(killed).toBe(true);
+        orgOptions.insertsFail = undefined;
+        orgOptions.onAnswer = undefined;
+        return { schema, graph, whole, orgs, disk };
+      }
+
+      /** The target the fake orgs wrote to, as a reconciliation reads it: every record the run's user's. */
+      function readBack(orgs: ReturnType<typeof fakeOrgs>): InFlightTarget {
+        return {
+          queryPages: (soql: string) =>
+            (async function* page() {
+              const [, fields, object] = /^SELECT (.+?) FROM (\w+) /.exec(soql) ?? [];
+              const names = (fields ?? '').split(', ');
+              const table = orgs.written()[object ?? ''] ?? {};
+              yield Object.entries(table).map(([id, row]) =>
+                Object.fromEntries(
+                  names.map((name) => [name, name === 'Id' ? id : (row[name] ?? null)]),
+                ),
+              );
+            })(),
+          userId: async () => 'user',
+        };
+      }
+
+      it.each([
+        [1, 'self-lookups', selfLookups],
+        [3, 'self-lookups', selfLookups],
+        [6, 'self-lookups', selfLookups],
+        [1, 'a cycle', cycle],
+        [2, 'a cycle', cycle],
+        [2, 'statuses given back', statuses],
+      ] as const)(
+        'finds what call %i wrote over %s in the target before the run is taken up, and writes no row twice',
+        async (killedDuring, _name, build) => {
+          const { graph, whole, orgs, disk } = await killedDuringACall(killedDuring, build);
+          // The call's line is on disk, its answer is not.
+          const sent = disk
+            .text()
+            .split('\n')
+            .filter((line) => line.startsWith('["x"'));
+          expect(sent).toHaveLength(killedDuring);
+
+          const file = memoryRunFile(disk.text());
+          const reconciled = await reconcileInFlight(file, readBack(orgs));
+          expect(reconciled.calls).toBe(1);
+          expect(reconciled.found.reduce((sum, { rows }) => sum + rows, 0)).toBe(5);
+          expect(reconciled.uncertain).toEqual([]);
+
+          const store = ForgeRunStore.open(file);
+          const resumed = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+            stream: { pageSize: 5, store },
+          });
+          store.close();
+          // The target holds what one run leaves: every row once.
+          expect(orgs.written()).toEqual(whole.written());
+          expect(orgs.insertCalls.reduce((sum, call) => sum + call.rows, 0)).toBe(
+            whole.summary.successCount,
+          );
+          expect(resumed.linkedCount).toBe(5);
+        },
+      );
+
+      it('writes the call again when nothing looks for it first: what the journal alone leaves', async () => {
+        const { graph, whole, orgs, disk } = await killedDuringACall(3);
+        const store = ForgeRunStore.open(memoryRunFile(disk.text()));
+        await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+          stream: { pageSize: 5, store },
+        });
+        store.close();
+        expect(orgs.insertCalls.reduce((sum, call) => sum + call.rows, 0)).toBe(
+          whole.summary.successCount + 5,
+        );
+      });
+    });
 
     it('says the rows it links to were written before the run stopped, not by a run it retried', async () => {
       const { schema, graph } = selfLookups();

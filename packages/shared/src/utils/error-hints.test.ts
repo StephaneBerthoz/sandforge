@@ -170,6 +170,13 @@ const REFUSALS: ReadonlyArray<{
     hint: 'resumeChanged',
     severity: 'warning',
   },
+  {
+    message:
+      '200 row(s) may already be in DEV (200 Contact): the insert call that sent them was under way when the run stopped.',
+    code: 'RESUME_UNCERTAIN',
+    hint: 'resumeUncertain',
+    severity: 'warning',
+  },
 ];
 
 /** The session an org's request went with, refused: the platform's words, its code in front. */

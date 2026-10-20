@@ -3161,6 +3161,8 @@
       "notVisible_other": "{{formatted}} ni présents ni dans la corbeille : hors de votre vue, pas comptés comme supprimés",
       "changed_one": "{{formatted}} modifié depuis l'exécution",
       "changed_other": "{{formatted}} modifiés depuis l'exécution",
+      "moreInTheWindow_one": "{{formatted}} de plus créé pendant l'exécution par l'utilisateur sous lequel elle a écrit qu'elle n'en a écrit : l'automatisation de la cible, une autre session qui écrit sous cet utilisateur, ou un appel écrit deux fois",
+      "moreInTheWindow_other": "{{formatted}} de plus créés pendant l'exécution par l'utilisateur sous lequel elle a écrit qu'elle n'en a écrit : l'automatisation de la cible, une autre session qui écrit sous cet utilisateur, ou un appel écrit deux fois",
       "linksUnchecked": "champs de référence non vérifiés : {{reason}}",
       "noLinks": "aucun champ de référence fixé par l'exécution à vérifier",
       "linksHold_one": "{{formatted}} champ de référence vérifié, il tient",
@@ -4787,6 +4789,10 @@
     "resumeChanged": {
       "explanation": "Cette exécution serait maintenant configurée autrement que la partie qu'elle reprend : le clonage affiché sur la page, ou le paramètre sandforge.forge.maxRecordsPerObject, a changé depuis son arrêt. Rien n'a été écrit.",
       "action": "Remettez le paramètre, ou relancez plutôt l'exécution : un nouvel essai relit le clonage et rattache ce que cette exécution a écrit."
+    },
+    "resumeUncertain": {
+      "explanation": "L'exécution s'est arrêtée pendant un appel d'insertion, dont la réponse n'a jamais été conservée : la cible contient des enregistrements que la reprise ne sait pas distinguer des lignes de cet appel, ou n'a pas pu être lue. Rien n'a été écrit.",
+      "action": "Examinez les enregistrements de ces objets créés au moment de l'arrêt. Reprenez l'exécution avec --write-uncertain pour écrire ces lignes malgré tout, chacune alors peut-être en double, ou supprimez l'exécution."
     },
     "filesNotAccepted": {
       "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",

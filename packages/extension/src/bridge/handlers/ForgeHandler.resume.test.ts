@@ -14,6 +14,7 @@ import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
 import type { ExecuteOptions, ExecutionSummary } from '../../modules/forge/ForgeExecutor.js';
 import { ForgeRunJournal, HISTORY_IDS_BOUND } from '../../modules/forge/ForgeRunJournal.js';
+import { fingerprintFields, rowFingerprint } from '../../modules/forge/ForgeInFlight.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -555,5 +556,111 @@ describe('a run taken up where it stopped', () => {
 
     const listed = await history(handler);
     expect(listed.find((entry) => entry.forgeId === stopped.forgeId)?.resumable).toBe(true);
+  });
+
+  describe('a run whose window closed while an insert call was under way', () => {
+    /** The contact the call sent, as it sent it and as the target holds it once written. */
+    const SENT = { LastName: 'Marked', Email: 'marked@example.com.invalid' };
+    const USER = '005000000000001AAA';
+
+    /**
+     * The first window: the call is kept as sent, and the window closes
+     * before its answer — the target has the contact, the journal does not.
+     */
+    async function closedDuringTheCall(): Promise<ForgeExecutionResult> {
+      const first = windowRunning(async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        const fields = fingerprintFields([SENT]);
+        store?.sent('Contact', fields, [
+          { sourceId: CONTACT, fingerprint: rowFingerprint(SENT, fields) },
+        ]);
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send(first.handler, 'wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(() => expect(first.execute).toHaveBeenCalled());
+      const { handler } = windowRunning(async () => DONE);
+      const [entry] = await history(handler);
+      return entry;
+    }
+
+    /** The target, answering the read of what the run's user created with `held`. */
+    function targetHolding(held: Array<Record<string, unknown>>): void {
+      vi.mocked(getJsforceConnection).mockImplementation(
+        async () =>
+          ({
+            query: vi.fn(async (soql: string) =>
+              soql.includes('WHERE CreatedById = ')
+                ? { records: held, done: true, totalSize: held.length }
+                : { records: [], done: true, totalSize: 0 },
+            ),
+            queryMore: vi.fn(),
+            identity: vi.fn(async () => ({ user_id: USER })),
+            request: vi.fn(async () => ({ DataStorageMB: { Max: 200, Remaining: 150 } })),
+          }) as never,
+      );
+    }
+
+    /** A resume that asks its gate before it writes the one contact it counted. */
+    const throughTheGate: Execute = async (_graph, _config, options) => {
+      options?.stream?.store?.beginPart(new Date());
+      await options?.beforeWrite?.({
+        objects: [{ objectApiName: 'Contact', rows: [], counted: { rows: 1 } }],
+        dryRun: false,
+      });
+      return DONE;
+    };
+
+    it('finds the contact in the target before the run is taken up, and links to it', async () => {
+      const entry = await closedDuringTheCall();
+      targetHolding([{ Id: NEW_CONTACT, ...SENT }]);
+      const { handler, execute } = windowRunning(async (_graph, _config, options) => {
+        const store = options?.stream?.store;
+        store?.beginPart(new Date());
+        // The first part's, found in the target: linked to, never written again.
+        expect(store?.mapping(CONTACT)).toMatchObject({
+          kind: 'created',
+          targetId: NEW_CONTACT,
+          earlier: true,
+        });
+        return DONE;
+      });
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: entry.forgeId });
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(
+        posted('forge:execute:response').find((m) => m.correlationId === 'wv-resume'),
+      ).toBeDefined();
+    });
+
+    it('asks before it writes a row the target may hold already, and writes nothing when declined', async () => {
+      const entry = await closedDuringTheCall();
+      // Two records like the one the call sent: which is the call's cannot be told.
+      targetHolding([
+        { Id: NEW_CONTACT, ...SENT },
+        { Id: '003000000000902AAA', ...SENT },
+      ]);
+      const questions: unknown[] = [];
+      deps.infraServices = {
+        productionGuard: new ProductionGuard({
+          requestRunConfirmation: async (question) => {
+            questions.push(question);
+            return false;
+          },
+        }),
+      } as unknown as HandlerDeps['infraServices'];
+      const { handler } = windowRunning(throughTheGate);
+
+      await send(handler, 'wv-resume', 'forge:resume-run', { forgeId: entry.forgeId });
+
+      expect(questions).toEqual([
+        expect.objectContaining({
+          stage: 'write',
+          mayBeInTarget: [{ objectApiName: 'Contact', rows: 1 }],
+        }),
+      ]);
+      expect(refusal('wv-resume')).toMatchObject({ code: 'WRITE_DECLINED' });
+    });
   });
 });

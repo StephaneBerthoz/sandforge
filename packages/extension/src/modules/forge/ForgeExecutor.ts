@@ -124,6 +124,7 @@ import {
   emptyBatchWriteResult,
   writtenWithoutFieldsNote,
   type BatchWriteResult,
+  type InsertCallJournal,
   type PendingFkUpdate,
   type WrittenWithoutFields,
 } from './stages/BatchWriter.js';
@@ -196,6 +197,7 @@ import {
 } from './ForgeAnonymizer.js';
 import { keepPartialSummary } from './interruptedRun.js';
 import type { ForgeRunStore, StoredOwedLookup } from './ForgeRunStore.js';
+import { fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
 import type { FieldBounds } from './describeBounds.js';
 import {
   findUnavailableRecordTypes,
@@ -2793,6 +2795,30 @@ function marksIn(store: ForgeRunStore): NonNullable<CycleFkPatchInput['onPatched
   };
 }
 
+/**
+ * Where a node's insert calls are kept in the run's journal: each before it
+ * goes, its rows' source ids and the fingerprints of what it writes
+ * (`ForgeRunStore.sent`), and its answer once counted. A row without a source
+ * id is kept under none, and looked for by no one.
+ */
+function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
+  return {
+    sending: (objectApiName, rows) => {
+      const fields = fingerprintFields(rows.map(({ payload }) => payload));
+      return store.sent(
+        objectApiName,
+        fields,
+        rows.flatMap(({ sourceId, payload }) =>
+          sourceId === undefined
+            ? []
+            : [{ sourceId, fingerprint: rowFingerprint(payload, fields) }],
+        ),
+      );
+    },
+    answered: (callId) => store.answered(callId),
+  };
+}
+
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
 function statusesByObject(
   owed: ExecutionState['deferredStatuses'],
@@ -4761,6 +4787,33 @@ export class ForgeExecutor {
       record['Status'] = draft;
     });
     return drafts;
+  }
+
+  /**
+   * Owe its status to each row a call under way when an earlier part stopped
+   * wrote as a draft, found in the target since (`reconcileInFlight`): the
+   * call's answer never came, and the status the row was owed was never kept
+   * with it — found and linked to, it stayed a draft.
+   */
+  private async oweStatusesFoundAfterStop(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: readonly Record<string, unknown>[],
+  ): Promise<void> {
+    const { store } = state;
+    if (!store) return;
+    const found = rows.filter((row) => {
+      const id = row['Id'];
+      return typeof id === 'string' && store.wasFoundAfterStop(id);
+    });
+    if (found.length === 0) return;
+    const known = await this.lifecycleOf(state, objectApiName);
+    if (!known) return;
+    for (const row of found) {
+      if (!draftStartOf(row['Status'], known)) continue;
+      const targetId = state.config.writtenBefore.get(String(row['Id']));
+      if (targetId) this.oweStatus(state, objectApiName, targetId, String(row['Status']));
+    }
   }
 
   /**
@@ -9545,7 +9598,11 @@ export class ForgeExecutor {
       if (!newId) continue;
       for (const field of lookups) {
         const value = row[field.name];
-        if (typeof value !== 'string' || !value || config.writtenBefore.has(value)) continue;
+        if (typeof value !== 'string' || !value) continue;
+        // A lookup at a record written before was filled in by the run that
+        // wrote both — but on a row a call under way had written when the run
+        // stopped, found since, which owed nothing the journal kept.
+        if (config.writtenBefore.has(value) && !state.store?.wasFoundAfterStop(sourceId)) continue;
         const owed: PendingFkUpdate = {
           objectApiName: node.objectApiName,
           newId,
@@ -10339,6 +10396,7 @@ export class ForgeExecutor {
           fieldInfos,
           targetUpdatableSet,
         );
+        await this.oweStatusesFoundAfterStop(state, node.objectApiName, writtenBefore);
         if (records.length === 0 && personContacts.size === 0) {
           if (!page) {
             onProgress({
@@ -10858,6 +10916,9 @@ export class ForgeExecutor {
               ...(state.store
                 ? { oweLookups: (updates) => this.oweToTheSecondPass(state, updates) }
                 : {}),
+              // Each insert call kept before it goes, and closed once its
+              // answer is counted: see `WriteNodeInput.calls`.
+              ...(state.store ? { calls: insertCallsIn(state.store) } : {}),
               ...(draftsToOwe.size > 0
                 ? {
                     onWritten: (built: CleanedRecord, targetId: string) => {

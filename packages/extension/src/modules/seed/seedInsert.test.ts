@@ -110,6 +110,22 @@ describe('the write path of a seed', () => {
     );
   });
 
+  it('sends an object a duplicate rule watches through REST past 10 000 records too, and says it is slower', async () => {
+    const org = fakeOrg({ ruled: ['Contact'] });
+    const { insert, logged } = writer(org);
+
+    const answer = await insert('org', 'Contact', records(STREAMING_THRESHOLD + 500), 200);
+
+    expect(org.jobs).toEqual([]);
+    expect(org.restCalls).toHaveLength(53);
+    expect(org.restCalls.every((call) => call.headers['Sforce-Duplicate-Rule-Header'])).toBe(true);
+    expect(answer.successIds).toHaveLength(STREAMING_THRESHOLD + 500);
+    expect(logged).toContain(
+      '[INFO] seed:execute op-1: Contact goes through REST: an active duplicate rule watches it, ' +
+        'which a Bulk API job cannot waive — 10500 records in 53 calls, slower than one job',
+    );
+  });
+
   it('says once when the duplicate rules could not be read, and sends the object as a job', async () => {
     const org = fakeOrg({ rulesUnread: true });
     const { insert, logged } = writer(org);

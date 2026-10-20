@@ -46,7 +46,7 @@ import { homedir } from 'node:os';
 import { join as joinPath, resolve as resolvePath } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
-import { countRequests, loadOrg, makeConn } from './sfSession.js';
+import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 
 import type {
@@ -223,8 +223,15 @@ import {
 } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunPartEnd } from '../src/modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../src/modules/forge/ForgeRunStore.js';
+import {
+  inFlightLines,
+  inFlightTargetOf,
+  uncertainRows,
+  type InFlightReconciliation,
+} from '../src/modules/forge/ForgeInFlight.js';
 import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
+import { assertSoqlIdentifier } from '../src/core/common/soqlValidator.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import {
@@ -345,6 +352,12 @@ export interface CliArgs {
    * its run id in the journal directory. undefined = a run of its own.
    */
   resume: string | undefined;
+  /**
+   * With `--resume`, write the rows of the calls the run had under way when
+   * it stopped that the target may already hold (`--write-uncertain`): each
+   * may then be there twice. Without it, such a resume is refused.
+   */
+  writeUncertain: boolean;
 }
 
 /** The flags that read a run's choices from a file. */
@@ -529,7 +542,16 @@ Options:
                          is refused; a run that ended is refused too. Every run
                          that writes keeps its journal there (see
                          SANDFORGE_JOURNAL_DIR), and says where as it starts.
+                         The calls the run had under way when it stopped are
+                         looked for in the target first: a row found there is
+                         kept as written by the run, never sent again; one the
+                         target may hold already stops the resume before it
+                         writes (see --write-uncertain).
                          Not with --dry-run, --rehearse or --list-objects.
+  --write-uncertain      with --resume: write all the same the rows of a call
+                         under way when the run stopped that the target may
+                         already hold, records the resume cannot tell from
+                         them being there — each may then be there twice.
   --exclude <obj.field>  skip a field on an object during clone (repeatable)
                          e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
   --exclude-object <obj> leave an object out of the clone (repeatable)
@@ -1380,7 +1402,41 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     choicesFrom: choicesFlag && choicesPath ? { flag: choicesFlag, path: choicesPath } : undefined,
     audit: auditArg(args),
     resume: resumeArg(args),
+    writeUncertain: writeUncertainArg(args),
   };
+}
+
+/** Whether `--write-uncertain` was given; exits 2 on one given without `--resume`. */
+function writeUncertainArg(args: readonly string[]): boolean {
+  if (!args.includes('--write-uncertain')) return false;
+  if (!args.includes('--resume')) {
+    process.stderr.write(
+      '--write-uncertain goes with --resume: it writes the rows of a call under way when the ' +
+        'run stopped that the target may already hold.\n',
+    );
+    process.exit(2);
+  }
+  return true;
+}
+
+/**
+ * Why a resume stops before it writes, when the target may already hold rows
+ * of a call the run had under way: how many, of which objects, and the two
+ * ways on. Exported so it can be tested.
+ */
+export function uncertainRefusal(reconciled: InFlightReconciliation, target: string): string {
+  const rows = uncertainRows(reconciled);
+  const objects = reconciled.uncertain
+    .map(({ objectApiName, rows: count }) => `${count} ${objectApiName}`)
+    .join(', ');
+  return (
+    `${rows} row(s) may already be in ${target} (${objects}): the insert call that sent them was ` +
+    `under way when the run stopped, its answer never kept, and ${target} holds records the ` +
+    'resume cannot tell from them, or could not be read. Nothing was written. Look at the ' +
+    `records of those objects the run's user created in ${target} as the run stopped; run the ` +
+    'same --resume with --write-uncertain to write those rows all the same (one already there ' +
+    'is then there twice), or --remove the run.'
+  );
 }
 
 /**
@@ -2980,9 +3036,16 @@ export type RunSummary = z.infer<typeof runSummarySchema>;
 /**
  * The summary `--remove` and `--verify` take a run back from, read from the
  * file they are given: a summary as `parseRunSummary` reads it, its ids read
- * from the part of the journal it names when it keeps them there; or the
- * journal of a run itself, every part of it, as one run. Exported so it can
- * be tested.
+ * from the part of the journal it names whenever that journal is there; or
+ * the journal of a run itself, every part of it, as one run. Exported so it
+ * can be tested.
+ *
+ * The journal is written call by call, and the summary of a run of whole
+ * tables object by object: killed part way, one said 60 records written
+ * while its journal held 5 400, and a removal from the summary would have
+ * left 5 340 behind. Read from the journal, the summary's ids are what the
+ * run wrote, and what a reconciliation found since of the calls it had under
+ * way; the summary's own stand when the journal is gone.
  *
  * @param target - The org the command was told to reach: what a journal,
  *   which names its org by id, is reached by.
@@ -2997,14 +3060,17 @@ export async function runSummaryOfFile(
   const first = newline >= 0 ? text.slice(0, newline) : text;
   if (/^\{"run":/.test(first)) return runSummaryOfJournal(filePath, target, journals);
   const read = parseRunSummary(text);
-  if ('refusal' in read || !read.summary.result.remapInJournal) return read;
+  if ('refusal' in read) return read;
   const { journal, part } = read.summary;
-  if (journal === undefined || part === undefined) {
-    return { refusal: 'keeps the ids of its records in a journal it does not name.' };
-  }
-  const kept = await journals.readAt(journal, part);
-  if (!kept)
+  const kept =
+    journal !== undefined && part !== undefined ? await journals.readAt(journal, part) : undefined;
+  if (!kept) {
+    if (!read.summary.result.remapInJournal) return read;
+    if (journal === undefined || part === undefined) {
+      return { refusal: 'keeps the ids of its records in a journal it does not name.' };
+    }
     return { refusal: `keeps the ids of its records in ${journal}, which cannot be read.` };
+  }
   return {
     summary: {
       ...read.summary,
@@ -3584,12 +3650,61 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(2);
   }
-  const read = await runSummaryOfFile(args.summaryPath, text, args.target);
+  let read = await runSummaryOfFile(args.summaryPath, text, args.target);
   if ('refusal' in read) {
     process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
     process.exit(2);
   }
-  const { summary } = read;
+  /** The org, reached once: before the plan when the run's journal has calls to look for. */
+  let reached: { session: SfOrg; conn: Connection; org: TypedOrg } | undefined;
+  const reach = async (): Promise<{ session: SfOrg; conn: Connection; org: TypedOrg }> => {
+    if (!reached) {
+      const session = await loadOrg(args.target);
+      const conn = makeConn(session);
+      reached = { session, conn, org: await typeOrg(conn) };
+    }
+    return reached;
+  };
+  // The insert calls the run had under way when it stopped, their answer
+  // never kept: looked for in the target before the removal is planned, and
+  // what it holds of them kept in the journal as the run's, removed with the
+  // rest. A run killed during a call left that call's records behind.
+  const journalOfRun = read.summary.journal;
+  if (
+    journalOfRun !== undefined &&
+    existsSync(journalOfRun) &&
+    nodeRunJournal(journalDirOf()).callsInFlightAt(journalOfRun) > 0
+  ) {
+    const { conn, org } = await reach();
+    if (read.summary.targetOrgId !== undefined && !sameRecord(read.summary.targetOrgId, org.id)) {
+      process.stderr.write(
+        `${args.target} is not the org the run wrote to (${read.summary.targetOrgId}), and its ` +
+          'records are removed from that org only. Nothing was deleted.\n',
+      );
+      process.exit(1);
+    }
+    const reconciled = await nodeRunJournal(journalDirOf()).reconcileAt(
+      journalOfRun,
+      inFlightTargetOf(conn),
+    );
+    for (const line of inFlightLines(reconciled, args.target, 'removal')) say(line);
+    if (uncertainRows(reconciled) > 0) {
+      say(
+        `  the journal names none of the rows that may be in ${args.target}: they stay, and ` +
+          "--sweep-list shows what the run's user created in the run's window",
+      );
+    }
+    read = await runSummaryOfFile(
+      args.summaryPath,
+      readFileSync(args.summaryPath, 'utf8'),
+      args.target,
+    );
+    if ('refusal' in read) {
+      process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
+      process.exit(2);
+    }
+  }
+  let { summary } = read;
   // The run's records go from the org it wrote to, and from no other. A
   // summary that names that org by its id is checked against the org's own
   // once it answers, whatever alias names it now; one printed before the
@@ -3715,9 +3830,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     output('success', []);
     return;
   }
-  const session = await loadOrg(args.target);
-  const conn = makeConn(session);
-  const org = await typeOrg(conn);
+  const { session, conn, org } = await reach();
   /** The removal's entry in the audit trail, with --audit; one operation id for the process. */
   const audited = new Map([[org.id, { alias: args.target, username: session.username }]]);
   const operationId = `sandforge-clone-${randomUUID()}`;
@@ -3744,6 +3857,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(1);
   }
+  summary = await datedFromItsJournal(conn, summary);
 
   if (args.sweepList) {
     // What a sweep would delete, read and said; nothing is deleted, the
@@ -3952,6 +4066,69 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
 }
 
+/**
+ * How long past the journal's last line, on the clock of the machine that
+ * wrote it, the last write a summary taken from the journal is dated by may
+ * be: a record written to since — edited by hand, a day later — does not
+ * stretch the run's window to that day.
+ */
+const JOURNAL_LAST_WRITE_SLACK_MS = 10 * 60_000;
+
+/**
+ * A summary taken from a run's journal alone, dated as the target dated the
+ * run's writes (`writtenBetween`): from when the first record its journal
+ * says it created was created to its last write — the last record it created,
+ * or, later, the last it wrote to since, a lookup the second pass filled in or
+ * a status given back, as that record was last modified, no later than the
+ * journal's last line allows. Built from the journal, a summary said no
+ * window, and `--remove <journal> --sweep` was refused for want of one. A
+ * summary that says its window, or whose journal names no record the target
+ * still holds, is left as it is. Exported so it can be tested.
+ */
+export async function datedFromItsJournal(
+  conn: Pick<Connection, 'query'>,
+  summary: RunSummary,
+  journals: ForgeRunJournal = nodeRunJournal(journalDirOf()),
+): Promise<RunSummary> {
+  if (summary.result.writtenBetween || summary.journal === undefined) return summary;
+  if (!existsSync(summary.journal)) return summary;
+  const { first, lastCreated, lastUpdated, lastAt } = journals.writeBoundsAt(summary.journal);
+  if (!first || !lastCreated) return summary;
+  const dateOf = async (
+    { objectApiName, id }: { objectApiName: string; id: string },
+    field: 'CreatedDate' | 'LastModifiedDate',
+  ): Promise<number | undefined> => {
+    try {
+      const answer = await conn.query<Record<string, unknown>>(
+        `SELECT ${field} FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id = '${id}'`,
+      );
+      const date = answer.records[0]?.[field];
+      const epoch = typeof date === 'string' ? Date.parse(date) : Number.NaN;
+      return Number.isFinite(epoch) ? epoch : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const from = await dateOf(first, 'CreatedDate');
+  let to = await dateOf(lastCreated, 'CreatedDate');
+  if (from === undefined || to === undefined || to < from) return summary;
+  if (lastUpdated) {
+    const updated = await dateOf(lastUpdated, 'LastModifiedDate');
+    const bound =
+      lastAt === undefined ? Number.NaN : Date.parse(lastAt) + JOURNAL_LAST_WRITE_SLACK_MS;
+    if (updated !== undefined && updated > to && (!Number.isFinite(bound) || updated <= bound)) {
+      to = updated;
+    }
+  }
+  return {
+    ...summary,
+    result: {
+      ...summary.result,
+      writtenBetween: { first: new Date(from).toISOString(), last: new Date(to).toISOString() },
+    },
+  };
+}
+
 /** Whether two ids name the same record, whichever length each is written in. */
 function sameRecord(a: string, b: string): boolean {
   return a.slice(0, 15) === b.slice(0, 15);
@@ -4144,6 +4321,13 @@ export function verificationLines(verification: ForgeRunVerification, target: st
     if (o.recycleBinUnread !== undefined) {
       lines.push(`      the recycle bin could not be read (${o.recycleBinUnread})`);
     }
+    if ((o.moreInTheWindow ?? 0) > 0) {
+      lines.push(
+        `      ${o.moreInTheWindow} more ${o.objectApiName} record(s) were created in ${target} ` +
+          "during the run by the run's user than the run wrote: the target's automation, " +
+          'another session writing as that user, or a call written twice',
+      );
+    }
     for (const change of o.changedRecords) {
       changed.push(
         `      ${o.objectApiName} ${change.recordId}: modified ${change.modifiedAt}` +
@@ -4209,7 +4393,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     process.stderr.write(`--verify ${args.summaryPath} ${read.refusal}\n`);
     process.exit(2);
   }
-  const { summary } = read;
+  let { summary } = read;
   if (summary.targetOrgId === undefined && summary.target !== args.target) {
     process.stderr.write(
       `The run wrote to ${summary.target}, and its records are verified in that org only: ` +
@@ -4262,6 +4446,7 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(1);
   }
+  summary = await datedFromItsJournal(conn, summary);
   const sourceAlias = args.source ?? summary.source;
   let source: SourceOrg | { unavailable: string };
   try {
@@ -4619,6 +4804,24 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
     resumedEnd = await journals.lastEndAt(journalPath);
     say(`taking up the run of ${journalPath}`);
+    // The insert calls the run had under way when it stopped, their answer
+    // never kept: looked for in the target before anything is read or
+    // written, and what it holds of them kept as the run's. Taken up from the
+    // journal alone, a run killed during a call wrote that call's rows twice.
+    const reconciled = await journals.reconcileAt(
+      journalPath,
+      inFlightTargetOf(conns.get(args.target)!),
+    );
+    for (const line of inFlightLines(reconciled, args.target)) say(line);
+    if (uncertainRows(reconciled) > 0 && !args.writeUncertain) {
+      recordClone({
+        outcome: 'stopped',
+        code: 'RESUME_UNCERTAIN',
+        context: runAudit().context(),
+      });
+      process.stderr.write(`${uncertainRefusal(reconciled, args.target)}\n`);
+      process.exit(2);
+    }
   }
 
   // Ctrl-C stops the run as the panel's Stop does, through the same registry

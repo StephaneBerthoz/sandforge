@@ -209,6 +209,32 @@ describe('ForgeVerificationView', () => {
     );
   });
 
+  it('says when the run’s user created more records of an object during the run than the run wrote', () => {
+    const [contact] = PARTIAL.objects;
+    render(
+      <ForgeVerificationView
+        verification={{
+          ...PARTIAL,
+          objects: [
+            {
+              ...contact,
+              present: 2,
+              deleted: 0,
+              deletedIds: [],
+              linksBroken: 0,
+              brokenLinks: [],
+              moreInTheWindow: 200,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-verification-Contact').textContent).toContain(
+      'Contact: 2 of 2 there · 200 more created during the run by the user it wrote as than the run wrote',
+    );
+  });
+
   it('lists the records changed since the run, which a removal keeps', () => {
     render(<ForgeVerificationView verification={PARTIAL} />);
     const changed = screen.getByTestId('forge-verification-changed');

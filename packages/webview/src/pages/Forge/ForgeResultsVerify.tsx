@@ -63,6 +63,9 @@ function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
   if (object.deleted > 0) parts.push(counted(t, 'forge.verify.deleted', object.deleted));
   if (object.notVisible > 0) parts.push(counted(t, 'forge.verify.notVisible', object.notVisible));
   if (object.changed > 0) parts.push(counted(t, 'forge.verify.changed', object.changed));
+  // More records of the object than the run wrote, by its user in its window.
+  const more = object.moreInTheWindow ?? 0;
+  if (more > 0) parts.push(counted(t, 'forge.verify.moreInTheWindow', more));
   // The lookups the target explains: counted apart, never as broken.
   const leftEmpty = object.linksLeftEmptyByFilter ?? 0;
   const byAutomation = object.linksSetByAutomation ?? 0;

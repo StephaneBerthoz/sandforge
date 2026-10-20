@@ -11,8 +11,14 @@ import {
   type ForgeRemovalPlan,
   type IdMapRow,
 } from '@sandforge/shared';
-import { ForgeRunStore, nodeRunFile, type RunFile } from './ForgeRunStore.js';
+import { ForgeRunStore, journalLines, nodeRunFile, type RunFile } from './ForgeRunStore.js';
 import type { RunRecords } from './ForgeRunRemoval.js';
+import {
+  callsInFlight,
+  reconcileInFlight,
+  type InFlightReconciliation,
+  type InFlightTarget,
+} from './ForgeInFlight.js';
 import { HashedKeys, JournalPart } from './journalRecords.js';
 
 /** File-system operations the journal needs, injected so it stays testable. */
@@ -270,7 +276,9 @@ function fileSegment(name: string): string {
  * records offered for removal and the run for resumption.
  *
  * Ids alone, and the run's setup, never a value of a record — but for the
- * status a draft is owed. One file per run under the extension's storage
+ * status a draft is owed; of each insert call, before it goes, its rows'
+ * source ids and a fingerprint of what each writes, which holds none of it
+ * (`ForgeRunStore.sent`). One file per run under the extension's storage
  * (`forge-runs/`).
  */
 export class ForgeRunJournal {
@@ -319,6 +327,118 @@ export class ForgeRunJournal {
   /** {@link open}, of the journal at `filePath`. */
   openAt(filePath: string): ForgeRunStore {
     return ForgeRunStore.open(this.deps.openRunFile(filePath));
+  }
+
+  /**
+   * Look in the target for the rows of the insert calls the journal
+   * `journalId` names no answer of — a process killed while one was under
+   * way — and keep in the journal what was found (`reconcileInFlight`):
+   * before a part takes the run up, or its records are removed.
+   */
+  reconcile(journalId: string, target: InFlightTarget): Promise<InFlightReconciliation> {
+    return this.reconcileAt(this.filePath(journalId), target);
+  }
+
+  /** {@link reconcile}, of the journal at `filePath`. */
+  async reconcileAt(filePath: string, target: InFlightTarget): Promise<InFlightReconciliation> {
+    const file = this.deps.openRunFile(filePath);
+    try {
+      return await reconcileInFlight(file, target);
+    } finally {
+      file.close();
+    }
+  }
+
+  /**
+   * The records the first and the last writes of the journal at `filePath`
+   * name, every part of it: the first record it created, the last it
+   * created, and the last it wrote to since — a lookup the second pass filled
+   * in, a status given back — with the journal's last time on this machine's
+   * clock. What a run taken back from its journal alone is dated by, its
+   * summary saying no window (`writtenBetween`), read from the target. None
+   * for a journal that names no record it created.
+   */
+  writeBoundsAt(filePath: string): {
+    first?: { objectApiName: string; id: string };
+    lastCreated?: { objectApiName: string; id: string };
+    lastUpdated?: { objectApiName: string; id: string };
+    /** The latest time a line of the journal holds, on the clock of the machine that wrote it. */
+    lastAt?: string;
+  } {
+    const file = this.deps.openRunFile(filePath);
+    try {
+      let first: { objectApiName: string; id: string } | undefined;
+      let lastCreated: { objectApiName: string; id: string } | undefined;
+      let lastUpdated: { objectApiName: string; id: string } | undefined;
+      /** The last record the second pass filled a lookup of, told by its id alone. */
+      let lastFilled: string | undefined;
+      let lastAt = Number.NEGATIVE_INFINITY;
+      /** Each object the journal created records of, by the key prefix of their ids. */
+      const objectOfPrefix = new Map<string, string>();
+      for (const line of journalLines(file)) {
+        const at = /"(?:startedAt|at)":"([^"]{10,40})"/.exec(line.text)?.[1];
+        const sentAt = line.text.startsWith('["x"')
+          ? /^\["x","[^"]*","[^"]*","([^"]+)"/.exec(line.text)?.[1]
+          : undefined;
+        for (const time of [at, sentAt]) {
+          const epoch = time === undefined ? Number.NaN : Date.parse(time);
+          if (Number.isFinite(epoch)) lastAt = Math.max(lastAt, epoch);
+        }
+        if (
+          !line.text.startsWith('["c"') &&
+          !line.text.startsWith('["p"') &&
+          !line.text.startsWith('["g"')
+        ) {
+          continue;
+        }
+        let value: unknown;
+        try {
+          value = JSON.parse(line.text);
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(value)) continue;
+        const [tag, a, b, c] = value as unknown[];
+        if (tag === 'c') {
+          if (!idSchema.safeParse(b).success || !objectSchema.safeParse(c).success) continue;
+          const created = { objectApiName: String(c), id: String(b) };
+          first ??= created;
+          lastCreated = created;
+          objectOfPrefix.set(String(b).slice(0, 3), String(c));
+        } else if (tag === 'g') {
+          if (!idSchema.safeParse(b).success || !objectSchema.safeParse(a).success) continue;
+          lastUpdated = { objectApiName: String(a), id: String(b) };
+          lastFilled = undefined;
+        } else if (idSchema.safeParse(a).success) {
+          lastFilled = String(a);
+        }
+      }
+      const filledOf = lastFilled ? objectOfPrefix.get(lastFilled.slice(0, 3)) : undefined;
+      if (lastFilled && filledOf) lastUpdated = { objectApiName: filledOf, id: lastFilled };
+      return {
+        ...(first ? { first } : {}),
+        ...(lastCreated ? { lastCreated } : {}),
+        ...(lastUpdated ? { lastUpdated } : {}),
+        ...(Number.isFinite(lastAt) ? { lastAt: new Date(lastAt).toISOString() } : {}),
+      };
+    } finally {
+      file.close();
+    }
+  }
+
+  /** The insert calls the journal `journalId` names no answer of: see {@link reconcile}. */
+  callsInFlight(journalId: string): number {
+    return this.callsInFlightAt(this.filePath(journalId));
+  }
+
+  /** The insert calls the journal at `filePath` names no answer of: see {@link reconcile}. */
+  callsInFlightAt(filePath: string): number {
+    const file = this.deps.openRunFile(filePath);
+    try {
+      return callsInFlight(file);
+    } finally {
+      file.close();
+    }
   }
 
   /** Say how the last part of the run ended, once the run is in the history as `forgeId`. */

@@ -446,4 +446,36 @@ describe("a run's journal", () => {
     expect(read?.resume).toBeUndefined();
     expect(read?.created).toEqual([{ objectApiName: 'Account', ids: [NEW_ACCOUNT_A] }]);
   });
+
+  it('names the first record its run created, the last, and the last it wrote to since, with its last time', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run-1');
+    const store = journal.open('run-1');
+    store.sent('Contact', [], [], new Date('2026-10-13T10:05:00.000Z'));
+    // The second pass fills in a lookup of the first account.
+    store.patched(NEW_ACCOUNT_A, 'ParentId');
+    store.close();
+
+    expect(journal.writeBoundsAt(journal.pathOf('run-1'))).toEqual({
+      first: { objectApiName: 'Account', id: NEW_ACCOUNT_A },
+      lastCreated: { objectApiName: 'Contact', id: NEW_CONTACT_A },
+      lastUpdated: { objectApiName: 'Account', id: NEW_ACCOUNT_A },
+      lastAt: '2026-10-13T10:05:00.000Z',
+    });
+  });
+
+  it('keeps a journal whose window closed during its first insert call, with no record it names', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await journal.begin('run-2', 'tgt-org', STARTED, RESUME);
+    const store = journal.open('run-2');
+    store.beginPart(STARTED);
+    store.sent('Contact', ['LastName'], [{ sourceId: CONTACT_A, fingerprint: 'abcdefg1234567' }]);
+    store.close();
+
+    expect(journal.callsInFlight('run-2')).toBe(1);
+    const [read] = await journal.leftOver();
+    expect(read?.created).toEqual([]);
+  });
 });

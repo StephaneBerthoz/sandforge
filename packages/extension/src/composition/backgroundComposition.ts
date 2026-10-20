@@ -459,6 +459,18 @@ function writeQuestion(question: WriteConfirmation): string[] {
       );
     }
   }
+  // The rows of a call the run resumed had under way when it stopped, which
+  // the target may hold already: written only on the user's word.
+  for (const { objectApiName, rows } of question.mayBeInTarget ?? []) {
+    lines.push(
+      vscode.l10n.t(
+        '{0} {1} records may already be in {2}: the insert call that sent them was under way when the run stopped, and {2} holds records the resume cannot tell from them. Execute writes them all the same, and each may then be there twice.',
+        rows,
+        objectApiName,
+        question.org,
+      ),
+    );
+  }
   lines.push(
     question.counted
       ? vscode.l10n.t('The records have been counted, and nothing has been read or written yet.')

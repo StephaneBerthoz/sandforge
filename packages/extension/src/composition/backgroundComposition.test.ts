@@ -661,6 +661,18 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says the rows of a call under way when the run it resumes stopped that the target may hold, and that each may be there twice', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      mayBeInTarget: [{ objectApiName: 'Contact', rows: 200 }],
+    }).split('\n');
+
+    expect(lines.slice(-2)).toEqual([
+      '200 Contact records may already be in DEV: the insert call that sent them was under way when the run stopped, and DEV holds records the resume cannot tell from them. Execute writes them all the same, and each may then be there twice.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+  });
+
   it("warns near what is left, of a large volume, and when the target's storage could not be read", () => {
     const near = runQuestionDetail({
       ...write,

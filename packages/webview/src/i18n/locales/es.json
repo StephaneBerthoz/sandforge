@@ -3161,6 +3161,8 @@
       "notVisible_other": "{{formatted}} ni presentes ni en la papelera de reciclaje: fuera de su vista, no contados como eliminados",
       "changed_one": "{{formatted}} modificado desde la ejecución",
       "changed_other": "{{formatted}} modificados desde la ejecución",
+      "moreInTheWindow_one": "{{formatted}} más creado durante la ejecución por el usuario con el que escribió de los que escribió la ejecución: la automatización del destino, otra sesión que escribe como ese usuario o una llamada escrita dos veces",
+      "moreInTheWindow_other": "{{formatted}} más creados durante la ejecución por el usuario con el que escribió de los que escribió la ejecución: la automatización del destino, otra sesión que escribe como ese usuario o una llamada escrita dos veces",
       "linksUnchecked": "campos de búsqueda no comprobados: {{reason}}",
       "noLinks": "ningún campo de búsqueda fijado por la ejecución que comprobar",
       "linksHold_one": "{{formatted}} campo de búsqueda comprobado, se sostiene",
@@ -4787,6 +4789,10 @@
     "resumeChanged": {
       "explanation": "Esta ejecución quedaría ahora configurada de otro modo que la parte que retoma: la clonación de la página, o el ajuste sandforge.forge.maxRecordsPerObject, cambió desde que se detuvo. No se escribió nada.",
       "action": "Restablezca el ajuste, o reintente la ejecución en su lugar: un reintento vuelve a leer la clonación y vincula lo que escribió esta ejecución."
+    },
+    "resumeUncertain": {
+      "explanation": "La ejecución se detuvo con una llamada de inserción en curso, cuya respuesta nunca se guardó: el destino contiene registros que la reanudación no sabe distinguir de las filas de esa llamada, o no se pudo leer. No se escribió nada.",
+      "action": "Revise los registros de esos objetos creados cuando se detuvo la ejecución. Retome la ejecución con --write-uncertain para escribir esas filas de todos modos, cada una quizá entonces duplicada, o elimine la ejecución."
     },
     "filesNotAccepted": {
       "explanation": "Esta ejecución anonimiza sus registros y copia sus archivos, cuyo contenido no se puede anonimizar: los archivos solo se copian cuando acepta que se copien tal como están. No se leyó ni escribió nada.",

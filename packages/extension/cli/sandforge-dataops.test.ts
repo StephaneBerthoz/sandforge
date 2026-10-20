@@ -26,6 +26,7 @@ import {
   main,
   maskingInterruptedLine,
   parseArgs,
+  restoreInterruptedLine,
   resultLines,
 } from './sandforge-dataops';
 
@@ -579,6 +580,55 @@ describe('sandforge-dataops', () => {
       );
       expect(resumed).toBeUndefined();
       expect(rows.filter((r) => String(r.Email).startsWith('person'))).toEqual([]);
+    });
+
+    it('stops a restore at Ctrl-C before its next batch, says what it restored, and the same line puts back the rest', async () => {
+      // Its Ctrl-C reached a restore with no stop, and the process died part way.
+      orgIs('Developer Edition');
+      const rows = contactsOf(700, 700);
+      const before = rows.map((r) => ({ ...r }));
+      const { upsert } = orgOf(rows);
+      await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--yes',
+      );
+      const snapshotId = /snapshot (\S+): 700 record\(s\)/.exec(stdout)?.[1];
+      expect(snapshotId).toBeDefined();
+      upsert.mockImplementationOnce(async (batch: Array<Record<string, unknown>>) => {
+        process.emit('SIGINT');
+        return batch.map((sent) => {
+          Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
+          return { success: true, id: sent.Id };
+        });
+      });
+
+      stdout = '';
+      const code = await run('anonymize', '--org', 'ORG', '--restore', snapshotId!, '--yes');
+
+      expect(code).toBe(130);
+      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(stdout).toContain('Rollback cancelled: 200 records restored before the cancel');
+      expect(stderr).toContain(
+        restoreInterruptedLine(
+          'pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize --org ORG ' +
+            `--restore ${snapshotId} --store ${store}`,
+        ),
+      );
+      expect(rows.filter((r, i) => r.Email === before[i].Email)).toHaveLength(200);
+      expect(process.listenerCount('SIGINT')).toBe(0);
+
+      stdout = '';
+      process.exitCode = undefined;
+      expect(
+        await run('anonymize', '--org', 'ORG', '--restore', snapshotId!, '--yes'),
+      ).toBeUndefined();
+      expect(rows).toEqual(before);
     });
 
     it('writes every row of a snapshot back with --rewrite-all, as sandforge-backup does', async () => {

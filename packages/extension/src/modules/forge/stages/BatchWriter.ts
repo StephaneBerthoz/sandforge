@@ -238,6 +238,15 @@ export interface WriteNodeInput {
    * written as a draft — is owed with it.
    */
   onWritten?: (built: CleanedRecord, targetId: string) => void;
+  /**
+   * Where each insert call is kept before it goes and once its answer is
+   * counted: the run's journal. A process killed while a call was under way
+   * left records in the target the journal did not name, and a resume wrote
+   * them again; kept so, the call's rows are looked for in the target first
+   * (`reconcileInFlight`). An upsert is not kept: sent again, it matches the
+   * records it wrote by their external id. Absent, no call is kept.
+   */
+  calls?: InsertCallJournal;
   /** Pause/abort checkpoint — called between batch iterations. */
   waitIfPaused: () => Promise<void>;
   /**
@@ -248,6 +257,17 @@ export interface WriteNodeInput {
   stopped?: () => boolean;
   /** Progress sink for batch-level events. */
   onProgress: (event: ForgeProgressEvent) => void;
+}
+
+/** Where a node's insert calls are kept: see {@link WriteNodeInput.calls}. */
+export interface InsertCallJournal {
+  /** Keep the call about to go, its rows in the order sent; says its id. */
+  sending(
+    objectApiName: string,
+    rows: ReadonlyArray<{ sourceId: string | undefined; payload: Record<string, unknown> }>,
+  ): string | undefined;
+  /** Keep that the call's answer is counted, once what it created is registered. */
+  answered(callId: string): void;
 }
 
 /** Outcome of writing one node's records. */
@@ -381,6 +401,12 @@ function leftOutOf(row: RowToWrite): FieldToLeaveOut[] {
   return row.refusals.flatMap((refusal) => refusal.leftOut);
 }
 
+/** The source id of the record a row was cleaned from. */
+function sourceIdOf(row: RowToWrite): string | undefined {
+  const id = row.built?.source['Id'];
+  return typeof id === 'string' ? id : undefined;
+}
+
 /** What a row is sent as now: the payload first sent, without each field refused since. */
 function sentAs(row: RowToWrite): Record<string, unknown> {
   return row.refusals.length === 0 ? row.payload : without(row.payload, leftOutOf(row));
@@ -398,6 +424,8 @@ interface NodeWrite {
   readonly oweLookups: ((updates: readonly PendingFkUpdate[]) => void) | undefined;
   /** Told of each row the target took: see `WriteNodeInput.onWritten`. */
   readonly onWritten: ((built: CleanedRecord, targetId: string) => void) | undefined;
+  /** Where each insert call is kept as it goes and as it is answered: see `WriteNodeInput.calls`. */
+  readonly calls: InsertCallJournal | undefined;
   /** Duplicates the target did not name, for an object with a natural key. */
   readonly byNaturalKey: UnnamedDuplicate[];
   /** Rows the target refused on fields it named, to write again without them. */
@@ -423,6 +451,8 @@ interface NodeWrite {
 /** What a call of the node's write came back with: the target's answers. */
 interface CallAnswered {
   readonly answers: InsertResult[];
+  /** The call as the journal keeps it, closed once its answers are counted. */
+  readonly callId?: string;
 }
 
 /** What a call of the node's write came back with when it threw, and what that left in the target. */
@@ -705,6 +735,7 @@ export class BatchWriter {
       tally,
       oweLookups: input.oweLookups,
       onWritten: input.onWritten,
+      calls: input.calls,
       byNaturalKey: [],
       refusedOnTheirFields: [],
       locked: [],
@@ -763,7 +794,7 @@ export class BatchWriter {
         // A cancel stops the node before its next call — or before a call
         // that never reached the target is sent again.
         await input.waitIfPaused();
-        outcome = await this.call(write, input, rows.map(sentAs));
+        outcome = await this.call(write, input, rows);
       } catch (err) {
         settleOnStop(err);
         throw err;
@@ -783,7 +814,7 @@ export class BatchWriter {
         );
         break;
       }
-      await this.settleAnswers(write, rows, outcome.answers);
+      await this.settleAnswers(write, rows, outcome);
       recordOffset += rows.length;
       // The rows the target could not lock a record for go again now, after a
       // wait: the lock another transaction held may be gone.
@@ -868,13 +899,25 @@ export class BatchWriter {
   private async call(
     write: NodeWrite,
     input: WriteNodeInput,
-    payloads: Record<string, unknown>[],
+    rows: readonly RowToWrite[],
   ): Promise<CallAnswered | CallThrew> {
+    const payloads = rows.map(sentAs);
     for (let resends = 0; ; resends++) {
+      // Kept before it goes, each time it goes: see `WriteNodeInput.calls`.
+      const callId = write.upsertField
+        ? undefined
+        : write.calls?.sending(
+            write.objectApiName,
+            rows.map((row, i) => ({ sourceId: sourceIdOf(row), payload: payloads[i] })),
+          );
       try {
-        return { answers: await this.send(write, payloads) };
+        const answers = await this.send(write, payloads);
+        return callId === undefined ? { answers } : { answers, callId };
       } catch (thrown) {
         const left = whatTheWriteLeft(thrown);
+        // A call that proved it wrote nothing is closed; one that may have
+        // written rows stays open, for a run taken up to look for them.
+        if (callId !== undefined && left !== 'may-have-written') write.calls?.answered(callId);
         if (left !== 'not-received' || resends === RESENDS_OF_AN_UNREACHED_CALL) {
           return { thrown, left, tries: resends + 1 };
         }
@@ -915,7 +958,7 @@ export class BatchWriter {
   private async settleAnswers(
     write: NodeWrite,
     rows: readonly RowToWrite[],
-    answers: readonly InsertResult[],
+    { answers, callId }: CallAnswered,
   ): Promise<void> {
     // The records the target created are put on disk before the run awaits
     // anything, with the lookups they owe. The describe below, read for a
@@ -948,6 +991,8 @@ export class BatchWriter {
       });
     });
     write.remapper.persist();
+    // Closed once what it created is on disk: a reader of the call finds that first.
+    if (callId !== undefined) write.calls?.answered(callId);
   }
 
   /**
@@ -1052,7 +1097,7 @@ export class BatchWriter {
       }));
       let outcome: CallAnswered | CallThrew;
       try {
-        outcome = await this.call(write, input, rows.map(sentAs));
+        outcome = await this.call(write, input, rows);
       } catch (err) {
         this.leaveLockedAsFailed(write, locked, extractErrorMessage(err));
         throw err;
@@ -1061,7 +1106,7 @@ export class BatchWriter {
         this.settleThrown(write, outcome, rows, `${write.objectApiName}, sent again`, after);
         return outcome;
       }
-      await this.settleAnswers(write, rows, outcome.answers);
+      await this.settleAnswers(write, rows, outcome);
     }
     return undefined;
   }
@@ -1344,7 +1389,7 @@ export class BatchWriter {
         let outcome: CallAnswered | CallThrew;
         try {
           await input.waitIfPaused();
-          outcome = await this.call(write, input, chunk.map(sentAs));
+          outcome = await this.call(write, input, chunk);
         } catch (err) {
           this.leaveRefusedAsFailed(write, rows.slice(start), extractErrorMessage(err));
           throw err;
@@ -1360,7 +1405,7 @@ export class BatchWriter {
             this.leaveRefusedAsFailed(write, rows.slice(start), why);
           }
         } else {
-          await this.settleAnswers(write, chunk, outcome.answers);
+          await this.settleAnswers(write, chunk, outcome);
           try {
             stoppedBy = await this.sendLockedAgain(write, input, 0);
           } catch (err) {

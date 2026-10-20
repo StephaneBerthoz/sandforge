@@ -99,7 +99,9 @@ them. A production org is refused.
 
 Ctrl-C stops a run as the panel's Cancel does: before its next page, what it
 masked recorded in the audit trail of the store, and --resume masks only what it
-left. Ctrl-C again ends the process at once.
+left. It stops a --restore before its next batch, what it put back recorded the
+same way, and the same --restore puts back the rest. Ctrl-C again ends the
+process at once.
 
 Exit codes: 0 the run finished (read the summary for records left unmasked),
 1 it could not start, was refused or failed, 2 a bad command line, 130 Ctrl-C
@@ -463,6 +465,17 @@ export function dryRunLines(
 /** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
 const INTERRUPTED_EXIT = 130;
 
+/**
+ * What a restore Ctrl-C stopped says last: the line that puts back the rest.
+ * Exported so it can be tested.
+ */
+export function restoreInterruptedLine(again: string): string {
+  return (
+    'interrupted: the restore stopped before it was through; what it restored is in the audit ' +
+    `trail, and the same line puts back the rest: ${again}`
+  );
+}
+
 /** What a masking run Ctrl-C stopped says last. Exported so it can be tested. */
 export function maskingInterruptedLine(): string {
   return (
@@ -654,17 +667,40 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       `restoring ${restoreId} into ${args.org}` +
         `${args.rewriteAll ? ', every row written back' : ''}…`,
     );
-    const answer = await send('dataops:rollback', {
-      orgId: args.org,
-      operationId: restoreId,
-      ...(args.rewriteAll ? { rewriteAll: true } : {}),
-    });
+    // Ctrl-C stops the restore as the panel's Cancel does, through the
+    // registry it is listed in: before its next batch, with what it restored
+    // kept in the audit trail. It used to end the process part way. A second
+    // Ctrl-C ends the process at once.
+    let restoreInterrupted = false;
+    const interruptRestore = (): void => {
+      restoreInterrupted = true;
+      process.stderr.write(
+        '\ninterrupted: the restore stops before its next batch, and says what it restored ' +
+          '(Ctrl-C again ends it at once)\n',
+      );
+      for (const operation of registry.getRunning()) registry.abort(operation.operationId);
+    };
+    process.once('SIGINT', interruptRestore);
+    let answer: Posted;
+    try {
+      answer = await send('dataops:rollback', {
+        orgId: args.org,
+        operationId: restoreId,
+        ...(args.rewriteAll ? { rewriteAll: true } : {}),
+      });
+    } finally {
+      process.off('SIGINT', interruptRestore);
+    }
     emit('restore');
     if (failed(answer)) {
       fail(reason(answer));
       return;
     }
     log(String(answer.payload?.message ?? ''));
+    if (restoreInterrupted) {
+      process.stderr.write(`${restoreInterruptedLine(restoreLine(restoreId))}\n`);
+      process.exitCode = INTERRUPTED_EXIT;
+    }
     return;
   }
 

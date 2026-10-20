@@ -467,6 +467,40 @@ describe('sandforge-clone verification lines', () => {
     ]);
   });
 
+  it("says how many more records of an object the run's user created during the run than the run wrote", () => {
+    const lines = verificationLines(
+      {
+        verdict: 'partial',
+        verifiedAt: '2026-10-01T11:00:00.000Z',
+        attempts: 2,
+        objects: [
+          {
+            objectApiName: 'Contact',
+            expected: 2,
+            present: 2,
+            deleted: 0,
+            notVisible: 0,
+            changed: 0,
+            changedRecords: [],
+            deletedIds: [],
+            notVisibleIds: [],
+            linksChecked: 0,
+            linksBroken: 0,
+            brokenLinks: [],
+            moreInTheWindow: 200,
+          },
+        ],
+      },
+      'TGT',
+    );
+    expect(lines).toEqual([
+      'verification: PARTIAL (2 readings of TGT)',
+      '  Contact: 2 of 2 there; no lookup the run set to check',
+      "      200 more Contact record(s) were created in TGT during the run by the run's user than " +
+        "the run wrote: the target's automation, another session writing as that user, or a call written twice",
+    ]);
+  });
+
   it('counts the lookups the target explains apart from those that do not hold, and names each with why', () => {
     const lines = verificationLines(
       {

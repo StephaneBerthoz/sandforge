@@ -1305,6 +1305,15 @@ export interface ForgeVerificationObject {
   linksUnchecked?: string;
   /** Why the recycle bin could not be read for the records not read back. */
   recycleBinUnread?: string;
+  /**
+   * Records of the object the user the run wrote as created in the run's
+   * window past those of the run read back: the target's automation, another
+   * session writing as that user — or a call sent twice. A run taken up from
+   * its journal wrote again the call it had under way when it was killed, and
+   * every record the run wrote was there. Absent when none, or when the run's
+   * window or user is not known.
+   */
+  moreInTheWindow?: number;
 }
 
 /**

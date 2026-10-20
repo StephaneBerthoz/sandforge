@@ -3161,6 +3161,8 @@
       "notVisible_other": "{{formatted}} weder vorhanden noch im Papierkorb: für Sie nicht sichtbar, nicht als gelöscht gezählt",
       "changed_one": "{{formatted}} seit dem Durchlauf geändert",
       "changed_other": "{{formatted}} seit dem Durchlauf geändert",
+      "moreInTheWindow_one": "{{formatted}} mehr während des Durchlaufs vom Benutzer, als der er schrieb, angelegt, als der Durchlauf schrieb: die Automatisierung des Ziels, eine andere Sitzung, die als dieser Benutzer schreibt, oder ein doppelt geschriebener Aufruf",
+      "moreInTheWindow_other": "{{formatted}} mehr während des Durchlaufs vom Benutzer, als der er schrieb, angelegt, als der Durchlauf schrieb: die Automatisierung des Ziels, eine andere Sitzung, die als dieser Benutzer schreibt, oder ein doppelt geschriebener Aufruf",
       "linksUnchecked": "Lookup-Felder nicht geprüft: {{reason}}",
       "noLinks": "kein vom Durchlauf gesetztes Lookup-Feld zu prüfen",
       "linksHold_one": "{{formatted}} Lookup-Feld geprüft, es hält",
@@ -4787,6 +4789,10 @@
     "resumeChanged": {
       "explanation": "Dieser Lauf wäre jetzt anders eingerichtet als der Teil, den er fortsetzt: Der Klon auf der Seite oder die Einstellung sandforge.forge.maxRecordsPerObject hat sich geändert, seit er stoppte. Es wurde nichts geschrieben.",
       "action": "Setzen Sie die Einstellung zurück, oder wiederholen Sie den Lauf stattdessen: Eine Wiederholung liest den Klon erneut und verknüpft, was dieser Lauf geschrieben hat."
+    },
+    "resumeUncertain": {
+      "explanation": "Der Lauf stoppte, während ein Einfügeaufruf unterwegs war, und dessen Antwort wurde nie festgehalten: Das Ziel enthält Datensätze, die die Fortsetzung nicht von den Zeilen dieses Aufrufs unterscheiden kann, oder konnte nicht gelesen werden. Es wurde nichts geschrieben.",
+      "action": "Prüfen Sie die Datensätze dieser Objekte, die beim Stopp angelegt wurden. Setzen Sie den Lauf mit --write-uncertain fort, um diese Zeilen trotzdem zu schreiben, jede dann vielleicht doppelt, oder entfernen Sie den Lauf."
     },
     "filesNotAccepted": {
       "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",

@@ -828,4 +828,82 @@ describe('RunVerifier — lookups the target explains', () => {
 
     expect(objectOf(verification, 'Case')).toMatchObject({ linksBroken: 1 });
   });
+
+  describe('the records of an object the run’s user created in the run’s window', () => {
+    /** When the run began, by the org's clock: an hour before it ended. */
+    const RUN_START = '2026-10-01T09:00:00.000Z';
+
+    /**
+     * The scenario's target, its records created by the run's user during
+     * the run, and `twice` more contacts beside them, created by the same
+     * user in the same window: a call the run wrote again.
+     */
+    function withCopies(twice: number) {
+      const { target, source, run } = scenario();
+      const created = { CreatedById: RUN_USER, CreatedDate: '2026-10-01T09:30:00.000+0000' };
+      const rowsOf = (object: string): Array<Record<string, unknown>> =>
+        object === 'Contact'
+          ? [created, created, ...Array.from({ length: twice }, () => created)]
+          : [created];
+      const answered = target.query;
+      const counts: string[] = [];
+      target.query = vi.fn(async (soql: string) => {
+        const count =
+          /^SELECT COUNT\(\) FROM (\w+) WHERE CreatedById = '(\w+)' AND CreatedDate >= (\S+) AND CreatedDate <= (\S+)$/.exec(
+            soql,
+          );
+        if (!count) {
+          if (/^SELECT Id, CreatedById FROM/.test(soql)) {
+            const id = /IN \('(\w+)'\)/.exec(soql)?.[1] ?? '';
+            return { totalSize: 1, records: [{ Id: id, CreatedById: RUN_USER }] };
+          }
+          return answered(soql);
+        }
+        counts.push(soql);
+        const [, object, user, from, to] = count;
+        const rows = rowsOf(object).filter(
+          (row) =>
+            row.CreatedById === user &&
+            Date.parse(String(row.CreatedDate)) >= Date.parse(from) &&
+            Date.parse(String(row.CreatedDate)) <= Date.parse(to),
+        );
+        return { totalSize: rows.length, records: [] };
+      });
+      return { target, source, run: { ...run, runStartedAt: new Date(RUN_START) }, counts };
+    }
+
+    it('says how many more the target holds than the run read back, and is not verified', async () => {
+      const { target, source, run, counts } = withCopies(200);
+
+      const verification = await new RunVerifier({ target, source }).verify(run, NO_WAIT);
+
+      expect(objectOf(verification, 'Contact')).toMatchObject({ present: 2, moreInTheWindow: 200 });
+      expect(objectOf(verification, 'Account').moreInTheWindow).toBeUndefined();
+      expect(verification.verdict).toBe('partial');
+      expect(counts[0]).toBe(
+        `SELECT COUNT() FROM Contact WHERE CreatedById = '${RUN_USER}' AND CreatedDate >= 2026-10-01T08:59:50Z AND CreatedDate <= 2026-10-01T10:00:10Z`,
+      );
+    });
+
+    it('is verified when the run’s user created no more than the run wrote', async () => {
+      const { target, source, run } = withCopies(0);
+
+      const verification = await new RunVerifier({ target, source }).verify(run, NO_WAIT);
+
+      expect(verification.verdict).toBe('verified');
+      expect(objectOf(verification, 'Contact').moreInTheWindow).toBeUndefined();
+    });
+
+    it('counts nothing when the run’s first write is not known', async () => {
+      const { target, source, run, counts } = withCopies(200);
+
+      const verification = await new RunVerifier({ target, source }).verify(
+        { ...run, runStartedAt: undefined },
+        NO_WAIT,
+      );
+
+      expect(counts).toEqual([]);
+      expect(verification.verdict).toBe('verified');
+    });
+  });
 });

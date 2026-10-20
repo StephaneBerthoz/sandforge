@@ -301,6 +301,29 @@ describe('ForgeRunStore', () => {
       expect(file.text()).toContain(`["c","${src('001', 1)}","${tgt('001', 1)}","Account"]`);
     });
 
+    it('writes the line of an insert call at once, before the call goes, and its answer with what it created', () => {
+      const { store, file } = freshStore();
+      const callId = store.sent(
+        'Contact',
+        ['LastName'],
+        [{ sourceId: src('003', 1), fingerprint: 'abcdefg1234567' }],
+        at,
+      );
+      // On disk before the run awaits the call: a process killed meanwhile leaves it.
+      expect(file.text().trim().split('\n').at(-1)).toBe(
+        `["x","${callId}","Contact","${at.toISOString()}",["LastName"],[["${src('003', 1)}","abcdefg1234567"]]]`,
+      );
+      store.setMapping('created', src('003', 1), tgt('003', 1), 'Contact');
+      store.answered(callId);
+      store.flush();
+      expect(file.text().trim().split('\n').slice(-2)).toEqual([
+        `["c","${src('003', 1)}","${tgt('003', 1)}","Contact"]`,
+        `["a","${callId}"]`,
+      ]);
+      // Neither line is a record the run mapped.
+      expect([...store.mappings()].map((mapping) => mapping.sourceId)).toEqual([src('003', 1)]);
+    });
+
     it('starts each part with a line of its own', () => {
       const { file } = freshStore();
       expect(file.text().split('\n')[1]).toBe(

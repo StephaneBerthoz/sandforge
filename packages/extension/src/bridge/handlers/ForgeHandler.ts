@@ -193,6 +193,11 @@ import {
   type ForgeRunResumeHead,
 } from '../../modules/forge/ForgeRunJournal.js';
 import type { ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
+import {
+  inFlightLines,
+  inFlightTargetOf,
+  type InFlightObjectRows,
+} from '../../modules/forge/ForgeInFlight.js';
 import { forgeRunFingerprint, sameRunSetup } from '../../modules/forge/runFingerprint.js';
 import { ForgeStops, MAX_DISCOVERIES } from '../../modules/forge/ForgeStops.js';
 import type { DiscoveryStop, LiveDiscovery } from '../../modules/forge/ForgeStops.js';
@@ -1921,6 +1926,8 @@ export class ForgeHandler implements DomainHandler {
     let journalId: string | undefined;
     /** The store the run writes its journal through; see `ForgeRunStore`. */
     let store: ForgeRunStore | undefined;
+    /** Of a resume, the rows of the calls under way when its run stopped that the target may hold. */
+    let mayBeInTarget: InFlightObjectRows[] | undefined;
     /**
      * Let the journal's file go, once. Closed as the executor settles and
      * again as the run ends, a file on disk refused the second close (EBADF)
@@ -2116,9 +2123,24 @@ export class ForgeHandler implements DomainHandler {
         journalId = id;
         this.journalsRunning.add(id);
         // A part resuming the run goes on in its journal; a run begins its own,
-        // with what it was started with, to be taken up where it stops.
+        // with what it was started with, to be taken up where it stops. The
+        // insert calls the run had under way when it stopped are looked for
+        // in the target first, and what it holds of them kept as the run's
+        // (`reconcileInFlight`): taken up from the journal alone, a run whose
+        // window closed during a call wrote that call's rows twice.
         const begun = resume
-          ? journal.resuming(id)
+          ? journal.resuming(id).then(async () => {
+              const conn = await getJsforceConnection(
+                config.targetOrgId,
+                this.deps.orgRegistry,
+                this.deps.orgManager,
+              );
+              const reconciled = await journal.reconcile(id, inFlightTargetOf(conn));
+              for (const line of inFlightLines(reconciled, targetName)) {
+                logger.info(`Forge resume: ${line.trim()}`);
+              }
+              mayBeInTarget = reconciled.uncertain;
+            })
           : journal.begin(
               id,
               config.targetOrgId,
@@ -2135,7 +2157,10 @@ export class ForgeHandler implements DomainHandler {
           },
         );
         if (resume && !store)
-          throw new Error('The journal of the run to resume could not be opened.');
+          throw new Error(
+            'The journal of the run to resume could not be opened, or the target could not be ' +
+              'read for the calls the run had under way. Nothing was written.',
+          );
       }
       // A Cancel taken while the journal was opened reaches an executor that
       // has not started, which clears it on entry: the run wrote.
@@ -2165,6 +2190,7 @@ export class ForgeHandler implements DomainHandler {
             orgTier,
             lookup,
             emailsPerInsert,
+            mayBeInTarget,
             onConfirmed: () => {
               guardDecision = strongerDecision(guardDecision, 'confirmed');
               audit.confirm('volume');
@@ -2974,6 +3000,12 @@ export class ForgeHandler implements DomainHandler {
     lookup: { requests: number };
     /** The emails the target's flows send per record inserted, from the automation read before the run. */
     emailsPerInsert: readonly ForgeEmailsPerInsert[];
+    /**
+     * Per object, the rows of a call the run it resumes had under way that the
+     * target may hold already (`InFlightReconciliation.uncertain`): written
+     * only once the user says so, each may then be there twice.
+     */
+    mayBeInTarget?: readonly InFlightObjectRows[];
     onConfirmed: () => void;
   }): (boundary: ForgeWriteBoundary) => Promise<void> {
     return async (boundary) => {
@@ -3039,7 +3071,13 @@ export class ForgeHandler implements DomainHandler {
           });
         }
       }
-      if (aboveRecords === undefined && storage.verdict === 'fits' && overEmails.length === 0) {
+      const uncertain = (run.mayBeInTarget ?? []).filter(({ rows }) => rows > 0);
+      if (
+        aboveRecords === undefined &&
+        storage.verdict === 'fits' &&
+        overEmails.length === 0 &&
+        uncertain.length === 0
+      ) {
         return;
       }
       const answer = await run.guard.confirmRun({
@@ -3055,6 +3093,9 @@ export class ForgeHandler implements DomainHandler {
         ...(boundary.objects.some((object) => object.counted) ? { counted: true as const } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
         ...pricesForLinesOf(plan),
+        ...(uncertain.length > 0
+          ? { mayBeInTarget: uncertain.map(({ objectApiName, rows }) => ({ objectApiName, rows })) }
+          : {}),
       });
       if (answer === 'confirmed') {
         run.onConfirmed();
@@ -3573,7 +3614,10 @@ export class ForgeHandler implements DomainHandler {
           if (!plan || store) await journal.forget(read.journalId);
           continue;
         }
-        if (read.created.length > 0) {
+        // A window closed during the run's first insert call left no record
+        // the journal names, and the call's records in the target: kept, so
+        // that the run can be taken up, and the call looked for first.
+        if (read.created.length > 0 || journal.callsInFlight(read.journalId) > 0) {
           const entry = interruptedRunOf(read, startedWith.graph);
           this.addToHistory(entry, startedWith.config);
           await journal.stop(read.journalId, 'interrupted', entry.forgeId);

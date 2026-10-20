@@ -3161,6 +3161,8 @@
       "notVisible_other": "{{formatted}} nem presentes nem na lixeira: fora da sua visão, não contados como excluídos",
       "changed_one": "{{formatted}} alterado desde a execução",
       "changed_other": "{{formatted}} alterados desde a execução",
+      "moreInTheWindow_one": "{{formatted}} a mais criado durante a execução pelo usuário com que ela gravou do que a execução gravou: a automação do destino, outra sessão que grava como esse usuário ou uma chamada gravada duas vezes",
+      "moreInTheWindow_other": "{{formatted}} a mais criados durante a execução pelo usuário com que ela gravou do que a execução gravou: a automação do destino, outra sessão que grava como esse usuário ou uma chamada gravada duas vezes",
       "linksUnchecked": "campos de pesquisa não conferidos: {{reason}}",
       "noLinks": "nenhum campo de pesquisa definido pela execução a conferir",
       "linksHold_one": "{{formatted}} campo de pesquisa conferido, ele se mantém",
@@ -4787,6 +4789,10 @@
     "resumeChanged": {
       "explanation": "Esta execução ficaria agora configurada de outra forma que a parte que ela retoma: a clonagem da página, ou a configuração sandforge.forge.maxRecordsPerObject, mudou desde que ela parou. Nada foi gravado.",
       "action": "Restaure a configuração, ou repita a execução: uma repetição lê a clonagem de novo e vincula o que esta execução gravou."
+    },
+    "resumeUncertain": {
+      "explanation": "A execução parou com uma chamada de inserção em andamento, cuja resposta nunca foi guardada: o destino contém registros que a retomada não consegue distinguir das linhas dessa chamada, ou não pôde ser lido. Nada foi gravado.",
+      "action": "Verifique os registros desses objetos criados quando a execução parou. Retome a execução com --write-uncertain para gravar essas linhas mesmo assim, cada uma então talvez duplicada, ou remova a execução."
     },
     "filesNotAccepted": {
       "explanation": "Esta execução anonimiza seus registros e copia os arquivos deles, cujo conteúdo não pode ser anonimizado: os arquivos só são copiados quando você aceita que sejam copiados como estão. Nada foi lido nem gravado.",

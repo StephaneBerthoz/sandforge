@@ -628,6 +628,12 @@ const FORGE_REFUSALS: Readonly<Record<string, { keys: HintKeys; severity: ErrorH
     keys: ['errors.resumeChanged.explanation', 'errors.resumeChanged.action'],
     severity: 'warning',
   },
+  // A resume that stopped before it wrote: the target may hold rows of a call
+  // the run had under way, which it would write twice.
+  RESUME_UNCERTAIN: {
+    keys: ['errors.resumeUncertain.explanation', 'errors.resumeUncertain.action'],
+    severity: 'warning',
+  },
   FILES_NOT_ACCEPTED: {
     keys: ['errors.filesNotAccepted.explanation', 'errors.filesNotAccepted.action'],
     severity: 'warning',

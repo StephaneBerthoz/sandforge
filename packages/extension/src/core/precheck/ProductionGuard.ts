@@ -258,6 +258,13 @@ export interface WriteConfirmation {
      */
     alertsCounted?: true;
   }>;
+  /**
+   * Of a run taken up where it stopped, per object, the rows of an insert call
+   * under way when it stopped that the target may hold already — records the
+   * resume cannot tell from them are there. Written once the user confirms,
+   * each may then be there twice. Absent when none.
+   */
+  mayBeInTarget?: Array<{ objectApiName: string; rows: number }>;
 }
 
 /**

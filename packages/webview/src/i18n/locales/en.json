@@ -3161,6 +3161,8 @@
       "notVisible_other": "{{formatted}} neither there nor in the recycle bin: out of your sight, not taken for deleted",
       "changed_one": "{{formatted}} changed since the run",
       "changed_other": "{{formatted}} changed since the run",
+      "moreInTheWindow_one": "{{formatted}} more created during the run by the user it wrote as than the run wrote: the target's automation, another session writing as that user, or a call written twice",
+      "moreInTheWindow_other": "{{formatted}} more created during the run by the user it wrote as than the run wrote: the target's automation, another session writing as that user, or a call written twice",
       "linksUnchecked": "lookups not checked: {{reason}}",
       "noLinks": "no lookup the run set to check",
       "linksHold_one": "{{formatted}} lookup checked, it holds",
@@ -4787,6 +4789,10 @@
     "resumeChanged": {
       "explanation": "This run would now be set up otherwise than the part it resumes: the clone on the page, or the sandforge.forge.maxRecordsPerObject setting, changed since it stopped. Nothing was written.",
       "action": "Put the setting back, or retry the run instead: a retry reads the clone again and links what this run wrote."
+    },
+    "resumeUncertain": {
+      "explanation": "The run stopped while an insert call was under way, and its answer was never kept: the target holds records the resume cannot tell from that call's rows, or could not be read. Nothing was written.",
+      "action": "Look at the records of those objects created as the run stopped. Take the run up again with --write-uncertain to write those rows all the same, each then perhaps there twice, or remove the run."
     },
     "filesNotAccepted": {
       "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",

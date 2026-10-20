@@ -108,6 +108,7 @@
   "These records make the flows of {0} send about {1} single emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "これらのレコードにより {0} のフローが約 {1} 通の単一メールを送信します。本日の残り {2} 通（上限 {3} 通）を超えます（レコードあたりのメール数: {4}）。それを超えると、保存時にフローが失敗したレコードは拒否されます。",
   "These records make the flows of {0} send about {1} workflow emails, more than the {2} of {3} it has left today (emails per record: {4}). Past them, a record whose flow fails in the save is refused.": "これらのレコードにより {0} のフローが約 {1} 通のワークフローメールを送信します。本日の残り {2} 通（上限 {3} 通）を超えます（レコードあたりのメール数: {4}）。それを超えると、保存時にフローが失敗したレコードは拒否されます。",
   "{0} counts its email alerts against its single emails too, as a Developer Edition does: they are among them.": "{0} は Developer Edition と同様に、メールアラートも単一メールとして数えます。アラートはその中に含まれています。",
+  "{0} {1} records may already be in {2}: the insert call that sent them was under way when the run stopped, and {2} holds records the resume cannot tell from them. Execute writes them all the same, and each may then be there twice.": "{1} の {0} 件のレコードは、すでに {2} にある可能性があります。それらを送信した挿入呼び出しは実行の停止時に処理中で、{2} には再開でそれらと区別できないレコードがあります。実行するとそのまま書き込まれ、各レコードが重複する可能性があります。",
   "Approve": "承認",
   "Reject": "却下",
   "SandForge: pipeline \"{0}\" waits for your approval at step \"{1}\", until {2}.": "SandForge: パイプライン「{0}」がステップ「{1}」で {2} まであなたの承認を待っています。",
