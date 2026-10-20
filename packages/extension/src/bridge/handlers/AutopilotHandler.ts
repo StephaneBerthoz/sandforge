@@ -6,6 +6,7 @@ import type {
   AutopilotAnonymizationRule,
   AutopilotRefusal,
   AutopilotStopLeftover,
+  CurrencyReplaced,
 } from '@sandforge/shared';
 import { guardTierOf } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -794,6 +795,10 @@ export class AutopilotHandler implements DomainHandler {
                   linkedCount: outcome.linked,
                   refusals: outcome.refusals,
                   ...(leftToThePlatform > 0 ? { leftToThePlatform } : {}),
+                  // Said in the node's detail, as Forge's results say them.
+                  ...(outcome.currenciesReplaced
+                    ? { currenciesReplaced: outcome.currenciesReplaced }
+                    : {}),
                 }
               : {}),
             ...(statuses
@@ -1023,6 +1028,8 @@ export class AutopilotHandler implements DomainHandler {
       leftToThePlatform?: number;
       /** Records a stopped run never sent. */
       notSent?: number;
+      /** Records written in another currency than they were read in, and their amounts. */
+      currenciesReplaced?: CurrencyReplaced[];
       error?: string;
       /** API calls this node cost, so the page can total them as the run goes. */
       apiCallsUsed?: number;

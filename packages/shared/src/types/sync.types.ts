@@ -1,4 +1,4 @@
-import type { UUID, ISODateString, ApiName } from './common.types.js';
+import type { UUID, ISODateString, ApiName, CurrencyReplaced } from './common.types.js';
 import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
 
 /** Sync direction */
@@ -440,6 +440,12 @@ export interface SyncObjectResult {
   delta?: SyncDeltaOutcome;
   /** On a configuration that copies files: what became of the files of the records it wrote. */
   files?: SyncFilesOutcome;
+  /**
+   * The records written in another currency than they were read in — the
+   * target does not hold theirs active, or their parent went in another —
+   * and what became of their amounts.
+   */
+  currenciesReplaced?: CurrencyReplaced[];
 }
 
 /**

@@ -95,6 +95,36 @@ describe('SyncHistoryDetail', () => {
     expect(screen.getByText('8')).toBeDefined(); // totalFailed
   });
 
+  it('says the rows an object wrote in another currency as the currencies they went in, not as errors', () => {
+    // Said in English among the object's errors, in their colour, whatever
+    // the user's language: a GBP opportunity written in USD read as a failure.
+    const entry = makeMockEntry();
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      objectApiName: 'Opportunity',
+      currenciesReplaced: [
+        {
+          objectApiName: 'Opportunity',
+          from: 'GBP',
+          to: 'USD',
+          chosenBy: 'corporate',
+          rows: 1,
+          fields: ['Amount'],
+          datedBy: 'CloseDate',
+        },
+      ],
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const rows = screen.getAllByTestId('forge-results-currencies-row');
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "Opportunity — 1 row in GBP, written in USD, the target org's corporate currency — " +
+        "amounts converted at the source org's rates: Amount — at the dated rates of CloseDate",
+    ]);
+    expect(rows[0].closest('.text-status-error')).toBeNull();
+  });
+
   it('calls a run a cancel stopped cancelled, not partial, and says before what', () => {
     const entry = makeMockEntry();
     entry.result = {

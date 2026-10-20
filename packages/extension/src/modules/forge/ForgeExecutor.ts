@@ -98,10 +98,21 @@ import {
   currencyFieldsOf,
   currencyReplacementsNote,
   readRunCurrencies,
+  followsItsParentsCurrency,
   replacementCurrency,
   type CurrencyChange,
   type RunCurrencies,
 } from '../../core/common/recordCurrencies.js';
+import {
+  LINES_PRICED,
+  LINE_PRICE_FIELD,
+  describePriceCurrencies,
+  priceInCurrency,
+  pricesToAsk,
+  recordsBeforeTheirPrices,
+  settlePriceCurrencies,
+  type PriceCurrencySaid,
+} from './stages/PriceCurrencies.js';
 import {
   BatchWriter,
   WRITE_API_MAX_BATCH,
@@ -717,6 +728,14 @@ export interface ForgeExecutorDeps {
    * Optional: without it the gate is shown discovery's counts.
    */
   countRecords?: (orgId: string, soql: string) => Promise<number>;
+  /**
+   * A query of an org's Tooling API: its currency settings, which say whether
+   * advanced currency management is on whatever the user may do with
+   * currencies (`readRunCurrencies`). Optional: without it only the user's
+   * access to dated rates is asked, and a line says when that left the rates
+   * unconfirmed.
+   */
+  queryTooling?: (orgId: string, soql: string) => Promise<Record<string, unknown>[]>;
   /** Insert records into a Salesforce org. */
   insertRecords: (
     orgId: string,
@@ -1619,11 +1638,31 @@ interface ExecutionState {
    */
   readonly currencyChangesById: Map<string, CurrencyChange>;
   /**
-   * What the reads of the prices said of those replaced, and of those the
-   * source holds in no other currency, as the object's line says it
-   * (`pricesSwappedNote`).
+   * What became of each price whose currency changed — replaced by the
+   * source's own price in the currency written, converted, or left in another
+   * than its lines want — as the object's line says it (`pricesSwappedNote`).
    */
-  readonly pricesSwappedSaid: string[];
+  readonly pricesSwappedSaid: PriceCurrencySaid[];
+  /**
+   * The prices the run settled the currency of (`pricesInTheCurrencyWritten`):
+   * a price left out, by its source id, and the one written in its place; a
+   * price written in the currency its lines' records go in, converted; the
+   * price written for a product in a book and a currency (`priceInCurrency`);
+   * and the key of each price considered (`priceKeyOf`). What a line is
+   * pointed at the price of its record's currency with.
+   */
+  readonly prices: {
+    readonly standsFor: Map<string, string>;
+    readonly convertedInto: Map<string, string>;
+    readonly written: Map<string, string>;
+    readonly keys: Map<string, string>;
+  };
+  /**
+   * Whether the run reads every row before it writes one: the prices then
+   * settle their currency as they are written, once the records their lines
+   * belong to have gone in.
+   */
+  readsEverythingFirst: boolean;
   /**
    * Per object, the rows written without the fields the target refused them
    * on. See `ExecutionSummary.writtenWithoutFields`.
@@ -2685,7 +2724,7 @@ const CONTROL_CHARACTER = /[\u0000-\u001f]/;
  */
 function pricesSwappedNote(state: ExecutionState, objectApiName: string): string {
   if (!isPricebookEntry(objectApiName) || state.pricesSwappedSaid.length === 0) return '';
-  return `, ${state.pricesSwappedSaid.join('; ')}`;
+  return `, ${describePriceCurrencies(state.pricesSwappedSaid).join('; ')}`;
 }
 
 /** The master record type's id, 15 or 18 characters: the same in every org, and in no mapping. */
@@ -3129,6 +3168,13 @@ export class ForgeExecutor {
       currencyChanges: new CurrencyReplacementTally(),
       currencyChangesById: new Map<string, CurrencyChange>(),
       pricesSwappedSaid: [],
+      prices: {
+        standsFor: new Map<string, string>(),
+        convertedInto: new Map<string, string>(),
+        written: new Map<string, string>(),
+        keys: new Map<string, string>(),
+      },
+      readsEverythingFirst: false,
       writtenWithoutFields: new Map<string, WrittenWithoutFields>(),
       leftEmptyByFilter: new Map(),
       contactsOnTheirOwn: new Set<string>(),
@@ -3407,6 +3453,7 @@ export class ForgeExecutor {
     // whole tables always could: its gate is shown counts, not rows.
     const streamed = this.streamsTheRun(state);
     const twoPhase = !streamed && readsBeforeWriting(config);
+    state.readsEverythingFirst = twoPhase;
     // A run that writes each object as it reads it owes its second pass to
     // the journal, when it keeps one; one that reads every node first settles
     // the pass after each node it writes, from memory.
@@ -5274,9 +5321,16 @@ export class ForgeExecutor {
         }
       }
     }
+    const catalog = catalogWriteEdges(objects, lines);
+    // In an org with several currencies, the records lines take their
+    // currency from before the prices: see `pricesInTheCurrencyWritten`.
+    const priced = fieldsByObject
+      .get(PRICEBOOK_ENTRY_OBJECT)
+      ?.some((field) => field.name === PRICEBOOK_ENTRY_CURRENCY_FIELD);
     return sortNodesForWriting(withWhatTheFieldsSayOfEdges(graph, fieldsByObject), [
       ...required,
-      ...catalogWriteEdges(objects, lines),
+      ...catalog,
+      ...(priced ? recordsBeforeTheirPrices(objects, lines, [...required, ...catalog]) : []),
       ...emailWriteEdges(objects),
       ...personAccountWriteEdges(objects, fieldsByObject),
     ]);
@@ -6947,7 +7001,11 @@ export class ForgeExecutor {
       // without it. Ask for them by name, for exactly the products in hand.
       if (isPricebookEntry(node.objectApiName) && state.standardPricebookId) {
         await this.addStandardPricebookEntries(node, state, records, fieldInfos);
-        await this.pricesInTheCurrencyWritten(node, state, records, fieldInfos);
+        // A run that reads every row first settles them as they are written,
+        // once the records of their lines have gone in: see `writeNode`.
+        if (!state.readsEverythingFirst) {
+          await this.pricesInTheCurrencyWritten(node, state, records, fieldInfos);
+        }
         // A book holds one entry per product — per product and selling model
         // when the run keeps them, and per currency in an org with several —
         // and the target enforces that on insert whatever `IsActive` says.
@@ -8250,7 +8308,9 @@ export class ForgeExecutor {
         }
         if (isPricebookEntry(objectApiName) && state.standardPricebookId) {
           await this.addStandardPricebookEntries(node, state, rows, fields);
-          await this.pricesInTheCurrencyWritten(node, state, rows, fields);
+          if (!state.readsEverythingFirst) {
+            await this.pricesInTheCurrencyWritten(node, state, rows, fields);
+          }
           return dedupePricebookEntries(rows, { sellingModel: state.sellingModels });
         }
         return rows;
@@ -8716,40 +8776,44 @@ export class ForgeExecutor {
   }
 
   /**
-   * Replace each price read in a currency the target does not hold active by
-   * the source's own price of the same product, book — and selling model,
-   * when the run keeps them — in the currency it would be written in.
+   * Settle the currency each price goes in (`stages/PriceCurrencies.ts`): in
+   * the one the records its lines belong to go in, given in `wanted`, and,
+   * for a price nothing asks another of read in a currency the target does
+   * not hold active, the one the user mapped its currency to when the target
+   * holds it, the target's corporate currency otherwise — a price has no
+   * record type. On the source's own price of the same product, book — and
+   * selling model, when the run keeps them — in that currency, read as the
+   * standard prices are for exactly the products and books in hand; at its
+   * own amount converted into it where the source holds none, said on the
+   * object's line.
    *
    * An org with several currencies prices a product once per currency, and a
-   * line item takes the price of its opportunity's currency: the platform
-   * refuses a line whose price is in another. A price in GBP, which the
-   * target lacks, goes in the target's corporate currency at the converted
-   * amount; but the source holds the product's own price in that currency,
-   * and the two written together are one price twice in the book, which the
-   * target refuses (`DUPLICATE_VALUE`). So the source's price in the currency
-   * written is read, as the standard prices are, for exactly the products
-   * and books in hand, and goes in instead; a line pointing at the price in
-   * GBP is pointed at it (`IdRemapper.alias`). A price whose product the
-   * source does not price in the currency written stays, and goes in at the
-   * converted amount, said on the object's line.
+   * line takes the price of its record's currency: the platform refuses a
+   * line whose price is in another. A price in GBP, which the target lacks,
+   * went in the target's corporate currency at the converted amount; but the
+   * source holds the product's own price in that currency, and the two
+   * written together are one price twice in the book, which the target
+   * refuses (`DUPLICATE_VALUE`). A line pointing at a price left out is
+   * pointed at the one written in its place (`IdRemapper.alias`), and, as it
+   * is written, at the price written in its own record's currency
+   * (`pricedInTheirRecordsCurrency`).
    *
-   * The currency a price goes in is the one the user mapped its currency to,
-   * when the target holds it, and the target's corporate currency otherwise:
-   * a price has no record type. Mutates `records` in place; a failed read
-   * leaves them as they were.
+   * Mutates `records` in place; a failed read leaves them as they were.
+   *
+   * @param wanted - For a price lines point at, by its id, the currencies
+   *   their records went in; known once those records are written.
    */
   private async pricesInTheCurrencyWritten(
     node: ForgeGraphNode,
     state: ExecutionState,
     records: Record<string, unknown>[],
     fieldInfos: FieldInfo[],
+    wanted?: ReadonlyMap<string, ReadonlySet<string>>,
   ): Promise<void> {
+    const { standardPricebookId } = state;
+    if (!standardPricebookId) return;
     if (!fieldInfos.some((f) => f.name === PRICEBOOK_ENTRY_CURRENCY_FIELD)) return;
-    const codeOf = (row: Record<string, unknown>): string | undefined => {
-      const code = row[PRICEBOOK_ENTRY_CURRENCY_FIELD];
-      return typeof code === 'string' && code !== '' ? code : undefined;
-    };
-    if (!records.some((row) => codeOf(row) !== undefined)) return;
+    if (!records.some((row) => typeof row[PRICEBOOK_ENTRY_CURRENCY_FIELD] === 'string')) return;
     const currencies = await this.runCurrencies(state);
     if (!currencies) return;
     const { target } = currencies;
@@ -8765,42 +8829,20 @@ export class ForgeExecutor {
       if (typeof decided === 'string' && target.active.has(decided)) return decided;
       return replacementCurrency(undefined, target)?.to;
     };
-    const keyOf = (row: Record<string, unknown>, code: string): string =>
-      [
-        row[PRICEBOOK_ENTRY_BOOK_FIELD],
-        row[PRICEBOOK_ENTRY_PRODUCT_FIELD],
-        state.sellingModels ? row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] : '',
-        code,
-      ]
-        .map((value) => String(value ?? ''))
-        .join('|');
-    const held = new Map<string, Record<string, unknown>>();
-    for (const row of records) {
-      const code = codeOf(row);
-      if (code !== undefined) held.set(keyOf(row, code), row);
-    }
-    const swapping: Array<{ row: Record<string, unknown>; from: string; to: string }> = [];
-    for (const row of records) {
-      const from = codeOf(row);
-      if (from === undefined || target.active.has(from)) continue;
-      const to = writtenIn(from);
-      if (to === undefined || typeof row['Id'] !== 'string') continue;
-      swapping.push({ row, from, to });
-    }
-    if (swapping.length === 0) return;
+    const input = {
+      prices: records,
+      standardBookId: standardPricebookId,
+      sellingModels: state.sellingModels,
+      writtenIn,
+      active: target.active,
+      ...(wanted ? { wanted } : {}),
+    };
 
-    // The prices of the currencies written that are not in hand, read for the
+    // The prices of the currencies wanted that are not in hand, read for the
     // products and books of the prices they replace.
-    const wanted = swapping.filter(({ row, to }) => !held.has(keyOf(row, to)));
-    const fetched = new Set<Record<string, unknown>>();
-    const idsOf = (field: string): Set<string> =>
-      new Set(
-        wanted.flatMap(({ row }) => {
-          const id = row[field];
-          return typeof id === 'string' ? [id] : [];
-        }),
-      );
-    const codes = [...new Set(wanted.map(({ to }) => to))].filter((code) =>
+    const asked = pricesToAsk(input);
+    const fetched: Record<string, unknown>[] = [];
+    const codes = [...new Set(asked.map(({ currency }) => currency))].filter((code) =>
       /^[A-Z]{3}$/.test(code),
     );
     if (codes.length > 0) {
@@ -8810,24 +8852,16 @@ export class ForgeExecutor {
           selectFields: fieldInfos.filter((f) => f.queryable).map((f) => f.name),
           split: {
             field: PRICEBOOK_ENTRY_PRODUCT_FIELD,
-            ids: idsOf(PRICEBOOK_ENTRY_PRODUCT_FIELD),
+            ids: new Set(asked.map(({ product }) => product).filter((id) => id !== '')),
           },
-          whole: { field: PRICEBOOK_ENTRY_BOOK_FIELD, ids: idsOf(PRICEBOOK_ENTRY_BOOK_FIELD) },
+          whole: {
+            field: PRICEBOOK_ENTRY_BOOK_FIELD,
+            ids: new Set(asked.map(({ book }) => book).filter((id) => id !== '')),
+          },
           extraWhere: `${PRICEBOOK_ENTRY_CURRENCY_FIELD} IN (${codes.map((c) => `'${c}'`).join(', ')})`,
         });
         for (const soql of statements) {
-          for (const row of await this.deps.queryRecords(state.sourceOrgId, soql)) {
-            const code = codeOf(row);
-            if (code === undefined) continue;
-            const key = keyOf(row, code);
-            const known = held.get(key);
-            // A live price says more of the product than a retired one.
-            const livelier = known !== undefined && fetched.has(known) && row['IsActive'] === true;
-            if (known !== undefined && !livelier) continue;
-            if (known !== undefined) fetched.delete(known);
-            held.set(key, row);
-            fetched.add(row);
-          }
+          fetched.push(...(await this.deps.queryRecords(state.sourceOrgId, soql)));
         }
       } catch (err) {
         state.errors.push({
@@ -8846,50 +8880,113 @@ export class ForgeExecutor {
       }
     }
 
-    const replaced = new Set<Record<string, unknown>>();
-    const added = new Set<Record<string, unknown>>();
-    const swappedBy = new Map<string, number>();
-    const missingBy = new Map<string, number>();
-    for (const { row, from, to } of swapping) {
-      const counterpart = held.get(keyOf(row, to));
-      const pair = `${from} → ${to}`;
-      const counterpartId = counterpart?.['Id'];
-      if (!counterpart || typeof counterpartId !== 'string') {
-        missingBy.set(pair, (missingBy.get(pair) ?? 0) + 1);
-        continue;
-      }
-      state.remapper.alias(row['Id'] as string, counterpartId);
-      replaced.add(row);
-      if (fetched.has(counterpart)) added.add(counterpart);
-      swappedBy.set(pair, (swappedBy.get(pair) ?? 0) + 1);
-    }
-    const kept = records.filter((row) => !replaced.has(row));
+    const plan = settlePriceCurrencies(input, fetched);
+    const inHand = new Set(records);
     records.length = 0;
-    records.push(...kept, ...added);
-    noteIdsRead(state, [...added]);
-    const counted = (by: Map<string, number>): string =>
-      [...by].map(([pair, count]) => `${count} ${pair}`).join(', ');
-    const said = [
-      ...(swappedBy.size > 0
-        ? [
-            `${counted(swappedBy)}: price(s) in a currency the target does not hold active ` +
-              "replaced by the source's own price in the currency written, for the same product " +
-              'and price book',
-          ]
-        : []),
-      ...(missingBy.size > 0
-        ? [
-            `${counted(missingBy)}: no price in the currency written in the source for the same ` +
-              "product and price book, written in it at the amount converted at the source's rates",
-          ]
-        : []),
-    ];
-    state.pricesSwappedSaid.push(...said);
+    records.push(...plan.rows);
+    noteIdsRead(
+      state,
+      plan.rows.filter((row) => !inHand.has(row)),
+    );
+    for (const [left, standsFor] of plan.standsFor) {
+      state.remapper.alias(left, standsFor);
+      state.prices.standsFor.set(left, standsFor);
+    }
+    // A price that stood for one now left out stands for the one written in
+    // its place: the remapper follows one alias, not a chain of them.
+    for (const [left, standsFor] of state.prices.standsFor) {
+      const now = plan.standsFor.get(standsFor);
+      if (now === undefined) continue;
+      state.remapper.alias(left, now);
+      state.prices.standsFor.set(left, now);
+    }
+    for (const [id, currency] of plan.convertedInto) state.prices.convertedInto.set(id, currency);
+    for (const [at, id] of plan.written) state.prices.written.set(at, id);
+    for (const [id, key] of plan.keys) state.prices.keys.set(id, key);
+    state.pricesSwappedSaid.push(...plan.said);
+    // Said as the prices are read; settled as they are written, they are
+    // said on the line their write ends on.
+    if (plan.said.length === 0 || wanted) return;
     state.onProgress({
       objectName: node.objectApiName,
       status: 'scanning',
       progress: 50,
-      message: said.join('; '),
+      message: describePriceCurrencies(plan.said).join('; '),
+    });
+  }
+
+  /**
+   * For each price in hand lines point at, the currencies the records those
+   * lines belong to went in (`LINES_PRICED`): what the price is to be written
+   * in. A line whose record the run has not written says nothing.
+   */
+  private currenciesTheirLinesWant(
+    state: ExecutionState,
+    prices: readonly Record<string, unknown>[],
+  ): Map<string, Set<string>> {
+    const inHand = new Set(
+      prices.flatMap((row) => (typeof row['Id'] === 'string' ? [row['Id']] : [])),
+    );
+    const wanted = new Map<string, Set<string>>();
+    for (const [line, { field: recordField }] of Object.entries(LINES_PRICED)) {
+      for (const row of state.preread.get(line)?.records ?? []) {
+        const named = row[LINE_PRICE_FIELD];
+        if (typeof named !== 'string') continue;
+        const price = state.prices.standsFor.get(named) ?? named;
+        if (!inHand.has(price)) continue;
+        const goes = this.currencyTheirRecordWentIn(state, row, recordField);
+        if (goes === undefined) continue;
+        const set = wanted.get(price) ?? new Set<string>();
+        set.add(goes);
+        wanted.set(price, set);
+      }
+    }
+    return wanted;
+  }
+
+  /**
+   * The currency the record a line belongs to went in: the one its currency
+   * was changed to, or the one it was read in, which is the line's own; nothing
+   * when the run has not written it.
+   */
+  private currencyTheirRecordWentIn(
+    state: ExecutionState,
+    line: Readonly<Record<string, unknown>>,
+    recordField: string,
+  ): string | undefined {
+    const record = line[recordField];
+    if (typeof record !== 'string' || state.remapper.get(record) === undefined) return undefined;
+    const changed = state.currencyChangesById.get(record)?.to;
+    if (changed !== undefined) return changed;
+    const read = line[CURRENCY_FIELD];
+    return typeof read === 'string' && read !== '' ? read : undefined;
+  }
+
+  /**
+   * The lines of `objectApiName`, each pointed at the price written in the
+   * currency its record went in, when the run wrote one and the line pointed
+   * at another: a price of the same product and book in another currency is
+   * refused for the line. Rows that need no change are handed back as they
+   * are.
+   */
+  private pricedInTheirRecordsCurrency(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+  ): Record<string, unknown>[] {
+    const recordField = LINES_PRICED[objectApiName]?.field;
+    if (recordField === undefined || state.prices.written.size === 0) return rows;
+    return rows.map((row) => {
+      const named = row[LINE_PRICE_FIELD];
+      if (typeof named !== 'string') return row;
+      const price = state.prices.standsFor.get(named) ?? named;
+      const key = state.prices.keys.get(price);
+      const goes = key ? this.currencyTheirRecordWentIn(state, row, recordField) : undefined;
+      if (key === undefined || goes === undefined) return row;
+      const written = state.prices.written.get(priceInCurrency(key, goes));
+      if (written === undefined || written === price || written === named) return row;
+      if (state.remapper.get(written) === undefined) return row;
+      return { ...row, [LINE_PRICE_FIELD]: written };
     });
   }
 
@@ -9655,20 +9752,28 @@ export class ForgeExecutor {
 
   /**
    * For rows whose currency is their parent's — the target's describe has
-   * the field and will not take it — what their parents' currency changes
-   * are looked up in, when the run wrote a row in another currency and these
-   * rows were read with one: an opportunity's products, its order's, go in
-   * its new currency with their amounts converted as its were. Nothing
-   * otherwise.
+   * the field and will not take it, or the object is one whose currency the
+   * platform gives from its parent (`CURRENCY_FOLLOWS`) — what their
+   * parents' currency changes are looked up in, when the run wrote a row in
+   * another currency and these rows were read with one: an opportunity's
+   * products, its order's, go in its new currency with their amounts
+   * converted as its were. Nothing otherwise.
+   *
+   * A quote's describe calls its currency createable, and the platform
+   * writes the quote in its opportunity's whatever it is sent: a quote of a
+   * GBP opportunity sent in EUR went in EUR, sent in USD by its own rule, and
+   * its lines, priced in USD for a USD quote, were refused, "the price book
+   * entry currency code is different than the one assigned to the Quote".
    */
   private async parentCurrenciesFor(
     state: ExecutionState,
+    objectApiName: string,
     targetFields: readonly FieldInfo[] | undefined,
     rows: readonly Record<string, unknown>[],
   ): Promise<CleanNodeRecordsInput['parentCurrencies']> {
     if (state.currencyChangesById.size === 0) return undefined;
     const field = targetFields?.find((f) => f.name === CURRENCY_FIELD);
-    if (!field || field.createable) return undefined;
+    if (!field || (field.createable && !followsItsParentsCurrency(objectApiName))) return undefined;
     if (
       !rows.some((row) => typeof row[CURRENCY_FIELD] === 'string' && row[CURRENCY_FIELD] !== '')
     ) {
@@ -9683,9 +9788,16 @@ export class ForgeExecutor {
 
   /** Both orgs' currencies, read the first time the run asks and kept for the rest of it. */
   private runCurrencies(state: ExecutionState): Promise<RunCurrencies | undefined> {
+    const tooling = this.deps.queryTooling;
     state.currencies ??= readRunCurrencies(
       (soql) => this.deps.queryRecords(state.sourceOrgId, soql),
       (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+      tooling
+        ? {
+            source: (soql) => tooling(state.sourceOrgId, soql),
+            target: (soql) => tooling(state.targetOrgId, soql),
+          }
+        : {},
     );
     return state.currencies;
   }
@@ -9849,6 +9961,29 @@ export class ForgeExecutor {
     const read = state.preread.get(node.objectApiName);
     if (!read) return;
     const { fieldInfos, createableSet, targetSetsPending } = read;
+    // Every row read first, the prices settle the currency they go in now
+    // that the records their lines belong to have gone in theirs: an
+    // opportunity a decision or its record type sent in EUR had its lines
+    // refused on prices written in USD.
+    if (
+      isPricebookEntry(node.objectApiName) &&
+      state.readsEverythingFirst &&
+      afterTheirTask === undefined &&
+      !page
+    ) {
+      await this.pricesInTheCurrencyWritten(
+        node,
+        state,
+        read.records,
+        fieldInfos,
+        this.currenciesTheirLinesWant(state, read.records),
+      );
+      const deduped = dedupePricebookEntries(read.records, { sellingModel: state.sellingModels });
+      if (deduped.length !== read.records.length) {
+        read.records.length = 0;
+        read.records.push(...deduped);
+      }
+    }
     // The node's rows, or the emails that waited for their task.
     const rows = afterTheirTask ?? read.records;
     // The rows the run this one retries wrote are in the target: linked to,
@@ -10231,24 +10366,36 @@ export class ForgeExecutor {
       // Both orgs' currencies, read once a run when these rows carry one the
       // run writes: a currency the target does not hold active is replaced,
       // and the amounts converted into the one written.
-      const currencies = await this.currenciesFor(
-        state,
-        targetFields,
-        toWrite,
-        (field) =>
-          effectiveCreatableSet.has(field) &&
-          !excludedFields.has(field) &&
-          fieldRename[field] === undefined,
-      );
+      // A quote takes its opportunity's currency, whatever it is sent: see
+      // `parentCurrenciesFor`.
+      const currencies = followsItsParentsCurrency(node.objectApiName)
+        ? undefined
+        : await this.currenciesFor(
+            state,
+            targetFields,
+            toWrite,
+            (field) =>
+              effectiveCreatableSet.has(field) &&
+              !excludedFields.has(field) &&
+              fieldRename[field] === undefined,
+          );
       // Rows whose currency is their parent's, which the target will not take
       // one of their own for: when a parent went in another currency, their
       // amounts go with it.
       const parentCurrencies = currencies
         ? undefined
-        : await this.parentCurrenciesFor(state, targetFields, toWrite);
+        : await this.parentCurrenciesFor(state, node.objectApiName, targetFields, toWrite);
+      // A line goes on the price written in its record's currency, which the
+      // platform refuses another of.
+      toWrite = this.pricedInTheirRecordsCurrency(state, node.objectApiName, toWrite);
+      const pricedIn = isPricebookEntry(node.objectApiName)
+        ? (row: Readonly<Record<string, unknown>>) =>
+            state.prices.convertedInto.get(String(row['Id']))
+        : undefined;
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,
         records: toWrite,
+        ...(pricedIn ? { pricedIn } : {}),
         fieldInfos,
         remapper,
         referenceFallback: config.referenceFallback,

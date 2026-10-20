@@ -338,6 +338,33 @@ describe('AutopilotHandler — what each node came to', () => {
     });
   });
 
+  it('ends a node on the records it wrote in another currency, which its detail says', async () => {
+    const currency = {
+      objectApiName: 'Account',
+      from: 'GBP',
+      to: 'USD',
+      chosenBy: 'corporate' as const,
+      rows: 2,
+      fields: ['AnnualRevenue'],
+    };
+    const executePlan = vi.fn().mockResolvedValue({
+      totalSuccess: 2,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Account: { written: 2, linked: 0, failed: 0, refusals: [], currenciesReplaced: [currency] },
+      },
+    });
+
+    const progress = await execute(executePlan);
+
+    expect(progress.at(-1)?.payload).toMatchObject({ currenciesReplaced: [currency] });
+  });
+
   it('ends a node born a draft on the statuses given back, and why the others were not', async () => {
     const refusedStatus = {
       statusCode: 'FIELD_INTEGRITY_EXCEPTION',

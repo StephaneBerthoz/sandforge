@@ -44,6 +44,7 @@ import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
 import { z } from 'zod';
 import type {
+  CurrencyReplaced,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   SyncConfig,
@@ -89,7 +90,11 @@ import { FieldMappingService } from '../src/modules/sync/FieldMapping.js';
 import { TransformPipeline } from '../src/modules/sync/TransformPipeline.js';
 import { targetLookup } from '../src/modules/sync/SyncSimulation.js';
 import { readSyncRecordTypes } from '../src/modules/sync/syncRecordTypes.js';
-import { readRunCurrencies } from '../src/core/common/recordCurrencies.js';
+import {
+  describeCurrencyReplaced,
+  readRunCurrencies,
+} from '../src/core/common/recordCurrencies.js';
+import { readStandardPricebooks } from '../src/modules/sync/syncPrices.js';
 import {
   cannotCopyMessage,
   syncCannotCopy,
@@ -641,6 +646,15 @@ export function objectErrorLines(errors: readonly string[]): string[] {
   return lines;
 }
 
+/**
+ * The lines the command prints of the rows an object's write sent in
+ * another currency than it read them in: every one, however many refusals
+ * the object had.
+ */
+export function objectCurrencyLines(currencies: readonly CurrencyReplaced[] | undefined): string[] {
+  return (currencies ?? []).map((entry) => `${describeCurrencyReplaced(entry)}.`);
+}
+
 /** How an object of a delta configuration was read, as the line the command prints. */
 export function deltaLine(delta: SyncDeltaOutcome): string {
   const read =
@@ -882,6 +896,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       readRunCurrencies(
         async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
         async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
+        {
+          source: async (soql) =>
+            (await sourceConn.tooling.query<Record<string, unknown>>(soql)).records,
+          target: async (soql) =>
+            (await targetConn.tooling.query<Record<string, unknown>>(soql)).records,
+        },
+      ),
+    // Both orgs' standard price books, as the panel reads them: the source's
+    // matched to the target's, and the prices written as the platform takes
+    // them.
+    standardPricebooks: () =>
+      readStandardPricebooks(
+        async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
+        async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
       ),
     // Both orgs' record types, as the panel reads them: a record's type is
     // mapped to the target's of the same object and API name.
@@ -963,6 +991,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // first refusals, and every line on what the run held back or wrote
     // without a field, which a refusal per record would push out of sight.
     for (const line of objectErrorLines((entry.errors as string[] | undefined) ?? [])) {
+      log(`      ${line}`);
+    }
+    // The rows written in another currency, and what became of their amounts.
+    for (const line of objectCurrencyLines(
+      entry.currenciesReplaced as CurrencyReplaced[] | undefined,
+    )) {
       log(`      ${line}`);
     }
     const files = entry.files as

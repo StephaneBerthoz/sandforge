@@ -4,6 +4,7 @@ import type { AutopilotRefusal } from '@sandforge/shared';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { uiLocale } from '../../../utils/formatters';
+import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 
 /**
  * Why the target refused records: one line per status code and fields, with
@@ -143,6 +144,11 @@ export const NodeDetail: React.FC = () => {
           refusals={selectedNode.statusRefusals}
           testId="node-status-refusals"
         />
+      )}
+
+      {/* The records written in another currency, said as Forge's results say them. */}
+      {selectedNode.currenciesReplaced && selectedNode.currenciesReplaced.length > 0 && (
+        <ForgeCurrenciesResult entries={selectedNode.currenciesReplaced} />
       )}
 
       {/* PII Fields */}

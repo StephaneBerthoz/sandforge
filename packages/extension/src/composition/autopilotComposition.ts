@@ -253,6 +253,12 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               querySource: async (soql) =>
                 (await source.query<Record<string, unknown>>(soql)).records,
               queryTarget: async (soql) => queryAll<Record<string, unknown>>(target, soql),
+              // Each org's currency settings: whether advanced currency
+              // management is on, which the user's access cannot always tell.
+              toolingSource: async (soql) =>
+                (await source.tooling.query<Record<string, unknown>>(soql)).records,
+              toolingTarget: async (soql) =>
+                (await target.tooling.query<Record<string, unknown>>(soql)).records,
               describeKeyPrefix: async (objectApiName: string) =>
                 (await describeTarget(target, objectApiName)).keyPrefix,
               // What each lookup may point at and when it may be set: which

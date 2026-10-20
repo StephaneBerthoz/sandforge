@@ -118,9 +118,12 @@ export interface BaseGraphEdge {
  * type they go in with gives the currency field; `corporate`, the target's
  * corporate currency; `decision`, the value the user mapped theirs to;
  * `parent`, the currency of the record they belong to — an opportunity's
- * products take their opportunity's — which went in another currency.
+ * products take their opportunity's — which went in another currency;
+ * `lines`, for prices, the currency of the records their lines belong to,
+ * which the platform refuses a line's price to differ from.
  */
-export type CurrencyChosenBy = 'record-type-default' | 'corporate' | 'decision' | 'parent';
+export type CurrencyChosenBy =
+  'record-type-default' | 'corporate' | 'decision' | 'parent' | 'lines';
 
 /**
  * Rows of one object written in another currency than the one they were read
@@ -157,4 +160,13 @@ export interface CurrencyReplaced {
    * amounts: `CloseDate`. Absent, the rates of `CurrencyType` did.
    */
   datedBy?: string;
+  /**
+   * The field whose date an org converts the object on at dated rates, when
+   * either org could not say whether it has advanced currency management on —
+   * its currency settings could not be read, and the user may not create
+   * dated rates — or its dated rates could not be read: the rates of
+   * `CurrencyType` converted the amounts, which may not be the ones it
+   * applies.
+   */
+  datedUnconfirmed?: string;
 }

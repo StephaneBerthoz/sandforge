@@ -375,6 +375,31 @@ describe('ControlPanel node detail — what the node came to', () => {
     expect(leftOut.textContent).toContain('3');
   });
 
+  it('says the records written in another currency, and what became of their amounts', () => {
+    // Said by the command line alone, the panel's node showed nothing of a
+    // GBP opportunity written in USD, its amounts converted.
+    mockStoreState.selectedNode = () =>
+      settledOrder({
+        currenciesReplaced: [
+          {
+            objectApiName: 'Order',
+            from: 'GBP',
+            to: 'USD',
+            chosenBy: 'corporate',
+            rows: 2,
+            fields: ['TotalAmount'],
+          },
+        ],
+      });
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    expect(screen.getByTestId('forge-results-currencies-row').textContent).toBe(
+      "Order — 2 rows in GBP, written in USD, the target org's corporate currency — amounts " +
+        "converted at the source org's rates: TotalAmount",
+    );
+  });
+
   it('shows none of it for a node that wrote everything', () => {
     mockStoreState.selectedNode = () =>
       settledOrder({
@@ -391,5 +416,6 @@ describe('ControlPanel node detail — what the node came to', () => {
     expect(screen.queryByTestId('node-linked')).toBeNull();
     expect(screen.queryByTestId('node-statuses')).toBeNull();
     expect(screen.queryByTestId('node-left-to-the-platform')).toBeNull();
+    expect(screen.queryByTestId('forge-results-currencies')).toBeNull();
   });
 });

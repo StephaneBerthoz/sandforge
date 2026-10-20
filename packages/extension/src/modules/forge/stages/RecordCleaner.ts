@@ -289,6 +289,12 @@ export interface CleanNodeRecordsInput {
     changeOf: (sourceId: string) => CurrencyChange | undefined;
     currencies?: RunCurrencies;
   };
+  /**
+   * For a price, the currency the records its lines belong to go in, when
+   * the run chose it over the one the price would go in alone: the row goes
+   * in it, its amount converted (`replaceRowCurrency`'s `pricedIn`).
+   */
+  pricedIn?: (row: Readonly<Record<string, unknown>>) => string | undefined;
 }
 
 /** No currency field known. */
@@ -325,6 +331,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     currencies,
     currencyFields = NO_CURRENCY_FIELDS,
     parentCurrencies,
+    pricedIn,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   const neutralize = contactPoints?.forObject(objectApiName, fieldInfos, fieldRename);
@@ -547,6 +554,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
             CURRENCY_FIELD,
           )?.defaultValue,
           ratesOn: datedRateOf(objectApiName, r),
+          pricedIn: pricedIn?.(r),
         },
         currencies,
       );

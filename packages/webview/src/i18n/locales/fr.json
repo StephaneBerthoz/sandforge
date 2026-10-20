@@ -3627,11 +3627,13 @@
       "recordTypeDefault": "écrites en {{to}}, la valeur par défaut de leur type d'enregistrement",
       "decision": "écrites en {{to}}, comme décidé",
       "parent": "écrites en {{to}}, la devise de l'enregistrement auquel elles appartiennent",
+      "lines": "écrites en {{to}}, la devise des enregistrements auxquels leurs lignes appartiennent",
       "converted": "montants convertis aux taux de l'org source : {{fields}}",
       "convertedAtTargetRate": "montants convertis au taux de l'org source pour {{from}} et à celui de l'org cible pour {{to}} : {{fields}}",
       "notConverted": "montants écrits tels que lus : aucun taux ne convertit {{from}} en {{to}}",
       "noAmount": "aucun montant à convertir",
-      "dated": "aux taux datés de {{field}}"
+      "dated": "aux taux datés de {{field}}",
+      "datedUnconfirmed": "aux taux statiques : les taux datés de {{field}} n'ont pas pu être confirmés"
     },
     "contactPoints": {
       "title": "E-mails et numéros de téléphone",

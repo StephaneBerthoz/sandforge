@@ -3804,6 +3804,26 @@ for (const theme of SCANNED_THEMES) {
               rows: 1,
               fields: ['Discount__c'],
             },
+            // A price that followed its lines into their record's currency,
+            // and an opportunity whose dated rates could not be confirmed.
+            {
+              objectApiName: 'PricebookEntry',
+              from: 'GBP',
+              to: 'EUR',
+              chosenBy: 'lines',
+              rows: 2,
+              fields: ['UnitPrice'],
+              atTargetRate: true,
+            },
+            {
+              objectApiName: 'Opportunity',
+              from: 'GBP',
+              to: 'USD',
+              chosenBy: 'corporate',
+              rows: 1,
+              fields: ['Amount'],
+              datedUnconfirmed: 'CloseDate',
+            },
           ],
           writtenWithoutFields: [
             {
@@ -3844,6 +3864,14 @@ for (const theme of SCANNED_THEMES) {
       await page.waitForSelector('[data-testid="forge-results-written-without"]', {
         timeout: 10_000,
       });
+      // The price that followed its lines and the rates that could not be
+      // confirmed are scanned with the rest.
+      await expect(page.locator('[data-testid="forge-results-currencies-row"]')).toHaveCount(3);
+      await expect(
+        page.locator('[data-testid="forge-results-currencies"]', {
+          hasText: 'the dated rates of CloseDate could not be confirmed',
+        }),
+      ).toHaveCount(1);
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(

@@ -114,6 +114,7 @@ import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
 import { savedConfigIdMap, type SyncIdMapStore } from '../../modules/sync/SyncIdMap.js';
 import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 import type { RunCurrencies } from '../../core/common/recordCurrencies.js';
+import type { StandardPricebooks } from '../../modules/sync/syncPrices.js';
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
 export type UnattendedSyncOrigin = Extract<
@@ -295,6 +296,8 @@ interface SyncReaders {
   recordTypes: () => Promise<SyncRecordTypes>;
   /** Both orgs' currencies, what a row in one the target lacks is written in: see `readRunCurrencies`. */
   currencies: () => Promise<RunCurrencies | undefined>;
+  /** Both orgs' standard price books, matched by the run: see `readStandardPricebooks`. */
+  standardPricebooks: () => Promise<StandardPricebooks | undefined>;
   findInTarget: OrchestratorFindFn;
   /** What a delta configuration asks both orgs: see `SyncDelta`. */
   deltaReads: SyncDeltaReads;
@@ -930,6 +933,8 @@ export class SyncOpsHandler implements DomainHandler {
         // A currency the target does not hold active replaced, and the
         // amounts converted, as the run does it.
         currencies: readers.currencies,
+        // The standard price book matched, as the run matches it.
+        standardPricebooks: readers.standardPricebooks,
         // Read as the run reads them; a simulation records no watermark.
         deltaStore: this.deltaStoreFor(),
         deltaReads: readers.deltaReads,
@@ -1355,6 +1360,21 @@ export class SyncOpsHandler implements DomainHandler {
       return readRunCurrencies(
         async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
         async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
+        {
+          source: async (soql) =>
+            (await sourceConn.tooling.query<Record<string, unknown>>(soql)).records,
+          target: async (soql) =>
+            (await targetConn.tooling.query<Record<string, unknown>>(soql)).records,
+        },
+      );
+    };
+    // Both orgs' standard price books, read by the run before the first
+    // object whose rows name a price book.
+    const standardPricebooks = async (): Promise<StandardPricebooks | undefined> => {
+      const { readStandardPricebooks } = await import('../../modules/sync/syncPrices.js');
+      return readStandardPricebooks(
+        async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
+        async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
       );
     };
 
@@ -1367,6 +1387,7 @@ export class SyncOpsHandler implements DomainHandler {
       describeTargetFields,
       recordTypes,
       currencies,
+      standardPricebooks,
       findInTarget,
       deltaReads,
       files,
@@ -1829,6 +1850,9 @@ export class SyncOpsHandler implements DomainHandler {
         // Both orgs' currencies: a row in one the target does not hold active
         // goes in its corporate currency, its amounts converted.
         currencies: readers.currencies,
+        // Both orgs' standard price books: the source's matched to the
+        // target's, and the prices written as the platform takes them.
+        standardPricebooks: readers.standardPricebooks,
         // The controller the registry aborts: Live Operations' Cancel, and
         // the Sync page's.
         signal: abortController.signal,

@@ -22,7 +22,13 @@
  *   without its parent.
  */
 
-import type { AddOnField, FieldMapping, SyncObjectConfig } from '@sandforge/shared';
+import type {
+  AddOnField,
+  CurrencyReplaced,
+  FieldMapping,
+  SyncObjectConfig,
+} from '@sandforge/shared';
+import { exclusiveFieldsToDrop } from '@sandforge/shared';
 import {
   accountKindOf,
   isPersonAccountRow,
@@ -41,7 +47,6 @@ import {
   CurrencyReplacementTally,
   currencyFieldsOf,
   datedRateOf,
-  describeCurrencyReplaced,
   followParentCurrency,
   parentCurrencyChange,
   replaceRowCurrency,
@@ -118,6 +123,16 @@ export class SyncRunLinks {
     return copy !== undefined && this.deleted.has(idKey(copy)) ? undefined : copy;
   }
 
+  /**
+   * A source record the target holds the counterpart of, which the run never
+   * writes — the standard price book, or a price left out for the source's
+   * own in the currency written — and that counterpart's id: a lookup at it
+   * names that one.
+   */
+  noteMatched(sourceId: string, targetId: string): void {
+    this.noteWritten(sourceId, targetId);
+  }
+
   /** A source record the run wrote, and the id of its copy in the target. */
   noteWritten(sourceId: string, targetId: string): void {
     this.written.set(idKey(sourceId), targetId);
@@ -182,6 +197,12 @@ export interface SyncWriteRun {
    * read (`SyncConfig.keepContactPoints`), and for a write on its own.
    */
   contactPoints?: ContactPointNeutralizer;
+  /**
+   * How many records, from the first, are standard prices, sent in calls of
+   * their own before the others: the platform refuses a custom price sent in
+   * the same call as the standard one it needs (`settleSyncPrices`).
+   */
+  standardFirst?: number;
 }
 
 /** A row held back before the write. */
@@ -221,11 +242,14 @@ export interface PreparedSyncRows {
   held: HeldRow[];
   /** The lookups at rows of the same write, set by a second write. */
   deferred: DeferredLookup[];
-  /**
-   * What was held back, one line per reason, counted; then the rows sent in
-   * another currency than they were read in, one line per currency.
-   */
+  /** What was held back, one line per reason, counted. */
   notes: string[];
+  /**
+   * The rows sent in another currency than they were read in, by object,
+   * currency and why, and what became of their amounts: said apart from the
+   * notes, in the user's language where the panel shows them.
+   */
+  currencies: CurrencyReplaced[];
 }
 
 /** What {@link prepareSyncRows} reads. */
@@ -410,6 +434,7 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
     held: [],
     deferred: [],
     notes: [],
+    currencies: [],
   };
   /** Each row to send, by its place among the records handed over. */
   const staged = new Map<number, { payload: Record<string, unknown>; settled: Set<string> }>();
@@ -601,13 +626,15 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       const sourceId = source?.['Id'];
       if (change && typeof sourceId === 'string') run?.currencyChangesById?.set(sourceId, change);
     }
+    // Two fields the describe calls createable that the platform takes one
+    // of: an opportunity's line sent with its unit and total price is
+    // refused, "only one of unit price or total price may be specified".
+    for (const field of exclusiveFieldsToDrop(objectApiName, payload)) delete payload[field];
     prepared.payloads.push(payload);
     prepared.sentAt.push(index);
     prepared.settled.push(settled);
   }
-  prepared.notes = [
-    ...[...groups.values()].map(({ count, say }) => say(count)),
-    ...replaced.list().map((entry) => `${describeCurrencyReplaced(entry)}.`),
-  ];
+  prepared.notes = [...groups.values()].map(({ count, say }) => say(count));
+  prepared.currencies = replaced.list();
   return prepared;
 }

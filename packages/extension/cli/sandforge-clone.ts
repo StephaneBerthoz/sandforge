@@ -4511,6 +4511,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       if (!c) throw new Error(`No connection for ${orgId}`);
       return (await c.query(soql)).totalSize;
     },
+    // The org's currency settings: whether advanced currency management is
+    // on, which the user's access to dated rates cannot always tell.
+    queryTooling: async (orgId, soql) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return (await c.tooling.query<Record<string, unknown>>(soql)).records;
+    },
     insertRecords: async (orgId, name, records) => {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
       const c = conns.get(orgId);

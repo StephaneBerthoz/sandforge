@@ -25,6 +25,7 @@ export type NodeOutcome = Partial<
     | 'statusesApplied'
     | 'statusRefusals'
     | 'leftToThePlatform'
+    | 'currenciesReplaced'
   >
 >;
 
@@ -284,6 +285,9 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
       if (outcome.statusRefusals !== undefined) carried.statusRefusals = outcome.statusRefusals;
       if (outcome.leftToThePlatform !== undefined) {
         carried.leftToThePlatform = outcome.leftToThePlatform;
+      }
+      if (outcome.currenciesReplaced !== undefined) {
+        carried.currenciesReplaced = outcome.currenciesReplaced;
       }
       return {
         graph: {

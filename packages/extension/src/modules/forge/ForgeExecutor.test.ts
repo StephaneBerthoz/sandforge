@@ -5017,10 +5017,10 @@ describe('ForgeExecutor', () => {
         const pricedIn = (
           book: keyof typeof BOOKS,
           n: number,
-          currency: 'USD' | 'GBP',
+          currency: 'USD' | 'GBP' | 'EUR',
           unitPrice: string,
         ): FakeRow => ({
-          Id: `01u000000000${BOOKS[book][1]}${n}${currency === 'USD' ? 1 : 2}AAA`,
+          Id: `01u000000000${BOOKS[book][1]}${n}${{ USD: 1, GBP: 2, EUR: 3 }[currency]}AAA`,
           Name: `Widget ${n} ${book} ${currency}`,
           Pricebook2Id: BOOKS[book][0],
           Product2Id: product(n),
@@ -5034,70 +5034,120 @@ describe('ForgeExecutor', () => {
          * Two widgets priced in both books in USD and GBP, and a GBP
          * opportunity of the custom book whose two line items use its GBP
          * prices. The source holds USD as its corporate currency and GBP at
-         * 0.79; the target USD alone.
+         * 0.79; the target USD alone — and, with `euros`, both EUR, the
+         * source at 0.92 and the target at 0.90.
          */
-        function gbpDeal(prices: FakeRow[]) {
-          const orgs = fakeOrgs(
-            {
-              ...catalogTables(),
-              PricebookEntry: prices,
-              Opportunity: [
-                {
-                  Id: OPPORTUNITY,
-                  Name: 'Deal',
-                  Pricebook2Id: CUSTOM_BOOK,
-                  CurrencyIsoCode: 'GBP',
-                  Amount: '15.8',
-                },
-              ],
-              OpportunityLineItem: [1, 2].map((n) => ({
-                Id: `00k00000000000${n}AAA`,
-                OpportunityId: OPPORTUNITY,
-                PricebookEntryId: `01u0000000002${n}2AAA`,
-                Product2Id: product(n),
-                Quantity: '1',
-                UnitPrice: '7.9',
+        function gbpDeal(prices: FakeRow[], euros = false, quoted = false) {
+          const quote: Record<string, FakeRow[]> = quoted
+            ? {
+                Quote: [
+                  {
+                    Id: '0Q0000000000001AAA',
+                    Name: 'Quote',
+                    OpportunityId: OPPORTUNITY,
+                    Pricebook2Id: CUSTOM_BOOK,
+                    CurrencyIsoCode: 'GBP',
+                  },
+                ],
+                QuoteLineItem: [
+                  {
+                    Id: '0QL000000000001AAA',
+                    QuoteId: '0Q0000000000001AAA',
+                    PricebookEntryId: '01u000000000212AAA',
+                    Product2Id: product(1),
+                    Quantity: '4',
+                    UnitPrice: '7.9',
+                    CurrencyIsoCode: 'GBP',
+                  },
+                ],
+              }
+            : {};
+          const tables: Record<string, FakeRow[]> = {
+            ...quote,
+            ...catalogTables(),
+            PricebookEntry: prices,
+            Opportunity: [
+              {
+                Id: OPPORTUNITY,
+                Name: 'Deal',
+                Pricebook2Id: CUSTOM_BOOK,
                 CurrencyIsoCode: 'GBP',
-              })),
-            },
-            {
-              ...catalogFields,
-              PricebookEntry: [
-                ...catalogFields.PricebookEntry.filter((f) => f.name !== 'UnitPrice'),
-                amount('UnitPrice'),
-                currency,
-                text('IsActive'),
-              ],
-              Opportunity: [
-                idField,
-                text('Name'),
-                lookup('Pricebook2Id', 'Pricebook2'),
-                currency,
-                amount('Amount'),
-              ],
-              OpportunityLineItem: [
-                idField,
-                lookup('OpportunityId', 'Opportunity', true),
-                lookup('PricebookEntryId', 'PricebookEntry'),
-                lookup('Product2Id', 'Product2'),
-                text('Quantity'),
-                amount('UnitPrice'),
-                // The platform gives a line its opportunity's currency.
-                { ...currency, createable: false },
-              ],
-            },
-          );
+                Amount: '15.8',
+              },
+            ],
+            OpportunityLineItem: [1, 2].map((n) => ({
+              Id: `00k00000000000${n}AAA`,
+              OpportunityId: OPPORTUNITY,
+              PricebookEntryId: `01u0000000002${n}2AAA`,
+              Product2Id: product(n),
+              Quantity: '1',
+              UnitPrice: '7.9',
+              CurrencyIsoCode: 'GBP',
+            })),
+          };
+          const orgs = fakeOrgs(tables, {
+            ...catalogFields,
+            PricebookEntry: [
+              ...catalogFields.PricebookEntry.filter((f) => f.name !== 'UnitPrice'),
+              amount('UnitPrice'),
+              currency,
+              text('IsActive'),
+            ],
+            Opportunity: [
+              idField,
+              text('Name'),
+              lookup('Pricebook2Id', 'Pricebook2'),
+              currency,
+              amount('Amount'),
+            ],
+            OpportunityLineItem: [
+              idField,
+              lookup('OpportunityId', 'Opportunity', true),
+              lookup('PricebookEntryId', 'PricebookEntry'),
+              lookup('Product2Id', 'Product2'),
+              text('Quantity'),
+              amount('UnitPrice'),
+              // The platform gives a line its opportunity's currency.
+              { ...currency, createable: false },
+            ],
+            // A quote's describe calls its currency createable; its line's not.
+            Quote: [
+              idField,
+              text('Name'),
+              lookup('OpportunityId', 'Opportunity', true),
+              lookup('Pricebook2Id', 'Pricebook2'),
+              currency,
+            ],
+            QuoteLineItem: [
+              idField,
+              lookup('QuoteId', 'Quote', true),
+              lookup('PricebookEntryId', 'PricebookEntry'),
+              lookup('Product2Id', 'Product2'),
+              text('Quantity'),
+              amount('UnitPrice'),
+              { ...currency, createable: false },
+            ],
+          });
           const read = orgs.orgDeps.queryRecords;
           orgs.orgDeps.queryRecords = async (org, soql, onTruncated) => {
             if (soql.includes('FROM CurrencyType')) {
+              const inEuros = (rate: number) =>
+                euros ? [{ IsoCode: 'EUR', ConversionRate: rate, IsActive: true }] : [];
               return org === 'src'
                 ? [
                     { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
                     { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true, IsCorporate: false },
+                    ...inEuros(0.92),
                   ]
-                : [{ IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true }];
+                : [
+                    { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+                    ...inEuros(0.9),
+                  ];
             }
             if (soql.includes('FROM EntityDefinition')) return [];
+            // A run of whole tables reads each table whole.
+            const whole = /^SELECT .+? FROM (\w+)(?: LIMIT \d+)?$/.exec(soql);
+            if (whole) return (tables[whole[1]] ?? []).map((row) => ({ ...row }));
             return read(org, soql, onTruncated);
           };
           return orgs;
@@ -5223,6 +5273,302 @@ describe('ForgeExecutor', () => {
                 "and price book, written in it at the amount converted at the source's rates",
             ),
           );
+        });
+
+        it('writes the prices of an opportunity a decision sends in another currency in that currency, so that the target takes its lines', async () => {
+          // Run between two scratch orgs, a GBP opportunity the user mapped to
+          // EUR went in EUR and its prices in USD, the target's corporate
+          // currency: both its lines were refused, FIELD_INTEGRITY_EXCEPTION,
+          // pricebook entry currency code does not match opportunity currency
+          // code. Widget 1 is priced in EUR in the source, widget 2 is not.
+          const prices = (['standard', 'custom'] as const).flatMap((book) => [
+            pricedIn(book, 1, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 1, 'EUR', book === 'standard' ? '9.2' : '8.28'),
+            pricedIn(book, 1, 'GBP', '7.9'),
+            pricedIn(book, 2, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 2, 'GBP', '7.9'),
+          ]);
+          const { orgDeps, inserted } = gbpDeal(prices, true);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph(),
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              decisions: {
+                picklistValueMappings: [
+                  { object: 'Opportunity', field: 'CurrencyIsoCode', from: 'GBP', to: 'EUR' },
+                ],
+              },
+            },
+          );
+
+          expect(inserted['Opportunity']).toEqual([
+            expect.objectContaining({ CurrencyIsoCode: 'EUR', Amount: 18 }),
+          ]);
+          const written = new Map(
+            inserted['PricebookEntry'].map((r) => [`PricebookEntry:${String(r['Name'])}`, r]),
+          );
+          // Each line on a price in its opportunity's currency: the source's
+          // own for widget 1, widget 2's own GBP price converted for widget 2.
+          expect(
+            inserted['OpportunityLineItem'].map((r) => [
+              r['PricebookEntryId'],
+              written.get(String(r['PricebookEntryId']))?.['CurrencyIsoCode'],
+              r['UnitPrice'],
+            ]),
+          ).toEqual([
+            ['PricebookEntry:Widget 1 custom EUR', 'EUR', 9],
+            ['PricebookEntry:Widget 2 custom GBP', 'EUR', 9],
+          ]);
+          // And the standard price each custom one needs, in the same currency.
+          expect(
+            inserted['PricebookEntry']
+              .map(
+                (r) =>
+                  `${String(r['Name'])}: ${String(r['CurrencyIsoCode'])} ${String(r['UnitPrice'])}`,
+              )
+              .sort(),
+          ).toEqual([
+            'Widget 1 custom EUR: EUR 8.28',
+            'Widget 1 standard EUR: EUR 9.2',
+            'Widget 2 custom GBP: EUR 9',
+            'Widget 2 standard GBP: EUR 9',
+          ]);
+          expect(summary.currenciesReplaced).toContainEqual({
+            objectApiName: 'PricebookEntry',
+            from: 'GBP',
+            to: 'EUR',
+            chosenBy: 'lines',
+            rows: 2,
+            fields: ['UnitPrice'],
+            atTargetRate: true,
+          });
+          const [line] = progressEvents
+            .filter((e) => e.objectName === 'PricebookEntry' && e.status === 'done')
+            .map((e) => e.message);
+          expect(line).toContain(
+            "2 GBP → EUR: price(s) replaced by the source's own price in the currency of the " +
+              'record their lines belong to, for the same product and price book',
+          );
+          expect(line).toContain(
+            '2 GBP → EUR: no price in the currency of the record their lines belong to in the ' +
+              'source for the same product and price book, written in it at its amount converted',
+          );
+          expect(line).not.toContain('USD');
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('settles the prices once the opportunity has gone in, whatever order discovery met them in', async () => {
+          // Met before the opportunity, the prices went first, when its
+          // currency was not yet known.
+          const prices = (['standard', 'custom'] as const).flatMap((book) => [
+            pricedIn(book, 1, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 1, 'EUR', book === 'standard' ? '9.2' : '8.28'),
+            pricedIn(book, 1, 'GBP', '7.9'),
+          ]);
+          const { orgDeps, inserted } = gbpDeal(prices, true);
+          const metFirst = graph();
+          const pricesFirst: ForgeGraph = {
+            ...metFirst,
+            nodes: [...metFirst.nodes].reverse(),
+            edges: [...metFirst.edges].reverse(),
+          };
+
+          await new ForgeExecutor(orgDeps).execute(pricesFirst, 'src', 'tgt', onProgress, {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            decisions: {
+              picklistValueMappings: [
+                { object: 'Opportunity', field: 'CurrencyIsoCode', from: 'GBP', to: 'EUR' },
+              ],
+            },
+          });
+
+          const order = Object.keys(inserted);
+          expect(order.indexOf('Opportunity')).toBeLessThan(order.indexOf('PricebookEntry'));
+          expect(inserted['OpportunityLineItem'][0]).toMatchObject({
+            PricebookEntryId: 'PricebookEntry:Widget 1 custom EUR',
+          });
+          expect(inserted['PricebookEntry'].map((r) => r['CurrencyIsoCode'])).toEqual([
+            'EUR',
+            'EUR',
+          ]);
+        });
+
+        it("writes a quote in its opportunity's new currency and its lines on prices in it", async () => {
+          // Run between two scratch orgs: sent in USD by its own rule while
+          // its opportunity went in EUR, the quote went in EUR — the platform
+          // gives a quote its opportunity's currency — and its lines, priced
+          // in USD, were refused: "the price book entry currency code is
+          // different than the one assigned to the Quote".
+          const prices = (['standard', 'custom'] as const).flatMap((book) => [
+            pricedIn(book, 1, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 1, 'EUR', book === 'standard' ? '9.2' : '8.28'),
+            pricedIn(book, 1, 'GBP', '7.9'),
+          ]);
+          const { orgDeps, inserted } = gbpDeal(prices, true, true);
+          const lines = graph();
+          const quoted = makeGraph(
+            [...lines.nodes, makeNode('Quote'), makeNode('QuoteLineItem')],
+            [
+              ...lines.edges,
+              { ...edge('Opportunity', 'Quote'), required: true },
+              { ...edge('Quote', 'QuoteLineItem'), required: true },
+              { ...edge('PricebookEntry', 'QuoteLineItem'), required: true },
+            ],
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            quoted,
+            'src',
+            'tgt',
+            onProgress,
+            {
+              rootRecordId: OPPORTUNITY,
+              rootObjectApiName: 'Opportunity',
+              decisions: {
+                picklistValueMappings: [
+                  { object: 'Opportunity', field: 'CurrencyIsoCode', from: 'GBP', to: 'EUR' },
+                ],
+              },
+            },
+          );
+
+          expect(inserted['Quote']).toEqual([expect.objectContaining({ CurrencyIsoCode: 'EUR' })]);
+          expect(inserted['QuoteLineItem']).toEqual([
+            expect.objectContaining({
+              PricebookEntryId: 'PricebookEntry:Widget 1 custom EUR',
+              UnitPrice: 9,
+            }),
+          ]);
+          expect(summary.currenciesReplaced).toContainEqual(
+            expect.objectContaining({ objectApiName: 'Quote', to: 'EUR', chosenBy: 'parent' }),
+          );
+          expect(inserted['PricebookEntry'].map((r) => r['CurrencyIsoCode'])).not.toContain('USD');
+        });
+
+        describe('advanced currency management, as the org’s currency settings say it', () => {
+          /**
+           * A GBP opportunity closing on 2026-03-31, in a source whose dated
+           * rate of GBP is 0.75 from 2026-01-01, and whose user may not create a
+           * dated rate; the source's settings answer through the Tooling API
+           * when `tooling` is given.
+           */
+          async function cloneOne(tooling: boolean) {
+            const { orgDeps, inserted } = fakeOrgs(
+              {
+                Opportunity: [
+                  {
+                    Id: OPPORTUNITY,
+                    Name: 'Deal',
+                    CurrencyIsoCode: 'GBP',
+                    Amount: '75',
+                    CloseDate: '2026-03-31',
+                  },
+                ],
+              },
+              {
+                Opportunity: [idField, text('Name'), currency, amount('Amount'), text('CloseDate')],
+              },
+            );
+            const read = orgDeps.queryRecords;
+            orgDeps.queryRecords = async (org, soql, onTruncated) => {
+              if (soql.includes('FROM CurrencyType')) {
+                return [
+                  { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+                  ...(org === 'src'
+                    ? [{ IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true }]
+                    : []),
+                ];
+              }
+              if (soql.includes('FROM EntityDefinition')) {
+                return [{ RunningUserEntityAccess: { IsCreatable: false } }];
+              }
+              if (soql.includes('FROM DatedConversionRate')) {
+                return [
+                  {
+                    IsoCode: 'GBP',
+                    ConversionRate: 0.75,
+                    StartDate: '2026-01-01',
+                    NextStartDate: '9999-12-31',
+                  },
+                ];
+              }
+              return read(org, soql, onTruncated);
+            };
+            if (tooling) {
+              orgDeps.queryTooling = async (org) => [
+                { Metadata: { enableCurrencyEffectiveDates: org === 'src' } },
+              ];
+            }
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              makeGraph([makeNode('Opportunity')], []),
+              'src',
+              'tgt',
+              onProgress,
+              { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+            );
+            return { inserted, summary };
+          }
+
+          it('converts an opportunity at the dated rate of its close date, though the user may not create a dated rate', async () => {
+            // Asked only whether the user may create one, a user the org does
+            // not let manage currencies was told it was off, and the
+            // opportunity went in at the rates of CurrencyType.
+            const { inserted, summary } = await cloneOne(true);
+
+            expect(inserted['Opportunity']).toEqual([
+              expect.objectContaining({ CurrencyIsoCode: 'USD', Amount: 100 }),
+            ]);
+            expect(summary.currenciesReplaced).toEqual([
+              expect.objectContaining({ objectApiName: 'Opportunity', datedBy: 'CloseDate' }),
+            ]);
+          });
+
+          it('says the static rates converted it when neither the settings nor the user can say', async () => {
+            const { inserted, summary } = await cloneOne(false);
+
+            expect(inserted['Opportunity']).toEqual([
+              expect.objectContaining({ CurrencyIsoCode: 'USD', Amount: 94.94 }),
+            ]);
+            expect(summary.currenciesReplaced).toEqual([
+              expect.objectContaining({ datedUnconfirmed: 'CloseDate' }),
+            ]);
+          });
+        });
+
+        it('points a line of a run of whole tables at the price written in its opportunity’s currency', async () => {
+          // Written as each table is read, the prices go before their lines
+          // are read: a price in GBP goes in USD, and the line of an
+          // opportunity sent in EUR is pointed at the source's own EUR price,
+          // written with the rest of the table.
+          const prices = (['standard', 'custom'] as const).flatMap((book) => [
+            pricedIn(book, 1, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 1, 'EUR', book === 'standard' ? '9.2' : '8.28'),
+            pricedIn(book, 1, 'GBP', '7.9'),
+          ]);
+          const { orgDeps, inserted } = gbpDeal(prices, true);
+          const lines = graph();
+
+          await new ForgeExecutor(orgDeps).execute(lines, 'src', 'tgt', onProgress, {
+            decisions: {
+              picklistValueMappings: [
+                { object: 'Opportunity', field: 'CurrencyIsoCode', from: 'GBP', to: 'EUR' },
+              ],
+            },
+          });
+
+          expect(Object.keys(inserted).indexOf('Opportunity')).toBeLessThan(
+            Object.keys(inserted).indexOf('PricebookEntry'),
+          );
+          expect(inserted['OpportunityLineItem'][0]).toMatchObject({
+            PricebookEntryId: 'PricebookEntry:Widget 1 custom EUR',
+            UnitPrice: 9,
+          });
         });
       });
 

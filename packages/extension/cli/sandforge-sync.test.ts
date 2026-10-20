@@ -6,6 +6,7 @@ import {
   buildQueryFn,
   cliFileDeps,
   deltaLine,
+  objectCurrencyLines,
   objectErrorLines,
   readSavedConfig,
   simulationLines,
@@ -28,6 +29,26 @@ describe('what a run prints of an object', () => {
     expect(
       objectErrorLines([refusal, refusal, refusal, refusal, refusal, held, without, linked]),
     ).toEqual([refusal, refusal, refusal, held, without, linked]);
+  });
+
+  it('prints every row it sent in another currency, apart from its refusals', () => {
+    expect(
+      objectCurrencyLines([
+        {
+          objectApiName: 'Opportunity',
+          from: 'GBP',
+          to: 'USD',
+          chosenBy: 'corporate',
+          rows: 1,
+          fields: ['Amount'],
+          datedBy: 'CloseDate',
+        },
+      ]),
+    ).toEqual([
+      "1 row(s) in GBP written in USD, the target's corporate currency, GBP not being active " +
+        "there: amounts converted at the source's rates, dated by CloseDate (Amount).",
+    ]);
+    expect(objectCurrencyLines(undefined)).toEqual([]);
   });
 });
 

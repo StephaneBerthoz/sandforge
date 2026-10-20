@@ -3627,11 +3627,13 @@
       "recordTypeDefault": "escritas en {{to}}, el valor predeterminado de su tipo de registro",
       "decision": "escritas en {{to}}, según lo decidido",
       "parent": "escritas en {{to}}, la divisa del registro al que pertenecen",
+      "lines": "escritas en {{to}}, la divisa de los registros a los que pertenecen sus líneas",
       "converted": "importes convertidos a los tipos de la org de origen: {{fields}}",
       "convertedAtTargetRate": "importes convertidos al tipo de la org de origen para {{from}} y al de la org de destino para {{to}}: {{fields}}",
       "notConverted": "importes escritos tal como se leyeron: ningún tipo convierte {{from}} a {{to}}",
       "noAmount": "ningún importe que convertir",
-      "dated": "a los tipos fechados de {{field}}"
+      "dated": "a los tipos fechados de {{field}}",
+      "datedUnconfirmed": "a los tipos estáticos: no se pudieron confirmar los tipos fechados de {{field}}"
     },
     "contactPoints": {
       "title": "Correos y números de teléfono",

@@ -702,6 +702,126 @@ describe('AutopilotExecutor — what the target will take', () => {
       ]);
     });
 
+    it('sends a line with its unit price alone, converted, the platform taking one of its two prices', async () => {
+      // Run between two scratch orgs, both lines of a GBP opportunity were
+      // refused: FIELD_INTEGRITY_EXCEPTION, only one of unit price or total
+      // price may be specified.
+      const deps = {
+        ...currencyDeps(),
+        remapper: new RecordIdRemapper(),
+        describeCreateableFields: async (object: string) =>
+          object === 'Opportunity'
+            ? new Set(['Name', 'CurrencyIsoCode', 'Amount'])
+            : new Set(['OpportunityId', 'Quantity', 'UnitPrice', 'TotalPrice']),
+        describeCurrencyFields: async (object: string) =>
+          object === 'Opportunity'
+            ? new Map([['Amount', 2]])
+            : new Map([
+                ['UnitPrice', 2],
+                ['TotalPrice', 2],
+              ]),
+      };
+      vi.mocked(deps.query)
+        .mockResolvedValueOnce([
+          { Id: 'src1', Name: 'Deal 05', CurrencyIsoCode: 'GBP', Amount: 158 },
+        ])
+        .mockResolvedValueOnce([
+          {
+            Id: 'srcL1',
+            OpportunityId: 'src1',
+            CurrencyIsoCode: 'GBP',
+            Quantity: 2,
+            UnitPrice: 79,
+            TotalPrice: 158,
+          },
+        ]);
+      vi.mocked(deps.insert)
+        .mockResolvedValueOnce(written('tgt1'))
+        .mockResolvedValueOnce(written('tgtL1'));
+
+      await new AutopilotExecutor(deps).execute(
+        makePlan(
+          [
+            { order: 0, objects: ['Opportunity'], dependsOn: [] },
+            { order: 1, objects: ['OpportunityLineItem'], dependsOn: [0] },
+          ],
+          2,
+        ),
+        [
+          makeEdge({
+            from: 'Opportunity' as ApiName,
+            to: 'OpportunityLineItem' as ApiName,
+            fieldApiName: 'OpportunityId',
+            required: true,
+          }),
+        ],
+        [],
+        new Map([
+          ['Opportunity', 1],
+          ['OpportunityLineItem', 1],
+        ]),
+      );
+
+      expect(vi.mocked(deps.insert).mock.calls[1][1]).toEqual([
+        { Id: 'srcL1', OpportunityId: 'tgt1', Quantity: 2, UnitPrice: 100 },
+      ]);
+    });
+
+    it("converts an opportunity at the dated rates the source's currency settings say are on, though the user may not create one", async () => {
+      // Asked only whether the user may create a dated rate, a user the org
+      // does not let manage currencies was told no, and the opportunity was
+      // converted at the rates of CurrencyType.
+      const deps = currencyDeps();
+      const answers = deps.querySource;
+      const tooling: string[] = [];
+      deps.querySource = async (soql) => {
+        if (soql.includes('FROM EntityDefinition')) {
+          return [{ RunningUserEntityAccess: { IsCreatable: false } }];
+        }
+        if (soql.includes('FROM DatedConversionRate')) {
+          return [
+            {
+              IsoCode: 'GBP',
+              ConversionRate: 0.8,
+              StartDate: '2026-01-01',
+              NextStartDate: '9999-12-31',
+            },
+          ];
+        }
+        return answers!(soql);
+      };
+      deps.toolingSource = async (soql) => {
+        tooling.push(soql);
+        return [{ Metadata: { enableCurrencyEffectiveDates: true } }];
+      };
+      deps.toolingTarget = async () => [{ Metadata: { enableCurrencyEffectiveDates: false } }];
+      vi.mocked(deps.query).mockResolvedValueOnce([
+        {
+          Id: 'src1',
+          Name: 'Deal 05',
+          CurrencyIsoCode: 'GBP',
+          Amount: 80,
+          CloseDate: '2026-03-31',
+        },
+      ]);
+      vi.mocked(deps.insert).mockResolvedValue(written('tgt1'));
+
+      const result = await new AutopilotExecutor(deps).execute(
+        makePlan([{ order: 0, objects: ['Opportunity'], dependsOn: [] }], 1),
+        [],
+        [],
+        new Map([['Opportunity', 1]]),
+      );
+
+      expect(tooling).toEqual(['SELECT Metadata FROM CurrencySettings']);
+      expect(vi.mocked(deps.insert).mock.calls[0][1]).toEqual([
+        expect.objectContaining({ CurrencyIsoCode: 'USD', Amount: 100 }),
+      ]);
+      expect(result.objectOutcomes?.['Opportunity']?.currenciesReplaced).toEqual([
+        expect.objectContaining({ datedBy: 'CloseDate' }),
+      ]);
+    });
+
     it('reads no currency when no record carries one', async () => {
       const sourceQueries: string[] = [];
       const deps = currencyDeps(sourceQueries);

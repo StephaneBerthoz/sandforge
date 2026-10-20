@@ -55,12 +55,24 @@ export const CURRENCY_TYPES_SOQL =
   'SELECT IsoCode, ConversionRate, DecimalPlaces, IsActive, IsCorporate FROM CurrencyType';
 
 /**
- * Whether advanced currency management is on: the user the copy reads as may
- * then create dated rates, which nobody may with it off. The rows of
- * `DatedConversionRate` say nothing of it — asked on an org where it had been
- * turned on and off again, they were all still there — nor does any field an
- * ordinary query reads. A user the org does not let manage currencies is told
- * it is off, and the rates of `CurrencyType` are read.
+ * Whether advanced currency management is on, as the org's currency settings
+ * hold it: `CurrencySettings.enableCurrencyEffectiveDates`, which the Metadata
+ * API Developer Guide documents as whether advanced currency management is
+ * enabled. The Tooling API answers the settings as a record, `Metadata` the
+ * same fields the Metadata API reads, whatever the user may do with
+ * currencies. The rows of `DatedConversionRate` say nothing of it — asked on
+ * an org where it had been turned on and off again, they were all still there
+ * — nor does any field an ordinary query reads.
+ */
+export const CURRENCY_SETTINGS_SOQL = 'SELECT Metadata FROM CurrencySettings';
+
+/**
+ * Whether advanced currency management is on, asked when the settings could
+ * not be read: the user the copy reads as may then create dated rates, which
+ * nobody may with it off. A user the org does not let manage currencies is
+ * told no either way, which says nothing of the feature: the rates of
+ * `CurrencyType` are applied, and the line says the dated ones could not be
+ * confirmed.
  */
 export const DATED_RATES_ON_SOQL =
   'SELECT RunningUserEntityAccess.IsCreatable FROM EntityDefinition ' +
@@ -96,6 +108,13 @@ export interface OrgCurrencies {
    * on: what it converts an opportunity's amounts at, by its close date.
    */
   readonly dated?: ReadonlyMap<string, readonly DatedRate[]>;
+  /**
+   * Set when neither the org's currency settings nor the user's access to
+   * dated rates said whether advanced currency management is on, or it is on
+   * and its dated rates could not be read: the rates of `CurrencyType` are
+   * applied, which may not be the ones the org applies.
+   */
+  readonly datedUnconfirmed?: true;
 }
 
 /** What both orgs of a copy hold of currencies. */
@@ -172,25 +191,73 @@ export function datedRatesOf(
 }
 
 /**
- * An org's dated rates, when it has advanced currency management on
- * ({@link DATED_RATES_ON_SOQL}); nothing when it is off, or either read
- * fails: the rates of `CurrencyType` are then the ones applied.
+ * Whether the org's currency settings say advanced currency management is
+ * on ({@link CURRENCY_SETTINGS_SOQL}): `true` or `false`, or nothing when the
+ * settings could not be read or do not say.
  */
-async function readDatedRates(
-  query: SoqlQuery,
-): Promise<ReadonlyMap<string, readonly DatedRate[]> | undefined> {
+async function settingsSayDated(settings: SoqlQuery | undefined): Promise<boolean | undefined> {
+  if (!settings) return undefined;
+  try {
+    const [row] = await settings(CURRENCY_SETTINGS_SOQL);
+    const metadata = row?.['Metadata'];
+    const value =
+      typeof metadata === 'object' && metadata !== null
+        ? (metadata as Record<string, unknown>)['enableCurrencyEffectiveDates']
+        : undefined;
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the user the copy reads as may create dated rates
+ * ({@link DATED_RATES_ON_SOQL}): `true` says advanced currency management is
+ * on; anything else says nothing.
+ */
+async function accessSaysDated(query: SoqlQuery): Promise<boolean> {
   try {
     const [entity] = await query(DATED_RATES_ON_SOQL);
     const access = entity?.['RunningUserEntityAccess'];
-    const on =
+    return (
       typeof access === 'object' &&
       access !== null &&
-      flagOf((access as Record<string, unknown>)['IsCreatable']);
-    if (!on) return undefined;
-    const dated = datedRatesOf(await query(DATED_RATES_SOQL));
-    return dated.size > 0 ? dated : undefined;
+      flagOf((access as Record<string, unknown>)['IsCreatable'])
+    );
   } catch {
-    return undefined;
+    return false;
+  }
+}
+
+/** What {@link readDatedRates} found of an org's dated rates. */
+interface DatedRatesRead {
+  readonly dated?: ReadonlyMap<string, readonly DatedRate[]>;
+  /** Set when whether they apply, or what they are, could not be known. */
+  readonly unconfirmed?: true;
+}
+
+/**
+ * An org's dated rates, when it has advanced currency management on: as its
+ * currency settings say, or, when they cannot be read, as the user's access to
+ * dated rates says when it says yes. Nothing when it is off; and nothing,
+ * said unconfirmed, when neither says it is on and the settings did not say
+ * it is off, or when it is on and the rates could not be read: the rates of
+ * `CurrencyType` are then the ones applied.
+ */
+async function readDatedRates(
+  query: SoqlQuery,
+  settings: SoqlQuery | undefined,
+): Promise<DatedRatesRead> {
+  const said = await settingsSayDated(settings);
+  if (said === false) return {};
+  if (said === undefined && !(await accessSaysDated(query))) return { unconfirmed: true };
+  try {
+    const dated = datedRatesOf(await query(DATED_RATES_SOQL));
+    return dated.size > 0 ? { dated } : {};
+  } catch {
+    return { unconfirmed: true };
   }
 }
 
@@ -198,8 +265,16 @@ async function readDatedRates(
  * An org's currencies, or nothing when it holds one: it answers the query
  * with an error, which is no reason to stop a copy. With advanced currency
  * management on, its dated rates come with them.
+ *
+ * @param settings - A query of the org's Tooling API, which reads its currency
+ *   settings: whether advanced currency management is on, whatever the user
+ *   may do with currencies. Absent, only the user's access to dated rates is
+ *   asked.
  */
-export async function readOrgCurrencies(query: SoqlQuery): Promise<OrgCurrencies | undefined> {
+export async function readOrgCurrencies(
+  query: SoqlQuery,
+  settings?: SoqlQuery,
+): Promise<OrgCurrencies | undefined> {
   let read: OrgCurrencies | undefined;
   try {
     read = orgCurrenciesOf(await query(CURRENCY_TYPES_SOQL));
@@ -207,22 +282,36 @@ export async function readOrgCurrencies(query: SoqlQuery): Promise<OrgCurrencies
     return undefined;
   }
   if (!read) return undefined;
-  const dated = await readDatedRates(query);
-  return dated ? { ...read, dated } : read;
+  const { dated, unconfirmed } = await readDatedRates(query, settings);
+  return {
+    ...read,
+    ...(dated ? { dated } : {}),
+    ...(unconfirmed ? { datedUnconfirmed: true as const } : {}),
+  };
+}
+
+/** The Tooling API queries both orgs' currency settings are read through. */
+export interface RunCurrencySettings {
+  readonly source?: SoqlQuery;
+  readonly target?: SoqlQuery;
 }
 
 /**
  * Both orgs' currencies, read once each, or nothing when either holds one
  * currency: a source with one gives its rows no currency to replace, and a
  * target with one takes none from a row.
+ *
+ * @param settings - Each org's Tooling API, which reads its currency settings
+ *   (`readOrgCurrencies`).
  */
 export async function readRunCurrencies(
   source: SoqlQuery,
   target: SoqlQuery,
+  settings: RunCurrencySettings = {},
 ): Promise<RunCurrencies | undefined> {
   const [inSource, inTarget] = await Promise.all([
-    readOrgCurrencies(source),
-    readOrgCurrencies(target),
+    readOrgCurrencies(source, settings.source),
+    readOrgCurrencies(target, settings.target),
   ]);
   return inSource && inTarget ? { source: inSource, target: inTarget } : undefined;
 }
@@ -286,13 +375,20 @@ function conversionOf(
   to: string,
   currencies: RunCurrencies,
   on: string | undefined,
-): { factor: number; dated: boolean } | undefined {
+): { factor: number; dated: boolean; unconfirmed: boolean } | undefined {
   const { source, target } = currencies;
   const fromRate = rateOf(source, from, on);
   const toRate = rateOf(target, to, on);
   if (fromRate === undefined || toRate === undefined) return undefined;
   let corporate = 1;
   let dated = fromRate.dated || toRate.dated;
+  // A row converted on a date, at a static rate of an org that could not say
+  // whether it converts it at a dated one: its corporate currency is at 1
+  // whatever the date.
+  const unconfirmed =
+    on !== undefined &&
+    ((source.datedUnconfirmed === true && !fromRate.dated && from !== source.corporate) ||
+      (target.datedUnconfirmed === true && !toRate.dated && to !== target.corporate));
   if (source.corporate !== target.corporate) {
     const inSource =
       target.corporate !== undefined ? rateOf(source, target.corporate, on) : undefined;
@@ -303,7 +399,7 @@ function conversionOf(
     else return undefined;
     dated ||= (inSource ?? inTarget)?.dated === true;
   }
-  return { factor: (corporate * toRate.rate) / fromRate.rate, dated };
+  return { factor: (corporate * toRate.rate) / fromRate.rate, dated, unconfirmed };
 }
 
 /**
@@ -380,6 +476,13 @@ export interface CurrencyChange {
    */
   readonly datedBy?: string;
   /**
+   * The field whose date an org converts the row on at dated rates, when
+   * either org could not say whether it has advanced currency management on
+   * (`OrgCurrencies.datedUnconfirmed`): the rates of `CurrencyType` converted
+   * the amounts, which may not be the ones the org applies.
+   */
+  readonly datedUnconfirmed?: string;
+  /**
    * What the amounts were multiplied by: what the rows whose currency is this
    * row's take with it (`followParentCurrency`). Absent when not converted.
    */
@@ -400,6 +503,14 @@ export interface RowCurrencyInput {
    * an org holds dated rates. Absent, the rates of `CurrencyType`.
    */
   readonly ratesOn?: RatesOn;
+  /**
+   * For a price, the currency the records its lines belong to go in, when
+   * the copy chose it: the platform refuses a line whose price is in another
+   * currency than its record. The row goes in it, its amounts converted,
+   * whatever currency it would go in otherwise, when the target holds it
+   * active.
+   */
+  readonly pricedIn?: string;
 }
 
 /**
@@ -448,7 +559,12 @@ export function replaceRowCurrency(
   const { target } = currencies;
   let to: string;
   let chosenBy: CurrencyChosenBy;
-  if (target.active.has(written)) {
+  if (input.pricedIn !== undefined && target.active.has(input.pricedIn)) {
+    payload[CURRENCY_FIELD] = input.pricedIn;
+    if (input.pricedIn === read) return undefined;
+    to = input.pricedIn;
+    chosenBy = 'lines';
+  } else if (target.active.has(written)) {
     if (written === read) return undefined;
     to = written;
     chosenBy = 'decision';
@@ -473,6 +589,7 @@ export function replaceRowCurrency(
     ...(conversion === undefined ? { notConverted: true as const } : { factor: conversion.factor }),
     ...(conversion !== undefined && to !== target.corporate ? { atTargetRate: true as const } : {}),
     ...(conversion?.dated && input.ratesOn ? { datedBy: input.ratesOn.field } : {}),
+    ...(conversion?.unconfirmed && input.ratesOn ? { datedUnconfirmed: input.ratesOn.field } : {}),
   };
 }
 
@@ -521,6 +638,15 @@ export const CURRENCY_FOLLOWS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Whether the platform gives the rows of `objectApiName` their parent's
+ * currency ({@link CURRENCY_FOLLOWS}): a quote's describe calls its currency
+ * createable, and the quote goes in its opportunity's whatever it is sent.
+ */
+export function followsItsParentsCurrency(objectApiName: string): boolean {
+  return CURRENCY_FOLLOWS[objectApiName] !== undefined;
+}
+
+/**
  * The currency change of the parent whose currency a row of `objectApiName`
  * takes — the record its lookup in {@link CURRENCY_FOLLOWS} names, or, for an
  * object the table does not name, the first of `lookups` whose record went
@@ -565,8 +691,9 @@ export interface FollowedCurrencyInput {
  * parent's were when it went in another currency: by the same factor, dated
  * rates included, so the row and its parent keep the same worth in the
  * target as in the source. The row writes no currency of its own: the
- * platform gives it the parent's. Changes `payload` in place. Nothing when
- * the parent kept its currency, or was read in another than the row.
+ * platform gives it the parent's — a row that carries the field, a quote,
+ * carries the parent's. Changes `payload` in place. Nothing when the parent
+ * kept its currency, or was read in another than the row.
  *
  * @param currencies - Both orgs' currencies, for the decimals of the
  *   currency written when a field's describe does not say its own.
@@ -578,6 +705,7 @@ export function followParentCurrency(
 ): CurrencyChange | undefined {
   const { parent } = input;
   if (!parent || input.read !== parent.from) return undefined;
+  if (typeof payload[CURRENCY_FIELD] === 'string') payload[CURRENCY_FIELD] = parent.to;
   const fields = convertAmounts(
     payload,
     input.currencyFields,
@@ -592,6 +720,7 @@ export function followParentCurrency(
     ...(parent.factor === undefined ? { notConverted: true as const } : { factor: parent.factor }),
     ...(parent.atTargetRate ? { atTargetRate: true as const } : {}),
     ...(parent.datedBy !== undefined ? { datedBy: parent.datedBy } : {}),
+    ...(parent.datedUnconfirmed !== undefined ? { datedUnconfirmed: parent.datedUnconfirmed } : {}),
   };
 }
 
@@ -617,6 +746,7 @@ export class CurrencyReplacementTally {
       change.chosenBy,
       change.notConverted ? 'kept' : '',
       change.datedBy ?? '',
+      change.datedUnconfirmed ?? '',
     ].join('\u0000');
     const known = this.entries.get(key);
     if (known) {
@@ -635,6 +765,9 @@ export class CurrencyReplacementTally {
         ...(change.notConverted ? { notConverted: true as const } : {}),
         ...(change.atTargetRate ? { atTargetRate: true as const } : {}),
         ...(change.datedBy !== undefined ? { datedBy: change.datedBy } : {}),
+        ...(change.datedUnconfirmed !== undefined
+          ? { datedUnconfirmed: change.datedUnconfirmed }
+          : {}),
       },
       fields: new Set(change.fields),
     });
@@ -660,6 +793,8 @@ function chosenWords(entry: CurrencyReplaced): string {
       return `the target's corporate currency, ${entry.from} not being active there`;
     case 'parent':
       return 'the currency of the record they belong to';
+    case 'lines':
+      return 'the currency of the records their lines belong to';
   }
 }
 
@@ -672,7 +807,12 @@ function amountWords(entry: CurrencyReplaced): string {
   const rates = entry.atTargetRate
     ? `at the source's rate for ${entry.from} and the target's for ${entry.to}`
     : "at the source's rates";
-  const dated = entry.datedBy !== undefined ? `, dated by ${entry.datedBy}` : '';
+  const dated =
+    entry.datedBy !== undefined
+      ? `, dated by ${entry.datedBy}`
+      : entry.datedUnconfirmed !== undefined
+        ? `, the static ones: dated rates by ${entry.datedUnconfirmed} could not be confirmed`
+        : '';
   return `amounts converted ${rates}${dated} (${entry.fields.join(', ')})`;
 }
 
@@ -680,7 +820,9 @@ function amountWords(entry: CurrencyReplaced): string {
  * One entry, as a line or a summary says it: `1 row(s) in GBP written in USD,
  * the target's corporate currency, GBP not being active there: amounts
  * converted at the source's rates (Amount)` — `at the source's rates, dated
- * by CloseDate` when dated rates converted them.
+ * by CloseDate` when dated rates converted them, `at the source's rates, the
+ * static ones: dated rates by CloseDate could not be confirmed` when an org
+ * could not say whether it converts them at dated rates.
  */
 export function describeCurrencyReplaced(entry: CurrencyReplaced): string {
   return (

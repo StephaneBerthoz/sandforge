@@ -3627,11 +3627,13 @@
       "recordTypeDefault": "gravadas em {{to}}, o padrão do seu tipo de registro",
       "decision": "gravadas em {{to}}, conforme decidido",
       "parent": "gravadas em {{to}}, a moeda do registro ao qual pertencem",
+      "lines": "gravadas em {{to}}, a moeda dos registros aos quais suas linhas pertencem",
       "converted": "valores convertidos pelas taxas da org de origem: {{fields}}",
       "convertedAtTargetRate": "valores convertidos pela taxa da org de origem para {{from}} e pela da org de destino para {{to}}: {{fields}}",
       "notConverted": "valores gravados como lidos: nenhuma taxa converte {{from}} em {{to}}",
       "noAmount": "nenhum valor a converter",
-      "dated": "pelas taxas datadas de {{field}}"
+      "dated": "pelas taxas datadas de {{field}}",
+      "datedUnconfirmed": "pelas taxas estáticas: não foi possível confirmar as taxas datadas de {{field}}"
     },
     "contactPoints": {
       "title": "E-mails e números de telefone",

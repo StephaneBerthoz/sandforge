@@ -300,6 +300,14 @@ describe('useAutopilotStore', () => {
       message: "Des champs obligatoires n'ont pas été remplis : [Entity__c]",
     };
 
+    const currency = {
+      objectApiName: 'Contact',
+      from: 'GBP',
+      to: 'USD',
+      chosenBy: 'corporate' as const,
+      rows: 1,
+      fields: [],
+    };
     getState().updateNodeOutcome('Contact', {
       failureCount: 2,
       linkedCount: 1,
@@ -307,6 +315,7 @@ describe('useAutopilotStore', () => {
       statusesApplied: 3,
       statusRefusals: [],
       leftToThePlatform: 4,
+      currenciesReplaced: [currency],
     });
 
     expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Contact')).toMatchObject({
@@ -316,6 +325,7 @@ describe('useAutopilotStore', () => {
       statusesApplied: 3,
       statusRefusals: [],
       leftToThePlatform: 4,
+      currenciesReplaced: [currency],
     });
     expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Account')?.refusals).toBe(
       undefined,

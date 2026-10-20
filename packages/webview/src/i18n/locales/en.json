@@ -3627,11 +3627,13 @@
       "recordTypeDefault": "written in {{to}}, the default of their record type",
       "decision": "written in {{to}}, as decided",
       "parent": "written in {{to}}, the currency of the record they belong to",
+      "lines": "written in {{to}}, the currency of the records their lines belong to",
       "converted": "amounts converted at the source org's rates: {{fields}}",
       "convertedAtTargetRate": "amounts converted at the source org's rate for {{from}} and the target org's for {{to}}: {{fields}}",
       "notConverted": "amounts written as read: no rate converts {{from}} into {{to}}",
       "noAmount": "no amount to convert",
-      "dated": "at the dated rates of {{field}}"
+      "dated": "at the dated rates of {{field}}",
+      "datedUnconfirmed": "at the static rates: the dated rates of {{field}} could not be confirmed"
     },
     "contactPoints": {
       "title": "Emails and phone numbers",

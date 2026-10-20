@@ -494,6 +494,108 @@ describe('SchemaScanner', () => {
   });
 });
 
+describe('the prices an opportunity’s lines use', () => {
+  const STANDARD = '01s000000000001AAA';
+  const BOOK = '01s000000000002AAA';
+  const WIDGET = '01t000000000001AAA';
+  const OPPORTUNITY = '006000000000001AAA';
+  /** A price of the widget, in a book and a currency. */
+  const price = (id: string, book: string, currency: string): Record<string, unknown> => ({
+    Id: id,
+    Pricebook2Id: book,
+    Product2Id: WIDGET,
+    CurrencyIsoCode: currency,
+  });
+  const PRICES = [
+    price('01u000000000001AAA', BOOK, 'GBP'),
+    price('01u000000000002AAA', STANDARD, 'GBP'),
+    price('01u000000000003AAA', STANDARD, 'USD'),
+  ];
+  const describes: Record<string, ObjectDescribeResult> = {
+    OpportunityLineItem: mockDescribe('OpportunityLineItem', [
+      lookupField('OpportunityId', ['Opportunity']),
+      lookupField('PricebookEntryId', ['PricebookEntry']),
+    ]),
+    Opportunity: mockDescribe('Opportunity'),
+    PricebookEntry: mockDescribe('PricebookEntry', [
+      lookupField('Pricebook2Id', ['Pricebook2']),
+      lookupField('Product2Id', ['Product2']),
+      mockField({ name: 'CurrencyIsoCode', type: 'picklist' }),
+    ]),
+    Pricebook2: mockDescribe('Pricebook2'),
+    Product2: mockDescribe('Product2'),
+  };
+  const globalSObjects = Object.keys(describes).map((name) => mockGlobalSObject(name));
+  /** A source whose one line uses the widget's GBP price of a custom book, and what it is asked. */
+  function source(): { conn: AutopilotConnection; asked: string[] } {
+    const conn = mockConn({ describes, globalSObjects });
+    const asked: string[] = [];
+    const rows = (soql: string): Record<string, unknown>[] => {
+      const object = /FROM (\w+)/.exec(soql)?.[1];
+      const ids = /Id IN \(([^)]*)\)/.exec(soql)?.[1];
+      const named = (row: Record<string, unknown>): boolean =>
+        ids === undefined || ids.includes(`'${String(row['Id'])}'`);
+      if (soql === 'SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1') {
+        return [{ Id: STANDARD }];
+      }
+      if (object === 'OpportunityLineItem') {
+        return [
+          {
+            Id: '00k000000000001AAA',
+            OpportunityId: OPPORTUNITY,
+            PricebookEntryId: '01u000000000001AAA',
+          },
+        ];
+      }
+      if (object === 'Opportunity') return [{ Id: OPPORTUNITY }].filter(named);
+      if (object === 'PricebookEntry' && soql.includes(`Pricebook2Id = '${STANDARD}'`)) {
+        return PRICES.filter((row) => row['Pricebook2Id'] === STANDARD);
+      }
+      if (object === 'PricebookEntry') return PRICES.filter(named);
+      if (object === 'Pricebook2') return [{ Id: STANDARD }, { Id: BOOK }].filter(named);
+      if (object === 'Product2') return [{ Id: WIDGET }].filter(named);
+      return [];
+    };
+    return {
+      asked,
+      conn: {
+        ...conn,
+        query: (soql: string) => {
+          asked.push(soql);
+          if (soql.startsWith('SELECT COUNT()')) {
+            return Promise.resolve({ totalSize: 1, done: true, records: [] });
+          }
+          const records = rows(soql);
+          return Promise.resolve({ totalSize: records.length, done: true, records });
+        },
+      },
+    };
+  }
+
+  it('reads the standard price a custom one needs, in its currency, with the price', async () => {
+    // Read by id alone, the lines' prices were all refused at the write,
+    // STANDARD_PRICE_NOT_DEFINED, and the lines held back behind them.
+    const { conn, asked } = source();
+
+    const result = await new SchemaScanner().scan(
+      conn,
+      mockConn({ describes, globalSObjects }),
+      ['OpportunityLineItem'],
+      true,
+    );
+
+    expect(result.parentIds.get('PricebookEntry')).toEqual([
+      '01u000000000001AAA',
+      '01u000000000002AAA',
+    ]);
+    expect(result.recordCounts.get('PricebookEntry')).toBe(2);
+    // The standard book is matched in the target, never written: the
+    // standard price does not bring it.
+    expect(result.parentIds.get('Pricebook2')).toEqual([BOOK]);
+    expect(asked).toContainEqual(expect.stringContaining('CurrencyIsoCode FROM PricebookEntry'));
+  });
+});
+
 describe('objects no copy can create', () => {
   const scanner = new SchemaScanner();
 

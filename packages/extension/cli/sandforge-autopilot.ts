@@ -355,6 +355,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         querySource: async (soql) =>
           (await sourceConn.query<Record<string, unknown>>(soql)).records,
         queryTarget: everyPage(targetConn),
+        // Each org's currency settings: whether advanced currency management
+        // is on, which the user's access to dated rates cannot always tell.
+        toolingSource: async (soql) =>
+          (await sourceConn.tooling.query<Record<string, unknown>>(soql)).records,
+        toolingTarget: async (soql) =>
+          (await targetConn.tooling.query<Record<string, unknown>>(soql)).records,
         describeKeyPrefix: async (objectApiName) => (await describeTarget(objectApiName)).keyPrefix,
         describeLookups: async (objectApiName) => (await describeTarget(objectApiName)).lookups,
         // Emails and phone numbers neutralized before they are written, unless

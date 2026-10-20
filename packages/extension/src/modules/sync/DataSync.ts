@@ -1,4 +1,9 @@
-import type { SyncObjectConfig, SyncObjectResult, SyncOperation } from '@sandforge/shared';
+import type {
+  CurrencyReplaced,
+  SyncObjectConfig,
+  SyncObjectResult,
+  SyncOperation,
+} from '@sandforge/shared';
 import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGuard.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import {
@@ -146,8 +151,11 @@ export class DataSync {
     sourceRecords: Record<string, unknown>[],
     run?: SyncWriteRun,
   ): Promise<SyncObjectResult> {
-    const { outcomes, notes } = await this.write(config, sourceRecords, run);
-    return buildObjectResult(config.objectApiName, config.operation, outcomes, notes);
+    const { outcomes, notes, currencies } = await this.write(config, sourceRecords, run);
+    return withCurrencies(
+      buildObjectResult(config.objectApiName, config.operation, outcomes, notes),
+      currencies,
+    );
   }
 
   /**
@@ -167,7 +175,7 @@ export class DataSync {
     config: SyncObjectConfig,
     sourceRecords: Record<string, unknown>[],
     run?: SyncWriteRun,
-  ): Promise<{ outcomes: OperationOutcome[]; notes: string[] }> {
+  ): Promise<{ outcomes: OperationOutcome[]; notes: string[]; currencies: CurrencyReplaced[] }> {
     // What the target will take. A failure to describe is not a reason to
     // stop: the run then behaves as it did before this existed.
     let target: TargetWriteFields | null = null;
@@ -221,18 +229,30 @@ export class DataSync {
     };
 
     let outcomes: OperationOutcome[];
+    // The rows to send in calls of their own first: the standard prices,
+    // which the custom ones sent in the same call were refused for want of.
+    const first = prepared.sentAt.filter((index) => index < (run?.standardFirst ?? 0)).length;
+    const send = (payloads: Record<string, unknown>[]): Promise<OperationOutcome[]> =>
+      this.executeOperation(
+        config.objectApiName,
+        config.operation,
+        payloads,
+        config.batchSize,
+        config.externalIdField,
+      );
     try {
       // Every record held back: nothing is sent.
       outcomes =
         prepared.payloads.length === 0 && sourceRecords.length > 0
           ? []
-          : await this.executeOperation(
-              config.objectApiName,
-              config.operation,
-              prepared.payloads,
-              config.batchSize,
-              config.externalIdField,
-            );
+          : first > 0 && first < prepared.payloads.length
+            ? await sendInTurn(
+                config.objectApiName,
+                send,
+                prepared.payloads.slice(0, first),
+                prepared.payloads.slice(first),
+              )
+            : await send(prepared.payloads);
     } catch (err: unknown) {
       if (!(err instanceof WriteCancelledError)) throw err;
       // The cancel stopped the write before one of its batches: the records
@@ -270,7 +290,7 @@ export class DataSync {
       notes.push(...within.notes);
       if (within.cancelled) throw new WriteCancelledError(config.objectApiName, all, notes);
     }
-    return { outcomes: all, notes };
+    return { outcomes: all, notes, currencies: prepared.currencies };
   }
 
   /**
@@ -745,6 +765,26 @@ export function linkedRecordOf(
  * that keeps an external id unique, every contact under an account the target
  * held under the same id was held back as under a refused parent.
  */
+/**
+ * `first`, then `then`, each in calls of its own, their outcomes in that
+ * order. A cancel during the second answers the first's outcomes with the
+ * records it sent before it.
+ */
+async function sendInTurn(
+  objectApiName: string,
+  send: (payloads: Record<string, unknown>[]) => Promise<OperationOutcome[]>,
+  first: Record<string, unknown>[],
+  then: Record<string, unknown>[],
+): Promise<OperationOutcome[]> {
+  const before = await send(first);
+  try {
+    return [...before, ...(await send(then))];
+  } catch (err: unknown) {
+    if (!(err instanceof WriteCancelledError)) throw err;
+    throw new WriteCancelledError(objectApiName, [...before, ...err.written], err.notes);
+  }
+}
+
 function noteInRun(
   config: SyncObjectConfig,
   outcomes: readonly OperationOutcome[],
@@ -777,6 +817,14 @@ function linkedNote(objectApiName: string, count: number, refusal: string | unde
     `duplicate of a record it holds and named it${refusal ? ` (${refusal})` : ''}; what the ` +
     `run writes under ${count === 1 ? 'it' : 'them'} points at that record.`
   );
+}
+
+/** `result`, with the rows its write sent in another currency when there are any. */
+export function withCurrencies(
+  result: SyncObjectResult,
+  currencies: readonly CurrencyReplaced[],
+): SyncObjectResult {
+  return currencies.length > 0 ? { ...result, currenciesReplaced: [...currencies] } : result;
 }
 
 /**

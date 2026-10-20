@@ -9,6 +9,7 @@ import { formatStoredDate } from '../../utils/formatters';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
+import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -183,6 +184,12 @@ export const SyncHistoryDetail: React.FC = () => {
                       {err}
                     </p>
                   ))}
+                </div>
+              )}
+              {/* The rows written in another currency: no error, said as Forge's results say them. */}
+              {obj.currenciesReplaced && obj.currenciesReplaced.length > 0 && (
+                <div className="mt-1">
+                  <ForgeCurrenciesResult entries={obj.currenciesReplaced} />
                 </div>
               )}
             </CardBody>

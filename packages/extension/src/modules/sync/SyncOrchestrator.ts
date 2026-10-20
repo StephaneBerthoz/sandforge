@@ -10,10 +10,11 @@ import type {
   SyncValidationRule,
   GrappeConfig,
 } from '@sandforge/shared';
-import { sanitizeSoqlObjectName } from '@sandforge/shared';
+import { PRICEBOOK_ENTRY_OBJECT, sanitizeSoqlObjectName } from '@sandforge/shared';
 import {
   buildObjectResult,
   linkedRecordOf,
+  withCurrencies,
   type DataSync,
   type OperationOutcome,
 } from './DataSync.js';
@@ -37,11 +38,18 @@ import {
   type SimulatedRecord,
 } from './SyncSimulation.js';
 import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPreparation.js';
+import {
+  namesAPricebook,
+  settleSyncPrices,
+  type SettledSyncRows,
+  type StandardPricebooks,
+} from './syncPrices.js';
 import { contactPointsOfRun } from './syncContactPoints.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import {
   CURRENCY_FIELD,
+  describeCurrencyReplaced,
   type CurrencyChange,
   type RunCurrencies,
 } from '../../core/common/recordCurrencies.js';
@@ -213,6 +221,15 @@ export interface SyncOrchestratorDeps {
    */
   currencies?: () => Promise<RunCurrencies | undefined>;
   /**
+   * Both orgs' standard price books (`readStandardPricebooks`), read once a
+   * run before the first object whose records name a price book: the
+   * source's is matched to the target's, which no copy can create, and the
+   * prices are written as the platform takes them (`settleSyncPrices`).
+   * Without it, a price of the standard book goes with the source's id of it,
+   * and the target refuses it.
+   */
+  standardPricebooks?: () => Promise<StandardPricebooks | undefined>;
+  /**
    * For {@link SyncOrchestrator.simulate}: the target's active validation
    * rules on the objects named, as Forge's pre-flight reads them
    * (`readActiveValidationRules`). A simulation cannot evaluate a rule, so it
@@ -248,6 +265,8 @@ interface RunContext {
   currencyChangesById: Map<string, CurrencyChange>;
   /** What neutralizes the run's emails and phone numbers; absent when it keeps them. */
   contactPoints?: ContactPointNeutralizer;
+  /** Both orgs' standard price books, read the first time an object's records name a price book. */
+  standardPricebooks?: () => Promise<StandardPricebooks | undefined>;
 }
 
 /** An active validation rule of the target as the simulation reads it. */
@@ -443,6 +462,7 @@ export class SyncOrchestrator {
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
     const currencies = this.currenciesOnce();
+    const standardPricebooks = this.standardPricebooksOnce();
     const currencyChangesById = new Map<string, CurrencyChange>();
     // The emails and phone numbers of every row made unreachable before it is
     // written, unless the configuration keeps them: see `syncContactPoints`.
@@ -647,6 +667,7 @@ export class SyncOrchestrator {
             recordTypes,
             currencies,
             currencyChangesById,
+            standardPricebooks,
             ...(contactPoints ? { contactPoints } : {}),
           },
           plan ? read : undefined,
@@ -894,6 +915,47 @@ export class SyncOrchestrator {
   }
 
   /**
+   * Both orgs' standard price books, read the first time a run asks and kept
+   * for the rest of it; nothing when the run was given no way to read them,
+   * or a read fails.
+   */
+  private standardPricebooksOnce(): () => Promise<StandardPricebooks | undefined> {
+    let read: Promise<StandardPricebooks | undefined> | undefined;
+    return () => {
+      const asked = this.deps.standardPricebooks;
+      if (!asked) return Promise.resolve(undefined);
+      read ??= asked().catch(() => undefined);
+      return read;
+    };
+  }
+
+  /**
+   * The rows of an object's write as the platform takes them
+   * (`settleSyncPrices`): the standard price book matched, once the run has
+   * read both orgs', and the prices ordered and settled. Hands the rows back
+   * as they are for any object whose records name no price book.
+   */
+  private async pricesSettled(
+    objectConfig: SyncObjectConfig,
+    prepared: Pick<PreparedObject, 'records' | 'sources' | 'sourceIds'>,
+    run: RunContext,
+  ): Promise<SettledSyncRows> {
+    const objectApiName = objectConfig.objectApiName;
+    const standard =
+      objectConfig.operation !== 'delete' && namesAPricebook(objectApiName, prepared.sources)
+        ? await run.standardPricebooks?.()
+        : undefined;
+    if (standard) run.links.noteMatched(standard.source, standard.target);
+    const currencies =
+      standard &&
+      objectApiName === PRICEBOOK_ENTRY_OBJECT &&
+      prepared.sources.some(carriesACurrency)
+        ? await run.currencies()
+        : undefined;
+    return settleSyncPrices(objectApiName, prepared, standard, currencies);
+  }
+
+  /**
    * The watermarks of a delta configuration: `undefined` for a full one,
    * `null` when none can be kept — a configuration that is not saved, or a
    * run given nowhere to keep them.
@@ -1120,6 +1182,7 @@ export class SyncOrchestrator {
       recordTypes: this.recordTypesOnce(),
       currencies: this.currenciesOnce(),
       currencyChangesById: new Map<string, CurrencyChange>(),
+      standardPricebooks: this.standardPricebooksOnce(),
     };
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
@@ -1208,7 +1271,11 @@ export class SyncOrchestrator {
       rows: 0,
       cut: false,
     };
-    const prepared = await this.prepare(config, objectConfig, leftOut, plan ? read : undefined);
+    const asRead = await this.prepare(config, objectConfig, leftOut, plan ? read : undefined);
+    // The price books and prices as the run writes them: see `pricesSettled`.
+    const settled =
+      asRead.records.length > 0 ? await this.pricesSettled(objectConfig, asRead, run) : undefined;
+    const prepared = settled ? { ...asRead, ...settled } : asRead;
 
     // What the target lets a write carry, the describe the write reads too.
     let target: TargetWriteFields | null = null;
@@ -1341,7 +1408,15 @@ export class SyncOrchestrator {
       ...outcome,
       skipped: outcome.skipped + linkedAt.size,
       refused: outcome.refused + rows.held.length + refusedAt.size,
-      notes: [...outcome.notes, ...rows.notes, ...checked.notes, ...unique.notes],
+      notes: [
+        ...(settled?.notes ?? []),
+        ...outcome.notes,
+        ...rows.notes,
+        // Said as the command line says them: the simulation's notes are text.
+        ...rows.currencies.map((entry) => `${describeCurrencyReplaced(entry)}.`),
+        ...checked.notes,
+        ...unique.notes,
+      ],
     };
     if (!plan) return withHeld;
 
@@ -1396,12 +1471,30 @@ export class SyncOrchestrator {
       sourceIds: ReadonlyArray<string | undefined>,
     ) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const { records, sourceIds, sources } = await this.prepare(config, objectConfig, leftOut, read);
-
-    if (records.length === 0) {
+    const prepared = await this.prepare(config, objectConfig, leftOut, read);
+    if (prepared.records.length === 0) {
       return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
     }
-    const writeRun = await writeRunOf(run, records, sources);
+    const settled = await this.pricesSettled(objectConfig, prepared, run);
+    const { records, sourceIds, sources } = settled;
+    if (records.length === 0) {
+      return withRowsLeftOut(
+        { ...createEmptyResult(objectConfig), errors: [...settled.notes] },
+        leftOut,
+      );
+    }
+    const writeRun: SyncWriteRun = {
+      ...(await writeRunOf(run, records, sources)),
+      ...(settled.standardFirst > 0 ? { standardFirst: settled.standardFirst } : {}),
+    };
+    // A price left out for the source's own in the currency written is linked
+    // to that one's copy, once the write has made it.
+    const linkWhatStoodIn = (): void => {
+      for (const [left, stand] of settled.standsFor) {
+        const copy = run.links.targetOf(stand);
+        if (copy !== undefined) run.links.noteMatched(left, copy);
+      }
+    };
 
     // Reading a large object takes a while: a pause or a cancel that came
     // meanwhile is honoured before its first record is written.
@@ -1427,14 +1520,21 @@ export class SyncOrchestrator {
         onWritten?.(outcomes, sourceIds);
       };
       try {
-        const { outcomes, notes } = await this.deps.dataSync.write(
+        const { outcomes, notes, currencies } = await this.deps.dataSync.write(
           { ...objectConfig, fieldMappings: [], addOnFields: [] },
           records,
           writeRun,
         );
         note(outcomes);
+        linkWhatStoodIn();
         return withRowsLeftOut(
-          buildObjectResult(objectConfig.objectApiName, objectConfig.operation, outcomes, notes),
+          withCurrencies(
+            buildObjectResult(objectConfig.objectApiName, objectConfig.operation, outcomes, [
+              ...settled.notes,
+              ...notes,
+            ]),
+            currencies,
+          ),
           leftOut,
         );
       } catch (err: unknown) {
@@ -1442,12 +1542,16 @@ export class SyncOrchestrator {
         throw err;
       }
     }
+    const synced = await this.deps.dataSync.sync(
+      { ...objectConfig, fieldMappings: [], addOnFields: [] },
+      records,
+      writeRun,
+    );
+    linkWhatStoodIn();
     return withRowsLeftOut(
-      await this.deps.dataSync.sync(
-        { ...objectConfig, fieldMappings: [], addOnFields: [] },
-        records,
-        writeRun,
-      ),
+      settled.notes.length > 0
+        ? { ...synced, errors: [...settled.notes, ...synced.errors] }
+        : synced,
       leftOut,
     );
   }

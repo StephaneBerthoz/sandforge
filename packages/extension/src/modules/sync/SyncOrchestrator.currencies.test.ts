@@ -208,8 +208,15 @@ describe('SyncOrchestrator — a currency the target does not hold active', () =
       CurrencyIsoCode: 'EUR',
       Amount: 100,
     });
-    expect(result.objectResults[0].errors).toContain(GBP_ACCOUNT);
-    expect(result.objectResults[1].errors).toContain(GBP_DEAL);
+    // Said apart from the errors — none of them is one — as the history
+    // shows them, in the user's language.
+    expect(result.objectResults[0].currenciesReplaced).toEqual([
+      expect.objectContaining({ from: 'GBP', to: 'USD', rows: 1, fields: ['AnnualRevenue'] }),
+    ]);
+    expect(result.objectResults[1].currenciesReplaced).toEqual([
+      expect.objectContaining({ from: 'GBP', to: 'USD', rows: 1, fields: ['Amount'] }),
+    ]);
+    expect(result.objectResults[1].errors).not.toContain(GBP_DEAL);
   });
 
   it('predicts in the simulation the currency and the amounts the run writes, reading both orgs once', async () => {
@@ -248,7 +255,9 @@ describe('SyncOrchestrator — a currency the target does not hold active', () =
     const line =
       '1 row(s) in GBP written in USD, the currency of the record they belong to: amounts ' +
       "converted at the source's rates (UnitPrice).";
-    expect(result.objectResults[2].errors).toContain(line);
+    expect(result.objectResults[2].currenciesReplaced).toEqual([
+      expect.objectContaining({ chosenBy: 'parent', rows: 1, fields: ['UnitPrice'] }),
+    ]);
     expect(simulated.objects[2].notes).toContain(line);
   });
 

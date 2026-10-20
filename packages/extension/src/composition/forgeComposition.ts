@@ -451,6 +451,13 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             countExecutorRequest();
             return (await conn.query(soql)).totalSize;
           },
+          // The org's currency settings, one row: whether advanced currency
+          // management is on, which the user's access cannot always tell.
+          queryTooling: async (orgId, soql) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            countExecutorRequest();
+            return (await conn.tooling.query<Record<string, unknown>>(soql)).records;
+          },
           // `allowRecursive` is what makes jsforce split an oversized array
           // itself: `if (records.length > MAX_DML_COUNT && options.allowRecursive)`
           // (jsforce 3.10 connection.js:800,887,938). Without it the whole array

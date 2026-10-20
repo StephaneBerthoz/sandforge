@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CURRENCY_SETTINGS_SOQL,
   CURRENCY_TYPES_SOQL,
   CurrencyReplacementTally,
   DATED_RATES_ON_SOQL,
@@ -428,6 +429,167 @@ describe('dated rates', () => {
   });
 });
 
+describe('whether advanced currency management is on', () => {
+  /** An org's currency settings as the Tooling API answers them, or a refusal. */
+  function settingsAnswering(
+    on: boolean | 'refused' | 'silent',
+  ): (soql: string) => Promise<Record<string, unknown>[]> {
+    return async (soql) => {
+      if (soql !== CURRENCY_SETTINGS_SOQL) throw new Error(`unexpected ${soql}`);
+      if (on === 'refused') throw new Error('INSUFFICIENT_ACCESS: Tooling API');
+      if (on === 'silent') return [{ Metadata: { enableMultiCurrency: true } }];
+      return [{ Metadata: { enableMultiCurrency: true, enableCurrencyEffectiveDates: on } }];
+    };
+  }
+  /** A source that answers as `sourceAnswering` does, and keeps what it is asked. */
+  function asking(on: boolean | 'refused'): {
+    query: (soql: string) => Promise<Record<string, unknown>[]>;
+    asked: string[];
+  } {
+    const asked: string[] = [];
+    const answer = sourceAnswering(on);
+    return {
+      asked,
+      query: async (soql) => {
+        asked.push(soql);
+        return answer(soql);
+      },
+    };
+  }
+  const onCloseDate = datedRateOf('Opportunity', { CloseDate: '2026-03-31' });
+
+  it("reads the dated rates the org's settings say are on, though the user may not create one", async () => {
+    // A user the org does not let manage currencies was told it was off, and
+    // every opportunity was converted at the rates of CurrencyType.
+    const source = asking(false);
+
+    const read = await readOrgCurrencies(source.query, settingsAnswering(true));
+
+    expect(read?.dated?.get('GBP')).toHaveLength(2);
+    expect(read?.datedUnconfirmed).toBeUndefined();
+    expect(source.asked).not.toContain(DATED_RATES_ON_SOQL);
+  });
+
+  it('reads none, and asks nothing more, when the settings say it is off', async () => {
+    const source = asking(true);
+
+    const read = await readOrgCurrencies(source.query, settingsAnswering(false));
+
+    expect(read?.dated).toBeUndefined();
+    expect(read?.datedUnconfirmed).toBeUndefined();
+    expect(source.asked).toEqual([CURRENCY_TYPES_SOQL]);
+  });
+
+  it("asks the user's access when the settings cannot be read, and takes its yes", async () => {
+    for (const settings of [settingsAnswering('refused'), settingsAnswering('silent'), undefined]) {
+      const read = await readOrgCurrencies(sourceAnswering(true), settings);
+
+      expect(read?.dated?.get('GBP')).toHaveLength(2);
+      expect(read?.datedUnconfirmed).toBeUndefined();
+    }
+  });
+
+  it('says the dated rates unconfirmed when neither the settings nor the access says it is on', async () => {
+    const refused = await readOrgCurrencies(
+      sourceAnswering('refused'),
+      settingsAnswering('refused'),
+    );
+    const told = await readOrgCurrencies(sourceAnswering(false));
+
+    for (const read of [refused, told]) {
+      expect(read?.dated).toBeUndefined();
+      expect(read?.datedUnconfirmed).toBe(true);
+    }
+  });
+
+  it('says them unconfirmed when it is on and its dated rates cannot be read', async () => {
+    const read = await readOrgCurrencies(async (soql) => {
+      if (soql === DATED_RATES_SOQL) throw new Error('INSUFFICIENT_ACCESS');
+      return sourceAnswering(true)(soql);
+    }, settingsAnswering(true));
+
+    expect(read?.dated).toBeUndefined();
+    expect(read?.datedUnconfirmed).toBe(true);
+  });
+
+  it("reads each org's settings through its own Tooling API", async () => {
+    const read = await readRunCurrencies(sourceAnswering(false), async () => TARGET_ROWS, {
+      source: settingsAnswering(true),
+      target: settingsAnswering(false),
+    });
+
+    expect([...(read?.source.dated?.keys() ?? [])]).toEqual(['EUR', 'GBP', 'USD']);
+    expect(read?.target.datedUnconfirmed).toBeUndefined();
+  });
+
+  it('says on the line that the static rates converted an opportunity whose dated rates could not be confirmed', async () => {
+    const run: RunCurrencies = {
+      source: (await readOrgCurrencies(sourceAnswering(false)))!,
+      target: orgCurrenciesOf(TARGET_ROWS)!,
+    };
+    const opportunity: Record<string, unknown> = { CurrencyIsoCode: 'GBP', Amount: 79 };
+    const account: Record<string, unknown> = { CurrencyIsoCode: 'GBP', AnnualRevenue: 79 };
+
+    const change = replaceRowCurrency(
+      opportunity,
+      { read: 'GBP', currencyFields: AMOUNT, ratesOn: onCloseDate },
+      run,
+    );
+    const undated = replaceRowCurrency(
+      account,
+      { read: 'GBP', currencyFields: new Map([['AnnualRevenue', 2]]) },
+      run,
+    );
+    const line = followParentCurrency(
+      { UnitPrice: 79 },
+      { read: 'GBP', parent: change, currencyFields: new Map([['UnitPrice', 2]]) },
+      run,
+    );
+
+    expect(opportunity['Amount']).toBe(100);
+    expect(change).toMatchObject({ datedUnconfirmed: 'CloseDate' });
+    expect(change?.datedBy).toBeUndefined();
+    expect(undated?.datedUnconfirmed).toBeUndefined();
+    expect(line?.datedUnconfirmed).toBe('CloseDate');
+    const tally = new CurrencyReplacementTally();
+    tally.add('Opportunity', change);
+    tally.add('Opportunity', { ...change!, datedUnconfirmed: undefined });
+    const [unconfirmed, confirmed] = tally.list();
+    expect(describeCurrencyReplaced(unconfirmed)).toBe(
+      "1 row(s) in GBP written in USD, the target's corporate currency, GBP not being active " +
+        "there: amounts converted at the source's rates, the static ones: dated rates by " +
+        'CloseDate could not be confirmed (Amount)',
+    );
+    expect(confirmed.datedUnconfirmed).toBeUndefined();
+  });
+
+  it('says nothing unconfirmed of a corporate currency, which is at 1 whatever the date', async () => {
+    const run: RunCurrencies = {
+      source: (await readOrgCurrencies(sourceAnswering(true)))!,
+      target: { ...orgCurrenciesOf(TARGET_ROWS)!, datedUnconfirmed: true },
+    };
+
+    const inDollars = replaceRowCurrency(
+      { CurrencyIsoCode: 'GBP', Amount: 85 },
+      { read: 'GBP', currencyFields: AMOUNT, ratesOn: onCloseDate },
+      run,
+    );
+    const inEuros = replaceRowCurrency(
+      { CurrencyIsoCode: 'EUR', Amount: 85 },
+      { read: 'GBP', currencyFields: AMOUNT, ratesOn: onCloseDate },
+      run,
+    );
+
+    expect(inDollars).toMatchObject({ to: 'USD', datedBy: 'CloseDate' });
+    expect(inDollars?.datedUnconfirmed).toBeUndefined();
+    expect(inEuros).toMatchObject({
+      to: 'EUR',
+      datedBy: 'CloseDate',
+      datedUnconfirmed: 'CloseDate',
+    });
+  });
+});
+
 describe('replacementCurrency', () => {
   it("takes the record type's default the target holds, then its corporate currency", () => {
     const { target } = currencies();
@@ -576,5 +738,67 @@ describe('a row whose currency is its parent', () => {
       '2 row(s) in GBP written in USD, the currency of the record they belong to: amounts ' +
         "converted at the source's rates (UnitPrice)",
     );
+  });
+
+  it('writes the parent’s currency on a row that carries the field: a quote takes its opportunity’s', () => {
+    const quote: Record<string, unknown> = { CurrencyIsoCode: 'GBP', Discount: 79 };
+
+    followParentCurrency(
+      quote,
+      {
+        read: 'GBP',
+        parent: { ...opportunityChange(), to: 'EUR', factor: 0.9 / 0.79 },
+        currencyFields: new Map([['Discount', 2]]),
+      },
+      currencies(),
+    );
+
+    expect(quote).toEqual({ CurrencyIsoCode: 'EUR', Discount: 90 });
+  });
+});
+
+describe('a price in the currency of the records its lines belong to', () => {
+  const PRICE = new Map<string, number | undefined>([['UnitPrice', 2]]);
+
+  it('writes the price in that currency, its amount converted, whatever it would go in alone', () => {
+    // Alone, a GBP price goes in the target's corporate USD; its lines' record
+    // went in EUR, and the platform refuses a line on a price in another.
+    const price: Record<string, unknown> = { CurrencyIsoCode: 'GBP', UnitPrice: 79 };
+
+    const change = replaceRowCurrency(
+      price,
+      { read: 'GBP', currencyFields: PRICE, pricedIn: 'EUR' },
+      currencies(),
+    );
+
+    expect(price).toEqual({ CurrencyIsoCode: 'EUR', UnitPrice: 90 });
+    expect(change).toMatchObject({ to: 'EUR', chosenBy: 'lines', atTargetRate: true });
+    const tally = new CurrencyReplacementTally();
+    tally.add('PricebookEntry', change);
+    expect(describeCurrencyReplaced(tally.list()[0])).toBe(
+      '1 row(s) in GBP written in EUR, the currency of the records their lines belong to: ' +
+        "amounts converted at the source's rate for GBP and the target's for EUR (UnitPrice)",
+    );
+  });
+
+  it('leaves a price in the currency its lines want as it is, and takes no currency the target lacks', () => {
+    const inEuros: Record<string, unknown> = { CurrencyIsoCode: 'EUR', UnitPrice: 92 };
+    const toPounds: Record<string, unknown> = { CurrencyIsoCode: 'GBP', UnitPrice: 79 };
+
+    expect(
+      replaceRowCurrency(
+        inEuros,
+        { read: 'EUR', currencyFields: PRICE, pricedIn: 'EUR' },
+        currencies(),
+      ),
+    ).toBeUndefined();
+    const change = replaceRowCurrency(
+      toPounds,
+      { read: 'GBP', currencyFields: PRICE, pricedIn: 'GBP' },
+      currencies(),
+    );
+
+    expect(inEuros).toEqual({ CurrencyIsoCode: 'EUR', UnitPrice: 92 });
+    expect(change).toMatchObject({ to: 'USD', chosenBy: 'corporate' });
   });
 });

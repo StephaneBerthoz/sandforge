@@ -15,7 +15,15 @@ import type {
   AutopilotObjectListing,
   AutopilotPlanScope,
 } from '@sandforge/shared';
-import { isRequiredLookup, isSettableField } from '@sandforge/shared';
+import {
+  PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+  STANDARD_PRICEBOOK_SOQL,
+  isRequiredLookup,
+  isSettableField,
+} from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { excludedByDescribe, isNeverCopied } from '../forge/excludedObjects.js';
@@ -181,6 +189,20 @@ export const DEFAULT_SCAN_OBJECTS = DEFAULT_MAX_NODES;
  * `FIELDS(ALL)` read of the run may ask for.
  */
 export const IDS_PER_READ = 200;
+
+/**
+ * The fields a price is read with in the scan: its id and lookups, and the
+ * currency and selling model the standard price it needs is found by, when
+ * the org has them.
+ */
+function priceFieldsOf(fields: string, describe: ObjectDescribeResult | undefined): string {
+  const has = new Set(describe?.fields.map((field) => field.name) ?? []);
+  const asked = new Set(fields.split(', '));
+  for (const field of [CURRENCY_FIELD, PRICEBOOK_ENTRY_SELLING_MODEL_FIELD]) {
+    if (has.has(field)) asked.add(field);
+  }
+  return [...asked].join(', ');
+}
 
 /**
  * Rounds of parents read by id past the depth, for the lookups a record
@@ -722,14 +744,37 @@ export class SchemaScanner {
         bounds.say(`reading ${ids.length} ${name} record(s) by id…`);
         const kept = read.get(name) ?? new Set<string>();
         read.set(name, kept);
+        const prices = name === PRICEBOOK_ENTRY_OBJECT;
+        const fields = prices ? priceFieldsOf(fieldsOf(name), describes.get(name)) : fieldsOf(name);
+        const readNow: Record<string, unknown>[] = [];
         for (const chunk of this.chunk(ids, IDS_PER_READ)) {
           const where = chunk.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
           const answer = await conn.query(
-            `SELECT ${fieldsOf(name)} FROM ${assertSoqlIdentifier(name)} WHERE Id IN (${where})`,
+            `SELECT ${fields} FROM ${assertSoqlIdentifier(name)} WHERE Id IN (${where})`,
           );
           const rows = answer.records.filter((row) => typeof row['Id'] === 'string');
           for (const row of rows) kept.add(row['Id'] as string);
+          readNow.push(...rows);
           meet(name, rows, level);
+        }
+        // A custom price is refused for a product the target holds no
+        // standard price of, in its currency: the standard prices of the
+        // products the prices read price, read with them. Read by id alone,
+        // an opportunity's lines from a custom book were all held back, their
+        // prices refused STANDARD_PRICE_NOT_DEFINED.
+        if (prices) {
+          const standard = await this.standardPricesOf(conn, fields, readNow, kept);
+          if (standard.length > 0) {
+            bounds.say(`reading ${standard.length} standard price(s) the prices need…`);
+            for (const row of standard) kept.add(row['Id'] as string);
+            // Their book is the standard one, matched in the target and never
+            // written: what they bring is their product and selling model.
+            meet(
+              name,
+              standard.map((row) => ({ ...row, [PRICEBOOK_ENTRY_BOOK_FIELD]: undefined })),
+              level,
+            );
+          }
         }
       }
     }
@@ -752,6 +797,67 @@ export class SchemaScanner {
       recordCounts,
       parentIds,
     };
+  }
+
+  /**
+   * The standard prices the custom prices of `prices` need and the read does
+   * not hold: of their products, in their currencies, under their selling
+   * models when the prices carry one. Nothing when every price read is a
+   * standard one, or the source will not answer.
+   *
+   * @param fields - The fields a price is read with ({@link priceFieldsOf}).
+   * @param held - The ids of the prices read already.
+   */
+  private async standardPricesOf(
+    conn: AutopilotConnection,
+    fields: string,
+    prices: readonly Record<string, unknown>[],
+    held: ReadonlySet<string>,
+  ): Promise<Record<string, unknown>[]> {
+    const pairOf = (row: Record<string, unknown>): string =>
+      [
+        row[PRICEBOOK_ENTRY_PRODUCT_FIELD],
+        row[CURRENCY_FIELD],
+        row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD],
+      ]
+        .map((value) => String(value ?? ''))
+        .join('|');
+    try {
+      const [book] = (await conn.query(STANDARD_PRICEBOOK_SOQL)).records;
+      const standardId = book?.['Id'];
+      if (typeof standardId !== 'string') return [];
+      const custom = prices.filter((row) => row[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardId);
+      const products = [
+        ...new Set(
+          custom.flatMap((row) => {
+            const product = row[PRICEBOOK_ENTRY_PRODUCT_FIELD];
+            return typeof product === 'string' && product !== '' ? [product] : [];
+          }),
+        ),
+      ];
+      if (products.length === 0) return [];
+      const pairs = new Set(custom.map(pairOf));
+      const found: Record<string, unknown>[] = [];
+      for (const chunk of this.chunk(products, IDS_PER_READ)) {
+        const where = chunk.map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+        const answer = await conn.query(
+          `SELECT ${fields} FROM ${PRICEBOOK_ENTRY_OBJECT} WHERE ` +
+            `${PRICEBOOK_ENTRY_BOOK_FIELD} = '${sanitizeSoqlValue(standardId)}' AND ` +
+            `${PRICEBOOK_ENTRY_PRODUCT_FIELD} IN (${where})`,
+        );
+        for (const row of answer.records) {
+          const id = row['Id'];
+          if (typeof id !== 'string' || held.has(id) || !pairs.has(pairOf(row))) continue;
+          found.push(row);
+        }
+      }
+      return found;
+    } catch (err) {
+      logger.warn('Autopilot could not read the standard prices its prices need', {
+        error: extractErrorMessage(err),
+      });
+      return [];
+    }
   }
 
   /** Every page of a read, when the connection can turn them; its first otherwise. */

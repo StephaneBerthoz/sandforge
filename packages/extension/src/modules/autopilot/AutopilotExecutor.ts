@@ -22,6 +22,7 @@ import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
+  exclusiveFieldsToDrop,
   isPlatformRequiredField,
   isPricebookEntry,
   sanitizeSoqlObjectName,
@@ -467,6 +468,15 @@ export interface AutopilotExecutorDeps {
    * asked, and each such record is written — or refused — like any other.
    */
   queryTarget?: SoqlQuery;
+  /**
+   * Each org's Tooling API, which reads its currency settings: whether
+   * advanced currency management is on, whatever the user may do with
+   * currencies (`readRunCurrencies`). Without them only the user's access to
+   * dated rates is asked, and a line says when that left the rates
+   * unconfirmed.
+   */
+  toolingSource?: SoqlQuery;
+  toolingTarget?: SoqlQuery;
   /**
    * Update records of the target — the statuses a record could not be born
    * with. Without it a record is inserted with the status it has, and the
@@ -1596,6 +1606,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     // currency, its amounts converted at the source's rates.
     const currencyChanges = await this.replaceCurrencies(objectApiName, rows, payload, writable);
     if (objectApiName === ACCOUNT) await this.leaveOutForAccountKind(rows, payload);
+    // Two fields the describe calls createable that the platform takes one
+    // of: an opportunity's line sent with its unit and total price was
+    // refused, "only one of unit price or total price may be specified".
+    for (const record of payload) {
+      for (const field of exclusiveFieldsToDrop(objectApiName, record)) delete record[field];
+    }
     // A lookup the platform fills in itself is neither sent nor owed to the
     // second pass: an email's task, unless the email is on a case. Sent with
     // the id read from the source, the email is refused, "you cannot modify
@@ -1991,7 +2007,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     const carries = (record: Record<string, unknown> | undefined): boolean =>
       typeof record?.[CURRENCY_FIELD] === 'string' && record[CURRENCY_FIELD] !== '';
     if (!(own ? payload.some(carries) : rows.some(carries))) return changed;
-    this.currencies ??= readRunCurrencies(querySource, queryTarget);
+    this.currencies ??= readRunCurrencies(querySource, queryTarget, {
+      source: this.deps.toolingSource,
+      target: this.deps.toolingTarget,
+    });
     const currencies = await this.currencies;
     if (!currencies) return changed;
     const currencyFields =

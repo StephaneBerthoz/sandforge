@@ -523,9 +523,18 @@ describe('prepareSyncRows — currencies', () => {
       { Name: 'Deal 1', CurrencyIsoCode: 'USD', Amount: 6329.81 },
       { Name: 'Deal 2', CurrencyIsoCode: 'EUR', Amount: 100 },
     ]);
-    expect(prepared.notes).toEqual([
-      "1 row(s) in GBP written in USD, the target's corporate currency, GBP not being active " +
-        "there: amounts converted at the source's rates (Amount).",
+    // Said apart from the notes, which say what was held back: the panel says
+    // them in the user's language.
+    expect(prepared.notes).toEqual([]);
+    expect(prepared.currencies).toEqual([
+      {
+        objectApiName: 'Opportunity',
+        from: 'GBP',
+        to: 'USD',
+        chosenBy: 'corporate',
+        rows: 1,
+        fields: ['Amount'],
+      },
     ]);
   });
 
@@ -605,9 +614,15 @@ describe('prepareSyncRows — currencies', () => {
 
     expect(prepared.payloads.map((payload) => payload['UnitPrice'])).toEqual([100, 50]);
     expect(prepared.payloads[0]).not.toHaveProperty('CurrencyIsoCode');
-    expect(prepared.notes).toEqual([
-      '1 row(s) in GBP written in USD, the currency of the record they belong to: amounts ' +
-        "converted at the source's rates (UnitPrice).",
+    expect(prepared.currencies).toEqual([
+      {
+        objectApiName: 'OpportunityLineItem',
+        from: 'GBP',
+        to: 'USD',
+        chosenBy: 'parent',
+        rows: 1,
+        fields: ['UnitPrice'],
+      },
     ]);
   });
 });

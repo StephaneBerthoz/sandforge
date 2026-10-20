@@ -9,6 +9,7 @@ import type {
   ComplianceFrameworkType,
   AnonymizationMethod,
   BaseAnonymizationRule,
+  CurrencyReplaced,
 } from './common.types.js';
 
 /** Status of an autopilot node during execution */
@@ -73,6 +74,12 @@ export interface AutopilotNode {
    * does. Neither written nor failed.
    */
   leftToThePlatform?: number;
+  /**
+   * The records written in another currency than they were read in — the
+   * target does not hold theirs active, or their parent went in another —
+   * and what became of their amounts.
+   */
+  currenciesReplaced?: CurrencyReplaced[];
 }
 
 /**
