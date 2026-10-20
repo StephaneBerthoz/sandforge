@@ -191,6 +191,32 @@ describe('useSeedExecution', () => {
     ]);
   });
 
+  it('sends the locale chosen, and none when the org’s own is kept', () => {
+    const run = (locale?: string): Record<string, unknown> => {
+      bridge.mutate.mockClear();
+      const { result } = renderHook(() =>
+        useSeedExecution(
+          'org-1',
+          ['Case'],
+          { Case: { count: 5, batchSize: 200 } },
+          FIELD_CONFIGS,
+          ((key: string) => key) as unknown as TFunction,
+          [],
+          {},
+          locale,
+        ),
+      );
+      act(() => {
+        result.current.handleExecute();
+      });
+      return bridge.mutate.mock.calls[0][0] as Record<string, unknown>;
+    };
+
+    expect(run('pt_BR')).toMatchObject({ orgId: 'org-1', locale: 'pt_BR' });
+    expect(run('')).not.toHaveProperty('locale');
+    expect(run()).not.toHaveProperty('locale');
+  });
+
   it('sends no lookup rule to an object the run does not seed', () => {
     const configs: ObjectFieldConfig[] = [
       {

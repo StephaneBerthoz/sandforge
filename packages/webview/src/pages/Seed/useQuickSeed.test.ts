@@ -288,6 +288,45 @@ describe('useQuickSeed', () => {
     expect(contactObj?.recordCount).toBe(100);
   });
 
+  it('draws in the org’s own locale unless one is chosen, and in the one chosen then', () => {
+    // The panel sent no locale and offered none: a seed drew in the org's
+    // default locale, whatever test data the org was wanted with.
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate.mock.calls[0][0]).not.toHaveProperty('locale');
+
+    act(() => {
+      result.current.setLocale('ja_JP');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(result.current.locale).toBe('ja_JP');
+    expect(mockMutate.mock.calls[1][0]).toMatchObject({ orgId: 'org-456', locale: 'ja_JP' });
+  });
+
+  it('keeps the locale chosen for the next template, as it keeps the org', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.setLocale('de_DE');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+    });
+
+    expect(result.current.locale).toBe('de_DE');
+  });
+
   it('reset returns to the gallery, clearing the template but keeping the org chosen', () => {
     const { result } = renderHook(() => useQuickSeed());
 

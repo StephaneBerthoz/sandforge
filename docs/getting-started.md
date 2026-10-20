@@ -48,7 +48,7 @@ After installation, you will see the SandForge flame in the VSCode Activity Bar 
 Top to bottom, the launcher gives you:
 
 - **Org switcher** -- The current org with a live status dot and its type badge (PROD, SANDBOX, SCRATCH...). Open it to list every registered org, jump to one in a browser, or pick **New organization...** at the bottom to go to Organizations.
-- **Connect your first org** -- Shown while no org is registered, in place of the counters and the hero: **Import N orgs from the Salesforce CLI**, with the number of orgs the CLI holds, and **Log in with your browser**. Each opens Organizations and starts that way of connecting. When the CLI holds no org, the browser login comes first.
+- **Connect your first org** -- Shown while no org is registered, in place of the counters and the hero: **Import up to N orgs from the Salesforce CLI**, N being the orgs the CLI holds an authorization for (the import keeps those whose session still holds), and **Log in with your browser**. Each opens Organizations and starts that way of connecting. When the CLI holds no org, the browser login comes first.
 - **Orgs / Ops** -- Two counters, connected orgs and recent operations. Collapsible, and collapsed for you on short viewports.
 - **Hero** -- With one sandbox, scratch org or Developer Edition org connected, and no other, **Fill <alias> with demo data** opens Seed's template gallery on it. From two connected orgs it is the orange **Forge** button, straight into the record-scoped clone journey, which copies from one org into another.
 - **Favorites** -- Only shown once you star something. Every module in the lists below has a star button.

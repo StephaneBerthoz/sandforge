@@ -41,6 +41,11 @@ export interface QuickSeedState {
   customizedCounts: Record<string, number>;
   /** Selected target org ID. */
   selectedOrgId: string;
+  /**
+   * The locale the run draws its people, companies and addresses in, as
+   * Salesforce writes one (`fr_FR`): '' for the org's own, the default.
+   */
+  locale: string;
   /** Whether execution is in flight. */
   isRunning: boolean;
   /** Execution result. */
@@ -67,6 +72,8 @@ export interface QuickSeedState {
   setCount: (objectApiName: string, count: number) => void;
   /** Set the target org ID. */
   selectOrg: (orgId: string) => void;
+  /** Choose the locale the run draws in; '' for the org's own. Kept for the next template. */
+  setLocale: (locale: string) => void;
   /** Trigger seed execution. */
   execute: () => void;
   /**
@@ -98,6 +105,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const [selectedTemplate, setSelectedTemplate] = useState<SeedTemplate | null>(null);
   const [customizedCounts, setCustomizedCounts] = useState<Record<string, number>>({});
   const [selectedOrgId, setSelectedOrgId] = useState('');
+  const [locale, setLocale] = useState('');
   const [executionResult, setExecutionResult] = useState<SeedExecutionResult | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -241,8 +249,10 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     executeMutation.mutate({
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
+      // The org's own locale unless one was chosen: the extension reads it.
+      ...(locale ? { locale } : {}),
     });
-  }, [selectedTemplate, selectedOrgId, customizedCounts, executeMutation]);
+  }, [selectedTemplate, selectedOrgId, customizedCounts, locale, executeMutation]);
 
   const sendMessage = useSendMessage();
   const operationId = progress ? runId : null;
@@ -297,6 +307,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     selectedTemplate,
     customizedCounts,
     selectedOrgId,
+    locale,
     isRunning,
     executionResult,
     objectProgress,
@@ -307,6 +318,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     startQuickSeed,
     setCount,
     selectOrg,
+    setLocale,
     execute,
     cancel,
     reset,

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { BaseMessage } from '@sandforge/shared';
 import { MessageBroker } from '../bridge/MessageBroker';
 import { WebviewPanelManager } from './WebviewPanelManager';
 import type { WebviewPanelFactory, PanelConfig, UriJoinPath } from './WebviewPanelManager';
@@ -390,6 +391,140 @@ describe('WebviewPanelManager', () => {
         ['panel:visibility', true],
       ]);
       expect(seed.webview.postMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a page released while hidden', () => {
+    const extensionUri = { toString: () => 'file:///ext' };
+    const joinPath: UriJoinPath = (_base: unknown, ...segments: string[]) => ({
+      toString: () => `file:///ext/${segments.join('/')}`,
+    });
+    let released: WebviewPanelManager;
+
+    beforeEach(() => {
+      released = new WebviewPanelManager(
+        broker,
+        factory as WebviewPanelFactory,
+        extensionUri,
+        joinPath,
+      );
+    });
+
+    /** Show or hide a panel as VS Code does. */
+    const setVisible = (panel: MockWebviewPanel, visible: boolean): void => {
+      const change = panel.onDidChangeViewState.mock.calls[0][0] as (e: {
+        webviewPanel: { visible: boolean };
+      }) => void;
+      change({ webviewPanel: { visible } });
+    };
+
+    /** What the panel's page says it shows, as `ExtensionHandlers` hands it over. */
+    const pageShows = (payload: { moduleId: string; route: string; overlay: boolean }): void => {
+      released.notePageShown({
+        id: `route-${payload.route}`,
+        type: 'panel:route',
+        timestamp: 1,
+        payload,
+      } as BaseMessage);
+    };
+
+    it('releases a hidden Help panel, and brings it back with its page when it is shown', () => {
+      released.openPanel({ viewType: 'sandforge.help', title: 'Help', moduleId: 'help' });
+      const help = lastCreatedPanel;
+      const shell = help.webview.html;
+      expect(shell).toContain('window.__SANDFORGE_MODULE__="help"');
+
+      setVisible(help, false);
+
+      // The page and its bundle are let go: what the panel holds runs nothing.
+      expect(help.webview.html).not.toContain('<script');
+      expect(help.webview.html).toContain("default-src 'none'");
+      expect(released.isLive('sandforge.help')).toBe(false);
+      expect(released.hasPanel('sandforge.help')).toBe(true);
+
+      setVisible(help, true);
+
+      expect(help.webview.html).toContain('window.__SANDFORGE_MODULE__="help"');
+      expect(help.webview.html).toMatch(/<script nonce="[^"]+" type="module" src="[^"]*index\.js"/);
+      expect(released.isLive('sandforge.help')).toBe(true);
+    });
+
+    it('releases a hidden Reports panel too', () => {
+      released.openPanel({ viewType: 'sandforge.reports', title: 'Reports', moduleId: 'reports' });
+      const reports = lastCreatedPanel;
+
+      setVisible(reports, false);
+
+      expect(reports.webview.html).not.toContain('<script');
+      expect(released.isLive('sandforge.reports')).toBe(false);
+    });
+
+    it('keeps the page of a module that runs or edits something, hidden or not', () => {
+      for (const moduleId of ['seed', 'sync', 'forge', 'orgs', 'settings', 'ai']) {
+        released.openPanel({ viewType: `sandforge.${moduleId}`, title: moduleId, moduleId });
+        const panel = lastCreatedPanel;
+        const shell = panel.webview.html;
+
+        setVisible(panel, false);
+
+        expect(panel.webview.html).toBe(shell);
+        expect(released.isLive(`sandforge.${moduleId}`)).toBe(true);
+      }
+    });
+
+    it('keeps a Help panel whose page routed to another module', () => {
+      // The shortcuts, the palette and Help's own link route inside the
+      // panel: a Settings page shown there holds its unsaved edits.
+      released.openPanel({ viewType: 'sandforge.help', title: 'Help', moduleId: 'help' });
+      const help = lastCreatedPanel;
+      const shell = help.webview.html;
+      pageShows({ moduleId: 'help', route: 'settings', overlay: false });
+
+      setVisible(help, false);
+
+      expect(help.webview.html).toBe(shell);
+      expect(released.isLive('sandforge.help')).toBe(true);
+    });
+
+    it('keeps a Help panel with the welcome tour open, and releases it once it is back on Help', () => {
+      released.openPanel({ viewType: 'sandforge.help', title: 'Help', moduleId: 'help' });
+      const help = lastCreatedPanel;
+      const shell = help.webview.html;
+      pageShows({ moduleId: 'help', route: 'help', overlay: true });
+
+      setVisible(help, false);
+      expect(help.webview.html).toBe(shell);
+
+      setVisible(help, true);
+      pageShows({ moduleId: 'help', route: 'help', overlay: false });
+      setVisible(help, false);
+      expect(help.webview.html).not.toContain('<script');
+    });
+
+    it('rebuilds the page on its own module, whatever it showed before', () => {
+      released.openPanel({ viewType: 'sandforge.help', title: 'Help', moduleId: 'help' });
+      const help = lastCreatedPanel;
+      setVisible(help, false);
+      setVisible(help, true);
+      // The rebuilt page shows Help again until it says otherwise.
+      setVisible(help, false);
+
+      expect(help.webview.html).not.toContain('<script');
+    });
+
+    it('ignores what a page says in a shape it does not know', () => {
+      released.openPanel({ viewType: 'sandforge.help', title: 'Help', moduleId: 'help' });
+      const help = lastCreatedPanel;
+      released.notePageShown({
+        id: 'bad',
+        type: 'panel:route',
+        timestamp: 1,
+        payload: { route: 7 },
+      } as unknown as BaseMessage);
+
+      setVisible(help, false);
+
+      expect(help.webview.html).not.toContain('<script');
     });
   });
 

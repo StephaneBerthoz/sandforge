@@ -5056,7 +5056,7 @@ for (const theme of SCANNED_THEMES) {
         { type: 'sidebar:cliOrgs', payload: { count: 3 } },
       ]);
       const card = page.getByTestId('sidepanel-first-org');
-      await expect(card).toContainText('Import 3 orgs from the Salesforce CLI');
+      await expect(card).toContainText('Import up to 3 orgs from the Salesforce CLI');
       await expect(page.getByTestId('sidepanel-metrics')).toHaveCount(0);
 
       await expectReadable(page, theme);
@@ -7525,6 +7525,19 @@ for (const theme of STATE_THEMES) {
         status: 'success',
         objectResults: [
           {
+            // The standard price book matched: a line beside the price books,
+            // not a refusal among them.
+            objectApiName: 'Pricebook2',
+            operation: 'insert',
+            processed: 1,
+            success: 1,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            standardPricebookMatched: true,
+          },
+          {
             objectApiName: 'PricebookEntry',
             operation: 'insert',
             processed: 2,
@@ -7558,6 +7571,84 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('results-price-currencies').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('results-price-currencies-row')).toHaveCount(2);
+      await expect(page.getByTestId('sync-result-pricebook-Pricebook2')).toHaveText(
+        "Standard price book: matched to the target org's, never written.",
+      );
+      await expect(page.getByTestId('sync-result-errors-Pricebook2')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync history detail of a run whose price books matched the standard one, apart from the refusals', async ({
+      page,
+    }) => {
+      const result = {
+        configId: 'cfg-axe',
+        operationId: 'run-axe',
+        status: 'partial',
+        objectResults: [
+          {
+            objectApiName: 'Pricebook2',
+            operation: 'insert',
+            processed: 1,
+            success: 1,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            standardPricebookMatched: true,
+          },
+          {
+            objectApiName: 'PricebookEntry',
+            operation: 'insert',
+            processed: 2,
+            success: 1,
+            failed: 1,
+            skipped: 0,
+            conflictCount: 0,
+            errors: ['STANDARD_PRICE_NOT_DEFINED: No standard price defined for this product'],
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 2,
+        totalFailed: 1,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      };
+      const entry = {
+        id: 'h-axe',
+        configSnapshot: {
+          id: 'cfg-axe',
+          name: 'Catalog',
+          sourceOrgId: DEV_SANDBOX.id,
+          targetOrgId: QA_SANDBOX.id,
+          direction: 'source_to_target',
+          mode: 'full',
+          conflictStrategy: 'source_wins',
+          objects: [],
+          enableRollback: false,
+          createdAt: '2026-10-13T09:00:00.000Z',
+          updatedAt: '2026-10-13T09:00:00.000Z',
+        },
+        result,
+        startTime: '2026-10-13T09:59:59.000Z',
+        endTime: '2026-10-13T10:00:00.000Z',
+        triggeredBy: 'manual',
+      };
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('tab-history').click();
+      await bridge.respondToNext('sync:history:list', 'sync:history:list:response', {
+        entries: [entry],
+      });
+      await page.getByTestId('table-row-0').click();
+      await bridge.respondToNext('sync:history:detail', 'sync:history:detail:response', {
+        entry,
+      });
+      await expect(page.getByTestId('history-pricebook-Pricebook2')).toHaveText(
+        "Standard price book: matched to the target org's, never written.",
+      );
+      await expect(page.getByTestId('sync-history-errors-Pricebook2')).toHaveCount(0);
 
       await expectReadable(page, theme);
     });

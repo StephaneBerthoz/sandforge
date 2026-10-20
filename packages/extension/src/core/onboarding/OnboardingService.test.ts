@@ -4,28 +4,18 @@ import { OnboardingService } from './OnboardingService';
 describe('OnboardingService', () => {
   let service: OnboardingService;
   let store: Map<string, string>;
-  const mockUpdate = vi.fn<(key: string, value: string) => Promise<void>>();
+  const mockUpdate = vi.fn<(key: string, value: string | undefined) => Promise<void>>();
 
   beforeEach(() => {
     store = new Map();
     mockUpdate.mockClear();
-    mockUpdate.mockImplementation(async (key: string, value: string) => {
-      store.set(key, value);
+    mockUpdate.mockImplementation(async (key: string, value: string | undefined) => {
+      if (value === undefined) store.delete(key);
+      else store.set(key, value);
     });
     service = new OnboardingService({
       get: (key: string) => store.get(key),
       update: mockUpdate,
-    });
-  });
-
-  describe('shouldShowOnboarding', () => {
-    it('should return true when onboarding has never been completed', () => {
-      expect(service.shouldShowOnboarding()).toBe(true);
-    });
-
-    it('should return false after onboarding is marked complete', async () => {
-      await service.markOnboardingComplete();
-      expect(service.shouldShowOnboarding()).toBe(false);
     });
   });
 
@@ -56,13 +46,6 @@ describe('OnboardingService', () => {
     });
   });
 
-  describe('markOnboardingComplete', () => {
-    it('should persist the onboarding completed flag', async () => {
-      await service.markOnboardingComplete();
-      expect(mockUpdate).toHaveBeenCalledWith('sandforge.onboardingCompleted', 'true');
-    });
-  });
-
   describe('markVersionSeen', () => {
     it('should persist the version string', async () => {
       await service.markVersionSeen('2.1.0');
@@ -70,16 +53,29 @@ describe('OnboardingService', () => {
     });
   });
 
-  describe('resetOnboarding', () => {
-    it('should clear the onboarding completed flag', async () => {
-      await service.markOnboardingComplete();
-      await service.resetOnboarding();
-      expect(service.shouldShowOnboarding()).toBe(true);
+  describe('dropRetiredState', () => {
+    it('removes the finished tour flag an earlier version wrote, which nothing reads', async () => {
+      store.set('sandforge.onboardingCompleted', 'true');
+
+      await service.dropRetiredState();
+
+      expect(store.has('sandforge.onboardingCompleted')).toBe(false);
+      expect(mockUpdate).toHaveBeenCalledWith('sandforge.onboardingCompleted', undefined);
     });
 
-    it('should call update with empty string', async () => {
-      await service.resetOnboarding();
-      expect(mockUpdate).toHaveBeenCalledWith('sandforge.onboardingCompleted', '');
+    it('writes nothing when the flag is not there', async () => {
+      await service.dropRetiredState();
+
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the version What’s New is told from', async () => {
+      store.set('sandforge.lastVersion', '1.0.0');
+      store.set('sandforge.onboardingCompleted', 'true');
+
+      await service.dropRetiredState();
+
+      expect(store.get('sandforge.lastVersion')).toBe('1.0.0');
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { createInstance } from 'i18next';
 import { I18nextProvider } from 'react-i18next';
 import en from './i18n/locales/en.json';
@@ -181,5 +181,58 @@ describe('SidePanel last operation status', () => {
     await renderIn('fr');
 
     expect(screen.getByTestId('op-status-cancelled').getAttribute('aria-label')).toBe('Annulée');
+  });
+});
+
+/**
+ * The launcher's import button counted the CLI's authorization files, and the
+ * import keeps only the orgs whose session still holds: "Import 3 orgs" could
+ * bring in two. It names the most it can bring in, in every language.
+ */
+describe('SidePanel first org import', () => {
+  /** The panel, with the catalogue of a language, told how many orgs the CLI holds. */
+  const renderWith = async (lng: 'en' | 'fr', count: number): Promise<void> => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng,
+      resources: { en: { translation: en }, fr: { translation: fr } },
+      interpolation: { escapeValue: false },
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SidePanel />
+      </I18nextProvider>,
+    );
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'org:list:response', payload: { orgs: [], selectedOrgId: null } },
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent('message', { data: { type: 'sidebar:cliOrgs', payload: { count } } }),
+      );
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useRecentOpsStore.setState({ ops: [] });
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useFavoritesStore.setState({ favorites: [] });
+  });
+
+  it('names the import by the most orgs it can bring in, not as a count of what it will', async () => {
+    await renderWith('en', 3);
+    expect(screen.getByTestId('sidepanel-first-org-import').textContent).toBe(
+      'Import up to 3 orgs from the Salesforce CLI',
+    );
+  });
+
+  it('says so in the language of the panel', async () => {
+    await renderWith('fr', 1);
+    expect(screen.getByTestId('sidepanel-first-org-import').textContent).toBe(
+      "Importer jusqu'à 1 org depuis la Salesforce CLI",
+    );
   });
 });

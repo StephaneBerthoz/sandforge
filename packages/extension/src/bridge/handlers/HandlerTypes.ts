@@ -116,7 +116,7 @@ export interface HandlerDeps {
   /**
    * Optional org-selection callback (status bar + `org:selected` broadcast).
    * Late-injected from extension.ts — the selection closure is defined after
-   * the handlers are constructed (same pattern as setOnboardingService).
+   * the handlers are constructed (same pattern as setInfraServices).
    */
   onOrgSelected?: (orgId: string) => void;
   /**

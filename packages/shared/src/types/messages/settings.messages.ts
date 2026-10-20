@@ -87,12 +87,6 @@ export interface NotificationAction {
   url?: string;
 }
 
-/** Onboarding messages (WebView → Extension) */
-export interface OnboardingCompleteRequest extends BaseMessage {
-  type: 'onboarding:complete';
-  payload: { skipped: boolean };
-}
-
 /** Onboarding messages (Extension → WebView) */
 /** Instructs the WebView to display the onboarding wizard */
 export interface OnboardingShowMessage extends BaseMessage {

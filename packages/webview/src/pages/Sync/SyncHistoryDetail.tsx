@@ -7,6 +7,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { formatStoredDate } from '../../utils/formatters';
 import { SyncDeltaLine } from './SyncDeltaLine';
+import { SyncPricebookLine } from './SyncPricebookLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
@@ -169,6 +170,12 @@ export const SyncHistoryDetail: React.FC = () => {
                   {t('sync.history.skippedCount')}: {obj.skipped}
                 </span>
               </div>
+              {/* The standard price book matched: no refusal either. */}
+              {obj.standardPricebookMatched && (
+                <div className="mt-1">
+                  <SyncPricebookLine testId={`history-pricebook-${obj.objectApiName}`} />
+                </div>
+              )}
               {obj.delta && (
                 <div className="mt-1">
                   <SyncDeltaLine delta={obj.delta} testId={`history-delta-${obj.objectApiName}`} />

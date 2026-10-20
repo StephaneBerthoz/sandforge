@@ -150,4 +150,23 @@ describe('SeedExecuteStep', () => {
 
     expect(screen.queryByTestId('seed-execute-relations')).toBeNull();
   });
+
+  it('offers the locale the run draws in before it starts, the org’s own by default', () => {
+    renderStep();
+
+    const picker = screen.getByLabelText('Names and addresses') as HTMLSelectElement;
+    expect(picker).toBe(screen.getByTestId('seed-locale'));
+    expect(picker.value).toBe('');
+
+    fireEvent.change(picker, { target: { value: 'es_ES' } });
+
+    expect(useSeedWizardStore.getState().locale).toBe('es_ES');
+    expect((screen.getByTestId('seed-locale') as HTMLSelectElement).value).toBe('es_ES');
+  });
+
+  it('offers no locale to choose once the run is in flight', () => {
+    renderStep({ isRunning: true });
+
+    expect(screen.queryByTestId('seed-locale')).toBeNull();
+  });
 });

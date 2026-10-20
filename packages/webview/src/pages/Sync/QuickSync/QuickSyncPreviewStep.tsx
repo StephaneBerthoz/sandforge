@@ -8,6 +8,7 @@ import { Button } from '../../../components/ui/Button';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { SyncRunControls } from '../SyncRunControls';
 import { RecordErrorGroups } from '../../../components/ui/RecordErrorGroups';
+import { SyncPricebookLine } from '../SyncPricebookLine';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -103,8 +104,12 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
               title={obj.objectApiName}
               subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
             />
-            {obj.errors.length > 0 && (
+            {(obj.errors.length > 0 || obj.standardPricebookMatched) && (
               <CardBody>
+                {/* No refusal: said beside the object's line, as the Sync tab says it. */}
+                {obj.standardPricebookMatched && (
+                  <SyncPricebookLine testId={`quick-sync-result-pricebook-${obj.objectApiName}`} />
+                )}
                 <RecordErrorGroups
                   objectApiName={obj.objectApiName}
                   errors={obj.errors}

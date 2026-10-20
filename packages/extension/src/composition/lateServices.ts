@@ -1,6 +1,5 @@
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { InfraServices, MigrationFileReader } from '../bridge/ExtensionHandlers';
-import type { OnboardingService } from '../core/onboarding/OnboardingService';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace';
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker';
@@ -34,8 +33,6 @@ import type { SeedRunCreations } from '../modules/seed/SeedRunCreations.js';
  * handlers). This is what makes `registerAll`-before-injection safe.
  */
 export interface LateServices {
-  /** Onboarding for the settings handler. */
-  onboardingService: OnboardingService;
   /** Infrastructure services shared via the mutable HandlerDeps. */
   infraServices: InfraServices;
   /**
@@ -75,7 +72,6 @@ export interface LateServices {
  * {@link LateServices}. Call order below is load-bearing.
  */
 export function applyLateServices(handlers: ExtensionHandlers, late: LateServices): void {
-  handlers.setOnboardingService(late.onboardingService);
   handlers.setInfraServices(late.infraServices);
   // Must precede registerAll: creates the ExecutionHandler that registerAll
   // conditionally routes (execution:abort).

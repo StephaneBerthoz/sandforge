@@ -81,9 +81,7 @@ describe('settleSyncPrices', () => {
     );
 
     expect(settled.sourceIds).toEqual(['01s000000000002AAA']);
-    expect(settled.notes).toEqual([
-      "The standard price book is matched to the target org's, never written.",
-    ]);
+    expect(settled.standardMatched).toBe(true);
   });
 
   it('puts the standard prices first, and leaves out a price whose own in the currency written is among the rows', () => {
@@ -103,7 +101,7 @@ describe('settleSyncPrices', () => {
     expect(settled.standsFor.get('01u-custom-GBP')).toBe('01u-custom-USD');
     // Said as an entry of its own, never as a note the result lists among
     // its refusals.
-    expect(settled.notes).toEqual([]);
+    expect(settled.standardMatched).toBe(false);
     expect(settled.prices).toEqual([
       { from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 1 },
     ]);

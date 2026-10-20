@@ -48,8 +48,9 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
         const viewType = `sandforge.${moduleId}`;
         // Distinguish reveal (panel already alive, webview bundle loaded and
         // listening) from create (bundle still parsing — any message posted
-        // now would be lost before the listeners attach).
-        const isReveal = panelManager.hasPanel(viewType);
+        // now would be lost before the listeners attach). A panel whose page
+        // was released while hidden is rebuilt as it is shown: a create.
+        const isReveal = panelManager.isLive(viewType);
         const panel = panelManager.openPanel({
           viewType,
           title: `SandForge: ${title}`,

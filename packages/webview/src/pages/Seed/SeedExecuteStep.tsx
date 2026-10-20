@@ -11,6 +11,7 @@ import type { SeedVolumes } from './seedRelationDrafts';
 import { personaName } from './Persona/personaText';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import type { SeedAutomationState } from './useSeedAutomation';
+import { SeedLocalePicker } from './SeedLocalePicker';
 
 /** Props for the SeedExecuteStep section. */
 export interface SeedExecuteStepProps {
@@ -74,6 +75,8 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const persona = useSeedWizardStore((s) => s.selectedPersona);
+  const locale = useSeedWizardStore((s) => s.locale);
+  const setLocale = useSeedWizardStore((s) => s.setLocale);
 
   let fieldsLine: string;
   if (!fieldsReady) {
@@ -137,6 +140,13 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
       {configSkipped && !isRunning && (
         <div className="mb-2">
           <SeedRecordTypePicker fieldConfigs={fieldConfigs} />
+        </div>
+      )}
+
+      {/* The locale the run draws in, the org's own unless another is chosen. */}
+      {!isRunning && (
+        <div className="mb-2 max-w-xs">
+          <SeedLocalePicker value={locale} onChange={setLocale} testId="seed-locale" />
         </div>
       )}
 

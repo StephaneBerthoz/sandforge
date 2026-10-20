@@ -54,6 +54,7 @@ import type {
   BridgeProtocolMismatchMessage,
   BridgeReloadBannerMessage,
   PanelVisibilityMessage,
+  PanelRouteMessage,
   NavigationIntentMessage,
   WorkbenchReloadRequest,
   WorkbenchOpenSettingRequest,
@@ -419,7 +420,6 @@ import type {
   I18nLocaleRequest,
   I18nLocaleResponse,
   NotificationMessage,
-  OnboardingCompleteRequest,
   OnboardingShowMessage,
   WhatsNewShowMessage,
   TelemetryStatusRequest,
@@ -693,7 +693,6 @@ export type WebViewToExtensionMessage =
   // Settings
   | SettingsGetRequest
   | SettingsUpdateRequest
-  | OnboardingCompleteRequest
   | TelemetryStatusRequest
   | TelemetryToggleRequest
   | ConfigExportRequest
@@ -706,6 +705,7 @@ export type WebViewToExtensionMessage =
   | ExecutionAbortRequest
   // Bridge control
   | WorkbenchReloadRequest
+  | PanelRouteMessage
   | WorkbenchOpenSettingRequest
   | ErrorBoundaryReport
   // Realtime (CDC)

@@ -50,22 +50,22 @@ function createFakePanel() {
 
 function createDeps(options: {
   panelAlreadyOpen: boolean;
+  /** The open panel's page was released while hidden (Help, Reports). */
+  released?: boolean;
   /** No version recorded yet: the extension has never run in this profile. */
   firstLaunch?: boolean;
-  /** Onboarding never completed: the flag the wizard used to be shown on. */
-  shouldShowOnboarding?: boolean;
   shouldShowWhatsNew?: boolean;
   whatsNewWanted?: boolean;
 }) {
   const panel = createFakePanel();
   const panelManager = {
     hasPanel: vi.fn(() => options.panelAlreadyOpen),
+    isLive: vi.fn(() => options.panelAlreadyOpen && options.released !== true),
     openPanel: vi.fn(() => panel),
     postToAllPanels: vi.fn(),
   };
   const onboardingService = {
     isFirstLaunch: vi.fn(() => options.firstLaunch ?? false),
-    shouldShowOnboarding: vi.fn(() => options.shouldShowOnboarding ?? false),
     shouldShowWhatsNew: vi.fn(() => options.shouldShowWhatsNew ?? false),
     markVersionSeen: vi.fn().mockResolvedValue(undefined),
   };
@@ -103,7 +103,6 @@ describe("commandsComposition What's New delivery", () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: false,
       firstLaunch: true,
-      shouldShowOnboarding: true,
     });
     registerModuleCommands(deps);
 
@@ -117,10 +116,9 @@ describe("commandsComposition What's New delivery", () => {
     expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
   });
 
-  it('shows no welcome wizard to someone who never finished it', () => {
+  it('shows no welcome wizard on a panel brought back, nothing to tell', () => {
     const { deps, panel } = createDeps({
       panelAlreadyOpen: true,
-      shouldShowOnboarding: true,
     });
     registerModuleCommands(deps);
 
@@ -209,6 +207,25 @@ describe("commandsComposition What's New delivery", () => {
     expect(onboardingService.markVersionSeen).toHaveBeenCalledTimes(1);
     expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
     expect(panel.webview.onDidReceiveMessage).not.toHaveBeenCalled();
+  });
+
+  it("released page: waits for the page rebuilt as the panel is shown before posting What's New", () => {
+    // Posted at once, as to a live page, it reached the empty page the panel
+    // holds while hidden, and the version was recorded as seen.
+    const { deps, panel, onboardingService } = createDeps({
+      panelAlreadyOpen: true,
+      released: true,
+      shouldShowWhatsNew: true,
+    });
+    registerModuleCommands(deps);
+
+    invokeFirstModuleCommand();
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+    expect(onboardingService.markVersionSeen).not.toHaveBeenCalled();
+
+    panel.fireIncomingMessage({ type: 'org:list' });
+    expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
+    expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
   });
 
   it("turned off in the settings: shows no What's New, and records the upgrade as seen", () => {

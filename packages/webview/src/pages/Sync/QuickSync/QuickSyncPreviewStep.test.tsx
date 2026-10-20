@@ -114,6 +114,32 @@ describe('QuickSyncPreviewStep', () => {
     expect(screen.getByTestId('quick-sync-new-btn')).toBeDefined();
   });
 
+  it('says the standard price book matched beside the price books, with no refusal listed', () => {
+    const pricebooks = {
+      objectApiName: 'Pricebook2',
+      operation: 'insert' as const,
+      processed: 1,
+      success: 1,
+      failed: 0,
+      skipped: 0,
+      conflictCount: 0,
+      errors: [],
+      standardPricebookMatched: true as const,
+    };
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        result={{ ...mockResult, objectResults: [pricebooks] }}
+      />,
+    );
+
+    const line = screen.getByTestId('quick-sync-result-pricebook-Pricebook2');
+    expect(line.textContent).toBe(
+      "Standard price book: matched to the target org's, never written.",
+    );
+    expect(screen.queryByTestId('quick-sync-result-errors-Pricebook2')).toBeNull();
+  });
+
   it('calls a run a cancel stopped cancelled, not partial', () => {
     render(
       <QuickSyncPreviewStep

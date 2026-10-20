@@ -1450,6 +1450,13 @@ export const smartActionAnalyzePayloadSchema = z.object({
   sourceOrgId: orgIdSchema.optional(),
 });
 
+/** What a panel's page says it shows (`panel:route`): its module, its route, an overlay open. */
+export const panelRoutePayloadSchema = z.object({
+  moduleId: z.string().min(1).max(64),
+  route: z.string().min(1).max(64),
+  overlay: z.boolean(),
+});
+
 // ── automation:* (pipeline / operation / marketplace) payload schemas ──────
 // Mirror what useAutomationPageData / MonitorPage post.
 

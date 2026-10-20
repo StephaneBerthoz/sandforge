@@ -531,6 +531,11 @@
     }
   },
   "seed": {
+    "locale": {
+      "label": "名前と住所",
+      "orgDefault": "組織のロケール (デフォルト)",
+      "hint": "シードが書き込む人物、会社、住所、電話番号は、このロケールに合わせて生成されます。"
+    },
     "title": "データ生成",
     "selectOrg": "ターゲット組織を選択",
     "selectOrgDesc": "データを生成する組織を選択してください",
@@ -958,6 +963,7 @@
     }
   },
   "sync": {
+    "standardPricebookMatched": "標準価格表: ターゲット組織の標準価格表に対応付けました。書き込みはしていません。",
     "title": "データ同期",
     "selectOrgs": "組織を選択",
     "selectOrgsDesc": "ソースとターゲットの組織を選択してください",
@@ -3756,7 +3762,7 @@
     "firstOrg": {
       "title": "最初の組織を接続",
       "desc": "Salesforce CLI に登録済みの組織を取り込むか、ブラウザでログインします。",
-      "importCount_other": "Salesforce CLI から {{count}} 個の組織をインポート",
+      "importCount_other": "Salesforce CLI から最大 {{count}} 個の組織をインポート",
       "import": "Salesforce CLI からインポート",
       "loginWeb": "ブラウザでログイン"
     }

@@ -576,6 +576,11 @@
     }
   },
   "seed": {
+    "locale": {
+      "label": "Names and addresses",
+      "orgDefault": "The org's own locale (default)",
+      "hint": "The people, companies, addresses and phone numbers the seed writes are drawn for this locale."
+    },
     "title": "Seed Data",
     "selectOrg": "Select Target Org",
     "selectOrgDesc": "Choose the org where data will be seeded",
@@ -1021,6 +1026,7 @@
     }
   },
   "sync": {
+    "standardPricebookMatched": "Standard price book: matched to the target org's, never written.",
     "title": "Sync Data",
     "selectOrgs": "Select Orgs",
     "selectOrgsDesc": "Choose source and target orgs",
@@ -3981,8 +3987,8 @@
     "firstOrg": {
       "title": "Connect your first org",
       "desc": "Bring in the orgs the Salesforce CLI already holds, or sign in through your browser.",
-      "importCount_one": "Import {{count}} org from the Salesforce CLI",
-      "importCount_other": "Import {{count}} orgs from the Salesforce CLI",
+      "importCount_one": "Import up to {{count}} org from the Salesforce CLI",
+      "importCount_other": "Import up to {{count}} orgs from the Salesforce CLI",
       "import": "Import from the Salesforce CLI",
       "loginWeb": "Log in with your browser"
     }

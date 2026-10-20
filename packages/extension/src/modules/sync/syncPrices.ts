@@ -86,8 +86,13 @@ export interface SettledSyncRows extends SyncRows {
   readonly standsFor: ReadonlyMap<string, string>;
   /** How many rows, from the first, are standard prices: written in calls of their own. */
   readonly standardFirst: number;
-  /** What the object's result says of it. */
-  readonly notes: string[];
+  /**
+   * Whether the source's standard price book was among the rows, left out
+   * and matched: the object's result says so apart from its errors
+   * (`standardPricebookMatched`), where the sentence saying it was listed in
+   * red among the price books' refusals.
+   */
+  readonly standardMatched: boolean;
   /**
    * The prices read in a currency the target does not hold active, and how
    * each went, as the object's result carries them (`pricesSettled`): said
@@ -114,7 +119,7 @@ export function settleSyncPrices(
     ...rows,
     standsFor: new Map(),
     standardFirst: 0,
-    notes: [],
+    standardMatched: false,
     prices: [],
   };
   if (!standard) return none;
@@ -131,7 +136,7 @@ export function settleSyncPrices(
       ...pick(kept),
       standsFor: new Map(),
       standardFirst: 0,
-      notes: ["The standard price book is matched to the target org's, never written."],
+      standardMatched: true,
       prices: [],
     };
   }
@@ -171,18 +176,32 @@ export function settleSyncPrices(
     ...pick(ordered),
     standsFor,
     standardFirst: kept.filter(isStandard).length,
-    notes: [],
+    standardMatched: false,
     prices: settledPrices,
   };
 }
 
 /**
- * An object's result with the prices its write settled said apart from its
- * errors (`pricesSettled`), when it settled any.
+ * What a simulation, whose notes are text, says of a standard price book
+ * matched: a run says it as `standardPricebookMatched`.
+ */
+export const STANDARD_PRICEBOOK_MATCHED_NOTE =
+  "The standard price book is matched to the target org's, never written.";
+
+/**
+ * An object's result with what its write settled of the price books and
+ * prices said apart from its errors: the prices in another currency
+ * (`pricesSettled`), when it settled any, and the standard price book matched
+ * (`standardPricebookMatched`), when it was among the rows.
  */
 export function withPricesSettled(
   result: SyncObjectResult,
-  prices: readonly PriceCurrencySettled[],
+  settled: Pick<SettledSyncRows, 'prices' | 'standardMatched'>,
 ): SyncObjectResult {
-  return prices.length > 0 ? { ...result, pricesSettled: [...prices] } : result;
+  if (settled.prices.length === 0 && !settled.standardMatched) return result;
+  return {
+    ...result,
+    ...(settled.prices.length > 0 ? { pricesSettled: [...settled.prices] } : {}),
+    ...(settled.standardMatched ? { standardPricebookMatched: true as const } : {}),
+  };
 }

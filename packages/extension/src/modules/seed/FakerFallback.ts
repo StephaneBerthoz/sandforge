@@ -1,9 +1,9 @@
 import { resolveFakerMethod } from '@sandforge/shared';
 import type { FieldRule } from '@sandforge/shared';
-import { getLocaleData, fillDigitMask, reservedPhone } from './LocaleData';
+import { LOCALE_DATA, getLocaleData, fillDigitMask, reservedPhone } from './LocaleData';
 import type { LocaleDataSet, SupportedLocale } from './LocaleData';
 import { GeoCoherentGenerator, resolveLocale } from './GeoCoherentGenerator';
-import { STREETS } from './localeNames';
+import { STREETS, companyAt } from './localeNames';
 
 /** Configuration for number generation ranges */
 interface NumberRange {
@@ -456,15 +456,16 @@ export class FakerFallback {
 
   /**
    * The locale's next company, dealt from its companies shuffled once for
-   * this generator: no two records share one until every company is out,
-   * when the deck goes round again.
+   * this generator: no two records share one. Once every company is out the
+   * deck goes round again, each company now the branch of a region of the
+   * country (`companyAt`), so the names stay unique past the list.
    */
   private generateCompany(): string {
-    const companies = this.localeData.companies;
     const key = resolveLocale(this.locale);
+    const size = LOCALE_DATA[key].companies.length;
     let deck = this.companyDecks.get(key);
-    if (!deck || deck.length !== companies.length) {
-      deck = companies.map((_, i) => i);
+    if (!deck || deck.length !== size) {
+      deck = Array.from({ length: size }, (_, i) => i);
       for (let i = deck.length - 1; i > 0; i--) {
         const j = this.below(i + 1);
         [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -473,7 +474,7 @@ export class FakerFallback {
     }
     const dealt = this.companiesDealt.get(key) ?? 0;
     this.companiesDealt.set(key, dealt + 1);
-    return companies[deck[dealt % deck.length]];
+    return companyAt(key, deck[dealt % deck.length], Math.floor(dealt / deck.length));
   }
 
   /**

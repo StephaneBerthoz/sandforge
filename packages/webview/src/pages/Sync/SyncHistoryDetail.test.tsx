@@ -147,6 +147,27 @@ describe('SyncHistoryDetail', () => {
     expect(screen.queryByTestId('sync-history-errors-PricebookEntry')).toBeNull();
   });
 
+  it('says the standard price book matched beside the price books, not among their refusals', () => {
+    // Listed among the price books' errors, "The standard price book is
+    // matched to the target org's, never written." showed in red.
+    const entry = makeMockEntry();
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      objectApiName: 'Pricebook2',
+      errors: [],
+      standardPricebookMatched: true,
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const line = screen.getByTestId('history-pricebook-Pricebook2');
+    expect(line.textContent).toBe(
+      "Standard price book: matched to the target org's, never written.",
+    );
+    expect(line.closest('.text-status-error')).toBeNull();
+    expect(screen.queryByTestId('sync-history-errors-Pricebook2')).toBeNull();
+  });
+
   it('calls a run a cancel stopped cancelled, not partial, and says before what', () => {
     const entry = makeMockEntry();
     entry.result = {

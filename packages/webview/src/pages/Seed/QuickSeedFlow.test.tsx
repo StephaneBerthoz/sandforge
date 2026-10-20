@@ -119,6 +119,7 @@ const baseQuickSeed: QuickSeedState = {
   selectedTemplate: null,
   customizedCounts: {},
   selectedOrgId: '',
+  locale: '',
   isRunning: false,
   executionResult: undefined,
   objectProgress: [],
@@ -129,6 +130,7 @@ const baseQuickSeed: QuickSeedState = {
   startQuickSeed: vi.fn(),
   setCount: vi.fn(),
   selectOrg: vi.fn(),
+  setLocale: vi.fn(),
   execute: vi.fn(),
   cancel: vi.fn(),
   reset: vi.fn(),
@@ -165,6 +167,29 @@ describe('QuickSeedFlow', () => {
       expect(within(card).getByText('70 records')).toBeDefined();
       expect(screen.getAllByRole('button', { name: 'Start Seeding' })).toHaveLength(1);
       expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('offers the locale the names and addresses are drawn in, the org’s own by default', () => {
+      // The run drew in the org's default locale, and the panel offered no other.
+      const setLocale = vi.fn();
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+        setLocale,
+      };
+
+      render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+
+      const card = screen.getByTestId('quick-seed-confirm');
+      const picker = within(card).getByLabelText('Names and addresses') as HTMLSelectElement;
+      expect(picker).toBe(screen.getByTestId('quick-seed-locale'));
+      expect(picker.value).toBe('');
+      expect(picker.options[0].textContent).toBe("The org's own locale (default)");
+
+      fireEvent.change(picker, { target: { value: 'fr_FR' } });
+      expect(setLocale).toHaveBeenCalledWith('fr_FR');
     });
 
     it('sets the count typed for an object', () => {

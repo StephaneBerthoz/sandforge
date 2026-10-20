@@ -292,6 +292,9 @@ describe('requests no screen sends', () => {
     // Hints are never dismissed from a screen, and no Settings control resets
     // the welcome flow.
     'onboarding:reset',
+    // The end of the welcome tour was recorded and never read: the tour opens
+    // only from Help, and the walkthrough is the first-run script.
+    'onboarding:complete',
     'hint:dismiss',
     // The Settings cache section was removed, and the caches it spoke to were
     // never registered with the manager answering these.

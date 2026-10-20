@@ -134,6 +134,40 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
     }).not.toThrow();
   });
 
+  it('hands what a panel’s page shows to the panel manager, once it is set, and answers nothing', () => {
+    const panel = {
+      webview: {
+        onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+        postMessage: vi.fn(),
+      },
+    };
+    broker.registerPanel(panel as never);
+    const fromPanel = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+    const routeMessage = (id: string): unknown => ({
+      protocolVersion: PROTOCOL_VERSION,
+      payload: {
+        id,
+        type: 'panel:route',
+        timestamp: Date.now(),
+        payload: { moduleId: 'help', route: 'settings', overlay: false },
+      },
+    });
+
+    // Before the panel manager exists, the message goes nowhere, and no
+    // "no handler" error is posted back.
+    fromPanel(routeMessage('route-early'));
+    const listener = vi.fn();
+    handlers.setPanelRouteListener(listener);
+    fromPanel(routeMessage('route-1'));
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0][0]).toMatchObject({
+      type: 'panel:route',
+      payload: { moduleId: 'help', route: 'settings', overlay: false },
+    });
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+  });
+
   describe('workbench:open-setting', () => {
     /** Send one enveloped message from a registered panel. */
     function fromPanel(payload: unknown): void {

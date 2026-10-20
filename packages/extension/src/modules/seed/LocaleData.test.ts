@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { SEED_LOCALES } from '@sandforge/shared';
 import {
   getLocaleData,
   formatPhone,
@@ -65,6 +66,12 @@ const WELL_KNOWN_COMPANY_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 describe('LocaleData', () => {
+  it('holds names for every locale the panel offers a seed in, and for no other', () => {
+    // The panel lists SEED_LOCALES; a locale it offered without data would
+    // draw in American English while saying another.
+    expect(Object.keys(LOCALE_DATA).sort()).toEqual([...SEED_LOCALES].sort());
+  });
+
   describe('getLocaleData', () => {
     it('should return French data for fr_FR', () => {
       const data = getLocaleData('fr_FR');

@@ -110,11 +110,25 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
   const setShowWhatsNew = useAppStore((s) => s.setShowWhatsNew);
   const sendMessage = useSendMessage();
 
-  /** Handle welcome wizard completion (same contract as App's overlay). */
+  /*
+   * What the panel shows, told to the extension as it changes: the Help and
+   * Reports panels are released while hidden and rebuilt on their own page,
+   * which would drop a Settings page Help's link routed to, its edits with
+   * it, or the welcome tour half done. They are released only while the page
+   * shows its own module with no overlay open.
+   */
+  const overlay = showWelcome || showWhatsNew;
+  useEffect(() => {
+    sendMessage(buildMessage('panel:route', { moduleId, route, overlay }));
+  }, [sendMessage, moduleId, route, overlay]);
+
+  /**
+   * Handle welcome wizard completion. Nothing is told to the extension: it
+   * recorded the end of the tour, and nothing read what it recorded.
+   */
   const handleWelcomeComplete = useCallback((): void => {
     setShowWelcome(false);
-    sendMessage(buildMessage('onboarding:complete', { skipped: false }));
-  }, [setShowWelcome, sendMessage]);
+  }, [setShowWelcome]);
 
   const welcomeRef = useRef<WelcomePageHandle>(null);
   /** Escape skips the wizard the way its Skip button does, keeping "Don't show again". */

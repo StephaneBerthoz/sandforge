@@ -95,7 +95,10 @@ import {
   describeCurrencyReplaced,
   readRunCurrencies,
 } from '../src/core/common/recordCurrencies.js';
-import { readStandardPricebooks } from '../src/modules/sync/syncPrices.js';
+import {
+  readStandardPricebooks,
+  STANDARD_PRICEBOOK_MATCHED_NOTE,
+} from '../src/modules/sync/syncPrices.js';
 import { describeSettledPrices } from '../src/modules/forge/stages/PriceCurrencies.js';
 import {
   cannotCopyMessage,
@@ -659,11 +662,18 @@ export function objectCurrencyLines(currencies: readonly CurrencyReplaced[] | un
 
 /**
  * The lines the command prints of the prices an object's write read in a
- * currency the target does not hold active, and how each went: none of them
- * a refusal, said after the refusals.
+ * currency the target does not hold active, and how each went, after the
+ * standard price book matched when the write left it out: none of them a
+ * refusal, said after the refusals.
  */
-export function objectPriceLines(prices: readonly PriceCurrencySettled[] | undefined): string[] {
-  return describeSettledPrices(prices ?? []).map((sentence) => `${sentence}.`);
+export function objectPriceLines(
+  prices: readonly PriceCurrencySettled[] | undefined,
+  standardPricebookMatched = false,
+): string[] {
+  return [
+    ...(standardPricebookMatched ? [STANDARD_PRICEBOOK_MATCHED_NOTE] : []),
+    ...describeSettledPrices(prices ?? []).map((sentence) => `${sentence}.`),
+  ];
 }
 
 /** How an object of a delta configuration was read, as the line the command prints. */
@@ -1010,9 +1020,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     )) {
       log(`      ${line}`);
     }
-    // The prices read in a currency the target lacks, and how each went.
+    // The standard price book matched, and the prices read in a currency the
+    // target lacks and how each went.
     for (const line of objectPriceLines(
       entry.pricesSettled as PriceCurrencySettled[] | undefined,
+      entry.standardPricebookMatched === true,
     )) {
       log(`      ${line}`);
     }

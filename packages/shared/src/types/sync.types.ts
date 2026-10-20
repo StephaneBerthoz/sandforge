@@ -467,6 +467,14 @@ export interface SyncObjectResult {
    * Said apart from `errors`: none of it is a refusal. Absent when none.
    */
   pricesSettled?: PriceCurrencySettled[];
+  /**
+   * Set on the price books when the source's standard one was matched to the
+   * target's and never written: every org has one, which no copy can create.
+   * Said apart from `errors`, as `pricesSettled` is: the sentence saying so
+   * was listed among the price books' refusals, in red in the Sync results
+   * and history. Absent when the run wrote no price book of its own.
+   */
+  standardPricebookMatched?: true;
 }
 
 /**

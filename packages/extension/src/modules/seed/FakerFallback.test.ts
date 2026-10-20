@@ -433,6 +433,37 @@ describe('FakerFallback', () => {
       expect(LOCALE_DATA.de_DE.companies.length).toBeGreaterThanOrEqual(300);
     });
 
+    it('gives five hundred accounts five hundred names, past the locale’s companies too', () => {
+      // 500 accounts got 360 names: the list came round, and 140 accounts
+      // shared a name with another of the run.
+      const faker = new FakerFallback('en_US', { random: seeded(11) });
+      const names = faker
+        .generate([createFakerRule('company.name', 'Name')], 500)
+        .map((r) => String(r['Name']));
+
+      expect(LOCALE_DATA.en_US.companies.length).toBe(360);
+      expect(new Set(names).size).toBe(500);
+      // The first 360 are the locale's own; the rest are their branches,
+      // a region of the country beside the root, with no number.
+      const own = new Set(LOCALE_DATA.en_US.companies);
+      expect(names.slice(0, 360).every((name) => own.has(name))).toBe(true);
+      for (const name of names.slice(360)) {
+        expect(own.has(name)).toBe(false);
+        expect(name).toMatch(/^\p{Lu}\p{Ll}+ Pacific \p{Lu}\p{Ll}+$/u);
+      }
+    });
+
+    it('keeps the names of a run unique once every region is used, numbering the branches', () => {
+      const faker = new FakerFallback('fr_FR', { random: seeded(12) });
+      const count = LOCALE_DATA.fr_FR.companies.length * 8;
+      const names = faker
+        .generate([createFakerRule('company.name', 'Name')], count)
+        .map((r) => String(r['Name']));
+
+      expect(new Set(names).size).toBe(count);
+      expect(names.at(-1)).toMatch(/ 2$/);
+    });
+
     it("draws a record's city, state, country and postal code from one address", () => {
       const rules = ['city', 'state', 'country', 'zipCode'].map((m) => createFakerRule(m, m));
       const records = new FakerFallback('es_ES', { random: seeded(5) }).generate(rules, 100);

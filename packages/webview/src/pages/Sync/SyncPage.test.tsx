@@ -1003,6 +1003,54 @@ describe('SyncPage', () => {
       );
       expect(screen.queryByTestId('sync-result-errors-PricebookEntry')).toBeNull();
     });
+
+    it('says on the results the standard price book matched beside the price books, not among their refusals', () => {
+      // A sentence among the price books' errors, it showed in red as a refusal.
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      mockExecuteMutationState.data = {
+        configId: 'cfg',
+        operationId: 'op',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Pricebook2',
+            operation: 'insert',
+            processed: 1,
+            success: 1,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            standardPricebookMatched: true,
+          },
+        ],
+        totalProcessed: 1,
+        totalSuccess: 1,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 1,
+        timestamp: '2026-10-13T10:00:01.000Z',
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      const line = screen.getByTestId('sync-result-pricebook-Pricebook2');
+      expect(line.textContent).toBe(
+        "Standard price book: matched to the target org's, never written.",
+      );
+      expect(line.closest('.text-status-error')).toBeNull();
+      expect(screen.queryByTestId('sync-result-errors-Pricebook2')).toBeNull();
+    });
   });
 
   it('should show 6 step indicators', () => {

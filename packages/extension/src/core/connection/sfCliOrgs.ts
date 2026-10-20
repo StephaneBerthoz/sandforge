@@ -12,7 +12,11 @@ const AUTH_FILE = /^[^.][^@/\\]*@[^/\\]+\.json$/;
 /**
  * How many orgs the Salesforce CLI holds an authorization for: the orgs an
  * import from the CLI looks at, before anything is imported. The import
- * itself keeps those the CLI still has a session for.
+ * itself keeps those the CLI still has a session for, which only a call to
+ * each org tells: a refresh token revoked or expired leaves its file in
+ * place. So this is the most an import can bring in, and the launcher says
+ * "up to" that many; it said "Import 3 orgs" for an import that brought in
+ * two.
  *
  * Read from the CLI's own files (`~/.sfdx/<username>.json`) rather than by
  * running `sf org list`, which starts a Node process and calls every org it

@@ -256,9 +256,10 @@ describe('SyncOrchestrator — a catalog and the lines priced from it', () => {
       CurrencyIsoCode: 'USD',
       UnitPrice: 90,
     });
-    expect(result.objectResults[1].errors).toContain(
-      "The standard price book is matched to the target org's, never written.",
-    );
+    // Said beside the price books' line, not among their refusals: the Sync
+    // results and history showed it in red.
+    expect(result.objectResults[1].errors).toEqual([]);
+    expect(result.objectResults[1].standardPricebookMatched).toBe(true);
     // The prices that went in another currency are said apart from the
     // object's refusals: the Sync history listed them among its errors.
     expect(result.objectResults[2].errors).toEqual([]);
@@ -278,6 +279,9 @@ describe('SyncOrchestrator — a catalog and the lines priced from it', () => {
       ['Opportunity', 1],
       ['OpportunityLineItem', 1],
     ]);
+    expect(simulated.objects[1].notes).toContain(
+      "The standard price book is matched to the target org's, never written.",
+    );
     expect(simulated.objects[2].notes).toContain(
       "2 GBP → USD: price(s) in a currency the target does not hold active replaced by the source's " +
         'own price in the currency written, for the same product and price book.',

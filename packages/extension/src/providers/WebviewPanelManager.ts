@@ -1,6 +1,24 @@
 import type * as vscode from 'vscode';
+import type { BaseMessage } from '@sandforge/shared';
 import type { MessageBroker } from '../bridge/MessageBroker';
+import { panelRoutePayloadSchema } from '../bridge/validatePayload';
+import { isRebuiltWhenHidden } from '../composition/moduleCommands';
 import { buildWebviewHtml } from './webviewHtml';
+
+/**
+ * What a released panel holds while hidden: a page with no script, which
+ * frees the page's bundle, React tree and catalogue until the panel is shown
+ * again and its shell is set back.
+ */
+const RELEASED_HTML =
+  '<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" ' +
+  'content="default-src \'none\';"></head><body></body></html>';
+
+/** What a panel's page last said it shows (`panel:route`). */
+interface PageShown {
+  route: string;
+  overlay: boolean;
+}
 
 /** Configuration for opening a webview panel. */
 export interface PanelConfig {
@@ -41,10 +59,19 @@ export type UriJoinPath = (base: unknown, ...segments: string[]) => unknown;
  * When a moduleId is provided in the PanelConfig, the panel HTML
  * is generated with a `window.__SANDFORGE_MODULE__` script injection
  * so the React app can determine which module to render.
+ *
+ * Hidden, a panel keeps its page, except Help's and Reports': their page is
+ * released and rebuilt from its shell when the panel is shown again (the
+ * policy, and what the other modules would need, is on
+ * `ModuleCommand.rebuiltWhenHidden`).
  */
 export class WebviewPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
   private visiblePanels = new Set<string>();
+  /** The panels whose page is released while hidden, by viewType: see `isRebuiltWhenHidden`. */
+  private readonly released = new Set<string>();
+  /** What the page of each module's panel shows, as it last said; absent, its own module. */
+  private readonly pagesShown = new Map<string, PageShown>();
   /**
    * Per-panel disposables (view-state + dispose listeners + broker
    * registration, registered when the panel was opened). Cleared when the
@@ -69,6 +96,15 @@ export class WebviewPanelManager {
     private languageGetter?: () => string | undefined,
     private editorLanguageGetter?: () => string | undefined,
   ) {}
+
+  /**
+   * Whether the panel of `viewType` is open with its page loaded: open, and
+   * not released while hidden. A command that posts to a released panel waits
+   * for its rebuilt page, as it waits for a new one.
+   */
+  isLive(viewType: string): boolean {
+    return this.panels.has(viewType) && !this.released.has(viewType);
+  }
 
   /**
    * Open a webview panel or reveal it if already open.
@@ -99,7 +135,10 @@ export class WebviewPanelManager {
       // Kept for every panel. VS Code delivers postMessage only to a live
       // webview, so a Sync, Seed or DataOps panel moved to a background tab
       // would miss the progress and completion messages of the run it started,
-      // and a half-filled wizard would be rebuilt empty on return.
+      // and a half-filled wizard would be rebuilt empty on return. A panel
+      // whose page holds neither is released here instead, and only while its
+      // page shows nothing else (`releaseIfAtRest`): VS Code's own release
+      // would also drop a page the panel had routed to another module.
       retainContextWhenHidden: true,
       localResourceRoots,
     });
@@ -119,6 +158,13 @@ export class WebviewPanelManager {
       const visible = e.webviewPanel.visible;
       if (visible) {
         this.visiblePanels.add(config.viewType);
+        // A page released while hidden is rebuilt from its shell, on its own
+        // module, before anything else reaches it.
+        if (this.released.delete(config.viewType) && config.moduleId) {
+          this.pagesShown.delete(config.moduleId);
+          panel.webview.html = this.buildHtml(panel.webview, config.moduleId);
+          return;
+        }
       } else {
         this.visiblePanels.delete(config.viewType);
       }
@@ -130,11 +176,14 @@ export class WebviewPanelManager {
         timestamp: Date.now(),
         payload: { visible },
       });
+      if (!visible) this.releaseIfAtRest(config, panel);
     });
 
     const disposeSub = panel.onDidDispose(() => {
       this.panels.delete(config.viewType);
       this.visiblePanels.delete(config.viewType);
+      this.released.delete(config.viewType);
+      if (config.moduleId) this.pagesShown.delete(config.moduleId);
       // Release the paired view-state listener along with the panel itself.
       for (const sub of this.panelSubscriptions.get(config.viewType) ?? []) {
         sub.dispose();
@@ -194,6 +243,36 @@ export class WebviewPanelManager {
     this.panelSubscriptions.clear();
     this.panels.clear();
     this.visiblePanels.clear();
+    this.released.clear();
+    this.pagesShown.clear();
+  }
+
+  /**
+   * Keep what a panel's page says it shows (`panel:route`, routed here by
+   * `ExtensionHandlers`), for {@link releaseIfAtRest}. A payload of another
+   * shape is ignored.
+   */
+  notePageShown(message: BaseMessage): void {
+    const parsed = panelRoutePayloadSchema.safeParse((message as { payload?: unknown }).payload);
+    if (!parsed.success) return;
+    const { moduleId, route, overlay } = parsed.data;
+    this.pagesShown.set(moduleId, { route, overlay });
+  }
+
+  /**
+   * Release the page of a panel just hidden when its module is one released
+   * while hidden (Help, Reports) and the page is at rest: on its own module,
+   * no overlay open. Any other page it routed to could be holding a run's
+   * progress or an edit, and is kept.
+   */
+  private releaseIfAtRest(config: PanelConfig, panel: vscode.WebviewPanel): void {
+    const moduleId = config.moduleId;
+    if (!moduleId || !this.extensionUri || !this.uriJoinPath) return;
+    if (!isRebuiltWhenHidden(moduleId)) return;
+    const shown = this.pagesShown.get(moduleId);
+    if (shown && (shown.route !== moduleId || shown.overlay)) return;
+    this.released.add(config.viewType);
+    panel.webview.html = RELEASED_HTML;
   }
 
   /**

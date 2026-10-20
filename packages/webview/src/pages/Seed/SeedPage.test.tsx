@@ -148,6 +148,25 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/* The page's other ways to seed load as chunks of their own (see seedFlows);
+   here they are the modules themselves, so each renders as it is opened. */
+vi.mock('./seedFlows', async () => {
+  const [generate, quick, csv, clone, history] = await Promise.all([
+    import('./SeedGenerateFlow'),
+    import('./QuickSeedFlow'),
+    import('./CsvUpload/CsvUploadWizard'),
+    import('./Clone/CloneWizard'),
+    import('./SeedRunHistory'),
+  ]);
+  return {
+    SeedGenerateFlow: generate.SeedGenerateFlow,
+    QuickSeedFlow: quick.QuickSeedFlow,
+    CsvUploadWizard: csv.CsvUploadWizard,
+    CloneWizard: clone.CloneWizard,
+    SeedRunHistory: history.SeedRunHistory,
+  };
+});
+
 /* Mock PersonaGallery to avoid bridge hooks in unit tests */
 vi.mock('./Persona/PersonaGallery', () => ({
   PersonaGallery: ({ onPersonaSelected }: { onPersonaSelected: (p: unknown) => void }) => (
@@ -201,6 +220,7 @@ vi.mock('./useQuickSeed', async (importOriginal) => {
             selectedTemplate: null,
             customizedCounts: {},
             selectedOrgId: '',
+            locale: '',
             isRunning: false,
             executionResult: undefined,
             objectProgress: [],
@@ -211,6 +231,7 @@ vi.mock('./useQuickSeed', async (importOriginal) => {
             startQuickSeed: vi.fn(),
             setCount: vi.fn(),
             selectOrg: vi.fn(),
+            setLocale: vi.fn(),
             execute: vi.fn(),
             cancel: vi.fn(),
             reset: vi.fn(),

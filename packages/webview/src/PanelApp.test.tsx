@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { forwardRef, useImperativeHandle } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PanelApp } from './PanelApp';
 import { useAppStore } from './stores/useAppStore';
 
@@ -139,7 +139,8 @@ describe('PanelApp', () => {
     expect(await screen.findByTestId('welcome-page-stub')).toBeDefined();
   });
 
-  it('should hide the welcome overlay and notify the extension on completion', async () => {
+  it('hides the welcome overlay on completion, and records nothing in the extension', async () => {
+    // It sent onboarding:complete, whose flag nothing read.
     useAppStore.setState({ showWelcome: true });
     render(<PanelApp moduleId="monitor" />);
     fireEvent.click(await screen.findByTestId('welcome-page-stub'));
@@ -149,7 +150,44 @@ describe('PanelApp', () => {
     const types = mockPostMessage.mock.calls.map(
       (c: unknown[]) => (c[0] as { payload: { type: string } }).payload.type,
     );
-    expect(types).toContain('onboarding:complete');
+    expect(types).not.toContain('onboarding:complete');
+  });
+
+  describe('what the panel shows, told to the extension', () => {
+    /** The `panel:route` payloads the panel sent, in order. */
+    const routesSent = (): Array<{ moduleId: string; route: string; overlay: boolean }> =>
+      mockPostMessage.mock.calls
+        .map((c: unknown[]) => (c[0] as { payload: { type: string; payload: unknown } }).payload)
+        .filter((m) => m.type === 'panel:route')
+        .map((m) => m.payload as { moduleId: string; route: string; overlay: boolean });
+
+    it('says its own module on opening, with no overlay', () => {
+      render(<PanelApp moduleId="help" />);
+
+      expect(routesSent()).toEqual([{ moduleId: 'help', route: 'help', overlay: false }]);
+    });
+
+    it('says the module its page routed to, so the extension keeps that page while hidden', () => {
+      render(<PanelApp moduleId="help" />);
+
+      act(() => {
+        useAppStore.getState().navigate('settings');
+      });
+
+      expect(routesSent().at(-1)).toEqual({ moduleId: 'help', route: 'settings', overlay: false });
+    });
+
+    it('says when an overlay opens over its page, and when it closes', async () => {
+      render(<PanelApp moduleId="help" />);
+
+      act(() => {
+        useAppStore.setState({ showWelcome: true });
+      });
+      expect(routesSent().at(-1)).toEqual({ moduleId: 'help', route: 'help', overlay: true });
+
+      fireEvent.click(await screen.findByTestId('welcome-page-stub'));
+      expect(routesSent().at(-1)).toEqual({ moduleId: 'help', route: 'help', overlay: false });
+    });
   });
 
   it('should not render the whats-new overlay by default', () => {

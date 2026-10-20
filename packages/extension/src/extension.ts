@@ -261,7 +261,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const seedRunCreations = nodeSeedRunCreations(context.globalStorageUri.fsPath);
 
   applyLateServices(handlers, {
-    onboardingService,
     infraServices: {
       performanceTracker,
       productionGuard,
@@ -376,6 +375,10 @@ export function activate(context: vscode.ExtensionContext): void {
     // Editor display language, for the `auto` language setting.
     () => vscode.env.language,
   );
+
+  // What each panel's page shows: Help and Reports are released while hidden
+  // only when their page shows nothing else.
+  handlers.setPanelRouteListener((message) => panelManager.notePageShown(message));
 
   // 9b. Background-operation lifecycle -> stateSync + native notifications
   wireBackgroundNotifications({ backgroundRegistry, stateSync, panelManager });

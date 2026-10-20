@@ -5,13 +5,24 @@ import type { HandlerDeps } from './HandlerTypes';
 import type { InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
+/** An org holding a working set of every object; every other org is empty. */
+const FULL_ORG = 'org-source-full';
+
 vi.mock('../../core/connection/ConnectionHelper', () => ({
-  getJsforceConnection: vi.fn().mockImplementation(() => {
+  getJsforceConnection: vi.fn().mockImplementation((orgId: string) => {
+    const totalSize = orgId === FULL_ORG ? 500 : 0;
     return Promise.resolve({
-      query: vi.fn().mockResolvedValue({ totalSize: 0, done: true, records: [] }),
+      query: vi.fn().mockResolvedValue({ totalSize, done: true, records: [] }),
     });
   }),
 }));
+
+/** The action of the last recommendation the handler posted. */
+function lastAction(deps: HandlerDeps): string {
+  const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+  return (calls.at(-1)?.[0] as { payload: { recommendation: { action: string } } }).payload
+    .recommendation.action;
+}
 
 /** Create minimal HandlerDeps for testing. */
 function createMockDeps(): HandlerDeps {
@@ -114,6 +125,42 @@ describe('SmartActionHandler', () => {
 
     await analyze('req-before');
     handler.forgetOrg('org-target-1');
+    await analyze('req-after');
+
+    const cacheHits = (deps.log as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call: string[]) => typeof call[0] === 'string' && call[0].includes('Cache hit'),
+    );
+    expect(cacheHits).toHaveLength(0);
+  });
+
+  it('analyzes again once a source org is connected, instead of serving the seed it gave without one', async () => {
+    // Held by target alone, the recommendation read before a second org was
+    // connected was served for five minutes after.
+    const analyze = (id: string, payload: Record<string, unknown>): Promise<boolean> =>
+      handler.handle(
+        inboundRequest({ id, type: 'smart-action:analyze', timestamp: Date.now(), payload }),
+      );
+
+    await analyze('req-alone', { targetOrgId: 'org-target-1' });
+    expect(lastAction(deps)).toBe('quick-seed');
+
+    await analyze('req-with-source', { targetOrgId: 'org-target-1', sourceOrgId: FULL_ORG });
+    expect(lastAction(deps)).toBe('clone');
+  });
+
+  it('forgets a recommendation read with an org as its source when that org is forgotten', async () => {
+    const analyze = (id: string): Promise<boolean> =>
+      handler.handle(
+        inboundRequest({
+          id,
+          type: 'smart-action:analyze',
+          timestamp: Date.now(),
+          payload: { targetOrgId: 'org-target-1', sourceOrgId: FULL_ORG },
+        }),
+      );
+
+    await analyze('req-before');
+    handler.forgetOrg(FULL_ORG);
     await analyze('req-after');
 
     const cacheHits = (deps.log as ReturnType<typeof vi.fn>).mock.calls.filter(

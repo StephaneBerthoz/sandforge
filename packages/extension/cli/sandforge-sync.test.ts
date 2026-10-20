@@ -61,6 +61,12 @@ describe('what a run prints of an object', () => {
     ]);
     expect(objectPriceLines(undefined)).toEqual([]);
   });
+
+  it('prints the standard price book matched among those lines, not among its refusals', () => {
+    expect(objectPriceLines(undefined, true)).toEqual([
+      "The standard price book is matched to the target org's, never written.",
+    ]);
+  });
 });
 
 /** A command line, as `process.argv` hands it over. */

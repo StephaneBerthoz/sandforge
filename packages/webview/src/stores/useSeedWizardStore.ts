@@ -55,6 +55,11 @@ export interface SeedWizardState {
    * running user's default.
    */
   recordTypeChoices: Record<string, string[]>;
+  /**
+   * The locale the run draws its people, companies and addresses in, as
+   * Salesforce writes one (`fr_FR`): '' for the org's own.
+   */
+  locale: string;
 
   /** Update the selected org. */
   handleOrgSelect: (orgId: string) => void;
@@ -76,6 +81,8 @@ export interface SeedWizardState {
   setSelectedPersona: (persona: PersonaMsg | null) => void;
   /** Choose the record types an object's records take; none for the user's default. */
   setRecordTypeChoice: (objectApiName: string, recordTypeIds: string[]) => void;
+  /** Choose the locale the run draws in; '' for the org's own. */
+  setLocale: (locale: string) => void;
   /** Reset all wizard slices to their initial values. */
   resetSeedWizard: () => void;
 }
@@ -88,6 +95,7 @@ const INITIAL_STATE = {
   error: null as string | null,
   selectedPersona: null as PersonaMsg | null,
   recordTypeChoices: {} as Record<string, string[]>,
+  locale: '',
 };
 
 /**
@@ -152,6 +160,10 @@ export const useSeedWizardStore = create<SeedWizardState>((set) => ({
     set((state) => ({
       recordTypeChoices: { ...state.recordTypeChoices, [objectApiName]: [...recordTypeIds] },
     }));
+  },
+
+  setLocale(locale: string): void {
+    set({ locale });
   },
 
   resetSeedWizard(): void {

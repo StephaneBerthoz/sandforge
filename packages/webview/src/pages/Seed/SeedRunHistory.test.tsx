@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { BaseMessage, SalesforceOrg, SeedRunRemovalInfo } from '@sandforge/shared';
 import '../../i18n';
 
@@ -97,7 +97,7 @@ describe('SeedRunHistory', () => {
     expect(screen.getByTestId('seed-run-history-state-op-1').textContent).toMatch(/^removed on /);
   });
 
-  it('opens a seed onto its removal, which reads what the run kept', () => {
+  it('opens a seed onto its removal, which reads what the run kept', async () => {
     render(<SeedRunHistory />);
     answer('seed:removal:list', 'seed:removal:list:response', { runs: RUNS });
 
@@ -106,7 +106,10 @@ describe('SeedRunHistory', () => {
     fireEvent.click(toggle);
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    expect(sentAll('seed:removal:info').pop()?.payload).toEqual({ runId: 'op-2' });
+    // The removal is loaded as it is opened, then asks for what the run kept.
+    await waitFor(() =>
+      expect(sentAll('seed:removal:info').pop()?.payload).toEqual({ runId: 'op-2' }),
+    );
   });
 
   it('says a seed that stopped before it ended is partial, and still offers its removal', () => {

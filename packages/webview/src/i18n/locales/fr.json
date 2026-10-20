@@ -576,6 +576,11 @@
     }
   },
   "seed": {
+    "locale": {
+      "label": "Noms et adresses",
+      "orgDefault": "Les paramètres régionaux de l'org (par défaut)",
+      "hint": "Les personnes, sociétés, adresses et numéros de téléphone que le seed écrit sont tirés pour ces paramètres régionaux."
+    },
     "title": "Générer des données",
     "selectOrg": "Sélectionner l'org cible",
     "selectOrgDesc": "Choisissez l'org où les données seront générées",
@@ -1021,6 +1026,7 @@
     }
   },
   "sync": {
+    "standardPricebookMatched": "Catalogue de prix standard : apparié à celui de l'org cible, jamais écrit.",
     "title": "Synchroniser les données",
     "selectOrgs": "Sélectionner les orgs",
     "selectOrgsDesc": "Choisissez les orgs source et cible",
@@ -3981,8 +3987,8 @@
     "firstOrg": {
       "title": "Connectez votre première org",
       "desc": "Importez les orgs que la Salesforce CLI connaît déjà, ou connectez-vous depuis votre navigateur.",
-      "importCount_one": "Importer {{count}} org depuis la Salesforce CLI",
-      "importCount_other": "Importer {{count}} orgs depuis la Salesforce CLI",
+      "importCount_one": "Importer jusqu'à {{count}} org depuis la Salesforce CLI",
+      "importCount_other": "Importer jusqu'à {{count}} orgs depuis la Salesforce CLI",
       "import": "Importer depuis la Salesforce CLI",
       "loginWeb": "Se connecter dans le navigateur"
     }

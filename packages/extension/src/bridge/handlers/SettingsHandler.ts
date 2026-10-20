@@ -7,7 +7,6 @@ import {
   settingsUpdatePayloadSchema,
   telemetryTogglePayloadSchema,
 } from '../validatePayload.js';
-import type { OnboardingService } from '../../core/onboarding/OnboardingService.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /**
@@ -35,27 +34,20 @@ function grappeEnabledOf(deps: HandlerDeps): boolean {
 const SETTINGS_TYPES = new Set([
   'settings:get',
   'settings:update',
-  'onboarding:complete',
   'telemetry:status',
   'telemetry:toggle',
 ]);
 
 /**
- * Domain handler for settings, onboarding and telemetry
- * webview-to-extension messages.
+ * Domain handler for settings and telemetry webview-to-extension messages.
  *
- * Groups all configuration operations into a single cohesive handler.
+ * Groups all configuration operations into a single cohesive handler. The
+ * end of the welcome tour is no longer reported: what it recorded, nothing
+ * read.
  */
 export class SettingsHandler implements DomainHandler {
-  private onboardingService?: OnboardingService;
-
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
-
-  /** Inject the onboarding service after construction. */
-  setOnboardingService(onboarding: OnboardingService): void {
-    this.onboardingService = onboarding;
-  }
 
   /**
    * Handle an incoming bridge message.
@@ -72,9 +64,6 @@ export class SettingsHandler implements DomainHandler {
         return true;
       case 'settings:update':
         this.handleSettingsUpdate(msg);
-        return true;
-      case 'onboarding:complete':
-        this.handleOnboardingComplete(msg);
         return true;
       case 'telemetry:status':
         this.handleTelemetryStatus(msg);
@@ -137,15 +126,6 @@ export class SettingsHandler implements DomainHandler {
     const response = buildResponse(this.deps, msg, 'settings:response', this.settingsPayload());
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
-  }
-
-  private handleOnboardingComplete(msg: BaseMessage): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    if (this.onboardingService) {
-      this.onboardingService.markOnboardingComplete().catch((err) => {
-        this.deps.log(`[ERR] Failed to mark onboarding complete: ${extractErrorMessage(err)}`);
-      });
-    }
   }
 
   private handleTelemetryStatus(msg: InboundRequest): void {

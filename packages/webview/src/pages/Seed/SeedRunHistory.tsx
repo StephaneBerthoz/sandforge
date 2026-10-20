@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { SeedRunRemovalInfo } from '@sandforge/shared';
@@ -7,7 +7,15 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
-import { SeedRunRemoval } from './SeedRunRemoval';
+
+/*
+ * A seed's removal, loaded when a seed is opened onto it: with Forge's sweep
+ * and the confirmation it asks for, it was parsed with the Seed page by every
+ * panel that opened Seed, for a list most never open.
+ */
+const SeedRunRemoval = lazy(() =>
+  import('./SeedRunRemoval').then((module) => ({ default: module.SeedRunRemoval })),
+);
 
 /** What a run's line says of its removal: whether it can still be taken back. */
 function removalState(t: TFunction, run: SeedRunRemovalInfo): string {
@@ -104,7 +112,11 @@ export const SeedRunHistory: React.FC = () => {
                       {shown ? t('seed.removal.historyHide') : t('seed.removal.historyShow')}
                     </Button>
                   </div>
-                  {shown && <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />}
+                  {shown && (
+                    <Suspense fallback={<div aria-busy="true" />}>
+                      <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />
+                    </Suspense>
+                  )}
                 </li>
               );
             })}

@@ -14,6 +14,36 @@ export interface ModuleCommand {
   moduleId: string;
   /** English module name used in the panel title (`SandForge: <title>`). */
   title: string;
+  /**
+   * Whether the panel's page is released while the panel is hidden, and
+   * rebuilt from its shell when it is shown again (`WebviewPanelManager`).
+   *
+   * Every panel was kept alive once hidden, so the memory of the editor grew
+   * with each module opened: each holds its own copy of the shared bundle,
+   * its React tree and the catalogue of its language. A page is released only
+   * when nothing it holds is lost and nothing it should hear is missed: VS
+   * Code delivers a message only to a live page, so a Sync, Seed, Forge or
+   * DataOps panel in a background tab would miss the progress and the end of
+   * the run it started, and a half-filled wizard would come back empty. Help
+   * and Reports hold neither: Help is static, Reports reads its data again as
+   * it opens. And only while the page shows its own module with no overlay
+   * open, since a panel's page can route to any other module.
+   *
+   * What the others need replayed before they can be released too, each of
+   * which a page now receives only while it is alive:
+   * - Organizations: the `state:sync` and `org:selected` broadcasts (a rebuilt
+   *   page asks `org:list` again, but the global selection and a connection
+   *   under way reach it only by broadcast), the device-code login in progress
+   *   (`org:device-code`, posted once, with the `org:connect` it answers), and
+   *   the import or browser sign-in a command opened the page on.
+   * - Settings: the unsaved edits of its forms, which only its Save buttons
+   *   write (the General tab, a typed AI key), and a profile import or export
+   *   still waiting on its answer.
+   * - AI: the answer still on its way, correlated to a request of the released
+   *   page and shown by nothing else, and the question being typed. The
+   *   conversations themselves are kept by the host and listed again.
+   */
+  rebuiltWhenHidden?: true;
 }
 
 /** All `sandforge.open*` module commands, in sidebar navigation order. */
@@ -32,10 +62,20 @@ export const MODULE_COMMANDS: readonly ModuleCommand[] = [
   { command: 'sandforge.openMigration', moduleId: 'migration', title: 'Migration' },
   { command: 'sandforge.openAI', moduleId: 'ai', title: 'AI Assistant' },
   { command: 'sandforge.openOrgs', moduleId: 'orgs', title: 'Organizations' },
-  { command: 'sandforge.openReports', moduleId: 'reports', title: 'Reports' },
+  {
+    command: 'sandforge.openReports',
+    moduleId: 'reports',
+    title: 'Reports',
+    rebuiltWhenHidden: true,
+  },
   { command: 'sandforge.openSettings', moduleId: 'settings', title: 'Settings' },
-  { command: 'sandforge.openHelp', moduleId: 'help', title: 'Help' },
+  { command: 'sandforge.openHelp', moduleId: 'help', title: 'Help', rebuiltWhenHidden: true },
 ];
+
+/** Whether a module's panel is released while hidden: see {@link ModuleCommand.rebuiltWhenHidden}. */
+export function isRebuiltWhenHidden(moduleId: string): boolean {
+  return MODULE_COMMANDS.some((entry) => entry.moduleId === moduleId && entry.rebuiltWhenHidden);
+}
 
 /**
  * Sidebar route → command map, derived from MODULE_COMMANDS.

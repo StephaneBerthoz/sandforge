@@ -509,13 +509,47 @@ export const STREETS: Record<SupportedLocale, { names: readonly string[]; format
 };
 
 /**
+ * The regions of a locale's country a company's branch is named after, past
+ * the locale's own companies: the same root and form with a region beside
+ * the root, as the regional company of a group reads ("Brantwell Pacific
+ * Logistics", "Groupe Vercourt Ouest", "Kaltenbrunn Nord GmbH").
+ */
+const COMPANY_REGIONS: Record<SupportedLocale, readonly string[]> = {
+  en_US: ['Pacific', 'Midwest', 'Atlantic', 'Southwest', 'Northeast', 'Gulf'],
+  fr_FR: ['Ouest', 'Est', 'Sud', 'Nord', 'Centre', 'Atlantique'],
+  de_DE: ['Nord', 'Süd', 'West', 'Ost', 'Mitte', 'Rhein'],
+  es_ES: ['Norte', 'Sur', 'Levante', 'Centro', 'Atlántico', 'Mediterráneo'],
+  ja_JP: ['Kanto', 'Kansai', 'Kyushu', 'Tohoku', 'Chubu', 'Hokuriku'],
+  pt_BR: ['Sul', 'Nordeste', 'Norte', 'Centro-Oeste', 'Sudeste', 'Litoral'],
+};
+
+/**
+ * The company at `index` of a locale's list ({@link companiesOf}), dealt for
+ * the `round`-th time: its own name in the first round, then its root beside
+ * a region of the country, one region a round, then numbered once every
+ * region has been used. No two (index, round) give the same name.
+ *
+ * Five hundred accounts got the locale's 360 companies and then 140 of them
+ * again: the list came round, and an org held two "Brantwell Logistics".
+ */
+export function companyAt(locale: SupportedLocale, index: number, round = 0): string {
+  const roots = COMPANY_ROOTS[locale];
+  const forms = COMPANY_FORMS[locale];
+  const root = roots[index % roots.length];
+  const form = forms[Math.floor(index / roots.length) % forms.length];
+  if (round === 0) return form.replace('{root}', root);
+  const regions = COMPANY_REGIONS[locale];
+  const region = regions[(round - 1) % regions.length];
+  const branch = form.replace('{root}', `${root} ${region}`);
+  const lap = Math.floor((round - 1) / regions.length);
+  return lap === 0 ? branch : `${branch} ${lap + 1}`;
+}
+
+/**
  * Every company a locale names: each root in each form, root by root, so
  * that companies next to each other in the list do not share a root.
  */
 export function companiesOf(locale: SupportedLocale): readonly string[] {
-  const companies: string[] = [];
-  for (const form of COMPANY_FORMS[locale]) {
-    for (const root of COMPANY_ROOTS[locale]) companies.push(form.replace('{root}', root));
-  }
-  return companies;
+  const count = COMPANY_FORMS[locale].length * COMPANY_ROOTS[locale].length;
+  return Array.from({ length: count }, (_, index) => companyAt(locale, index));
 }

@@ -319,7 +319,7 @@ test.describe('Module launcher', () => {
     });
     await sendExtensionMessage(page, { type: 'sidebar:cliOrgs', payload: { count: 2 } });
     await expect(page.getByTestId('sidepanel-first-org-import')).toHaveText(
-      'Import 2 orgs from the Salesforce CLI',
+      'Import up to 2 orgs from the Salesforce CLI',
     );
 
     await page.getByTestId('sidepanel-first-org-import').click();

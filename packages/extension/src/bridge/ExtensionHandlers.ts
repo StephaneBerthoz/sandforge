@@ -10,7 +10,6 @@ import type { ConfigStore } from '../core/storage/ConfigStore.js';
 import type { SecretVault } from '../core/storage/SecretVault.js';
 import type { AuthProvider } from '../core/connection/AuthProvider.js';
 import type { SfdxBridge } from '../core/connection/SfdxBridge.js';
-import type { OnboardingService } from '../core/onboarding/OnboardingService.js';
 import type { AIAssistant } from '../modules/ai/AIAssistant.js';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace.js';
 import type { AutopilotOrchestrator } from '../modules/autopilot/AutopilotOrchestrator.js';
@@ -136,6 +135,8 @@ export interface ExtensionHandlersDeps {
 export class ExtensionHandlers {
   private readonly handlerDeps: HandlerDeps;
   private readonly executeCommand: CommandExecutor;
+  /** Told of each `panel:route`: see {@link setPanelRouteListener}. */
+  private panelRouteListener: ((msg: BaseMessage) => void) | undefined;
   private idCounter = 0;
 
   // Domain handlers
@@ -386,14 +387,17 @@ export class ExtensionHandlers {
     this.seedRemovalHandler.setRunCreations(store);
   }
 
+  /**
+   * Hand each `panel:route` to `listener`: the panel manager, built after the
+   * routes are registered. Before one is set, the message is dropped.
+   */
+  setPanelRouteListener(listener: (msg: BaseMessage) => void): void {
+    this.panelRouteListener = listener;
+  }
+
   /** Inject the AI assistant service, or `undefined` to take it away. */
   setAIAssistant(ai: AIAssistant | undefined): void {
     this.aiHandler.setAIAssistant(ai);
-  }
-
-  /** Inject the onboarding service. */
-  setOnboardingService(onboarding: OnboardingService): void {
-    this.settingsHandler.setOnboardingService(onboarding);
   }
 
   /** Inject infrastructure services. */
@@ -608,13 +612,7 @@ export class ExtensionHandlers {
 
     // Settings & infrastructure
     route(
-      [
-        'settings:get',
-        'settings:update',
-        'onboarding:complete',
-        'telemetry:status',
-        'telemetry:toggle',
-      ],
+      ['settings:get', 'settings:update', 'telemetry:status', 'telemetry:toggle'],
       this.settingsHandler,
     );
 
@@ -924,6 +922,12 @@ export class ExtensionHandlers {
       ],
       this.realtimeHandler,
     );
+
+    // What a panel's page shows, for the panel manager: it releases the Help
+    // and Reports pages while hidden only when they show nothing else.
+    router.route('panel:route', (msg: BaseMessage) => {
+      this.panelRouteListener?.(msg);
+    });
 
     // Bridge protocol-mismatch reload. Triggered by the
     // ProtocolMismatchBanner in the webview when the user clicks "Reload".

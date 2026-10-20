@@ -48,6 +48,7 @@ import { Button } from '../../components/ui/Button';
 import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
 import { SyncDeltaLine } from './SyncDeltaLine';
+import { SyncPricebookLine } from './SyncPricebookLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
@@ -1008,9 +1009,16 @@ export const SyncPage: React.FC = () => {
                       {(obj.errors.length > 0 ||
                         obj.delta ||
                         obj.files ||
+                        obj.standardPricebookMatched ||
                         (obj.currenciesReplaced?.length ?? 0) > 0 ||
                         (obj.pricesSettled?.length ?? 0) > 0) && (
                         <CardBody>
+                          {/* No refusal: said beside the object's other lines. */}
+                          {obj.standardPricebookMatched && (
+                            <SyncPricebookLine
+                              testId={`sync-result-pricebook-${obj.objectApiName}`}
+                            />
+                          )}
                           {obj.delta && (
                             <SyncDeltaLine
                               delta={obj.delta}

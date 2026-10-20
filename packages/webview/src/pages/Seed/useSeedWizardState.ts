@@ -144,6 +144,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   const selectedPersona = useSeedWizardStore((s) => s.selectedPersona);
   const setSelectedPersona = useSeedWizardStore((s) => s.setSelectedPersona);
   const recordTypeChoices = useSeedWizardStore((s) => s.recordTypeChoices);
+  const locale = useSeedWizardStore((s) => s.locale);
 
   /* ------------------------------------------------------------------ */
   /* Sub-hooks                                                           */
@@ -164,6 +165,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     t,
     relations.checked,
     recordTypeChoices,
+    locale,
   );
 
   /* ------------------------------------------------------------------ */

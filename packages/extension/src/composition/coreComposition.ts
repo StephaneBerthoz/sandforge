@@ -63,6 +63,7 @@ export function createCoreComposition(deps: CoreCompositionDeps): CoreCompositio
 
   // Onboarding
   const onboardingService = new OnboardingService(context.globalState);
+  void onboardingService.dropRetiredState().catch(() => undefined);
 
   return {
     configStore,

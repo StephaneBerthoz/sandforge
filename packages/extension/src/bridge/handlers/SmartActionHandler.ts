@@ -9,6 +9,18 @@ import { SmartActionAnalyzer } from '../../modules/ai/SmartActionAnalyzer.js';
 interface CacheEntry {
   recommendation: SmartActionRecommendation;
   fetchedAt: number;
+  /** The orgs the recommendation was read from: the target, and the source when there was one. */
+  orgIds: readonly string[];
+}
+
+/**
+ * The key a recommendation is held under: every input that changes it, the
+ * target and the source. Held by target alone, the "seed it" given before a
+ * second org was connected was served for five minutes after, when the same
+ * target with a source holding data is one to clone into.
+ */
+function cacheKeyOf(targetOrgId: string, sourceOrgId: string | undefined): string {
+  return `smart-action:${targetOrgId}:${sourceOrgId ?? ''}`;
 }
 
 /** Cache TTL: 5 minutes. */
@@ -21,8 +33,8 @@ const SMART_ACTION_TYPES = new Set(['smart-action:analyze']);
  * Domain handler for Smart Action analysis bridge messages.
  *
  * Receives `smart-action:analyze` requests from the WebView, delegates
- * to SmartActionAnalyzer, caches results for 5 minutes per target org,
- * and returns the recommendation via `buildResponse()`.
+ * to SmartActionAnalyzer, caches results for 5 minutes per target and
+ * source org, and returns the recommendation via `buildResponse()`.
  */
 export class SmartActionHandler implements DomainHandler {
   private readonly analyzer: SmartActionAnalyzer;
@@ -59,10 +71,14 @@ export class SmartActionHandler implements DomainHandler {
    * It was read from record counts, and a refreshed sandbox holds a new copy
    * of production's records: "this org is empty, seed it" may no longer be so.
    *
+   * Held as the target or as the source, the recommendation goes either way.
+   *
    * @param orgId - The registered org.
    */
   forgetOrg(orgId: string): void {
-    this.cache.delete(`smart-action:${orgId}`);
+    for (const [key, entry] of this.cache) {
+      if (entry.orgIds.includes(orgId)) this.cache.delete(key);
+    }
   }
 
   /**
@@ -85,7 +101,7 @@ export class SmartActionHandler implements DomainHandler {
       const targetOrgId = parsed.targetOrgId;
       const sourceOrgId = parsed.sourceOrgId;
 
-      const cacheKey = `smart-action:${targetOrgId}`;
+      const cacheKey = cacheKeyOf(targetOrgId, sourceOrgId);
       const cached = this.cache.get(cacheKey);
       if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
         this.deps.log(`[SmartAction] Cache hit for ${targetOrgId}`);
@@ -100,7 +116,11 @@ export class SmartActionHandler implements DomainHandler {
       this.deps.log(`[SmartAction] Analyzing org ${targetOrgId}`);
       const recommendation = await this.analyzer.analyzeOrg(targetOrgId, sourceOrgId);
 
-      this.cache.set(cacheKey, { recommendation, fetchedAt: Date.now() });
+      this.cache.set(cacheKey, {
+        recommendation,
+        fetchedAt: Date.now(),
+        orgIds: sourceOrgId ? [targetOrgId, sourceOrgId] : [targetOrgId],
+      });
 
       const response = buildResponse(this.deps, msg, 'smart-action:analyze:response', {
         recommendation,

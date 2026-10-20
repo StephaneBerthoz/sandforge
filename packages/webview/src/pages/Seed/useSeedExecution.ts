@@ -70,6 +70,7 @@ export function useSeedExecution(
   t: TFunction,
   relations: readonly CheckedRelation[] = [],
   recordTypeChoices: Readonly<Record<string, readonly string[]>> = {},
+  locale = '',
 ): SeedExecutionState {
   const addNotification = useNotificationStore((s) => s.addNotification);
 
@@ -212,6 +213,8 @@ export function useSeedExecution(
     executeSeedMutation.mutate({
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
+      // The org's own locale unless one was chosen: the extension reads it.
+      ...(locale ? { locale } : {}),
     });
   }, [
     selectedOrgId,
@@ -220,6 +223,7 @@ export function useSeedExecution(
     fieldConfigs,
     sent,
     recordTypeChoices,
+    locale,
     executeSeedMutation,
   ]);
 

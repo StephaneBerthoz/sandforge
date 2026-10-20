@@ -208,12 +208,7 @@ describe('SettingsHandler', () => {
     expect(response.payload.error).toContain('not persisted');
   });
 
-  it('handles onboarding:complete without error', async () => {
-    const result = await handler.handle(createMsg('onboarding:complete'));
-    expect(result).toBe(true);
-  });
-
-  it.each(['connectivity:status', 'onboarding:reset', 'hint:dismiss'])(
+  it.each(['connectivity:status', 'onboarding:complete', 'onboarding:reset', 'hint:dismiss'])(
     'leaves %s to no handler at all',
     async (type) => {
       expect(await handler.handle(createMsg(type))).toBe(false);

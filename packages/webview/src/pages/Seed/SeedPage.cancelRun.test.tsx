@@ -26,6 +26,25 @@ vi.mock('./SeedExecuteStep', () => ({
   SeedExecuteStep: () => <div data-testid="seed-step-execute-content" />,
 }));
 
+/* The page's other ways to seed load as chunks of their own (see seedFlows);
+   here they are the modules themselves, so each renders as it is opened. */
+vi.mock('./seedFlows', async () => {
+  const [generate, quick, csv, clone, history] = await Promise.all([
+    import('./SeedGenerateFlow'),
+    import('./QuickSeedFlow'),
+    import('./CsvUpload/CsvUploadWizard'),
+    import('./Clone/CloneWizard'),
+    import('./SeedRunHistory'),
+  ]);
+  return {
+    SeedGenerateFlow: generate.SeedGenerateFlow,
+    QuickSeedFlow: quick.QuickSeedFlow,
+    CsvUploadWizard: csv.CsvUploadWizard,
+    CloneWizard: clone.CloneWizard,
+    SeedRunHistory: history.SeedRunHistory,
+  };
+});
+
 /* The list of earlier seeds asks the extension on its own: covered elsewhere. */
 vi.mock('./SeedRunHistory', () => ({ SeedRunHistory: () => null }));
 

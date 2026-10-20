@@ -14,6 +14,7 @@ import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
+import { SeedLocalePicker } from './SeedLocalePicker';
 import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
 import type { QuickSeedState } from './useQuickSeed';
 import { typedCount, templateWithCounts } from './templateCounts';
@@ -131,6 +132,12 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 onChange={(e) => quickSeed.selectOrg(e.target.value)}
                 placeholder={t('seed.quickSeed.selectOrg')}
                 data-testid="quick-seed-org-selector"
+              />
+
+              <SeedLocalePicker
+                value={quickSeed.locale}
+                onChange={quickSeed.setLocale}
+                testId="quick-seed-locale"
               />
 
               {quickSeed.selectedOrgId && written.length > 0 && (

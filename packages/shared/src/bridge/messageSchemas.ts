@@ -504,7 +504,6 @@ const SettingsMessages = [
   // Payload-less fun overlay broadcast via postToAllPanels (raw postMessage,
   // outside the broker envelope — see types/messages/settings.messages.ts).
   msg('easter-egg:show'),
-  msg('onboarding:complete'),
   msg('onboarding:show'),
   msg('telemetry:status'),
   msg('telemetry:status:response'),
@@ -540,6 +539,8 @@ const SettingsMessages = [
   msg('bridge:protocol-mismatch'),
   msg('bridge:reload-banner'),
   msg('panel:visibility'),
+  // What a panel's page shows, so a panel rebuilt when hidden is released only at rest.
+  msg('panel:route'),
   // What the page a command opened should start (the launcher's first card).
   msg('navigation:intent'),
   msg('workbench:reload'),

@@ -41,6 +41,7 @@ import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPrepa
 import {
   namesAPricebook,
   settleSyncPrices,
+  STANDARD_PRICEBOOK_MATCHED_NOTE,
   withPricesSettled,
   type SettledSyncRows,
   type StandardPricebooks,
@@ -1411,7 +1412,7 @@ export class SyncOrchestrator {
       skipped: outcome.skipped + linkedAt.size,
       refused: outcome.refused + rows.held.length + refusedAt.size,
       notes: [
-        ...(settled?.notes ?? []),
+        ...(settled?.standardMatched ? [STANDARD_PRICEBOOK_MATCHED_NOTE] : []),
         // Said as the command line says them: the simulation's notes are text.
         ...describeSettledPrices(settled?.prices ?? []).map((sentence) => `${sentence}.`),
         ...outcome.notes,
@@ -1482,13 +1483,7 @@ export class SyncOrchestrator {
     const settled = await this.pricesSettled(objectConfig, prepared, run);
     const { records, sourceIds, sources } = settled;
     if (records.length === 0) {
-      return withRowsLeftOut(
-        withPricesSettled(
-          { ...createEmptyResult(objectConfig), errors: [...settled.notes] },
-          settled.prices,
-        ),
-        leftOut,
-      );
+      return withRowsLeftOut(withPricesSettled(createEmptyResult(objectConfig), settled), leftOut);
     }
     const writeRun: SyncWriteRun = {
       ...(await writeRunOf(run, records, sources)),
@@ -1537,13 +1532,15 @@ export class SyncOrchestrator {
         return withRowsLeftOut(
           withPricesSettled(
             withCurrencies(
-              buildObjectResult(objectConfig.objectApiName, objectConfig.operation, outcomes, [
-                ...settled.notes,
-                ...notes,
-              ]),
+              buildObjectResult(
+                objectConfig.objectApiName,
+                objectConfig.operation,
+                outcomes,
+                notes,
+              ),
               currencies,
             ),
-            settled.prices,
+            settled,
           ),
           leftOut,
         );
@@ -1558,15 +1555,7 @@ export class SyncOrchestrator {
       writeRun,
     );
     linkWhatStoodIn();
-    return withRowsLeftOut(
-      withPricesSettled(
-        settled.notes.length > 0
-          ? { ...synced, errors: [...settled.notes, ...synced.errors] }
-          : synced,
-        settled.prices,
-      ),
-      leftOut,
-    );
+    return withRowsLeftOut(withPricesSettled(synced, settled), leftOut);
   }
 
   /**

@@ -47,6 +47,19 @@ export interface PanelVisibilityMessage extends BaseMessage {
   payload: { visible: boolean };
 }
 
+/**
+ * Sent by a panel's page when what it shows changes: the module it routes to
+ * (the shortcuts, the command palette and a page's own links route inside the
+ * panel, away from the module it was opened on), and whether an overlay such
+ * as the welcome tour is open. A panel rebuilt when hidden (Help, Reports) is
+ * released only while its page shows its own module and no overlay: any other
+ * page could be holding a run's progress or an edit.
+ */
+export interface PanelRouteMessage extends BaseMessage {
+  type: 'panel:route';
+  payload: { moduleId: string; route: string; overlay: boolean };
+}
+
 /** What a page opened from the launcher's first card starts: an import from the CLI, or a browser sign-in. */
 export type OrgPageAction = 'import-cli' | 'login-web';
 

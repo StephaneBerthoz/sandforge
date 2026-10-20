@@ -576,6 +576,11 @@
     }
   },
   "seed": {
+    "locale": {
+      "label": "Namen und Adressen",
+      "orgDefault": "Das Gebietsschema der Org (Standard)",
+      "hint": "Die Personen, Firmen, Adressen und Telefonnummern, die der Seed schreibt, werden für dieses Gebietsschema erzeugt."
+    },
     "title": "Daten generieren",
     "selectOrg": "Ziel-Org auswählen",
     "selectOrgDesc": "Wählen Sie die Org, in der Daten generiert werden sollen",
@@ -1021,6 +1026,7 @@
     }
   },
   "sync": {
+    "standardPricebookMatched": "Standardpreisbuch: dem der Ziel-Org zugeordnet, nie geschrieben.",
     "title": "Daten synchronisieren",
     "selectOrgs": "Orgs auswählen",
     "selectOrgsDesc": "Quell- und Ziel-Org wählen",
@@ -3981,8 +3987,8 @@
     "firstOrg": {
       "title": "Verbinden Sie Ihre erste Org",
       "desc": "Übernehmen Sie die Orgs, die die Salesforce CLI bereits kennt, oder melden Sie sich im Browser an.",
-      "importCount_one": "{{count}} Org aus der Salesforce CLI importieren",
-      "importCount_other": "{{count}} Orgs aus der Salesforce CLI importieren",
+      "importCount_one": "Bis zu {{count}} Org aus der Salesforce CLI importieren",
+      "importCount_other": "Bis zu {{count}} Orgs aus der Salesforce CLI importieren",
       "import": "Aus der Salesforce CLI importieren",
       "loginWeb": "Im Browser anmelden"
     }
