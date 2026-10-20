@@ -55,6 +55,7 @@ async function respondToAll(
   requestType: string,
   responseType: string,
   payload: Record<string, unknown>,
+  answered: Set<string> = new Set(),
 ): Promise<void> {
   const ids = await page.evaluate((type) => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
@@ -68,6 +69,8 @@ async function respondToAll(
   }, requestType);
 
   for (const correlationId of ids) {
+    if (answered.has(correlationId)) continue;
+    answered.add(correlationId);
     await sendExtensionMessage(page, {
       type: responseType,
       id: `resp-${correlationId}`,
@@ -96,14 +99,25 @@ async function openHomeAt(page: Page, viewport: { width: number; height: number 
   await page.goto('/');
 
   await bridge.waitForMessage('org:list', { timeout: 10_000 });
-  await respondToAll(page, 'org:list', 'org:list:response', { orgs: MOCK_ORGS });
-
-  // Selecting an org unblocks the health query the fourth KPI card waits on.
-  await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
-  await respondToAll(page, 'monitor:refresh', 'monitor:data', MOCK_HEALTH);
-
   await page.waitForSelector('[data-testid="home-page"]');
-  await page.waitForSelector('[data-testid="home-kpi-row"]');
+
+  // Answer the org list, and the health query that selecting an org unblocks
+  // for the fourth KPI card, until the KPI row shows. Answered once, a request
+  // the page sends again goes unanswered and the row stays a skeleton: run
+  // after rendered-text.spec.ts, which opens every lazily loaded page, the
+  // home page asked for the org list again after the first answer, and the
+  // desktop layouts failed on every retry in CI.
+  const answered = new Set<string>();
+  await expect
+    .poll(
+      async () => {
+        await respondToAll(page, 'org:list', 'org:list:response', { orgs: MOCK_ORGS }, answered);
+        await respondToAll(page, 'monitor:refresh', 'monitor:data', MOCK_HEALTH, answered);
+        return page.getByTestId('home-kpi-row').isVisible();
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
   await page.waitForSelector('[data-testid="forge-hero-card"]');
 }
 
