@@ -629,6 +629,7 @@ export class ExtensionHandlers {
     route(
       [
         'seed:execute',
+        'seed:automation',
         'seed:describe-global',
         'seed:describe-object',
         'seed:template:save',

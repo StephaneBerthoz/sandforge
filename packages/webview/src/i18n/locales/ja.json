@@ -55,7 +55,12 @@
       "autopilotConfirmationUnavailable": "Autopilot の実行は何も書き込む前に停止しました: 確認が必要でしたが、確認を求めることができませんでした。",
       "seedStorageExceeded": "シードは何も書き込む前に拒否されました: そのレコードは約{{estimate}} MBのデータストレージを使いますが、{{org}}の残りは{{max}} MB中{{remaining}} MBです。レコード数を減らすか、より軽いテンプレートを選ぶか、{{org}}のデータストレージを空けてください。",
       "orgAuthExpired": "この組織とのセッションの有効期限が切れ、更新できませんでした。組織ページで再接続してください（カードの「再接続を試行」）。",
-      "orgTemporarilyUnreachable": "この組織への呼び出しが続けて何度か失敗したため、SandForge は少し待ってから再度呼び出します。1 分後にもう一度お試しください。"
+      "orgTemporarilyUnreachable": "この組織への呼び出しが続けて何度か失敗したため、SandForge は少し待ってから再度呼び出します。1 分後にもう一度お試しください。",
+      "seedEmailsExceeded": "シードは何も書き込む前に拒否されました。これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。レコード数を減らすか、{{objects}}を0にするか、{{senders}}を無効にするか、それらを止める権限を自分に割り当ててください。"
+    },
+    "list": {
+      "separator": "、",
+      "and": "、"
     }
   },
   "status": {
@@ -919,7 +924,48 @@
     "commonObjects": "よく使うオブジェクト",
     "otherObjects": "その他のすべてのオブジェクト",
     "parentSuggestion": "{{child}} のレコードは {{parent}} に関連付けられますが、この実行では {{parent}} を生成しません。",
-    "addParent": "{{parent}} を追加"
+    "addParent": "{{parent}} を追加",
+    "automation": {
+      "title": "これらのレコードの作成時に{{org}}が実行するもの",
+      "reading": "これらのレコードの作成時に{{org}}が実行するものを読み取っています…",
+      "readFailed": "これらのレコードの作成時に{{org}}が実行するものを読み取れませんでした（{{error}}）。シードは止まりませんが、組織に送信させるメールの数はわかりません。",
+      "readAgain": "もう一度読み取る",
+      "nothing": "これらのレコードの作成時に{{org}}で実行されるものはありません。フロー、Apex トリガー、プロセス、ワークフロールールのいずれもありません。",
+      "nothingFound": "{{org}}から読み取れた範囲では何も見つかりませんでした。",
+      "partUnread": "{{org}}が実行するものの一部を読み取れませんでした（{{reasons}}）。そこで送信されるものは数えられていない可能性があります。",
+      "conditionsNotRead": "{{org}}の一部の開始条件は読み取られていません。それらのフローが送信するものは数えられていません。",
+      "kind": {
+        "flow": "フロー",
+        "trigger": "Apex トリガー",
+        "process": "プロセス",
+        "workflowRule": "ワークフロールール"
+      },
+      "entry": "{{kind}}「{{name}}」",
+      "quoted": "「{{name}}」",
+      "emailsPerRecord_other": "レコードごとにメール{{count}}通",
+      "notifications": "カスタム通知を送信",
+      "outbound": "アウトバウンドメッセージを送信",
+      "sms": "テキストメッセージを送信",
+      "creates": "{{objects}}を作成",
+      "afterCommit": "保存後にも実行",
+      "notForHolder": "{{permission}}を持つユーザーには実行されない",
+      "quietForYou": "このシードでは実行されない：{{permission}}を保有しています",
+      "notRead": "処理内容は読み取られていません",
+      "bypassSet": "{{permission}}をあなたに割り当てると、それを指定しているものは実行されません。権限セット{{set}}に含まれています。",
+      "bypassNoSet": "{{permission}}をあなたに割り当てると、それを指定しているものは実行されません。{{org}}にはそれを含む権限セットが見つかりませんでした。",
+      "bypassHeld": "{{permissions}}を保有しているため、それを指定しているものはこのシードでは実行されません。",
+      "alertsAsSingle": "{{org}}は、Developer Edition と同様に、メールアラートも単一メールの上限に数えます。",
+      "limit": {
+        "single": "単一メール",
+        "workflow": "ワークフローメール"
+      },
+      "emailsFit": "これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。",
+      "emailsUnread": "これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通。本日の残りを読み取れませんでした（{{reason}}）。シードは止まりません。",
+      "refused": "このシードは書き込みの前に拒否されます。これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。上限を超えると、保存中に送信するフローはそのレコードを拒否し、組織自身のメールもその日の残りは止まります。",
+      "waysOut": "シードするには、レコード数を減らすか、{{objects}}を0にするか、{{senders}}を無効にしてください。",
+      "wayBypass": "または、権限セット{{set}}を自分に割り当ててください。その{{permission}}によって{{senders}}は実行されなくなります。",
+      "wayBypassNoSet": "または、{{permission}}を含む権限セットを自分に割り当ててください。それによって{{senders}}は実行されなくなります。"
+    }
   },
   "sync": {
     "title": "データ同期",

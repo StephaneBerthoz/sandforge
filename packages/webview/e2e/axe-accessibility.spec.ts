@@ -6720,6 +6720,79 @@ async function openQuickSeedConfirm(
   await page.getByTestId('quick-seed-confirm').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
+/**
+ * What `seed:automation` answers for an org whose contacts each make it send
+ * three single emails — a workflow rule and a flow, both quiet for a holder
+ * of a bypass the user lacks — beside a flow that opens a task, with fifteen
+ * left today: past them, the confirmation holds Start.
+ */
+function contactAutomationAnswer(asked: {
+  orgId: string;
+  objects: string[];
+}): Record<string, unknown> {
+  const bypasses = [{ name: 'Trap_Bypass_Flow', held: false }];
+  const entry = (over: Record<string, unknown>) => ({
+    kind: 'flow',
+    when: 'after',
+    emails: 0,
+    messages: [],
+    creates: [],
+    afterCommit: false,
+    bypasses: [],
+    keptQuiet: false,
+    unread: false,
+    ...over,
+  });
+  return {
+    orgId: asked.orgId,
+    objects: asked.objects,
+    preview: {
+      org: 'DevSandbox',
+      objectsRead: asked.objects,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          entries: [
+            entry({ kind: 'workflowRule', name: 'Contact_Welcome', emails: 1, bypasses }),
+            entry({ name: 'Follow Up Task', creates: ['Task'] }),
+            entry({
+              name: 'Welcome Email',
+              emails: 2,
+              afterCommit: true,
+              bypasses,
+              messages: ['notification'],
+            }),
+          ],
+        },
+      ],
+      emailsPerRecord: [
+        {
+          objectApiName: 'Contact',
+          limit: 'DailyWorkflowEmails',
+          perRecord: 1,
+          sentBy: ['Contact_Welcome'],
+        },
+        {
+          objectApiName: 'Contact',
+          limit: 'SingleEmail',
+          perRecord: 3,
+          sentBy: ['Contact_Welcome', 'Welcome Email'],
+        },
+      ],
+      limits: {
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8040, remaining: 8040 },
+      },
+      alertsAsSingle: true,
+      bypasses: [{ permission: 'Trap_Bypass_Flow', permissionSet: 'Trap_Bypass' }],
+      bypassesHeld: [],
+      unread: [{ part: 'triggers', reason: 'INSUFFICIENT_ACCESS' }],
+      blinded: true,
+      conditionsNotRead: 1,
+    },
+  };
+}
+
 /** The Quick Seed of the small demo running, the progress it reported, its Cancel offered. */
 async function openQuickSeedRunning(
   bridge: MockBridge,
@@ -8195,6 +8268,41 @@ for (const theme of STATE_THEMES) {
       page,
     }) => {
       await openQuickSeedConfirm(bridge, page, theme);
+
+      await expectReadable(page, theme, '[data-testid="quick-seed-confirm"]');
+    });
+
+    test('Seed Quick Seed confirmation saying what the org runs, the emails past what it has left, Start held', async ({
+      page,
+    }) => {
+      await openQuickSeedConfirm(bridge, page, theme);
+      const asked = await bridge.waitForMessage('seed:automation', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'seed:automation',
+        'seed:automation:response',
+        contactAutomationAnswer(asked.payload as { orgId: string; objects: string[] }),
+      );
+      await page
+        .getByTestId('seed-automation-refused-SingleEmail')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="quick-seed-confirm"]');
+    });
+
+    test('Seed Quick Seed confirmation whose org automation could not be read, Start not held', async ({
+      page,
+    }) => {
+      await openQuickSeedConfirm(bridge, page, theme);
+      await bridge.waitForMessage('seed:automation', { timeout: 10_000 });
+      await answerAll(page, 'seed:automation', 'seed:automation:error', {
+        message: 'INVALID_SESSION_ID',
+        code: 'UNKNOWN',
+        retryable: true,
+      });
+      await page
+        .getByTestId('seed-automation-unread')
+        .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme, '[data-testid="quick-seed-confirm"]');
     });

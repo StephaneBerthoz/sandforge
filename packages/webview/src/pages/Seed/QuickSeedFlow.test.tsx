@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import '../../i18n';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import type { QuickSeedState } from './useQuickSeed';
@@ -213,6 +213,101 @@ describe('QuickSeedFlow', () => {
         />,
       );
       expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('says what the org runs on every object of the template, and holds Start past the emails it has left', () => {
+      // A seed of 75 contacts left a Developer Edition at -60 of its 15
+      // single emails a day, a workflow rule emailing each contact, with
+      // nothing said before the run.
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+      };
+      const { rerender } = render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+      const [asked] = posted('seed:automation') as unknown as Array<{
+        id: string;
+        payload: Record<string, unknown>;
+      }>;
+      expect(asked.payload).toEqual({ orgId: 'org-1', objects: ['Account', 'Contact'] });
+      // Start is not held while the org is read.
+      expect(screen.getByTestId('seed-automation-reading')).toBeDefined();
+      expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'resp-1',
+              type: 'seed:automation:response',
+              timestamp: Date.now(),
+              correlationId: asked.id,
+              payload: {
+                orgId: 'org-1',
+                objects: ['Account', 'Contact'],
+                preview: {
+                  org: 'dev1',
+                  objectsRead: ['Account', 'Contact'],
+                  objects: [
+                    {
+                      objectApiName: 'Contact',
+                      entries: [
+                        {
+                          kind: 'flow',
+                          name: 'Welcome Email',
+                          when: 'after',
+                          emails: 2,
+                          messages: [],
+                          creates: [],
+                          afterCommit: true,
+                          bypasses: [],
+                          keptQuiet: false,
+                          unread: false,
+                        },
+                      ],
+                    },
+                  ],
+                  emailsPerRecord: [
+                    {
+                      objectApiName: 'Contact',
+                      limit: 'SingleEmail',
+                      perRecord: 2,
+                      sentBy: ['Welcome Email'],
+                    },
+                  ],
+                  limits: { SingleEmail: { max: 15, remaining: 15 } },
+                  alertsAsSingle: true,
+                  bypasses: [],
+                  bypassesHeld: [],
+                  unread: [],
+                  blinded: false,
+                  conditionsNotRead: 0,
+                },
+              },
+            },
+          }),
+        );
+      });
+      expect(screen.getByRole('alert').textContent).toContain(
+        'Single emails these records make dev1 send: about 200, with 15 of 15 left today.',
+      );
+      expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(true);
+
+      // Seven contacts send fourteen: Start again, from the same read.
+      rerender(
+        <QuickSeedFlow
+          quickSeed={{ ...quickSeed, customizedCounts: { Contact: 7 } }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+      expect(posted('seed:automation')).toHaveLength(1);
     });
 
     it('starts the run on Start once an org is chosen, and not before', () => {

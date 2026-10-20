@@ -36,6 +36,7 @@ import { randomInt } from 'node:crypto';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import type {
+  ForgeEmailLimit,
   ForgeSweepResult,
   ForgeTargetAutomation,
   ForgeUndoObjectResult,
@@ -87,7 +88,19 @@ import { describedFieldsOf } from '../src/modules/seed/describedFields.js';
 import { seedObjectAccess } from '../src/modules/seed/seedObjectAccess.js';
 import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
 import { seedStorageGate } from '../src/modules/seed/seedStorage.js';
-import { formatMB, type StorageCheck } from '../src/modules/forge/ForgeRunGate.js';
+import {
+  emailCheckLines,
+  formatMB,
+  readEmailLimits,
+  type EmailLimit,
+  type StorageCheck,
+} from '../src/modules/forge/ForgeRunGate.js';
+import {
+  readSeedAutomation,
+  seedAutomationLines,
+  seedEmailGate,
+  type SeedEmailGate,
+} from '../src/modules/seed/seedAutomation.js';
 import { seedRunKept } from '../src/modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
@@ -140,6 +153,13 @@ addresses under domains no mailbox can be at (example.com, .example, .test)
 and numbers from ranges nobody holds: nobody can be reached. A record the org
 refuses on a field its validation rule names (a phone in another format) is
 written again without that field, and the summary says which, and why.
+
+Before the first write, dry run included: the data storage the records take,
+and what the target runs as they are created (its flows, Apex triggers,
+processes and workflow rules, what of them sends emails or creates records,
+the custom permissions that keep them quiet), with the emails the records make
+it send against what it has left today. A real run past either is refused, and
+writes nothing; a dry run says it would be.
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
@@ -798,6 +818,45 @@ export function storageLine(check: StorageCheck, target: string): string {
   );
 }
 
+/** What the run says of the target's automation before it writes, and the gate its emails met. */
+export interface SeedAutomationCheck {
+  lines: string[];
+  gate: SeedEmailGate;
+}
+
+/**
+ * What the target runs as the run's records are created, and the emails
+ * they make it send against what it has left today, as the panel holds a
+ * seed: said before the first write, a dry run's included. A read that fails
+ * is said, and refuses nothing.
+ *
+ * @param input.objects - The records the run creates, by object.
+ * @param input.readAutomation - What the target runs on the given objects.
+ * @param input.readLimits - The target's daily email limits, as `/limits` say them.
+ */
+export async function seedAutomationCheck(input: {
+  target: string;
+  objects: ReadonlyArray<{ objectApiName: string; recordCount: number }>;
+  readAutomation: (objects: readonly string[]) => Promise<ForgeTargetAutomation>;
+  readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
+}): Promise<SeedAutomationCheck> {
+  const read = await readSeedAutomation({
+    org: input.target,
+    objects: input.objects.map((o) => o.objectApiName),
+    readAutomation: input.readAutomation,
+    readLimits: input.readLimits,
+  });
+  const gate = seedEmailGate(read, input.objects, input.target);
+  return {
+    lines: [
+      ...seedAutomationLines(read, input.target),
+      ...emailCheckLines(gate.checks, input.target),
+      ...(gate.unknown ?? []).map((line) => `  emails: ${line}`),
+    ],
+    gate,
+  };
+}
+
 /** Run one seed from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
@@ -910,6 +969,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (!args.dryRun) throw new Error(storage.refusal);
     log(`  a real run would be refused: ${storage.refusal}`);
   }
+  // What the target runs as these records are created, and the emails they
+  // make it send, before the first write: a seed of 75 contacts left a
+  // Developer Edition at -60 of its 15 single emails a day.
+  const automation = await seedAutomationCheck({
+    target: args.target,
+    objects: template.objects,
+    readAutomation: (objects) => targetAutomationReader(conn).read(args.target, objects),
+    readLimits: () => readEmailLimits(conn),
+  });
+  for (const line of automation.lines) log(line);
+  if (automation.gate.refusal) {
+    if (!args.dryRun) throw new Error(automation.gate.refusal);
+    log(`  a real run would be refused: ${automation.gate.refusal}`);
+  }
   log(`template: ${template.name} (${template.objects.length} object(s))`);
 
   const insert = async (
@@ -995,6 +1068,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           startedAt,
           finishedAt: new Date().toISOString(),
           ...(notes.length > 0 ? { notes } : {}),
+          // What the records made the target send, as the gate counted it:
+          // a dry run's refusal is said here too.
+          emails: {
+            checks: automation.gate.checks,
+            ...(automation.gate.refusal ? { refusal: automation.gate.refusal } : {}),
+            ...(automation.gate.unknown ? { unknown: automation.gate.unknown } : {}),
+          },
           result,
           elapsedMs,
         },

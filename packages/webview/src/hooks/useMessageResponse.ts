@@ -6,6 +6,7 @@ import i18n from 'i18next';
 
 import type { BaseMessage } from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
+import { listWords } from '../utils/listWords';
 
 /**
  * Options for the useMessageResponse hook.
@@ -103,6 +104,38 @@ function guardRefusal(
           org,
         })
       : undefined;
+  }
+  // A seed its records' emails stopped before the first write, past what the
+  // org has left today, with the figures and the ways out the host found.
+  if (code === 'SEED_EMAILS_EXCEEDED') {
+    const { org, limit, emails, remaining, max, objects, senders } = payload;
+    const names = (value: unknown): string[] | undefined =>
+      Array.isArray(value) && value.every((v) => typeof v === 'string') ? value : undefined;
+    const objectNames = names(objects);
+    const senderNames = names(senders);
+    if (
+      typeof org !== 'string' ||
+      (limit !== 'SingleEmail' && limit !== 'DailyWorkflowEmails') ||
+      typeof emails !== 'number' ||
+      typeof remaining !== 'number' ||
+      typeof max !== 'number' ||
+      !objectNames ||
+      !senderNames
+    ) {
+      return undefined;
+    }
+    const list = (items: readonly string[]): string => listWords(items, (key) => i18n.t(key));
+    return i18n.t('common.refusal.seedEmailsExceeded', {
+      org,
+      limit: i18n.t(
+        limit === 'SingleEmail' ? 'seed.automation.limit.single' : 'seed.automation.limit.workflow',
+      ),
+      emails,
+      remaining,
+      max,
+      objects: list(objectNames),
+      senders: list(senderNames.map((name) => i18n.t('seed.automation.quoted', { name }))),
+    });
   }
   if (code === 'GUARD_BLOCKED') {
     const said = message ?? '';

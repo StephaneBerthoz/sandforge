@@ -62,7 +62,12 @@
       "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
       "orgAuthExpired": "The session with this org has expired and could not be renewed. Reconnect it on the Organizations page (Try Reconnect on its card).",
-      "orgTemporarilyUnreachable": "This org failed several times in a row, so SandForge waits a moment before calling it again. Try again in a minute."
+      "orgTemporarilyUnreachable": "This org failed several times in a row, so SandForge waits a moment before calling it again. Try again in a minute.",
+      "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet."
+    },
+    "list": {
+      "separator": ", ",
+      "and": " and "
     }
   },
   "status": {
@@ -981,7 +986,49 @@
     "commonObjects": "Common objects",
     "otherObjects": "All other objects",
     "parentSuggestion": "{{child}} records hang from {{parent}}, which this run does not seed.",
-    "addParent": "Add {{parent}}"
+    "addParent": "Add {{parent}}",
+    "automation": {
+      "title": "What {{org}} runs as these records are created",
+      "reading": "Reading what {{org}} runs as these records are created…",
+      "readFailed": "What {{org}} runs as these records are created could not be read ({{error}}). The seed is not held back, but the emails it makes the org send are not known.",
+      "readAgain": "Read again",
+      "nothing": "Nothing runs in {{org}} as these records are created: no flow, Apex trigger, process or workflow rule.",
+      "nothingFound": "Nothing was found in what could be read of {{org}}.",
+      "partUnread": "Part of what {{org}} runs could not be read ({{reasons}}): what it sends may not be counted.",
+      "conditionsNotRead": "Some start conditions of {{org}} were not read: what those flows send is not counted.",
+      "kind": {
+        "flow": "Flow",
+        "trigger": "Apex trigger",
+        "process": "Process",
+        "workflowRule": "Workflow rule"
+      },
+      "entry": "{{kind}} “{{name}}”",
+      "quoted": "“{{name}}”",
+      "emailsPerRecord_one": "{{count}} email per record",
+      "emailsPerRecord_other": "{{count}} emails per record",
+      "notifications": "sends custom notifications",
+      "outbound": "sends outbound messages",
+      "sms": "sends text messages",
+      "creates": "creates {{objects}}",
+      "afterCommit": "also runs after the save",
+      "notForHolder": "not for a user with {{permission}}",
+      "quietForYou": "quiet for this seed: you hold {{permission}}",
+      "notRead": "what it does was not read",
+      "bypassSet": "Assigned to you, {{permission}} keeps quiet what names it: the permission set {{set}} holds it.",
+      "bypassNoSet": "Assigned to you, {{permission}} keeps quiet what names it: no permission set of {{org}} was found that holds it.",
+      "bypassHeld": "You hold {{permissions}}: what names it stays quiet for this seed.",
+      "alertsAsSingle": "{{org}} counts its email alerts against its single emails too, as a Developer Edition does.",
+      "limit": {
+        "single": "Single emails",
+        "workflow": "Workflow emails"
+      },
+      "emailsFit": "{{limit}} these records make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today.",
+      "emailsUnread": "{{limit}} these records make {{org}} send: about {{emails}}. What it has left today could not be read ({{reason}}): the seed is not held back.",
+      "refused": "The seed would be refused before it writes anything. {{limit}} these records make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Past them, a flow that sends in the save refuses its record, and the org's own emails stop for the rest of the day.",
+      "waysOut": "To seed it, lower the record counts, set {{objects}} to 0, or turn off {{senders}}.",
+      "wayBypass": "Or give yourself the permission set {{set}}: its {{permission}} keeps {{senders}} quiet.",
+      "wayBypassNoSet": "Or give yourself a permission set that holds {{permission}}, which keeps {{senders}} quiet."
+    }
   },
   "sync": {
     "title": "Sync Data",

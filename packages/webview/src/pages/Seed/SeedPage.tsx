@@ -29,6 +29,7 @@ import { CloneWizard } from './Clone/CloneWizard';
 import { PersonaGallery } from './Persona/PersonaGallery';
 import { personaName } from './Persona/personaText';
 import { SeedRunHistory } from './SeedRunHistory';
+import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
 
 /**
  * What the Seed page shows: its start — the template gallery, the other ways
@@ -97,6 +98,18 @@ export const SeedPage: React.FC = () => {
   const setCurrentStep = state.setCurrentStep;
   const sendMessage = useSendMessage();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // What the org runs as the wizard's records are created, read on its
+  // Execute step before the run; past the emails the org has left, the run waits.
+  const onExecuteStep =
+    seedMode === 'generate' && state.currentStep === 2 && !state.executionResult;
+  const wizardAutomation = useSeedAutomation(
+    onExecuteStep ? state.selectedOrgId : '',
+    onExecuteStep ? state.selectedObjects : [],
+  );
+  const wizardRecords = Object.fromEntries(
+    state.objectProgress.map((object) => [object.objectApiName, object.total]),
+  );
+  const wizardRefused = onExecuteStep && refusedForEmails(wizardAutomation, wizardRecords);
   /** Whether the persona choice of the wizard is unfolded. */
   const [personaOpen, setPersonaOpen] = useState(false);
 
@@ -351,7 +364,7 @@ export const SeedPage: React.FC = () => {
             steps={SEED_STEPS}
             currentStep={state.currentStep}
             onStepChange={handleStepChange}
-            canGoNext={state.canGoNext}
+            canGoNext={state.canGoNext && !wizardRefused}
             isFinished={state.isFinished}
             onFinish={state.handleExecute}
             onCancel={canCancelRun ? () => setShowCancelConfirm(true) : undefined}
@@ -392,6 +405,9 @@ export const SeedPage: React.FC = () => {
                 onRetryFields={state.retryFieldDescribes}
                 fieldConfigs={state.fieldConfigs}
                 volumes={state.volumes}
+                automation={state.selectedOrgId ? wizardAutomation : undefined}
+                orgName={wizardOrgName}
+                records={wizardRecords}
               />
             )}
 

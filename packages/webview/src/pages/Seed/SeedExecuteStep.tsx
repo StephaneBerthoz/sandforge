@@ -9,6 +9,8 @@ import { SeedRecordTypePicker } from './SeedRecordTypePicker';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { SeedVolumes } from './seedRelationDrafts';
 import { personaName } from './Persona/personaText';
+import { SeedAutomationNotice } from './SeedAutomationNotice';
+import type { SeedAutomationState } from './useSeedAutomation';
 
 /** Props for the SeedExecuteStep section. */
 export interface SeedExecuteStepProps {
@@ -34,6 +36,12 @@ export interface SeedExecuteStepProps {
   fieldConfigs: ObjectFieldConfig[];
   /** Volume configuration per object: how many parents a relation counts on. */
   volumes: SeedVolumes;
+  /** What the org runs as the records are created, read before the run; absent, nothing is said. */
+  automation?: SeedAutomationState;
+  /** The org the run writes to, as the panel names it. */
+  orgName?: string;
+  /** The records the run creates, by object. */
+  records?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -60,6 +68,9 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   onRetryFields,
   fieldConfigs,
   volumes,
+  automation,
+  orgName = '',
+  records = {},
 }) => {
   const { t, i18n } = useTranslation();
   const persona = useSeedWizardStore((s) => s.selectedPersona);
@@ -126,6 +137,14 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
       {configSkipped && !isRunning && (
         <div className="mb-2">
           <SeedRecordTypePicker fieldConfigs={fieldConfigs} />
+        </div>
+      )}
+
+      {/* What the org runs as these records are created, and the emails they
+          make it send, before the run: past what it has left, it waits. */}
+      {automation && !isRunning && (
+        <div className="mb-2">
+          <SeedAutomationNotice automation={automation} orgName={orgName} records={records} />
         </div>
       )}
 

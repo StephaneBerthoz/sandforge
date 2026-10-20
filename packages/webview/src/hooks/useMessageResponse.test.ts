@@ -613,6 +613,53 @@ describe('useMessageResponse', () => {
       expect(result.current.error).not.toContain('Nothing was written');
     });
 
+    it('says a seed its emails stopped in the interface language, with the figures and the ways out', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message: 'The seed was refused before it wrote anything. Nothing was written.',
+            code: 'SEED_EMAILS_EXCEEDED',
+            org: 'my-dev-org',
+            limit: 'SingleEmail',
+            emails: 225,
+            remaining: 15,
+            max: 15,
+            objects: ['Contact'],
+            senders: ['Contact_Welcome', 'Welcome Email'],
+            bypasses: [],
+          },
+          'req-1',
+        );
+      });
+      expect(result.current.errorCode).toBe('SEED_EMAILS_EXCEEDED');
+      expect(result.current.error).toBe(
+        'The seed was refused before it wrote anything. Single emails these records would make ' +
+          'my-dev-org send: about 225, with 15 of 15 left today. Lower the record counts, set ' +
+          'Contact to 0, turn off “Contact_Welcome” and “Welcome Email”, or give yourself the ' +
+          'permission that keeps them quiet.',
+      );
+
+      // Without its figures, the host's own words.
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-2');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          { message: 'Too many emails.', code: 'SEED_EMAILS_EXCEEDED' },
+          'req-2',
+        );
+      });
+      expect(result.current.error).toBe('Too many emails.');
+    });
+
     it("keeps the host's words for a storage refusal that came without its figures", () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
       act(() => {

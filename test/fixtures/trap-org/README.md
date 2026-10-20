@@ -32,7 +32,7 @@ connected with `sf org login web --alias SANDFORGE-TRAP --instance-url https://l
 | 6   | `Account.Trap_Target_Only__c`, required, absent from the source                                                                                                                                                               | 400                                                                              |
 | 7   | `Account.Trap_Ext_Id__c`, unique here, not unique in the source                                                                                                                                                               | 400 on the second account                                                        |
 | 8   | A before-delete flow on `Trap_Item__c` that refuses the delete with a custom error, unless `Trap_Allow_Delete__c` is checked                                                                                                  | 400, then 204 once let go                                                        |
-| 9   | Messages on Contact creation: a flow that sends an email in the transaction and again on an asynchronous path, quiet for a holder of `$Permission.Trap_Bypass_Flow` (in the same set as trap 3's), and a workflow email alert | reports the status                                                               |
+| 9   | Messages on Contact creation: a flow that sends an email in the transaction and again on an asynchronous path, and a workflow email alert, both quiet for a holder of `$Permission.Trap_Bypass_Flow` (in trap 3's set)        | reports the status                                                               |
 | 10  | An active Lead assignment rule that hands every lead to a queue                                                                                                                                                               | 201, and who owns the lead                                                       |
 | 11  | Person accounts                                                                                                                                                                                                               | 201 where they are on                                                            |
 | 12  | Multi-currency, EUR alone (the source has EUR and USD)                                                                                                                                                                        | 400 on USD where it is on                                                        |
@@ -47,7 +47,12 @@ connected with `sf org login web --alias SANDFORGE-TRAP --instance-url https://l
 A Developer Edition sends 15 single emails a day. The flow of trap 9 sends two per contact, and
 once the day's are spent it fails and the contact is refused (`CANNOT_EXECUTE_FLOW_TRIGGER`,
 "Probably Limit Exceeded"): a clone of contacts needs the flow's bypass, held by `Trap_Bypass`,
-which every run takes as a lease (below).
+which every run takes as a lease (below). The workflow rule's alert counts against the same 15,
+though `/limits` lists 8,040 workflow emails a day: its single emails went from 15 to −60 as a
+seed wrote 75 contacts under a lease, the flow quiet and the rule, which named no bypass then,
+emailing each one; on 2026-10-14, 36 contacts cloned under the bypass took them from −75 to
+−117 while the workflow emails did not move. The rule fails no save, so nothing refused a
+contact: the counter just went below zero. Since 2026-10-20 the rule names the bypass too.
 
 ### The bypass, held as a lease
 
@@ -170,7 +175,7 @@ probes (about six minutes, and probe 17 takes one of the day's fifteen emails).
   takes them with `--include-changed`.
 
 - The clone runs as a holder of `Trap_Bypass`, which the dry run names as the bypass of trap 9's
-  flow: without it the day's emails run out after seven contacts and the rest are refused. The
+  flow and rule: without it the day's emails run out after five contacts, the rest refused. The
   canary takes a lease on it before the rehearsal and gives the lease back after the removal, so
   that the probes find it assigned to nobody (trap 3), unless another run's lease is still live,
   which the step says. The Frozen load and the Seed run write contacts too, each under a lease of

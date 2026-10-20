@@ -62,7 +62,12 @@
       "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",
       "seedStorageExceeded": "O seed foi recusado antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Reduza o número de registros, escolha um modelo mais leve ou libere armazenamento de dados em {{org}}.",
       "orgAuthExpired": "A sessão com esta org expirou e não pôde ser renovada. Reconecte-a na página Organizações (Tentar reconectar, no cartão dela).",
-      "orgTemporarilyUnreachable": "Esta org falhou várias vezes seguidas, então o SandForge espera um momento antes de chamá-la de novo. Tente novamente em um minuto."
+      "orgTemporarilyUnreachable": "Esta org falhou várias vezes seguidas, então o SandForge espera um momento antes de chamá-la de novo. Tente novamente em um minuto.",
+      "seedEmailsExceeded": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Reduza o número de registros, defina {{objects}} como 0, desative {{senders}} ou atribua a si mesmo a permissão que os silencia."
+    },
+    "list": {
+      "separator": ", ",
+      "and": " e "
     }
   },
   "status": {
@@ -981,7 +986,49 @@
     "commonObjects": "Objetos comuns",
     "otherObjects": "Todos os outros objetos",
     "parentSuggestion": "Os registros de {{child}} dependem de {{parent}}, que esta execução não gera.",
-    "addParent": "Adicionar {{parent}}"
+    "addParent": "Adicionar {{parent}}",
+    "automation": {
+      "title": "O que {{org}} executa ao criar estes registros",
+      "reading": "Lendo o que {{org}} executa ao criar estes registros…",
+      "readFailed": "Não foi possível ler o que {{org}} executa ao criar estes registros ({{error}}). O seed não é interrompido, mas os e-mails que ele faz a org enviar não são conhecidos.",
+      "readAgain": "Ler de novo",
+      "nothing": "Nada é executado em {{org}} ao criar estes registros: nenhum Flow, gatilho do Apex, processo ou regra de fluxo de trabalho.",
+      "nothingFound": "Nada foi encontrado no que pôde ser lido de {{org}}.",
+      "partUnread": "Parte do que {{org}} executa não pôde ser lida ({{reasons}}): o que ela envia talvez não seja contado.",
+      "conditionsNotRead": "Algumas condições de início de {{org}} não foram lidas: o que esses Flows enviam não é contado.",
+      "kind": {
+        "flow": "Flow",
+        "trigger": "Gatilho do Apex",
+        "process": "Processo",
+        "workflowRule": "Regra de fluxo de trabalho"
+      },
+      "entry": "{{kind}} “{{name}}”",
+      "quoted": "“{{name}}”",
+      "emailsPerRecord_one": "{{count}} e-mail por registro",
+      "emailsPerRecord_other": "{{count}} e-mails por registro",
+      "notifications": "envia notificações personalizadas",
+      "outbound": "envia mensagens de saída",
+      "sms": "envia mensagens de texto",
+      "creates": "cria {{objects}}",
+      "afterCommit": "também é executado depois de salvar",
+      "notForHolder": "não para um usuário com {{permission}}",
+      "quietForYou": "silencioso para este seed: você tem {{permission}}",
+      "notRead": "o que ele faz não foi lido",
+      "bypassSet": "Atribuída a você, {{permission}} silencia o que a nomeia: o conjunto de permissões {{set}} a contém.",
+      "bypassNoSet": "Atribuída a você, {{permission}} silencia o que a nomeia: nenhum conjunto de permissões de {{org}} que a contenha foi encontrado.",
+      "bypassHeld": "Você tem {{permissions}}: o que a nomeia fica em silêncio para este seed.",
+      "alertsAsSingle": "{{org}} conta também seus alertas de e-mail entre seus e-mails individuais, como uma Developer Edition.",
+      "limit": {
+        "single": "E-mails individuais",
+        "workflow": "E-mails de fluxo de trabalho"
+      },
+      "emailsFit": "{{limit}} que estes registros fazem {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje.",
+      "emailsUnread": "{{limit}} que estes registros fazem {{org}} enviar: cerca de {{emails}}. Não foi possível ler o que resta hoje ({{reason}}): o seed não é interrompido.",
+      "refused": "O seed seria recusado antes de gravar qualquer coisa. {{limit}} que estes registros fazem {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Passado esse limite, um Flow que envia ao salvar recusa seu registro, e os próprios e-mails da org param pelo resto do dia.",
+      "waysOut": "Para executá-lo, reduza o número de registros, defina {{objects}} como 0 ou desative {{senders}}.",
+      "wayBypass": "Ou atribua a si mesmo o conjunto de permissões {{set}}: sua {{permission}} silencia {{senders}}.",
+      "wayBypassNoSet": "Ou atribua a si mesmo um conjunto de permissões que contenha {{permission}}, que silencia {{senders}}."
+    }
   },
   "sync": {
     "title": "Sincronizar dados",

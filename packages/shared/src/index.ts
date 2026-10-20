@@ -228,6 +228,7 @@ export {
   type ForgeEmailsPerInsert,
   type ForgeFiredOnWrite,
 } from './utils/forge-target-automation.js';
+export { seedEmailEstimates, seedEmailsRefused } from './utils/seed-automation.js';
 export {
   FORGE_READ_CEILING_PER_OBJECT,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,

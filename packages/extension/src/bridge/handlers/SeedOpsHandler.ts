@@ -49,6 +49,7 @@ import {
   seedTemplateIdPayloadSchema,
   seedTemplateSavePayloadSchema,
   seedCreatePersonaPayloadSchema,
+  seedAutomationPayloadSchema,
 } from '../validatePayload.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
@@ -80,7 +81,13 @@ import {
 import { ACCOUNT, leftOutForAccountKind } from '../../core/common/platformRecords.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { seedStorageGate } from '../../modules/seed/seedStorage.js';
-import { formatMB } from '../../modules/forge/ForgeRunGate.js';
+import { formatMB, readEmailLimits } from '../../modules/forge/ForgeRunGate.js';
+import {
+  readSeedAutomation,
+  seedEmailGate,
+  type SeedAutomationRead,
+} from '../../modules/seed/seedAutomation.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { seedLocaleOf } from '../../modules/seed/seedLocale.js';
 import { objectsUnderDuplicateRules } from '../../modules/seed/seedDuplicateRules.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
@@ -91,6 +98,17 @@ const STREAMING_THRESHOLD = 10_000;
 
 /** The code a seed refused for the data storage it takes is answered with. */
 const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
+
+/** The code a seed refused for the emails its records make the org send is answered with. */
+const SEED_EMAILS_EXCEEDED = 'SEED_EMAILS_EXCEEDED';
+
+/**
+ * How long reading what the org runs as a seed's records are created may
+ * take, before the confirmation and before the run: as a removal's sweep
+ * reads it. Past it, the read is said to have failed, and the seed is not
+ * held back.
+ */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** What a seed runs with once its request is read. */
 interface SeedRunPayload {
@@ -221,6 +239,7 @@ function bulkRows(result: BulkExecutionResult, sent: number): InsertedRow[] | un
 /** Message types handled by SeedOpsHandler. */
 const SEED_TYPES = new Set([
   'seed:execute',
+  'seed:automation',
   'seed:describe-global',
   'seed:describe-object',
   'seed:template:save',
@@ -256,6 +275,18 @@ export class SeedOpsHandler implements DomainHandler {
 
   /** What each run created, kept on disk for its removal. */
   private runCreations?: SeedRunCreations;
+
+  /**
+   * Reads what the org runs as a seed's records are created: a reader of the
+   * handler's own, over its connections, loaded on its first read, off the
+   * activation path.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
@@ -297,6 +328,93 @@ export class SeedOpsHandler implements DomainHandler {
     this.runCreations = store;
   }
 
+  /** Another reader of what the org runs as a seed's records are created than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
+  }
+
+  /**
+   * What the org runs as a seed creates the records of `objects`, and the
+   * daily email limits it has left when a record sends any; a read that fails
+   * or takes too long says why, and holds nothing back.
+   *
+   * @param transport - The org's connection, which reads its limits.
+   * @param org - The org, as the panel names it.
+   */
+  private readAutomation(
+    orgId: string,
+    transport: Parameters<typeof readEmailLimits>[0],
+    objects: readonly string[],
+    org: string,
+  ): Promise<SeedAutomationRead> {
+    const reader = this.targetAutomation;
+    return readSeedAutomation({
+      org,
+      objects,
+      readAutomation: (names) =>
+        new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('seed automation', () =>
+          reader.read(orgId, names),
+        ),
+      readLimits: () => readEmailLimits(transport),
+    });
+  }
+
+  /**
+   * `seed:automation`: what the org runs as a seed creates the records of the
+   * objects named — the confirmation's account of it, before Start — read
+   * only. A read the org refuses in part is answered with what was read and
+   * what was not; one that cannot run at all, on `seed:automation:error`.
+   */
+  private async handleAutomation(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const validated = validatePayload(
+      seedAutomationPayloadSchema,
+      msg,
+      'seed:automation:error',
+      this.deps,
+    );
+    if (!validated) return;
+    try {
+      const conn = await getJsforceConnection(
+        validated.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const org = this.deps.orgManager.getOrg(validated.orgId);
+      const read = await this.readAutomation(
+        validated.orgId,
+        conn,
+        validated.objects,
+        org?.alias || org?.username || validated.orgId,
+      );
+      if ('error' in read) throw new Error(read.error);
+      const response = buildResponse(this.deps, msg, 'seed:automation:response', {
+        orgId: validated.orgId,
+        objects: validated.objects,
+        preview: read.preview as unknown as Record<string, unknown>,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:automation', 'seed:automation:error', msg, err, {
+        retryable: true,
+      });
+    }
+  }
+
   /**
    * Handle an incoming bridge message.
    *
@@ -315,6 +433,9 @@ export class SeedOpsHandler implements DomainHandler {
         return true;
       case 'seed:execute':
         await this.handleExecute(msg);
+        return true;
+      case 'seed:automation':
+        await this.handleAutomation(msg);
         return true;
       case 'seed:template:save':
         await this.handleTemplateSave(msg);
@@ -762,6 +883,47 @@ export class SeedOpsHandler implements DomainHandler {
                 },
         });
         sendOperationFailed(this.deps, operationId, storage.refusal, false, { context: failure });
+        return;
+      }
+
+      // The emails the records make the org send, against what it has left
+      // today, read with what it runs as they are created, before the guard is
+      // asked and before anything is written: a seed of 75 contacts left a
+      // Developer Edition at -60 of its 15 single emails, its workflow rule
+      // emailing each one. A read that fails is said, and holds nothing back.
+      const orgName = org?.alias || org?.username || payload.orgId;
+      const written = kinds.template.objects.map((o) => ({
+        objectApiName: o.objectApiName,
+        recordCount: o.recordCount,
+      }));
+      const emails = seedEmailGate(
+        await this.readAutomation(
+          payload.orgId,
+          conn,
+          written.map((o) => o.objectApiName),
+          orgName,
+        ),
+        written,
+        orgName,
+      );
+      for (const line of emails.unknown ?? []) {
+        this.deps.log(`[WARN] seed:execute ${operationId}: ${line}`);
+      }
+      if (emails.refusal) {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          code: SEED_EMAILS_EXCEEDED,
+        });
+        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(emails.refusal), {
+          code: SEED_EMAILS_EXCEEDED,
+          retryable: false,
+          extraPayload: emails.figures ? { ...emails.figures } : {},
+        });
+        sendOperationFailed(this.deps, operationId, emails.refusal, false, { context: failure });
         return;
       }
 

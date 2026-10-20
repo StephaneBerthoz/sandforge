@@ -565,6 +565,17 @@ export const seedExecutePayloadSchema = z.object({
   dryRun: z.boolean().optional(),
 });
 export const seedDescribeGlobalPayloadSchema = z.object({ orgId: orgIdSchema });
+/**
+ * `seed:automation`: the org and the objects a seed creates records of. The
+ * names go into no query as they are — the read matches them against what
+ * the org answers — and are held to API names all the same.
+ */
+export const seedAutomationPayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+  })
+  .strict();
 export const seedDescribeObjectPayloadSchema = z.object({
   orgId: orgIdSchema,
   objectApiName: sfApiNameSchema,

@@ -1,6 +1,8 @@
 import type { UUID, ISODateString, ApiName } from './common.types.js';
 import type {
+  ForgeEmailLimit,
   ForgeSweepResult,
+  ForgeTargetAutomationUnread,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
@@ -413,4 +415,114 @@ export interface SeedRemovalResult {
    * what the target's automation created during the run, as its user.
    */
   sweep?: ForgeSweepResult;
+}
+
+/**
+ * One flow, Apex trigger, Process Builder process or workflow rule of an org
+ * that runs as a seed creates the records of an object, as the confirmation
+ * says it before anything is written.
+ */
+export interface SeedAutomationEntry {
+  kind: 'flow' | 'trigger' | 'process' | 'workflowRule';
+  /** The flow's, process's or rule's label, or the trigger's name. */
+  name: string;
+  /** Before the record is saved, after it, or both. */
+  when: 'before' | 'after' | 'beforeAndAfter';
+  /** Its email actions: each sends one email a record created, whatever path it is on. */
+  emails: number;
+  /** What else it sends out of the org. */
+  messages: Array<'notification' | 'outbound' | 'sms'>;
+  /** The objects its record-create elements create. */
+  creates: string[];
+  /** Whether part of it runs once the save is committed, out of reach of any rollback. */
+  afterCommit: boolean;
+  /**
+   * The custom permissions that keep it from doing anything for the user who
+   * holds them, and whether the user the seed writes as does; `held` is
+   * absent when that could not be read.
+   */
+  bypasses: Array<{ name: string; held?: boolean }>;
+  /** True when the user the seed writes as holds one of them: it does nothing for this seed. */
+  keptQuiet: boolean;
+  /** Its start condition, or its definition, could not be read: what it does is not known. */
+  unread: boolean;
+}
+
+/** What runs as a seed creates the records of one object. */
+export interface SeedAutomationObject {
+  objectApiName: string;
+  entries: SeedAutomationEntry[];
+}
+
+/** The emails one record of an object makes an org send against one daily limit. */
+export interface SeedEmailsPerRecord {
+  objectApiName: string;
+  limit: ForgeEmailLimit;
+  perRecord: number;
+  /** The flows, processes and rules that send them, by label. */
+  sentBy: string[];
+}
+
+/**
+ * A custom permission that keeps quiet what fires as the records are
+ * created, which the user the seed writes as does not hold, and the smallest
+ * permission set of the org that includes it; absent when none does or the
+ * permission sets could not be read.
+ */
+export interface SeedBypassWay {
+  permission: string;
+  permissionSet?: string;
+}
+
+/**
+ * What an org runs as a seed creates its records, read before the first is
+ * written: what the confirmation shows, and what the seed's email gate holds
+ * the record counts to.
+ */
+export interface SeedAutomationPreview {
+  /** The org, as the panel names it. */
+  org: string;
+  /** The objects the read looked at. */
+  objectsRead: string[];
+  /** The objects on which something runs as their records are created, in the order asked. */
+  objects: SeedAutomationObject[];
+  /** The emails one record of each object makes the org send, per daily limit. */
+  emailsPerRecord: SeedEmailsPerRecord[];
+  /**
+   * What the org has left today of its daily email limits; absent when no
+   * record sends any, or when they could not be read (`limitsUnread`).
+   */
+  limits?: Partial<Record<ForgeEmailLimit, { max: number; remaining: number }>>;
+  /** Why the org's email limits could not be read. */
+  limitsUnread?: string;
+  /**
+   * Whether the email alerts of the org count against its single emails too,
+   * as they do on an org held to the fifteen a day of a Developer Edition.
+   */
+  alertsAsSingle: boolean;
+  /** The bypasses the user the seed writes as does not hold, and how each is had. */
+  bypasses: SeedBypassWay[];
+  /** The bypasses the user the seed writes as holds: what they keep quiet stays quiet. */
+  bypassesHeld: string[];
+  /** The parts of the read the org refused, and why. */
+  unread: Array<{ part: ForgeTargetAutomationUnread['part']; reason: string }>;
+  /** Whether a part read whole was refused: "nothing runs" cannot then be said. */
+  blinded: boolean;
+  /** Start conditions left unread past the most the read takes. */
+  conditionsNotRead: number;
+}
+
+/** The emails a seed's records make an org send against one daily limit, and what is left of it. */
+export interface SeedEmailEstimate {
+  limit: ForgeEmailLimit;
+  emails: number;
+  /** The objects that send them: the records created, and the emails each sends. */
+  objects: Array<{ objectApiName: string; records: number; perRecord: number; sentBy: string[] }>;
+  /**
+   * `exceeds` past what the org has left today: the seed is refused before it
+   * writes. `unread` when the org did not say what it has left.
+   */
+  verdict: 'fits' | 'exceeds' | 'unread';
+  remaining?: number;
+  max?: number;
 }

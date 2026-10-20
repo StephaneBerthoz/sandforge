@@ -1035,6 +1035,154 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
   });
 });
 
+/**
+ * What a Developer Edition runs as contacts are created: a workflow rule and
+ * a flow that email each one unless the user holds the bypass, a flow that
+ * opens a task; fifteen single emails left today.
+ */
+function contactAutomation(objects: string[]): Record<string, unknown> {
+  const bypasses = [{ name: 'Trap_Bypass_Flow', held: false }];
+  const entry = (over: Record<string, unknown>) => ({
+    kind: 'flow',
+    when: 'after',
+    emails: 0,
+    messages: [],
+    creates: [],
+    afterCommit: false,
+    bypasses: [],
+    keptQuiet: false,
+    unread: false,
+    ...over,
+  });
+  return {
+    orgId: 'org-src-1',
+    objects,
+    preview: {
+      org: 'DevSandbox',
+      objectsRead: objects,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          entries: [
+            entry({ kind: 'workflowRule', name: 'Contact_Welcome', emails: 1, bypasses }),
+            entry({ name: 'Follow Up Task', creates: ['Task'] }),
+            entry({ name: 'Welcome Email', emails: 2, afterCommit: true, bypasses }),
+          ],
+        },
+      ],
+      emailsPerRecord: [
+        {
+          objectApiName: 'Contact',
+          limit: 'DailyWorkflowEmails',
+          perRecord: 1,
+          sentBy: ['Contact_Welcome'],
+        },
+        {
+          objectApiName: 'Contact',
+          limit: 'SingleEmail',
+          perRecord: 3,
+          sentBy: ['Contact_Welcome', 'Welcome Email'],
+        },
+      ],
+      limits: {
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8040, remaining: 8040 },
+      },
+      alertsAsSingle: true,
+      bypasses: [{ permission: 'Trap_Bypass_Flow', permissionSet: 'Trap_Bypass' }],
+      bypassesHeld: [],
+      unread: [],
+      blinded: false,
+      conditionsNotRead: 0,
+    },
+  };
+}
+
+test.describe('Seed — what the org runs, said before Start', () => {
+  test('says on the confirmation what fires as the records are created, and holds Start past the emails left today', async ({
+    page,
+  }) => {
+    // A seed of 75 contacts left a Developer Edition at -60 of its 15 single
+    // emails, a workflow rule emailing each contact, with nothing said first.
+    const bridge = await openSeedStart(page);
+    await page
+      .getByTestId('template-card-prebuilt-crm-starter')
+      .getByTestId('btn-use-template')
+      .click();
+    const asked = await bridge.waitForMessage('seed:automation', { timeout: 10_000 });
+    const objects = (asked.payload as { objects: string[] }).objects;
+    expect(asked.payload).toEqual({
+      orgId: 'org-src-1',
+      objects: [
+        'Account',
+        'Contact',
+        'Product2',
+        'PricebookEntry',
+        'Opportunity',
+        'OpportunityLineItem',
+        'Case',
+      ],
+    });
+    // Start is not held while the org is read.
+    await expect(page.getByTestId('seed-automation-reading')).toBeVisible();
+    await expect(page.getByTestId('btn-quick-seed-start')).toBeEnabled();
+
+    await respondToAll(
+      page,
+      'seed:automation',
+      'seed:automation:response',
+      contactAutomation(objects),
+    );
+    await expect(page.getByTestId('seed-automation-entry-Contact-Welcome Email')).toContainText(
+      '2 emails per record',
+    );
+    await expect(page.getByTestId('seed-automation-bypass-Trap_Bypass_Flow')).toContainText(
+      'the permission set Trap_Bypass holds it',
+    );
+    const refused = page.getByTestId('seed-automation-refused-SingleEmail');
+    await expect(refused).toContainText(
+      'Single emails these records make DevSandbox send: about 225, with 15 of 15 left today.',
+    );
+    await expect(refused).toContainText('set Contact to 0');
+    await expect(page.getByTestId('btn-quick-seed-start')).toBeDisabled();
+    const reads = (await bridge.getMessages('seed:automation')).length;
+
+    // Five contacts send fifteen: Start again, from the same read.
+    await page.getByTestId('quick-seed-count-Contact').fill('5');
+    await expect(refused).toHaveCount(0);
+    await expect(page.getByTestId('seed-automation-emails-SingleEmail')).toHaveText(
+      'Single emails these records make DevSandbox send: about 15, with 15 of 15 left today.',
+    );
+    await expect(page.getByTestId('btn-quick-seed-start')).toBeEnabled();
+    expect((await bridge.getMessages('seed:automation')).length).toBe(reads);
+  });
+
+  test('says a read that failed, holds nothing back, and reads again when asked', async ({
+    page,
+  }) => {
+    const bridge = await openSeedStart(page);
+    await page
+      .getByTestId('template-card-prebuilt-crm-starter')
+      .getByTestId('btn-use-template')
+      .click();
+    await bridge.waitForMessage('seed:automation', { timeout: 10_000 });
+    await respondToAll(page, 'seed:automation', 'seed:automation:error', {
+      message: 'INVALID_SESSION_ID',
+      code: 'UNKNOWN',
+      retryable: true,
+    });
+    await expect(page.getByTestId('seed-automation-unread')).toContainText('INVALID_SESSION_ID');
+    await expect(page.getByTestId('btn-quick-seed-start')).toBeEnabled();
+    const reads = (await bridge.getMessages('seed:automation')).length;
+
+    await page.getByTestId('seed-automation-read-again').click();
+    await expect(page.getByTestId('seed-automation-reading')).toBeVisible();
+    await expect
+      .poll(async () => (await bridge.getMessages('seed:automation')).length)
+      .toBe(reads + 1);
+  });
+});
+
 test.describe('Seed — the objects of the wizard', () => {
   test('pins the common objects, finds one by name, and offers the parent of a child ticked', async ({
     page,

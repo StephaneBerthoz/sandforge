@@ -82,10 +82,21 @@ let mockExecuteSeedState = {
   reset: mockExecuteSeedReset,
 };
 
+/** What `seed:automation` answered: what the org runs as the wizard's records are created. */
+let mockAutomationState = {
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  refetch: vi.fn(),
+};
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'seed:describe-global') {
       return mockDescribeGlobalState;
+    }
+    if (type === 'seed:automation') {
+      return mockAutomationState;
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -384,6 +395,7 @@ describe('SeedPage', () => {
       error: null,
       reset: mockExecuteSeedReset,
     };
+    mockAutomationState = { data: null, loading: false, error: null, refetch: vi.fn() };
   });
 
   it('should show empty state when no orgs', () => {
@@ -746,6 +758,76 @@ describe('SeedPage', () => {
       const contact = sent.objects.find((o) => o.objectApiName === 'Contact');
       expect(contact?.recordCount).toBe(300);
       expect(contact?.fieldRules.map((r) => r.fieldApiName)).toEqual(['LastName']);
+    });
+
+    it('says on the execute step what the org runs, and holds the run past the emails it has left', () => {
+      // Each contact makes the org send two single emails, fifteen left today:
+      // the 100 contacts the wizard plans would take it past them.
+      mockAutomationState = {
+        ...mockAutomationState,
+        data: {
+          orgId: 'org-1',
+          objects: THREE,
+          preview: {
+            org: 'Dev Sandbox',
+            objectsRead: THREE,
+            objects: [
+              {
+                objectApiName: 'Contact',
+                entries: [
+                  {
+                    kind: 'flow',
+                    name: 'Welcome Email',
+                    when: 'after',
+                    emails: 2,
+                    messages: [],
+                    creates: [],
+                    afterCommit: false,
+                    bypasses: [],
+                    keptQuiet: false,
+                    unread: false,
+                  },
+                ],
+              },
+            ],
+            emailsPerRecord: [
+              {
+                objectApiName: 'Contact',
+                limit: 'SingleEmail',
+                perRecord: 2,
+                sentBy: ['Welcome Email'],
+              },
+            ],
+            limits: { SingleEmail: { max: 15, remaining: 15 } },
+            alertsAsSingle: true,
+            bypasses: [],
+            bypassesHeld: [],
+            unread: [],
+            blinded: false,
+            conditionsNotRead: 0,
+          },
+        },
+      };
+      const { rerender } = pickAndMoveOn(THREE);
+      for (const name of THREE) answerDescribe(rerender, name, THREE_OBJECT_DESCRIBES[name]);
+
+      expect(screen.getByTestId('seed-automation-entry-Contact-Welcome Email')).toBeDefined();
+      expect(screen.getByRole('alert').textContent).toContain(
+        'about 200, with 15 of 15 left today',
+      );
+      expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).toBe('true');
+
+      // Seven contacts send fourteen: the run may go.
+      fireEvent.click(screen.getByTestId('seed-wizard-back'));
+      fireEvent.click(screen.getByTestId('seed-wizard-back'));
+      fireEvent.change(screen.getByTestId('volume-Contact'), { target: { value: '7' } });
+      fireEvent.click(screen.getByTestId('seed-wizard-next'));
+      expect(screen.getByTestId('seed-step-execute-content')).toBeDefined();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByTestId('seed-automation-emails-SingleEmail').textContent).toContain(
+        'about 14, with 15 of 15 left today',
+      );
+      expect(screen.getByTestId('seed-wizard-next').getAttribute('aria-disabled')).not.toBe('true');
     });
 
     it('says why the fields could not be read, and asks again on Retry', () => {

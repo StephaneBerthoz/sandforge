@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { SeedTemplate } from '@sandforge/shared';
+import type { ForgeTargetAutomation, SeedTemplate } from '@sandforge/shared';
 import { childrenPerParent } from '@sandforge/shared';
 import {
   accountKindOfRecordTypes,
@@ -9,6 +9,7 @@ import {
   recordTypeChoiceLine,
   recordTypeRule,
   rulesFromDescribe,
+  seedAutomationCheck,
   seedOrchestrator,
   seededRandom,
   storageLine,
@@ -236,6 +237,85 @@ describe('storage line', () => {
     ).toBe(
       'data storage: about 1 MB to write; what my-dev-org has left could not be read (API_DISABLED)',
     );
+  });
+});
+
+describe('the target automation and its emails, before the first write', () => {
+  /** A contact flow of the target that emails each contact twice unless its user holds the bypass. */
+  const automation = (objects: readonly string[]): ForgeTargetAutomation => ({
+    objectsRead: [...objects],
+    objects: [
+      {
+        objectApiName: 'Contact',
+        flows: [
+          {
+            apiName: 'Welcome_Email',
+            label: 'Welcome Email',
+            timing: 'afterSave',
+            startsOn: 'create',
+            condition: 'read',
+            permissions: [{ name: 'Trap_Bypass_Flow', bypass: true, held: false }],
+            paths: [{ kind: 'async' }],
+            messages: [
+              { kind: 'email', name: 'Send Welcome Email', limit: 'SingleEmail' },
+              { kind: 'email', name: 'Send Follow Up Email', limit: 'SingleEmail' },
+            ],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 6,
+  });
+  const objects = [
+    { objectApiName: 'Account', recordCount: 25 },
+    { objectApiName: 'Contact', recordCount: 75 },
+  ];
+
+  it('says what fires as the records are created, and refuses a run past the emails left today', async () => {
+    const readLimits = vi.fn(async () => ({ SingleEmail: { max: 15, remaining: 15 } }));
+    const check = await seedAutomationCheck({
+      target: 'TGT',
+      objects,
+      readAutomation: async (names) => automation(names),
+      readLimits,
+    });
+
+    expect(check.lines).toEqual([
+      'target automation: what TGT runs as these records are created',
+      '  Contact: flow "Welcome Email" (after save; 2 email(s) a record; then after commit; not ' +
+        'for a user with Trap_Bypass_Flow (not held))',
+      '  bypass: Trap_Bypass_Flow keeps quiet what names it; no permission set of TGT was found ' +
+        'to hold it',
+      '  emails: these records make TGT send about 150 single emails (2 per Contact, by Welcome ' +
+        'Email), more than the 15 of 15 it has left today: past them the action fails, and a ' +
+        'record whose flow fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER). A bypass ' +
+        'that keeps the flow quiet, or a smaller run, avoids it',
+    ]);
+    expect(check.gate.refusal).toMatch(
+      /^The seed was refused before it wrote anything: its records would make TGT send about 150 single emails/,
+    );
+  });
+
+  it('lets a run through, and says why, when the automation could not be read', async () => {
+    const check = await seedAutomationCheck({
+      target: 'TGT',
+      objects,
+      readAutomation: async () => {
+        throw new Error('INVALID_SESSION_ID');
+      },
+      readLimits: async () => ({}),
+    });
+    expect(check.gate.refusal).toBeUndefined();
+    expect(check.lines).toEqual([
+      'target automation: what TGT runs as these records are created could not be read ' +
+        '(INVALID_SESSION_ID): the emails they make it send are not known',
+      '  emails: what TGT runs as these records are created could not be read ' +
+        '(INVALID_SESSION_ID): the emails they make it send are not known',
+    ]);
   });
 });
 

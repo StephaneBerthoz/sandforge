@@ -13,6 +13,8 @@ import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { SeedResultErrors } from './SeedResultErrors';
 import { SeedOpenRecord } from './SeedOpenRecord';
+import { SeedAutomationNotice } from './SeedAutomationNotice';
+import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
 import type { QuickSeedState } from './useQuickSeed';
 import { typedCount, templateWithCounts } from './templateCounts';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -61,6 +63,16 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
   );
   const runOrg = orgs.find((org) => org.id === quickSeed.selectedOrgId);
   const runOrgName = runOrg ? runOrg.alias || runOrg.username : '';
+  // What the org runs as the records are created, read once per org and
+  // template: a count changed is counted from the same read.
+  const automation = useSeedAutomation(
+    quickSeed.phase === 'confirm' ? quickSeed.selectedOrgId : '',
+    template ? template.objects.map((obj) => obj.objectApiName) : [],
+  );
+  const records = Object.fromEntries(
+    written.map((obj) => [obj.objectApiName, countOf(obj.objectApiName, obj.recordCount)]),
+  );
+  const refused = refusedForEmails(automation, records);
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-flow">
@@ -119,6 +131,14 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 data-testid="quick-seed-org-selector"
               />
 
+              {quickSeed.selectedOrgId && written.length > 0 && (
+                <SeedAutomationNotice
+                  automation={automation}
+                  orgName={runOrgName}
+                  records={records}
+                />
+              )}
+
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
@@ -131,7 +151,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 <Button
                   variant="primary"
                   size="sm"
-                  disabled={!quickSeed.selectedOrgId || written.length === 0}
+                  disabled={!quickSeed.selectedOrgId || written.length === 0 || refused}
                   onClick={quickSeed.execute}
                   data-testid="btn-quick-seed-start"
                 >

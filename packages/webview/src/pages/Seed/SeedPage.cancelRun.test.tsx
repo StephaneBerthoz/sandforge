@@ -57,6 +57,8 @@ vi.mock('./useSeedWizardState', () => ({
     canGoNext: false,
     isFinished: false,
     selectedOrg: undefined,
+    selectedOrgId: '',
+    selectedObjects: [],
     error: null,
     setError: vi.fn(),
     isRunning: mockIsRunning,

@@ -62,7 +62,12 @@
       "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
       "orgAuthExpired": "Die Sitzung mit dieser Org ist abgelaufen und konnte nicht erneuert werden. Verbinden Sie sie auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte).",
-      "orgTemporarilyUnreachable": "Diese Org ist mehrmals hintereinander fehlgeschlagen, daher wartet SandForge einen Moment, bevor es sie erneut aufruft. Versuchen Sie es in einer Minute erneut."
+      "orgTemporarilyUnreachable": "Diese Org ist mehrmals hintereinander fehlgeschlagen, daher wartet SandForge einen Moment, bevor es sie erneut aufruft. Versuchen Sie es in einer Minute erneut.",
+      "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält."
+    },
+    "list": {
+      "separator": ", ",
+      "and": " und "
     }
   },
   "status": {
@@ -981,7 +986,49 @@
     "commonObjects": "Häufige Objekte",
     "otherObjects": "Alle anderen Objekte",
     "parentSuggestion": "{{child}}-Datensätze hängen an {{parent}}, das dieser Lauf nicht befüllt.",
-    "addParent": "{{parent}} hinzufügen"
+    "addParent": "{{parent}} hinzufügen",
+    "automation": {
+      "title": "Was {{org}} beim Anlegen dieser Datensätze ausführt",
+      "reading": "Lese, was {{org}} beim Anlegen dieser Datensätze ausführt…",
+      "readFailed": "Was {{org}} beim Anlegen dieser Datensätze ausführt, konnte nicht gelesen werden ({{error}}). Der Seed wird nicht aufgehalten, aber die E-Mails, die er die Org senden lässt, sind nicht bekannt.",
+      "readAgain": "Erneut lesen",
+      "nothing": "In {{org}} läuft beim Anlegen dieser Datensätze nichts: kein Flow, kein Apex-Trigger, kein Prozess und keine Workflow-Regel.",
+      "nothingFound": "In dem, was von {{org}} gelesen werden konnte, wurde nichts gefunden.",
+      "partUnread": "Ein Teil dessen, was {{org}} ausführt, konnte nicht gelesen werden ({{reasons}}): Was dort gesendet wird, ist womöglich nicht mitgezählt.",
+      "conditionsNotRead": "Einige Startbedingungen von {{org}} wurden nicht gelesen: Was diese Flows senden, ist nicht mitgezählt.",
+      "kind": {
+        "flow": "Flow",
+        "trigger": "Apex-Trigger",
+        "process": "Prozess",
+        "workflowRule": "Workflow-Regel"
+      },
+      "entry": "{{kind}} „{{name}}“",
+      "quoted": "„{{name}}“",
+      "emailsPerRecord_one": "{{count}} E-Mail pro Datensatz",
+      "emailsPerRecord_other": "{{count}} E-Mails pro Datensatz",
+      "notifications": "sendet benutzerdefinierte Benachrichtigungen",
+      "outbound": "sendet ausgehende Nachrichten",
+      "sms": "sendet SMS",
+      "creates": "legt {{objects}} an",
+      "afterCommit": "läuft auch nach dem Speichern",
+      "notForHolder": "nicht für einen Benutzer mit {{permission}}",
+      "quietForYou": "für diesen Seed still: Sie haben {{permission}}",
+      "notRead": "nicht gelesen",
+      "bypassSet": "Ihnen zugewiesen, hält {{permission}} still, was sie nennt: Der Berechtigungssatz {{set}} enthält sie.",
+      "bypassNoSet": "Ihnen zugewiesen, hält {{permission}} still, was sie nennt: In {{org}} wurde kein Berechtigungssatz gefunden, der sie enthält.",
+      "bypassHeld": "Sie haben {{permissions}}: Was sie nennt, bleibt für diesen Seed still.",
+      "alertsAsSingle": "{{org}} zählt seine E-Mail-Benachrichtigungen auch gegen seine Einzel-E-Mails, wie eine Developer Edition.",
+      "limit": {
+        "single": "Einzel-E-Mails",
+        "workflow": "Workflow-E-Mails"
+      },
+      "emailsFit": "{{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden.",
+      "emailsUnread": "{{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}. Was heute noch übrig ist, konnte nicht gelesen werden ({{reason}}): Der Seed wird nicht aufgehalten.",
+      "refused": "Der Seed würde abgelehnt, bevor er etwas schreibt. {{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Sind sie aufgebraucht, lehnt ein Flow, der beim Speichern sendet, seinen Datensatz ab, und die eigenen E-Mails der Org stehen für den Rest des Tages still.",
+      "waysOut": "Um ihn auszuführen, verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0 oder schalten Sie {{senders}} ab.",
+      "wayBypass": "Oder weisen Sie sich den Berechtigungssatz {{set}} zu: Seine {{permission}} hält {{senders}} still.",
+      "wayBypassNoSet": "Oder weisen Sie sich einen Berechtigungssatz zu, der {{permission}} enthält und {{senders}} still hält."
+    }
   },
   "sync": {
     "title": "Daten synchronisieren",

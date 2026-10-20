@@ -8,6 +8,7 @@ import type {
   CsvValidationResult,
   SeedExecutionResult,
   SeedRecordTypeOption,
+  SeedAutomationPreview,
   SeedRemovalResult,
   SeedRunRemovalInfo,
 } from '../seed.types.js';
@@ -109,6 +110,30 @@ export interface SeedDescribeObjectResponse extends BaseMessage {
  */
 export interface SeedErrorResponse extends BaseMessage {
   type: 'seed:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `seed:automation`. WebView -> Extension. What an org runs as a seed creates
+ * the records of the given objects — its flows, Apex triggers, processes and
+ * workflow rules, what of them sends emails or creates records, the bypasses
+ * their start conditions name — and what it has left today of its daily email
+ * limits. Read only, for the confirmation before Start.
+ */
+export interface SeedAutomationRequest extends BaseMessage {
+  type: 'seed:automation';
+  payload: { orgId: string; objects: string[] };
+}
+
+/** `seed:automation:response`. Extension -> WebView. The org and the objects asked about, and what was read. */
+export interface SeedAutomationResponse extends BaseMessage {
+  type: 'seed:automation:response';
+  payload: { orgId: string; objects: string[]; preview: SeedAutomationPreview };
+}
+
+/** `seed:automation:error`. Extension -> WebView. The read could not run at all. */
+export interface SeedAutomationErrorResponse extends BaseMessage {
+  type: 'seed:automation:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

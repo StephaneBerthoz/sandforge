@@ -18,8 +18,8 @@
             <type>Alert</type>
         </actions>
         <active>true</active>
-        <description>A legacy workflow rule that emails every contact created with an email, as older client orgs still run.</description>
-        <formula>NOT(ISBLANK(Email))</formula>
+        <description>A legacy workflow rule that emails every contact created with an email, as older client orgs still run, quiet for a holder of Trap_Bypass_Flow: a Developer Edition counts its alert against the fifteen single emails of the day.</description>
+        <formula>AND(NOT(ISBLANK(Email)), NOT($Permission.Trap_Bypass_Flow))</formula>
         <triggerType>onCreateOnly</triggerType>
     </rules>
 </Workflow>

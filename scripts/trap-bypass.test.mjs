@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   BYPASS_SET,
   LEASE_MINUTES,
@@ -440,4 +443,42 @@ test('the command line refuses a missing run, a bad duration and an org that is 
   const production = { ...fakeOrg(), isDeveloperEdition: () => false };
   assert.equal(main(['release', 'session-a'], production, io), 1);
   assert.match(said.at(-1), /does not answer as a Developer Edition/);
+});
+
+test('everything of the trap that emails a new contact is quiet for a holder of the set the lease assigns', () => {
+  // A seed of 75 contacts under a lease left the trap at -60 of its fifteen
+  // single emails: its flow was quiet, and its workflow rule, which named no
+  // bypass, emailed each contact, an alert the Developer Edition counted
+  // against its single emails.
+  const fixture = fileURLToPath(new URL('../test/fixtures/trap-org/target/', import.meta.url));
+  const read = (path) => readFileSync(join(fixture, path), 'utf8');
+  const blocks = (xml, tag) => [...xml.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g'))];
+  const quiet = /NOT\(\{?!?\$Permission\.Trap_Bypass_Flow\}?\)/;
+
+  const set = read(`main/default/permissionsets/${BYPASS_SET}.permissionset-meta.xml`);
+  assert.ok(
+    blocks(set, 'customPermissions').some(([, body]) =>
+      /<name>Trap_Bypass_Flow<\/name>/.test(body),
+    ),
+  );
+
+  const flowsDir = join(fixture, 'main/default/flows');
+  const senders = readdirSync(flowsDir)
+    .map((file) => readFileSync(join(flowsDir, file), 'utf8'))
+    .filter(
+      (xml) =>
+        /<object>Contact<\/object>/.test(xml) &&
+        /<recordTriggerType>Create(AndUpdate)?<\/recordTriggerType>/.test(xml) &&
+        /<actionType>email(Simple|Alert)<\/actionType>/.test(xml),
+    );
+  assert.equal(senders.length, 1);
+  for (const xml of senders) {
+    assert.match(blocks(xml, 'filterFormula')[0]?.[1] ?? '', quiet);
+  }
+
+  const rules = blocks(read('legacy/workflows/Contact.workflow-meta.xml'), 'rules').filter(
+    ([, body]) => /<type>Alert<\/type>/.test(body),
+  );
+  assert.equal(rules.length, 1);
+  for (const [, body] of rules) assert.match(blocks(body, 'formula')[0]?.[1] ?? '', quiet);
 });

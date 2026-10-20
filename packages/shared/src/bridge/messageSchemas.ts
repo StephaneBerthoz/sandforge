@@ -91,6 +91,10 @@ const SeedMessages = [
   msg('seed:open-record'),
   msg('seed:open-record:response'),
   msg('seed:open-record:error'),
+  // What the target runs as a seed creates its records, read before Start.
+  msg('seed:automation'),
+  msg('seed:automation:response'),
+  msg('seed:automation:error'),
   msg('seed:template:save'),
   msg('seed:template:load'),
   msg('seed:template:list'),
