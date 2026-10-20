@@ -287,7 +287,7 @@ describe('OrgRegistry', () => {
         // startupValidation classifies on this exact pattern: a stuck keyring
         // must land on 'error', never on 'expired' ("re-authenticate" would be
         // the wrong advice — the token was never even read).
-        expect(/Authentication expired|No credentials/.test(message)).toBe(false);
+        expect(/^ORG_AUTH_EXPIRED:|No credentials/.test(message)).toBe(false);
       } finally {
         vi.useRealTimers();
       }

@@ -435,13 +435,32 @@ describe('OrgManagerPage', () => {
   });
 
   describe('JWT and device flow cards', () => {
+    it('keeps JWT and the device flow under More methods until asked for', () => {
+      // Both need a connected app of the user's own, and sat at the weight of
+      // the two ways that need nothing.
+      render(<OrgManagerPage />);
+      expect(screen.queryByTestId('org-auth-jwt')).toBeNull();
+      expect(screen.queryByTestId('org-auth-oauth_device')).toBeNull();
+      expect(screen.getByTestId('org-auth-sfdx_import')).toBeDefined();
+      expect(screen.getByTestId('org-auth-oauth_web')).toBeDefined();
+
+      const more = screen.getByTestId('org-auth-more');
+      expect(more.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(more);
+
+      expect(more.getAttribute('aria-expanded')).toBe('true');
+      expect(screen.getByTestId('org-auth-jwt')).toBeDefined();
+      expect(screen.getByTestId('org-auth-oauth_device')).toBeDefined();
+    });
+
     it.each([
       ['jwt', 'Log in with your own app'],
       ['oauth_device', 'Log in with a code you approve in a browser'],
     ])(
-      'should offer %s like the other methods, with a tooltip saying what it does',
+      'should offer %s under More methods, with a tooltip saying what it does',
       (method, tooltip) => {
         render(<OrgManagerPage />);
+        fireEvent.click(screen.getByTestId('org-auth-more'));
         const card = screen.getByTestId(`org-auth-${method}`);
 
         expect(card.getAttribute('aria-disabled')).toBeNull();
@@ -458,6 +477,7 @@ describe('OrgManagerPage', () => {
     it('names the button that closes the method panel', () => {
       // An icon-only X: announced as "button" and nothing else.
       render(<OrgManagerPage />);
+      fireEvent.click(screen.getByTestId('org-auth-more'));
       fireEvent.click(screen.getByTestId('org-auth-jwt'));
       const panel = screen.getByTestId('org-inline-form');
       expect(within(panel).getByRole('button', { name: 'Close' })).toBeDefined();

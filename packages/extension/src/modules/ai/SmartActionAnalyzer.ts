@@ -8,6 +8,24 @@ import type {
 /** Standard objects queried for smart action analysis. */
 const STANDARD_OBJECTS = ['Account', 'Contact', 'Opportunity', 'Case', 'Lead'] as const;
 
+/**
+ * Below this many records of every one of the five objects, an org is one to
+ * fill.
+ *
+ * Quick Seed was recommended only to an org holding none at all, and no new
+ * org is such an org: a Developer Edition, a Trailhead playground and a
+ * scratch org made with sample data each come with a dozen accounts and a
+ * few dozen contacts, opportunities, cases and leads. The org SandForge is
+ * for, the one Salesforce gives away, never got the recommendation; an org
+ * holding a working set of any one of the five still does not.
+ */
+export const SAMPLE_DATA_CEILING = 50;
+
+/** Whether an org holds no more than sample data: under the ceiling on every object. */
+function holdsSampleDataAtMost(counts: OrgRecordCounts): boolean {
+  return Object.values(counts).every((count) => count < SAMPLE_DATA_CEILING);
+}
+
 /** Dependencies injected into SmartActionAnalyzer. */
 export interface SmartActionAnalyzerDeps {
   /** Retrieves a jsforce Connection for the given org ID. */
@@ -98,28 +116,33 @@ export class SmartActionAnalyzer {
     sourceCounts?: OrgRecordCounts,
   ): SmartActionRecommendation {
     const targetTotal = Object.values(targetCounts).reduce((sum: number, c: number) => sum + c, 0);
-    const sourceTotal = sourceCounts
-      ? Object.values(sourceCounts).reduce((sum: number, c: number) => sum + c, 0)
-      : 0;
 
-    const targetAllZero = targetTotal === 0;
-    const sourceHasData = sourceTotal > 0;
+    const targetToFill = holdsSampleDataAtMost(targetCounts);
+    // A source holding sample data at most has nothing a template does not
+    // write better: two new Developer Edition orgs get Quick Seed, not a clone
+    // of one's sample records into the other.
+    const sourceHasData = sourceCounts !== undefined && !holdsSampleDataAtMost(sourceCounts);
 
     let action: SmartActionType = 'none';
     let confidence = 0;
     let reason = '';
     let reasonKey = '';
 
-    if (targetAllZero && sourceHasData && sourceOrgId) {
+    if (targetToFill && sourceHasData && sourceOrgId) {
       action = 'clone';
       confidence = 0.85;
       reason = 'Source org has data — clone it to your target';
       reasonKey = 'home.smartAction.reasonClone';
-    } else if (targetAllZero) {
+    } else if (targetToFill && targetTotal === 0) {
       action = 'quick-seed';
       confidence = 0.9;
       reason = 'Your sandbox is empty — seed it with demo data';
       reasonKey = 'home.smartAction.reasonEmpty';
+    } else if (targetToFill) {
+      action = 'quick-seed';
+      confidence = 0.85;
+      reason = 'Your org holds only a few sample records — fill it with demo data';
+      reasonKey = 'home.smartAction.reasonSampleOnly';
     } else if (sourceHasData && sourceOrgId) {
       action = 'sync';
       confidence = 0.7;

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { OrgPageAction } from '@sandforge/shared';
 
 /** Available module routes for webview navigation */
 export type ModuleRoute =
@@ -56,6 +57,13 @@ export interface NavigationIntent {
   sourceOrgId?: string;
   /** Org to write to (clone target, sync target). */
   targetOrgId?: string;
+  /**
+   * What Organizations starts as it opens: an import from the Salesforce CLI
+   * or the browser sign-in, asked by the launcher's first card.
+   */
+  orgAction?: OrgPageAction;
+  /** Org whose Reconnect Organizations runs as it opens: one whose session expired mid-run. */
+  reconnectOrgId?: string;
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */
@@ -72,6 +80,11 @@ export interface AppState {
   aiAvailable: boolean;
   /** Whether VS Code shows this panel; a hidden one keeps running. */
   panelVisible: boolean;
+  /**
+   * Whether `sandforge.grappe.enabled` is on: Home offers Grappe only then,
+   * an empty page otherwise.
+   */
+  grappeEnabled: boolean;
   navigate: (route: ModuleRoute, intent?: Omit<NavigationIntent, 'route'>) => void;
   /** Called by the page that read the intent, so a later visit opens normally. */
   clearNavigationIntent: () => void;
@@ -83,6 +96,7 @@ export interface AppState {
   setShowWhatsNew: (show: boolean, version?: string) => void;
   setAiAvailable: (available: boolean) => void;
   setPanelVisible: (visible: boolean) => void;
+  setGrappeEnabled: (enabled: boolean) => void;
 }
 
 /** Zustand store for application-level state */
@@ -97,6 +111,7 @@ export const useAppStore = create<AppState>((set) => ({
   whatsNewVersion: '',
   aiAvailable: false,
   panelVisible: true,
+  grappeEnabled: false,
 
   navigate(route: ModuleRoute, intent?: Omit<NavigationIntent, 'route'>): void {
     set({ currentRoute: route, navigationIntent: intent ? { route, ...intent } : null });
@@ -136,5 +151,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   setPanelVisible(visible: boolean): void {
     set({ panelVisible: visible });
+  },
+
+  setGrappeEnabled(enabled: boolean): void {
+    set({ grappeEnabled: enabled });
   },
 }));

@@ -40,6 +40,16 @@ vi.mock('../../stores/useAppStore', () => ({
   ) => selector({ navigate: mockNavigate, setShowWelcome: mockSetShowWelcome }),
 }));
 
+/* The orgs the tour reads: the selected one decides its last suggestion, and
+   the org Seed opens on. */
+const mockOrgState = vi.hoisted(() => ({
+  orgs: [] as Array<{ id: string; status: string; orgType: string }>,
+  selectedOrgId: null as string | null,
+}));
+vi.mock('../../stores/useOrgStore', () => ({
+  useOrgStore: (selector: (s: typeof mockOrgState) => unknown) => selector(mockOrgState),
+}));
+
 /* In-memory mock of the webview state persistence layer. */
 const mockPersistedState = vi.hoisted(() => {
   const store: Record<string, string> = {};
@@ -73,6 +83,8 @@ describe('WelcomePage', () => {
     mockChangeLanguageLazy.mockResolvedValue(true);
     mockSendBridgeMessage.mockClear();
     mockPersistedState.reset();
+    mockOrgState.orgs = [];
+    mockOrgState.selectedOrgId = null;
   });
 
   it('should render the welcome page', () => {
@@ -144,16 +156,13 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('welcome-step-1')).toBeDefined();
   });
 
-  it('opens the org manager from step 1 without marking onboarding complete', () => {
+  it('leaves the tour for the org manager from step 1', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('onboarding.connectOrg'));
 
     expect(mockNavigate).toHaveBeenCalledWith('orgs');
-    // The wizard steps aside so the org manager is reachable, but four steps
-    // were never seen: completing here would stop it for good.
-    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
-    expect(onComplete).not.toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalledOnce();
   });
 
   it('should navigate from step 1 to step 2', () => {
@@ -217,54 +226,36 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('welcome-step-bienvenue')).toBeDefined();
   });
 
-  it('should persist dont-show-again in the webview state when completing', () => {
+  it('offers no "Don\'t show again" box: the tour opens when Help asks for it', () => {
+    // A box ticked on an earlier run made Help → Start Guided Tour open nothing.
+    mockPersistedState.store['sandforge-welcome-dont-show'] = 'true';
     render(<WelcomePage onComplete={onComplete} orgType="production" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    // Check dont show again
-    fireEvent.click(screen.getByTestId('dont-show-again'));
-    // Click finish
-    fireEvent.click(screen.getByText('onboarding.openMonitor'));
-    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBe('true');
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+
+    expect(screen.getByTestId('welcome-step-4')).toBeDefined();
+    expect(screen.queryByTestId('dont-show-again')).toBeNull();
+    expect(onComplete).not.toHaveBeenCalled();
   });
 
-  it('saves dont-show-again when the overlay skips the wizard through its handle', () => {
+  it('leaves the tour when the overlay skips it through its handle, as Escape does', () => {
     const handle = createRef<WelcomePageHandle>();
-    render(<WelcomePage ref={handle} onComplete={onComplete} orgType="production" />);
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByTestId('dont-show-again'));
+    render(<WelcomePage ref={handle} onComplete={onComplete} />);
 
     act(() => handle.current?.skip());
 
-    expect(handle.current).not.toBeNull();
-    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBe('true');
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('should not persist when dont-show-again is unchecked', () => {
-    render(<WelcomePage onComplete={onComplete} orgType="production" />);
-    // Navigate to step 4
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('common.next'));
-    // Click finish without checking dont show
-    fireEvent.click(screen.getByText('onboarding.openMonitor'));
-    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBeUndefined();
-  });
-
-  it('should complete immediately and render nothing when dont-show-again was persisted', () => {
-    mockPersistedState.store['sandforge-welcome-dont-show'] = 'true';
+  it('suggests Monitor when the selected org is a production org, with no org type passed', () => {
+    mockOrgState.orgs = [{ id: 'prod', status: 'connected', orgType: 'Production' }];
+    mockOrgState.selectedOrgId = 'prod';
     render(<WelcomePage onComplete={onComplete} />);
-    expect(onComplete).toHaveBeenCalledOnce();
-    expect(screen.queryByTestId('welcome-page')).toBeNull();
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+
+    // Nothing passed the org type: this branch was never shown.
+    expect(screen.getByText('onboarding.suggestMonitor')).toBeDefined();
+    expect(screen.queryByTestId('welcome-open-seed-btn')).toBeNull();
   });
 
   it('should navigate to seed from step 4 for sandbox org type', () => {
@@ -276,7 +267,26 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('onboarding.openSeed'));
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(mockNavigate).toHaveBeenCalledWith('seed');
+    expect(mockNavigate).toHaveBeenCalledWith('seed', {
+      seedMode: 'quick-seed',
+      targetOrgId: undefined,
+    });
+  });
+
+  it('opens Seed on its gallery with the org to fill preselected', () => {
+    mockOrgState.orgs = [
+      { id: 'prod', status: 'connected', orgType: 'Production' },
+      { id: 'dev', status: 'connected', orgType: 'Developer' },
+    ];
+    mockOrgState.selectedOrgId = 'dev';
+    render(<WelcomePage onComplete={onComplete} />);
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByTestId('welcome-open-seed-btn'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('seed', {
+      seedMode: 'quick-seed',
+      targetOrgId: 'dev',
+    });
   });
 
   it('should navigate to sync from step 4 for sandbox org type', () => {
@@ -331,38 +341,26 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('path-card-frozen')).toBeDefined();
   });
 
-  it('opens Forge from its path card without marking onboarding complete', () => {
+  it('leaves the tour for Forge from its path card', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('common.next')); // 1 -> 2
     fireEvent.click(screen.getByTestId('welcome-open-forge-btn'));
     expect(mockNavigate).toHaveBeenCalledWith('forge');
-    // Steps 3 and 4 are still unseen, like the four a step-1 exit leaves:
-    // completing here would stop the wizard for good.
-    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
-    expect(onComplete).not.toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalledOnce();
   });
 
-  it('opens Seed from its path card without marking onboarding complete', () => {
+  it('opens Seed on its gallery from its path card', () => {
+    mockOrgState.orgs = [{ id: 'sbx', status: 'connected', orgType: 'Sandbox' }];
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('common.next')); // 1 -> 2
     fireEvent.click(screen.getByTestId('welcome-open-seed-btn'));
-    expect(mockNavigate).toHaveBeenCalledWith('seed');
-    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
-    expect(onComplete).not.toHaveBeenCalled();
-  });
-
-  it('completes onboarding from a path card once "Don\'t show again" is ticked', () => {
-    render(<WelcomePage onComplete={onComplete} orgType="production" />);
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next')); // 0 -> 4
-    fireEvent.click(screen.getByTestId('dont-show-again'));
-    fireEvent.click(screen.getByText('common.back')); // 4 -> 3
-    fireEvent.click(screen.getByText('common.back')); // 3 -> 2
-    fireEvent.click(screen.getByTestId('welcome-open-forge-btn'));
-    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBe('true');
+    expect(mockNavigate).toHaveBeenCalledWith('seed', {
+      seedMode: 'quick-seed',
+      targetOrgId: 'sbx',
+    });
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(mockNavigate).toHaveBeenCalledWith('forge');
   });
 
   it('should persist the chosen language into the extension settings blob', async () => {
@@ -414,14 +412,13 @@ describe('WelcomePage', () => {
     expect(banner.textContent).toContain('settings.languageLoadFailed');
   });
 
-  it('opens Frozen from its path card without marking onboarding complete', () => {
+  it('leaves the tour for Frozen from its path card', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('common.next')); // 1 -> 2
     fireEvent.click(screen.getByTestId('welcome-open-frozen-btn'));
     expect(mockNavigate).toHaveBeenCalledWith('frozen');
-    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
-    expect(onComplete).not.toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalledOnce();
   });
 });
 

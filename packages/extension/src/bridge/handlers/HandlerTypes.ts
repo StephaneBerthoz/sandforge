@@ -7,6 +7,7 @@ import type {
 } from '@sandforge/shared';
 import { DEFAULT_GRAPPE_CONFIG, DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
+import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
 import { hasKnownResolution, resolveKnownError } from '../../core/common/errorKnowledgeBase.js';
 import type { ErrorResolver, OperationContext } from '../../modules/ai/ErrorResolver.js';
 import type { MessageBroker } from '../MessageBroker.js';
@@ -497,6 +498,10 @@ export function sendHandlerError(
   options: HandlerErrorOptions = {},
 ): void {
   const message = extractErrorMessage(err);
+  // A connection failure carries its own code and org, so every module's
+  // error names them without each handler having to: the panel words the
+  // code and offers Reconnect on the org where the run failed.
+  const connection = err instanceof OrgConnectionError ? err : undefined;
   const orphan = UNCORRELATED in origin;
   deps.log(
     `[ERR] ${context}: ${message}${orphan ? ` (uncorrelated: ${String(origin.reason)})` : ''}`,
@@ -512,8 +517,9 @@ export function sendHandlerError(
     ...(orphan ? {} : { correlationId: origin.id }),
     payload: {
       message,
-      code: options.code ?? 'UNKNOWN',
+      code: options.code ?? connection?.code ?? 'UNKNOWN',
       retryable: options.retryable ?? false,
+      ...(connection ? { orgId: connection.orgId } : {}),
       ...options.extraPayload,
     },
   };

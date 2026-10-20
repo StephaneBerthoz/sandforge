@@ -1,6 +1,17 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plug, Download, Globe, Smartphone, Key, UserCircle, Loader2, X } from 'lucide-react';
+import {
+  Plug,
+  Download,
+  Globe,
+  Smartphone,
+  Key,
+  UserCircle,
+  Loader2,
+  X,
+  ChevronDown,
+  CheckCircle,
+} from 'lucide-react';
 import type { SalesforceOrg, AuthMethod, BaseMessage, OrgDeviceCode } from '@sandforge/shared';
 import {
   SF_CLI_INSTALL_URL,
@@ -9,6 +20,7 @@ import {
 } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -22,6 +34,7 @@ import { OrgCard } from './OrgCard';
 import { OrgEditDialog } from './OrgEditDialog';
 import type { OrgEditPayload } from './OrgEditDialog';
 import { DeviceCodePanel } from './DeviceCodePanel';
+import { canFill, orgToFill } from '../../utils/orgToFill';
 
 /** What the inline connect form submits for a new org. */
 interface ConnectOrgPayload {
@@ -66,6 +79,12 @@ interface OrgStatusPayload {
   status: string;
 }
 
+/** What the host answers to `org:cli-status`: whether `sf` answers, and how many orgs it holds. */
+interface CliStatusPayload {
+  available: boolean;
+  orgCount: number;
+}
+
 /** What the host answers to `org:open-in-browser`: what the browser did. */
 type OrgOpenOutcome = { status: 'opened' } | { status: 'error'; message: string };
 
@@ -82,6 +101,11 @@ interface AuthMethodCard {
   labelKey: string;
   descKey: string;
   needsForm: boolean;
+  /**
+   * Behind "More methods": JWT and the device flow need a connected app of the
+   * user's own, and sat at the weight of the two that need nothing.
+   */
+  more?: boolean;
 }
 
 /** Available auth methods shown in the banner. */
@@ -113,6 +137,7 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.jwt',
     descKey: 'auth.jwtDesc',
     needsForm: true,
+    more: true,
   },
   {
     method: 'oauth_device',
@@ -120,6 +145,7 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.oauthDevice',
     descKey: 'auth.oauthDeviceDesc',
     needsForm: true,
+    more: true,
   },
 ];
 
@@ -148,6 +174,75 @@ function compareOrgs(a: SalesforceOrg, b: SalesforceOrg): number {
   );
 }
 
+/** Props for ConnectedNextStep. */
+interface ConnectedNextStepProps {
+  /** The org the connection brought in (an import's first). */
+  justConnectedId: string;
+  onDismiss: () => void;
+}
+
+/**
+ * What to do with the org just connected: fill it with demo data, or clone a
+ * record into it from another org. Shown after the page's first connection.
+ */
+const ConnectedNextStep: React.FC<ConnectedNextStepProps> = ({ justConnectedId, onDismiss }) => {
+  const { t } = useTranslation();
+  const orgs = useOrgStore((s) => s.orgs);
+  const navigate = useAppStore((s) => s.navigate);
+  const connected = orgs.filter((org) => org.status === 'connected');
+  const just = connected.find((org) => org.id === justConnectedId) ?? connected[0];
+  if (!just) return null;
+  // The org just connected when it is one to fill; an import's other orgs otherwise.
+  const fill = canFill(just) ? just : orgToFill(connected, null);
+  const name = (org: SalesforceOrg): string => org.alias || org.username;
+
+  return (
+    <section
+      className="rounded-lg border border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-3 flex flex-col gap-2"
+      aria-labelledby="org-connected-next-title"
+      data-testid="org-connected-next"
+    >
+      <div className="flex items-start gap-2">
+        <CheckCircle className="w-4 h-4 text-status-success shrink-0 mt-0.5" aria-hidden="true" />
+        <h2
+          id="org-connected-next-title"
+          className="flex-1 text-sm font-semibold text-text-primary"
+        >
+          {connected.length > 1
+            ? t('org.connectedNext.titleMany', { count: connected.length })
+            : t('org.connectedNext.title', { alias: name(just) })}
+        </h2>
+        <button
+          type="button"
+          className="text-text-secondary hover:text-text-primary transition-colors"
+          onClick={onDismiss}
+          aria-label={t('common.close')}
+          data-testid="org-connected-next-dismiss"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {fill && (
+          <Button
+            onClick={() => navigate('seed', { seedMode: 'quick-seed', targetOrgId: fill.id })}
+            data-testid="org-connected-next-fill"
+          >
+            {t('org.connectedNext.fill', { alias: name(fill) })}
+          </Button>
+        )}
+        <Button
+          variant={fill ? 'secondary' : 'primary'}
+          onClick={() => navigate('forge')}
+          data-testid="org-connected-next-clone"
+        >
+          {t('org.connectedNext.clone')}
+        </Button>
+      </div>
+    </section>
+  );
+};
+
 /** OrgManager page — list, connect, edit, disconnect orgs. */
 export const OrgManagerPage: React.FC = () => {
   const { t } = useTranslation();
@@ -168,6 +263,16 @@ export const OrgManagerPage: React.FC = () => {
   const removeOrg = useOrgStore((s) => s.removeOrg);
 
   const [activeMethod, setActiveMethod] = useState<AuthMethod | null>(null);
+  /** Whether JWT and the device flow are shown, folded under "More methods" until asked for. */
+  const [moreMethodsOpen, setMoreMethodsOpen] = useState(false);
+  /**
+   * The org the first connection of this page brought in, for the card that
+   * says what to do with it; null once dismissed or before. The form used to
+   * collapse on success, and that was all: a list of one card, no next step.
+   */
+  const [justConnectedId, setJustConnectedId] = useState<string | null>(null);
+  /** Whether no org was connected when the attempt under way started. */
+  const firstConnectRef = useRef(false);
   const [search, setSearch] = useState('');
   const [editingOrg, setEditingOrg] = useState<SalesforceOrg | null>(null);
   const [orgPendingDisconnect, setOrgPendingDisconnect] = useState<SalesforceOrg | null>(null);
@@ -194,6 +299,13 @@ export const OrgManagerPage: React.FC = () => {
 
   // Fetch org list on mount via bridge
   const orgListQuery = useBridgeQuery<OrgListPayload>('org:list');
+
+  // Whether the CLI answers, asked as the page opens: two of the ways to
+  // connect run on it, and its absence was found only after a click.
+  const cliStatusQuery = useBridgeQuery<CliStatusPayload>('org:cli-status');
+  const cliMissing = cliStatusQuery.data?.available === false;
+  const cliHoldsNoOrg =
+    cliStatusQuery.data?.available === true && cliStatusQuery.data.orgCount === 0;
 
   useEffect(() => {
     if (orgListQuery.data) {
@@ -278,6 +390,10 @@ export const OrgManagerPage: React.FC = () => {
         clientId: payload.clientId,
         jwtKeyFile: payload.jwtKeyFile,
       };
+      firstConnectRef.current = useOrgStore
+        .getState()
+        .orgs.every((org) => org.status !== 'connected');
+      setJustConnectedId(null);
       // The request that is not starting is cleared, so an earlier failure of
       // one method never sits in the banner above an attempt with the other —
       // and a device sign-in still waiting (the empty state and Reconnect can
@@ -299,14 +415,16 @@ export const OrgManagerPage: React.FC = () => {
   // form and its input open so the error can be read and the attempt retried.
   const connectLoading = connectMutation.loading;
   const connectFailure = connectMutation.error;
+  const connectedOrgId = connectMutation.data?.orgId;
   const prevConnecting = useRef(connectLoading);
   useEffect(() => {
     if (prevConnecting.current && !connectLoading && !connectFailure) {
       setActiveMethod(null);
       resetForm();
+      if (firstConnectRef.current && connectedOrgId) setJustConnectedId(connectedOrgId);
     }
     prevConnecting.current = connectLoading;
-  }, [connectLoading, connectFailure]);
+  }, [connectLoading, connectFailure, connectedOrgId]);
 
   // A device sign-in collapses the form on its answer alone: a cancelled one
   // also stops loading without an error, and must leave the form open.
@@ -315,8 +433,17 @@ export const OrgManagerPage: React.FC = () => {
     if (deviceSignedIn) {
       setActiveMethod(null);
       resetForm();
+      if (firstConnectRef.current) setJustConnectedId(deviceSignedIn.orgId);
     }
   }, [deviceSignedIn]);
+
+  // An import that found no org in the CLI opens the browser sign-in, the
+  // way that needs none: it answered with a terminal command, on the page
+  // whose OAuth (Web) button runs it.
+  const noCliOrgs = connectMutation.errorCode === 'NO_CLI_ORGS';
+  useEffect(() => {
+    if (noCliOrgs) setActiveMethod('oauth_web');
+  }, [noCliOrgs]);
 
   useMessageListener('org:device-code', (message: BaseMessage) => {
     if (!deviceRequestId || message.correlationId !== deviceRequestId) return;
@@ -403,9 +530,11 @@ export const OrgManagerPage: React.FC = () => {
   ]);
 
   const hasAlias = alias.trim().length > 0;
+  // `sf org login web` names the org itself when given no alias: the alias is
+  // optional there, and the browser login could not start until one was typed.
   const canSubmit =
     activeMethod === 'oauth_web'
-      ? hasAlias
+      ? true
       : activeMethod === 'usernamePassword'
         ? hasAlias && username.trim().length > 0 && password.length > 0
         : activeMethod === 'jwt'
@@ -448,6 +577,28 @@ export const OrgManagerPage: React.FC = () => {
     },
     [handleConnect, deviceLoading, stopDeviceSignIn],
   );
+
+  // What this page was opened to start: an import from the CLI or the browser
+  // sign-in, from the launcher's first card, or the Reconnect of an org whose
+  // session expired during a run. Read from the store, as it arrives after a
+  // new panel's first render, and cleared once done.
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  useEffect(() => {
+    if (navigationIntent?.route !== 'orgs') return;
+    if (navigationIntent.orgAction === 'import-cli') {
+      clearNavigationIntent();
+      handleConnect({ alias: '', authMethod: 'sfdx_import', loginUrl: '' });
+    } else if (navigationIntent.orgAction === 'login-web') {
+      clearNavigationIntent();
+      setActiveMethod('oauth_web');
+    } else if (navigationIntent.reconnectOrgId) {
+      const org = orgs.find((candidate) => candidate.id === navigationIntent.reconnectOrgId);
+      if (!org) return;
+      clearNavigationIntent();
+      handleReconnect(org);
+    }
+  }, [navigationIntent, clearNavigationIntent, handleConnect, handleReconnect, orgs]);
 
   const handleEdit = useCallback((org: SalesforceOrg) => {
     setEditingOrg(org);
@@ -549,7 +700,9 @@ export const OrgManagerPage: React.FC = () => {
 
         {/* Auth method buttons row */}
         <div className="flex items-center gap-2 px-4 pb-3 flex-wrap" data-testid="org-auth-methods">
-          {AUTH_METHODS.map((card) => {
+          {AUTH_METHODS.filter(
+            (card) => !card.more || moreMethodsOpen || activeMethod === card.method,
+          ).map((card) => {
             const isActive = activeMethod === card.method;
             return (
               <button
@@ -576,7 +729,45 @@ export const OrgManagerPage: React.FC = () => {
               </button>
             );
           })}
+          <button
+            type="button"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-(--sf-text-link) hover:underline"
+            onClick={() => setMoreMethodsOpen((open) => !open)}
+            aria-expanded={moreMethodsOpen}
+            data-testid="org-auth-more"
+          >
+            <ChevronDown
+              className={cn('w-3.5 h-3.5 transition-transform', moreMethodsOpen && 'rotate-180')}
+              aria-hidden="true"
+            />
+            {t('org.moreMethods')}
+          </button>
         </div>
+
+        {cliMissing && (
+          <div
+            className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-status-warning"
+            data-testid="org-cli-missing"
+          >
+            {t('org.cliMissing')}{' '}
+            <a
+              href={SF_CLI_INSTALL_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline text-(--sf-text-link)"
+            >
+              {t('org.installCli')}
+            </a>
+          </div>
+        )}
+        {cliHoldsNoOrg && !noCliOrgs && orgs.length === 0 && (
+          <div
+            className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-text-secondary"
+            data-testid="org-cli-empty"
+          >
+            {t('org.noCliOrgs')}
+          </div>
+        )}
 
         {updateMutation.error && (
           <div
@@ -606,7 +797,8 @@ export const OrgManagerPage: React.FC = () => {
             role="alert"
             data-testid="org-connect-error"
           >
-            <span className="font-semibold">{t('org.status_error')}</span> — {connectError}
+            <span className="font-semibold">{t('org.status_error')}</span> —{' '}
+            {noCliOrgs ? t('org.noCliOrgs') : connectError}
             {/* The banner is the only place this failure survives once the
                 toast is gone, and the CLI is what two of the three working
                 auth methods run on. VS Code opens the link in the browser. */}
@@ -671,6 +863,7 @@ export const OrgManagerPage: React.FC = () => {
                   value={alias}
                   onChange={(e) => setAlias(e.target.value)}
                   placeholder={t('org.aliasPlaceholder')}
+                  hint={activeMethod === 'oauth_web' ? t('org.aliasOptionalHint') : undefined}
                   data-testid="inline-alias-input"
                 />
 
@@ -753,6 +946,13 @@ export const OrgManagerPage: React.FC = () => {
         </div>
       )}
 
+      {justConnectedId && (
+        <ConnectedNextStep
+          justConnectedId={justConnectedId}
+          onDismiss={() => setJustConnectedId(null)}
+        />
+      )}
+
       {isLoadingOrgs ? (
         <div
           className="flex items-center justify-center gap-2 py-12 text-xs text-text-secondary"
@@ -766,12 +966,23 @@ export const OrgManagerPage: React.FC = () => {
       ) : orgs.length === 0 ? (
         // The empty state repeated the instruction "import from Salesforce CLI"
         // without offering it: the button lived in the banner, one of five.
-        <EmptyState
-          title={t('org.noOrgs')}
-          description={t('org.bannerEmpty')}
-          actionLabel={t('auth.sfdxImport')}
-          onAction={() => handleConnect({ alias: '', authMethod: 'sfdx_import', loginUrl: '' })}
-        />
+        // With a CLI that holds no org, the import could only fail: the
+        // browser sign-in is offered instead.
+        cliHoldsNoOrg ? (
+          <EmptyState
+            title={t('org.noOrgs')}
+            description={t('org.bannerEmpty')}
+            actionLabel={t('auth.oauthWeb')}
+            onAction={() => setActiveMethod('oauth_web')}
+          />
+        ) : (
+          <EmptyState
+            title={t('org.noOrgs')}
+            description={t('org.bannerEmpty')}
+            actionLabel={t('auth.sfdxImport')}
+            onAction={() => handleConnect({ alias: '', authMethod: 'sfdx_import', loginUrl: '' })}
+          />
+        )
       ) : (
         <div className="flex flex-col gap-3">
           {showSearch && (

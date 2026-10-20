@@ -26,6 +26,7 @@ import {
   Globe,
   Rocket,
   FileUp,
+  Download,
 } from 'lucide-react';
 import { BrandMark } from './components/ui/BrandMark';
 import { cn } from './theme';
@@ -38,7 +39,9 @@ import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import type { RecentOp } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
-import type { OrgListResponse } from '@sandforge/shared';
+import { getPersistedItem, setPersistedItem } from './utils/webviewStorage';
+import { orgToFill } from './utils/orgToFill';
+import type { OrgListResponse, OrgPageAction } from '@sandforge/shared';
 
 /**
  * The word each status is read by: the one Home's badges print, so a status
@@ -106,14 +109,16 @@ interface NavItem {
   accent?: string;
 }
 
-/** Module navigation items. */
-const MODULE_ITEMS: NavItem[] = [
-  {
-    id: 'monitor',
-    labelKey: 'nav.monitor',
-    icon: <Activity className="w-4 h-4" />,
-    accent: 'text-hue-blue',
-  },
+/**
+ * The modules a newcomer sees first: filling an org, cloning into one,
+ * watching it, and the three that copy between two orgs.
+ *
+ * The launcher listed eleven modules of equal weight, with Grappe, a page
+ * that shows nothing until a setting is turned on, fourth: a newcomer read a
+ * specialist suite. Forge was reached only through the hero, which now
+ * offers Seed to someone with one org, so it has its row here.
+ */
+const PRIMARY_MODULES: NavItem[] = [
   {
     id: 'seed',
     labelKey: 'nav.seed',
@@ -121,16 +126,22 @@ const MODULE_ITEMS: NavItem[] = [
     accent: 'text-hue-green',
   },
   {
+    id: 'forge',
+    labelKey: 'nav.forge',
+    icon: <Flame className="w-4 h-4" />,
+    accent: 'text-hue-orange',
+  },
+  {
+    id: 'monitor',
+    labelKey: 'nav.monitor',
+    icon: <Activity className="w-4 h-4" />,
+    accent: 'text-hue-blue',
+  },
+  {
     id: 'sync',
     labelKey: 'nav.sync',
     icon: <RefreshCw className="w-4 h-4" />,
     accent: 'text-hue-sky',
-  },
-  {
-    id: 'grappe',
-    labelKey: 'nav.grappe',
-    icon: <Grape className="w-4 h-4" />,
-    accent: 'text-hue-indigo',
   },
   {
     id: 'autopilot',
@@ -144,6 +155,10 @@ const MODULE_ITEMS: NavItem[] = [
     icon: <Snowflake className="w-4 h-4" />,
     accent: 'text-hue-cyan',
   },
+];
+
+/** The modules under "Advanced", folded until opened. */
+const ADVANCED_MODULES: NavItem[] = [
   {
     id: 'compare',
     labelKey: 'nav.compare',
@@ -176,12 +191,129 @@ const MODULE_ITEMS: NavItem[] = [
   },
 ];
 
+/** Grappe, listed under Advanced only while `sandforge.grappe.enabled` is on: off, its page is empty. */
+const GRAPPE_ITEM: NavItem = {
+  id: 'grappe',
+  labelKey: 'nav.grappe',
+  icon: <Grape className="w-4 h-4" />,
+  accent: 'text-hue-indigo',
+};
+
+/** Every module the launcher can list, favourites included. */
+const MODULE_ITEMS: NavItem[] = [...PRIMARY_MODULES, ...ADVANCED_MODULES, GRAPPE_ITEM];
+
+/** Webview state key of whether the Advanced section is open. */
+const ADVANCED_OPEN_KEY = 'sf-launcher-advanced-open';
+
 /** Tool navigation items. */
 const TOOL_ITEMS: NavItem[] = [
   { id: 'orgs', labelKey: 'nav.orgs', icon: <Plug className="w-4 h-4" /> },
   { id: 'settings', labelKey: 'nav.settings', icon: <Settings className="w-4 h-4" /> },
   { id: 'help', labelKey: 'nav.help', icon: <HelpCircle className="w-4 h-4" /> },
 ];
+
+/** Props for one module row of the launcher. */
+interface ModuleRowProps {
+  item: NavItem;
+  active: boolean;
+  favorite: boolean;
+  onOpen: () => void;
+  onToggleFavorite: () => void;
+}
+
+/** One module of the launcher's lists: its button, and its favourite star. */
+const ModuleRow: React.FC<ModuleRowProps> = ({
+  item,
+  active,
+  favorite,
+  onOpen,
+  onToggleFavorite,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center group">
+      <button
+        className={cn(
+          // min-w-0 so a long label truncates instead of pushing the
+          // star out of the row: "Eingefrorener Datensatz" is 23
+          // characters in a column about 125 wide.
+          'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
+          'transition-all duration-150',
+          'focus-visible:outline-2 focus-visible:-outline-offset-2',
+          'focus-visible:outline-(--sf-accent)',
+          active
+            ? 'text-text-primary bg-surface-1 shadow-xs'
+            : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
+        )}
+        onClick={onOpen}
+        aria-current={active ? 'page' : undefined}
+        data-testid={`sidepanel-nav-${item.id}`}
+      >
+        <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
+        <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
+      </button>
+      <button
+        className={cn(
+          // No opacity dimming: at 40% the unstarred outline fell far
+          // below the 3:1 contrast a control's icon needs.
+          'p-1 rounded-md transition-all duration-150',
+          'hover:bg-surface-1',
+          favorite ? 'text-hue-amber' : 'text-text-secondary hover:text-text-primary',
+        )}
+        onClick={onToggleFavorite}
+        data-testid={`sidepanel-star-${item.id}`}
+        // Named by the title alone, every star of the list was "Add to
+        // favorites": a screen reader could not tell which module one
+        // stood for, nor whether it was already a favourite.
+        aria-label={t('sidePanel.favoriteModule', { module: t(item.labelKey) })}
+        aria-pressed={favorite}
+        title={
+          favorite
+            ? t('sidePanel.unfavorite', 'Remove from favorites')
+            : t('sidePanel.favorite', 'Add to favorites')
+        }
+      >
+        <Star className={cn('w-3 h-3', favorite && 'fill-current')} />
+      </button>
+    </div>
+  );
+};
+
+/** Props for a button of the launcher's first-org card. */
+interface FirstOrgButtonProps {
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  testId: string;
+  /** The card's main way in, filled; the other is outlined. */
+  primary?: boolean;
+}
+
+/** A way to connect the first org, on the launcher's first card. */
+const FirstOrgButton: React.FC<FirstOrgButtonProps> = ({
+  label,
+  icon,
+  onClick,
+  testId,
+  primary = false,
+}) => (
+  <button
+    type="button"
+    className={cn(
+      'w-full flex items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium',
+      'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--sf-accent)',
+      'transition-colors',
+      primary
+        ? 'bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover)'
+        : 'bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)',
+    )}
+    onClick={onClick}
+    data-testid={testId}
+  >
+    {icon}
+    <span className="truncate">{label}</span>
+  </button>
+);
 
 /**
  * Premium sidebar navigation for the VSCode side panel.
@@ -225,6 +357,17 @@ export const SidePanel: React.FC = () => {
    * selected and eleven identical rows gave no sense of place at all.
    */
   const [activeRoute, setActiveRoute] = useState<string | null>(null);
+  /** Whether `sandforge.grappe.enabled` is on, as the extension says with the settings. */
+  const [grappeEnabled, setGrappeEnabled] = useState(false);
+  /**
+   * How many orgs the Salesforce CLI holds, said by the extension while no
+   * org is registered; null until it says.
+   */
+  const [cliOrgCount, setCliOrgCount] = useState<number | null>(null);
+  /** Whether the Advanced modules are shown, kept for the next time the view opens. */
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () => getPersistedItem(ADVANCED_OPEN_KEY) === 'true',
+  );
 
   /** Sorted orgs: connected first, then alphabetical by alias/username within each group. */
   const sortedOrgs = useMemo(() => {
@@ -304,7 +447,9 @@ export const SidePanel: React.FC = () => {
         type?: string;
         payload?: Partial<OrgListResponse['payload']> & {
           settings?: unknown;
+          grappeEnabled?: unknown;
           orgId?: string;
+          count?: unknown;
         };
       };
       if (msg.type === 'org:list:response' && msg.payload?.orgs) {
@@ -324,16 +469,44 @@ export const SidePanel: React.FC = () => {
       }
       if (msg.type === 'settings:response') {
         syncLanguageFromSettings(msg.payload?.settings);
+        if (typeof msg.payload?.grappeEnabled === 'boolean') {
+          setGrappeEnabled(msg.payload.grappeEnabled);
+        }
+      }
+      if (msg.type === 'sidebar:cliOrgs' && typeof msg.payload?.count === 'number') {
+        setCliOrgCount(msg.payload.count);
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [vscodeApi]);
 
-  /** Send navigation message to extension host via vscode API. */
-  const navigate = (route: string): void => {
+  /**
+   * Send navigation message to extension host via vscode API. The launcher's
+   * first card also names what Organizations should start as it opens.
+   */
+  const navigate = (route: string, intent?: { orgAction: OrgPageAction }): void => {
     setActiveRoute(route);
-    vscodeApi.postMessage({ type: 'sidebar:navigate', payload: { route } });
+    vscodeApi.postMessage({
+      type: 'sidebar:navigate',
+      payload: intent ? { route, intent } : { route },
+    });
+  };
+
+  /** Fill the one org connected: select it everywhere, then open Seed on its gallery. */
+  const fillOrg = (orgId: string): void => {
+    if (orgId !== selectedOrgId) {
+      selectOrg(orgId);
+      vscodeApi.postMessage({ type: 'sidebar:selectOrg', payload: { orgId } });
+    }
+    navigate('seed');
+  };
+
+  const toggleAdvanced = (): void => {
+    setAdvancedOpen((open) => {
+      setPersistedItem(ADVANCED_OPEN_KEY, String(!open));
+      return !open;
+    });
   };
 
   /** Open the full editor panel. */
@@ -344,6 +517,19 @@ export const SidePanel: React.FC = () => {
   // Metrics: connected orgs and recent ops
   const connectedCount = connectedOrgs.length;
   const recentOpsCount = ops.length;
+
+  /**
+   * What the launcher leads with. No org yet: a card to connect one. One org
+   * to fill, connected alone: Seed on it, since Forge, Sync and Autopilot all
+   * need a second org. Otherwise Forge. The hero always opened Forge, which
+   * with one org showed "Source and target must be different".
+   */
+  const noOrgYet = orgsLoaded && orgs.length === 0;
+  const fillTarget = connectedCount === 1 ? orgToFill(connectedOrgs, selectedOrgId) : undefined;
+  const hero: 'none' | 'seed' | 'forge' =
+    !orgsLoaded || noOrgYet ? 'none' : fillTarget ? 'seed' : 'forge';
+  const fillAlias = fillTarget ? fillTarget.alias || fillTarget.username : '';
+  const advancedItems = grappeEnabled ? [...ADVANCED_MODULES, GRAPPE_ITEM] : ADVANCED_MODULES;
 
   return (
     <div
@@ -522,42 +708,148 @@ export const SidePanel: React.FC = () => {
         )}
       </div>
 
-      {/* Quick Metrics */}
-      <div className="px-3 pt-2.5">
-        <button
-          className="w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-text-secondary px-1 mb-1"
-          onClick={() => setMetricsExpanded(!metricsExpanded)}
-          aria-label={metricsExpanded ? t('sidePanel.hideMetrics') : t('sidePanel.showMetrics')}
-          data-testid="sidepanel-metrics-toggle"
-        >
-          <ChevronDown
-            className={cn(
-              'w-3 h-3 transition-transform duration-200',
-              !metricsExpanded && '-rotate-90',
+      {/* First org: the way to connect, at the top. It was the last entry of
+          the org dropdown, under 0/0 counters and a hero that opened Forge. */}
+      {noOrgYet && (
+        <div className="px-3 pt-3">
+          <section
+            className="rounded-lg bg-surface-1 border border-subtle px-3 py-3 flex flex-col gap-2"
+            aria-labelledby="sidepanel-first-org-title"
+            data-testid="sidepanel-first-org"
+          >
+            <h2 id="sidepanel-first-org-title" className="text-sm font-bold text-text-primary">
+              {t('sidePanel.firstOrg.title')}
+            </h2>
+            <p className="text-xs text-text-secondary leading-snug">
+              {t('sidePanel.firstOrg.desc')}
+            </p>
+            {cliOrgCount === 0 ? (
+              <>
+                <FirstOrgButton
+                  primary
+                  icon={<Globe className="w-3.5 h-3.5" />}
+                  label={t('sidePanel.firstOrg.loginWeb')}
+                  onClick={() => navigate('orgs', { orgAction: 'login-web' })}
+                  testId="sidepanel-first-org-login"
+                />
+                <FirstOrgButton
+                  icon={<Download className="w-3.5 h-3.5" />}
+                  label={t('sidePanel.firstOrg.import')}
+                  onClick={() => navigate('orgs', { orgAction: 'import-cli' })}
+                  testId="sidepanel-first-org-import"
+                />
+              </>
+            ) : (
+              <>
+                <FirstOrgButton
+                  primary
+                  icon={<Download className="w-3.5 h-3.5" />}
+                  label={
+                    cliOrgCount === null
+                      ? t('sidePanel.firstOrg.import')
+                      : t('sidePanel.firstOrg.importCount', { count: cliOrgCount })
+                  }
+                  onClick={() => navigate('orgs', { orgAction: 'import-cli' })}
+                  testId="sidepanel-first-org-import"
+                />
+                <FirstOrgButton
+                  icon={<Globe className="w-3.5 h-3.5" />}
+                  label={t('sidePanel.firstOrg.loginWeb')}
+                  onClick={() => navigate('orgs', { orgAction: 'login-web' })}
+                  testId="sidepanel-first-org-login"
+                />
+              </>
             )}
-          />
-          {t('sidePanel.connectedOrgs', 'Orgs')} / {t('sidePanel.recentOps', 'Ops')}
-        </button>
-        {metricsExpanded && (
-          <div className="grid grid-cols-2 gap-2" data-testid="sidepanel-metrics">
-            <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-              <div className="text-[10px] text-text-secondary uppercase tracking-wide">
-                {t('sidePanel.connectedOrgs', 'Orgs')}
-              </div>
-              <div className="text-lg font-bold tabular-nums">{connectedCount}</div>
-            </div>
-            <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-              <div className="text-[10px] text-text-secondary uppercase tracking-wide">
-                {t('sidePanel.recentOps', 'Ops')}
-              </div>
-              <div className="text-lg font-bold tabular-nums">{recentOpsCount}</div>
-            </div>
-          </div>
-        )}
-      </div>
+          </section>
+        </div>
+      )}
 
-      {/* Forge Hero */}
-      {!isCompact && (
+      {/* Quick Metrics: nothing to count before the first org. */}
+      {!noOrgYet && (
+        <div className="px-3 pt-2.5">
+          <button
+            className="w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-text-secondary px-1 mb-1"
+            onClick={() => setMetricsExpanded(!metricsExpanded)}
+            aria-label={metricsExpanded ? t('sidePanel.hideMetrics') : t('sidePanel.showMetrics')}
+            data-testid="sidepanel-metrics-toggle"
+          >
+            <ChevronDown
+              className={cn(
+                'w-3 h-3 transition-transform duration-200',
+                !metricsExpanded && '-rotate-90',
+              )}
+            />
+            {t('sidePanel.connectedOrgs', 'Orgs')} / {t('sidePanel.recentOps', 'Ops')}
+          </button>
+          {metricsExpanded && (
+            <div className="grid grid-cols-2 gap-2" data-testid="sidepanel-metrics">
+              <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
+                <div className="text-[10px] text-text-secondary uppercase tracking-wide">
+                  {t('sidePanel.connectedOrgs', 'Orgs')}
+                </div>
+                <div className="text-lg font-bold tabular-nums">{connectedCount}</div>
+              </div>
+              <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
+                <div className="text-[10px] text-text-secondary uppercase tracking-wide">
+                  {t('sidePanel.recentOps', 'Ops')}
+                </div>
+                <div className="text-lg font-bold tabular-nums">{recentOpsCount}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Seed Hero: one org to fill, connected alone */}
+      {hero === 'seed' && fillTarget && !isCompact && (
+        <div className="px-3 pt-3">
+          <button
+            className={cn(
+              'w-full flex items-center gap-3 rounded-lg px-3 py-3 group',
+              'bg-surface-1 border border-subtle',
+              'hover:bg-surface-2 hover:border-active',
+              'transition-all duration-200',
+            )}
+            onClick={() => fillOrg(fillTarget.id)}
+            data-testid="sidepanel-seed-hero"
+          >
+            <div className="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
+              <Sprout className="w-5 h-5 text-hue-green" />
+            </div>
+            <div className="text-left flex-1 min-w-0">
+              <div className="text-sm font-bold text-text-primary truncate">
+                {t('sidePanel.fillOrg', { alias: fillAlias })}
+              </div>
+              <div className="text-[10px] text-text-secondary leading-tight">
+                {t('sidePanel.fillOrgDesc')}
+              </div>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5 text-text-secondary group-hover:translate-x-0.5 transition-all shrink-0" />
+          </button>
+        </div>
+      )}
+      {hero === 'seed' && fillTarget && isCompact && (
+        <div className="px-3 pt-2">
+          <button
+            className={cn(
+              'w-full flex items-center gap-2 rounded-lg px-2.5 py-2',
+              'bg-surface-1 border border-subtle',
+              'hover:bg-surface-2 transition-all text-left',
+            )}
+            onClick={() => fillOrg(fillTarget.id)}
+            data-testid="sidepanel-seed-hero-compact"
+          >
+            <Sprout className="w-4 h-4 text-hue-green shrink-0" />
+            <span className="text-xs font-bold text-text-primary truncate">
+              {t('sidePanel.fillOrg', { alias: fillAlias })}
+            </span>
+            <ArrowRight className="w-3 h-3 text-text-secondary ml-auto shrink-0" />
+          </button>
+        </div>
+      )}
+
+      {/* Forge Hero: once there are two orgs to copy between */}
+      {hero === 'forge' && !isCompact && (
         <div className="px-3 pt-3">
           <button
             className={cn(
@@ -580,14 +872,14 @@ export const SidePanel: React.FC = () => {
               <div className="text-sm font-bold text-hue-orange">{t('sidePanel.forge')}</div>
               {/* On the tint, only the editor foreground keeps its contrast. */}
               <div className="text-[10px] text-text-primary leading-tight">
-                {t('sidePanel.forgeDesc', 'Seed, sync & transform data')}
+                {t('sidePanel.forgeDesc')}
               </div>
             </div>
             <ArrowRight className="w-3.5 h-3.5 text-text-secondary group-hover:text-hue-orange group-hover:translate-x-0.5 transition-all shrink-0" />
           </button>
         </div>
       )}
-      {isCompact && (
+      {hero === 'forge' && isCompact && (
         <div className="px-3 pt-2">
           <button
             className={cn(
@@ -671,56 +963,62 @@ export const SidePanel: React.FC = () => {
           aria-label={t('sidePanel.modules', 'Modules')}
           data-testid="sidepanel-modules"
         >
-          {MODULE_ITEMS.map((item) => (
-            <div key={item.id} className="flex items-center group">
-              <button
-                className={cn(
-                  // min-w-0 so a long label truncates instead of pushing the
-                  // star out of the row: "Eingefrorener Datensatz" is 23
-                  // characters in a column about 125 wide.
-                  'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
-                  'transition-all duration-150',
-                  'focus-visible:outline-2 focus-visible:-outline-offset-2',
-                  'focus-visible:outline-(--sf-accent)',
-                  activeRoute === item.id
-                    ? 'text-text-primary bg-surface-1 shadow-xs'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-xs',
-                )}
-                onClick={() => navigate(item.id)}
-                aria-current={activeRoute === item.id ? 'page' : undefined}
-                data-testid={`sidepanel-nav-${item.id}`}
-              >
-                <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
-                <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
-              </button>
-              <button
-                className={cn(
-                  // No opacity dimming: at 40% the unstarred outline fell far
-                  // below the 3:1 contrast a control's icon needs.
-                  'p-1 rounded-md transition-all duration-150',
-                  'hover:bg-surface-1',
-                  favorites.includes(item.id)
-                    ? 'text-hue-amber'
-                    : 'text-text-secondary hover:text-text-primary',
-                )}
-                onClick={() => toggleFavorite(item.id)}
-                data-testid={`sidepanel-star-${item.id}`}
-                // Named by the title alone, every star of the list was "Add to
-                // favorites": a screen reader could not tell which module one
-                // stood for, nor whether it was already a favourite.
-                aria-label={t('sidePanel.favoriteModule', { module: t(item.labelKey) })}
-                aria-pressed={favorites.includes(item.id)}
-                title={
-                  favorites.includes(item.id)
-                    ? t('sidePanel.unfavorite', 'Remove from favorites')
-                    : t('sidePanel.favorite', 'Add to favorites')
-                }
-              >
-                <Star className={cn('w-3 h-3', favorites.includes(item.id) && 'fill-current')} />
-              </button>
-            </div>
+          {PRIMARY_MODULES.map((item) => (
+            <ModuleRow
+              key={item.id}
+              item={item}
+              active={activeRoute === item.id}
+              favorite={favorites.includes(item.id)}
+              onOpen={() => navigate(item.id)}
+              onToggleFavorite={() => toggleFavorite(item.id)}
+            />
           ))}
         </nav>
+      </div>
+
+      {/* Advanced modules, folded until opened */}
+      <div className="px-3 pt-3">
+        <button
+          type="button"
+          className={cn(
+            'w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-text-secondary px-1 mb-1',
+            'hover:text-text-primary',
+            'focus-visible:outline-2 focus-visible:-outline-offset-2',
+            'focus-visible:outline-(--sf-accent)',
+          )}
+          onClick={toggleAdvanced}
+          aria-expanded={advancedOpen}
+          aria-controls="sidepanel-advanced-modules"
+          data-testid="sidepanel-advanced-toggle"
+        >
+          <ChevronDown
+            className={cn(
+              'w-3 h-3 transition-transform duration-200',
+              !advancedOpen && '-rotate-90',
+            )}
+            aria-hidden="true"
+          />
+          {t('sidePanel.advanced')}
+        </button>
+        {advancedOpen && (
+          <nav
+            id="sidepanel-advanced-modules"
+            className="flex flex-col gap-0.5"
+            aria-label={t('sidePanel.advanced')}
+            data-testid="sidepanel-advanced"
+          >
+            {advancedItems.map((item) => (
+              <ModuleRow
+                key={item.id}
+                item={item}
+                active={activeRoute === item.id}
+                favorite={favorites.includes(item.id)}
+                onOpen={() => navigate(item.id)}
+                onToggleFavorite={() => toggleFavorite(item.id)}
+              />
+            ))}
+          </nav>
+        )}
       </div>
 
       {/* Tool Navigation */}

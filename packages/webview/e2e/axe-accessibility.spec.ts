@@ -5045,6 +5045,137 @@ for (const theme of SCANNED_THEMES) {
 
       expectNoViolations(await checkAccessibility(page));
     });
+
+    // ── The first five minutes: one org, or none ──────────────────────────
+
+    test('Side panel with no org: the card that connects the first one', async ({ page }) => {
+      await openPanel(bridge, page, 'sidepanel', theme);
+      await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+      await bridge.stream([
+        { type: 'org:list:response', payload: { orgs: [], selectedOrgId: null } },
+        { type: 'sidebar:cliOrgs', payload: { count: 3 } },
+      ]);
+      const card = page.getByTestId('sidepanel-first-org');
+      await expect(card).toContainText('Import 3 orgs from the Salesforce CLI');
+      await expect(page.getByTestId('sidepanel-metrics')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Side panel with one Developer Edition: the Seed hero, and Advanced open', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'sidepanel', theme);
+      await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+      await bridge.stream([
+        {
+          type: 'org:list:response',
+          payload: {
+            orgs: [{ ...DEV_SANDBOX, orgType: 'Developer' }],
+            selectedOrgId: DEV_SANDBOX.id,
+          },
+        },
+      ]);
+      await expect(page.getByTestId('sidepanel-seed-hero')).toContainText(
+        `Fill ${DEV_SANDBOX.alias} with demo data`,
+      );
+      await page.getByTestId('sidepanel-advanced-toggle').click();
+      await expect(page.getByTestId('sidepanel-nav-compare')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Organizations before a click: the CLI that does not answer, and More methods open', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'orgs', theme);
+      await bridge.seedOrgs([]);
+      await bridge.waitForMessage('org:cli-status', { timeout: 10_000 });
+      await answerAll(page, 'org:cli-status', 'org:cli-status:response', {
+        available: false,
+        orgCount: 0,
+      });
+      await expect(page.getByTestId('org-cli-missing')).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId('org-auth-more').click();
+      await expect(page.getByTestId('org-auth-jwt')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Organizations after an import that found no org: the browser sign-in opened', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'orgs', theme);
+      await bridge.seedOrgs([]);
+      await page.getByTestId('org-auth-sfdx_import').click();
+      const request = await bridge.waitForMessage('org:connect', { timeout: 10_000 });
+      await sendExtensionMessage(page, {
+        type: 'org:error',
+        id: 'err-no-cli-orgs',
+        correlationId: String(request.id),
+        payload: {
+          message: 'The Salesforce CLI holds no connected org yet.',
+          code: 'NO_CLI_ORGS',
+          retryable: false,
+        },
+      });
+      await expect(page.getByTestId('org-inline-form')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('org-connect-error')).toContainText('OAuth (Web)');
+
+      await expectReadable(page, theme);
+    });
+
+    test('Organizations after the first org connects: what to do with it', async ({ page }) => {
+      await openPanel(bridge, page, 'orgs', theme);
+      await bridge.seedOrgs([]);
+      await page.getByTestId('org-auth-oauth_web').click();
+      await page.getByTestId('org-inline-connect').click();
+      const request = await bridge.waitForMessage('org:connect', { timeout: 10_000 });
+      const developer = { ...DEV_SANDBOX, orgType: 'Developer' };
+      await sendExtensionMessage(page, {
+        type: 'org:list:response',
+        id: 'list-after-connect',
+        payload: { orgs: [developer] },
+      });
+      await sendExtensionMessage(page, {
+        type: 'org:statusChanged',
+        id: 'connected',
+        correlationId: String(request.id),
+        payload: { orgId: developer.id, status: 'connected' },
+      });
+      const card = page.getByTestId('org-connected-next');
+      await expect(card).toContainText(`${DEV_SANDBOX.alias} is connected`, { timeout: 10_000 });
+      await expect(page.getByTestId('org-connected-next-fill')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Forge with one org: the way to Seed', async ({ page }) => {
+      await openPanel(bridge, page, 'forge', theme);
+      await bridge.seedOrgs([DEV_SANDBOX]);
+      await expect(page.getByTestId('forge-seed-instead')).toBeVisible({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync with one org: the way to Seed under its empty state', async ({ page }) => {
+      await openPanel(bridge, page, 'sync', theme);
+      await bridge.seedOrgs([DEV_SANDBOX]);
+      await expect(page.getByTestId('empty-tour-link')).toContainText(
+        'Only one org? Generate realistic data with Seed',
+        { timeout: 10_000 },
+      );
+
+      await expectReadable(page, theme);
+    });
+
+    test('Autopilot with one org: the way to Seed on its first step', async ({ page }) => {
+      await openPanel(bridge, page, 'autopilot', theme);
+      await bridge.seedOrgs([DEV_SANDBOX]);
+      await expect(page.getByTestId('autopilot-seed-instead')).toBeVisible({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
   });
 
   test.describe(`axe-core WCAG 2.1 AA — ${theme} — Interactive Flows`, () => {
@@ -5298,6 +5429,15 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+
+      // Its last step, which suggests a start for the selected org and has no
+      // "Don't show again" box any more.
+      for (let step = 0; step < 4; step++) {
+        await dialog.getByRole('button', { name: 'Next' }).click();
+      }
+      await dialog.getByTestId('welcome-step-4').waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('dont-show-again')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test("What's New overlay open over a page", async ({ page }) => {
@@ -6142,6 +6282,8 @@ async function openSyncExecuteStep(
 async function openJwtForm(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await openPanel(bridge, page, 'orgs', theme);
   await page.getByTestId('org-manager-page').waitFor({ timeout: 10_000 });
+  // JWT is under More methods: it needs a connected app of the user's own.
+  await page.getByTestId('org-auth-more').click();
   await page.getByTestId('org-auth-jwt').click();
   await page.getByTestId('inline-key-file-input').waitFor({ state: 'visible', timeout: 5000 });
 }
@@ -6154,6 +6296,7 @@ async function openJwtForm(bridge: MockBridge, page: Page, theme: StateTheme): P
 async function openDeviceCode(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await openPanel(bridge, page, 'orgs', theme);
   await page.getByTestId('org-manager-page').waitFor({ timeout: 10_000 });
+  await page.getByTestId('org-auth-more').click();
   await page.getByTestId('org-auth-oauth_device').click();
   await page.getByTestId('inline-alias-input').fill('uat');
   await page.getByTestId('inline-client-id-input').fill('3MVG9FakeConsumerKey.ForTests_Only');

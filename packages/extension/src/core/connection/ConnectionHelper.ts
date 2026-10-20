@@ -8,6 +8,7 @@ import { ConnectionPool } from './ConnectionPool';
 import { CircuitBreaker } from './CircuitBreaker';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { isAuthError } from '../common/isAuthError.js';
+import { OrgConnectionError } from './OrgConnectionError.js';
 import { logger } from '../../logger.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024;
@@ -441,9 +442,11 @@ export async function getJsforceConnection(
   // Check this org's circuit breaker before attempting validation
   const circuitBreaker = getCircuitBreaker(orgId);
   if (!circuitBreaker.acquirePermit()) {
-    throw new Error(
-      `Circuit breaker is open for org "${org.alias}". ` +
-        `Too many recent failures — retries paused. Try again shortly.`,
+    throw new OrgConnectionError(
+      'ORG_TEMPORARILY_UNREACHABLE',
+      orgId,
+      `"${org.alias}" failed several times in a row, so SandForge waits a moment before ` +
+        `calling it again. Try again in a minute.`,
     );
   }
 
@@ -528,10 +531,14 @@ export async function getJsforceConnection(
         // as a breaker failure, and the user gets an actionable message.
         circuitBreaker.recordFailure();
         const cause = extractErrorMessage(recoveryErr);
-        throw new Error(
-          `Authentication expired for org "${org.alias}". ` +
-            `Reconnect it from the Orgs page (SFDX import) or run: sf org login web --alias ${org.alias}. ` +
-            `(cause: ${cause})`,
+        // The org is shown as expired everywhere, its card on Organizations
+        // offering Reconnect: a run that met the expiry left it "connected".
+        orgManager.updateStatus(orgId, 'expired');
+        throw new OrgConnectionError(
+          'ORG_AUTH_EXPIRED',
+          orgId,
+          `The session with "${org.alias}" has expired and could not be renewed. ` +
+            `Reconnect it on the Organizations page (Try Reconnect on its card). (cause: ${cause})`,
         );
       }
     }

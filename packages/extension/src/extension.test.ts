@@ -244,7 +244,7 @@ describe('extension', () => {
     }
   });
 
-  it('should set up status bar with org count and monitor command', async () => {
+  it('should set up status bar with org count, opening Organizations while no org is registered', async () => {
     const context = createContext();
 
     activate(context);
@@ -256,7 +256,7 @@ describe('extension', () => {
     const calls = vi.mocked(vscode.window.createStatusBarItem).mock.results;
     const statusBarItem = calls[0]?.value as typeof mockStatusBarItem;
     expect(statusBarItem.text).toBe('$(flame) SandForge: 0 orgs');
-    expect(statusBarItem.command).toBe('sandforge.openMonitor');
+    expect(statusBarItem.command).toBe('sandforge.openOrgs');
   });
 
   it('should refresh the status bar when the sidebar selects an org', async () => {
@@ -480,15 +480,15 @@ describe('extension', () => {
 
     activate(context);
 
-    // 16 module commands + 1 cheers + 1 sandforge.ai config-change listener
+    // 17 module commands (Home among them) + 1 cheers + 1 sandforge.ai config-change listener
     // + 1 sandforge.forge.graphView config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
     // + openOrgInBrowser command + AI token budget reset command
     // + the two Frozen dataset salt commands (copy, use)
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker
-    // + performanceTracker + sandbox refresh detection + pipeline triggers = 37
-    expect(context.subscriptions.length).toBe(37);
+    // + performanceTracker + sandbox refresh detection + pipeline triggers = 38
+    expect(context.subscriptions.length).toBe(38);
   });
 
   it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {
@@ -699,17 +699,23 @@ describe('buildStatusBarLabel', () => {
     status: 'expired',
   };
 
-  it('falls back to the bare org count when there are no orgs', () => {
+  it('falls back to the bare org count, and opens Organizations, when there are no orgs', () => {
     expect(buildStatusBarLabel([], undefined)).toEqual({
       text: '$(flame) SandForge: 0 orgs',
-      tooltip: 'SandForge — Click to open Monitor',
+      tooltip: 'SandForge — Click to connect an org in Organizations',
+      command: 'sandforge.openOrgs',
     });
   });
 
   it('keeps the bare count when no org is selected and none is connected', () => {
     const label = buildStatusBarLabel([expiredOrg], undefined);
     expect(label.text).toBe('$(flame) SandForge: 1 org');
-    expect(label.tooltip).toBe('SandForge — Click to open Monitor');
+    expect(label.tooltip).toBe('SandForge — Click to open Home');
+    expect(label.command).toBe('sandforge.openHome');
+  });
+
+  it('opens Home, not Monitor, once an org is registered', () => {
+    expect(buildStatusBarLabel([connectedOrg], 'o1').command).toBe('sandforge.openHome');
   });
 
   it('shows the selected org alias with the org count', () => {

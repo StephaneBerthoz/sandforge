@@ -51,6 +51,11 @@ export const OrgCard: React.FC<OrgCardProps> = ({
   const canReconnect = onReconnect && (org.status === 'expired' || org.status === 'error');
 
   return (
+    // A click anywhere on the card selects it, a shortcut for the mouse: the
+    // keyboard selects it with the button on its name. The card was a button
+    // itself, holding Reconnect, Open, Edit and Disconnect: buttons inside a
+    // button, which a screen reader does not announce (axe nested-interactive).
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div
       className={cn(
         'rounded-lg border p-3 cursor-pointer transition-all',
@@ -60,13 +65,6 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           : 'border-(--sf-border) hover:border-(--sf-accent)',
       )}
       onClick={() => onSelect(org.id)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        // Enter on a button inside the card is that button's: it bubbled up
-        // here and selected the card as well.
-        if (e.key === 'Enter' && e.target === e.currentTarget) onSelect(org.id);
-      }}
       data-testid={`org-card-${org.id}`}
     >
       {/* Row 1: Env badge + alias + status */}
@@ -77,7 +75,22 @@ export const OrgCard: React.FC<OrgCardProps> = ({
         >
           {envLabel}
         </span>
-        <span className="text-sm font-semibold text-text-primary truncate flex-1">{org.alias}</span>
+        <button
+          type="button"
+          className={cn(
+            'text-sm font-semibold text-text-primary truncate flex-1 text-left rounded-sm',
+            'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--sf-accent)',
+          )}
+          onClick={(e) => {
+            // The card's own click would select it a second time.
+            e.stopPropagation();
+            onSelect(org.id);
+          }}
+          aria-pressed={selected}
+          data-testid={`org-select-${org.id}`}
+        >
+          {org.alias}
+        </button>
         <div className="flex items-center gap-1.5 shrink-0">
           <span
             className={cn(

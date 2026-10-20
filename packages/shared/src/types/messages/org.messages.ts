@@ -120,6 +120,21 @@ export interface OrgOpenInBrowserResponse extends BaseMessage {
   payload: { status: 'opened' } | { status: 'error'; message: string };
 }
 
+/**
+ * Asked by the Organizations page as it opens: whether the Salesforce CLI is
+ * installed, and how many orgs it holds. Two of the ways to connect run on the
+ * CLI, and its absence was found only after a click on one of them.
+ */
+export interface OrgCliStatusRequest extends BaseMessage {
+  type: 'org:cli-status';
+}
+
+/** Whether `sf` answers, and how many orgs an import from it would bring in. */
+export interface OrgCliStatusResponse extends BaseMessage {
+  type: 'org:cli-status:response';
+  payload: { available: boolean; orgCount: number };
+}
+
 /** Notification that an org's connection status has changed */
 export interface OrgStatusChanged extends BaseMessage {
   type: 'org:statusChanged';

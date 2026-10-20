@@ -82,7 +82,7 @@ describe('SidePanel favourite stars', () => {
     vi.clearAllMocks();
     useRecentOpsStore.setState({ ops: [] });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
-    useFavoritesStore.setState({ favorites: ['compare'] });
+    useFavoritesStore.setState({ favorites: ['sync'] });
   });
 
   it('names each star of the modules list after its module, and says whether it is pressed', async () => {
@@ -92,8 +92,8 @@ describe('SidePanel favourite stars', () => {
     expect(modules.getByRole('button', { name: 'Monitor in favorites', pressed: false })).toBe(
       screen.getByTestId('sidepanel-star-monitor'),
     );
-    expect(modules.getByRole('button', { name: 'Compare Org in favorites', pressed: true })).toBe(
-      screen.getByTestId('sidepanel-star-compare'),
+    expect(modules.getByRole('button', { name: 'Sync in favorites', pressed: true })).toBe(
+      screen.getByTestId('sidepanel-star-sync'),
     );
     const stars = modules
       .getAllByRole('button')

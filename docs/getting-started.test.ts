@@ -98,11 +98,22 @@ describe('docs/getting-started.md', () => {
 
     it('lists every module the launcher renders, in the launcher order', () => {
       const line = bullet(body, 'Modules');
-      const positions = labelsFor('MODULE_ITEMS').map((label) => {
+      const positions = labelsFor('PRIMARY_MODULES').map((label) => {
         expect(line, `module "${label}" missing`).toContain(label);
         return line.indexOf(label);
       });
       expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    });
+
+    it('lists every module folded under Advanced, in the launcher order, and Grappe with its setting', () => {
+      const line = bullet(body, 'Advanced');
+      const positions = labelsFor('ADVANCED_MODULES').map((label) => {
+        expect(line, `advanced module "${label}" missing`).toContain(label);
+        return line.indexOf(label);
+      });
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+      expect(line).toContain(NAV_LABELS.grappe);
+      expect(line).toContain('sandforge.grappe.enabled');
     });
 
     it('lists every tool the launcher renders', () => {
@@ -161,7 +172,7 @@ describe('the org card of "Connect Your Org"', () => {
   it('names every badge the card can show, and no other', () => {
     // The guide promised "PROD/SBX": no badge reads SBX, and a sandbox is
     // shown by its kind.
-    const step = GUIDE.split('\n').find((line) => line.startsWith('4. Once connected'));
+    const step = GUIDE.split('\n').find((line) => /^\d\. Once connected/.test(line));
     expect(step, 'the step that shows the org card').toBeDefined();
     expect(TAGS.length).toBeGreaterThan(3);
 

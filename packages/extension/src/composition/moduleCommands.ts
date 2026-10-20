@@ -18,6 +18,7 @@ export interface ModuleCommand {
 
 /** All `sandforge.open*` module commands, in sidebar navigation order. */
 export const MODULE_COMMANDS: readonly ModuleCommand[] = [
+  { command: 'sandforge.openHome', moduleId: 'home', title: 'Home' },
   { command: 'sandforge.openMonitor', moduleId: 'monitor', title: 'Monitor' },
   { command: 'sandforge.openSeed', moduleId: 'seed', title: 'Seed' },
   { command: 'sandforge.openSync', moduleId: 'sync', title: 'Sync' },
@@ -37,11 +38,15 @@ export const MODULE_COMMANDS: readonly ModuleCommand[] = [
 ];
 
 /**
- * Sidebar route → command map, derived from MODULE_COMMANDS. `home` is an
- * alias for the Monitor module (the sidebar landing route has no module of
- * its own).
+ * Sidebar route → command map, derived from MODULE_COMMANDS.
+ *
+ * `home` used to be an alias for Monitor: Home had no command of its own, so
+ * Open Full UI and the status bar landed on API limits, and the one card that
+ * says "this org is empty, fill it" sat on a page nothing opened.
  */
-export const SIDEBAR_ROUTE_COMMANDS: Readonly<Record<string, string>> = {
-  home: 'sandforge.openMonitor',
-  ...Object.fromEntries(MODULE_COMMANDS.map(({ moduleId, command }) => [moduleId, command])),
-};
+export const SIDEBAR_ROUTE_COMMANDS: Readonly<Record<string, string>> = Object.fromEntries(
+  MODULE_COMMANDS.map(({ moduleId, command }) => [moduleId, command]),
+);
+
+/** The page a route the map does not know, Open Full UI and the status bar open. */
+export const LANDING_COMMAND = 'sandforge.openHome';

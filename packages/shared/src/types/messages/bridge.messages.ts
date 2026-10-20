@@ -47,6 +47,21 @@ export interface PanelVisibilityMessage extends BaseMessage {
   payload: { visible: boolean };
 }
 
+/** What a page opened from the launcher's first card starts: an import from the CLI, or a browser sign-in. */
+export type OrgPageAction = 'import-cli' | 'login-web';
+
+/**
+ * Posted to one panel by the command that opened it, when whoever ran the
+ * command named what the page should start. The launcher's first card, shown
+ * while no org is registered, opens Organizations on an import from the
+ * Salesforce CLI or on the browser sign-in: it opened nothing, and the way to
+ * connect was the last entry of the org list's dropdown.
+ */
+export interface NavigationIntentMessage extends BaseMessage {
+  type: 'navigation:intent';
+  payload: { route: string; orgAction?: OrgPageAction };
+}
+
 /**
  * Sent by the ProtocolMismatchBanner's Reload button; the extension answers by
  * executing `workbench.action.reloadWindow`. No payload.

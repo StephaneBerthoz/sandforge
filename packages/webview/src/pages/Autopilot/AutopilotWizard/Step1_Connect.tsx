@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 import { cn } from '../../../theme';
+import { SeedInsteadHint } from '../../../components/ui/SeedInsteadHint';
 
 /** Step1Connect component props. */
 export interface Step1ConnectProps {
@@ -96,9 +97,14 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
     </div>
   );
 
+  // Autopilot copies objects from one org into another: with one org, the
+  // second list offers only that org, disabled.
+  const connectedCount = orgs.filter((org) => org.status === 'connected').length;
+
   return (
     <div className="flex flex-col gap-(--sf-space-4)" data-testid="step1-connect">
       <p className="text-sm text-text-secondary">{t('autopilot.step1.description')}</p>
+      {connectedCount < 2 && <SeedInsteadHint testId="autopilot-seed-instead" />}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-4)">
         {renderOrgSelector(
           t('autopilot.step1.sourceOrg'),

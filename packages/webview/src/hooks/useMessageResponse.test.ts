@@ -8,6 +8,9 @@ import fr from '../i18n/locales/fr.json';
 
 import { useMessageResponse } from './useMessageResponse';
 import type { UseMessageResponseOptions } from './useMessageResponse';
+import { useNotificationStore } from '../stores/useNotificationStore';
+import { useAppStore } from '../stores/useAppStore';
+import { useOrgStore } from '../stores/useOrgStore';
 
 /** Dispatch a simulated extension-to-webview message. */
 function simulateResponse(type: string, payload: unknown, correlationId?: string): void {
@@ -522,6 +525,58 @@ describe('useMessageResponse', () => {
         expect(result.current.error).not.toBe('Nothing was written.');
       },
     );
+
+    it('says an expired session in the interface language, and offers Reconnect on its org', () => {
+      useNotificationStore.setState({ notifications: [] });
+      useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+      useOrgStore.setState({
+        orgs: [{ id: 'org-7', alias: 'my-dev-org', username: 'u@example.com' }] as never,
+      });
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message: 'ORG_AUTH_EXPIRED: The session with "my-dev-org" has expired…',
+            code: 'ORG_AUTH_EXPIRED',
+            orgId: 'org-7',
+          },
+          'req-1',
+        );
+      });
+
+      expect(result.current.error).toBe(i18n.t('common.refusal.orgAuthExpired'));
+      const [toast] = useNotificationStore.getState().notifications;
+      expect(toast.message).toBe(i18n.t('org.sessionExpired.message', { org: 'my-dev-org' }));
+      act(() => toast.actions?.[0].onAction?.());
+      expect(useAppStore.getState().currentRoute).toBe('orgs');
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'orgs',
+        reconnectOrgId: 'org-7',
+      });
+    });
+
+    it('says an org left alone after repeated failures in the interface language, with no circuit breaker', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          { message: 'ORG_TEMPORARILY_UNREACHABLE: …', code: 'ORG_TEMPORARILY_UNREACHABLE' },
+          'req-1',
+        );
+      });
+
+      expect(result.current.error).toBe(i18n.t('common.refusal.orgTemporarilyUnreachable'));
+      expect(result.current.error).not.toMatch(/circuit/i);
+    });
 
     it('says a seed its data storage stopped in the interface language, with the figures', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));

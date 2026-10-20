@@ -123,17 +123,43 @@ describe('SidebarViewProvider', () => {
     }
   });
 
-  it('falls back to openMonitor for unknown routes', () => {
+  it('opens Home for a route it does not know', () => {
     provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
 
     messageHandler!({ type: 'sidebar:navigate', payload: { route: 'does-not-exist' } });
-    expect(executeCommand).toHaveBeenCalledWith('sandforge.openMonitor');
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openHome');
+    expect(executeCommand).not.toHaveBeenCalledWith('sandforge.openMonitor');
   });
 
-  it('executes openMonitor on sidebar:openFull message', () => {
+  it('opens Home, not Monitor, for Open Full UI', () => {
     provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
     messageHandler!({ type: 'sidebar:openFull' });
-    expect(executeCommand).toHaveBeenCalledWith('sandforge.openMonitor');
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openHome');
+    expect(executeCommand).not.toHaveBeenCalledWith('sandforge.openMonitor');
+  });
+
+  it("passes the launcher's first-card intent to the command, and refuses any other", () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    messageHandler!({
+      type: 'sidebar:navigate',
+      payload: { route: 'orgs', intent: { orgAction: 'import-cli' } },
+    });
+    expect(executeCommand).toHaveBeenLastCalledWith('sandforge.openOrgs', {
+      orgAction: 'import-cli',
+    });
+
+    messageHandler!({
+      type: 'sidebar:navigate',
+      payload: { route: 'orgs', intent: { orgAction: 'import-cli', extra: 1 } },
+    });
+    expect(executeCommand).toHaveBeenLastCalledWith('sandforge.openOrgs');
+  });
+
+  it('routes home to a command of its own', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'home' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openHome');
   });
 
   it('executes sandforge.openOrgInBrowser with the orgId on sidebar:openOrgInBrowser', () => {
@@ -168,8 +194,64 @@ describe('SidebarViewProvider', () => {
     expect(settingsGetter).toHaveBeenCalledTimes(1);
     expect(mockWebview.postMessage).toHaveBeenCalledWith({
       type: 'settings:response',
-      payload: { settings: { settings: { language: 'fr' } } },
+      payload: { settings: { settings: { language: 'fr' } }, grappeEnabled: false },
     });
+  });
+
+  it('tells the launcher whether Grappe is on, with the settings', () => {
+    const grappeProvider = new SidebarViewProvider(
+      extensionUri,
+      uriJoinPath,
+      executeCommand,
+      undefined,
+      undefined,
+      undefined,
+      () => ({}),
+      undefined,
+      undefined,
+      undefined,
+      () => true,
+    );
+    grappeProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    messageHandler!({ type: 'sidebar:requestSettings' });
+
+    expect(mockWebview.postMessage).toHaveBeenCalledWith({
+      type: 'settings:response',
+      payload: { settings: {}, grappeEnabled: true },
+    });
+  });
+
+  it('says how many orgs the CLI holds while no org is registered, and asks nothing once one is', async () => {
+    const counter = vi.fn(() => Promise.resolve(4));
+    const registered: Record<string, unknown>[] = [];
+    const cliProvider = new SidebarViewProvider(
+      extensionUri,
+      uriJoinPath,
+      executeCommand,
+      () => registered,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      counter,
+    );
+    cliProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    messageHandler!({ type: 'sidebar:requestOrgs' });
+    await vi.waitFor(() =>
+      expect(mockWebview.postMessage).toHaveBeenCalledWith({
+        type: 'sidebar:cliOrgs',
+        payload: { count: 4 },
+      }),
+    );
+
+    registered.push({ id: 'org-1' });
+    messageHandler!({ type: 'sidebar:requestOrgs' });
+    expect(counter).toHaveBeenCalledTimes(1);
   });
 
   it('ignores sidebar:requestSettings when no settings getter is wired', () => {

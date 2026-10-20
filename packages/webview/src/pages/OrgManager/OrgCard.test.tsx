@@ -87,15 +87,19 @@ describe('OrgCard', () => {
     expect(onDisconnect).toHaveBeenCalledWith('org-1');
   });
 
-  it('selects the card on Enter on the card, and not on Enter on a button inside it', () => {
-    // Enter on Edit bubbled up to the card and selected it as well.
+  it('selects the org from the button on its name, the card itself being no button around its buttons', () => {
+    // The card was role="button" around Reconnect, Open, Edit and Disconnect:
+    // nested controls a screen reader does not announce.
     const onSelect = vi.fn();
-    render(<OrgCard {...defaultProps} onSelect={onSelect} />);
+    render(<OrgCard {...defaultProps} onSelect={onSelect} selected={false} />);
 
-    fireEvent.keyDown(screen.getByText('Edit'), { key: 'Enter' });
-    expect(onSelect).not.toHaveBeenCalled();
+    const card = screen.getByTestId('org-card-org-1');
+    expect(card.getAttribute('role')).toBeNull();
+    expect(card.getAttribute('tabindex')).toBeNull();
 
-    fireEvent.keyDown(screen.getByTestId('org-card-org-1'), { key: 'Enter' });
+    const select = screen.getByRole('button', { name: mockOrg.alias, pressed: false });
+    fireEvent.click(select);
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith('org-1');
   });
 

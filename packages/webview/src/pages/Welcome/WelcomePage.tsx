@@ -1,17 +1,16 @@
-import React, { useState, useEffect, useCallback, useImperativeHandle } from 'react';
+import React, { useState, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isDevelopmentOrg } from '@sandforge/shared';
 import { useAppStore } from '../../stores/useAppStore';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { orgToFill } from '../../utils/orgToFill';
 import type { SupportedLanguage } from '../../i18n';
 import { changeLanguageLazy } from '../../i18n';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
-import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
-
-/** Webview state key for "Don't show again" persistence. */
-const DONT_SHOW_KEY = 'sandforge-welcome-dont-show';
 
 /** Module card definition for the explore step. */
 interface UseCasePath {
@@ -68,49 +67,46 @@ const TOTAL_STEPS = 5;
 export interface WelcomePageProps {
   /** Called when the wizard is finished or skipped. */
   onComplete: () => void;
-  /** Override org type for testing (default: 'sandbox'). */
+  /**
+   * The kind of org the last step suggests a start for. By default the selected
+   * org's: a production org is pointed at Monitor, any other at Seed. Nothing
+   * passed it, so the production suggestion was never shown.
+   */
   orgType?: 'sandbox' | 'production';
 }
 
 /** What the overlay hosting the wizard can ask of it. */
 export interface WelcomePageHandle {
-  /** Leaves the wizard as its Skip button does, saving "Don't show again". */
+  /** Leaves the wizard as its Skip button does. */
   skip: () => void;
 }
 
 /**
- * 5-step onboarding wizard shown on first launch.
+ * 5-step guided tour, opened from Help → Start Guided Tour.
  * Step 0: Bienvenue (logo + language + primary use case), Step 1: Connect Org,
  * Step 2: Pick a use-case path (Forge / Seed / Frozen), Step 3: Configure AI,
  * Step 4: First steps suggestion.
+ *
+ * It used to open by itself on the first panel of every session until it was
+ * finished, over the page the walkthrough had sent the user to; the
+ * walkthrough is now the one first-run script, and the tour is asked for.
+ * Its "Don't show again" box went with that: a tour asked for is shown, and
+ * the box, once ticked, made Help's button open nothing at all.
  */
 function WelcomePageView(
-  { onComplete, orgType = 'sandbox' }: WelcomePageProps,
+  { onComplete, orgType: orgTypeProp }: WelcomePageProps,
   ref: React.ForwardedRef<WelcomePageHandle>,
 ): React.ReactElement | null {
   const { t, i18n } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
-  const setShowWelcome = useAppStore((s) => s.setShowWelcome);
+  const orgs = useOrgStore((s) => s.orgs);
+  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
+  const selectedOrg = orgs.find((org) => org.id === selectedOrgId);
+  const orgType =
+    orgTypeProp ?? (selectedOrg && !isDevelopmentOrg(selectedOrg) ? 'production' : 'sandbox');
   const [step, setStep] = useState(0);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
   /** Why the language just picked is not the one on screen, or null. */
   const [languageError, setLanguageError] = useState<string | null>(null);
-  /**
-   * Honor the "Don't show again" flag: it is written on completion but was
-   * never read back, so the wizard kept reappearing whenever the extension
-   * re-sent `onboarding:show` (e.g. webview reloaded before finishing).
-   * When the flag is set we complete immediately — `onComplete` also sends
-   * `onboarding:complete` to the extension, which persists the
-   * `sandforge.onboardingCompleted` globalState and stops re-sending
-   * `onboarding:show` at startup.
-   */
-  const [dismissed] = useState(() => getPersistedItem(DONT_SHOW_KEY) === 'true');
-
-  useEffect(() => {
-    if (dismissed) {
-      onComplete();
-    }
-  }, [dismissed, onComplete]);
 
   const handleNext = useCallback((): void => {
     if (step < TOTAL_STEPS - 1) {
@@ -125,29 +121,32 @@ function WelcomePageView(
   }, [step]);
 
   const handleFinish = useCallback((): void => {
-    if (dontShowAgain) {
-      setPersistedItem(DONT_SHOW_KEY, 'true');
-    }
     onComplete();
     navigate('monitor');
-  }, [dontShowAgain, onComplete, navigate]);
+  }, [onComplete, navigate]);
 
   const handleSkip = useCallback((): void => {
-    if (dontShowAgain) {
-      setPersistedItem(DONT_SHOW_KEY, 'true');
-    }
     onComplete();
-  }, [dontShowAgain, onComplete]);
+  }, [onComplete]);
 
   useImperativeHandle(ref, () => ({ skip: handleSkip }), [handleSkip]);
 
   const handleOpenSettings = useCallback((): void => {
-    if (dontShowAgain) {
-      setPersistedItem(DONT_SHOW_KEY, 'true');
-    }
     onComplete();
     navigate('settings');
-  }, [dontShowAgain, onComplete, navigate]);
+  }, [onComplete, navigate]);
+
+  /**
+   * Seed on its template gallery, the org to fill preselected: the selected
+   * org when it is one, else the first connected org that is.
+   */
+  const openSeed = useCallback((): void => {
+    onComplete();
+    navigate('seed', {
+      seedMode: 'quick-seed',
+      targetOrgId: orgToFill(orgs, selectedOrgId)?.id,
+    });
+  }, [onComplete, navigate, orgs, selectedOrgId]);
 
   const handleLanguageChange = useCallback(
     (code: SupportedLanguage): void => {
@@ -179,32 +178,20 @@ function WelcomePageView(
     [t],
   );
 
-  /**
-   * Open a use-case path module and step the wizard aside. Like the step-1
-   * exit, this is not completion: steps 3 and 4 are still unseen, and
-   * `onComplete` would record onboarding as done for good. Only a ticked
-   * "Don't show again" makes leaving here final.
-   */
+  /** Open a use-case path module, leaving the tour. */
   const handleOpenPath = useCallback(
     (route: 'forge' | 'seed' | 'frozen'): void => {
-      if (dontShowAgain) {
-        setPersistedItem(DONT_SHOW_KEY, 'true');
-        onComplete();
-      } else {
-        setShowWelcome(false);
+      if (route === 'seed') {
+        openSeed();
+        return;
       }
+      onComplete();
       navigate(route);
     },
-    [dontShowAgain, onComplete, navigate, setShowWelcome],
+    [onComplete, navigate, openSeed],
   );
 
   const progressPercent = ((step + 1) / TOTAL_STEPS) * 100;
-
-  // "Don't show again" was set on a previous run: render nothing while the
-  // mount effect above closes the wizard through onComplete.
-  if (dismissed) {
-    return null;
-  }
 
   return (
     <div
@@ -307,11 +294,9 @@ function WelcomePageView(
               <Button
                 variant="primary"
                 onClick={() => {
-                  // Hide the overlay so the org manager behind it can be used,
-                  // without onComplete: that would record onboarding as done
-                  // at step 1 of 5, and the wizard would never come back.
+                  // The tour is left for the org manager, which it covered.
+                  onComplete();
                   navigate('orgs');
-                  setShowWelcome(false);
                 }}
               >
                 {t('onboarding.connectOrg')}
@@ -405,25 +390,12 @@ function WelcomePageView(
                 </Button>
               ) : (
                 <>
-                  <Button
-                    variant="primary"
-                    onClick={() => {
-                      if (dontShowAgain) {
-                        setPersistedItem(DONT_SHOW_KEY, 'true');
-                      }
-                      onComplete();
-                      navigate('seed');
-                    }}
-                    data-testid="welcome-open-seed-btn"
-                  >
+                  <Button variant="primary" onClick={openSeed} data-testid="welcome-open-seed-btn">
                     {t('onboarding.openSeed')}
                   </Button>
                   <Button
                     variant="secondary"
                     onClick={() => {
-                      if (dontShowAgain) {
-                        setPersistedItem(DONT_SHOW_KEY, 'true');
-                      }
                       onComplete();
                       navigate('sync');
                     }}
@@ -437,18 +409,6 @@ function WelcomePageView(
                 {t('onboarding.openSettings')}
               </Button>
             </div>
-            <label
-              className="flex items-center gap-2 justify-center text-xs cursor-pointer"
-              style={{ color: 'var(--sf-text-secondary)' }}
-            >
-              <input
-                type="checkbox"
-                checked={dontShowAgain}
-                onChange={(e) => setDontShowAgain(e.target.checked)}
-                data-testid="dont-show-again"
-              />
-              {t('onboarding.dontShowAgain')}
-            </label>
           </div>
         )}
       </div>

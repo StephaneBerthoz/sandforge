@@ -74,9 +74,15 @@ function type(testId: string, value: string): void {
   fireEvent.change(screen.getByTestId(testId), { target: { value } });
 }
 
+/** Open a method kept under "More methods": JWT or the device flow. */
+function openMoreMethod(method: 'jwt' | 'oauth_device'): void {
+  fireEvent.click(screen.getByTestId('org-auth-more'));
+  fireEvent.click(screen.getByTestId(`org-auth-${method}`));
+}
+
 /** Open the device form, fill it and ask for a code; the device request is then in flight. */
 function startDeviceSignIn(rerender: (ui: React.ReactElement) => void): void {
-  fireEvent.click(screen.getByTestId('org-auth-oauth_device'));
+  openMoreMethod('oauth_device');
   type('inline-alias-input', 'uat');
   type('inline-client-id-input', '3MVG9FakeConsumerKey.ForTests_Only');
   fireEvent.click(screen.getByTestId('org-inline-connect'));
@@ -100,7 +106,7 @@ beforeEach(() => {
 describe('signing in with JWT', () => {
   it('asks for the alias, username, consumer key and key file before it can connect', () => {
     render(<OrgManagerPage />);
-    fireEvent.click(screen.getByTestId('org-auth-jwt'));
+    openMoreMethod('jwt');
 
     const connect = screen.getByTestId('org-inline-connect') as HTMLButtonElement;
     expect(connect.disabled).toBe(true);
@@ -115,7 +121,7 @@ describe('signing in with JWT', () => {
 
   it('sends the key file path, never its content, on the regular connect request', () => {
     render(<OrgManagerPage />);
-    fireEvent.click(screen.getByTestId('org-auth-jwt'));
+    openMoreMethod('jwt');
     fireEvent.change(screen.getByLabelText('Login URL'), {
       target: { value: 'https://test.salesforce.com' },
     });
@@ -141,7 +147,7 @@ describe('signing in with JWT', () => {
 
   it('tells the user, next to the field, that SandForge never opens the key file', () => {
     render(<OrgManagerPage />);
-    fireEvent.click(screen.getByTestId('org-auth-jwt'));
+    openMoreMethod('jwt');
 
     const keyFile = screen.getByLabelText('Private key file');
     const hint = document.getElementById(keyFile.getAttribute('aria-describedby') ?? '');
@@ -152,7 +158,7 @@ describe('signing in with JWT', () => {
 
   it('collapses once the org is connected', () => {
     const { rerender } = render(<OrgManagerPage />);
-    fireEvent.click(screen.getByTestId('org-auth-jwt'));
+    openMoreMethod('jwt');
     connectState = { ...connectState, loading: true, requestId: 'req-jwt' };
     rerender(<OrgManagerPage />);
 
@@ -176,7 +182,7 @@ describe('signing in with the device flow', () => {
 
   it('asks for the consumer key of the user’s own app, then for a code', () => {
     render(<OrgManagerPage />);
-    fireEvent.click(screen.getByTestId('org-auth-oauth_device'));
+    openMoreMethod('oauth_device');
 
     const start = screen.getByTestId('org-inline-connect') as HTMLButtonElement;
     expect(start.textContent).toBe('Get a code');
@@ -319,7 +325,7 @@ describe('signing in with the device flow', () => {
   it('clears an earlier failure of the other request when a new sign-in starts', () => {
     connectState = { ...connectState, error: 'JWT sign-in failed earlier' };
     render(<OrgManagerPage />);
-    fireEvent.click(screen.getByTestId('org-auth-oauth_device'));
+    openMoreMethod('oauth_device');
     type('inline-alias-input', 'uat');
     type('inline-client-id-input', '3MVG9FakeConsumerKey.ForTests_Only');
 

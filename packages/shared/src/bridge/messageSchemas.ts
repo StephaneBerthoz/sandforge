@@ -57,6 +57,9 @@ const OrgMessages = [
   msg('org:update'),
   msg('org:open-in-browser'),
   msg('org:open-in-browser:response'),
+  // Whether the CLI answers and how many orgs it holds, asked as Organizations opens.
+  msg('org:cli-status'),
+  msg('org:cli-status:response'),
   msg('org:statusChanged'),
   msg('org:selected'),
   msg('org:error'),
@@ -535,6 +538,8 @@ const SettingsMessages = [
   msg('bridge:protocol-mismatch'),
   msg('bridge:reload-banner'),
   msg('panel:visibility'),
+  // What the page a command opened should start (the launcher's first card).
+  msg('navigation:intent'),
   msg('workbench:reload'),
   msg('workbench:open-setting'),
   msg('error:boundary'),

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../theme';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
+import { SeedInsteadHint } from '../../components/ui/SeedInsteadHint';
 import type { ForgeInputMode } from '../../stores/useForgeStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useForgeForm } from './useForgeForm';
@@ -161,6 +162,11 @@ export const ForgeInput: React.FC = () => {
           <AlertTriangle size={14} />
           {t('forge.sameOrgWarning')}
         </div>
+      )}
+      {/* Forge copies from one org into another: with one org, its form can
+          only end on "Source and target must be different". */}
+      {(form.sameOrgSelected || form.orgs.filter((o) => o.status === 'connected').length < 2) && (
+        <SeedInsteadHint testId="forge-seed-instead" />
       )}
 
       {/* ===== MAIN GRID: Form + Preview ===== */}

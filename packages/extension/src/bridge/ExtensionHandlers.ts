@@ -605,6 +605,7 @@ export class ExtensionHandlers {
         'org:select',
         'org:update',
         'org:open-in-browser',
+        'org:cli-status',
       ],
       this.orgHandler,
     );

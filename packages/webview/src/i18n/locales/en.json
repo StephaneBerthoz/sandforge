@@ -60,7 +60,9 @@
       "autopilotStorageExceeded": "The Autopilot run was refused before it wrote anything: its records take more data storage than the target org has left. Narrow the selection, or free data storage in the target org.",
       "autopilotWriteDeclined": "You cancelled the Autopilot run before it wrote anything. Nothing was written to the target org.",
       "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
-      "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}."
+      "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
+      "orgAuthExpired": "The session with this org has expired and could not be renewed. Reconnect it on the Organizations page (Try Reconnect on its card).",
+      "orgTemporarilyUnreachable": "This org failed several times in a row, so SandForge waits a moment before calling it again. Try again in a minute."
     }
   },
   "status": {
@@ -126,7 +128,23 @@
     "openInBrowser": "Open in browser",
     "openRefusedUrl": "{{alias}} was not opened: its instance URL is not an HTTPS address.",
     "openNotFound": "{{alias}} is no longer registered, so it was not opened.",
-    "openFailed": "The browser did not open {{alias}}: {{reason}}"
+    "openFailed": "The browser did not open {{alias}}: {{reason}}",
+    "sessionExpired": {
+      "title": "Session expired",
+      "message": "The session with {{org}} has expired. Reconnect it to go on.",
+      "reconnect": "Reconnect"
+    },
+    "moreMethods": "More methods",
+    "cliMissing": "The Salesforce CLI (sf) does not answer on this machine. Import from SF CLI and OAuth (Web) run on it.",
+    "noCliOrgs": "The Salesforce CLI holds no org yet. Sign in with OAuth (Web): it opens the Salesforce login in your browser.",
+    "aliasOptionalHint": "Optional: without one, the org is named after its username.",
+    "connectedNext": {
+      "title": "{{alias}} is connected",
+      "titleMany_one": "{{count}} org is connected",
+      "titleMany_other": "{{count}} orgs are connected",
+      "fill": "Fill {{alias}} with demo data",
+      "clone": "Clone from another org"
+    }
   },
   "monitor": {
     "refresh": "Refresh",
@@ -2380,7 +2398,6 @@
     "syncFirstStepDesc": "Transfer data between your Salesforce orgs in 3 clicks with Quick Sync",
     "startQuickSync": "Start Quick Sync",
     "suggestSeedAndSync": "Your sandbox is ready. Populate it with Seed for test data, or Sync to copy from another org.",
-    "dontShowAgain": "Don't show again",
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
@@ -2652,11 +2669,12 @@
     "reportsContent": "Reports reads the run history Forge and Sync already keep:\n- Executions: each run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit trail and data lineage: coming soon, nothing records them yet"
   },
   "emptyState": {
-    "connectViaSfdx": "Connect an org via SFDX import",
-    "connectTwoViaSfdx": "Connect two orgs via SFDX import — source and target",
-    "connectSecondViaSfdx": "Connect a second org via SFDX import",
+    "connectViaSfdx": "Connect an org (sign in with your browser)",
+    "connectTwoViaSfdx": "Connect two orgs, a source and a target (sign in with your browser)",
+    "connectSecondViaSfdx": "Connect a second org (sign in with your browser)",
     "connectOrg": "Connect an Org",
-    "selectOrgCta": "Select an Org"
+    "selectOrgCta": "Select an Org",
+    "onlyOneOrgSeed": "Only one org? Generate realistic data with Seed"
   },
   "home": {
     "connectedOrgs": "Connected Orgs",
@@ -2672,9 +2690,9 @@
     "gettingStarted": "Getting Started",
     "gettingStartedDesc": "Welcome to SandForge! Follow these steps to get started.",
     "step1": "Connect your first Salesforce org",
-    "step2": "Explore the Monitor dashboard",
-    "step3": "Generate test data with Seed",
-    "step4": "Set up Sync between environments",
+    "step2": "Fill it with demo data from a Seed template",
+    "step3": "Clone a real record from another org with Forge",
+    "step4": "Watch API limits, jobs and storage in Monitor",
     "connectOrg": "Connect an Org",
     "viewAll": "View All",
     "justNow": "just now",
@@ -2705,7 +2723,8 @@
         "quick-seed": "Quick Seed",
         "clone": "Clone",
         "sync": "Sync"
-      }
+      },
+      "reasonSampleOnly": "Your org holds only a few sample records — fill it with demo data"
     },
     "opStatus": {
       "success": "Succeeded",
@@ -4061,7 +4080,7 @@
     "connectedOrgs": "Orgs",
     "recentOps": "Ops",
     "forge": "Forge",
-    "forgeDesc": "Seed, sync & transform data",
+    "forgeDesc": "Copy a real record and everything around it into another org",
     "favorites": "Favorites",
     "modules": "Modules",
     "tools": "Tools",
@@ -4091,6 +4110,17 @@
       "justNow": "just now",
       "minutesAgo": "{{count}}m ago",
       "hoursAgo": "{{count}}h ago"
+    },
+    "fillOrg": "Fill {{alias}} with demo data",
+    "fillOrgDesc": "A Seed template, one confirmation, no AI key",
+    "advanced": "Advanced",
+    "firstOrg": {
+      "title": "Connect your first org",
+      "desc": "Bring in the orgs the Salesforce CLI already holds, or sign in through your browser.",
+      "importCount_one": "Import {{count}} org from the Salesforce CLI",
+      "importCount_other": "Import {{count}} orgs from the Salesforce CLI",
+      "import": "Import from the Salesforce CLI",
+      "loginWeb": "Log in with your browser"
     }
   },
   "frozen": {

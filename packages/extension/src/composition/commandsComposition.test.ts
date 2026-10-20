@@ -50,7 +50,10 @@ function createFakePanel() {
 
 function createDeps(options: {
   panelAlreadyOpen: boolean;
-  shouldShowOnboarding: boolean;
+  /** No version recorded yet: the extension has never run in this profile. */
+  firstLaunch?: boolean;
+  /** Onboarding never completed: the flag the wizard used to be shown on. */
+  shouldShowOnboarding?: boolean;
   shouldShowWhatsNew?: boolean;
   whatsNewWanted?: boolean;
 }) {
@@ -61,7 +64,8 @@ function createDeps(options: {
     postToAllPanels: vi.fn(),
   };
   const onboardingService = {
-    shouldShowOnboarding: vi.fn(() => options.shouldShowOnboarding),
+    isFirstLaunch: vi.fn(() => options.firstLaunch ?? false),
+    shouldShowOnboarding: vi.fn(() => options.shouldShowOnboarding ?? false),
     shouldShowWhatsNew: vi.fn(() => options.shouldShowWhatsNew ?? false),
     markVersionSeen: vi.fn().mockResolvedValue(undefined),
   };
@@ -89,16 +93,46 @@ function invokeFirstModuleCommand(): void {
   callback?.();
 }
 
-describe('commandsComposition onboarding/whats-new delivery', () => {
+describe("commandsComposition What's New delivery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     registeredCommands.clear();
   });
 
-  it('new panel: neither posts nor marks the version seen before the first incoming message', () => {
+  it('shows no welcome wizard on a first launch, and records the version for the next upgrade', () => {
+    const { deps, panel, onboardingService } = createDeps({
+      panelAlreadyOpen: false,
+      firstLaunch: true,
+      shouldShowOnboarding: true,
+    });
+    registerModuleCommands(deps);
+
+    invokeFirstModuleCommand();
+    panel.fireIncomingMessage({ type: 'webview:ready' });
+
+    // The walkthrough VS Code opens on install is the first-run script: the
+    // wizard covered the page it had sent the user to, every session.
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+    expect(panel.webview.onDidReceiveMessage).not.toHaveBeenCalled();
+    expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
+  });
+
+  it('shows no welcome wizard to someone who never finished it', () => {
+    const { deps, panel } = createDeps({
+      panelAlreadyOpen: true,
+      shouldShowOnboarding: true,
+    });
+    registerModuleCommands(deps);
+
+    invokeFirstModuleCommand();
+
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("new panel: neither posts What's New nor marks the version seen before the first incoming message", () => {
     const { deps, panel, onboardingService, context } = createDeps({
       panelAlreadyOpen: false,
-      shouldShowOnboarding: true,
+      shouldShowWhatsNew: true,
     });
     registerModuleCommands(deps);
 
@@ -112,10 +146,10 @@ describe('commandsComposition onboarding/whats-new delivery', () => {
     expect(context.subscriptions).toContain(panel.listenerDisposable);
   });
 
-  it('new panel: posts exactly once on the first incoming message, then marks the version seen', () => {
+  it("new panel: posts What's New exactly once on the first incoming message, then marks the version seen", () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: false,
-      shouldShowOnboarding: true,
+      shouldShowWhatsNew: true,
     });
     registerModuleCommands(deps);
     invokeFirstModuleCommand();
@@ -125,10 +159,10 @@ describe('commandsComposition onboarding/whats-new delivery', () => {
     // Targeted to the triggering panel — not broadcast to every open panel.
     expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
     const posted = panel.webview.postMessage.mock.calls[0][0] as { type: string };
-    expect(posted.type).toBe('onboarding:show');
+    expect(posted.type).toBe('whats-new:show');
     // markVersionSeen only fires once the message can actually be received —
     // before the fix it ran immediately, so a lost message was still recorded
-    // as shown and the welcome screen never appeared.
+    // as shown and the panel never appeared.
     expect(onboardingService.markVersionSeen).toHaveBeenCalledTimes(1);
     expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
 
@@ -142,7 +176,7 @@ describe('commandsComposition onboarding/whats-new delivery', () => {
   it('new panel: closing the panel before its first message disposes the readiness listener', () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: false,
-      shouldShowOnboarding: true,
+      shouldShowWhatsNew: true,
     });
     registerModuleCommands(deps);
     invokeFirstModuleCommand();
@@ -158,7 +192,6 @@ describe('commandsComposition onboarding/whats-new delivery', () => {
   it('reveal (panel already open): posts immediately without arming a listener', () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: true,
-      shouldShowOnboarding: false,
       shouldShowWhatsNew: true,
     });
     registerModuleCommands(deps);
@@ -181,7 +214,6 @@ describe('commandsComposition onboarding/whats-new delivery', () => {
   it("turned off in the settings: shows no What's New, and records the upgrade as seen", () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: true,
-      shouldShowOnboarding: false,
       shouldShowWhatsNew: true,
       whatsNewWanted: false,
     });
@@ -193,10 +225,48 @@ describe('commandsComposition onboarding/whats-new delivery', () => {
     expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
   });
 
-  it('arms nothing and marks nothing when neither onboarding nor whats-new applies', () => {
+  it('hands a new Organizations panel the import it was opened for, once its bundle is up', () => {
+    const { deps, panel } = createDeps({ panelAlreadyOpen: false });
+    registerModuleCommands(deps);
+    const openOrgs = registeredCommands.get('sandforge.openOrgs');
+
+    openOrgs?.({ orgAction: 'import-cli' });
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+    panel.fireIncomingMessage({ type: 'org:list' });
+
+    expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
+    expect(panel.webview.postMessage.mock.calls[0][0]).toMatchObject({
+      type: 'navigation:intent',
+      payload: { route: 'orgs', orgAction: 'import-cli' },
+    });
+  });
+
+  it('hands an open panel its intent at once, and every later command its own', () => {
+    const { deps, panel } = createDeps({ panelAlreadyOpen: true });
+    registerModuleCommands(deps);
+    const openOrgs = registeredCommands.get('sandforge.openOrgs');
+
+    openOrgs?.({ orgAction: 'login-web' });
+    openOrgs?.({ orgAction: 'import-cli' });
+
+    const posted = panel.webview.postMessage.mock.calls.map(
+      (call) => (call[0] as { payload: { orgAction: string } }).payload.orgAction,
+    );
+    expect(posted).toEqual(['login-web', 'import-cli']);
+  });
+
+  it('hands nothing for an argument the intent schema refuses', () => {
+    const { deps, panel } = createDeps({ panelAlreadyOpen: true });
+    registerModuleCommands(deps);
+
+    registeredCommands.get('sandforge.openOrgs')?.({ orgAction: 'wipe' });
+
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('arms nothing and marks nothing when there is no upgrade to tell of', () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: false,
-      shouldShowOnboarding: false,
       shouldShowWhatsNew: false,
     });
     registerModuleCommands(deps);

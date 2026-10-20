@@ -26,6 +26,7 @@ import { cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { extractRecordId } from '../Forge/forgeUtils';
 import { useSmartAction } from './useSmartAction';
+import { orgToFill } from '../../utils/orgToFill';
 import { useOrgHealthSummary } from './useOrgHealthSummary';
 import { SmartActionCard } from './SmartActionCard';
 
@@ -58,6 +59,7 @@ export const HomePage: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const navigate = useAppStore((s) => s.navigate);
+  const grappeEnabled = useAppStore((s) => s.grappeEnabled);
   const recentOps = useRecentOpsStore((s) => s.ops);
 
   const { data: orgListData, loading: orgsLoading } = useBridgeQuery<OrgListPayload>('org:list');
@@ -365,15 +367,19 @@ export const HomePage: React.FC = () => {
               >
                 {t('home.quickForge')}
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={<Icon name="server" />}
-                onClick={() => navigate('grappe')}
-                data-testid="quick-grappe-btn"
-              >
-                {t('nav.grappe')}
-              </Button>
+              {/* Grappe only shows a run's partitions while sandforge.grappe.enabled
+                  is on: off, its button opened an empty page. */}
+              {grappeEnabled && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Icon name="server" />}
+                  onClick={() => navigate('grappe')}
+                  data-testid="quick-grappe-btn"
+                >
+                  {t('nav.grappe')}
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 size="sm"
@@ -397,7 +403,12 @@ export const HomePage: React.FC = () => {
                   variant="secondary"
                   size="sm"
                   icon={<Icon name="database" />}
-                  onClick={() => navigate('seed')}
+                  onClick={() =>
+                    navigate('seed', {
+                      seedMode: 'quick-seed',
+                      targetOrgId: orgToFill(connectedOrgs, selectedOrgId)?.id,
+                    })
+                  }
                   data-testid="populate-sandbox-btn"
                 >
                   {t('onboarding.populateSandbox')}

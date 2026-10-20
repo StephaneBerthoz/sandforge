@@ -5,6 +5,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import i18n from 'i18next';
 
 import type { BaseMessage } from '@sandforge/shared';
+import { offerReconnect } from '../bridge/offerReconnect';
 
 /**
  * Options for the useMessageResponse hook.
@@ -80,6 +81,13 @@ function guardRefusal(
   payload: Record<string, unknown> = {},
 ): string | undefined {
   if (!i18n.isInitialized) return undefined;
+  // A connection the user can act on, worded by the host in English with a
+  // CLI command once: an expired session, or an org that failed several times
+  // in a row and is left alone for a moment.
+  if (code === 'ORG_AUTH_EXPIRED') return i18n.t('common.refusal.orgAuthExpired');
+  if (code === 'ORG_TEMPORARILY_UNREACHABLE') {
+    return i18n.t('common.refusal.orgTemporarilyUnreachable');
+  }
   // A seed its records' data storage stopped before the first write, with the
   // figures the host measured: the host's sentence is English.
   if (code === 'SEED_STORAGE_EXCEEDED') {
@@ -315,6 +323,9 @@ export function useMessageResponse<T>(
           );
           setLoading(false);
           setTimedOut(false);
+          if (code === 'ORG_AUTH_EXPIRED') {
+            offerReconnect(eventData.payload as Record<string, unknown> | undefined);
+          }
         };
         window.addEventListener('message', errorListener);
         removeErrorListener = () => window.removeEventListener('message', errorListener);

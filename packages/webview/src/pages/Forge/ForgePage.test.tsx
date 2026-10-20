@@ -135,7 +135,7 @@ describe('ForgePage', () => {
     expect(screen.getByText('Populate your sandbox from a real record')).toBeDefined();
     expect(screen.getByTestId('empty-steps')).toBeDefined();
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect an org via SFDX import',
+      'Connect an org (sign in with your browser)',
     );
     expect(screen.getByTestId('empty-step-1').textContent).toContain(
       'Paste a root record ID (e.g. an Account from UAT)',

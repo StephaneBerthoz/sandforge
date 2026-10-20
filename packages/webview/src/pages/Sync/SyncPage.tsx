@@ -19,6 +19,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
 import { orgOptionLabel } from '../../utils/orgFormatters';
+import { orgToFill } from '../../utils/orgToFill';
 import { SyncWizard } from './SyncWizard';
 import type { SyncWizardStep } from './SyncWizard';
 import { FieldMappingCanvas } from './FieldMappingCanvas';
@@ -190,6 +191,7 @@ const SyncGrappePanel: React.FC = () => {
 export const SyncPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const navigate = useAppStore((s) => s.navigate);
   const [quickSyncActive, setQuickSyncActive] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
@@ -275,6 +277,9 @@ export const SyncPage: React.FC = () => {
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
 
   if (orgs.length < 2) {
+    // Sync copies between two orgs. With one, the empty state offered only to
+    // connect another: Seed fills the one there is.
+    const fill = orgs.length === 1 ? orgToFill(orgs, selectedOrgId) : undefined;
     return (
       <EmptyState
         module="sync"
@@ -290,6 +295,12 @@ export const SyncPage: React.FC = () => {
         ]}
         actionLabel={t('emptyState.connectOrg')}
         onAction={() => navigate('orgs')}
+        {...(fill
+          ? {
+              tourLabel: t('emptyState.onlyOneOrgSeed'),
+              onTourClick: () => navigate('seed', { seedMode: 'quick-seed', targetOrgId: fill.id }),
+            }
+          : {})}
       />
     );
   }

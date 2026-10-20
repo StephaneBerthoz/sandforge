@@ -20,13 +20,18 @@ export interface SettingsUpdateRequest extends BaseMessage {
  * `ConfigStore.getByCategory('settings')` (e.g. `{ theme: 'dark' }`), NOT the
  * nested {@link AppSettings} structure from `settings.types.ts`.
  *
- * `forgeGraphView` is the `sandforge.forge.graphView` editor setting, which
- * the blob does not hold. Sent with every answer, and again, with no request
- * behind it, whenever the setting changes.
+ * `forgeGraphView` is the `sandforge.forge.graphView` editor setting, and
+ * `grappeEnabled` the `sandforge.grappe.enabled` one, which the blob does not
+ * hold. Sent with every answer, and again, with no request behind it, whenever
+ * either setting changes.
  */
 export interface SettingsResponse extends BaseMessage {
   type: 'settings:response';
-  payload: { settings: Record<string, unknown>; forgeGraphView?: ForgeGraphView };
+  payload: {
+    settings: Record<string, unknown>;
+    forgeGraphView?: ForgeGraphView;
+    grappeEnabled?: boolean;
+  };
 }
 
 /**

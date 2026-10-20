@@ -124,7 +124,7 @@ const PRODUCTION = {
 
 describe('HomePage', () => {
   beforeEach(() => {
-    useAppStore.setState({ currentRoute: 'home' });
+    useAppStore.setState({ currentRoute: 'home', grappeEnabled: false, navigationIntent: null });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useRecentOpsStore.setState({ ops: [] });
     useForgeStore.setState({ config: null });
@@ -203,9 +203,19 @@ describe('HomePage', () => {
     render(<HomePage />);
     expect(screen.getByTestId('quick-actions-card')).toBeDefined();
     expect(screen.getByTestId('quick-forge-btn')).toBeDefined();
-    expect(screen.getByTestId('quick-grappe-btn')).toBeDefined();
     expect(screen.getByTestId('refresh-monitor-btn')).toBeDefined();
     expect(screen.getByTestId('run-pipeline-btn')).toBeDefined();
+  });
+
+  it('offers Grappe only while sandforge.grappe.enabled is on: off, its page is empty', () => {
+    useAppStore.setState({ grappeEnabled: false });
+    const { unmount } = render(<HomePage />);
+    expect(screen.queryByTestId('quick-grappe-btn')).toBeNull();
+    unmount();
+
+    useAppStore.setState({ grappeEnabled: true });
+    render(<HomePage />);
+    expect(screen.getByTestId('quick-grappe-btn')).toBeDefined();
   });
 
   it('should navigate to forge on quick forge click', () => {
@@ -215,6 +225,7 @@ describe('HomePage', () => {
   });
 
   it('should navigate to grappe on quick grappe click', () => {
+    useAppStore.setState({ grappeEnabled: true });
     render(<HomePage />);
     fireEvent.click(screen.getByTestId('quick-grappe-btn'));
     expect(useAppStore.getState().currentRoute).toBe('grappe');
@@ -479,6 +490,20 @@ describe('HomePage', () => {
     render(<HomePage />);
     fireEvent.click(screen.getByTestId('populate-sandbox-btn'));
     expect(useAppStore.getState().currentRoute).toBe('seed');
+  });
+
+  it('opens Seed on its gallery with the org to fill preselected, not a production org', () => {
+    const prod = createMockOrg({ ...PRODUCTION, id: 'prod' });
+    const sandbox = createMockOrg({ orgType: 'Sandbox', id: 'sbx' });
+    useOrgStore.setState({ orgs: [prod, sandbox], selectedOrgId: 'prod' });
+    render(<HomePage />);
+    fireEvent.click(screen.getByTestId('populate-sandbox-btn'));
+
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      route: 'seed',
+      seedMode: 'quick-seed',
+      targetOrgId: 'sbx',
+    });
   });
 
   it('should display recent ops from the store', () => {

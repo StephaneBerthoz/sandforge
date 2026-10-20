@@ -76,9 +76,16 @@ test.describe('Home page', () => {
     await expect(quickActions).toBeVisible();
 
     await expect(page.getByTestId('quick-forge-btn')).toBeVisible();
-    await expect(page.getByTestId('quick-grappe-btn')).toBeVisible();
     await expect(page.getByTestId('refresh-monitor-btn')).toBeVisible();
     await expect(page.getByTestId('run-pipeline-btn')).toBeVisible();
+    // Grappe shows nothing until sandforge.grappe.enabled is on.
+    await expect(page.getByTestId('quick-grappe-btn')).toHaveCount(0);
+    await sendExtensionMessage(page, {
+      type: 'settings:response',
+      id: 'settings-grappe-on',
+      payload: { settings: {}, grappeEnabled: true },
+    });
+    await expect(page.getByTestId('quick-grappe-btn')).toBeVisible();
   });
 
   test('displays health tile', async ({ page }) => {

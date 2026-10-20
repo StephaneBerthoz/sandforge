@@ -51,6 +51,20 @@ const mockOrg: SalesforceOrg = {
   tags: [],
 };
 
+/** Deliver a message from the extension, as the launcher receives it. */
+function fromExtension(data: Record<string, unknown>): void {
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data }));
+  });
+}
+
+/** The extension's answer with the registered orgs. */
+function deliverOrgs(orgs: SalesforceOrg[], selectedOrgId: string | null = null): void {
+  fromExtension({ type: 'org:list:response', payload: { orgs, selectedOrgId } });
+}
+
+const qaSandbox: SalesforceOrg = { ...mockOrg, id: 'org-2', alias: 'QASandbox' };
+
 describe('SidePanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -98,21 +112,144 @@ describe('SidePanel', () => {
     expect(metrics).toHaveTextContent('1');
   });
 
-  it('renders forge hero button', () => {
+  it('renders forge hero button once two orgs are connected', () => {
     render(<SidePanel />);
+    deliverOrgs([mockOrg, qaSandbox]);
+    expect(screen.getByTestId('sidepanel-forge')).toBeInTheDocument();
+    expect(screen.queryByTestId('sidepanel-seed-hero')).toBeNull();
+  });
+
+  it('describes Forge as the clone it opens, not as seeding, syncing and transforming', () => {
+    render(<SidePanel />);
+    deliverOrgs([mockOrg, qaSandbox]);
+    expect(screen.getByTestId('sidepanel-forge')).toHaveTextContent('sidePanel.forgeDesc');
+  });
+
+  it('leads with filling the one org connected, not with Forge, which needs a second', () => {
+    useOrgStore.setState({ selectedOrgId: null });
+    render(<SidePanel />);
+    deliverOrgs([mockOrg]);
+
+    expect(screen.queryByTestId('sidepanel-forge')).toBeNull();
+    const hero = screen.getByTestId('sidepanel-seed-hero');
+    expect(hero).toHaveTextContent('sidePanel.fillOrg');
+
+    fireEvent.click(hero);
+    // The org is selected everywhere, so Seed opens on it.
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      type: 'sidebar:selectOrg',
+      payload: { orgId: 'org-1' },
+    });
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      type: 'sidebar:navigate',
+      payload: { route: 'seed' },
+    });
+  });
+
+  it('offers no seed of a production org connected alone', () => {
+    render(<SidePanel />);
+    deliverOrgs([
+      {
+        ...mockOrg,
+        orgType: 'Production',
+        metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+      },
+    ]);
+
+    expect(screen.queryByTestId('sidepanel-seed-hero')).toBeNull();
     expect(screen.getByTestId('sidepanel-forge')).toBeInTheDocument();
   });
 
-  it('renders module navigation items', () => {
+  describe('with no org registered', () => {
+    it('leads with a card to connect the first org, in place of the counters and the hero', () => {
+      render(<SidePanel />);
+      deliverOrgs([]);
+
+      expect(screen.getByTestId('sidepanel-first-org')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidepanel-metrics')).toBeNull();
+      expect(screen.queryByTestId('sidepanel-forge')).toBeNull();
+    });
+
+    it('offers the orgs the CLI holds first, and opens Organizations on their import', () => {
+      render(<SidePanel />);
+      deliverOrgs([]);
+      fromExtension({ type: 'sidebar:cliOrgs', payload: { count: 4 } });
+
+      const card = screen.getByTestId('sidepanel-first-org');
+      const buttons = card.querySelectorAll('button');
+      expect(buttons[0]).toHaveAttribute('data-testid', 'sidepanel-first-org-import');
+      expect(buttons[0]).toHaveTextContent('sidePanel.firstOrg.importCount');
+
+      fireEvent.click(screen.getByTestId('sidepanel-first-org-import'));
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: 'sidebar:navigate',
+        payload: { route: 'orgs', intent: { orgAction: 'import-cli' } },
+      });
+    });
+
+    it('leads with the browser sign-in when the CLI holds no org', () => {
+      render(<SidePanel />);
+      deliverOrgs([]);
+      fromExtension({ type: 'sidebar:cliOrgs', payload: { count: 0 } });
+
+      const buttons = screen.getByTestId('sidepanel-first-org').querySelectorAll('button');
+      expect(buttons[0]).toHaveAttribute('data-testid', 'sidepanel-first-org-login');
+      fireEvent.click(buttons[0]);
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: 'sidebar:navigate',
+        payload: { route: 'orgs', intent: { orgAction: 'login-web' } },
+      });
+    });
+
+    it('is not shown while orgs are registered, even when none is connected', () => {
+      render(<SidePanel />);
+      deliverOrgs([{ ...mockOrg, status: 'expired' }]);
+      expect(screen.queryByTestId('sidepanel-first-org')).toBeNull();
+    });
+  });
+
+  it('renders module navigation items, Seed, Forge and Monitor first', () => {
     render(<SidePanel />);
-    expect(screen.getByTestId('sidepanel-nav-monitor')).toBeInTheDocument();
-    expect(screen.getByTestId('sidepanel-nav-seed')).toBeInTheDocument();
-    expect(screen.getByTestId('sidepanel-nav-sync')).toBeInTheDocument();
-    expect(screen.getByTestId('sidepanel-nav-grappe')).toBeInTheDocument();
-    expect(screen.getByTestId('sidepanel-nav-autopilot')).toBeInTheDocument();
-    expect(screen.getByTestId('sidepanel-nav-compare')).toBeInTheDocument();
-    expect(screen.getByTestId('sidepanel-nav-dataops')).toBeInTheDocument();
-    expect(screen.getByTestId('sidepanel-nav-automation')).toBeInTheDocument();
+    const modules = screen.getByTestId('sidepanel-modules');
+    const routes = [...modules.querySelectorAll('[data-testid^="sidepanel-nav-"]')].map((el) =>
+      el.getAttribute('data-testid'),
+    );
+    expect(routes).toEqual([
+      'sidepanel-nav-seed',
+      'sidepanel-nav-forge',
+      'sidepanel-nav-monitor',
+      'sidepanel-nav-sync',
+      'sidepanel-nav-autopilot',
+      'sidepanel-nav-frozen',
+    ]);
+  });
+
+  it('folds Compare, DataOps, Automation, Migration and AI under Advanced until opened', () => {
+    render(<SidePanel />);
+    const toggle = screen.getByTestId('sidepanel-advanced-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('sidepanel-nav-compare')).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    for (const route of ['compare', 'dataops', 'automation', 'migration', 'ai']) {
+      expect(screen.getByTestId(`sidepanel-nav-${route}`)).toBeInTheDocument();
+    }
+  });
+
+  it('lists Grappe only while sandforge.grappe.enabled is on', () => {
+    render(<SidePanel />);
+    fireEvent.click(screen.getByTestId('sidepanel-advanced-toggle'));
+    expect(screen.queryByTestId('sidepanel-nav-grappe')).toBeNull();
+
+    fromExtension({ type: 'settings:response', payload: { settings: {}, grappeEnabled: true } });
+
+    fireEvent.click(screen.getByTestId('sidepanel-nav-grappe'));
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      type: 'sidebar:navigate',
+      payload: { route: 'grappe' },
+    });
   });
 
   it('renders tool navigation items', () => {
@@ -304,9 +441,9 @@ describe('SidePanel', () => {
     expect(useFavoritesStore.getState().favorites).toContain('monitor');
   });
 
-  it('posts sidebar:navigate for seed, sync, grappe and autopilot entries', () => {
+  it('posts sidebar:navigate for seed, forge, sync and autopilot entries', () => {
     render(<SidePanel />);
-    for (const route of ['seed', 'sync', 'grappe', 'autopilot']) {
+    for (const route of ['seed', 'forge', 'sync', 'autopilot']) {
       fireEvent.click(screen.getByTestId(`sidepanel-nav-${route}`));
       expect(mockPostMessage).toHaveBeenCalledWith({
         type: 'sidebar:navigate',
@@ -408,6 +545,7 @@ describe('SidePanel', () => {
     it('draws the tall Forge hero in a panel with room for it', () => {
       setViewportHeight(800);
       render(<SidePanel />);
+      deliverOrgs([mockOrg, qaSandbox]);
 
       expect(screen.getByTestId('sidepanel-forge')).toBeInTheDocument();
       expect(screen.queryByTestId('sidepanel-forge-compact')).not.toBeInTheDocument();
@@ -420,6 +558,7 @@ describe('SidePanel', () => {
       // pushed the module list below the fold.
       setViewportHeight(600);
       render(<SidePanel />);
+      deliverOrgs([mockOrg, qaSandbox]);
 
       expect(screen.getByTestId('sidepanel-forge-compact')).toBeInTheDocument();
       expect(screen.queryByTestId('sidepanel-forge')).not.toBeInTheDocument();
@@ -429,6 +568,7 @@ describe('SidePanel', () => {
     it('switches to compact when the panel is dragged shorter', () => {
       setViewportHeight(800);
       render(<SidePanel />);
+      deliverOrgs([mockOrg, qaSandbox]);
       expect(screen.getByTestId('sidepanel-forge')).toBeInTheDocument();
 
       setViewportHeight(600);
@@ -436,6 +576,15 @@ describe('SidePanel', () => {
 
       expect(screen.getByTestId('sidepanel-forge-compact')).toBeInTheDocument();
       expect(screen.queryByTestId('sidepanel-forge')).not.toBeInTheDocument();
+    });
+
+    it('keeps the one-org Seed hero, on one line, on a short panel', () => {
+      setViewportHeight(600);
+      render(<SidePanel />);
+      deliverOrgs([mockOrg]);
+
+      expect(screen.getByTestId('sidepanel-seed-hero-compact')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidepanel-seed-hero')).not.toBeInTheDocument();
     });
   });
 

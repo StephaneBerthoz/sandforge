@@ -743,6 +743,21 @@ describe('ForgeInput', () => {
     expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('points at Seed where the form can only end on "Source and target must be different"', () => {
+    const navigate = vi.fn();
+    useAppStore.setState({ navigate });
+    render(<ForgeInput />);
+    expect(screen.queryByTestId('forge-seed-instead')).toBeNull();
+
+    selectOrg('forge-target-org', 'org-src');
+    fireEvent.click(screen.getByTestId('forge-seed-instead-action'));
+
+    expect(navigate).toHaveBeenCalledWith('seed', {
+      seedMode: 'quick-seed',
+      targetOrgId: 'org-src',
+    });
+  });
+
   /* ---- Clone directly ---- */
   describe('Clone directly', () => {
     it('says, where it is chosen, that it stops on neither screen and runs no metadata diff, though what fires on insert is still put to the user', () => {

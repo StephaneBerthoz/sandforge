@@ -586,6 +586,73 @@ describe('BridgeProvider', () => {
     await i18n.changeLanguage('en');
   });
 
+  it('takes whether Grappe is on from each settings answer, the pushed one too', () => {
+    useAppStore.setState({ grappeEnabled: false });
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-settings-g1',
+      type: 'settings:response',
+      timestamp: Date.now(),
+      payload: { settings: {}, grappeEnabled: true },
+    });
+    expect(useAppStore.getState().grappeEnabled).toBe(true);
+
+    // An answer from an older host, which says nothing of it, changes nothing.
+    fireMessage({
+      id: 'ext-settings-g2',
+      type: 'settings:response',
+      timestamp: Date.now(),
+      payload: { settings: {} },
+    });
+    expect(useAppStore.getState().grappeEnabled).toBe(true);
+  });
+
+  it('opens the page a command named, with what it was asked to start', () => {
+    useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-intent-1',
+      type: 'navigation:intent',
+      timestamp: Date.now(),
+      payload: { route: 'orgs', orgAction: 'import-cli' },
+    });
+
+    expect(useAppStore.getState().currentRoute).toBe('orgs');
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'orgs',
+      orgAction: 'import-cli',
+    });
+  });
+
+  it('ignores an intent for a page the panel cannot mount', () => {
+    useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-intent-2',
+      type: 'navigation:intent',
+      timestamp: Date.now(),
+      payload: { route: 'nowhere', orgAction: 'import-cli' },
+    });
+
+    expect(useAppStore.getState().currentRoute).toBe('home');
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
   it('takes the Forge graph view from each settings answer, the pushed one too', () => {
     useForgeViewStore.setState({ setting: 'auto', choice: null });
     render(

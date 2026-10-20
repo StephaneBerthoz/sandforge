@@ -545,7 +545,7 @@ test('every Get Started step offers a command button, in six languages', () => {
     (w) => w.id === 'sandforge.gettingStarted',
   );
   assert.ok(walkthrough, 'the gettingStarted walkthrough is gone — re-read this gate');
-  assert.equal(walkthrough.steps.length, 4, 'step count changed; every step still needs a button');
+  assert.equal(walkthrough.steps.length, 5, 'step count changed; every step still needs a button');
 
   const declared = new Set((m.contributes?.commands ?? []).map((c) => c.command));
   const offenders = [];
@@ -567,6 +567,29 @@ test('every Get Started step offers a command button, in six languages', () => {
     [],
     'walkthrough steps without a working button:\n  ' + offenders.join('\n  '),
   );
+});
+
+/**
+ * The walkthrough went from connecting an org to Forge, Monitor and Settings:
+ * no step filled the org just connected, although its description promised
+ * "populate your first sandbox with realistic data", and Forge needs a second
+ * org a newcomer with one Developer Edition does not have.
+ */
+test('the Get Started walkthrough fills the org it just connected with Seed, before Forge', () => {
+  const steps =
+    (manifest().contributes?.walkthroughs ?? []).find((w) => w.id === 'sandforge.gettingStarted')
+      ?.steps ?? [];
+  const ids = steps.map((step) => step.id);
+  assert.deepEqual(ids.slice(0, 3), [
+    'sandforge.connectOrg',
+    'sandforge.fillOrg',
+    'sandforge.forgeClone',
+  ]);
+  const fill = steps[1];
+  assert.deepEqual(fill.completionEvents, ['onCommand:sandforge.openSeed']);
+  for (const [locale, text] of Object.entries(resolveNls(fill.description))) {
+    assert.match(text, /\]\(command:sandforge\.openSeed\)/, `${locale}: no Open Seed button`);
+  }
 });
 
 // ── onboarding that fails on the machine it is read on ────────────────────

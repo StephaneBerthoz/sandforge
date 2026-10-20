@@ -8,6 +8,7 @@ import {
   resetCircuitBreakers,
   resetConnectionValidation,
 } from './ConnectionHelper';
+import { OrgConnectionError } from './OrgConnectionError';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
@@ -251,8 +252,29 @@ describe('ConnectionHelper', () => {
       mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-        /Authentication expired for org "test-org".*sf org login web --alias test-org/,
+        /^ORG_AUTH_EXPIRED: The session with "test-org" has expired.*Reconnect it on the Organizations page/,
       );
+    });
+
+    it('names the UI, not a terminal command, and marks the org expired, when the session cannot be renewed', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
+
+      const err = await getJsforceConnection('org-1', orgRegistry, orgManager).catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(OrgConnectionError);
+      expect((err as OrgConnectionError).code).toBe('ORG_AUTH_EXPIRED');
+      expect((err as OrgConnectionError).orgId).toBe('org-1');
+      expect((err as Error).message).not.toMatch(/sf org login|Orgs page|SFDX import/);
+      // Its card on Organizations offers Reconnect only for an expired org.
+      expect(orgManager.updateStatus).toHaveBeenCalledWith('org-1', 'expired');
     });
 
     it('never takes the placeholder sf org display prints for a token', async () => {
@@ -277,7 +299,7 @@ describe('ConnectionHelper', () => {
         .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-        /Authentication expired for org "test-org".*Neither "sf org auth show-access-token" nor "sf org display" returned an access token/,
+        /^ORG_AUTH_EXPIRED: The session with "test-org".*Neither "sf org auth show-access-token" nor "sf org display" returned an access token/,
       );
       // No identity call is spent on the placeholder, and nothing is saved.
       expect(mockIdentity).toHaveBeenCalledTimes(1);
@@ -406,7 +428,7 @@ describe('ConnectionHelper', () => {
       mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-        /Authentication expired for org "test-org".*sf org login web --alias test-org/,
+        /^ORG_AUTH_EXPIRED: The session with "test-org" has expired.*Reconnect it on the Organizations page/,
       );
       expect(mockCliInvoker).toHaveBeenCalled();
     });
@@ -430,7 +452,7 @@ describe('ConnectionHelper', () => {
         .mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-        /Authentication expired for org "test-org".*sf org login web --alias test-org/,
+        /^ORG_AUTH_EXPIRED: The session with "test-org" has expired.*Reconnect it on the Organizations page/,
       );
       expect(mockCliInvoker).toHaveBeenCalledTimes(2);
       expect(mockIdentity).toHaveBeenCalledTimes(2);
@@ -497,7 +519,7 @@ describe('ConnectionHelper', () => {
         .mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-        /Authentication expired for org "test-org"/,
+        /^ORG_AUTH_EXPIRED: The session with "test-org"/,
       );
       // Persist happens only AFTER the new token is validated.
       expect(orgRegistry.saveOrg).not.toHaveBeenCalled();
@@ -614,7 +636,7 @@ describe('ConnectionHelper', () => {
       await vi.advanceTimersByTimeAsync(60_000);
 
       const err = await settled;
-      expect((err as Error).message).toMatch(/Authentication expired.*did not answer/);
+      expect((err as Error).message).toMatch(/^ORG_AUTH_EXPIRED: .*did not answer/);
       expect(orgRegistry.saveOrg).not.toHaveBeenCalled();
       expect(getCircuitBreaker('org-1').getFailureCount()).toBe(1);
     });
@@ -679,7 +701,7 @@ describe('ConnectionHelper', () => {
         await vi.advanceTimersByTimeAsync(1_000);
         expect(outcome).toBeInstanceOf(Error);
         expect((outcome as Error).message).toMatch(
-          /Authentication expired for org "test-org".*sf did not answer within 30 s — check the Salesforce CLI/,
+          /^ORG_AUTH_EXPIRED: The session with "test-org".*sf did not answer within 30 s — check the Salesforce CLI/,
         );
         // A hung sf is not run again for the two remaining reads.
         expect(mockExec).toHaveBeenCalledTimes(1);
@@ -792,7 +814,7 @@ describe('ConnectionHelper', () => {
       // org-1 is now blocked...
       await expect(
         getJsforceConnection('org-1', createMockOrgRegistry(creds), createMockOrgManager(org1)),
-      ).rejects.toThrow('Circuit breaker is open');
+      ).rejects.toThrow(/^ORG_TEMPORARILY_UNREACHABLE: /);
 
       // ...but org-2 still connects on its own breaker
       mockIdentity.mockResolvedValueOnce({ user_id: 'u2' });
@@ -831,7 +853,7 @@ describe('ConnectionHelper', () => {
 
       // Cooldown elapses again. The permit from the previous half-open probe
       // must have been released (finally block) — otherwise canExecute() stays
-      // false forever and this call would throw "Circuit breaker is open".
+      // false forever and this call would throw ORG_TEMPORARILY_UNREACHABLE.
       vi.advanceTimersByTime(31_000);
       mockIdentity.mockResolvedValueOnce({ user_id: 'u1' });
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
@@ -884,13 +906,13 @@ describe('ConnectionHelper', () => {
       for (let i = 0; i < 3; i++) {
         mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
         await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-          'Authentication expired for org "test-org"',
+          'ORG_AUTH_EXPIRED: The session with "test-org" has expired',
         );
       }
 
       expect(getCircuitBreaker('org-1').getState()).toBe('open');
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-        'Circuit breaker is open',
+        'ORG_TEMPORARILY_UNREACHABLE: ',
       );
     });
   });

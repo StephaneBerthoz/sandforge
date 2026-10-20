@@ -120,7 +120,18 @@ describe('SettingsHandler', () => {
       expect(posted().payload).toEqual({
         settings: { settings: { language: 'fr' } },
         forgeGraphView: 'graph',
+        grappeEnabled: false,
       });
+    });
+
+    it('says whether Grappe is on, so the launcher and Home list it only then', async () => {
+      editorHolds({ 'grappe.enabled': true });
+      await handler.handle(createMsg('settings:get'));
+      editorHolds({});
+      await handler.handle(createMsg('settings:get'));
+
+      expect((posted(0).payload as { grappeEnabled?: boolean }).grappeEnabled).toBe(true);
+      expect((posted(1).payload as { grappeEnabled?: boolean }).grappeEnabled).toBe(false);
     });
   });
 

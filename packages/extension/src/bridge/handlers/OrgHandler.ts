@@ -30,6 +30,8 @@ import type {
   SfdxUnreadableOrg,
 } from '../../core/connection/SfdxBridge.js';
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
+import { countCliOrgs } from '../../core/connection/sfCliOrgs.js';
+import { homedir } from 'node:os';
 
 /** Message types handled by OrgHandler. */
 const ORG_TYPES = new Set([
@@ -40,6 +42,7 @@ const ORG_TYPES = new Set([
   'org:select',
   'org:update',
   'org:open-in-browser',
+  'org:cli-status',
 ]);
 
 /** What OrgHandler reaches outside the extension through; tests pass stand-ins. */
@@ -48,7 +51,17 @@ export interface OrgHandlerServices {
   browser?: ExternalBrowserAdapter;
   /** Speaks the device flow to Salesforce. */
   deviceLogin?: DeviceLogin;
+  /** How many orgs the CLI holds, read from its files; the user's own by default. */
+  countCliOrgs?: () => Promise<number>;
 }
+
+/**
+ * What an import that found nothing says. It named a terminal command, on the
+ * page whose OAuth (Web) button runs that very command; the page opens the
+ * browser sign-in on this code.
+ */
+export const NO_CLI_ORGS_MESSAGE =
+  'The Salesforce CLI holds no connected org yet. Sign in with OAuth (Web) on the Organizations page: it opens the Salesforce login in your browser.';
 
 /**
  * Domain handler for org-related webview-to-extension messages.
@@ -60,6 +73,7 @@ export interface OrgHandlerServices {
 export class OrgHandler implements DomainHandler {
   private readonly browser: ExternalBrowserAdapter;
   private readonly deviceLogin: DeviceLogin;
+  private readonly countCliOrgs: () => Promise<number>;
 
   /**
    * Device sign-ins still waiting, by the id of the `org:connect` request that
@@ -77,6 +91,7 @@ export class OrgHandler implements DomainHandler {
   ) {
     this.browser = services.browser ?? new ExternalBrowserAdapter();
     this.deviceLogin = services.deviceLogin ?? new DeviceLogin();
+    this.countCliOrgs = services.countCliOrgs ?? (() => countCliOrgs(homedir()));
   }
 
   /**
@@ -110,9 +125,31 @@ export class OrgHandler implements DomainHandler {
       case 'org:open-in-browser':
         await this.handleOpenInBrowser(msg);
         return true;
+      case 'org:cli-status':
+        await this.handleCliStatus(msg);
+        return true;
       default:
         return false;
     }
+  }
+
+  /**
+   * Whether the Salesforce CLI answers, and how many orgs it holds, asked by
+   * the Organizations page as it opens: the CLI's absence was found only after
+   * a click on one of the two ways to connect that run on it.
+   */
+  private async handleCliStatus(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const [available, orgCount] = await Promise.all([
+      this.deps.sfdxBridge.isCliAvailable().catch(() => false),
+      this.countCliOrgs().catch(() => 0),
+    ]);
+    const response = buildResponse(this.deps, msg, 'org:cli-status:response', {
+      available,
+      orgCount,
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
 
   private handleOrgList(msg: InboundRequest): void {
@@ -225,10 +262,12 @@ export class OrgHandler implements DomainHandler {
       if (results.length === 0) {
         // Something to do before trying again, so the toast stays until it is
         // dismissed, and the banner that outlives it carries the same step: it
-        // used to stop at "No connected orgs found in SF CLI."
-        const message = 'No connected orgs found in SF CLI. Run "sf org login web" first.';
-        sendNotification(this.deps, 'warning', 'Import', message, { autoDismissMs: null });
-        this.failConnect(msg, message, 'NO_ORGS_FOUND');
+        // used to stop at "No connected orgs found in SF CLI.", then named a
+        // terminal command. The page opens the browser sign-in on the code.
+        sendNotification(this.deps, 'warning', 'Import', NO_CLI_ORGS_MESSAGE, {
+          autoDismissMs: null,
+        });
+        this.failConnect(msg, NO_CLI_ORGS_MESSAGE, 'NO_CLI_ORGS');
         return;
       }
 

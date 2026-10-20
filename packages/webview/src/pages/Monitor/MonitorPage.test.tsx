@@ -243,7 +243,7 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
     expect(screen.getByText('Keep an eye on your org health')).toBeDefined();
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect an org via SFDX import',
+      'Connect an org (sign in with your browser)',
     );
     expect(screen.getByTestId('empty-step-1').textContent).toContain('Pick the org to watch');
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');

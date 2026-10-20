@@ -392,7 +392,7 @@ describe('SeedPage', () => {
     expect(screen.getByTestId('illustration-seed')).toBeDefined();
     expect(screen.getByText('Fill your sandbox with realistic test data')).toBeDefined();
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect an org via SFDX import',
+      'Connect an org (sign in with your browser)',
     );
     expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
   });

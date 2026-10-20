@@ -42,6 +42,7 @@ import {
 } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
+import { LANDING_COMMAND } from './composition/moduleCommands';
 import { registerFrozenSaltCommands } from './composition/frozenSaltCommands';
 import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposition';
 import { wirePipelineTriggers } from './composition/pipelineTriggerComposition';
@@ -50,6 +51,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { readSfDefaultOrg } from './core/connection/sfDefaultOrg';
+import { countCliOrgs } from './core/connection/sfCliOrgs';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
 import { knownErrorTexts } from './core/common/errorKnowledgeBase.js';
 import { parseHttpsUrl } from './core/common/parseHttpsUrl.js';
@@ -69,11 +71,15 @@ export interface StatusBarOrg {
 }
 
 /**
- * Build the status bar label + tooltip from the current orgs.
+ * Build the status bar label, tooltip and command from the current orgs.
  *
  * Shows the selected org's alias when one is tracked (sidebar `sidebar:selectOrg`
  * → `org:selected` flow); otherwise falls back to the first connected org, and
  * finally to the bare org count. Exported for unit tests.
+ *
+ * A click opens Home, where the next step for the org is, once an org is
+ * registered, and Organizations before: it opened Monitor, whose API limits
+ * say nothing to someone with no org yet, nor to someone whose org is empty.
  *
  * @param orgs - All orgs known to the OrgManager.
  * @param selectedOrgId - The org currently selected in the sidebar, if any.
@@ -81,20 +87,26 @@ export interface StatusBarOrg {
 export function buildStatusBarLabel(
   orgs: StatusBarOrg[],
   selectedOrgId: string | undefined,
-): { text: string; tooltip: string } {
+): { text: string; tooltip: string; command: string } {
   const count = orgs.length;
   const countLabel = `${count} org${count !== 1 ? 's' : ''}`;
+  const command = count > 0 ? LANDING_COMMAND : 'sandforge.openOrgs';
   const displayed =
     orgs.find((org) => org.id === selectedOrgId) ?? orgs.find((org) => org.status === 'connected');
   if (!displayed) {
     return {
       text: `$(flame) SandForge: ${countLabel}`,
-      tooltip: 'SandForge — Click to open Monitor',
+      tooltip:
+        count > 0
+          ? 'SandForge — Click to open Home'
+          : 'SandForge — Click to connect an org in Organizations',
+      command,
     };
   }
   return {
     text: `$(flame) SandForge: ${displayed.alias} (${countLabel})`,
     tooltip: `${displayed.alias} — ${displayed.username} (${displayed.status})`,
+    command,
   };
 }
 
@@ -418,6 +430,10 @@ export function activate(context: vscode.ExtensionContext): void {
     // `<html lang>` on the sidebar shell — same closure the panels get.
     () => readConfiguredLanguage(configStore.getByCategory('settings')),
     () => vscode.env.language,
+    () => services.getSandforgeSetting<unknown>('grappe.enabled', false) === true,
+    // Read from the CLI's own files, no process started: the launcher asks
+    // only while no org is registered.
+    () => countCliOrgs(os.homedir()),
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,
@@ -543,7 +559,7 @@ export function activate(context: vscode.ExtensionContext): void {
       id: 'sandforge.status',
       text: label.text,
       tooltip: label.tooltip,
-      command: 'sandforge.openMonitor',
+      command: label.command,
       priority: 200,
     });
   };

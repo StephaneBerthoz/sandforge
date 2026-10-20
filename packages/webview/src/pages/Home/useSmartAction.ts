@@ -3,6 +3,7 @@ import type { SmartActionRecommendation } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { orgToFill } from '../../utils/orgToFill';
 
 /** Payload returned by the smart-action:analyze bridge response. */
 interface SmartActionPayload {
@@ -30,9 +31,14 @@ export interface SmartActionState {
 /**
  * Hook that manages the Smart Action analysis lifecycle.
  *
- * Sends a `smart-action:analyze` bridge query on mount when orgs are
+ * Sends a `smart-action:analyze` bridge query on mount when an org to fill is
  * connected, and provides a confirmation flow before opening the page for the
  * recommended action.
+ *
+ * The org analysed is the selected one when it is a sandbox, a scratch org or
+ * a Developer Edition, else the first connected org that is: it was the first
+ * connected org, whatever was selected, a production org included, which the
+ * card then offered to seed. The source is the first other connected org.
  *
  * Confirming opens the page for that action: the clone wizard on the orgs the
  * recommendation names with its source selected, the quick-seed template
@@ -45,14 +51,17 @@ export interface SmartActionState {
  */
 export function useSmartAction(): SmartActionState {
   const orgs = useOrgStore((s) => s.orgs);
+  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const selectOrg = useOrgStore((s) => s.selectOrg);
   const navigate = useAppStore((s) => s.navigate);
   const [showConfirmation, setShowConfirmation] = useState(false);
 
   const connectedOrgs = useMemo(() => orgs.filter((o) => o.status === 'connected'), [orgs]);
 
-  const targetOrgId = connectedOrgs.length > 0 ? connectedOrgs[0].id : '';
-  const sourceOrgId = connectedOrgs.length > 1 ? connectedOrgs[1].id : undefined;
+  const targetOrgId = orgToFill(connectedOrgs, selectedOrgId)?.id ?? '';
+  const sourceOrgId = targetOrgId
+    ? connectedOrgs.find((org) => org.id !== targetOrgId)?.id
+    : undefined;
 
   const queryPayload = useMemo(
     () => ({

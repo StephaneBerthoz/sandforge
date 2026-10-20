@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Connection } from 'jsforce';
-import { SmartActionAnalyzer } from './SmartActionAnalyzer';
+import { SAMPLE_DATA_CEILING, SmartActionAnalyzer } from './SmartActionAnalyzer';
 import type { SmartActionAnalyzerDeps } from './SmartActionAnalyzer';
 
 /** Creates a mock jsforce Connection that returns configured counts. */
@@ -108,6 +108,78 @@ describe('SmartActionAnalyzer', () => {
     expect(result.action).toBe('none');
     expect(result.confidence).toBe(0);
     expect(result.reasonKey).toBe('');
+  });
+
+  it('recommends Quick Seed to an org holding only sample data, as a new Developer Edition does', async () => {
+    // A newly signed-up Developer Edition's sample data: 13 accounts, about
+    // twenty contacts, thirty opportunities, twenty-odd cases and leads.
+    const sampleCounts = { Account: 13, Contact: 20, Opportunity: 31, Case: 26, Lead: 22 };
+    const deps: SmartActionAnalyzerDeps = {
+      getConnection: vi.fn().mockResolvedValue(createMockConnection(sampleCounts)),
+    };
+
+    const result = await new SmartActionAnalyzer(deps).analyzeOrg('dev-edition');
+
+    expect(result.action).toBe('quick-seed');
+    expect(result.reasonKey).toBe('home.smartAction.reasonSampleOnly');
+    expect(result.details.targetOrgId).toBe('dev-edition');
+  });
+
+  it('recommends nothing to an org holding a working set of any one object', async () => {
+    const counts = {
+      Account: 13,
+      Contact: 20,
+      Opportunity: 31,
+      Case: SAMPLE_DATA_CEILING,
+      Lead: 22,
+    };
+    const deps: SmartActionAnalyzerDeps = {
+      getConnection: vi.fn().mockResolvedValue(createMockConnection(counts)),
+    };
+
+    const result = await new SmartActionAnalyzer(deps).analyzeOrg('busy-org');
+
+    expect(result.action).toBe('none');
+  });
+
+  it('recommends Quick Seed, not a clone, between two orgs that both hold sample data only', async () => {
+    const sampleCounts = { Account: 13, Contact: 20, Opportunity: 31, Case: 26, Lead: 22 };
+    const deps: SmartActionAnalyzerDeps = {
+      getConnection: vi.fn().mockResolvedValue(createMockConnection(sampleCounts)),
+    };
+
+    const result = await new SmartActionAnalyzer(deps).analyzeOrg('target-de', 'source-de');
+
+    expect(result.action).toBe('quick-seed');
+  });
+
+  it('recommends cloning into an org holding sample data from a source with real data', async () => {
+    const targetConn = createMockConnection({
+      Account: 13,
+      Contact: 20,
+      Opportunity: 31,
+      Case: 26,
+      Lead: 22,
+    });
+    const sourceConn = createMockConnection({
+      Account: 900,
+      Contact: 2000,
+      Opportunity: 400,
+      Case: 300,
+      Lead: 120,
+    });
+    const deps: SmartActionAnalyzerDeps = {
+      getConnection: vi
+        .fn()
+        .mockImplementation((orgId: string) =>
+          Promise.resolve(orgId === 'target-de' ? targetConn : sourceConn),
+        ),
+    };
+
+    const result = await new SmartActionAnalyzer(deps).analyzeOrg('target-de', 'uat');
+
+    expect(result.action).toBe('clone');
+    expect(result.details.sourceOrgId).toBe('uat');
   });
 
   it('should handle query failures gracefully (count = 0 for failed objects)', async () => {

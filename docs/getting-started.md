@@ -48,33 +48,36 @@ After installation, you will see the SandForge flame in the VSCode Activity Bar 
 Top to bottom, the launcher gives you:
 
 - **Org switcher** -- The current org with a live status dot and its type badge (PROD, SANDBOX, SCRATCH...). Open it to list every registered org, jump to one in a browser, or pick **New organization...** at the bottom to go to Organizations.
+- **Connect your first org** -- Shown while no org is registered, in place of the counters and the hero: **Import N orgs from the Salesforce CLI**, with the number of orgs the CLI holds, and **Log in with your browser**. Each opens Organizations and starts that way of connecting. When the CLI holds no org, the browser login comes first.
 - **Orgs / Ops** -- Two counters, connected orgs and recent operations. Collapsible, and collapsed for you on short viewports.
-- **Forge** -- The orange hero button, straight into the record-scoped clone journey. This is the shortcut you will use most.
-- **Favorites** -- Only shown once you star something. Every module in the list below has a star button.
-- **Modules** -- Monitor, Seed, Sync, Grappe, Autopilot, Frozen Dataset, Compare Org, DataOps, Automation, Migration, AI Assistant.
+- **Hero** -- With one sandbox, scratch org or Developer Edition org connected, and no other, **Fill <alias> with demo data** opens Seed's template gallery on it. From two connected orgs it is the orange **Forge** button, straight into the record-scoped clone journey, which copies from one org into another.
+- **Favorites** -- Only shown once you star something. Every module in the lists below has a star button.
+- **Modules** -- Seed, Forge, Monitor, Sync, Autopilot, Frozen Dataset.
+- **Advanced** -- Folded until you open it: Compare Org, DataOps, Automation, Migration, AI Assistant, and Grappe while `sandforge.grappe.enabled` is on.
 - **Tools** -- Organizations, Settings, Help.
 - **Running / Last Operation** -- The operation in flight, or the last one to finish with its status and age.
-- **Open Full UI** -- Opens Monitor in a full editor tab.
+- **Open Full UI** -- Opens Home in a full editor tab.
 
 ![Launcher — the SandForge mark, the current org and every module, in the VS Code sidebar](../assets/screenshots/launcher.png)
 
-> **Note:** the **Home** dashboard — KPI row, sandbox health, recent operations — is an in-panel view only. It has no launcher entry and no `SandForge: Open ...` command, so it is reached from inside a SandForge panel: either the `G` then `H` chord, or the SandForge command palette on `Ctrl+K` (`Cmd+K` on macOS). That palette is SandForge's own, distinct from the VSCode palette on `Ctrl+Shift+P`.
+> **Note:** the **Home** dashboard — the recommended next step for the selected org, KPI row, sandbox health, recent operations — opens with **Open Full UI**, with a click on the SandForge item of the status bar once an org is registered (Organizations before that), and with **SandForge: Open Home** in the VS Code palette. Inside a SandForge panel, the `G` then `H` chord and the SandForge command palette on `Ctrl+K` (`Cmd+K` on macOS) reach it too. That palette is SandForge's own, distinct from the VSCode palette on `Ctrl+Shift+P`. Its recommendation offers Quick Seed to a sandbox, scratch org or Developer Edition org holding fewer than 50 accounts, contacts, opportunities, cases and leads each, which is the case of a new Developer Edition and its sample data.
 
-![Home — the in-panel dashboard, reached with Ctrl+K](../assets/screenshots/home.png)
+![Home — the dashboard Open Full UI opens](../assets/screenshots/home.png)
 
 ---
 
 ## Connect Your Org
 
 1. Open **Organizations** from the launcher's Tools section, or pick **New organization...** at the bottom of the org switcher
-2. The Org Manager page shows a connection banner with five auth methods:
+2. The Org Manager page shows a connection banner with its auth methods, JWT and Device Flow folded under **More methods**, since both need a connected app of your own. As the page opens it says whether the Salesforce CLI answers on this machine, which SFDX Import and OAuth Web both run on:
    - **SFDX Import** -- Imports orgs already authenticated via Salesforce CLI (fastest option)
-   - **OAuth Web** -- Opens a browser window for standard OAuth flow
+   - **OAuth Web** -- Opens a browser window for standard OAuth flow. The alias is optional: without one, the org takes its username
    - **Username/Password** -- Direct login with username, password, and security token
    - **JWT** -- JWT bearer flow through `sf org login jwt`: the consumer key of a connected app or external client app that holds your certificate, a username pre-authorized on it, and the path of the private key file
    - **Device Flow** -- OAuth device flow: SandForge shows a code, opens the Salesforce page to enter it on, and waits up to ten minutes for your approval. It needs your own external client app with the device flow enabled
-3. Click **SFDX Import** to import your existing CLI-authenticated orgs automatically
-4. Once connected, your org appears as a card with its alias, type badge, and status dot. The badge reads PROD, SCRATCH or DEVELOPER (a Developer Edition org), the kind of a sandbox (DEV, DEV PRO, PARTIAL or FULL, or SANDBOX when the kind is not known), or, for a sandbox or a Developer Edition org, an environment tag you gave it such as UAT or QA
+3. Click **SFDX Import** to import your existing CLI-authenticated orgs automatically. When the CLI holds no org, the page opens the OAuth Web form instead
+4. After the first org connects, a card offers to fill it with demo data (Seed's template gallery on that org) or to clone a record into it from another org (Forge)
+5. Once connected, your org appears as a card with its alias, type badge, and status dot. The badge reads PROD, SCRATCH or DEVELOPER (a Developer Edition org), the kind of a sandbox (DEV, DEV PRO, PARTIAL or FULL, or SANDBOX when the kind is not known), or, for a sandbox or a Developer Edition org, an environment tag you gave it such as UAT or QA
 
 OAuth Web, Username/Password, JWT and Device Flow log in through `login.salesforce.com` or `test.salesforce.com`. They also accept a My Domain host (`*.my.salesforce.com`) and `*.force.com` or `*.cloudforce.com` hosts, and refuse any other login host.
 

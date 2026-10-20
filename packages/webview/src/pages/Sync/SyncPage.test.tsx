@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useConflictStore } from '../../stores/useConflictStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
@@ -311,7 +312,7 @@ describe('SyncPage', () => {
     useOrgStore.setState({ orgs: [mockOrgs[0]] });
     render(<SyncPage />);
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect a second org via SFDX import',
+      'Connect a second org (sign in with your browser)',
     );
   });
 
@@ -319,8 +320,25 @@ describe('SyncPage', () => {
     useOrgStore.setState({ orgs: [] });
     render(<SyncPage />);
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect two orgs via SFDX import',
+      'Connect two orgs, a source and a target (sign in with your browser)',
     );
+    // Nothing to fill yet: no Seed link.
+    expect(screen.queryByTestId('empty-tour-link')).toBeNull();
+  });
+
+  it('offers Seed on the one org there is, which Sync cannot copy from or to', () => {
+    useOrgStore.setState({ orgs: [mockOrgs[0]], selectedOrgId: null });
+    render(<SyncPage />);
+
+    const link = screen.getByTestId('empty-tour-link');
+    expect(link.textContent).toBe('Only one org? Generate realistic data with Seed');
+    fireEvent.click(link);
+
+    expect(useAppStore.getState().currentRoute).toBe('seed');
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      seedMode: 'quick-seed',
+      targetOrgId: mockOrgs[0].id,
+    });
   });
 
   it('should render sync page with wizard', () => {

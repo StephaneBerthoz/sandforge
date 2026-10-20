@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
+import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAppStore } from '../../../stores/useAppStore';
 import { Step1Connect } from './Step1_Connect';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -39,6 +41,47 @@ const mockOrgs: SalesforceOrg[] = [
 ];
 
 describe('Step1_Connect', () => {
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useAppStore.setState({ currentRoute: 'autopilot', navigationIntent: null });
+  });
+
+  it('points at Seed with one org, which the second list can only offer disabled', () => {
+    useOrgStore.setState({ orgs: [mockOrgs[0]], selectedOrgId: 'org-1' });
+    render(
+      <Step1Connect
+        orgs={[mockOrgs[0]]}
+        sourceOrgId="org-1"
+        targetOrgId=""
+        onSourceSelect={vi.fn()}
+        onTargetSelect={vi.fn()}
+      />,
+    );
+
+    const link = screen.getByTestId('autopilot-seed-instead-action');
+    expect(link.textContent).toBe('Only one org? Generate realistic data with Seed');
+    fireEvent.click(link);
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      route: 'seed',
+      seedMode: 'quick-seed',
+      targetOrgId: 'org-1',
+    });
+  });
+
+  it('says nothing of Seed once two orgs are connected', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(
+      <Step1Connect
+        orgs={mockOrgs}
+        sourceOrgId=""
+        targetOrgId=""
+        onSourceSelect={vi.fn()}
+        onTargetSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('autopilot-seed-instead')).toBeNull();
+  });
+
   it('should render without crashing', () => {
     render(
       <Step1Connect

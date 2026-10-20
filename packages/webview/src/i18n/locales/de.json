@@ -60,7 +60,9 @@
       "autopilotStorageExceeded": "Der Autopilot-Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen mehr Datenspeicher, als in der Ziel-Org übrig ist. Grenzen Sie die Auswahl ein oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "autopilotWriteDeclined": "Sie haben den Autopilot-Lauf abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",
       "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
-      "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei."
+      "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
+      "orgAuthExpired": "Die Sitzung mit dieser Org ist abgelaufen und konnte nicht erneuert werden. Verbinden Sie sie auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte).",
+      "orgTemporarilyUnreachable": "Diese Org ist mehrmals hintereinander fehlgeschlagen, daher wartet SandForge einen Moment, bevor es sie erneut aufruft. Versuchen Sie es in einer Minute erneut."
     }
   },
   "status": {
@@ -126,7 +128,23 @@
     "openInBrowser": "Im Browser öffnen",
     "openRefusedUrl": "{{alias}} wurde nicht geöffnet: Die Instanz-URL ist keine HTTPS-Adresse.",
     "openNotFound": "{{alias}} ist nicht mehr registriert und wurde daher nicht geöffnet.",
-    "openFailed": "Der Browser hat {{alias}} nicht geöffnet: {{reason}}"
+    "openFailed": "Der Browser hat {{alias}} nicht geöffnet: {{reason}}",
+    "sessionExpired": {
+      "title": "Sitzung abgelaufen",
+      "message": "Die Sitzung mit {{org}} ist abgelaufen. Verbinden Sie sie erneut, um fortzufahren.",
+      "reconnect": "Erneut verbinden"
+    },
+    "moreMethods": "Weitere Methoden",
+    "cliMissing": "Die Salesforce CLI (sf) antwortet auf diesem Rechner nicht. Aus SF CLI importieren und OAuth (Web) laufen über sie.",
+    "noCliOrgs": "Die Salesforce CLI enthält noch keine Org. Melden Sie sich mit OAuth (Web) an: Es öffnet die Salesforce-Anmeldung in Ihrem Browser.",
+    "aliasOptionalHint": "Optional: Ohne Alias wird die Org nach ihrem Benutzernamen benannt.",
+    "connectedNext": {
+      "title": "{{alias}} ist verbunden",
+      "titleMany_one": "{{count}} Org ist verbunden",
+      "titleMany_other": "{{count}} Orgs sind verbunden",
+      "fill": "{{alias}} mit Demodaten füllen",
+      "clone": "Aus einer anderen Org klonen"
+    }
   },
   "monitor": {
     "refresh": "Aktualisieren",
@@ -2380,7 +2398,6 @@
     "syncFirstStepDesc": "Übertragen Sie Daten zwischen Ihren Salesforce-Orgs in 3 Klicks mit Schnell-Sync",
     "startQuickSync": "Schnell-Sync starten",
     "suggestSeedAndSync": "Ihre Sandbox ist bereit. Füllen Sie sie mit Seed für Testdaten oder mit Sync, um Daten aus einer anderen Org zu kopieren.",
-    "dontShowAgain": "Nicht mehr anzeigen",
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
@@ -2652,11 +2669,12 @@
     "reportsContent": "Berichte liest den Ausführungsverlauf, den Forge und Sync bereits führen:\n- Ausführungen: jeder Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Trail und Datenherkunft: Demnächst, noch zeichnet nichts sie auf"
   },
   "emptyState": {
-    "connectViaSfdx": "Org per SFDX-Import verbinden",
-    "connectTwoViaSfdx": "Zwei Orgs per SFDX-Import verbinden — Quelle und Ziel",
-    "connectSecondViaSfdx": "Zweite Org per SFDX-Import verbinden",
+    "connectViaSfdx": "Verbinden Sie eine Org (Anmeldung im Browser)",
+    "connectTwoViaSfdx": "Verbinden Sie zwei Orgs, eine Quelle und ein Ziel (Anmeldung im Browser)",
+    "connectSecondViaSfdx": "Verbinden Sie eine zweite Org (Anmeldung im Browser)",
     "connectOrg": "Org verbinden",
-    "selectOrgCta": "Org auswählen"
+    "selectOrgCta": "Org auswählen",
+    "onlyOneOrgSeed": "Nur eine Org? Erzeugen Sie realistische Daten mit Seed"
   },
   "home": {
     "connectedOrgs": "Verbundene Orgs",
@@ -2672,9 +2690,9 @@
     "gettingStarted": "Erste Schritte",
     "gettingStartedDesc": "Willkommen bei SandForge! Folgen Sie diesen Schritten, um zu beginnen.",
     "step1": "Verbinden Sie Ihre erste Salesforce-Org",
-    "step2": "Entdecken Sie das Monitor-Dashboard",
-    "step3": "Generieren Sie Testdaten mit Seed",
-    "step4": "Richten Sie Sync zwischen Umgebungen ein",
+    "step2": "Füllen Sie sie mit Demodaten aus einer Seed-Vorlage",
+    "step3": "Klonen Sie mit Forge einen echten Datensatz aus einer anderen Org",
+    "step4": "Behalten Sie API-Limits, Jobs und Speicher im Monitor im Blick",
     "connectOrg": "Eine Org verbinden",
     "viewAll": "Alle anzeigen",
     "justNow": "gerade eben",
@@ -2705,7 +2723,8 @@
         "quick-seed": "Schnell-Seed",
         "clone": "Klonen",
         "sync": "Sync"
-      }
+      },
+      "reasonSampleOnly": "Ihre Org enthält nur wenige Beispieldatensätze — füllen Sie sie mit Demodaten"
     },
     "opStatus": {
       "success": "Erfolgreich",
@@ -4061,7 +4080,7 @@
     "connectedOrgs": "Orgs",
     "recentOps": "Ops",
     "forge": "Forge",
-    "forgeDesc": "Daten seeden, synchronisieren & transformieren",
+    "forgeDesc": "Einen echten Datensatz mit allem, was dazugehört, in eine andere Org kopieren",
     "favorites": "Favoriten",
     "modules": "Module",
     "tools": "Werkzeuge",
@@ -4091,6 +4110,17 @@
       "justNow": "gerade eben",
       "minutesAgo": "vor {{count}}m",
       "hoursAgo": "vor {{count}}h"
+    },
+    "fillOrg": "{{alias}} mit Demodaten füllen",
+    "fillOrgDesc": "Eine Seed-Vorlage, eine Bestätigung, kein KI-Schlüssel",
+    "advanced": "Erweitert",
+    "firstOrg": {
+      "title": "Verbinden Sie Ihre erste Org",
+      "desc": "Übernehmen Sie die Orgs, die die Salesforce CLI bereits kennt, oder melden Sie sich im Browser an.",
+      "importCount_one": "{{count}} Org aus der Salesforce CLI importieren",
+      "importCount_other": "{{count}} Orgs aus der Salesforce CLI importieren",
+      "import": "Aus der Salesforce CLI importieren",
+      "loginWeb": "Im Browser anmelden"
     }
   },
   "frozen": {

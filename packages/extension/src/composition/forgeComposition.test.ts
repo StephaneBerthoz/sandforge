@@ -1448,6 +1448,15 @@ describe('registerForgeGraphViewListener', () => {
     expect(postSettings).toHaveBeenCalledTimes(1);
   });
 
+  it('tells the panels and the launcher the settings again when Grappe is turned on or off', () => {
+    const postSettings = vi.fn();
+    registerForgeGraphViewListener({ postSettings });
+
+    configurationListeners.forEach((listener) => listener(change('sandforge.grappe.enabled')));
+
+    expect(postSettings).toHaveBeenCalledTimes(1);
+  });
+
   it('says nothing when another setting changes', () => {
     const postSettings = vi.fn();
     registerForgeGraphViewListener({ postSettings });

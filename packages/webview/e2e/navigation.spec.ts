@@ -212,41 +212,65 @@ test.describe('Module launcher', () => {
     await openLauncher(page);
   });
 
-  test('offers the module and tool entries', async ({ page }) => {
+  test('offers the module and tool entries, the specialist ones under Advanced', async ({
+    page,
+  }) => {
     await expect(page.getByTestId('sidepanel-modules')).toBeVisible();
     await expect(page.getByTestId('sidepanel-tools')).toBeVisible();
 
-    expect((await entryRoutes(page, 'sidepanel-modules')).sort()).toEqual(
-      [
-        'ai',
-        'automation',
-        'autopilot',
-        'compare',
-        'dataops',
-        'frozen',
-        'grappe',
-        'migration',
-        'monitor',
-        'seed',
-        'sync',
-      ].sort(),
-    );
+    // Seed, Forge and Monitor first: what a newcomer with one org needs.
+    expect(await entryRoutes(page, 'sidepanel-modules')).toEqual([
+      'seed',
+      'forge',
+      'monitor',
+      'sync',
+      'autopilot',
+      'frozen',
+    ]);
+    await expect(page.getByTestId('sidepanel-advanced')).toHaveCount(0);
+    await page.getByTestId('sidepanel-advanced-toggle').click();
+    expect(await entryRoutes(page, 'sidepanel-advanced')).toEqual([
+      'compare',
+      'dataops',
+      'automation',
+      'migration',
+      'ai',
+    ]);
     expect((await entryRoutes(page, 'sidepanel-tools')).sort()).toEqual(
       ['help', 'orgs', 'settings'].sort(),
     );
   });
 
+  test('lists Grappe under Advanced once sandforge.grappe.enabled is on', async ({ page }) => {
+    await page.getByTestId('sidepanel-advanced-toggle').click();
+    expect(await entryRoutes(page, 'sidepanel-advanced')).not.toContain('grappe');
+
+    await sendExtensionMessage(page, {
+      type: 'settings:response',
+      payload: { settings: {}, grappeEnabled: true },
+    });
+
+    await expect(page.getByTestId('sidepanel-nav-grappe')).toBeVisible();
+  });
+
   test('every entry it offers is a route the extension can open', async ({ page }) => {
+    await sendExtensionMessage(page, {
+      type: 'settings:response',
+      payload: { settings: {}, grappeEnabled: true },
+    });
+    await page.getByTestId('sidepanel-advanced-toggle').click();
+    await expect(page.getByTestId('sidepanel-nav-grappe')).toBeVisible();
     const modules = await entryRoutes(page, 'sidepanel-modules');
+    const advanced = await entryRoutes(page, 'sidepanel-advanced');
     const tools = await entryRoutes(page, 'sidepanel-tools');
 
-    for (const route of [...modules, ...tools]) {
+    for (const route of [...modules, ...advanced, ...tools]) {
       await page.getByTestId(`sidepanel-nav-${route}`).click();
     }
     await page.getByTestId('sidepanel-forge').click();
 
     const emitted = await navigatedRoutes(page);
-    expect(emitted).toEqual([...modules, ...tools, 'forge']);
+    expect(emitted).toEqual([...modules, ...advanced, ...tools, 'forge']);
 
     // The extension resolves an unknown route to `sandforge.openMonitor`
     // (SidebarViewProvider.ts), so a launcher entry whose route is not in the
@@ -259,12 +283,53 @@ test.describe('Module launcher', () => {
     // And the other direction: a module command the extension registers with
     // no way to reach it from the launcher. `reports` is the one deliberate
     // exception — it has no launcher entry and is reached from the command
-    // palette (ALL_ROUTES) or the G+R chord instead.
+    // palette (ALL_ROUTES) or the G+R chord instead. `home` is the page Open
+    // Full UI opens, through `sidebar:openFull` rather than a route.
     const launcherRoutes = new Set(emitted);
     const unreachable = MODULE_COMMANDS.map((c) => c.moduleId).filter(
       (moduleId) => !launcherRoutes.has(moduleId),
     );
-    expect(unreachable).toEqual(['reports']);
+    expect(unreachable).toEqual(['home', 'reports']);
+    await page.getByTestId('sidepanel-open-full').click();
+    expect(await posted(page, 'sidebar:openFull')).toHaveLength(1);
+  });
+
+  test('with one Developer Edition, the hero opens Seed on it rather than Forge', async ({
+    page,
+  }) => {
+    await sendExtensionMessage(page, {
+      type: 'org:list:response',
+      payload: { orgs: [{ ...MOCK_ORGS[0], orgType: 'Developer' }], selectedOrgId: null },
+    });
+    await expect(page.getByTestId('sidepanel-forge')).toHaveCount(0);
+
+    await page.getByTestId('sidepanel-seed-hero').click();
+
+    expect(await navigatedRoutes(page)).toEqual(['seed']);
+    const selected = await posted(page, 'sidebar:selectOrg');
+    expect(selected.at(-1)?.payload).toEqual({ orgId: (MOCK_ORGS[0] as { id: string }).id });
+  });
+
+  test('with no org, the first card opens Organizations on the import or the browser login', async ({
+    page,
+  }) => {
+    await sendExtensionMessage(page, {
+      type: 'org:list:response',
+      payload: { orgs: [], selectedOrgId: null },
+    });
+    await sendExtensionMessage(page, { type: 'sidebar:cliOrgs', payload: { count: 2 } });
+    await expect(page.getByTestId('sidepanel-first-org-import')).toHaveText(
+      'Import 2 orgs from the Salesforce CLI',
+    );
+
+    await page.getByTestId('sidepanel-first-org-import').click();
+    await page.getByTestId('sidepanel-first-org-login').click();
+
+    const intents = (await posted(page, 'sidebar:navigate')).map((m) => m.payload);
+    expect(intents).toEqual([
+      { route: 'orgs', intent: { orgAction: 'import-cli' } },
+      { route: 'orgs', intent: { orgAction: 'login-web' } },
+    ]);
   });
 
   test('the forge hero asks the extension to open Forge', async ({ page }) => {

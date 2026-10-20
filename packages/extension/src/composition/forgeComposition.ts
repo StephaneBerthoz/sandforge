@@ -736,7 +736,8 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
 /**
  * Tell the panels when `sandforge.forge.graphView` changes in the editor. Each
  * panel reads it as it opens: one already open kept the view it opened with
- * until it was closed.
+ * until it was closed. `sandforge.grappe.enabled` goes the same way, so the
+ * launcher and Home list Grappe as soon as it is turned on.
  *
  * @returns the Disposable — the caller MUST push it to context.subscriptions.
  */
@@ -744,6 +745,11 @@ export function registerForgeGraphViewListener(
   handlers: Pick<ExtensionHandlers, 'postSettings'>,
 ): vscode.Disposable {
   return vscode.workspace.onDidChangeConfiguration((event) => {
-    if (event.affectsConfiguration('sandforge.forge.graphView')) handlers.postSettings();
+    if (
+      event.affectsConfiguration('sandforge.forge.graphView') ||
+      event.affectsConfiguration('sandforge.grappe.enabled')
+    ) {
+      handlers.postSettings();
+    }
   });
 }

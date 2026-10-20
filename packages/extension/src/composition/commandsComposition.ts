@@ -5,6 +5,7 @@ import type { OrgManager } from '../core/connection/OrgManager';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { OnboardingService } from '../core/onboarding/OnboardingService';
 import { MODULE_COMMANDS } from './moduleCommands';
+import { intentMessageFor } from './moduleIntent';
 
 /** Inputs required to register the module-open commands. */
 export interface ModuleCommandsDeps {
@@ -26,8 +27,12 @@ export interface ModuleCommandsDeps {
  * plus the `sandforge.cheers` easter egg. All registrations are pushed to
  * `context.subscriptions` by this function.
  *
- * First panel open triggers onboarding (or "what's new") exactly once per
- * activation. Extracted from `activate()` — behaviour unchanged.
+ * The first panel open of an activation shows "what's new" after an upgrade,
+ * once. It used to show the welcome wizard to whoever had not finished it: a
+ * second first-run script over the walkthrough VS Code opens on install,
+ * covering the page the walkthrough had just sent them to, and back at its
+ * first step every session until it was completed. The walkthrough is the one
+ * first-run script; Help → Start Guided Tour still opens the wizard.
  */
 export function registerModuleCommands(deps: ModuleCommandsDeps): void {
   const { context, panelManager, orgRegistry, orgManager, stateSync, onboardingService } = deps;
@@ -39,7 +44,7 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
 
   for (const { command, moduleId, title } of MODULE_COMMANDS) {
     context.subscriptions.push(
-      vscode.commands.registerCommand(command, () => {
+      vscode.commands.registerCommand(command, (argument?: unknown) => {
         const viewType = `sandforge.${moduleId}`;
         // Distinguish reveal (panel already alive, webview bundle loaded and
         // listening) from create (bundle still parsing — any message posted
@@ -57,24 +62,24 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
           extensionReady: true,
         });
 
-        // Trigger onboarding or what's new on first panel open
+        // What the page was asked to start, by the launcher's first card.
+        const intent = intentMessageFor(moduleId, argument, `intent-${Date.now()}`);
+
+        // What's new on the first panel open after an upgrade
+        let whatsNew: Record<string, unknown> | undefined;
         if (!onboardingTriggered) {
           onboardingTriggered = true;
-          let message: Record<string, unknown> | undefined;
-          if (onboardingService.shouldShowOnboarding()) {
-            message = {
-              type: 'onboarding:show',
-              id: `onboarding-${Date.now()}`,
-              timestamp: Date.now(),
-              payload: {},
-            };
+          if (onboardingService.isFirstLaunch()) {
+            // Nothing to tell about a version never run before; recorded, so
+            // the next upgrade is the one What's New shows.
+            onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
           } else if (onboardingService.shouldShowWhatsNew(currentVersion)) {
             if (deps.whatsNewWanted?.() === false) {
               // Turned off: the upgrade is still recorded, so turning it back
               // on shows the next one, not this one late.
               onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
             } else {
-              message = {
+              whatsNew = {
                 type: 'whats-new:show',
                 id: `whatsnew-${Date.now()}`,
                 timestamp: Date.now(),
@@ -82,31 +87,35 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
               };
             }
           }
-          if (message) {
-            // Post to the TRIGGERING panel only — the welcome/what's-new
-            // overlay must not pop in every open panel (postToAllPanels
-            // broadcasts by design, e.g. org:selected).
-            if (isReveal) {
-              // Live panel: the bundle is already loaded — post now.
-              void panel.webview.postMessage(message);
-              onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
-            } else {
-              // New panel: posting now would race the bundle parse — the
-              // message would be lost while markVersionSeen still recorded it
-              // as shown (welcome/what's-new never appears again). Arm a
-              // one-shot listener: the FIRST incoming webview message proves
-              // the bundle is up, then post exactly once and mark seen. The
-              // listener is also released if the panel closes before ever
-              // posting — no orphan disposable left behind.
-              const readyListener = panel.webview.onDidReceiveMessage(() => {
-                readyListener.dispose();
-                void panel.webview.postMessage(message);
-                onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
-              });
-              const disposeListener = panel.onDidDispose(() => readyListener.dispose());
-              context.subscriptions.push(readyListener, disposeListener);
-            }
-          }
+        }
+
+        const messages = [intent, whatsNew].filter(
+          (message): message is Record<string, unknown> => message !== undefined,
+        );
+        if (messages.length === 0) return;
+        // Posted to the TRIGGERING panel only — the what's-new overlay must
+        // not pop in every open panel (postToAllPanels broadcasts by design,
+        // e.g. org:selected).
+        const post = (): void => {
+          for (const message of messages) void panel.webview.postMessage(message);
+          if (whatsNew) onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
+        };
+        if (isReveal) {
+          // Live panel: the bundle is already loaded — post now.
+          post();
+        } else {
+          // New panel: posting now would race the bundle parse — the message
+          // would be lost while markVersionSeen still recorded it as shown
+          // (what's-new never appears). Arm a one-shot listener: the FIRST
+          // incoming webview message proves the bundle is up, then post
+          // exactly once and mark seen. The listener is also released if the
+          // panel closes before ever posting — no orphan disposable left behind.
+          const readyListener = panel.webview.onDidReceiveMessage(() => {
+            readyListener.dispose();
+            post();
+          });
+          const disposeListener = panel.onDidDispose(() => readyListener.dispose());
+          context.subscriptions.push(readyListener, disposeListener);
         }
       }),
     );

@@ -120,10 +120,11 @@ describe('org:connect answers on every branch', () => {
     expect(replies[0].correlationId).toBe('req-connect');
   });
 
-  it('keeps the no-orgs toast up, and says in the banner what to run', async () => {
+  it('keeps the no-orgs toast up, and sends the user to OAuth (Web), not to a terminal', async () => {
     // The toast was gone after five seconds, and the banner that outlives it
     // said only "No connected orgs found in SF CLI." — the one step that fixes
-    // it was in the toast alone.
+    // it was in the toast alone. Then both named `sf org login web`, which the
+    // OAuth (Web) button next to them runs.
     deps.sfdxBridge = {
       isCliAvailable: vi.fn().mockResolvedValue(true),
       listOrgs: vi.fn().mockResolvedValue([]),
@@ -136,9 +137,52 @@ describe('org:connect answers on every branch', () => {
     );
     const toast = posted.find((m) => m.type === 'notification');
     expect(toast?.payload).not.toHaveProperty('autoDismissMs');
-    expect(toast?.payload.message).toMatch(/Run "sf org login web" first/);
+    expect(toast?.payload.message).toMatch(/OAuth \(Web\)/);
+    expect(toast?.payload.message).not.toMatch(/sf org login/);
     const error = posted.find((m) => m.type === 'org:error');
     expect(error?.payload.message).toBe(toast?.payload.message);
+    // The page opens the browser sign-in on this code.
+    expect(error?.payload.code).toBe('NO_CLI_ORGS');
+  });
+
+  it('tells the Organizations page whether the CLI answers and how many orgs it holds', async () => {
+    deps.sfdxBridge = {
+      isCliAvailable: vi.fn().mockResolvedValue(true),
+    } as unknown as HandlerDeps['sfdxBridge'];
+
+    await new OrgHandler(deps, { countCliOrgs: () => Promise.resolve(3) }).handle({
+      id: 'req-cli',
+      type: 'org:cli-status',
+      timestamp: Date.now(),
+    } as never);
+
+    const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[0] as { type: string; correlationId?: string; payload: Record<string, unknown> },
+    );
+    expect(posted).toEqual([
+      expect.objectContaining({
+        type: 'org:cli-status:response',
+        correlationId: 'req-cli',
+        payload: { available: true, orgCount: 3 },
+      }),
+    ]);
+  });
+
+  it('says the CLI is missing rather than failing when it cannot be run', async () => {
+    deps.sfdxBridge = {
+      isCliAvailable: vi.fn().mockRejectedValue(new Error('spawn sf ENOENT')),
+    } as unknown as HandlerDeps['sfdxBridge'];
+
+    await new OrgHandler(deps, { countCliOrgs: () => Promise.reject(new Error('EACCES')) }).handle({
+      id: 'req-cli',
+      type: 'org:cli-status',
+      timestamp: Date.now(),
+    } as never);
+
+    const reply = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      payload: Record<string, unknown>;
+    };
+    expect(reply.payload).toEqual({ available: false, orgCount: 0 });
   });
 
   it('answers on a successful SF CLI import', async () => {

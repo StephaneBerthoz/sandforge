@@ -150,7 +150,7 @@ describe('ComparePage', () => {
     useOrgStore.setState({ orgs: [twoOrgs[0]] });
     render(<ComparePage />);
     expect(screen.getByTestId('empty-step-0').textContent).toContain(
-      'Connect a second org via SFDX import',
+      'Connect a second org (sign in with your browser)',
     );
     expect(screen.getByTestId('empty-step-1').textContent).toContain('Pick source and target orgs');
   });

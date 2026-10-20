@@ -53,7 +53,9 @@
       "autopilotStorageExceeded": "Autopilot の実行は何も書き込む前に拒否されました: そのレコードは、ターゲット組織に残っているデータストレージより多くの容量を使います。選択を絞り込むか、ターゲット組織のデータストレージを空けてください。",
       "autopilotWriteDeclined": "何も書き込まれる前に Autopilot の実行をキャンセルしました。ターゲット組織には何も書き込まれていません。",
       "autopilotConfirmationUnavailable": "Autopilot の実行は何も書き込む前に停止しました: 確認が必要でしたが、確認を求めることができませんでした。",
-      "seedStorageExceeded": "シードは何も書き込む前に拒否されました: そのレコードは約{{estimate}} MBのデータストレージを使いますが、{{org}}の残りは{{max}} MB中{{remaining}} MBです。レコード数を減らすか、より軽いテンプレートを選ぶか、{{org}}のデータストレージを空けてください。"
+      "seedStorageExceeded": "シードは何も書き込む前に拒否されました: そのレコードは約{{estimate}} MBのデータストレージを使いますが、{{org}}の残りは{{max}} MB中{{remaining}} MBです。レコード数を減らすか、より軽いテンプレートを選ぶか、{{org}}のデータストレージを空けてください。",
+      "orgAuthExpired": "この組織とのセッションの有効期限が切れ、更新できませんでした。組織ページで再接続してください（カードの「再接続を試行」）。",
+      "orgTemporarilyUnreachable": "この組織への呼び出しが続けて何度か失敗したため、SandForge は少し待ってから再度呼び出します。1 分後にもう一度お試しください。"
     }
   },
   "status": {
@@ -119,7 +121,22 @@
     "openInBrowser": "ブラウザーで開く",
     "openRefusedUrl": "{{alias}} を開きませんでした。インスタンス URL が HTTPS のアドレスではありません。",
     "openNotFound": "{{alias}} は登録されていないため、開きませんでした。",
-    "openFailed": "ブラウザーで {{alias}} を開けませんでした: {{reason}}"
+    "openFailed": "ブラウザーで {{alias}} を開けませんでした: {{reason}}",
+    "sessionExpired": {
+      "title": "セッションの有効期限切れ",
+      "message": "{{org}} とのセッションの有効期限が切れました。続行するには再接続してください。",
+      "reconnect": "再接続"
+    },
+    "moreMethods": "その他の方法",
+    "cliMissing": "このマシンで Salesforce CLI（sf）が応答しません。「SF CLIからインポート」と「OAuth（Web）」は CLI を使います。",
+    "noCliOrgs": "Salesforce CLI にはまだ組織がありません。OAuth（Web）でログインしてください。ブラウザで Salesforce のログイン画面が開きます。",
+    "aliasOptionalHint": "任意です。指定しない場合、組織はユーザー名で表示されます。",
+    "connectedNext": {
+      "title": "{{alias}} が接続されました",
+      "titleMany_other": "{{count}} 個の組織が接続されました",
+      "fill": "{{alias}} をデモデータで満たす",
+      "clone": "別の組織からクローン"
+    }
   },
   "monitor": {
     "refresh": "更新",
@@ -2239,7 +2256,6 @@
     "syncFirstStepDesc": "クイックSyncで3クリックでSalesforce組織間のデータを転送",
     "startQuickSync": "クイックSyncを開始",
     "suggestSeedAndSync": "Sandboxの準備ができました。Seedでテストデータを投入するか、Syncで別の組織からコピーしましょう。",
-    "dontShowAgain": "今後表示しない",
     "tryItNow": "今すぐ試す",
     "viewChangelog": "完全なチェンジログを表示",
     "whatsNew": {
@@ -2511,11 +2527,12 @@
     "reportsContent": "レポートは、Forge と Sync がすでに保存している実行履歴を読み込みます：\n- 実行：各実行のステータス、所要時間、レコード数。JSON でエクスポートできます\n- 分析：これらの実行から算出した成功率\n- 監査証跡とデータリネージ：近日公開。まだ何も記録されていません"
   },
   "emptyState": {
-    "connectViaSfdx": "SFDXインポートで組織を接続",
-    "connectTwoViaSfdx": "SFDXインポートで2つの組織を接続 — ソースとターゲット",
-    "connectSecondViaSfdx": "SFDXインポートでもう1つの組織を接続",
+    "connectViaSfdx": "組織を接続します（ブラウザでログイン）",
+    "connectTwoViaSfdx": "ソースとターゲットの 2 つの組織を接続します（ブラウザでログイン）",
+    "connectSecondViaSfdx": "2 つ目の組織を接続します（ブラウザでログイン）",
     "connectOrg": "組織を接続",
-    "selectOrgCta": "組織を選択"
+    "selectOrgCta": "組織を選択",
+    "onlyOneOrgSeed": "組織が 1 つだけですか？ Seed で現実的なデータを生成"
   },
   "home": {
     "connectedOrgs": "接続済みの組織",
@@ -2531,9 +2548,9 @@
     "gettingStarted": "はじめに",
     "gettingStartedDesc": "SandForgeへようこそ！以下の手順で始めましょう。",
     "step1": "最初のSalesforce組織を接続する",
-    "step2": "モニターダッシュボードを探索する",
-    "step3": "Seedでテストデータを生成する",
-    "step4": "環境間のSyncを設定する",
+    "step2": "Seed テンプレートでデモデータを投入する",
+    "step3": "Forge で別の組織から実際のレコードをクローンする",
+    "step4": "モニターで API 制限、ジョブ、ストレージを確認する",
     "connectOrg": "組織を接続",
     "viewAll": "すべて表示",
     "justNow": "たった今",
@@ -2564,7 +2581,8 @@
         "quick-seed": "クイックSeed",
         "clone": "クローン",
         "sync": "Sync"
-      }
+      },
+      "reasonSampleOnly": "この組織にはサンプルレコードが数件しかありません。デモデータで満たしましょう"
     },
     "opStatus": {
       "success": "成功",
@@ -3839,7 +3857,7 @@
     "connectedOrgs": "組織",
     "recentOps": "操作",
     "forge": "Forge",
-    "forgeDesc": "データのSeed、Sync、変換",
+    "forgeDesc": "実際のレコードとその周辺のすべてを別の組織にコピー",
     "favorites": "お気に入り",
     "modules": "モジュール",
     "tools": "ツール",
@@ -3869,6 +3887,16 @@
       "justNow": "たった今",
       "minutesAgo": "{{count}}分前",
       "hoursAgo": "{{count}}時間前"
+    },
+    "fillOrg": "{{alias}} をデモデータで満たす",
+    "fillOrgDesc": "Seed テンプレートで、確認は一度だけ、AI キーは不要",
+    "advanced": "詳細",
+    "firstOrg": {
+      "title": "最初の組織を接続",
+      "desc": "Salesforce CLI に登録済みの組織を取り込むか、ブラウザでログインします。",
+      "importCount_other": "Salesforce CLI から {{count}} 個の組織をインポート",
+      "import": "Salesforce CLI からインポート",
+      "loginWeb": "ブラウザでログイン"
     }
   },
   "frozen": {

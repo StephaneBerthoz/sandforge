@@ -99,7 +99,7 @@ export async function validateOrgsOnStartup(deps: StartupValidationDeps): Promis
       const message = extractErrorMessage(err);
       // Auth problems are user-actionable (re-login) → 'expired'; anything
       // else (network, breaker open, no answer in time…) is a plain 'error'.
-      const authRelated = /Authentication expired|No credentials/.test(message);
+      const authRelated = /^ORG_AUTH_EXPIRED:|No credentials/.test(message);
       orgManager.updateStatus(orgId, authRelated ? 'expired' : 'error');
       log(`[startup] Org "${org.alias}" validation failed: ${message}`);
 

@@ -41,6 +41,8 @@ import type {
   OrgConnectCancelRequest,
   OrgOpenInBrowserRequest,
   OrgOpenInBrowserResponse,
+  OrgCliStatusRequest,
+  OrgCliStatusResponse,
   OrgListResponse,
   OrgStatusChanged,
   OrgSelected,
@@ -52,6 +54,7 @@ import type {
   BridgeProtocolMismatchMessage,
   BridgeReloadBannerMessage,
   PanelVisibilityMessage,
+  NavigationIntentMessage,
   WorkbenchReloadRequest,
   WorkbenchOpenSettingRequest,
   ErrorBoundaryReport,
@@ -532,6 +535,7 @@ export type WebViewToExtensionMessage =
   | OrgUpdateRequest
   | OrgConnectCancelRequest
   | OrgOpenInBrowserRequest
+  | OrgCliStatusRequest
   // Seed
   | SeedExecuteRequest
   | SeedRemovalInfoRequest
@@ -746,11 +750,13 @@ export type ExtensionToWebViewMessage =
   | OrgErrorResponse
   | OrgDeviceCodeMessage
   | OrgOpenInBrowserResponse
+  | OrgCliStatusResponse
   // Bridge control
   | BridgeErrorMessage
   | BridgeProtocolMismatchMessage
   | BridgeReloadBannerMessage
   | PanelVisibilityMessage
+  | NavigationIntentMessage
   // Seed
   | SeedTemplateSaveResponse
   | SeedTemplateLoadResponse

@@ -3,7 +3,8 @@ import type { OrgListResponse } from '@sandforge/shared';
 import { sidepanelLocaleSubset } from '@sandforge/shared';
 import { join } from 'node:path';
 import { buildWebviewHtml } from './webviewHtml';
-import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
+import { LANDING_COMMAND, SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
+import { moduleIntentSchema } from '../composition/moduleIntent';
 import type { MessageBroker } from '../bridge/MessageBroker';
 import { isSupportedLocaleCode, readLocaleBundle } from '../core/i18n/localeBundles';
 import { extractErrorMessage } from '../core/common/extractErrorMessage.js';
@@ -25,7 +26,15 @@ export type SidebarOutboundMessage =
         selectedOrgId?: OrgListResponse['payload']['selectedOrgId'];
       };
     }
-  | { type: 'settings:response'; payload: { settings: Record<string, unknown> } }
+  | {
+      type: 'settings:response';
+      payload: { settings: Record<string, unknown>; grappeEnabled?: boolean };
+    }
+  | {
+      type: 'sidebar:cliOrgs';
+      /** How many orgs the Salesforce CLI holds that SandForge could import. */
+      payload: { count: number };
+    }
   | {
       id: string;
       type: 'i18n:locale:response';
@@ -82,6 +91,13 @@ export class SidebarViewProvider {
     private languageGetter?: () => string | undefined,
     /** Editor display language (`vscode.env.language`) for the `auto` setting. */
     private editorLanguageGetter?: () => string | undefined,
+    /** Whether `sandforge.grappe.enabled` is on: the launcher lists Grappe only then. */
+    private grappeEnabledGetter?: () => boolean,
+    /**
+     * How many orgs the Salesforce CLI holds, read from its own files. Asked
+     * only while no org is registered, for the launcher's first card.
+     */
+    private cliOrgCounter?: () => Promise<number>,
   ) {}
 
   /**
@@ -143,14 +159,24 @@ export class SidebarViewProvider {
         const route = payload?.route as string | undefined;
         if (route) {
           // Map derived from MODULE_COMMANDS (composition/moduleCommands.ts) —
-          // unknown routes keep falling back to Monitor.
-          const command = SIDEBAR_ROUTE_COMMANDS[route] ?? 'sandforge.openMonitor';
-          void this.executeCommand(command);
+          // an unknown route opens Home, the landing page.
+          const command = SIDEBAR_ROUTE_COMMANDS[route] ?? LANDING_COMMAND;
+          // What to start on the page it opens, from the launcher's first
+          // card: checked here, where the raw lane enters, and again by the
+          // command that hands it to the panel.
+          const intent = moduleIntentSchema.safeParse(payload?.intent);
+          if (payload?.intent !== undefined && intent.success) {
+            void this.executeCommand(command, intent.data);
+          } else {
+            void this.executeCommand(command);
+          }
         }
       }
 
+      // The full UI is Home: the recommended next step, the orgs and the
+      // recent runs, rather than Monitor's API limits.
       if (type === 'sidebar:openFull') {
-        void this.executeCommand('sandforge.openMonitor');
+        void this.executeCommand(LANDING_COMMAND);
       }
 
       if (type === 'sidebar:requestOrgs' && this.orgGetter) {
@@ -162,6 +188,13 @@ export class SidebarViewProvider {
           type: 'org:list:response',
           payload: { orgs, selectedOrgId: this.selectedOrgGetter?.() },
         });
+        // No org yet: say how many the Salesforce CLI would bring in, so the
+        // launcher's first card can offer them.
+        if (orgs.length === 0 && this.cliOrgCounter) {
+          void this.cliOrgCounter()
+            .then((count) => this.postMessage({ type: 'sidebar:cliOrgs', payload: { count } }))
+            .catch(() => undefined);
+        }
       }
 
       // The sidebar cannot reach the broker's settings:get (its inbound
@@ -169,7 +202,10 @@ export class SidebarViewProvider {
       // can sync its UI language with the configured one.
       if (type === 'sidebar:requestSettings' && this.settingsGetter) {
         const settings = this.settingsGetter();
-        this.postMessage({ type: 'settings:response', payload: { settings } });
+        this.postMessage({
+          type: 'settings:response',
+          payload: { settings, grappeEnabled: this.grappeEnabledGetter?.() ?? false },
+        });
       }
 
       if (type === 'sidebar:selectOrg' && this.onOrgSelected) {

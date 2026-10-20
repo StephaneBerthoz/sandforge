@@ -15,8 +15,14 @@ let mockQueryState = {
   refetch: mockRefetch,
 };
 
+/** What each render asked the bridge: the payload and the skip option. */
+const queryCalls: Array<{ payload: unknown; skip: boolean | undefined }> = [];
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => mockQueryState,
+  useBridgeQuery: (_type: string, payload: unknown, options?: { skip?: boolean }) => {
+    queryCalls.push({ payload, skip: options?.skip });
+    return mockQueryState;
+  },
 }));
 
 function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
@@ -40,6 +46,7 @@ function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
 
 describe('useSmartAction', () => {
   beforeEach(() => {
+    queryCalls.length = 0;
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
     mockQueryState = {
@@ -48,6 +55,48 @@ describe('useSmartAction', () => {
       error: null,
       refetch: mockRefetch,
     };
+  });
+
+  it('analyses the selected org when it is one to fill, not the first connected', () => {
+    useOrgStore.setState({
+      orgs: [createMockOrg({ id: 'uat' }), createMockOrg({ id: 'dev', orgType: 'Developer' })],
+      selectedOrgId: 'dev',
+    });
+    renderHook(() => useSmartAction());
+
+    expect(queryCalls.at(-1)).toEqual({
+      payload: { targetOrgId: 'dev', sourceOrgId: 'uat' },
+      skip: false,
+    });
+  });
+
+  it('never analyses a production org as the org to fill: it is the source', () => {
+    const production = {
+      orgType: 'Production' as const,
+      metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+    };
+    useOrgStore.setState({
+      orgs: [createMockOrg({ id: 'prod', ...production }), createMockOrg({ id: 'sbx' })],
+      selectedOrgId: 'prod',
+    });
+    renderHook(() => useSmartAction());
+
+    expect(queryCalls.at(-1)?.payload).toEqual({ targetOrgId: 'sbx', sourceOrgId: 'prod' });
+  });
+
+  it('asks nothing when every connected org is a production org', () => {
+    useOrgStore.setState({
+      orgs: [
+        createMockOrg({
+          id: 'prod',
+          orgType: 'Production',
+          metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+        }),
+      ],
+    });
+    renderHook(() => useSmartAction());
+
+    expect(queryCalls.at(-1)?.skip).toBe(true);
   });
 
   it('should return null recommendation when no orgs connected', () => {

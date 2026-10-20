@@ -72,7 +72,7 @@ describe('validateOrgsOnStartup', () => {
     const org = makeOrg('org-1', 'prod');
     const deps = makeDeps([org]);
     mockGetJsforceConnection.mockRejectedValueOnce(
-      new Error('Authentication expired for org "prod". Reconnect it…'),
+      new Error('ORG_AUTH_EXPIRED: The session with "prod" has expired. Reconnect it…'),
     );
 
     await validateOrgsOnStartup(deps);
@@ -139,7 +139,7 @@ describe('validateOrgsOnStartup', () => {
     const orgs = [makeOrg('org-1', 'bad'), makeOrg('org-2', 'good')];
     const deps = makeDeps(orgs);
     mockGetJsforceConnection
-      .mockRejectedValueOnce(new Error('Authentication expired for org "bad".'))
+      .mockRejectedValueOnce(new Error('ORG_AUTH_EXPIRED: The session with "bad" has expired.'))
       .mockResolvedValueOnce({});
 
     await validateOrgsOnStartup(deps);
