@@ -34,6 +34,7 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { DataSync } from '../../modules/sync/DataSync.js';
+import { ContactPointNeutralizer } from '../../modules/forge/stages/ContactPointNeutralizer.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import { targetWriteFieldsOf } from '../../modules/sync/targetWriteFields.js';
 import { applyPlanFor } from '../../modules/realtime/applyPlan.js';
@@ -130,7 +131,7 @@ function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
       };
     },
     writer(orgId) {
-      return async (config, records) => {
+      return async (config, records, contactPoints) => {
         const pooled = await connect(orgId);
         // The same session, announcing itself: the org writes the client id
         // into every change event these writes cause (`changeOrigin`), which is
@@ -158,6 +159,7 @@ function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
             targetWriteFieldsOf(
               await describeCached(orgId, objectApiName, () => pooled.describe(objectApiName)),
             ),
+          ...(contactPoints ? { contactPoints } : {}),
         });
         return dataSync.write(config, records);
       };
@@ -447,6 +449,11 @@ export class RealtimeHandler implements DomainHandler {
       const source = this.access.reader(parsed.sourceOrgId);
       const target = this.access.reader(parsed.targetOrgId);
       const write = this.access.writer(parsed.targetOrgId);
+      // The emails and phone numbers of every change written neutralized, as
+      // a Sync run's are, unless the saved configuration an object is written
+      // by keeps them: one neutralizer for the session, so a number gives the
+      // same fictional one throughout it.
+      const contactPoints = new ContactPointNeutralizer();
       const appliers = new Map(
         plans.map((plan) => [
           plan.objectApiName,
@@ -456,6 +463,7 @@ export class RealtimeHandler implements DomainHandler {
             write,
             conflictStrategy: parsed.conflictStrategy as ConflictStrategy,
             ownWrites,
+            contactPoints,
           }),
         ]),
       );

@@ -10,6 +10,7 @@ import type {
   AnonymizationMethod,
   BaseAnonymizationRule,
   CurrencyReplaced,
+  PriceCurrencySettled,
 } from './common.types.js';
 
 /** Status of an autopilot node during execution */
@@ -80,6 +81,12 @@ export interface AutopilotNode {
    * and what became of their amounts.
    */
   currenciesReplaced?: CurrencyReplaced[];
+  /**
+   * Of the prices, those read in a currency the target does not hold active,
+   * and how each went: linked to the source's own price of the same product
+   * and book in the currency written, or written in it.
+   */
+  pricesSettled?: PriceCurrencySettled[];
 }
 
 /**

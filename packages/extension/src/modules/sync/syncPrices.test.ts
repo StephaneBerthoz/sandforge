@@ -101,6 +101,12 @@ describe('settleSyncPrices', () => {
     expect(settled.sourceIds).toEqual(['01u-standard-USD', '01u-custom-USD']);
     expect(settled.standardFirst).toBe(1);
     expect(settled.standsFor.get('01u-custom-GBP')).toBe('01u-custom-USD');
+    // Said as an entry of its own, never as a note the result lists among
+    // its refusals.
+    expect(settled.notes).toEqual([]);
+    expect(settled.prices).toEqual([
+      { from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 1 },
+    ]);
   });
 
   it('hands back the rows of any other object, and every row when the books could not be read', () => {

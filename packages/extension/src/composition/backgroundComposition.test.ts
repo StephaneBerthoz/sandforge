@@ -630,6 +630,37 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says the prices it counts in that the clone may read as it writes them', () => {
+    const lines = runQuestionDetail({ ...write, pricesForLines: 4 }).split('\n');
+
+    expect(lines).toContain(
+      'Of the price book entries, up to 4 are counted that the clone may read as it writes them: a price in the currency of the record its lines belong to, which the source holds beside the one read.',
+    );
+    expect(runQuestionDetail(write)).not.toContain('price book entries');
+  });
+
+  it("says the email alerts are among a Developer Edition's single emails when they are counted there", () => {
+    const lines = runQuestionDetail({
+      ...write,
+      emails: [
+        {
+          limit: 'SingleEmail',
+          emails: 36,
+          remaining: -75,
+          max: 15,
+          objects: [{ objectApiName: 'Contact', perRecord: 1 }],
+          alertsCounted: true,
+        },
+      ],
+    }).split('\n');
+
+    expect(lines.slice(-3)).toEqual([
+      'These records make the flows of DEV send about 36 single emails, more than the -75 of 15 it has left today (emails per record: Contact 1). Past them, a record whose flow fails in the save is refused.',
+      'DEV counts its email alerts against its single emails too, as a Developer Edition does: they are among them.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+  });
+
   it("warns near what is left, of a large volume, and when the target's storage could not be read", () => {
     const near = runQuestionDetail({
       ...write,

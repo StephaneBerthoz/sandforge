@@ -7,6 +7,7 @@ import type {
   AutopilotRefusal,
   AutopilotStopLeftover,
   CurrencyReplaced,
+  PriceCurrencySettled,
 } from '@sandforge/shared';
 import { guardTierOf } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -821,6 +822,7 @@ export class AutopilotHandler implements DomainHandler {
                   ...(outcome.currenciesReplaced
                     ? { currenciesReplaced: outcome.currenciesReplaced }
                     : {}),
+                  ...(outcome.pricesSettled ? { pricesSettled: outcome.pricesSettled } : {}),
                 }
               : {}),
             ...(statuses
@@ -1045,6 +1047,8 @@ export class AutopilotHandler implements DomainHandler {
       notSent?: number;
       /** Records written in another currency than they were read in, and their amounts. */
       currenciesReplaced?: CurrencyReplaced[];
+      /** Prices read in a currency the target lacks, and how each went. */
+      pricesSettled?: PriceCurrencySettled[];
       error?: string;
       /** API calls this node cost, so the page can total them as the run goes. */
       apiCallsUsed?: number;

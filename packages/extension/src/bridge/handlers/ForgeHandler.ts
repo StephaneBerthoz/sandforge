@@ -115,13 +115,15 @@ import {
   automationUnreadOf,
   bypassesToAssign,
   confirmationStorageOf,
-  emailChecksOf,
+  countedEmailChecksOf,
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
   isForgeRunGateError,
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
+  overEmailOf,
+  pricesForLinesOf,
   READ_CEILING_PER_OBJECT,
   runBypassesOf,
   updateStepsOf,
@@ -3015,26 +3017,17 @@ export class ForgeHandler implements DomainHandler {
       }
       // The emails the target's flows send as these records go in, against
       // what it has left today: read only when they send some. Past it, a
-      // record whose flow fails in the save is refused; the user is asked.
+      // record whose flow fails in the save is refused; the user is asked. A
+      // Developer Edition's email alerts count against its single emails too.
       const overEmails: NonNullable<WriteConfirmation['emails']> = [];
       if (run.emailsPerInsert.length > 0) {
         run.lookup.requests++;
-        for (const check of emailChecksOf(
+        for (const check of countedEmailChecksOf(
           plan,
           run.emailsPerInsert,
           await this.readTargetEmailLimits(run.targetOrgId),
         )) {
-          if (check.verdict !== 'exceeds') continue;
-          overEmails.push({
-            limit: check.limit,
-            emails: check.emails,
-            remaining: check.remaining ?? 0,
-            max: check.max ?? 0,
-            objects: check.objects.map(({ objectApiName, perRecord }) => ({
-              objectApiName,
-              perRecord,
-            })),
-          });
+          if (check.verdict === 'exceeds') overEmails.push(overEmailOf(check));
         }
         if (overEmails.length > 0) {
           logger.warn('Forge write gate: the records take the target past a daily email limit', {
@@ -3061,6 +3054,7 @@ export class ForgeHandler implements DomainHandler {
         ...(plan.leftOut ? { leftOut: plan.leftOut } : {}),
         ...(boundary.objects.some((object) => object.counted) ? { counted: true as const } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
+        ...pricesForLinesOf(plan),
       });
       if (answer === 'confirmed') {
         run.onConfirmed();

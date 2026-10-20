@@ -365,6 +365,27 @@ describe('AutopilotHandler — what each node came to', () => {
     expect(progress.at(-1)?.payload).toMatchObject({ currenciesReplaced: [currency] });
   });
 
+  it('ends a node on the prices it left out for their own in the currency written, which its detail says', async () => {
+    const prices = { from: 'GBP', to: 'USD', how: 'replaced' as const, forLines: false, prices: 2 };
+    const executePlan = vi.fn().mockResolvedValue({
+      totalSuccess: 2,
+      totalFailure: 0,
+      totalSkipped: 0,
+      totalLinked: 2,
+      elapsedMs: 1,
+      completedObjects: ['Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Account: { written: 2, linked: 2, failed: 0, refusals: [], pricesSettled: [prices] },
+      },
+    });
+
+    const progress = await execute(executePlan);
+
+    expect(progress.at(-1)?.payload).toMatchObject({ pricesSettled: [prices] });
+  });
+
   it('ends a node born a draft on the statuses given back, and why the others were not', async () => {
     const refusedStatus = {
       statusCode: 'FIELD_INTEGRITY_EXCEPTION',

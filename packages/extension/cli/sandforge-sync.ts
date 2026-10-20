@@ -45,6 +45,7 @@ import type { Connection } from 'jsforce';
 import { z } from 'zod';
 import type {
   CurrencyReplaced,
+  PriceCurrencySettled,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   SyncConfig,
@@ -95,6 +96,7 @@ import {
   readRunCurrencies,
 } from '../src/core/common/recordCurrencies.js';
 import { readStandardPricebooks } from '../src/modules/sync/syncPrices.js';
+import { describeSettledPrices } from '../src/modules/forge/stages/PriceCurrencies.js';
 import {
   cannotCopyMessage,
   syncCannotCopy,
@@ -655,6 +657,15 @@ export function objectCurrencyLines(currencies: readonly CurrencyReplaced[] | un
   return (currencies ?? []).map((entry) => `${describeCurrencyReplaced(entry)}.`);
 }
 
+/**
+ * The lines the command prints of the prices an object's write read in a
+ * currency the target does not hold active, and how each went: none of them
+ * a refusal, said after the refusals.
+ */
+export function objectPriceLines(prices: readonly PriceCurrencySettled[] | undefined): string[] {
+  return describeSettledPrices(prices ?? []).map((sentence) => `${sentence}.`);
+}
+
 /** How an object of a delta configuration was read, as the line the command prints. */
 export function deltaLine(delta: SyncDeltaOutcome): string {
   const read =
@@ -996,6 +1007,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // The rows written in another currency, and what became of their amounts.
     for (const line of objectCurrencyLines(
       entry.currenciesReplaced as CurrencyReplaced[] | undefined,
+    )) {
+      log(`      ${line}`);
+    }
+    // The prices read in a currency the target lacks, and how each went.
+    for (const line of objectPriceLines(
+      entry.pricesSettled as PriceCurrencySettled[] | undefined,
     )) {
       log(`      ${line}`);
     }

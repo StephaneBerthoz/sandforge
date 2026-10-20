@@ -11,6 +11,7 @@ import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
+import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -197,6 +198,12 @@ export const SyncHistoryDetail: React.FC = () => {
               {obj.currenciesReplaced && obj.currenciesReplaced.length > 0 && (
                 <div className="mt-1">
                   <ForgeCurrenciesResult entries={obj.currenciesReplaced} />
+                </div>
+              )}
+              {/* The prices read in a currency the target lacks: no refusal either. */}
+              {obj.pricesSettled && obj.pricesSettled.length > 0 && (
+                <div className="mt-1">
+                  <PriceCurrenciesResult entries={obj.pricesSettled} />
                 </div>
               )}
             </CardBody>

@@ -125,6 +125,28 @@ describe('SyncHistoryDetail', () => {
     expect(rows[0].closest('.text-status-error')).toBeNull();
   });
 
+  it('says the prices read in a currency the target lacks apart from the refusals', () => {
+    // Listed among the object's errors, "2 GBP → USD: price(s) … replaced …"
+    // showed in red as a refusal of the prices.
+    const entry = makeMockEntry();
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      objectApiName: 'PricebookEntry',
+      errors: [],
+      pricesSettled: [{ from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 }],
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const rows = screen.getAllByTestId('results-price-currencies-row');
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "2 prices in GBP, replaced by the source org's own price in USD for the same product and " +
+        'price book, and linked to its copy',
+    ]);
+    expect(rows[0].closest('.text-status-error')).toBeNull();
+    expect(screen.queryByTestId('sync-history-errors-PricebookEntry')).toBeNull();
+  });
+
   it('calls a run a cancel stopped cancelled, not partial, and says before what', () => {
     const entry = makeMockEntry();
     entry.result = {

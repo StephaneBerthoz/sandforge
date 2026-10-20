@@ -19,7 +19,6 @@
 
 import type {
   ForgeEmailLimit,
-  ForgeEmailsPerInsert,
   ForgeTargetAutomation,
   ForgeTargetObjectAutomation,
   SeedAutomationEntry,
@@ -34,10 +33,13 @@ import {
   emailsPerInsertOf,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { emailChecksOf, type EmailCheck, type EmailLimit } from '../forge/ForgeRunGate.js';
-
-/** The single emails a day of a Developer Edition. */
-export const DEVELOPER_EDITION_SINGLE_EMAILS = 15;
+import {
+  alertsCountAsSingle,
+  emailChecksOf,
+  emailsCountedPerRecord,
+  type EmailCheck,
+  type EmailLimit,
+} from '../forge/ForgeRunGate.js';
 
 /** What `/limits` said of an org's daily email limits, or why it said nothing. */
 export type EmailLimits = Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string };
@@ -45,51 +47,6 @@ export type EmailLimits = Partial<Record<ForgeEmailLimit, EmailLimit>> | { unrea
 /** Whether the limits could not be read. */
 function isUnread(limits: EmailLimits): limits is { unread: string } {
   return typeof (limits as { unread?: unknown }).unread === 'string';
-}
-
-/**
- * Whether the email alerts of an org count against its single emails too: an
- * org held to the fifteen single emails a day of a Developer Edition.
- *
- * Twice the trap Developer Edition counted the email alert of its contact
- * workflow rule against its single emails, its contact flow quiet for the
- * user who wrote: on 2026-10-14, 36 contacts cloned took them from −75 to
- * −117 while its workflow emails did not move; on 2026-10-20, 75 contacts
- * seeded took them from 15 to −60. Counted as workflow emails alone, 8,040 a
- * day there, the 75 contacts fitted.
- */
-export function alertsCountAsSingle(limits: Partial<Record<ForgeEmailLimit, EmailLimit>>): boolean {
-  const single = limits.SingleEmail;
-  return single !== undefined && single.max <= DEVELOPER_EDITION_SINGLE_EMAILS;
-}
-
-/**
- * The emails each record of an object makes the org send, per daily limit:
- * what fires on its insert that no bypass of the user the seed writes as keeps
- * quiet (`emailsPerInsertOf`), the email alerts counted against the single
- * emails as well where the org counts them there.
- *
- * @param alertsAsSingle - Whether the org counts its email alerts against its
- *   single emails ({@link alertsCountAsSingle}).
- */
-export function seedEmailsPerRecord(
-  perInsert: readonly ForgeEmailsPerInsert[],
-  alertsAsSingle: boolean,
-): ForgeEmailsPerInsert[] {
-  const out = perInsert.map((sending) => ({ ...sending, sentBy: [...sending.sentBy] }));
-  if (!alertsAsSingle) return out;
-  for (const alert of perInsert.filter((sending) => sending.limit === 'DailyWorkflowEmails')) {
-    const single = out.find(
-      (sending) => sending.objectApiName === alert.objectApiName && sending.limit === 'SingleEmail',
-    );
-    if (!single) {
-      out.push({ ...alert, limit: 'SingleEmail', sentBy: [...alert.sentBy] });
-      continue;
-    }
-    single.perRecord += alert.perRecord;
-    for (const name of alert.sentBy) if (!single.sentBy.includes(name)) single.sentBy.push(name);
-  }
-  return out;
 }
 
 /** What fires as the records of `object` are created, as the confirmation says it. */
@@ -141,8 +98,11 @@ export function seedAutomationPreview(
     return entries.length > 0 ? [{ objectApiName: object.objectApiName, entries }] : [];
   });
   const read = isUnread(limits) ? undefined : limits;
+  // What fires on insert that no bypass of the user the seed writes as keeps
+  // quiet, the email alerts counted against the single emails as well where
+  // the org counts them there.
   const alertsAsSingle = read !== undefined && alertsCountAsSingle(read);
-  const emailsPerRecord = seedEmailsPerRecord(emailsPerInsertOf(automation), alertsAsSingle);
+  const emailsPerRecord = emailsCountedPerRecord(emailsPerInsertOf(automation), alertsAsSingle);
   const bypasses = objects.flatMap((object) => object.entries.flatMap((entry) => entry.bypasses));
   const held = sortedOnce(bypasses.filter((b) => b.held === true).map((b) => b.name));
   const toAssign = sortedOnce(bypasses.map((b) => b.name)).filter((name) => !held.includes(name));

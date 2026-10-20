@@ -199,8 +199,9 @@ import {
   ForgeRunGateError,
   automationRefusal,
   bypassesToAssign,
+  countedEmailChecksOf,
   emailCheckLines,
-  emailChecksOf,
+  emailRefusal,
   objectsUpdatedAfterInsert,
   removalAutomationLines,
   removalAutomationRefusal,
@@ -400,7 +401,9 @@ Usage:
   take by the sizes Salesforce documents. It writes nothing past --max-total,
   nor more than the target's data storage has left. It says the emails the
   target's flows send as the records go in, against the daily limits it has
-  left: past them, a record whose flow fails in the save is refused.
+  left — a Developer Edition's email alerts counted against its single emails
+  too — and writes nothing past them: a record whose flow fails in the save
+  is refused there, and the org's own emails stop for the day.
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically);
@@ -5087,16 +5090,20 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     say('');
     for (const line of writePlanLines(plan, check, args.target)) say(line);
     // The emails the target's flows send as these records go in, against what
-    // it has left today: read only when they send some. Past it, records are
-    // refused one by one; the run is not stopped for it.
+    // it has left today, as the target counts them — a Developer Edition's
+    // email alerts against its single emails too: read only when they send
+    // some. Past them, the run is refused, as Autopilot's and Seed's are: a
+    // clone of 36 contacts into a Developer Edition said its alerts fitted in
+    // the workflow emails, and took its single emails from −75 to −117.
     const sending = emailsPerInsertOf(targetAutomation);
+    let overEmails: string | undefined;
     if (sending.length > 0) {
       const limits = await readEmailLimits(targetConn).catch((err: unknown) => ({
         unread: extractErrorMessage(err),
       }));
-      for (const line of emailCheckLines(emailChecksOf(plan, sending, limits), args.target)) {
-        say(line);
-      }
+      const emails = countedEmailChecksOf(plan, sending, limits);
+      for (const line of emailCheckLines(emails, args.target)) say(line);
+      overEmails = emailRefusal(emails, args.target);
     }
     const overTotal =
       plan.totalRows > args.maxTotal
@@ -5105,7 +5112,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
           '--max-total.'
         : undefined;
     const overStorage = storageRefusal(check, args.target);
-    const reasons = [overTotal, overStorage].filter(
+    const reasons = [overTotal, overStorage, overEmails].filter(
       (reason): reason is string => reason !== undefined,
     );
     if (boundary.dryRun) {
@@ -5114,7 +5121,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     }
     if (reasons.length > 0) {
       throw new ForgeRunGateError(
-        overTotal ? 'MAX_TOTAL_EXCEEDED' : 'STORAGE_EXCEEDED',
+        overTotal ? 'MAX_TOTAL_EXCEEDED' : overStorage ? 'STORAGE_EXCEEDED' : 'EMAILS_EXCEEDED',
         `${reasons.join(' ')} Nothing was written.`,
       );
     }

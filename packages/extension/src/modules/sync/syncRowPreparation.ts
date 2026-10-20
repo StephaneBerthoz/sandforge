@@ -600,6 +600,12 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   const lookups = [...(target?.references ?? [])];
   const replaced = new CurrencyReplacementTally();
   for (const [index, { payload, settled }] of [...staged].sort(([a], [b]) => a - b)) {
+    // Two fields the describe calls createable that the platform takes one
+    // of: an opportunity's line sent with its unit and total price is
+    // refused, "only one of unit price or total price may be specified". Left
+    // out before the amounts are converted: the currency line named TotalPrice
+    // among the fields converted, a field the write never sent.
+    for (const field of exclusiveFieldsToDrop(objectApiName, payload)) delete payload[field];
     if (currencies && currencyFields) {
       const source = run?.sources[index] ?? records[index];
       const read = source?.[CURRENCY_FIELD];
@@ -626,10 +632,6 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       const sourceId = source?.['Id'];
       if (change && typeof sourceId === 'string') run?.currencyChangesById?.set(sourceId, change);
     }
-    // Two fields the describe calls createable that the platform takes one
-    // of: an opportunity's line sent with its unit and total price is
-    // refused, "only one of unit price or total price may be specified".
-    for (const field of exclusiveFieldsToDrop(objectApiName, payload)) delete payload[field];
     prepared.payloads.push(payload);
     prepared.sentAt.push(index);
     prepared.settled.push(settled);

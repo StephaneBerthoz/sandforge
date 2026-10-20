@@ -105,6 +105,34 @@ describe('sandforge-autopilot — the run summary', () => {
     ]);
   });
 
+  it('prints the prices left out for their own in the currency written, and linked to it', () => {
+    const lines = outcomeLines({
+      totalSuccess: 2,
+      totalFailure: 0,
+      totalSkipped: 0,
+      totalLinked: 2,
+      elapsedMs: 1,
+      completedObjects: ['PricebookEntry'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        PricebookEntry: {
+          written: 2,
+          linked: 2,
+          failed: 0,
+          refusals: [],
+          pricesSettled: [{ from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 }],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'PricebookEntry'.padEnd(28)} written 2  linked 2  refused 0`,
+      '      2 GBP → USD: price(s) in a currency the target does not hold active replaced by the ' +
+        "source's own price in the currency written, for the same product and price book",
+    ]);
+  });
+
   it('prints the statuses given back to records born a draft, and why the others were not', () => {
     const lines = outcomeLines({
       totalSuccess: 3,

@@ -21,6 +21,7 @@ import {
 } from './syncRowPreparation.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
 import { neutralizeSyncRows } from './syncContactPoints.js';
+import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Function to upsert records using an external ID field */
@@ -125,6 +126,12 @@ export interface DataSyncDeps {
   describeTargetFields?: (objectApiName: string) => Promise<TargetWriteFields>;
   /** Optional CRUD/FLS guard. When provided, permissions are re-verified before each DML operation. */
   crudFlsGuard?: CrudFlsGuard;
+  /**
+   * What neutralizes the emails and phone numbers of the rows of a write made
+   * on its own, without a run — Real-time's — as a run's `contactPoints` does
+   * for a Sync. Absent, they go as read.
+   */
+  contactPoints?: ContactPointNeutralizer;
 }
 
 /**
@@ -194,10 +201,12 @@ export class DataSync {
     const prepared = prepareSyncRows({ config, records: sourceRecords, target, run });
     // What the target's automation could reach — its email and phone fields —
     // made unreachable before anything is sent, the key the write matches on
-    // left as read: see `syncContactPoints`.
-    if (run?.contactPoints && target?.fields) {
+    // left as read: see `syncContactPoints`. A write on its own, Real-time's,
+    // neutralizes with the one it was given.
+    const contactPoints = run ? run.contactPoints : this.deps.contactPoints;
+    if (contactPoints && target?.fields) {
       const neutralized = neutralizeSyncRows(
-        run.contactPoints,
+        contactPoints,
         config.objectApiName,
         target.fields,
         prepared.payloads,

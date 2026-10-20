@@ -308,6 +308,13 @@ describe('useAutopilotStore', () => {
       rows: 1,
       fields: [],
     };
+    const prices = {
+      from: 'GBP',
+      to: 'USD',
+      how: 'replaced' as const,
+      forLines: false,
+      prices: 2,
+    };
     getState().updateNodeOutcome('Contact', {
       failureCount: 2,
       linkedCount: 1,
@@ -316,6 +323,7 @@ describe('useAutopilotStore', () => {
       statusRefusals: [],
       leftToThePlatform: 4,
       currenciesReplaced: [currency],
+      pricesSettled: [prices],
     });
 
     expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Contact')).toMatchObject({
@@ -326,6 +334,7 @@ describe('useAutopilotStore', () => {
       statusRefusals: [],
       leftToThePlatform: 4,
       currenciesReplaced: [currency],
+      pricesSettled: [prices],
     });
     expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Account')?.refusals).toBe(
       undefined,

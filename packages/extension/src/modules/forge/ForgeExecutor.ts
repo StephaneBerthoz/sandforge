@@ -100,6 +100,7 @@ import {
   readRunCurrencies,
   followsItsParentsCurrency,
   replacementCurrency,
+  CURRENCY_FOLLOWS,
   type CurrencyChange,
   type RunCurrencies,
 } from '../../core/common/recordCurrencies.js';
@@ -108,9 +109,12 @@ import {
   LINE_PRICE_FIELD,
   describePriceCurrencies,
   priceInCurrency,
+  priceKeyOf,
   pricesToAsk,
   recordsBeforeTheirPrices,
   settlePriceCurrencies,
+  wantedAt,
+  type PriceCurrencyInput,
   type PriceCurrencySaid,
 } from './stages/PriceCurrencies.js';
 import {
@@ -679,6 +683,13 @@ export interface ForgeWriteBoundary {
     rows: readonly Record<string, unknown>[];
     counted?: ForgeCountedObject;
     leftOut?: ForgeRowsLeftOut;
+    /**
+     * Of the prices, those the write may read besides the rows, at most: a
+     * price in the currency of the record its lines belong to, the source's
+     * own beside the one read, which the write reads once that record is
+     * written. Counted in, and said; the write reads none besides.
+     */
+    mayAdd?: number;
   }>;
   /** Whether the run is a dry run, which writes none of them. */
   dryRun: boolean;
@@ -1672,6 +1683,13 @@ interface ExecutionState {
    * belong to have gone in.
    */
   readsEverythingFirst: boolean;
+  /**
+   * The prices the gate counted that the write may read as it writes the
+   * prices (`pricesTheGateCounts`), by `priceInCurrency` key: the write
+   * reads none besides. Absent when the gate counted none, or there was no
+   * gate.
+   */
+  pricesTheGateCounted?: ReadonlySet<string>;
   /**
    * Per object, the rows written without the fields the target refused them
    * on. See `ExecutionSummary.writtenWithoutFields`.
@@ -3791,10 +3809,18 @@ export class ForgeExecutor {
           'Forge execution was aborted by user request. Remaining objects were not processed.',
         );
       }
+      // The prices the write may read besides those in hand, counted with
+      // them: see `pricesTheGateCounts`.
+      const pricesForLines = await this.pricesTheGateCounts(state);
       await config.beforeWrite({
         objects: await Promise.all(
           [...state.preread].map(([objectApiName, read]) =>
-            this.toWriteAtTheGate(state, objectApiName, read),
+            this.toWriteAtTheGate(
+              state,
+              objectApiName,
+              read,
+              isPricebookEntry(objectApiName) ? pricesForLines : 0,
+            ),
           ),
         ),
         dryRun: config.dryRun,
@@ -8919,37 +8945,18 @@ export class ForgeExecutor {
     fieldInfos: FieldInfo[],
     wanted?: ReadonlyMap<string, ReadonlySet<string>>,
   ): Promise<void> {
-    const { standardPricebookId } = state;
-    if (!standardPricebookId) return;
-    if (!fieldInfos.some((f) => f.name === PRICEBOOK_ENTRY_CURRENCY_FIELD)) return;
-    if (!records.some((row) => typeof row[PRICEBOOK_ENTRY_CURRENCY_FIELD] === 'string')) return;
-    const currencies = await this.runCurrencies(state);
-    if (!currencies) return;
-    const { target } = currencies;
-    const writtenIn = (code: string): string | undefined => {
-      const probe: Record<string, unknown> = { [PRICEBOOK_ENTRY_CURRENCY_FIELD]: code };
-      state.config.decisions.applyToRow(
-        PRICEBOOK_ENTRY_OBJECT,
-        probe,
-        undefined,
-        new DecisionTally(),
-      );
-      const decided = probe[PRICEBOOK_ENTRY_CURRENCY_FIELD];
-      if (typeof decided === 'string' && target.active.has(decided)) return decided;
-      return replacementCurrency(undefined, target)?.to;
-    };
-    const input = {
-      prices: records,
-      standardBookId: standardPricebookId,
-      sellingModels: state.sellingModels,
-      writtenIn,
-      active: target.active,
-      ...(wanted ? { wanted } : {}),
-    };
+    const prices = await this.priceCurrencyInput(state, records, fieldInfos);
+    if (!prices) return;
+    const input = { ...prices, ...(wanted ? { wanted } : {}) };
 
     // The prices of the currencies wanted that are not in hand, read for the
-    // products and books of the prices they replace.
-    const asked = pricesToAsk(input);
+    // products and books of the prices they replace. A run whose gate counted
+    // the prices it may read here reads no other (`pricesTheGateCounts`): the
+    // gate's count is the most it writes. Read as the prices were written, a
+    // price wanted in two currencies wrote 17 records where the gate had
+    // counted 13.
+    const counted = wanted ? state.pricesTheGateCounted : undefined;
+    const asked = pricesToAsk(input).filter((price) => !counted || counted.has(wantedAt(price)));
     const fetched: Record<string, unknown>[] = [];
     const codes = [...new Set(asked.map(({ currency }) => currency))].filter((code) =>
       /^[A-Z]{3}$/.test(code),
@@ -8989,7 +8996,19 @@ export class ForgeExecutor {
       }
     }
 
-    const plan = settlePriceCurrencies(input, fetched);
+    const plan = settlePriceCurrencies(
+      input,
+      counted
+        ? fetched.filter((row) =>
+            counted.has(
+              priceInCurrency(
+                priceKeyOf(row, state.sellingModels),
+                String(row[PRICEBOOK_ENTRY_CURRENCY_FIELD]),
+              ),
+            ),
+          )
+        : fetched,
+    );
     const inHand = new Set(records);
     records.length = 0;
     records.push(...plan.rows);
@@ -9022,6 +9041,119 @@ export class ForgeExecutor {
       progress: 50,
       message: describePriceCurrencies(plan.said).join('; '),
     });
+  }
+
+  /**
+   * What the settling of the prices' currencies reads of the run
+   * (`stages/PriceCurrencies.ts`), or nothing when it has none to settle: no
+   * standard price book, prices that carry no currency, or an org of one.
+   * A price nothing asks another currency of goes in the one the user mapped
+   * its own to when the target holds it, the target's corporate currency
+   * otherwise — a price has no record type.
+   */
+  private async priceCurrencyInput(
+    state: ExecutionState,
+    records: Record<string, unknown>[],
+    fieldInfos: readonly FieldInfo[],
+  ): Promise<PriceCurrencyInput | undefined> {
+    const { standardPricebookId } = state;
+    if (!standardPricebookId) return undefined;
+    if (!fieldInfos.some((f) => f.name === PRICEBOOK_ENTRY_CURRENCY_FIELD)) return undefined;
+    if (!records.some((row) => typeof row[PRICEBOOK_ENTRY_CURRENCY_FIELD] === 'string')) {
+      return undefined;
+    }
+    const currencies = await this.runCurrencies(state);
+    if (!currencies) return undefined;
+    const { target } = currencies;
+    const writtenIn = (code: string): string | undefined => {
+      const probe: Record<string, unknown> = { [PRICEBOOK_ENTRY_CURRENCY_FIELD]: code };
+      state.config.decisions.applyToRow(
+        PRICEBOOK_ENTRY_OBJECT,
+        probe,
+        undefined,
+        new DecisionTally(),
+      );
+      const decided = probe[PRICEBOOK_ENTRY_CURRENCY_FIELD];
+      if (typeof decided === 'string' && target.active.has(decided)) return decided;
+      return replacementCurrency(undefined, target)?.to;
+    };
+    return {
+      prices: records,
+      standardBookId: standardPricebookId,
+      sellingModels: state.sellingModels,
+      writtenIn,
+      active: target.active,
+    };
+  }
+
+  /**
+   * The prices a run that reads every row first may read from the source as
+   * it writes its prices (`pricesInTheCurrencyWritten`), counted before its
+   * gate: a price in the currency of the record its lines belong to, the
+   * source's own beside the one read. Which currency a record goes in is
+   * known once it is written, after the gate: so every currency it may go in
+   * is counted ({@link currenciesTheirLinesMayWant}), and the write reads no
+   * price the gate did not count (`ExecutionState.pricesTheGateCounted`).
+   *
+   * @returns How many prices the write may add to those in hand, at most.
+   */
+  private async pricesTheGateCounts(state: ExecutionState): Promise<number> {
+    const read = state.preread.get(PRICEBOOK_ENTRY_OBJECT);
+    if (!read || !state.readsEverythingFirst) return 0;
+    const input = await this.priceCurrencyInput(state, read.records, read.fieldInfos);
+    if (!input) return 0;
+    const asked = pricesToAsk({
+      ...input,
+      wanted: this.currenciesTheirLinesMayWant(state, read.records, input.active),
+    });
+    state.pricesTheGateCounted = new Set(asked.map(wantedAt));
+    return asked.length;
+  }
+
+  /**
+   * For each price in hand lines point at, every currency the records those
+   * lines belong to may go in, before they are written: the one they were
+   * read in, which a line's is, when the target holds it active and no
+   * decision of the run may change it — on their object, or on the one whose
+   * currency theirs follows (`CURRENCY_FOLLOWS`, a quote its opportunity's);
+   * every currency the target holds active otherwise. What
+   * {@link currenciesTheirLinesWant} says once they are written is among them.
+   */
+  private currenciesTheirLinesMayWant(
+    state: ExecutionState,
+    prices: readonly Record<string, unknown>[],
+    active: ReadonlySet<string>,
+  ): Map<string, Set<string>> {
+    const inHand = new Set(
+      prices.flatMap((row) => (typeof row['Id'] === 'string' ? [row['Id']] : [])),
+    );
+    const { decisions } = state.config;
+    /** Whether the run may write a record of `object` in another currency than it read it in. */
+    const mayChange = (object: string): boolean => {
+      if (decisions.changesRowsOf(object)) return true;
+      if (!followsItsParentsCurrency(object)) return false;
+      const parent = state.preread
+        .get(object)
+        ?.fieldInfos.find((f) => f.name === CURRENCY_FOLLOWS[object])?.referenceTo?.[0];
+      return parent === undefined || mayChange(parent);
+    };
+    const wanted = new Map<string, Set<string>>();
+    for (const [line, { record, field: recordField }] of Object.entries(LINES_PRICED)) {
+      const changes = mayChange(record);
+      for (const row of state.preread.get(line)?.records ?? []) {
+        const named = row[LINE_PRICE_FIELD];
+        if (typeof named !== 'string' || typeof row[recordField] !== 'string') continue;
+        const price = state.prices.standsFor.get(named) ?? named;
+        if (!inHand.has(price)) continue;
+        const read = row[CURRENCY_FIELD];
+        const goes =
+          !changes && typeof read === 'string' && active.has(read) ? [read] : [...active];
+        const set = wanted.get(price) ?? new Set<string>();
+        for (const code of goes) set.add(code);
+        wanted.set(price, set);
+      }
+    }
+    return wanted;
   }
 
   /**
@@ -9123,15 +9255,20 @@ export class ForgeExecutor {
    * to, never written again — and none of an object held back whole for a
    * record type closed to the user it writes as, which the write would hold
    * back; what was left out, said beside them.
+   *
+   * @param mayAdd - The rows the write may read besides them, of the prices
+   *   (`pricesTheGateCounts`): counted with them, and said.
    */
   private async toWriteAtTheGate(
     state: ExecutionState,
     objectApiName: string,
     read: PrereadNode,
+    mayAdd = 0,
   ): Promise<{
     objectApiName: string;
     rows: readonly Record<string, unknown>[];
     leftOut?: ForgeRowsLeftOut;
+    mayAdd?: number;
   }> {
     const rows = read.records.filter((row) => !wasWrittenBefore(state.config, row));
     const writtenBefore = read.records.length - rows.length;
@@ -9145,6 +9282,7 @@ export class ForgeExecutor {
       objectApiName,
       rows: heldBack ? [] : rows,
       ...(leftOut.writtenBefore !== undefined || leftOut.heldBack !== undefined ? { leftOut } : {}),
+      ...(mayAdd > 0 && !heldBack ? { mayAdd } : {}),
     };
   }
 

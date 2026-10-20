@@ -62,6 +62,7 @@ import { describedLookups, type DescribedLookup } from '../src/core/metadata/des
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
 import { leftToThePlatformNote } from '../src/core/common/platformRecords.js';
 import { currencyFieldsOf, describeCurrencyReplaced } from '../src/core/common/recordCurrencies.js';
+import { describeSettledPrices } from '../src/modules/forge/stages/PriceCurrencies.js';
 import { sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
@@ -69,12 +70,12 @@ import { detectPersonalFields } from '../src/modules/autopilot/personalFields.js
 import {
   autopilotEmails,
   autopilotWritePlan,
-  emailRefusal,
   objectsThePlanWrites,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
 import {
   DEFAULT_MAX_TOTAL,
   emailCheckLines,
+  emailRefusal,
   readDataStorage,
   readEmailLimits,
   storageCheckOf,
@@ -718,6 +719,10 @@ export function outcomeLines(result: ExecutionResult): string[] {
     // Sent in another currency than read: the target does not hold theirs active.
     for (const entry of outcome.currenciesReplaced ?? []) {
       lines.push(`      ${describeCurrencyReplaced(entry)}`);
+    }
+    // Prices read in a currency the target lacks: linked to the source's own.
+    for (const sentence of describeSettledPrices(outcome.pricesSettled ?? [])) {
+      lines.push(`      ${sentence}`);
     }
   }
   for (const name of result.failedObjects) {

@@ -236,6 +236,12 @@ export interface WriteConfirmation {
    */
   counted?: true;
   /**
+   * Of the prices among the rows, those the run may read as it writes them,
+   * at most: a price in the currency of the record its lines belong to, the
+   * source's own beside the one read. Absent when none.
+   */
+  pricesForLines?: number;
+  /**
    * The daily email limits the records go past as the target's flows send
    * for them, each with the emails sent and what is left; absent when none.
    */
@@ -246,6 +252,11 @@ export interface WriteConfirmation {
     max: number;
     /** The objects whose inserts send them, with the emails each record sends. */
     objects: Array<{ objectApiName: string; perRecord: number }>;
+    /**
+     * Set on the single emails of an org that counts its email alerts against
+     * them too, as a Developer Edition does: the alerts are among `emails`.
+     */
+    alertsCounted?: true;
   }>;
 }
 

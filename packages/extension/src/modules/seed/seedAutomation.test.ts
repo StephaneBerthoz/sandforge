@@ -2,12 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ForgeTargetAutomation, ForgeTargetFlow } from '@sandforge/shared';
 import { seedEmailEstimates } from '@sandforge/shared';
 import {
-  alertsCountAsSingle,
   readSeedAutomation,
   seedAutomationLines,
   seedAutomationPreview,
   seedEmailGate,
-  seedEmailsPerRecord,
   type SeedAutomationRead,
 } from './seedAutomation.js';
 
@@ -92,47 +90,6 @@ const CRM_COUNTS = [
   { objectApiName: 'Contact', recordCount: 75 },
   { objectApiName: 'Case', recordCount: 50 },
 ];
-
-describe('alertsCountAsSingle', () => {
-  it('counts email alerts against the single emails of an org held to fifteen a day, not of one with more', () => {
-    expect(alertsCountAsSingle(DE_LIMITS)).toBe(true);
-    expect(alertsCountAsSingle({ SingleEmail: { max: 5000, remaining: 4990 } })).toBe(false);
-    expect(alertsCountAsSingle({ DailyWorkflowEmails: { max: 15, remaining: 15 } })).toBe(false);
-  });
-});
-
-describe('seedEmailsPerRecord', () => {
-  const perInsert = [
-    { objectApiName: 'Contact', limit: 'SingleEmail' as const, perRecord: 2, sentBy: ['A'] },
-    {
-      objectApiName: 'Contact',
-      limit: 'DailyWorkflowEmails' as const,
-      perRecord: 1,
-      sentBy: ['B'],
-    },
-    { objectApiName: 'Case', limit: 'DailyWorkflowEmails' as const, perRecord: 1, sentBy: ['C'] },
-  ];
-
-  it('adds the alerts of each object to its single emails where the org counts them there', () => {
-    expect(seedEmailsPerRecord(perInsert, true)).toEqual([
-      { objectApiName: 'Contact', limit: 'SingleEmail', perRecord: 3, sentBy: ['A', 'B'] },
-      { objectApiName: 'Contact', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['B'] },
-      { objectApiName: 'Case', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['C'] },
-      { objectApiName: 'Case', limit: 'SingleEmail', perRecord: 1, sentBy: ['C'] },
-    ]);
-    // What it was given is left as it was.
-    expect(perInsert[0]).toEqual({
-      objectApiName: 'Contact',
-      limit: 'SingleEmail',
-      perRecord: 2,
-      sentBy: ['A'],
-    });
-  });
-
-  it('leaves them to the workflow emails elsewhere', () => {
-    expect(seedEmailsPerRecord(perInsert, false)).toEqual(perInsert);
-  });
-});
 
 describe('seedAutomationPreview', () => {
   it('says what fires as each record is created, what it sends or creates, and the bypass that quiets it', () => {

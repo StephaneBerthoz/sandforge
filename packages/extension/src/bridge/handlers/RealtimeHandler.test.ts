@@ -13,6 +13,7 @@ import {
 } from '../../modules/realtime/cometdTransport.js';
 import type { DescribedField, OrgReader } from '../../modules/realtime/RealtimeApplier.js';
 import type { OperationOutcome } from '../../modules/sync/DataSync.js';
+import { ContactPointNeutralizer } from '../../modules/forge/stages/ContactPointNeutralizer.js';
 
 /** Config store held in memory, with the category reads SyncConfigStore makes. */
 function memoryConfigStore() {
@@ -132,18 +133,28 @@ function setup(
     ],
   );
   const writes: Array<{ config: SyncObjectConfig; records: Record<string, unknown>[] }> = [];
+  /** What each write was given to neutralize the emails and phone numbers with. */
+  const neutralizers: Array<ContactPointNeutralizer | undefined> = [];
   const access: RealtimeOrgAccess = {
     openTransport: vi.fn(async () => transport.transport),
     reader: vi.fn((orgId: string) => (orgId === 'org-source' ? source : target)),
-    writer: vi.fn(() => async (config: SyncObjectConfig, records: Record<string, unknown>[]) => {
-      writes.push({ config, records });
-      const outcomes: OperationOutcome[] = records.map(() => ({
-        id: '00QTARGET0000001AA',
-        success: true,
-        errors: [],
-      }));
-      return { outcomes, notes: [] };
-    }),
+    writer: vi.fn(
+      () =>
+        async (
+          config: SyncObjectConfig,
+          records: Record<string, unknown>[],
+          contactPoints?: ContactPointNeutralizer,
+        ) => {
+          writes.push({ config, records });
+          neutralizers.push(contactPoints);
+          const outcomes: OperationOutcome[] = records.map(() => ({
+            id: '00QTARGET0000001AA',
+            success: true,
+            errors: [],
+          }));
+          return { outcomes, notes: [] };
+        },
+    ),
     tooling: vi.fn(async () => options.toolingRows ?? []),
   };
   const handler = new RealtimeHandler(deps, access);
@@ -152,7 +163,7 @@ function setup(
       ([message]) => message as BaseMessage & { payload: Record<string, unknown> },
     );
   const ofType = (type: string) => posted().filter((m) => m.type === type);
-  return { handler, access, transport, writes, configStore, ofType };
+  return { handler, access, transport, writes, neutralizers, configStore, ofType };
 }
 
 let requestCounter = 0;
@@ -494,6 +505,72 @@ describe('RealtimeHandler', () => {
     await vi.advanceTimersByTimeAsync(150);
 
     expect(writes[0].records).toEqual([{ Title: 'BUYER', Ext__c: 'K1' }]);
+  });
+
+  it('neutralizes the emails and phone numbers of the changes it writes, with one neutralizer for the session', async () => {
+    // Real-time wrote them as read: a change of a contact replicated into a
+    // sandbox whose flows email the contacts they are written for reached
+    // the real person, where a Sync run neutralizes them by default.
+    const { handler, transport, neutralizers } = setup();
+
+    await handler.handle(start());
+    transport.send('/data/LeadChangeEvent', leadUpdate(7, 'Buyer'));
+    await vi.advanceTimersByTimeAsync(150);
+    transport.send('/data/LeadChangeEvent', leadUpdate(8, 'Owner'));
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(neutralizers).toHaveLength(2);
+    expect(neutralizers[0]).toBeInstanceOf(ContactPointNeutralizer);
+    expect(neutralizers[1]).toBe(neutralizers[0]);
+  });
+
+  it('writes them as read for an object written by a saved Sync configuration that keeps them', async () => {
+    const { handler, configStore, transport, writes, neutralizers } = setup();
+    const config: SyncConfig = {
+      id: 'cfg-keep',
+      name: 'Leads as read',
+      description: '',
+      sourceOrgId: 'org-source',
+      targetOrgId: 'org-target',
+      direction: 'source_to_target',
+      mode: 'full',
+      objects: [
+        {
+          objectApiName: 'Lead',
+          operation: 'upsert',
+          externalIdField: 'Ext__c',
+          fieldMappings: [],
+          transformRules: [],
+          excludedFields: [],
+          addOnFields: [],
+          batchSize: 200,
+          insertOrder: 1,
+        },
+      ],
+      conflictStrategy: 'source_wins',
+      enableRollback: false,
+      keepContactPoints: true,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    };
+    configStore.set('sync:config:cfg-keep', config, 'syncConfigs');
+
+    await handler.handle(
+      start({
+        apply: [
+          {
+            objectApiName: 'Lead',
+            match: { kind: 'syncConfig', configId: 'cfg-keep' },
+            applyDeletes: false,
+          },
+        ],
+      }),
+    );
+    transport.send('/data/LeadChangeEvent', leadUpdate(9, 'Buyer'));
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(writes).toHaveLength(1);
+    expect(neutralizers).toEqual([undefined]);
   });
 
   it('holds a change that collides with a newer target edit, and applies the decision', async () => {

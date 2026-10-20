@@ -190,7 +190,7 @@ describe('sandforge-autopilot — what a plan copies', () => {
     );
 
     await expect(main(argv('--object', 'Lead'))).rejects.toThrow(
-      /The target's flows would make TGT send about 30 single emails, 15 of 15 left today.*Nothing was written\./,
+      /The target's automation would make TGT send about 30 single emails, 15 of 15 left today.*Nothing was written\./,
     );
     expect(create).not.toHaveBeenCalled();
     expect(readAutomation).toHaveBeenCalledWith('TGT', expect.arrayContaining(['Lead']));
@@ -203,7 +203,7 @@ describe('sandforge-autopilot — what a plan copies', () => {
         'welcome), more than the 15 of 15 it has left today',
     );
     expect(printed).toContain(
-      "a real run would be refused: The target's flows would make TGT send about 30 single emails",
+      "a real run would be refused: The target's automation would make TGT send about 30 single emails",
     );
   });
 

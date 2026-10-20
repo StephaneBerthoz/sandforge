@@ -3507,6 +3507,16 @@
       "dated": "at the dated rates of {{field}}",
       "datedUnconfirmed": "at the static rates: the dated rates of {{field}} could not be confirmed"
     },
+    "prices": {
+      "title": "Prices in another currency",
+      "hint": "A price book prices a product once per currency, and the target org refuses a line whose price is in another currency than its record. These prices were read in a currency the target org does not hold active, or were wanted in the currency their lines' records went in.",
+      "prices_one": "{{count}} price in {{from}}",
+      "prices_other": "{{count}} prices in {{from}}",
+      "replaced": "replaced by the source org's own price in {{to}} for the same product and price book, and linked to its copy",
+      "converted": "written in {{to}} at their amount converted: the source org holds no price in it for the same product and price book",
+      "none": "no price in {{to}} for the same product and price book, and they go in another currency for other lines: the target org refuses the lines of a record in {{to}}",
+      "forLines": "{{to}} being the currency of the records their lines belong to"
+    },
     "contactPoints": {
       "title": "Emails and phone numbers",
       "numbersExhausted_one": "{{count}} phone number left empty: the range's 10,000 fictional numbers were all given to other numbers of the run.",

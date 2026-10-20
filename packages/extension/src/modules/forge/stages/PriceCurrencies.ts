@@ -34,6 +34,7 @@ import {
   PRICEBOOK_ENTRY_PRODUCT_FIELD,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   type ForgeGraphEdge,
+  type PriceCurrencySettled,
 } from '@sandforge/shared';
 import { CURRENCY_FOLLOWS } from '../../../core/common/recordCurrencies.js';
 
@@ -145,7 +146,7 @@ export interface PriceWanted {
 }
 
 /** How a price read in one currency went in another. */
-export type PriceCurrencyHow = 'replaced' | 'converted' | 'none';
+export type PriceCurrencyHow = PriceCurrencySettled['how'];
 
 /** One price read in `from` whose lines, or whose run, wanted it in `to`. */
 export interface PriceCurrencySaid {
@@ -194,6 +195,11 @@ export function priceKeyOf(row: PriceRow, sellingModels: boolean): string {
 /** A key of {@link priceKeyOf} in a currency. */
 export function priceInCurrency(key: string, currency: string): string {
   return `${key}|${currency}`;
+}
+
+/** A price {@link pricesToAsk} asks for, as {@link priceInCurrency} keys it. */
+export function wantedAt(wanted: PriceWanted): string {
+  return priceInCurrency([wanted.book, wanted.product, wanted.model].join('|'), wanted.currency);
 }
 
 /** A row's currency, when it carries one. */
@@ -405,12 +411,28 @@ export function settlePriceCurrencies(
   return { rows, standsFor, convertedInto, written, keys, said };
 }
 
+/**
+ * {@link PriceCurrencyPlan.said} counted, as a result carries it: one entry
+ * per currency read, currency wanted, way it went and whether the lines asked
+ * it, in the order first met.
+ */
+export function settledPricesOf(said: readonly PriceCurrencySaid[]): PriceCurrencySettled[] {
+  const counted = new Map<string, PriceCurrencySettled>();
+  for (const { from, to, how, forLines } of said) {
+    const at = [from, to, how, forLines ? 'lines' : ''].join('|');
+    const entry = counted.get(at) ?? { from, to, how, forLines, prices: 0 };
+    entry.prices++;
+    counted.set(at, entry);
+  }
+  return [...counted.values()];
+}
+
 /** Pairs counted, `4 GBP → USD, 1 GBP → EUR`, in the order first met. */
-function countedPairs(entries: readonly PriceCurrencySaid[]): string {
+function countedPairs(entries: readonly PriceCurrencySettled[]): string {
   const counts = new Map<string, number>();
-  for (const { from, to } of entries) {
+  for (const { from, to, prices } of entries) {
     const pair = `${from} → ${to}`;
-    counts.set(pair, (counts.get(pair) ?? 0) + 1);
+    counts.set(pair, (counts.get(pair) ?? 0) + prices);
   }
   return [...counts].map(([pair, count]) => `${count} ${pair}`).join(', ');
 }
@@ -422,9 +444,14 @@ function countedPairs(entries: readonly PriceCurrencySaid[]): string {
  * alone, then those that followed their lines.
  */
 export function describePriceCurrencies(said: readonly PriceCurrencySaid[]): string[] {
-  const of = (forLines: boolean, how: PriceCurrencyHow): PriceCurrencySaid[] =>
-    said.filter((entry) => entry.forLines === forLines && entry.how === how);
-  const sentences: Array<[PriceCurrencySaid[], string]> = [
+  return describeSettledPrices(settledPricesOf(said));
+}
+
+/** What the command line says of the prices a result counts ({@link settledPricesOf}). */
+export function describeSettledPrices(settled: readonly PriceCurrencySettled[]): string[] {
+  const of = (forLines: boolean, how: PriceCurrencyHow): PriceCurrencySettled[] =>
+    settled.filter((entry) => entry.forLines === forLines && entry.how === how);
+  const sentences: Array<[PriceCurrencySettled[], string]> = [
     [
       of(false, 'replaced'),
       "price(s) in a currency the target does not hold active replaced by the source's own " +
@@ -446,7 +473,7 @@ export function describePriceCurrencies(said: readonly PriceCurrencySaid[]): str
         'product and price book, written in it at its amount converted',
     ],
     [
-      said.filter((entry) => entry.how === 'none'),
+      settled.filter((entry) => entry.how === 'none'),
       'no price in the currency of the record their lines belong to in the source for the same ' +
         'product and price book, and the price goes in another currency for other lines: the ' +
         'target refuses the lines of a record in it',

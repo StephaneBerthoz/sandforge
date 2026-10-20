@@ -7,6 +7,7 @@
 import { TypedEventEmitter } from '../../core/common/TypedEventEmitter.js';
 import type {
   CurrencyReplaced,
+  PriceCurrencySettled,
   ExecutionPlan,
   AutopilotEvent,
   AutopilotNodeProgressEvent,
@@ -20,6 +21,7 @@ import type {
 } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   exclusiveFieldsToDrop,
@@ -99,9 +101,15 @@ import {
   parentCurrencyChange,
   readRunCurrencies,
   replaceRowCurrency,
+  replacementCurrency,
   type CurrencyChange,
   type RunCurrencies,
 } from '../../core/common/recordCurrencies.js';
+import {
+  settlePriceCurrencies,
+  settledPricesOf,
+  type PriceCurrencySaid,
+} from '../forge/stages/PriceCurrencies.js';
 import { logger } from '../../logger.js';
 
 /** Local alias matching the autopilot domain name. */
@@ -266,6 +274,13 @@ export interface ObjectOutcome {
    * `core/common/recordCurrencies.ts`). Absent when there are none.
    */
   currenciesReplaced?: CurrencyReplaced[];
+  /**
+   * Of the prices, those read in a currency the target does not hold active,
+   * and how each went: left out for the source's own price of the same
+   * product and book in the currency written, and linked to its copy, or
+   * written in it. Absent when there are none.
+   */
+  pricesSettled?: PriceCurrencySettled[];
   /**
    * Of the contacts, those of person accounts, never sent: the platform wrote
    * each with its account, and the run linked to that one. Counted among
@@ -648,6 +663,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private currencies: Promise<RunCurrencies | undefined> | undefined;
   /** The records written in another currency than they were read in, by object. */
   private readonly currencyChanges = new CurrencyReplacementTally();
+  /** The prices read in another currency than they go in, and how each went, by object. */
+  private readonly pricesSettled = new Map<string, PriceCurrencySettled[]>();
   /**
    * The currency change of each record the target took in another currency,
    * by its id in the target: what the records whose currency is their
@@ -993,6 +1010,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
             ? { notSent: objResult.notSent }
             : {}),
           ...this.currenciesReplacedOf(objectApiName),
+          ...this.pricesSettledOf(objectApiName),
           ...(objectApiName === CONTACT && this.personContactsLinked > 0
             ? { withTheirPersonAccount: this.personContactsLinked }
             : {}),
@@ -1400,19 +1418,48 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         rows.push(...kept);
         if (last) break;
       }
-      const { standard, custom } = splitStandardPricebookEntries(rows, standardBook.source);
+      // A price in a currency the target does not hold active goes in its
+      // corporate currency: read with the source's own price of the same
+      // product and book in that currency, the two were the same price twice
+      // in the book, and the target refused one (DUPLICATE_VALUE). It is left
+      // out, as Sync leaves it out, and linked to that price's copy.
+      const settled = await this.pricesInOneCurrencyEach(rows, standardBook.source);
+      const { standard, custom } = splitStandardPricebookEntries(settled.rows, standardBook.source);
+      const leftOut = splitStandardPricebookEntries(
+        rows.filter((row) => settled.standsFor.has(String(row['Id']))),
+        standardBook.source,
+      );
+      if (settled.said.length > 0) {
+        this.pricesSettled.set(objectApiName, settledPricesOf(settled.said));
+      }
       let processed = 0;
-      for (const round of [standard, custom]) {
-        for (let i = 0; i < round.length; i += this.batchSize) {
+      let linked = 0;
+      /** Write `pending` in batches; false when the run was stopped before one of them. */
+      const send = async (pending: readonly Record<string, unknown>[]): Promise<boolean> => {
+        for (let i = 0; i < pending.length; i += this.batchSize) {
           if (await this.checkPause()) {
-            state.notSent = rows.length - processed;
-            return finish();
+            // What the run neither sent nor linked is what it never sent.
+            state.notSent = rows.length - processed - linked;
+            return false;
           }
-          const batch = round.slice(i, i + this.batchSize);
+          const batch = pending.slice(i, i + this.batchSize);
           await this.writeBatch(objectApiName, batch, edges, state);
           processed += batch.length;
-          progress(processed);
+          progress(processed + linked);
         }
+        return true;
+      };
+      for (const [round, left] of [
+        [standard, leftOut.standard],
+        [custom, leftOut.custom],
+      ] as const) {
+        if (!(await send(round))) return finish();
+        // Each price left out is linked to the copy of the one it stands for;
+        // one whose stand-in the target refused goes as it would have, there
+        // being nothing in the book it would be twice.
+        const unstood = this.linkWhatStoodIn(left, settled.standsFor, state);
+        linked += left.length - unstood.length;
+        if (!(await send(unstood))) return finish();
       }
       return finish();
     }
@@ -1601,17 +1648,18 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         })
       : rows;
     payload = this.translateRecordTypes(objectApiName, payload);
+    // Two fields the describe calls createable that the platform takes one
+    // of: an opportunity's line sent with its unit and total price was
+    // refused, "only one of unit price or total price may be specified". Left
+    // out before the amounts are converted, which name the fields they convert.
+    for (const record of payload) {
+      for (const field of exclusiveFieldsToDrop(objectApiName, record)) delete record[field];
+    }
     // A currency the target does not hold active refused the record — "invalid
     // currency code: GBP" — and it was lost: it goes in the target's corporate
     // currency, its amounts converted at the source's rates.
     const currencyChanges = await this.replaceCurrencies(objectApiName, rows, payload, writable);
     if (objectApiName === ACCOUNT) await this.leaveOutForAccountKind(rows, payload);
-    // Two fields the describe calls createable that the platform takes one
-    // of: an opportunity's line sent with its unit and total price was
-    // refused, "only one of unit price or total price may be specified".
-    for (const record of payload) {
-      for (const field of exclusiveFieldsToDrop(objectApiName, record)) delete record[field];
-    }
     // A lookup the platform fills in itself is neither sent nor owed to the
     // second pass: an email's task, unless the email is on a case. Sent with
     // the id read from the source, the email is refused, "you cannot modify
@@ -2045,6 +2093,91 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       if (change) changed.set(record, change);
     });
     return changed;
+  }
+
+  /**
+   * The prices to write, each product, book and selling model once per
+   * currency it goes in, as Sync writes them (`settleSyncPrices`): a price in
+   * a currency the target does not hold active goes in its corporate one, and
+   * where the source's own price of the same product and book in that one is
+   * among the rows, it is left out and stands for that one. Both orgs'
+   * currencies are read as a record's are; a run given no read of either, or
+   * whose prices carry no currency, has them all.
+   *
+   * @returns The prices to write, in their order; those left out, by source
+   *   id, with the one each stands for; and what was said of each.
+   */
+  private async pricesInOneCurrencyEach(
+    rows: Record<string, unknown>[],
+    standardBookId: string,
+  ): Promise<{
+    rows: Record<string, unknown>[];
+    standsFor: ReadonlyMap<string, string>;
+    said: readonly PriceCurrencySaid[];
+  }> {
+    const all = { rows, standsFor: new Map<string, string>(), said: [] };
+    const { querySource, queryTarget } = this.deps;
+    if (!querySource || !queryTarget) return all;
+    const carries = (row: Record<string, unknown>): boolean =>
+      typeof row[CURRENCY_FIELD] === 'string' && row[CURRENCY_FIELD] !== '';
+    if (!rows.some(carries)) return all;
+    this.currencies ??= readRunCurrencies(querySource, queryTarget, {
+      source: this.deps.toolingSource,
+      target: this.deps.toolingTarget,
+    });
+    const currencies = await this.currencies;
+    if (!currencies) return all;
+    const { target } = currencies;
+    const plan = settlePriceCurrencies(
+      {
+        prices: rows,
+        standardBookId,
+        sellingModels: rows.some(
+          (row) => typeof row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] === 'string',
+        ),
+        // As `replaceRowCurrency` writes a price: in its own currency when the
+        // target holds it active, in the target's corporate one otherwise.
+        writtenIn: (code) =>
+          target.active.has(code) ? code : replacementCurrency(undefined, target)?.to,
+        active: target.active,
+      },
+      [],
+    );
+    return { rows: plan.rows, standsFor: plan.standsFor, said: plan.said };
+  }
+
+  /**
+   * Link each price left out to the copy of the one it stands for, counted
+   * among the linked, and hand back those whose stand-in has no copy — the
+   * target refused it — to be written as they are.
+   */
+  private linkWhatStoodIn(
+    left: readonly Record<string, unknown>[],
+    standsFor: ReadonlyMap<string, string>,
+    state: ObjectState,
+  ): Record<string, unknown>[] {
+    const object = PRICEBOOK_ENTRY_OBJECT as ApiName;
+    const mappings: Array<[string, string]> = [];
+    const unstood: Record<string, unknown>[] = [];
+    for (const row of left) {
+      const id = String(row['Id']);
+      const stand = standsFor.get(id);
+      const copy = stand === undefined ? undefined : this.deps.remapper.getTargetId(object, stand);
+      if (copy === undefined) {
+        unstood.push(row);
+        continue;
+      }
+      mappings.push([id, copy]);
+      state.linked++;
+    }
+    this.register(object, mappings);
+    return unstood;
+  }
+
+  /** The prices of an object read in another currency, as its outcome carries them. */
+  private pricesSettledOf(objectApiName: string): Pick<ObjectOutcome, 'pricesSettled'> {
+    const entries = this.pricesSettled.get(objectApiName) ?? [];
+    return entries.length > 0 ? { pricesSettled: entries } : {};
   }
 
   /** The records of an object written in another currency, as its outcome carries them. */

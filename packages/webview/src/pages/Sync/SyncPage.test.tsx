@@ -953,6 +953,56 @@ describe('SyncPage', () => {
       expect(line).toMatch(/^Delta since 2026-10-13 \d\d:00:00 · 3 changed · 1 deleted/);
       expect(line).toContain('The next run reads the changes since');
     });
+
+    it('says on the results the prices read in a currency the target lacks, apart from the refusals', () => {
+      // Taken out of the object's errors, where they read as refusals, they
+      // are said as the history says them.
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      mockExecuteMutationState.data = {
+        configId: 'cfg',
+        operationId: 'op',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'PricebookEntry',
+            operation: 'insert',
+            processed: 2,
+            success: 2,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            pricesSettled: [
+              { from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 },
+            ],
+          },
+        ],
+        totalProcessed: 2,
+        totalSuccess: 2,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 1,
+        timestamp: '2026-10-13T10:00:01.000Z',
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('results-price-currencies-row').textContent).toBe(
+        "2 prices in GBP, replaced by the source org's own price in USD for the same product and " +
+          'price book, and linked to its copy',
+      );
+      expect(screen.queryByTestId('sync-result-errors-PricebookEntry')).toBeNull();
+    });
   });
 
   it('should show 6 step indicators', () => {

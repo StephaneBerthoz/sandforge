@@ -4,7 +4,6 @@ import type { WriteConfirmation } from '../../core/precheck/ProductionGuard';
 import {
   autopilotEmails,
   autopilotWritePlan,
-  emailRefusal,
   gateAutopilotWrite,
   objectsThePlanWrites,
 } from './AutopilotRunGate';
@@ -230,6 +229,53 @@ describe('autopilotEmails', () => {
     ]);
   });
 
+  it("counts a Developer Edition's email alerts against its single emails, as Seed counts them", async () => {
+    // Counted against the workflow emails alone, 8,040 a day, the alert of a
+    // contact rule fitted; the Developer Edition counts it against its fifteen
+    // single emails, and a run of 30 contacts takes it past them.
+    const alerting: ForgeTargetAutomation = {
+      ...WELCOME_FLOW,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [],
+          workflowRules: [
+            {
+              apiName: 'Contact_Rule',
+              label: 'Contact rule',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Contact alert', limit: 'DailyWorkflowEmails' }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const emails = await autopilotEmails({
+      plan,
+      objects: ['Account', 'Contact'],
+      readAutomation: async () => alerting,
+      readLimits: async () => ({
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8_040, remaining: 8_040 },
+      }),
+    });
+
+    expect(emails.checks).toEqual([
+      expect.objectContaining({ limit: 'DailyWorkflowEmails', emails: 30, verdict: 'fits' }),
+      expect.objectContaining({
+        limit: 'SingleEmail',
+        emails: 30,
+        verdict: 'exceeds',
+        alertsCounted: true,
+      }),
+    ]);
+  });
+
   it('reads no limit when nothing the target runs sends an email', async () => {
     const readLimits = vi.fn(async () => ({}));
     const emails = await autopilotEmails({
@@ -291,6 +337,23 @@ describe('gateAutopilotWrite — the emails of a plan', () => {
     expect(outcome).toMatchObject({ go: false, code: 'WRITE_DECLINED' });
   });
 
+  it('says in its question that the email alerts are among the single emails it counts', async () => {
+    const confirm = vi.fn(async (_question: WriteConfirmation) => 'declined' as const);
+    await gateAutopilotWrite({
+      plan: contacts,
+      storage: roomy,
+      confirmAboveRecords: 2_000,
+      emails: [{ ...sixty, verdict: 'exceeds', remaining: 15, max: 15, alertsCounted: true }],
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(confirm.mock.calls[0][0].emails).toEqual([
+      expect.objectContaining({ limit: 'SingleEmail', emails: 60, alertsCounted: true }),
+    ]);
+  });
+
   it('asks nothing when the emails fit in what the target has left', async () => {
     const confirm = vi.fn();
     const outcome = await gateAutopilotWrite({
@@ -305,31 +368,5 @@ describe('gateAutopilotWrite — the emails of a plan', () => {
 
     expect(outcome).toMatchObject({ go: true, asked: false });
     expect(confirm).not.toHaveBeenCalled();
-  });
-});
-
-describe('emailRefusal', () => {
-  const check = {
-    limit: 'SingleEmail' as const,
-    objects: [{ objectApiName: 'Contact', rows: 30, perRecord: 2, sentBy: ['Contact welcome'] }],
-    emails: 60,
-  };
-
-  it('refuses a command-line run past what the target has left of a daily limit', () => {
-    expect(emailRefusal([{ ...check, verdict: 'exceeds', remaining: 15, max: 15 }], 'TARGET')).toBe(
-      "The target's flows would make TARGET send about 60 single emails, 15 of 15 left today: " +
-        'past them, each record whose flow fails in the save is refused ' +
-        '(CANNOT_EXECUTE_FLOW_TRIGGER). Assign the user a bypass that keeps the flow quiet, or ' +
-        'write fewer records.',
-    );
-  });
-
-  it('refuses nothing that fits, or that no limit could be read for', () => {
-    expect(
-      emailRefusal([{ ...check, verdict: 'fits', remaining: 90, max: 100 }], 'T'),
-    ).toBeUndefined();
-    expect(
-      emailRefusal([{ ...check, verdict: 'unread', unread: 'no access' }], 'T'),
-    ).toBeUndefined();
   });
 });

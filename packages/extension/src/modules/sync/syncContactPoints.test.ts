@@ -137,4 +137,28 @@ describe('a Sync write', () => {
     const sent = insert.mock.calls[0][1] as Array<Record<string, unknown>>;
     expect(sent[0].Email).toBe('jane@acme.com');
   });
+
+  it("neutralizes a write made without a run, Real-time's, with the neutralizer it was given", async () => {
+    // Real-time writes through here with no run, and copied a contact's
+    // email and phone as read whatever the configuration said.
+    const upsert = vi
+      .fn()
+      .mockResolvedValue([{ id: '003000000000901AAA', success: true, errors: [] }]);
+    const rows = [{ LastName: 'Doe', Email: 'jane@acme.com', Login_Email__c: 'jane@acme.com' }];
+    const config = objectConfig({ operation: 'upsert', externalIdField: 'Login_Email__c' });
+
+    await new DataSync({
+      ...deps(vi.fn()),
+      upsert,
+      contactPoints: new ContactPointNeutralizer('k'),
+    }).write(config, rows);
+    await new DataSync({ ...deps(vi.fn()), upsert }).write(config, rows);
+
+    const neutralized = upsert.mock.calls[0][2] as Array<Record<string, unknown>>;
+    expect(neutralized[0].Email).toBe('jane@acme.com.invalid');
+    // The key the upsert finds the copy by is left as read.
+    expect(neutralized[0].Login_Email__c).toBe('jane@acme.com');
+    const asRead = upsert.mock.calls[1][2] as Array<Record<string, unknown>>;
+    expect(asRead[0].Email).toBe('jane@acme.com');
+  });
 });

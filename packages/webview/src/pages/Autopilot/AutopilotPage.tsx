@@ -7,6 +7,7 @@ import type {
   AutopilotRefusal,
   AutopilotStopLeftover,
   CurrencyReplaced,
+  PriceCurrencySettled,
   ExecutionPlan,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
@@ -81,6 +82,7 @@ export const AutopilotPage: React.FC = () => {
         statusRefusals?: AutopilotRefusal[];
         leftToThePlatform?: number;
         currenciesReplaced?: CurrencyReplaced[];
+        pricesSettled?: PriceCurrencySettled[];
         apiCallsUsed?: number;
         error?: string;
       };
@@ -110,6 +112,7 @@ export const AutopilotPage: React.FC = () => {
       statusRefusals: msg.payload.statusRefusals,
       leftToThePlatform: msg.payload.leftToThePlatform,
       currenciesReplaced: msg.payload.currenciesReplaced,
+      pricesSettled: msg.payload.pricesSettled,
     });
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);

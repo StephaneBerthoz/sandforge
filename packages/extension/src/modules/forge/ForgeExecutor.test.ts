@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeExecutor, ForgeAbortedError } from './ForgeExecutor.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import { finishedRunStatus } from './runResult.js';
-import type { ForgeExecutorDeps, ForgeProgressEvent, FieldInfo } from './ForgeExecutor.js';
+import type {
+  ForgeExecutorDeps,
+  ForgeProgressEvent,
+  FieldInfo,
+  ForgeWriteBoundary,
+} from './ForgeExecutor.js';
+import { writePlanOf } from './ForgeRunGate.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 import { STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
 import { logger } from '../../logger.js';
@@ -5035,9 +5041,41 @@ describe('ForgeExecutor', () => {
          * opportunity of the custom book whose two line items use its GBP
          * prices. The source holds USD as its corporate currency and GBP at
          * 0.79; the target USD alone — and, with `euros`, both EUR, the
-         * source at 0.92 and the target at 0.90.
+         * source at 0.92 and the target at 0.90. With `ordered`, an order of
+         * the opportunity in GBP, whose one item uses widget 1's GBP price;
+         * `adjust` changes the tables before the orgs hold them.
          */
-        function gbpDeal(prices: FakeRow[], euros = false, quoted = false) {
+        function gbpDeal(
+          prices: FakeRow[],
+          euros = false,
+          quoted = false,
+          ordered = false,
+          adjust?: (tables: Record<string, FakeRow[]>) => void,
+        ) {
+          const order: Record<string, FakeRow[]> = ordered
+            ? {
+                Order: [
+                  {
+                    Id: '801000000000001AAA',
+                    Name: 'Order',
+                    OpportunityId: OPPORTUNITY,
+                    Pricebook2Id: CUSTOM_BOOK,
+                    CurrencyIsoCode: 'GBP',
+                  },
+                ],
+                OrderItem: [
+                  {
+                    Id: '802000000000001AAA',
+                    OrderId: '801000000000001AAA',
+                    PricebookEntryId: '01u000000000212AAA',
+                    Product2Id: product(1),
+                    Quantity: '3',
+                    UnitPrice: '7.9',
+                    CurrencyIsoCode: 'GBP',
+                  },
+                ],
+              }
+            : {};
           const quote: Record<string, FakeRow[]> = quoted
             ? {
                 Quote: [
@@ -5064,6 +5102,7 @@ describe('ForgeExecutor', () => {
             : {};
           const tables: Record<string, FakeRow[]> = {
             ...quote,
+            ...order,
             ...catalogTables(),
             PricebookEntry: prices,
             Opportunity: [
@@ -5085,6 +5124,7 @@ describe('ForgeExecutor', () => {
               CurrencyIsoCode: 'GBP',
             })),
           };
+          adjust?.(tables);
           const orgs = fakeOrgs(tables, {
             ...catalogFields,
             PricebookEntry: [
@@ -5121,6 +5161,22 @@ describe('ForgeExecutor', () => {
             QuoteLineItem: [
               idField,
               lookup('QuoteId', 'Quote', true),
+              lookup('PricebookEntryId', 'PricebookEntry'),
+              lookup('Product2Id', 'Product2'),
+              text('Quantity'),
+              amount('UnitPrice'),
+              { ...currency, createable: false },
+            ],
+            Order: [
+              idField,
+              text('Name'),
+              lookup('OpportunityId', 'Opportunity'),
+              lookup('Pricebook2Id', 'Pricebook2'),
+              currency,
+            ],
+            OrderItem: [
+              idField,
+              lookup('OrderId', 'Order', true),
               lookup('PricebookEntryId', 'PricebookEntry'),
               lookup('Product2Id', 'Product2'),
               text('Quantity'),
@@ -5360,6 +5416,139 @@ describe('ForgeExecutor', () => {
           );
           expect(line).not.toContain('USD');
           expect(summary.errors).toEqual([]);
+        });
+
+        it('counts at its gate the prices it may read as it writes them, a price wanted in two currencies among them', async () => {
+          // Read as the prices are written, once the records their lines
+          // belong to are in: widget 1's GBP price, wanted in EUR by the
+          // opportunity a decision sends there and in USD by its order, went
+          // in both, the source's own in each. Counted before them, the gate
+          // said fewer records than the run wrote: 13 against 17, live.
+          const prices = (['standard', 'custom'] as const).flatMap((book) => [
+            pricedIn(book, 1, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 1, 'EUR', book === 'standard' ? '9.2' : '8.28'),
+            pricedIn(book, 1, 'GBP', '7.9'),
+            pricedIn(book, 2, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 2, 'GBP', '7.9'),
+          ]);
+          const { orgDeps, inserted } = gbpDeal(prices, true, false, true);
+          const lines = graph();
+          const ordered: ForgeGraph = {
+            ...lines,
+            nodes: [...lines.nodes, makeNode('Order'), makeNode('OrderItem')],
+            edges: [
+              ...lines.edges,
+              edge('Opportunity', 'Order'),
+              edge('Pricebook2', 'Order'),
+              edge('Order', 'OrderItem'),
+              { ...edge('PricebookEntry', 'OrderItem'), required: true },
+              edge('Product2', 'OrderItem'),
+            ],
+          };
+          const boundaries: ForgeWriteBoundary[] = [];
+
+          await new ForgeExecutor(orgDeps).execute(ordered, 'src', 'tgt', onProgress, {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            decisions: {
+              picklistValueMappings: [
+                { object: 'Opportunity', field: 'CurrencyIsoCode', from: 'GBP', to: 'EUR' },
+              ],
+            },
+            beforeWrite: async (boundary) => {
+              boundaries.push(boundary);
+            },
+          });
+
+          // Widget 1's own EUR and USD prices both went, its GBP one standing
+          // for the first: more prices than were read.
+          expect(
+            inserted['PricebookEntry']
+              .map((r) => `${String(r['Name'])}: ${String(r['CurrencyIsoCode'])}`)
+              .sort(),
+          ).toEqual([
+            'Widget 1 custom EUR: EUR',
+            'Widget 1 custom USD: USD',
+            'Widget 1 standard EUR: EUR',
+            'Widget 1 standard USD: USD',
+            'Widget 2 custom GBP: EUR',
+            'Widget 2 standard GBP: EUR',
+          ]);
+          expect(inserted['OrderItem']).toEqual([
+            expect.objectContaining({ PricebookEntryId: 'PricebookEntry:Widget 1 custom USD' }),
+          ]);
+          const [boundary] = boundaries;
+          const prices_ = boundary.objects.find((o) => o.objectApiName === 'PricebookEntry');
+          expect(prices_?.rows).toHaveLength(4);
+          const plan = writePlanOf(boundary.objects);
+          const counted = plan.objects.find((o) => o.objectApiName === 'PricebookEntry');
+          expect(counted?.rows).toBeGreaterThanOrEqual(inserted['PricebookEntry'].length);
+          expect(counted?.mayAdd).toBe((counted?.rows ?? 0) - 4);
+          expect(plan.totalRows).toBeGreaterThanOrEqual(
+            Object.values(inserted).reduce((sum, rows) => sum + rows.length, 0),
+          );
+        });
+
+        it('reads no price as it writes the prices that its gate did not count', async () => {
+          // Whatever the gate's count missed — here a line read in EUR whose
+          // opportunity, read in GBP, goes in USD — the write reads no price
+          // besides: the gate's count is the most the run writes, and the
+          // line that wanted another is said on the prices' line.
+          const prices = (['standard', 'custom'] as const).flatMap((book) => [
+            pricedIn(book, 1, 'USD', book === 'standard' ? '10' : '9'),
+            pricedIn(book, 1, 'EUR', book === 'standard' ? '9.2' : '8.28'),
+          ]);
+          const inEuros = pricedIn('custom', 1, 'EUR', '8.28')['Id'];
+          const { orgDeps, inserted } = gbpDeal(prices, true, false, true, (tables) => {
+            tables['OpportunityLineItem'] = [
+              {
+                Id: '00k000000000001AAA',
+                OpportunityId: OPPORTUNITY,
+                PricebookEntryId: inEuros,
+                Product2Id: product(1),
+                Quantity: '1',
+                UnitPrice: '8.28',
+                CurrencyIsoCode: 'EUR',
+              },
+            ];
+            tables['Order'][0]['CurrencyIsoCode'] = 'EUR';
+            tables['OrderItem'][0]['PricebookEntryId'] = inEuros;
+            tables['OrderItem'][0]['CurrencyIsoCode'] = 'EUR';
+          });
+          const lines = graph();
+          const ordered: ForgeGraph = {
+            ...lines,
+            nodes: [...lines.nodes, makeNode('Order'), makeNode('OrderItem')],
+            edges: [
+              ...lines.edges,
+              edge('Opportunity', 'Order'),
+              edge('Pricebook2', 'Order'),
+              edge('Order', 'OrderItem'),
+              { ...edge('PricebookEntry', 'OrderItem'), required: true },
+              edge('Product2', 'OrderItem'),
+            ],
+          };
+          const boundaries: ForgeWriteBoundary[] = [];
+
+          await new ForgeExecutor(orgDeps).execute(ordered, 'src', 'tgt', onProgress, {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            beforeWrite: async (boundary) => {
+              boundaries.push(boundary);
+            },
+          });
+
+          const counted = writePlanOf(boundaries[0].objects).objects.find(
+            (o) => o.objectApiName === 'PricebookEntry',
+          );
+          expect(counted).toMatchObject({ rows: 2 });
+          expect(counted?.mayAdd).toBeUndefined();
+          expect(inserted['PricebookEntry']).toHaveLength(2);
+          expect(
+            progressEvents
+              .filter((e) => e.objectName === 'PricebookEntry' && e.status === 'done')
+              .map((e) => e.message),
+          ).toEqual([expect.stringContaining('the target refuses the lines of a record in it')]);
         });
 
         it('settles the prices once the opportunity has gone in, whatever order discovery met them in', async () => {

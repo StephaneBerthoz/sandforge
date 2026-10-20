@@ -7514,6 +7514,54 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync results of prices read in a currency the target lacks, said apart from the refusals', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'PricebookEntry',
+            operation: 'insert',
+            processed: 2,
+            success: 2,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            currenciesReplaced: [
+              {
+                objectApiName: 'PricebookEntry',
+                from: 'GBP',
+                to: 'USD',
+                chosenBy: 'corporate',
+                rows: 1,
+                fields: ['UnitPrice'],
+              },
+            ],
+            pricesSettled: [
+              { from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 },
+              { from: 'GBP', to: 'EUR', how: 'converted', forLines: true, prices: 1 },
+            ],
+          },
+        ],
+        totalProcessed: 2,
+        totalSuccess: 2,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      });
+      await page.getByTestId('results-price-currencies').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('results-price-currencies-row')).toHaveCount(2);
+
+      await expectReadable(page, theme);
+    });
+
     test('Sync first step copying files, with its two caps', async ({ page }) => {
       await openSyncExecuteStep(
         bridge,

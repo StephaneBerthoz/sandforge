@@ -10,18 +10,23 @@ import {
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
   READ_CEILING_PER_OBJECT,
+  alertsCountAsSingle,
   automationRefusal,
   automationUnreadOf,
   bypassesToAssign,
   confirmationStorageOf,
+  countedEmailChecksOf,
   emailCheckLines,
   emailChecksOf,
+  emailRefusal,
+  emailsCountedPerRecord,
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
   isForgeRunGateError,
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
+  pricesForLinesOf,
   readDataStorage,
   readEmailLimits,
   removalAutomationLines,
@@ -125,6 +130,25 @@ describe('writePlanOf', () => {
       heldBack: [{ objectApiName: 'Account', rows: 40 }],
     });
   });
+
+  it('counts in the prices the write may read besides those in hand, at the size of a price', () => {
+    // Read as the prices were written, a price wanted in two currencies wrote
+    // 17 records where the gate had counted 13.
+    const plan = writePlanOf([
+      { objectApiName: 'PricebookEntry', rows: rows(4), mayAdd: 3 },
+      { objectApiName: 'Opportunity', rows: rows(1) },
+    ]);
+
+    expect(plan.objects).toEqual([
+      { objectApiName: 'PricebookEntry', rows: 7, storageBytes: 7 * 2 * KB, mayAdd: 3 },
+      { objectApiName: 'Opportunity', rows: 1, storageBytes: 2 * KB },
+    ]);
+    expect(plan.totalRows).toBe(8);
+    expect(pricesForLinesOf(plan)).toEqual({ pricesForLines: 3 });
+    expect(pricesForLinesOf(writePlanOf([{ objectApiName: 'Account', rows: rows(1) }]))).toEqual(
+      {},
+    );
+  });
 });
 
 describe('readDataStorage', () => {
@@ -215,6 +239,152 @@ describe('emailChecksOf', () => {
 
   it('checks nothing when the inserts send no email', () => {
     expect(emailChecksOf(plan, [], { SingleEmail: { max: 15, remaining: 0 } })).toEqual([]);
+  });
+});
+
+describe('alertsCountAsSingle', () => {
+  it('counts email alerts against the single emails of an org held to fifteen a day, not of one with more', () => {
+    expect(
+      alertsCountAsSingle({
+        SingleEmail: { max: 15, remaining: 15 },
+        DailyWorkflowEmails: { max: 8040, remaining: 8040 },
+      }),
+    ).toBe(true);
+    expect(alertsCountAsSingle({ SingleEmail: { max: 5000, remaining: 4990 } })).toBe(false);
+    expect(alertsCountAsSingle({ DailyWorkflowEmails: { max: 15, remaining: 15 } })).toBe(false);
+  });
+});
+
+describe('emailsCountedPerRecord', () => {
+  const perInsert = [
+    { objectApiName: 'Contact', limit: 'SingleEmail' as const, perRecord: 2, sentBy: ['A'] },
+    {
+      objectApiName: 'Contact',
+      limit: 'DailyWorkflowEmails' as const,
+      perRecord: 1,
+      sentBy: ['B'],
+    },
+    { objectApiName: 'Case', limit: 'DailyWorkflowEmails' as const, perRecord: 1, sentBy: ['C'] },
+  ];
+
+  it('adds the alerts of each object to its single emails where the org counts them there', () => {
+    expect(emailsCountedPerRecord(perInsert, true)).toEqual([
+      { objectApiName: 'Contact', limit: 'SingleEmail', perRecord: 3, sentBy: ['A', 'B'] },
+      { objectApiName: 'Contact', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['B'] },
+      { objectApiName: 'Case', limit: 'DailyWorkflowEmails', perRecord: 1, sentBy: ['C'] },
+      { objectApiName: 'Case', limit: 'SingleEmail', perRecord: 1, sentBy: ['C'] },
+    ]);
+    // What it was given is left as it was.
+    expect(perInsert[0]).toEqual({
+      objectApiName: 'Contact',
+      limit: 'SingleEmail',
+      perRecord: 2,
+      sentBy: ['A'],
+    });
+  });
+
+  it('leaves them to the workflow emails elsewhere', () => {
+    expect(emailsCountedPerRecord(perInsert, false)).toEqual(perInsert);
+  });
+});
+
+describe('countedEmailChecksOf', () => {
+  // The trap Developer Edition on 2026-10-14: a workflow rule emails each
+  // contact created, and the single emails already stood at −75.
+  const plan = { objects: [{ objectApiName: 'Contact', rows: 36, storageBytes: 0 }] };
+  const alert = [
+    {
+      objectApiName: 'Contact',
+      limit: 'DailyWorkflowEmails' as const,
+      perRecord: 1,
+      sentBy: ['Contact welcome rule'],
+    },
+  ];
+  const developerEdition = {
+    SingleEmail: { max: 15, remaining: -75 },
+    DailyWorkflowEmails: { max: 8_040, remaining: 8_019 },
+  };
+
+  it("counts a Developer Edition's email alerts against its single emails, and says so", () => {
+    // Counted against the workflow emails alone, the clone said "36 workflow
+    // emails; 8019 of 8040 left", and took the single emails to −117.
+    const checks = countedEmailChecksOf(plan, alert, developerEdition);
+
+    expect(
+      checks.map(({ limit, emails, verdict, alertsCounted }) => ({
+        limit,
+        emails,
+        verdict,
+        alertsCounted,
+      })),
+    ).toEqual([
+      { limit: 'DailyWorkflowEmails', emails: 36, verdict: 'fits', alertsCounted: undefined },
+      { limit: 'SingleEmail', emails: 36, verdict: 'exceeds', alertsCounted: true },
+    ]);
+    expect(emailCheckLines(checks, 'TRAP')[1]).toBe(
+      '  emails: these records make TRAP send about 36 single emails (1 per Contact, by Contact ' +
+        'welcome rule), its email alerts among them: TRAP counts them against its single ' +
+        'emails, as a Developer Edition does, more than the -75 of 15 it has left today: past ' +
+        'them the action fails, and a record whose flow fails in the save is refused ' +
+        '(CANNOT_EXECUTE_FLOW_TRIGGER). A bypass that keeps the flow quiet, or a smaller run, ' +
+        'avoids it',
+    );
+    expect(emailRefusal(checks, 'TRAP')).toBe(
+      "The target's automation would make TRAP send about 36 single emails (its email alerts " +
+        'among them, as a Developer Edition counts them), -75 of 15 left today: past them, ' +
+        'each record whose flow fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER), ' +
+        "and the org's own emails stop for the rest of the day. Assign the user a bypass that " +
+        'keeps what sends quiet, or write fewer records.',
+    );
+  });
+
+  it('leaves the alerts to the workflow emails of an org with more single emails, or whose limits were not read', () => {
+    expect(
+      countedEmailChecksOf(plan, alert, {
+        SingleEmail: { max: 5_000, remaining: 4_990 },
+        DailyWorkflowEmails: { max: 1_000_000, remaining: 999_000 },
+      }).map((check) => check.limit),
+    ).toEqual(['DailyWorkflowEmails']);
+    expect(
+      countedEmailChecksOf(plan, alert, { unread: 'INSUFFICIENT_ACCESS' }).map((c) => c.limit),
+    ).toEqual(['DailyWorkflowEmails']);
+  });
+
+  it('says no alert among the single emails when the records written fire none', () => {
+    const flowOnly = [
+      { objectApiName: 'Contact', limit: 'SingleEmail' as const, perRecord: 1, sentBy: ['Flow'] },
+      { objectApiName: 'Case', limit: 'DailyWorkflowEmails' as const, perRecord: 1, sentBy: ['R'] },
+    ];
+
+    expect(countedEmailChecksOf(plan, flowOnly, developerEdition)).toEqual([
+      expect.not.objectContaining({ alertsCounted: true }),
+    ]);
+  });
+});
+
+describe('emailRefusal', () => {
+  const check = {
+    limit: 'SingleEmail' as const,
+    objects: [{ objectApiName: 'Contact', rows: 30, perRecord: 2, sentBy: ['Contact welcome'] }],
+    emails: 60,
+  };
+
+  it('refuses a command-line run past what the target has left of a daily limit', () => {
+    expect(emailRefusal([{ ...check, verdict: 'exceeds', remaining: 15, max: 15 }], 'TARGET')).toBe(
+      "The target's automation would make TARGET send about 60 single emails, 15 of 15 left " +
+        'today: past them, each record whose flow fails in the save is refused ' +
+        "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the day. " +
+        'Assign the user a bypass that keeps what sends quiet, or write fewer records.',
+    );
+  });
+
+  it('refuses nothing that fits, or that no limit could be read for', () => {
+    expect(
+      emailRefusal([{ ...check, verdict: 'fits', remaining: 90, max: 100 }], 'T'),
+    ).toBeUndefined();
+    expect(
+      emailRefusal([{ ...check, verdict: 'unread', unread: 'no access' }], 'T'),
+    ).toBeUndefined();
   });
 });
 
@@ -905,6 +1075,21 @@ describe('what the gate says', () => {
       'write gate: 34 record(s) to write to TGT, about 0.07 MB of data storage',
       `  ${'Contact'.padEnd(42)}${'30'.padStart(8)}`,
       `  ${'Account'.padEnd(42)}${'4'.padStart(8)}`,
+      '  data storage of TGT: 12 MB left of 200 MB',
+    ]);
+  });
+
+  it('says on the command line the prices it counts in that the write may read', () => {
+    const priced = writePlanOf([{ objectApiName: 'PricebookEntry', rows: rows(13), mayAdd: 4 }]);
+
+    expect(
+      writePlanLines(priced, storageCheckOf(priced, { maxMB: 200, remainingMB: 12 }), 'TGT'),
+    ).toEqual([
+      'write gate: 17 record(s) to write to TGT, about 0.04 MB of data storage',
+      `  ${'PricebookEntry'.padEnd(42)}${'17'.padStart(8)}`,
+      '  counted in: up to 4 PricebookEntry record(s) the run may read as it writes them, a ' +
+        "price in the currency of the record its lines belong to, the source's own beside the " +
+        'one read',
       '  data storage of TGT: 12 MB left of 200 MB',
     ]);
   });

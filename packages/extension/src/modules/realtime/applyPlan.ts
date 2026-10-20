@@ -60,6 +60,9 @@ export function applyPlanFor(
         fieldMappings: entry.fieldMappings,
         addOnFields: entry.addOnFields,
         transformRules: entry.transformRules,
+        // The configuration's choice of the emails and phone numbers, which
+        // its own runs neutralize unless it keeps them.
+        ...(config.keepContactPoints === true ? { keepContactPoints: true } : {}),
       };
     }
   }

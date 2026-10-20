@@ -115,10 +115,13 @@ function fakeOrg({
   ],
   validationRules = [],
   duplicateActions = {},
+  flowActions = [],
 }: {
   refuseFlows?: Error;
   noFlows?: boolean;
   moreFlows?: Array<Record<string, unknown>>;
+  /** The actions of its flows, as their metadata lists them under `actionCalls`. */
+  flowActions?: Array<Record<string, unknown>>;
   /** The permission sets that include `Load_Data`: their API names, and what each grants. */
   permissionSets?: Array<{ name: string; grants: number }>;
   limits?: unknown;
@@ -137,6 +140,11 @@ function fakeOrg({
   const written: string[] = [];
   const headers: Array<Record<string, string> | undefined> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+  /** What a flow version's metadata holds: a start a permission keeps quiet, and its actions. */
+  const flowMetadata = {
+    start: { filterFormula: 'NOT({!$Permission.Load_Data})' },
+    ...(flowActions.length > 0 ? { actionCalls: flowActions } : {}),
+  };
   const conn = {
     sobject: (name: string) => ({
       describe: async () => DESCRIBES[name],
@@ -210,7 +218,7 @@ function fakeOrg({
             },
           ]);
         }
-        return page([{ Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } } }]);
+        return page([{ Metadata: flowMetadata }]);
       },
       queryMore: async () => page([]),
     },
@@ -249,7 +257,7 @@ function fakeOrg({
                   httpStatusCode: 200,
                   body: {
                     Id: version,
-                    Metadata: { start: { filterFormula: 'NOT({!$Permission.Load_Data})' } },
+                    Metadata: flowMetadata,
                   },
                 };
               }
@@ -762,6 +770,50 @@ describe('sandforge-clone target automation', () => {
         '  a real run would be refused: The run would write 2 records, more than --max-total 1: ' +
           'narrow the clone (--max, --exclude-object, --filter), or raise --max-total.',
       );
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it("counts a Developer Edition's email alerts against its single emails, and writes nothing past them", async () => {
+      // Live, on 2026-10-14: a clone of 36 contacts into a Developer Edition
+      // said "36 workflow emails; 8019 of 8040 left" while its single emails
+      // stood at −75 of 15, and its alerts took them to −117.
+      const developerEdition = () =>
+        fakeOrg({
+          flowActions: [
+            { name: 'Contact_Alert', label: 'Contact alert', actionType: 'emailAlert' },
+          ],
+          limits: {
+            ...STORAGE,
+            SingleEmail: { Max: 15, Remaining: 0 },
+            DailyWorkflowEmails: { Max: 8_040, Remaining: 8_019 },
+          },
+        });
+      withOrgs(developerEdition());
+
+      expect(await run(argv('--skip-preflight', '--dry-run'))).toBeUndefined();
+
+      expect(printed).toContain(
+        '  emails: these records make TGT send about 1 single emails (1 per Contact, by Contact ' +
+          'welcome), its email alerts among them: TGT counts them against its single emails, ' +
+          'as a Developer Edition does, more than the 0 of 15 it has left today: past them the ' +
+          'action fails, and a record whose flow fails in the save is refused ' +
+          '(CANNOT_EXECUTE_FLOW_TRIGGER). A bypass that keeps the flow quiet, or a smaller run, ' +
+          'avoids it',
+      );
+      expect(printed).toContain(
+        "  a real run would be refused: The target's automation would make TGT send about 1 " +
+          'single emails (its email alerts among them, as a Developer Edition counts them), 0 ' +
+          'of 15 left today: past them, each record whose flow fails in the save is refused ' +
+          "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the " +
+          'day. Assign the user a bypass that keeps what sends quiet, or write fewer records.',
+      );
+      expect(orgs.TGT.written).toEqual([]);
+
+      withOrgs(developerEdition());
+      expect(await run(argv('--skip-preflight', '--accept-automation'))).toBe(1);
+
+      expect(stderr).toContain("The target's automation would make TGT send about 1 single emails");
+      expect(stderr).toContain('Nothing was written.');
       expect(orgs.TGT.written).toEqual([]);
     });
   });

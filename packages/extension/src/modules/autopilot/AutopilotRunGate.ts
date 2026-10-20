@@ -25,7 +25,8 @@ import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   confirmationStorageOf,
-  emailChecksOf,
+  countedEmailChecksOf,
+  overEmailOf,
   storageCheckOf,
   storageRefusal,
   writePlanOf,
@@ -120,42 +121,14 @@ export async function autopilotEmails(input: {
   const limits = await input
     .readLimits()
     .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
-  return { checks: emailChecksOf(input.plan, sending, limits) };
+  // Counted as the target counts them: a Developer Edition's email alerts
+  // against its single emails too, as Seed counts them.
+  return { checks: countedEmailChecksOf(input.plan, sending, limits) };
 }
 
 /** The limits a plan's emails go past, as a run's question names them. */
 function overEmailsOf(checks: readonly EmailCheck[]): NonNullable<WriteConfirmation['emails']> {
-  return checks
-    .filter((check) => check.verdict === 'exceeds')
-    .map((check) => ({
-      limit: check.limit,
-      emails: check.emails,
-      remaining: check.remaining ?? 0,
-      max: check.max ?? 0,
-      objects: check.objects.map(({ objectApiName, perRecord }) => ({ objectApiName, perRecord })),
-    }));
-}
-
-/**
- * Why a command-line run is refused for its emails: past what the target has
- * left of a daily limit, as a run past its storage is refused. Undefined when
- * they fit, or could not be counted against a limit.
- */
-export function emailRefusal(checks: readonly EmailCheck[], org: string): string | undefined {
-  const over = overEmailsOf(checks);
-  if (over.length === 0) return undefined;
-  const said = over
-    .map(
-      (o) =>
-        `about ${o.emails} ${o.limit === 'SingleEmail' ? 'single' : 'workflow'} emails, ` +
-        `${o.remaining} of ${o.max} left today`,
-    )
-    .join('; ');
-  return (
-    `The target's flows would make ${org} send ${said}: past them, each record whose flow ` +
-    'fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER). Assign the user a bypass ' +
-    'that keeps the flow quiet, or write fewer records.'
-  );
+  return checks.filter((check) => check.verdict === 'exceeds').map(overEmailOf);
 }
 
 /** Why a run's gate stopped it: Forge's codes for the same stops. */

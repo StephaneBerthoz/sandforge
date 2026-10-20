@@ -625,6 +625,66 @@ describe('prepareSyncRows — currencies', () => {
       },
     ]);
   });
+
+  it("names among a product's converted fields only those it sends, its total price left out", () => {
+    // The currency line listed TotalPrice, converted and then left out of the
+    // write, which takes one of the two prices.
+    const lineTarget = targetWriteFieldsOf({
+      name: 'OpportunityLineItem',
+      fields: [
+        { name: 'Id', createable: false, type: 'id' },
+        {
+          name: 'OpportunityId',
+          createable: true,
+          type: 'reference',
+          referenceTo: ['Opportunity'],
+        },
+        { name: 'CurrencyIsoCode', createable: false, type: 'picklist' },
+        { name: 'UnitPrice', createable: true, type: 'currency', precision: 18, scale: 2 },
+        { name: 'TotalPrice', createable: true, type: 'currency', precision: 18, scale: 2 },
+        { name: 'Quantity', createable: true, type: 'double', precision: 18, scale: 2 },
+      ],
+    });
+    const deals = [deal(1, 'GBP', 158)];
+    const currencyChangesById = new Map();
+    prepareSyncRows({
+      config: objectConfig({ objectApiName: 'Opportunity' }),
+      records: deals,
+      target: OPPORTUNITY_TARGET,
+      run: {
+        links: new SyncRunLinks(),
+        sources: deals,
+        currencies: CURRENCIES,
+        currencyChangesById,
+      },
+    });
+    const lines = [
+      {
+        Id: '00k000000000001AAA',
+        OpportunityId: deals[0].Id,
+        CurrencyIsoCode: 'GBP',
+        UnitPrice: 79,
+        TotalPrice: 158,
+        Quantity: 2,
+      },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ objectApiName: 'OpportunityLineItem' }),
+      records: lines,
+      target: lineTarget,
+      run: {
+        links: new SyncRunLinks(),
+        sources: lines,
+        currencies: CURRENCIES,
+        currencyChangesById,
+      },
+    });
+
+    expect(prepared.payloads[0]).not.toHaveProperty('TotalPrice');
+    expect(prepared.payloads[0]['UnitPrice']).toBe(100);
+    expect(prepared.currencies.map((entry) => entry.fields)).toEqual([['UnitPrice']]);
+  });
 });
 
 describe('SyncRunLinks', () => {

@@ -52,6 +52,7 @@ import type {
   BypassToAssign,
   FiredOnInsert,
   RunUpdateStep,
+  WriteConfirmation,
   WriteConfirmationStorage,
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeWriteBoundary } from './ForgeExecutor.js';
@@ -173,8 +174,11 @@ export function rowStorageBytes(objectApiName: string, row: Record<string, unkno
 /** What a run is about to write of one object. */
 export interface WritePlanObject {
   objectApiName: string;
+  /** The rows, those the write may read besides counted in. */
   rows: number;
   storageBytes: number;
+  /** Of `rows`, the prices the write may read besides those in hand, at most: see `ForgeWriteBoundary`. */
+  mayAdd?: number;
 }
 
 /** What a run is about to write: per object, the most first, and in all. */
@@ -219,22 +223,33 @@ export function countedStorageBytes(
  * The rows a run is about to write, counted and measured. An object with none
  * is left out. One that comes with what its count says (`counted`) — a run
  * read page by page holds no row before it writes — is measured by the count.
+ * The prices the write may read besides those in hand (`mayAdd`) are counted
+ * in, at the size of a price.
  */
 export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
   const measured = objects
-    .map(({ objectApiName, rows, counted }) =>
-      counted
+    .map(({ objectApiName, rows, counted, mayAdd = 0 }): WritePlanObject => {
+      const more = {
+        rows: mayAdd,
+        storageBytes: mayAdd * rowStorageBytes(objectApiName, {}),
+        ...(mayAdd > 0 ? { mayAdd } : {}),
+      };
+      return counted
         ? {
             objectApiName,
-            rows: counted.rows,
-            storageBytes: countedStorageBytes(objectApiName, counted),
+            ...more,
+            rows: counted.rows + more.rows,
+            storageBytes: countedStorageBytes(objectApiName, counted) + more.storageBytes,
           }
         : {
             objectApiName,
-            rows: rows.length,
-            storageBytes: rows.reduce((sum, row) => sum + rowStorageBytes(objectApiName, row), 0),
-          },
-    )
+            ...more,
+            rows: rows.length + more.rows,
+            storageBytes:
+              rows.reduce((sum, row) => sum + rowStorageBytes(objectApiName, row), 0) +
+              more.storageBytes,
+          };
+    })
     .filter(({ rows }) => rows > 0)
     .sort((a, b) => b.rows - a.rows || a.objectApiName.localeCompare(b.objectApiName));
   const writtenBefore = objects.reduce(
@@ -250,6 +265,12 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
     ...(writtenBefore > 0 || heldBack.length > 0 ? { leftOut: { writtenBefore, heldBack } } : {}),
   };
+}
+
+/** The prices a plan counts the write may read besides those in hand, as a run's question says them. */
+export function pricesForLinesOf(plan: Pick<WritePlan, 'objects'>): { pricesForLines?: number } {
+  const rows = plan.objects.reduce((sum, object) => sum + (object.mayAdd ?? 0), 0);
+  return rows > 0 ? { pricesForLines: rows } : {};
 }
 
 /** What an org says of its data storage, in MB. */
@@ -349,12 +370,65 @@ export async function readEmailLimits(
   return out;
 }
 
+/** The single emails a day of a Developer Edition. */
+export const DEVELOPER_EDITION_SINGLE_EMAILS = 15;
+
+/**
+ * Whether the email alerts of an org count against its single emails too: an
+ * org held to the fifteen single emails a day of a Developer Edition.
+ *
+ * Twice the trap Developer Edition counted the email alert of its contact
+ * workflow rule against its single emails, its contact flow quiet for the
+ * user who wrote: on 2026-10-14, 36 contacts cloned took them from −75 to
+ * −117 while its workflow emails did not move; on 2026-10-20, 75 contacts
+ * seeded took them from 15 to −60. Counted as workflow emails alone, 8,040 a
+ * day there, the 75 contacts fitted.
+ */
+export function alertsCountAsSingle(limits: Partial<Record<ForgeEmailLimit, EmailLimit>>): boolean {
+  const single = limits.SingleEmail;
+  return single !== undefined && single.max <= DEVELOPER_EDITION_SINGLE_EMAILS;
+}
+
+/**
+ * The emails each record of an object makes the org send, per daily limit,
+ * as the org counts them: the email alerts counted against the single emails
+ * as well where the org counts them there.
+ *
+ * @param alertsAsSingle - Whether the org counts its email alerts against its
+ *   single emails ({@link alertsCountAsSingle}).
+ */
+export function emailsCountedPerRecord(
+  perInsert: readonly ForgeEmailsPerInsert[],
+  alertsAsSingle: boolean,
+): ForgeEmailsPerInsert[] {
+  const out = perInsert.map((sending) => ({ ...sending, sentBy: [...sending.sentBy] }));
+  if (!alertsAsSingle) return out;
+  for (const alert of perInsert.filter((sending) => sending.limit === 'DailyWorkflowEmails')) {
+    const single = out.find(
+      (sending) => sending.objectApiName === alert.objectApiName && sending.limit === 'SingleEmail',
+    );
+    if (!single) {
+      out.push({ ...alert, limit: 'SingleEmail', sentBy: [...alert.sentBy] });
+      continue;
+    }
+    single.perRecord += alert.perRecord;
+    for (const name of alert.sentBy) if (!single.sentBy.includes(name)) single.sentBy.push(name);
+  }
+  return out;
+}
+
 /** The emails a run's inserts make the target send against one daily limit, and what is left of it. */
 export interface EmailCheck {
   limit: ForgeEmailLimit;
   /** The emails, per object: the records inserted and the emails each sends. */
   objects: Array<{ objectApiName: string; rows: number; perRecord: number; sentBy: string[] }>;
   emails: number;
+  /**
+   * Set on the single emails of an org that counts its email alerts against
+   * them too, as a Developer Edition does ({@link alertsCountAsSingle}), when
+   * the records fire alerts: they are among `emails`.
+   */
+  alertsCounted?: true;
   /**
    * `exceeds` past what the target has left today: the actions past it fail,
    * and a flow that fails in the save refuses its record. `unread` when the
@@ -424,11 +498,90 @@ function isUnread(limits: object): limits is { unread: string } {
   return typeof (limits as { unread?: unknown }).unread === 'string';
 }
 
+/**
+ * The emails the rows about to be written make the target send, per daily
+ * limit, as the target counts them ({@link emailChecksOf}): where it counts
+ * its email alerts against its single emails too, as a Developer Edition
+ * does, the alerts of each record are among its single emails
+ * ({@link emailsCountedPerRecord}), and the check says so.
+ *
+ * Forge's and Autopilot's gates counted an alert against the workflow emails
+ * alone. On 2026-10-14 a clone of 36 contacts into the trap Developer Edition
+ * said "36 workflow emails; 8019 of 8040 left" while its single emails stood
+ * at −75 of 15, and the clone took them to −117.
+ */
+export function countedEmailChecksOf(
+  plan: Pick<WritePlan, 'objects'>,
+  perInsert: readonly ForgeEmailsPerInsert[],
+  limits: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string },
+): EmailCheck[] {
+  const alertsAsSingle = !isUnread(limits) && alertsCountAsSingle(limits);
+  const checks = emailChecksOf(plan, emailsCountedPerRecord(perInsert, alertsAsSingle), limits);
+  if (!alertsAsSingle) return checks;
+  const written = new Set(
+    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
+  );
+  const alerting = perInsert.some(
+    (sending) => sending.limit === 'DailyWorkflowEmails' && written.has(sending.objectApiName),
+  );
+  return alerting
+    ? checks.map((check) =>
+        check.limit === 'SingleEmail' ? { ...check, alertsCounted: true as const } : check,
+      )
+    : checks;
+}
+
+/** A limit the emails go past, as a run's question names it. */
+export function overEmailOf(check: EmailCheck): NonNullable<WriteConfirmation['emails']>[number] {
+  return {
+    limit: check.limit,
+    emails: check.emails,
+    remaining: check.remaining ?? 0,
+    max: check.max ?? 0,
+    objects: check.objects.map(({ objectApiName, perRecord }) => ({ objectApiName, perRecord })),
+    ...(check.alertsCounted ? { alertsCounted: true as const } : {}),
+  };
+}
+
 /** How each daily email limit is said. */
 const EMAIL_LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
   SingleEmail: 'single emails',
   DailyWorkflowEmails: 'workflow emails',
 };
+
+/** What a check says of the email alerts among its single emails, when they are. */
+function alertsWords(check: EmailCheck, org: string): string {
+  return check.alertsCounted
+    ? `, its email alerts among them: ${org} counts them against its single emails, as a ` +
+        'Developer Edition does'
+    : '';
+}
+
+/**
+ * Why a command-line run is refused for its emails: past what the target has
+ * left of a daily limit, as a run past its storage is refused. Undefined when
+ * they fit, or could not be counted against a limit.
+ */
+export function emailRefusal(checks: readonly EmailCheck[], org: string): string | undefined {
+  const over = checks.filter((check) => check.verdict === 'exceeds');
+  if (over.length === 0) return undefined;
+  const said = over
+    .map(
+      (check) =>
+        `about ${check.emails} ${EMAIL_LIMIT_WORDS[check.limit]}` +
+        (check.alertsCounted
+          ? ' (its email alerts among them, as a Developer Edition counts them)'
+          : '') +
+        `, ${check.remaining ?? 0} of ${check.max ?? 0} left today`,
+    )
+    .join('; ');
+  return (
+    `The target's automation would make ${org} send ${said}: past them, each record whose flow ` +
+    "fails in the save is refused (CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop " +
+    'for the rest of the day. Assign the user a bypass that keeps what sends quiet, or write ' +
+    'fewer records.'
+  );
+}
 
 /** What the command's write gate says of the emails the rows make the target send. */
 export function emailCheckLines(checks: readonly EmailCheck[], org: string): string[] {
@@ -437,7 +590,9 @@ export function emailCheckLines(checks: readonly EmailCheck[], org: string): str
     const per = check.objects
       .map((o) => `${o.perRecord} per ${o.objectApiName}, by ${o.sentBy.join(', ')}`)
       .join('; ');
-    const sent = `  emails: these records make ${org} send about ${check.emails} ${words} (${per})`;
+    const sent =
+      `  emails: these records make ${org} send about ${check.emails} ${words} (${per})` +
+      alertsWords(check, org);
     if (check.verdict === 'unread') {
       return `${sent}; what it has left today could not be read (${check.unread ?? ''})`;
     }
@@ -694,7 +849,7 @@ export function automationUnreadOf(
 
 /** The codes a run's gate stops it with: the extension's, and the command line's own. */
 export type ForgeRunGateErrorCode =
-  ForgeRunGateCode | 'MAX_TOTAL_EXCEEDED' | 'AUTOMATION_NOT_ACCEPTED';
+  ForgeRunGateCode | 'MAX_TOTAL_EXCEEDED' | 'AUTOMATION_NOT_ACCEPTED' | 'EMAILS_EXCEEDED';
 
 /**
  * Raised when a run's gate stops it: before it reads anything, or once it has
@@ -723,7 +878,11 @@ export class ForgeRunGateError extends Error {
 
   /** The stop as the page is told it; none for a code of the command line's own. */
   get stop(): ForgeRunGateStop | undefined {
-    if (this.code === 'MAX_TOTAL_EXCEEDED' || this.code === 'AUTOMATION_NOT_ACCEPTED') {
+    if (
+      this.code === 'MAX_TOTAL_EXCEEDED' ||
+      this.code === 'AUTOMATION_NOT_ACCEPTED' ||
+      this.code === 'EMAILS_EXCEEDED'
+    ) {
       return undefined;
     }
     return {
@@ -777,6 +936,14 @@ export function writePlanLines(plan: WritePlan, check: StorageCheck, target: str
   if (rest.length > 0) {
     const rows = rest.reduce((sum, object) => sum + object.rows, 0);
     lines.push(`  and ${rest.length} more object(s), ${rows} record(s)`);
+  }
+  for (const { objectApiName, mayAdd } of plan.objects) {
+    if (mayAdd === undefined) continue;
+    lines.push(
+      `  counted in: up to ${mayAdd} ${objectApiName} record(s) the run may read as it writes ` +
+        "them, a price in the currency of the record its lines belong to, the source's own " +
+        'beside the one read',
+    );
   }
   lines.push(...leftOutLines(plan.leftOut));
   if (check.verdict === 'unread') {

@@ -311,6 +311,55 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned).toEqual({ Quantity: 2, UnitPrice: 7.85 });
   });
 
+  it("names among a line's converted fields only the price it sends, its opportunity gone in another currency", () => {
+    // The currency line of an opportunity's products listed TotalPrice among
+    // the fields converted, a field the write never sent.
+    const fields: FieldInfo[] = [
+      { name: 'OpportunityId', queryable: true, createable: true, isReference: true },
+      { name: 'Quantity', queryable: true, createable: true, isReference: false },
+      { name: 'UnitPrice', queryable: true, createable: true, isReference: false },
+      { name: 'TotalPrice', queryable: true, createable: true, isReference: false },
+    ];
+    const remapper = new IdRemapper();
+    remapper.add('006A', '006T');
+    const [out] = cleanNodeRecords(
+      makeInput({
+        objectApiName: 'OpportunityLineItem',
+        records: [
+          {
+            OpportunityId: '006A',
+            CurrencyIsoCode: 'GBP',
+            Quantity: 2,
+            UnitPrice: 79,
+            TotalPrice: 158,
+          },
+        ],
+        fieldInfos: fields,
+        remapper,
+        creatableFields: new Set(['OpportunityId', 'Quantity', 'UnitPrice', 'TotalPrice']),
+        currencyFields: new Map([
+          ['UnitPrice', 2],
+          ['TotalPrice', 2],
+        ]),
+        parentCurrencies: {
+          changeOf: (id) =>
+            id === '006A'
+              ? {
+                  from: 'GBP',
+                  to: 'USD',
+                  chosenBy: 'corporate',
+                  fields: ['Amount'],
+                  factor: 1 / 0.79,
+                }
+              : undefined,
+        },
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ OpportunityId: '006T', Quantity: 2, UnitPrice: 100 });
+    expect(out.currencyChange?.fields).toEqual(['UnitPrice']);
+  });
+
   describe("an email's task", () => {
     const EMAIL_FIELDS: FieldInfo[] = [
       { name: 'Id', queryable: true, createable: false, isReference: false },

@@ -3,11 +3,13 @@ import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shar
 import {
   LINES_PRICED,
   describePriceCurrencies,
+  describeSettledPrices,
   priceInCurrency,
   priceKeyOf,
   pricesToAsk,
   recordsBeforeTheirPrices,
   settlePriceCurrencies,
+  settledPricesOf,
   type PriceCurrencyInput,
   type PriceRow,
 } from './PriceCurrencies.js';
@@ -201,6 +203,27 @@ describe('describePriceCurrencies', () => {
         'the same product and price book, and the price goes in another currency for other lines: ' +
         'the target refuses the lines of a record in it',
     ]);
+  });
+});
+
+describe('settledPricesOf', () => {
+  it('counts the prices per currency read, currency wanted and way they went, as a result carries them', () => {
+    const said = [
+      { from: 'GBP', to: 'USD', how: 'replaced' as const, forLines: false },
+      { from: 'GBP', to: 'EUR', how: 'converted' as const, forLines: true },
+      { from: 'GBP', to: 'USD', how: 'replaced' as const, forLines: false },
+      { from: 'GBP', to: 'USD', how: 'replaced' as const, forLines: true },
+    ];
+
+    const settled = settledPricesOf(said);
+
+    expect(settled).toEqual([
+      { from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 },
+      { from: 'GBP', to: 'EUR', how: 'converted', forLines: true, prices: 1 },
+      { from: 'GBP', to: 'USD', how: 'replaced', forLines: true, prices: 1 },
+    ]);
+    // The command line says them as the object's line says what was settled.
+    expect(describeSettledPrices(settled)).toEqual(describePriceCurrencies(said));
   });
 });
 

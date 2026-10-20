@@ -7,6 +7,7 @@ import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { uiLocale } from '../../../utils/formatters';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
+import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 
 /**
  * What a refusal means and what to do about it, from the error catalogue: the
@@ -165,6 +166,11 @@ export const NodeDetail: React.FC = () => {
       {/* The records written in another currency, said as Forge's results say them. */}
       {selectedNode.currenciesReplaced && selectedNode.currenciesReplaced.length > 0 && (
         <ForgeCurrenciesResult entries={selectedNode.currenciesReplaced} />
+      )}
+
+      {/* The prices read in a currency the target lacks, and how each went. */}
+      {selectedNode.pricesSettled && selectedNode.pricesSettled.length > 0 && (
+        <PriceCurrenciesResult entries={selectedNode.pricesSettled} />
       )}
 
       {/* PII Fields */}

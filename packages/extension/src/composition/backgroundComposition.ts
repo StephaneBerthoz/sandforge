@@ -387,6 +387,14 @@ function writeQuestion(question: WriteConfirmation): string[] {
       vscode.l10n.t('More than {0} records is a large volume for this org.', question.largeVolume),
     );
   }
+  if (question.pricesForLines !== undefined) {
+    lines.push(
+      vscode.l10n.t(
+        'Of the price book entries, up to {0} are counted that the clone may read as it writes them: a price in the currency of the record its lines belong to, which the source holds beside the one read.',
+        question.pricesForLines,
+      ),
+    );
+  }
   const { storage } = question;
   if ('unread' in storage) {
     lines.push(
@@ -440,6 +448,16 @@ function writeQuestion(question: WriteConfirmation): string[] {
             perRecord,
           ),
     );
+    // A Developer Edition counts its email alerts against its single emails:
+    // counted against the workflow emails alone, a clone said it fitted.
+    if (over.alertsCounted) {
+      lines.push(
+        vscode.l10n.t(
+          '{0} counts its email alerts against its single emails too, as a Developer Edition does: they are among them.',
+          question.org,
+        ),
+      );
+    }
   }
   lines.push(
     question.counted

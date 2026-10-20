@@ -3507,6 +3507,16 @@
       "dated": "aux taux datés de {{field}}",
       "datedUnconfirmed": "aux taux statiques : les taux datés de {{field}} n'ont pas pu être confirmés"
     },
+    "prices": {
+      "title": "Prix dans une autre devise",
+      "hint": "Un catalogue de prix fixe le prix d'un produit une fois par devise, et l'org cible refuse une ligne dont le prix est dans une autre devise que son enregistrement. Ces prix ont été lus dans une devise que l'org cible n'a pas active, ou étaient voulus dans la devise des enregistrements de leurs lignes.",
+      "prices_one": "{{count}} prix en {{from}}",
+      "prices_other": "{{count}} prix en {{from}}",
+      "replaced": "remplacés par le prix de l'org source en {{to}} pour le même produit et le même catalogue de prix, et reliés à sa copie",
+      "converted": "écrits en {{to}} à leur montant converti : l'org source n'a aucun prix dans cette devise pour le même produit et le même catalogue de prix",
+      "none": "aucun prix en {{to}} pour le même produit et le même catalogue de prix, et ils vont dans une autre devise pour d'autres lignes : l'org cible refuse les lignes d'un enregistrement en {{to}}",
+      "forLines": "{{to}} étant la devise des enregistrements auxquels leurs lignes appartiennent"
+    },
     "contactPoints": {
       "title": "E-mails et numéros de téléphone",
       "numbersExhausted_one": "{{count}} numéro de téléphone laissé vide : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",

@@ -739,7 +739,7 @@ describe('AutopilotExecutor — what the target will take', () => {
         .mockResolvedValueOnce(written('tgt1'))
         .mockResolvedValueOnce(written('tgtL1'));
 
-      await new AutopilotExecutor(deps).execute(
+      const result = await new AutopilotExecutor(deps).execute(
         makePlan(
           [
             { order: 0, objects: ['Opportunity'], dependsOn: [] },
@@ -765,6 +765,11 @@ describe('AutopilotExecutor — what the target will take', () => {
       expect(vi.mocked(deps.insert).mock.calls[1][1]).toEqual([
         { Id: 'srcL1', OpportunityId: 'tgt1', Quantity: 2, UnitPrice: 100 },
       ]);
+      // The currency line names the fields the write converted and sent: it
+      // listed TotalPrice, a field left out of the write.
+      expect(
+        result.objectOutcomes?.['OpportunityLineItem']?.currenciesReplaced?.map((c) => c.fields),
+      ).toEqual([['UnitPrice']]);
     });
 
     it("converts an opportunity at the dated rates the source's currency settings say are on, though the user may not create one", async () => {
@@ -1296,6 +1301,118 @@ describe('AutopilotExecutor — records the platform owns or makes', () => {
       ['pbeStd1'],
       ['pbeCustom1', 'pbeCustom2'],
     ]);
+  });
+
+  describe('a product priced in a currency the target lacks and in its corporate one', () => {
+    const CUSTOM = '01sSRCCUSTOM000';
+    /** The product's standard and custom prices, each in GBP and in USD. */
+    const rows = {
+      PricebookEntry: [
+        {
+          Id: 'pbeStdGBP',
+          Pricebook2Id: SOURCE_STANDARD,
+          Product2Id: 'p1',
+          CurrencyIsoCode: 'GBP',
+        },
+        {
+          Id: 'pbeStdUSD',
+          Pricebook2Id: SOURCE_STANDARD,
+          Product2Id: 'p1',
+          CurrencyIsoCode: 'USD',
+        },
+        { Id: 'pbeCusGBP', Pricebook2Id: CUSTOM, Product2Id: 'p1', CurrencyIsoCode: 'GBP' },
+        { Id: 'pbeCusUSD', Pricebook2Id: CUSTOM, Product2Id: 'p1', CurrencyIsoCode: 'USD' },
+      ],
+    };
+    /** The source holds USD, EUR and GBP; the target USD and EUR, no GBP. */
+    const orgs = (remapper: RecordIdRemapper) =>
+      makeDeps({
+        query: sourceOf(rows),
+        remapper,
+        batchSize: 200,
+        querySource: async (soql) =>
+          soql === STANDARD_PRICEBOOK_SOQL
+            ? [{ Id: SOURCE_STANDARD }]
+            : soql.includes('FROM CurrencyType')
+              ? [
+                  { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+                  { IsoCode: 'EUR', ConversionRate: 0.92, IsActive: true, IsCorporate: false },
+                  { IsoCode: 'GBP', ConversionRate: 0.79, IsActive: true, IsCorporate: false },
+                ]
+              : [],
+        queryTarget: async (soql) =>
+          soql === STANDARD_PRICEBOOK_SOQL
+            ? [{ Id: TARGET_STANDARD }]
+            : soql.includes('FROM CurrencyType')
+              ? [
+                  { IsoCode: 'USD', ConversionRate: 1, IsActive: true, IsCorporate: true },
+                  { IsoCode: 'EUR', ConversionRate: 0.9, IsActive: true, IsCorporate: false },
+                ]
+              : [],
+      });
+
+    it("leaves out the price the target would take twice, linked to its own's copy, as Sync does", async () => {
+      // Run between two scratch orgs, the GBP price went in USD beside the
+      // source's own USD price of the same product and book, and the target
+      // refused one of them: DUPLICATE_VALUE.
+      const remapper = new RecordIdRemapper();
+      const deps = orgs(remapper);
+      vi.mocked(deps.insert).mockImplementation(async (_name, records) =>
+        written(...records.map((record) => `01uT-${String(record['Id'])}`)),
+      );
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('PricebookEntry'),
+        [],
+        [],
+        countsOf(rows),
+      );
+
+      expect(vi.mocked(deps.insert).mock.calls.map((call) => call[1].map((r) => r['Id']))).toEqual([
+        ['pbeStdUSD'],
+        ['pbeCusUSD'],
+      ]);
+      // A line that names a GBP price is written on its USD price's copy.
+      expect(remapper.getTargetId('PricebookEntry' as ApiName, 'pbeStdGBP')).toBe('01uT-pbeStdUSD');
+      expect(remapper.getTargetId('PricebookEntry' as ApiName, 'pbeCusGBP')).toBe('01uT-pbeCusUSD');
+      expect(result.objectOutcomes?.['PricebookEntry']).toMatchObject({
+        written: 2,
+        linked: 2,
+        failed: 0,
+        pricesSettled: [{ from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 }],
+      });
+    });
+
+    it('writes a price left out after all when the target refused the one it stood for', async () => {
+      const remapper = new RecordIdRemapper();
+      const deps = orgs(remapper);
+      vi.mocked(deps.insert).mockImplementation(async (_name, records) =>
+        records.map((record) =>
+          record['Id'] === 'pbeStdUSD'
+            ? refused('FIELD_INTEGRITY_EXCEPTION', 'the price is refused')
+            : written(`01uT-${String(record['Id'])}`)[0],
+        ),
+      );
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('PricebookEntry'),
+        [],
+        [],
+        countsOf(rows),
+      );
+
+      expect(vi.mocked(deps.insert).mock.calls.map((call) => call[1].map((r) => r['Id']))).toEqual([
+        ['pbeStdUSD'],
+        ['pbeStdGBP'],
+        ['pbeCusUSD'],
+      ]);
+      expect(remapper.getTargetId('PricebookEntry' as ApiName, 'pbeStdGBP')).toBe('01uT-pbeStdGBP');
+      expect(result.objectOutcomes?.['PricebookEntry']).toMatchObject({
+        written: 2,
+        linked: 1,
+        failed: 1,
+      });
+    });
   });
 
   it('links the account-contact relation the platform made instead of inserting it', async () => {

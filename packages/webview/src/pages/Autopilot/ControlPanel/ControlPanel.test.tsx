@@ -414,6 +414,22 @@ describe('ControlPanel node detail — what the node came to', () => {
     );
   });
 
+  it('says the prices left out for their own in the currency written, and linked to it', () => {
+    // Read with the source's own USD price of the same product, a GBP price
+    // went in USD beside it, and the target refused one: DUPLICATE_VALUE.
+    mockStoreState.selectedNode = () =>
+      settledOrder({
+        pricesSettled: [{ from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 }],
+      });
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    expect(screen.getByTestId('results-price-currencies-row').textContent).toBe(
+      "2 prices in GBP, replaced by the source org's own price in USD for the same product and " +
+        'price book, and linked to its copy',
+    );
+  });
+
   it('shows none of it for a node that wrote everything', () => {
     mockStoreState.selectedNode = () =>
       settledOrder({

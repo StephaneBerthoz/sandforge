@@ -8,6 +8,7 @@ import {
   deltaLine,
   objectCurrencyLines,
   objectErrorLines,
+  objectPriceLines,
   readSavedConfig,
   simulationLines,
 } from './sandforge-sync.js';
@@ -49,6 +50,16 @@ describe('what a run prints of an object', () => {
         "there: amounts converted at the source's rates, dated by CloseDate (Amount).",
     ]);
     expect(objectCurrencyLines(undefined)).toEqual([]);
+  });
+
+  it('prints the prices it read in a currency the target lacks, apart from its refusals', () => {
+    expect(
+      objectPriceLines([{ from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 4 }]),
+    ).toEqual([
+      "4 GBP → USD: price(s) in a currency the target does not hold active replaced by the source's " +
+        'own price in the currency written, for the same product and price book.',
+    ]);
+    expect(objectPriceLines(undefined)).toEqual([]);
   });
 });
 

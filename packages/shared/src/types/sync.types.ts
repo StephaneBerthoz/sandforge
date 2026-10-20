@@ -1,4 +1,10 @@
-import type { UUID, ISODateString, ApiName, CurrencyReplaced } from './common.types.js';
+import type {
+  UUID,
+  ISODateString,
+  ApiName,
+  CurrencyReplaced,
+  PriceCurrencySettled,
+} from './common.types.js';
 import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
 
 /** Sync direction */
@@ -454,6 +460,13 @@ export interface SyncObjectResult {
    * and what became of their amounts.
    */
   currenciesReplaced?: CurrencyReplaced[];
+  /**
+   * Of the prices, those read in a currency the target does not hold active,
+   * and how each went: replaced by the source's own price in the currency
+   * written, linked to its copy, or written in it at its amount converted.
+   * Said apart from `errors`: none of it is a refusal. Absent when none.
+   */
+  pricesSettled?: PriceCurrencySettled[];
 }
 
 /**

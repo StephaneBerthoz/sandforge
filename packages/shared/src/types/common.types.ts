@@ -170,3 +170,31 @@ export interface CurrencyReplaced {
    */
   datedUnconfirmed?: string;
 }
+
+/**
+ * How prices read in one currency went, where they were wanted in another: a
+ * book prices a product once per currency, and the platform refuses a line
+ * whose price is in another currency than its record.
+ *
+ * - `replaced`: by the source's own price of the same product, price book and
+ *   selling model in `to`, which is written; they are linked to its copy.
+ * - `converted`: the source holds no such price, and they are written in `to`
+ *   themselves, at their amount converted.
+ * - `none`: neither — they go in another currency for other lines, and the
+ *   target refuses the lines of a record in `to`.
+ */
+export interface PriceCurrencySettled {
+  /** The currency the prices were read in. */
+  from: string;
+  /** The currency they were wanted in. */
+  to: string;
+  how: 'replaced' | 'converted' | 'none';
+  /**
+   * Whether `to` is the currency of the records their lines belong to, rather
+   * than the one they would go in alone: the target does not hold `from`
+   * active, and `to` is its corporate currency or the one `from` is mapped to.
+   */
+  forLines: boolean;
+  /** How many prices. */
+  prices: number;
+}

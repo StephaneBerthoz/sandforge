@@ -51,6 +51,8 @@ import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
+import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
+import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -1003,7 +1005,11 @@ export const SyncPage: React.FC = () => {
                         title={obj.objectApiName}
                         subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
                       />
-                      {(obj.errors.length > 0 || obj.delta || obj.files) && (
+                      {(obj.errors.length > 0 ||
+                        obj.delta ||
+                        obj.files ||
+                        (obj.currenciesReplaced?.length ?? 0) > 0 ||
+                        (obj.pricesSettled?.length ?? 0) > 0) && (
                         <CardBody>
                           {obj.delta && (
                             <SyncDeltaLine
@@ -1028,6 +1034,13 @@ export const SyncPage: React.FC = () => {
                               : {})}
                             testIdPrefix="sync-result"
                           />
+                          {/* No refusal either: said as the run's history says them. */}
+                          {obj.currenciesReplaced && obj.currenciesReplaced.length > 0 && (
+                            <ForgeCurrenciesResult entries={obj.currenciesReplaced} />
+                          )}
+                          {obj.pricesSettled && obj.pricesSettled.length > 0 && (
+                            <PriceCurrenciesResult entries={obj.pricesSettled} />
+                          )}
                         </CardBody>
                       )}
                     </Card>

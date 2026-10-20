@@ -565,6 +565,14 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // What the user decided of the row's values comes first: a value mapped
     // to one the target still refuses is checked as any other.
     decide?.(cleaned, typeof recordTypeId === 'string' ? recordTypeId : undefined);
+    // Two fields the describe calls createable that the platform accepts
+    // one of. Nothing in the metadata says so, so this is the only place
+    // that can know it. Left out before the amounts are converted: the
+    // currency line of an opportunity's products listed TotalPrice among the
+    // fields converted, a field the write never sent.
+    for (const field of exclusiveFieldsToDrop(objectApiName, cleaned)) {
+      delete cleaned[field];
+    }
     // A currency the target does not hold active goes as another, which the
     // picklist check then finds the target holds, and the row's amounts are
     // converted into it: left to the check, the row went in another currency
@@ -604,12 +612,6 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       recordTypeValuesOf(recordTypeValues, recordTypeId),
       renamed,
     );
-    // Two fields the describe calls createable that the platform accepts
-    // one of. Nothing in the metadata says so, so this is the only place
-    // that can know it.
-    for (const field of exclusiveFieldsToDrop(objectApiName, cleaned)) {
-      delete cleaned[field];
-    }
     // A lookup the platform fills in itself goes neither now nor in the
     // second pass: an email's task, which it refuses from a copy and creates
     // with the email. See `lookupsThePlatformFills`.

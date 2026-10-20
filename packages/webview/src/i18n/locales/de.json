@@ -3507,6 +3507,16 @@
       "dated": "zu den datierten Kursen von {{field}}",
       "datedUnconfirmed": "zu den statischen Kursen: die datierten Kurse von {{field}} konnten nicht bestätigt werden"
     },
+    "prices": {
+      "title": "Preise in einer anderen Währung",
+      "hint": "Ein Preisbuch bepreist ein Produkt einmal pro Währung, und die Ziel-Org lehnt eine Position ab, deren Preis in einer anderen Währung als ihr Datensatz ist. Diese Preise wurden in einer Währung gelesen, die die Ziel-Org nicht aktiv hat, oder wurden in der Währung gebraucht, in der die Datensätze ihrer Positionen geschrieben wurden.",
+      "prices_one": "{{count}} Preis in {{from}}",
+      "prices_other": "{{count}} Preise in {{from}}",
+      "replaced": "durch den eigenen Preis der Quell-Org in {{to}} für dasselbe Produkt und Preisbuch ersetzt und mit dessen Kopie verknüpft",
+      "converted": "in {{to}} zu ihrem umgerechneten Betrag geschrieben: Die Quell-Org hat darin keinen Preis für dasselbe Produkt und Preisbuch",
+      "none": "kein Preis in {{to}} für dasselbe Produkt und Preisbuch, und sie gehen für andere Positionen in eine andere Währung: Die Ziel-Org lehnt die Positionen eines Datensatzes in {{to}} ab",
+      "forLines": "{{to}} ist die Währung der Datensätze, zu denen ihre Positionen gehören"
+    },
     "contactPoints": {
       "title": "E-Mails und Telefonnummern",
       "numbersExhausted_one": "{{count}} Telefonnummer leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",

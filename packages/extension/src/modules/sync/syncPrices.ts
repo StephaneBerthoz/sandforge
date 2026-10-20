@@ -26,10 +26,12 @@ import {
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
+  type PriceCurrencySettled,
+  type SyncObjectResult,
 } from '@sandforge/shared';
 import type { SoqlQuery } from '../../core/common/platformRecords.js';
 import { replacementCurrency, type RunCurrencies } from '../../core/common/recordCurrencies.js';
-import { describePriceCurrencies, settlePriceCurrencies } from '../forge/stages/PriceCurrencies.js';
+import { settlePriceCurrencies, settledPricesOf } from '../forge/stages/PriceCurrencies.js';
 
 /** Each org's standard price book. */
 export interface StandardPricebooks {
@@ -86,6 +88,13 @@ export interface SettledSyncRows extends SyncRows {
   readonly standardFirst: number;
   /** What the object's result says of it. */
   readonly notes: string[];
+  /**
+   * The prices read in a currency the target does not hold active, and how
+   * each went, as the object's result carries them (`pricesSettled`): said
+   * apart from its errors, none being a refusal. The Sync history listed
+   * "4 GBP → USD: price(s) … replaced …" among the object's refusals.
+   */
+  readonly prices: PriceCurrencySettled[];
 }
 
 /**
@@ -101,7 +110,13 @@ export function settleSyncPrices(
   standard: StandardPricebooks | undefined,
   currencies: RunCurrencies | undefined,
 ): SettledSyncRows {
-  const none: SettledSyncRows = { ...rows, standsFor: new Map(), standardFirst: 0, notes: [] };
+  const none: SettledSyncRows = {
+    ...rows,
+    standsFor: new Map(),
+    standardFirst: 0,
+    notes: [],
+    prices: [],
+  };
   if (!standard) return none;
   const at = rows.records.map((_, index) => index);
   const pick = (indexes: readonly number[]): SyncRows => ({
@@ -117,13 +132,14 @@ export function settleSyncPrices(
       standsFor: new Map(),
       standardFirst: 0,
       notes: ["The standard price book is matched to the target org's, never written."],
+      prices: [],
     };
   }
   if (objectApiName !== PRICEBOOK_ENTRY_OBJECT) return none;
 
   let kept = at;
   const standsFor = new Map<string, string>();
-  const notes: string[] = [];
+  let settledPrices: PriceCurrencySettled[] = [];
   if (currencies) {
     const { target } = currencies;
     const prices = rows.sources;
@@ -146,7 +162,7 @@ export function settleSyncPrices(
       return id === undefined || !left.has(id);
     });
     for (const [price, stand] of plan.standsFor) standsFor.set(price, stand);
-    notes.push(...describePriceCurrencies(plan.said).map((sentence) => `${sentence}.`));
+    settledPrices = settledPricesOf(plan.said);
   }
   const isStandard = (i: number): boolean =>
     rows.sources[i][PRICEBOOK_ENTRY_BOOK_FIELD] === standard.source;
@@ -155,6 +171,18 @@ export function settleSyncPrices(
     ...pick(ordered),
     standsFor,
     standardFirst: kept.filter(isStandard).length,
-    notes,
+    notes: [],
+    prices: settledPrices,
   };
+}
+
+/**
+ * An object's result with the prices its write settled said apart from its
+ * errors (`pricesSettled`), when it settled any.
+ */
+export function withPricesSettled(
+  result: SyncObjectResult,
+  prices: readonly PriceCurrencySettled[],
+): SyncObjectResult {
+  return prices.length > 0 ? { ...result, pricesSettled: [...prices] } : result;
 }

@@ -12,6 +12,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { lookupsThePlatformFills } from '../../core/common/platformRecords.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
+import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import { FieldMappingService } from '../sync/FieldMapping.js';
 import { TransformPipeline } from '../sync/TransformPipeline.js';
 import type { ChangeEvent } from './changeEvent.js';
@@ -32,6 +33,13 @@ export interface ApplyPlan {
   transformRules: TransformRule[];
   /** Whether a record deleted in the source is deleted in the target. */
   applyDeletes: boolean;
+  /**
+   * Write the email addresses and phone numbers of the changes as the source
+   * holds them: the saved Sync configuration's choice
+   * (`SyncConfig.keepContactPoints`). Absent or false, they are neutralized
+   * first, as a Sync run's are.
+   */
+  keepContactPoints?: boolean;
 }
 
 /** One field of a describe, as far as real-time replication reads it. */
@@ -55,10 +63,16 @@ export interface OrgReader {
   describe(objectApiName: string): Promise<{ fields: DescribedField[] }>;
 }
 
-/** Sync's write path, record by record (`DataSync.write`). */
+/**
+ * Sync's write path, record by record (`DataSync.write`).
+ *
+ * @param contactPoints - What neutralizes the emails and phone numbers of the
+ *   records before they go; absent, they go as read.
+ */
 export type TargetWrite = (
   config: SyncObjectConfig,
   records: Record<string, unknown>[],
+  contactPoints?: ContactPointNeutralizer,
 ) => Promise<{ outcomes: OperationOutcome[]; notes: string[] }>;
 
 /**
@@ -101,6 +115,12 @@ export interface ApplierDeps {
   conflictStrategy: ConflictStrategy;
   /** The session's own writes. */
   ownWrites: OwnWriteLedger;
+  /**
+   * The session's neutralizer of emails and phone numbers, one per session so
+   * that a number gives the same fictional one throughout it. Absent, the
+   * changes go as read.
+   */
+  contactPoints?: ContactPointNeutralizer;
 }
 
 /** What became of one change event. */
@@ -242,6 +262,18 @@ export class RealtimeApplier {
       batchSize: READ_CHUNK,
       insertOrder: 0,
     };
+  }
+
+  /**
+   * What neutralizes the emails and phone numbers of the changes written, as
+   * a Sync run's are by default: the session's, unless the saved Sync
+   * configuration the object is written by keeps them as read. Real-time
+   * wrote them as read, whatever the configuration said: a change of a
+   * contact replicated into a sandbox whose flows email the contacts they are
+   * written for reached the real person.
+   */
+  private get contactPoints(): ContactPointNeutralizer | undefined {
+    return this.plan.keepContactPoints === true ? undefined : this.deps.contactPoints;
   }
 
   /**
@@ -417,9 +449,11 @@ export class RealtimeApplier {
     operation: SyncObjectConfig['operation'],
     record: Record<string, unknown>,
   ): Promise<OperationOutcome> {
-    const { outcomes } = await this.deps.write({ ...this.objectConfig, operation, batchSize: 1 }, [
-      record,
-    ]);
+    const { outcomes } = await this.deps.write(
+      { ...this.objectConfig, operation, batchSize: 1 },
+      [record],
+      this.contactPoints,
+    );
     return outcomes[0] ?? { success: false, errors: ['The target answered nothing.'] };
   }
 
@@ -535,6 +569,7 @@ export class RealtimeApplier {
     const { outcomes } = await this.deps.write(
       this.objectConfig,
       toWrite.map((w) => w.record),
+      this.contactPoints,
     );
     const written: string[] = [];
     toWrite.forEach((w, i) => {

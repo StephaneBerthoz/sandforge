@@ -1559,6 +1559,36 @@ describe('forge:execute, the gate before the first write', () => {
       expect(questions).toEqual([expect.objectContaining({ total: 11, aboveRecords: 10 })]);
     });
 
+    it('counts in the prices the write may read besides those in hand, and says them', async () => {
+      // Read as the prices were written, a price wanted in two currencies
+      // wrote 17 records where the gate had counted 13.
+      settings['safety.confirmAboveRecords'] = 10;
+      const priced: ForgeWriteBoundary = {
+        objects: [
+          { objectApiName: 'PricebookEntry', rows: contacts(8), mayAdd: 4 },
+          { objectApiName: 'Account', rows: [{ Id: ACCOUNT_ID, Name: 'Acme' }] },
+        ],
+        dryRun: false,
+      };
+      handler.setForgeOrchestrator(orchestratorHanding(priced), {
+        targetAutomation: readerOf(QUIET),
+      });
+
+      await execute();
+
+      expect(questions).toEqual([
+        expect.objectContaining({
+          total: 13,
+          aboveRecords: 10,
+          pricesForLines: 4,
+          objects: [
+            { objectApiName: 'PricebookEntry', rows: 12 },
+            { objectApiName: 'Account', rows: 1 },
+          ],
+        }),
+      ]);
+    });
+
     it('asks before rows whose flows would send more single emails than the target has left today', async () => {
       // Live, into a Developer Edition: a contact flow's Send Email went past
       // fifteen a day, and thirty contacts were refused.
@@ -1602,6 +1632,57 @@ describe('forge:execute, the gate before the first write', () => {
         }),
       );
       expect(calls).toContain('written');
+    });
+
+    it("counts a Developer Edition's email alerts against its single emails, and asks past them", async () => {
+      // Live, on 2026-10-14: a clone of 36 contacts into the trap Developer
+      // Edition said "36 workflow emails; 8019 of 8040 left", its single
+      // emails at −75 of 15, and the alert of its contact rule took them to −117.
+      limits = {
+        DataStorageMB: { Max: 200, Remaining: 150 },
+        SingleEmail: { Max: 15, Remaining: -75 },
+        DailyWorkflowEmails: { Max: 8_040, Remaining: 8_019 },
+      };
+      const alerting: ForgeTargetAutomation = {
+        ...FIRES,
+        objects: [
+          {
+            ...FIRES.objects[0],
+            triggers: [],
+            flows: [],
+            workflowRules: [
+              {
+                ...FIRES.objects[0].flows[0],
+                apiName: 'Contact_Welcome_Rule',
+                label: 'Contact welcome rule',
+                permissions: [],
+                messages: [{ kind: 'email', name: 'Contact alert', limit: 'DailyWorkflowEmails' }],
+              },
+            ],
+          },
+        ],
+      };
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(36)), {
+        targetAutomation: readerOf(alerting),
+      });
+
+      await execute();
+
+      expect(questions.map((q) => q.stage)).toEqual(['automation', 'write']);
+      expect(questions[1]).toEqual(
+        expect.objectContaining({
+          emails: [
+            {
+              limit: 'SingleEmail',
+              emails: 36,
+              remaining: -75,
+              max: 15,
+              objects: [{ objectApiName: 'Contact', perRecord: 1 }],
+              alertsCounted: true,
+            },
+          ],
+        }),
+      );
     });
 
     it('refuses rows that take more data storage than the target has left, without asking', async () => {

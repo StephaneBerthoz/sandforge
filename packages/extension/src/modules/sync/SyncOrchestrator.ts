@@ -41,9 +41,11 @@ import { SyncRunLinks, prepareSyncRows, type SyncWriteRun } from './syncRowPrepa
 import {
   namesAPricebook,
   settleSyncPrices,
+  withPricesSettled,
   type SettledSyncRows,
   type StandardPricebooks,
 } from './syncPrices.js';
+import { describeSettledPrices } from '../forge/stages/PriceCurrencies.js';
 import { contactPointsOfRun } from './syncContactPoints.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
@@ -1410,6 +1412,8 @@ export class SyncOrchestrator {
       refused: outcome.refused + rows.held.length + refusedAt.size,
       notes: [
         ...(settled?.notes ?? []),
+        // Said as the command line says them: the simulation's notes are text.
+        ...describeSettledPrices(settled?.prices ?? []).map((sentence) => `${sentence}.`),
         ...outcome.notes,
         ...rows.notes,
         // Said as the command line says them: the simulation's notes are text.
@@ -1479,7 +1483,10 @@ export class SyncOrchestrator {
     const { records, sourceIds, sources } = settled;
     if (records.length === 0) {
       return withRowsLeftOut(
-        { ...createEmptyResult(objectConfig), errors: [...settled.notes] },
+        withPricesSettled(
+          { ...createEmptyResult(objectConfig), errors: [...settled.notes] },
+          settled.prices,
+        ),
         leftOut,
       );
     }
@@ -1528,12 +1535,15 @@ export class SyncOrchestrator {
         note(outcomes);
         linkWhatStoodIn();
         return withRowsLeftOut(
-          withCurrencies(
-            buildObjectResult(objectConfig.objectApiName, objectConfig.operation, outcomes, [
-              ...settled.notes,
-              ...notes,
-            ]),
-            currencies,
+          withPricesSettled(
+            withCurrencies(
+              buildObjectResult(objectConfig.objectApiName, objectConfig.operation, outcomes, [
+                ...settled.notes,
+                ...notes,
+              ]),
+              currencies,
+            ),
+            settled.prices,
           ),
           leftOut,
         );
@@ -1549,9 +1559,12 @@ export class SyncOrchestrator {
     );
     linkWhatStoodIn();
     return withRowsLeftOut(
-      settled.notes.length > 0
-        ? { ...synced, errors: [...settled.notes, ...synced.errors] }
-        : synced,
+      withPricesSettled(
+        settled.notes.length > 0
+          ? { ...synced, errors: [...settled.notes, ...synced.errors] }
+          : synced,
+        settled.prices,
+      ),
       leftOut,
     );
   }
