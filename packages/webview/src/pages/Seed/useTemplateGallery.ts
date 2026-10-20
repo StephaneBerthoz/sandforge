@@ -6,12 +6,12 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 
 /**
- * The template a first seed is pointed at: a few hundred accounts, contacts
- * and opportunities, which a Developer Edition's 5 MB of data storage holds.
- * It came last, after two starters of thousands of records each; it is listed
- * first and marked.
+ * The template a first seed is pointed at: accounts with their contacts,
+ * priced opportunities with their line items and cases, about 300 records,
+ * which a Developer Edition's 5 MB of data storage holds. Templates of
+ * thousands of records came first; it is listed first and marked.
  */
-const FIRST_SEED_TEMPLATE_ID = 'prebuilt-minimal-demo';
+const FIRST_SEED_TEMPLATE_ID = 'prebuilt-crm-starter';
 
 /** Item shape for the template gallery grid. */
 export interface TemplateGalleryItem {

@@ -8015,7 +8015,7 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="seed-step-results-content"]');
     });
 
-    test('Seed start: the template gallery first, the small demo marked, the other ways under it', async ({
+    test('Seed start: the template gallery first, the CRM starter marked, the other ways under it', async ({
       page,
     }) => {
       await openSeedStart(bridge, page, theme);

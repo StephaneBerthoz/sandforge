@@ -546,6 +546,14 @@ export const seedExecutePayloadSchema = z.object({
   orgId: orgIdSchema,
   template: seedTemplatePayloadSchema,
   /**
+   * The locale the people, addresses and phone numbers are drawn in, as
+   * Salesforce writes one (`fr_FR`). Absent, the org's default locale.
+   */
+  locale: z
+    .string()
+    .regex(/^[a-z]{2,3}(?:_[A-Za-z0-9]{2,4}){0,2}$/)
+    .optional(),
+  /**
    * Accepted only so the request can be refused with DRY_RUN_UNSUPPORTED.
    *
    * Seed has no way to generate records without writing them, so a dry run

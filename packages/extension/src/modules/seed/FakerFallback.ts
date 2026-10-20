@@ -3,6 +3,7 @@ import type { FieldRule } from '@sandforge/shared';
 import { getLocaleData, fillDigitMask, reservedPhone } from './LocaleData';
 import type { LocaleDataSet, SupportedLocale } from './LocaleData';
 import { GeoCoherentGenerator, resolveLocale } from './GeoCoherentGenerator';
+import { STREETS } from './localeNames';
 
 /** Configuration for number generation ranges */
 interface NumberRange {
@@ -62,9 +63,6 @@ const PRODUCTS = [
   'Bench',
 ];
 
-/** Street names shared by the full and the street-only address. */
-const STREETS = ['Main St', 'Oak Ave', 'Elm St', 'Park Blvd', 'Cedar Ln'];
-
 /** Word banks for job titles, in the level / area / role shape. */
 const JOB_LEVELS = ['Senior', 'Lead', 'Junior', 'Principal', 'Associate', 'Chief'];
 const JOB_AREAS = ['Marketing', 'Operations', 'Finance', 'Sales', 'Product', 'Customer Success'];
@@ -85,9 +83,102 @@ const PRODUCT_USES = [
 ];
 
 /**
- * Generates data records using deterministic faker-like methods.
- * Supports locale-aware generation for culturally-appropriate data
- * and geo-coherent address tuples.
+ * What customers open a case about. A case's subject was a lorem sentence,
+ * eight of them for the thousand cases of a template: nothing anyone could
+ * sort, route or report on.
+ */
+const CASE_SUBJECTS = [
+  'Unable to log in',
+  'Invoice discrepancy',
+  'Password reset email not received',
+  'Order arrived damaged',
+  'Request for a refund',
+  'Cannot update billing address',
+  'Shipment delayed',
+  'Error when exporting a report',
+  'Product not working as described',
+  'Question about my contract',
+  'Charged twice for one order',
+  'Need help with installation',
+  'Account locked after failed logins',
+  'Wrong item delivered',
+  'Request: edit several records at once',
+  'App crashes on startup',
+  'Items missing from my order',
+  'Cannot download my invoice',
+  'Change of delivery address',
+  'Warranty claim',
+  'Slow since the last update',
+  'Question about my subscription renewal',
+  'Data not syncing between devices',
+  'Cancel my order',
+  'Upgrade to a higher plan',
+];
+
+/** What an agent writes on a case as it works it. */
+const CASE_COMMENTS = [
+  'Asked the customer for a screenshot of the error.',
+  'Reproduced the issue on our side.',
+  'Escalated to the second-level team.',
+  'Sent the customer a workaround.',
+  'Customer confirmed the fix works.',
+  "Waiting for the customer's reply.",
+  'Refund approved and processed.',
+  'Replacement shipped today.',
+  'Called the customer, no answer; left a voicemail.',
+  'Linked to a known issue, a fix is planned.',
+  "Updated the customer's address on file.",
+  'Shared the knowledge article on this topic.',
+  'Closed after the customer confirmed.',
+  'Reset the account; login works again.',
+  'Checked the logs, nothing unusual found.',
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** How far back a past date is drawn, in days. */
+const PAST_DAYS = 365;
+
+/** How far ahead a date to come is drawn, in days: a quarter or so, as a close date is. */
+const FUTURE_DAYS = 120;
+
+/** How far ahead a meeting is booked, in days. */
+const MEETING_DAYS = 30;
+
+/** The ages a person's birth date gives them. */
+const YOUNGEST = 20;
+const OLDEST = 65;
+
+/** What a run's draws are made with. */
+export interface FakerOptions {
+  /**
+   * Draws a number in [0, 1): the names, companies, addresses, dates and
+   * numbers a record gets. `Math.random` unless the caller fixes it — the
+   * command line's seeded draw, which a dry run and the run after it share.
+   */
+  random?: () => number;
+  /** Today, which dates are drawn around: dates to come after it, past dates before. */
+  today?: () => Date;
+}
+
+/**
+ * A record's draws, each made once: every field of the record that reads the
+ * same draw gets the same value from it — its email the first and last name
+ * its name fields got, its city, state, country and postal code one address.
+ */
+type RecordDraw = (key: string, size: number) => number;
+
+/**
+ * Generates data records faker-style, in the locale's names and places.
+ *
+ * Every value was drawn from the record's index: the first and the last name
+ * from the same one, so a template's thousand contacts were fifteen people,
+ * and a second run wrote exactly the values of the first. A run now draws
+ * each value — the first and the last name apart, the parts of an address
+ * together — and a company without putting it back, so no two accounts of a
+ * run share a name until the locale's companies run out. What has to be
+ * unique still comes from the index: a phone number in the reserved ranges,
+ * an email address, a username, an IBAN.
  */
 export class FakerFallback {
   private locale: string;
@@ -95,15 +186,24 @@ export class FakerFallback {
   private geoGenerator: GeoCoherentGenerator;
   /** Sets this generator's usernames apart from every other's: see {@link generateUsername}. */
   private readonly usernameToken: string = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+  private readonly random: () => number;
+  private readonly today: () => Date;
+  /** The companies of each locale in the order this generator hands them out. */
+  private readonly companyDecks = new Map<string, number[]>();
+  /** Companies handed out so far, per locale. */
+  private readonly companiesDealt = new Map<string, number>();
 
   /**
    * Create a new FakerFallback instance.
    * @param locale - Locale for data generation (e.g. 'fr_FR'). Defaults to 'en_US'.
+   * @param options - What the draws are made with; see {@link FakerOptions}.
    */
-  constructor(locale?: string) {
+  constructor(locale?: string, options: FakerOptions = {}) {
     this.locale = locale ?? 'en_US';
     this.localeData = getLocaleData(this.locale);
     this.geoGenerator = new GeoCoherentGenerator(this.locale);
+    this.random = options.random ?? Math.random;
+    this.today = options.today ?? (() => new Date());
   }
 
   /**
@@ -138,10 +238,18 @@ export class FakerFallback {
 
     for (let i = 0; i < count; i++) {
       const record: Record<string, unknown> = {};
+      const drawn = new Map<string, number>();
+      const draw: RecordDraw = (key, size) => {
+        const known = drawn.get(key);
+        if (known !== undefined) return known % size;
+        const value = this.below(size);
+        drawn.set(key, value);
+        return value;
+      };
       for (const rule of fieldRules) {
         const phone = phones.indexOf(rule);
-        const draw = phone >= 0 ? i * phones.length + phone : i;
-        record[rule.fieldApiName] = this.generateFieldValue(rule, draw);
+        const index = phone >= 0 ? i * phones.length + phone : i;
+        record[rule.fieldApiName] = this.generateFieldValue(rule, index, draw);
       }
       records.push(record);
     }
@@ -150,9 +258,28 @@ export class FakerFallback {
   }
 
   /**
+   * A date as a rule naming `method` gets it: what a caller sets a field to
+   * when it settles one value against another — a closed opportunity's close
+   * date, which comes before today.
+   */
+  dateOf(method: 'pastDate' | 'futureDate'): string {
+    return method === 'pastDate' ? this.pastDate() : this.futureDate();
+  }
+
+  /** A whole number from 0 to `size - 1`. */
+  private below(size: number): number {
+    return Math.min(size - 1, Math.floor(this.random() * size));
+  }
+
+  /** One of `values`, drawn. */
+  private pick<T>(values: readonly T[]): T {
+    return values[this.below(values.length)];
+  }
+
+  /**
    * Generate a single field value based on the rule's faker method.
    */
-  private generateFieldValue(rule: FieldRule, index: number): unknown {
+  private generateFieldValue(rule: FieldRule, index: number, draw: RecordDraw): unknown {
     const method = rule.config.fakerMethod ?? 'lorem';
     const range: NumberRange = {
       min: rule.config.minValue ?? 0,
@@ -168,65 +295,78 @@ export class FakerFallback {
       this.locale = ruleLocale;
       this.localeData = getLocaleData(ruleLocale);
       this.geoGenerator = new GeoCoherentGenerator(ruleLocale);
-      const value = this.generateByMethodInstance(method, index, range);
+      const value = this.generateByMethodInstance(method, index, range, draw);
       this.locale = savedLocale;
       this.localeData = savedData;
       this.geoGenerator = savedGeo;
       return value;
     }
 
-    return this.generateByMethodInstance(method, index, range);
+    return this.generateByMethodInstance(method, index, range, draw);
   }
 
   /**
    * Generate a value using the specified faker method, using instance locale data.
    */
-  private generateByMethodInstance(method: string, index: number, range: NumberRange): unknown {
+  private generateByMethodInstance(
+    method: string,
+    index: number,
+    range: NumberRange,
+    draw: RecordDraw,
+  ): unknown {
     const resolved = resolveFakerMethod(method);
     if (!resolved) {
       return unsupportedMethod(method);
     }
+    const geo = (): number => draw('geo', 10_000);
     switch (resolved) {
       case 'name':
-        return this.generateName(index);
+        return `${this.firstName(draw)} ${this.lastName(draw)}`;
       case 'firstName':
-        return this.generateFirstName(index);
+        return this.firstName(draw);
       case 'lastName':
-        return this.generateLastName(index);
+        return this.lastName(draw);
       case 'jobTitle':
-        return generateJobTitle(index);
+        return `${this.pick(JOB_LEVELS)} ${this.pick(JOB_AREAS)} ${this.pick(JOB_ROLES)}`;
       case 'email':
-        return this.generateEmail(index);
+        return this.generateEmail(index, draw);
       case 'username':
-        return this.generateUsername(index);
+        return this.generateUsername(index, draw);
       case 'nickname':
-        return this.generateNickname(index);
+        return this.generateNickname(index, draw);
       case 'phone':
         return this.generatePhone(index);
       case 'address':
-        return this.generateAddress(index);
+        return `${this.streetAddress()}, ${this.geoGenerator.getCity(geo())}`;
       case 'streetAddress':
-        return generateStreetAddress(index);
+        return this.streetAddress();
       case 'city':
-        return this.geoGenerator.getCity(index);
+        return this.geoGenerator.getCity(geo());
       case 'country':
-        return this.geoGenerator.getCountry(index);
+        return this.geoGenerator.getCountry(geo());
       case 'state':
-        return this.geoGenerator.getState(index);
+        return this.geoGenerator.getState(geo());
       case 'company':
-        return this.generateCompany(index);
+        return this.generateCompany();
       case 'catchPhrase':
-        return generateCatchPhrase(index);
+        return (
+          `${this.pick(PHRASE_ADJECTIVES)} ${this.pick(PHRASE_DESCRIPTORS)} ` +
+          this.pick(PHRASE_NOUNS)
+        );
       case 'date':
       case 'pastDate':
-        return generatePastDate(index);
+        return this.pastDate();
       case 'futureDate':
-        return generateFutureDate(index);
+        return this.futureDate();
+      case 'futureDateTime':
+        return this.futureDateTime();
+      case 'birthdate':
+        return this.birthdate();
       case 'number':
       case 'integer':
-        return generateInteger(range);
+        return Math.floor(range.min + this.random() * (range.max - range.min + 1));
       case 'float':
-        return generateFloat(range);
+        return Math.round((range.min + this.random() * (range.max - range.min)) * 100) / 100;
       case 'boolean':
         return index % 2 === 0;
       case 'lorem':
@@ -234,16 +374,20 @@ export class FakerFallback {
         return generateSentence(index);
       case 'paragraph':
         return generateParagraph(index);
+      case 'caseSubject':
+        return this.pick(CASE_SUBJECTS);
+      case 'caseComment':
+        return this.pick(CASE_COMMENTS);
       case 'uuid':
-        return generateUUID(index);
+        return this.uuid();
       case 'url':
         return `https://example.com/resource/${index}`;
       case 'zipCode':
-        return this.geoGenerator.getZipCode(index);
+        return this.geoGenerator.getZipCode(geo());
       case 'productName':
-        return generateProductName(index);
+        return this.productName(draw);
       case 'productDescription':
-        return generateProductDescription(index);
+        return `${this.productName(draw)}, made for ${this.pick(PRODUCT_USES)}.`;
       case 'iban':
         return this.generateIban(index);
       case 'bic':
@@ -251,27 +395,23 @@ export class FakerFallback {
     }
   }
 
-  private generateFirstName(index: number): string {
-    return this.localeData.firstNames[index % this.localeData.firstNames.length];
+  private firstName(draw: RecordDraw): string {
+    const names = this.localeData.firstNames;
+    return names[draw('first', names.length)];
   }
 
-  private generateLastName(index: number): string {
-    return this.localeData.lastNames[index % this.localeData.lastNames.length];
+  private lastName(draw: RecordDraw): string {
+    const names = this.localeData.lastNames;
+    return names[draw('last', names.length)];
   }
 
-  private generateName(index: number): string {
-    return `${this.generateFirstName(index)} ${this.generateLastName(index)}`;
-  }
-
-  private generateEmail(index: number): string {
-    const first = this.generateFirstName(index)
-      .toLowerCase()
-      .replace(/[^a-z]/g, '');
-    const last = this.generateLastName(index)
-      .toLowerCase()
-      .replace(/[^a-z]/g, '');
+  /**
+   * An email address on the record's own name, as its name fields give it,
+   * and the index, which no other record of the run has.
+   */
+  private generateEmail(index: number, draw: RecordDraw): string {
     const domain = this.localeData.emailDomains[index % this.localeData.emailDomains.length];
-    return `${first}.${last}${index}@${domain}`;
+    return `${asciiLetters(this.firstName(draw))}.${asciiLetters(this.lastName(draw))}${index}@${domain}`;
   }
 
   /**
@@ -282,29 +422,21 @@ export class FakerFallback {
    * any other, would write the same ones, and the org refuses a username
    * taken anywhere. A token drawn once per generator sets each run's apart.
    */
-  private generateUsername(index: number): string {
-    const first = this.generateFirstName(index)
-      .toLowerCase()
-      .replace(/[^a-z]/g, '');
-    const last = this.generateLastName(index)
-      .toLowerCase()
-      .replace(/[^a-z]/g, '');
+  private generateUsername(index: number, draw: RecordDraw): string {
+    const first = asciiLetters(this.firstName(draw));
+    const last = asciiLetters(this.lastName(draw));
     const domain = this.localeData.emailDomains[index % this.localeData.emailDomains.length];
     return `${first}.${last}.${this.usernameToken}${index}@${domain}`;
   }
 
   /**
    * A user's nickname (`CommunityNickname`): unique in its org, and at most
-   * 40 characters. A person's name is neither — the locale's names come round
-   * every fifteen users — so the nickname is a first name with this
-   * generator's token and the index, as a username is: no two users of a seed
-   * share one, nor do those of two seeds of the same org.
+   * 40 characters. A person's name is neither, so the nickname is a first
+   * name with this generator's token and the index, as a username is: no two
+   * users of a seed share one, nor do those of two seeds of the same org.
    */
-  private generateNickname(index: number): string {
-    const first = this.generateFirstName(index)
-      .toLowerCase()
-      .replace(/[^a-z]/g, '')
-      .slice(0, 20);
+  private generateNickname(index: number, draw: RecordDraw): string {
+    const first = asciiLetters(this.firstName(draw)).slice(0, 20);
     return `${first}.${this.usernameToken}${index}`;
   }
 
@@ -313,12 +445,83 @@ export class FakerFallback {
     return reservedPhone(this.locale, index);
   }
 
-  private generateAddress(index: number): string {
-    return `${generateStreetAddress(index)}, ${this.geoGenerator.getCity(index)}`;
+  /** A house number on one of the locale's streets, written the locale's way, without the city. */
+  private streetAddress(): string {
+    const { names, format } = STREETS[resolveLocale(this.locale)];
+    return format
+      .replace('{street}', this.pick(names))
+      .replace('{n}', String(1 + this.below(199)))
+      .replace('{m}', String(1 + this.below(9)));
   }
 
-  private generateCompany(index: number): string {
-    return this.localeData.companies[index % this.localeData.companies.length];
+  /**
+   * The locale's next company, dealt from its companies shuffled once for
+   * this generator: no two records share one until every company is out,
+   * when the deck goes round again.
+   */
+  private generateCompany(): string {
+    const companies = this.localeData.companies;
+    const key = resolveLocale(this.locale);
+    let deck = this.companyDecks.get(key);
+    if (!deck || deck.length !== companies.length) {
+      deck = companies.map((_, i) => i);
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = this.below(i + 1);
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      this.companyDecks.set(key, deck);
+    }
+    const dealt = this.companiesDealt.get(key) ?? 0;
+    this.companiesDealt.set(key, dealt + 1);
+    return companies[deck[dealt % deck.length]];
+  }
+
+  /**
+   * A three-word product name — adjective, material, product — in the shape a
+   * catalogue uses. Drawn once per record, so its description names it.
+   */
+  private productName(draw: RecordDraw): string {
+    const adjective = PRODUCT_ADJECTIVES[draw('productAdjective', PRODUCT_ADJECTIVES.length)];
+    const material = PRODUCT_MATERIALS[draw('productMaterial', PRODUCT_MATERIALS.length)];
+    const product = PRODUCTS[draw('product', PRODUCTS.length)];
+    return `${adjective} ${material} ${product}`;
+  }
+
+  /** A day of the past year. */
+  private pastDate(): string {
+    return isoDate(this.daysFromToday(-(1 + this.below(PAST_DAYS))));
+  }
+
+  /** A day of the weeks to come. */
+  private futureDate(): string {
+    return isoDate(this.daysFromToday(1 + this.below(FUTURE_DAYS)));
+  }
+
+  /** A meeting time in the weeks to come, on the hour or the half hour of a working day, UTC. */
+  private futureDateTime(): string {
+    const day = this.daysFromToday(1 + this.below(MEETING_DAYS));
+    day.setUTCHours(8 + this.below(9), this.below(2) * 30, 0, 0);
+    return day.toISOString();
+  }
+
+  /** The birth date of someone aged from {@link YOUNGEST} to {@link OLDEST}. */
+  private birthdate(): string {
+    const span = (OLDEST - YOUNGEST) * 365;
+    return isoDate(this.daysFromToday(-(YOUNGEST * 365 + this.below(span))));
+  }
+
+  /** Today, moved by a number of days. */
+  private daysFromToday(days: number): Date {
+    return new Date(this.today().getTime() + days * DAY_MS);
+  }
+
+  /** A random UUID of version 4, drawn: an article's URL name is unique in its org. */
+  private uuid(): string {
+    const hex = Array.from({ length: 32 }, () => this.below(16).toString(16));
+    hex[12] = '4';
+    hex[16] = ((this.below(16) & 0x3) | 0x8).toString(16);
+    const h = hex.join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   }
 
   /**
@@ -358,17 +561,19 @@ export class FakerFallback {
  * Throws for a method nothing generates, as {@link FakerFallback.generate} does.
  *
  * @param method - Faker method name
- * @param index - Record index for deterministic generation
+ * @param index - Record index, which what has to be unique is drawn from
  * @param range - Number range for numeric methods
  * @param locale - Optional locale for locale-aware generation
+ * @param options - What the draws are made with; see {@link FakerOptions}
  */
 export function generateByMethod(
   method: string,
   index: number,
   range: NumberRange,
   locale?: string,
+  options?: FakerOptions,
 ): unknown {
-  const faker = new FakerFallback(locale);
+  const faker = new FakerFallback(locale, options);
   const rule: FieldRule = {
     fieldApiName: 'temp',
     ruleType: 'faker',
@@ -378,64 +583,21 @@ export function generateByMethod(
   return records[index]?.['temp'];
 }
 
-function generatePastDate(index: number): string {
-  const base = new Date('2024-01-01');
-  base.setDate(base.getDate() - index);
-  return base.toISOString().split('T')[0];
-}
-
-function generateFutureDate(index: number): string {
-  const base = new Date('2026-01-01');
-  base.setDate(base.getDate() + index);
-  return base.toISOString().split('T')[0];
-}
-
-function generateInteger(range: NumberRange): number {
-  return Math.floor(range.min + Math.random() * (range.max - range.min + 1));
-}
-
-function generateFloat(range: NumberRange): number {
-  const value = range.min + Math.random() * (range.max - range.min);
-  return Math.round(value * 100) / 100;
+/** A day as Salesforce writes a date field, `YYYY-MM-DD`. */
+function isoDate(day: Date): string {
+  return day.toISOString().split('T')[0];
 }
 
 /**
- * A three-word product name — adjective, material, product — in the shape a
- * catalogue uses. The three indices step at different rates so that consecutive
- * records do not share their first word.
+ * The letters of a name an address can carry, accents taken off: "Hélène"
+ * is "helene" in an email address, where it was "hlne".
  */
-function generateProductName(index: number): string {
-  const adjective = PRODUCT_ADJECTIVES[index % PRODUCT_ADJECTIVES.length];
-  const material = PRODUCT_MATERIALS[(index * 3 + 1) % PRODUCT_MATERIALS.length];
-  const product = PRODUCTS[(index * 5 + 2) % PRODUCTS.length];
-  return `${adjective} ${material} ${product}`;
-}
-
-/** A house number and a street, without the city: the value of a Street field. */
-function generateStreetAddress(index: number): string {
-  return `${100 + index} ${STREETS[index % STREETS.length]}`;
-}
-
-/** A job title — level, area, role — with the parts stepping at different rates. */
-function generateJobTitle(index: number): string {
-  const level = JOB_LEVELS[index % JOB_LEVELS.length];
-  const area = JOB_AREAS[(index * 5 + 1) % JOB_AREAS.length];
-  const role = JOB_ROLES[(index * 7 + 2) % JOB_ROLES.length];
-  return `${level} ${area} ${role}`;
-}
-
-/** A three-word company slogan, such as "Scalable real-time platform". */
-function generateCatchPhrase(index: number): string {
-  const adjective = PHRASE_ADJECTIVES[index % PHRASE_ADJECTIVES.length];
-  const descriptor = PHRASE_DESCRIPTORS[(index * 3 + 1) % PHRASE_DESCRIPTORS.length];
-  const noun = PHRASE_NOUNS[(index * 5 + 2) % PHRASE_NOUNS.length];
-  return `${adjective} ${descriptor} ${noun}`;
-}
-
-/** One sentence describing the product generateProductName gives the same index. */
-function generateProductDescription(index: number): string {
-  const use = PRODUCT_USES[(index * 3 + 2) % PRODUCT_USES.length];
-  return `${generateProductName(index)}, made for ${use}.`;
+function asciiLetters(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
 }
 
 /**
@@ -480,9 +642,4 @@ function generateParagraph(index: number): string {
   return [generateSentence(index), generateSentence(index + 1), generateSentence(index + 2)].join(
     ' ',
   );
-}
-
-function generateUUID(index: number): string {
-  const hex = index.toString(16).padStart(12, '0');
-  return `00000000-0000-4000-8000-${hex}`;
 }

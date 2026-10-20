@@ -182,8 +182,9 @@ describe('FakerFallback', () => {
     it('reads the faker.js spelling a persona or a template writes', () => {
       const iban = generateByMethod('finance.iban', 0, { min: 0, max: 100 }, 'fr_FR');
       expect(iban).toMatch(/^FR\d{25}$/);
-      expect(generateByMethod('person.firstName', 0, { min: 0, max: 100 })).toBe(
-        generateByMethod('firstName', 0, { min: 0, max: 100 }),
+      const same = (): { random: () => number } => ({ random: () => 0.37 });
+      expect(generateByMethod('person.firstName', 0, { min: 0, max: 100 }, 'en_US', same())).toBe(
+        generateByMethod('firstName', 0, { min: 0, max: 100 }, 'en_US', same()),
       );
     });
 
@@ -359,6 +360,169 @@ describe('FakerFallback', () => {
       for (const record of result) {
         expect(frStates).toContain(record['State']);
       }
+    });
+  });
+
+  describe('draws', () => {
+    /** The same sequence for the same seed (mulberry32), as the command line draws. */
+    function seeded(seed: number): () => number {
+      let state = seed >>> 0;
+      return () => {
+        state = (state + 0x6d2b79f5) >>> 0;
+        let t = state;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    const TODAY = new Date('2026-10-20T10:00:00.000Z');
+    const today = (): Date => TODAY;
+    const person = [
+      createFakerRule('person.firstName', 'FirstName'),
+      createFakerRule('person.lastName', 'LastName'),
+      createFakerRule('internet.email', 'Email'),
+    ];
+
+    it('draws a first and a last name apart, from pools of two hundred each', () => {
+      // The thousand contacts of a template were fifteen people: the first and
+      // the last name came from the same index of two lists of fifteen.
+      const records = new FakerFallback('en_US', { random: seeded(1) }).generate(person, 1000);
+      const people = new Set(
+        records.map((r) => `${String(r['FirstName'])} ${String(r['LastName'])}`),
+      );
+      expect(people.size).toBeGreaterThan(900);
+      expect(new Set(records.map((r) => r['FirstName'])).size).toBeGreaterThan(150);
+      for (const locale of Object.keys(LOCALE_DATA) as Array<keyof typeof LOCALE_DATA>) {
+        expect(LOCALE_DATA[locale].firstNames.length).toBeGreaterThanOrEqual(200);
+        expect(LOCALE_DATA[locale].lastNames.length).toBeGreaterThanOrEqual(200);
+      }
+    });
+
+    it('writes another set on another run, and the same one for the same seed', () => {
+      const one = new FakerFallback('en_US').generate(person, 50);
+      const two = new FakerFallback('en_US').generate(person, 50);
+      expect(one.map((r) => r['LastName'])).not.toEqual(two.map((r) => r['LastName']));
+      const strip = (records: Array<Record<string, unknown>>): unknown[] =>
+        records.map((r) => [r['FirstName'], r['LastName']]);
+      expect(strip(new FakerFallback('fr_FR', { random: seeded(9) }).generate(person, 20))).toEqual(
+        strip(new FakerFallback('fr_FR', { random: seeded(9) }).generate(person, 20)),
+      );
+    });
+
+    it('gives a record an email address on its own name, its accents taken off', () => {
+      const records = new FakerFallback('fr_FR', { random: seeded(3) }).generate(person, 200);
+      for (const [index, r] of records.entries()) {
+        const plain = (name: unknown): string =>
+          String(name)
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z]/g, '');
+        expect(String(r['Email'])).toBe(
+          `${plain(r['FirstName'])}.${plain(r['LastName'])}${index}@${String(r['Email']).split('@')[1]}`,
+        );
+        expect(String(r['Email'])).toMatch(/^[a-z]+\.[a-z]+\d+@/);
+      }
+    });
+
+    it('gives no two accounts of a run the same company until the locale runs out of them', () => {
+      // Five hundred accounts carried ten names, "Acme Corp" fifty times.
+      const faker = new FakerFallback('de_DE', { random: seeded(4) });
+      const names = faker.generate([createFakerRule('company.name', 'Name')], 300);
+      expect(new Set(names.map((r) => r['Name'])).size).toBe(300);
+      expect(LOCALE_DATA.de_DE.companies.length).toBeGreaterThanOrEqual(300);
+    });
+
+    it("draws a record's city, state, country and postal code from one address", () => {
+      const rules = ['city', 'state', 'country', 'zipCode'].map((m) => createFakerRule(m, m));
+      const records = new FakerFallback('es_ES', { random: seeded(5) }).generate(rules, 100);
+      const tuples = GEO_DATA.es_ES;
+      for (const r of records) {
+        expect(tuples).toContainEqual({
+          city: r['city'],
+          state: r['state'],
+          country: r['country'],
+          zipCode: r['zipCode'],
+        });
+      }
+      expect(new Set(records.map((r) => r['city'])).size).toBeGreaterThan(5);
+    });
+
+    it("writes a street the way the locale's addresses do", () => {
+      const street = (locale: string): string =>
+        String(
+          new FakerFallback(locale, { random: seeded(6) }).generate(
+            [createFakerRule('location.streetAddress', 'Street')],
+            1,
+          )[0]['Street'],
+        );
+      expect(street('en_US')).toMatch(/^\d+ [A-Z]/);
+      expect(street('fr_FR')).toMatch(/^\d+ (rue|avenue|boulevard|place|chemin|allée) /);
+      expect(street('de_DE')).toMatch(/\D \d+$/);
+      expect(street('pt_BR')).toMatch(/, \d+$/);
+    });
+
+    it('dates a close in the weeks to come, a past date in the past year and a birth 20 to 65 years back', () => {
+      // Dates ran from fixed days: every close date of a run fell before
+      // 2026-07-20, and every contact was born after 2021.
+      const rules = [
+        createFakerRule('date.soon', 'CloseDate'),
+        createFakerRule('date.past', 'Signed'),
+        createFakerRule('date.birthdate', 'Birthdate'),
+        createFakerRule('futureDateTime', 'StartDateTime'),
+      ];
+      const records = new FakerFallback('en_US', { random: seeded(7), today }).generate(rules, 300);
+      const day = (value: unknown): number => new Date(String(value)).getTime();
+      const DAY = 86_400_000;
+      for (const r of records) {
+        expect(day(r['CloseDate'])).toBeGreaterThan(TODAY.getTime() - DAY);
+        expect(day(r['CloseDate'])).toBeLessThanOrEqual(TODAY.getTime() + 121 * DAY);
+        expect(day(r['Signed'])).toBeLessThan(TODAY.getTime());
+        expect(day(r['Signed'])).toBeGreaterThan(TODAY.getTime() - 367 * DAY);
+        const age = (TODAY.getTime() - day(r['Birthdate'])) / (365.25 * DAY);
+        expect(age).toBeGreaterThanOrEqual(19.9);
+        expect(age).toBeLessThanOrEqual(65.1);
+        const start = new Date(String(r['StartDateTime']));
+        expect(String(r['StartDateTime'])).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:(00|30):00\.000Z$/);
+        expect(start.getTime()).toBeGreaterThan(TODAY.getTime());
+        expect(start.getUTCHours()).toBeGreaterThanOrEqual(8);
+        expect(start.getUTCHours()).toBeLessThanOrEqual(16);
+      }
+    });
+
+    it('gives a case a subject a customer would write, and its comments what an agent writes', () => {
+      const records = new FakerFallback('en_US', { random: seeded(8) }).generate(
+        [createFakerRule('caseSubject', 'Subject'), createFakerRule('caseComment', 'CommentBody')],
+        200,
+      );
+      expect(new Set(records.map((r) => r['Subject'])).size).toBeGreaterThan(15);
+      for (const r of records) {
+        expect(String(r['Subject'])).not.toMatch(/lorem|ipsum/);
+        expect(String(r['CommentBody'])).not.toMatch(/lorem|ipsum/);
+      }
+    });
+
+    it('draws a UUID of its own for each record, which an article URL name needs', () => {
+      const records = new FakerFallback('en_US').generate(
+        [createFakerRule('string.uuid', 'U')],
+        100,
+      );
+      const ids = records.map((r) => String(r['U']));
+      expect(new Set(ids).size).toBe(100);
+      for (const id of ids) {
+        expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      }
+    });
+
+    it('names in a product description the product its name gives', () => {
+      const records = new FakerFallback('en_US', { random: seeded(10) }).generate(
+        [
+          createFakerRule('commerce.productName', 'Name'),
+          createFakerRule('commerce.productDescription', 'Description'),
+        ],
+        30,
+      );
+      for (const r of records) expect(String(r['Description'])).toContain(String(r['Name']));
     });
   });
 });

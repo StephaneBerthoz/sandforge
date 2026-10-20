@@ -13,6 +13,7 @@ import { useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { useOrgStore } from '../../stores/useOrgStore';
 import type { ObjectProgress } from './Step7_Execute';
+import { templateWithCounts, withCount } from './templateCounts';
 
 /**
  * Phase of the Quick Seed state machine: the gallery, then one confirmation —
@@ -185,9 +186,19 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     [initialOrgId],
   );
 
-  const setCount = useCallback((objectApiName: string, count: number) => {
-    setCustomizedCounts((prev) => ({ ...prev, [objectApiName]: Math.max(1, count) }));
-  }, []);
+  // An object can be set to 0 and left out: the count stopped at 1, and an
+  // object the org lacks, or one not wanted, could not be taken off a
+  // template. The objects a relation places under another follow it.
+  const setCount = useCallback(
+    (objectApiName: string, count: number) => {
+      setCustomizedCounts((prev) =>
+        selectedTemplate
+          ? withCount(selectedTemplate, prev, objectApiName, Math.max(0, count))
+          : { ...prev, [objectApiName]: Math.max(0, count) },
+      );
+    },
+    [selectedTemplate],
+  );
 
   const selectOrg = useCallback((orgId: string) => {
     setSelectedOrgId(orgId);
@@ -204,8 +215,11 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
 
   const execute = useCallback(() => {
     if (!selectedTemplate || !selectedOrgId) return;
+    // An object set to 0 is not sent, nor what cannot be written without it.
+    const kept = templateWithCounts(selectedTemplate, customizedCounts);
+    if (kept.objects.length === 0) return;
 
-    const objects: SeedObjectConfig[] = selectedTemplate.objects.map((obj) => ({
+    const objects: SeedObjectConfig[] = kept.objects.map((obj) => ({
       objectApiName: obj.objectApiName,
       recordCount: customizedCounts[obj.objectApiName] ?? obj.recordCount,
       fieldRules: obj.fieldRules.map((r) => ({
@@ -219,7 +233,7 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
     }));
 
     const template: SeedTemplate = {
-      ...selectedTemplate,
+      ...kept,
       objects,
     };
 
@@ -252,16 +266,14 @@ export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   /* Derive object progress from the template and the live figures */
   const objectProgress: ObjectProgress[] = useMemo(() => {
     if (!selectedTemplate) return [];
-    const totals = selectedTemplate.objects.map(
-      (obj) => customizedCounts[obj.objectApiName] ?? obj.recordCount,
-    );
+    // The objects the run writes: one set to 0 is not among them.
+    const { objects: written } = templateWithCounts(selectedTemplate, customizedCounts);
+    const totals = written.map((obj) => customizedCounts[obj.objectApiName] ?? obj.recordCount);
     const currentIndex = progress
-      ? selectedTemplate.objects.findIndex((obj) =>
-          progress.currentStep.endsWith(` ${obj.objectApiName}`),
-        )
+      ? written.findIndex((obj) => progress.currentStep.endsWith(` ${obj.objectApiName}`))
       : -1;
     let before = 0;
-    return selectedTemplate.objects.map((obj, index): ObjectProgress => {
+    return written.map((obj, index): ObjectProgress => {
       const total = totals[index];
       let status: ObjectProgress['status'] = isRunning ? 'running' : 'pending';
       let completed = 0;

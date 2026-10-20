@@ -131,6 +131,7 @@ export {
   PRICEBOOK_ENTRY_BOOK_FIELD,
   STANDARD_PRICEBOOK_SOQL,
   isPricebookEntry,
+  seedsStandardPricebook,
   splitStandardPricebookEntries,
   dedupePricebookEntries,
   PRICEBOOK_ENTRY_PRODUCT_FIELD,

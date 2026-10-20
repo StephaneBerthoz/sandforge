@@ -139,6 +139,51 @@ describe('SeedValidator', () => {
       expect(result.errors.some((e) => e.message.includes('not in the template'))).toBe(true);
     });
 
+    it("takes a price book the template does not write for the org's standard one", () => {
+      // Every org has its standard book and none can create it: a template
+      // that wrote one made a custom book, whose prices the org refused.
+      const prices = (writesBook: boolean) =>
+        createValidTemplate({
+          objects: [
+            ...(writesBook
+              ? [
+                  {
+                    objectApiName: 'Pricebook2',
+                    recordCount: 1,
+                    fieldRules: [
+                      {
+                        fieldApiName: 'Name',
+                        ruleType: 'static' as const,
+                        config: { staticValue: 'B' },
+                      },
+                    ],
+                    excludedFields: [],
+                    insertOrder: 0,
+                    batchSize: 200,
+                  },
+                ]
+              : []),
+            {
+              objectApiName: 'PricebookEntry',
+              recordCount: 1,
+              fieldRules: [
+                {
+                  fieldApiName: 'Pricebook2Id',
+                  ruleType: 'reference',
+                  config: { referenceObject: 'Pricebook2' },
+                },
+                { fieldApiName: 'UnitPrice', ruleType: 'static', config: { staticValue: 10 } },
+              ],
+              excludedFields: [],
+              insertOrder: 1,
+              batchSize: 200,
+            },
+          ],
+        });
+      expect(validator.validate(prices(false)).valid).toBe(true);
+      expect(validator.validate(prices(true)).valid).toBe(true);
+    });
+
     it('should pass when reference target exists in template', () => {
       const template = createValidTemplate({
         objects: [

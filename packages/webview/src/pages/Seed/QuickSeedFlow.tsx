@@ -14,6 +14,7 @@ import { SeedRunRemoval } from './SeedRunRemoval';
 import { SeedResultErrors } from './SeedResultErrors';
 import { SeedOpenRecord } from './SeedOpenRecord';
 import type { QuickSeedState } from './useQuickSeed';
+import { typedCount, templateWithCounts } from './templateCounts';
 import type { BadgeVariant } from '../../components/ui/Badge';
 
 /** Props for the QuickSeedFlow component. */
@@ -52,9 +53,12 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
     : '';
   const countOf = (objectApiName: string, recordCount: number): number =>
     quickSeed.customizedCounts[objectApiName] ?? recordCount;
-  const totalRecords = template
-    ? template.objects.reduce((sum, obj) => sum + countOf(obj.objectApiName, obj.recordCount), 0)
-    : 0;
+  // What the run writes: an object set to 0 is left out, with what needs it.
+  const written = template ? templateWithCounts(template, quickSeed.customizedCounts).objects : [];
+  const totalRecords = written.reduce(
+    (sum, obj) => sum + countOf(obj.objectApiName, obj.recordCount),
+    0,
+  );
   const runOrg = orgs.find((org) => org.id === quickSeed.selectedOrgId);
   const runOrgName = runOrg ? runOrg.alias || runOrg.username : '';
 
@@ -90,10 +94,10 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                     </span>
                     <Input
                       type="number"
-                      min={1}
+                      min={0}
                       value={countOf(obj.objectApiName, obj.recordCount)}
                       onChange={(e) =>
-                        quickSeed.setCount(obj.objectApiName, parseInt(e.target.value, 10) || 1)
+                        quickSeed.setCount(obj.objectApiName, typedCount(e.target.value))
                       }
                       className="w-24"
                       aria-label={t('a11y.recordCountFor', { object: obj.objectApiName })}
@@ -127,7 +131,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 <Button
                   variant="primary"
                   size="sm"
-                  disabled={!quickSeed.selectedOrgId}
+                  disabled={!quickSeed.selectedOrgId || written.length === 0}
                   onClick={quickSeed.execute}
                   data-testid="btn-quick-seed-start"
                 >

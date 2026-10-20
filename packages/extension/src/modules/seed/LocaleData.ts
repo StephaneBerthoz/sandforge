@@ -5,6 +5,8 @@
  * and phone numbers look real and reach nobody.
  */
 
+import { FIRST_NAMES, LAST_NAMES, companiesOf } from './localeNames.js';
+
 /** Supported locale identifiers */
 export type SupportedLocale = 'en_US' | 'fr_FR' | 'de_DE' | 'es_ES' | 'ja_JP' | 'pt_BR';
 
@@ -20,14 +22,15 @@ export interface PhoneRange {
 
 /** Dataset for a single locale with culturally-appropriate data */
 export interface LocaleDataSet {
-  /** First names common in this locale (at least 15 entries) */
+  /** First names common in this locale (at least 200 entries, see `localeNames`) */
   readonly firstNames: readonly string[];
-  /** Last names common in this locale (at least 15 entries) */
+  /** Last names common in this locale (at least 200 entries) */
   readonly lastNames: readonly string[];
   /** City names in this locale (at least 10 entries) */
   readonly cities: readonly string[];
   /**
-   * Company names that read as this locale's, made up (at least 10 entries).
+   * Company names that read as this locale's, made up: a root nobody trades
+   * under in each form the country's companies take (see `localeNames`).
    * They land on `Account.Name`, and the lists of the other locales held real
    * companies — energy, banks, carmakers — which a sandbox then showed as
    * accounts it had.
@@ -56,40 +59,8 @@ export interface LocaleDataSet {
 /** All locale datasets keyed by SupportedLocale */
 export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
   en_US: {
-    firstNames: [
-      'Alice',
-      'Bob',
-      'Charlie',
-      'Diana',
-      'Eve',
-      'Frank',
-      'Grace',
-      'Hank',
-      'Ivy',
-      'Jack',
-      'Kate',
-      'Leo',
-      'Mia',
-      'Noah',
-      'Olivia',
-    ] as const,
-    lastNames: [
-      'Smith',
-      'Johnson',
-      'Williams',
-      'Brown',
-      'Jones',
-      'Garcia',
-      'Miller',
-      'Davis',
-      'Rodriguez',
-      'Martinez',
-      'Hernandez',
-      'Lopez',
-      'Gonzalez',
-      'Wilson',
-      'Anderson',
-    ] as const,
+    firstNames: FIRST_NAMES.en_US,
+    lastNames: LAST_NAMES.en_US,
     cities: [
       'New York',
       'Los Angeles',
@@ -102,18 +73,7 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Dallas',
       'Austin',
     ] as const,
-    companies: [
-      'Acme Corp',
-      'Globex Inc',
-      'Initech',
-      'Umbrella Corp',
-      'Stark Industries',
-      'Wayne Enterprises',
-      'Cyberdyne Systems',
-      'Oscorp',
-      'LexCorp',
-      'Massive Dynamic',
-    ] as const,
+    companies: companiesOf('en_US'),
     // NANPA keeps 555-0100 to 555-0199 for fiction, behind any area code: "The
     // fictitious, non-working numbers, 555-0100 through 555-0199, will remain
     // reserved for entertainment/advertising"
@@ -146,40 +106,8 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
     ] as const,
   },
   fr_FR: {
-    firstNames: [
-      'Marie',
-      'Pierre',
-      'Jean',
-      'Sophie',
-      'Nicolas',
-      'Camille',
-      'Julien',
-      'Lea',
-      'Thomas',
-      'Emma',
-      'Lucas',
-      'Chloe',
-      'Hugo',
-      'Manon',
-      'Antoine',
-    ] as const,
-    lastNames: [
-      'Dupont',
-      'Martin',
-      'Bernard',
-      'Dubois',
-      'Thomas',
-      'Robert',
-      'Richard',
-      'Petit',
-      'Durand',
-      'Leroy',
-      'Moreau',
-      'Simon',
-      'Laurent',
-      'Lefebvre',
-      'Michel',
-    ] as const,
+    firstNames: FIRST_NAMES.fr_FR,
+    lastNames: LAST_NAMES.fr_FR,
     cities: [
       'Paris',
       'Lyon',
@@ -192,18 +120,7 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Lille',
       'Rennes',
     ] as const,
-    companies: [
-      'Ateliers Vercourt',
-      'Groupe Lambrecq',
-      'Maison Dufrenois',
-      'Brasseries du Morvanel',
-      'Transports Gaudriere',
-      'Laboratoires Pelvoisin',
-      'Optique Varennel SAS',
-      'Fonderies de Saint-Aubrac',
-      'Comptoir Hautemer',
-      'Cabinet Roussillac',
-    ] as const,
+    companies: companiesOf('fr_FR'),
     // Arcep keeps six blocks of 10,000 numbers for audiovisual works, numbers
     // that can neither call nor be called: those starting 01 99 00, 02 61 91,
     // 03 53 01, 04 65 71, 05 36 49 and 06 39 98 (plan national de numérotation,
@@ -232,40 +149,8 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
     ] as const,
   },
   de_DE: {
-    firstNames: [
-      'Max',
-      'Anna',
-      'Lukas',
-      'Lena',
-      'Felix',
-      'Marie',
-      'Paul',
-      'Sophia',
-      'Leon',
-      'Emma',
-      'Jonas',
-      'Mia',
-      'Elias',
-      'Hannah',
-      'Ben',
-    ] as const,
-    lastNames: [
-      'Mueller',
-      'Schmidt',
-      'Schneider',
-      'Fischer',
-      'Weber',
-      'Meyer',
-      'Wagner',
-      'Becker',
-      'Schulz',
-      'Hoffmann',
-      'Koch',
-      'Richter',
-      'Wolf',
-      'Schaefer',
-      'Bauer',
-    ] as const,
+    firstNames: FIRST_NAMES.de_DE,
+    lastNames: LAST_NAMES.de_DE,
     cities: [
       'Berlin',
       'Munich',
@@ -278,18 +163,7 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Dresden',
       'Hannover',
     ] as const,
-    companies: [
-      'Kaltenbrunn Maschinenbau GmbH',
-      'Elbtaler Logistik AG',
-      'Brennecke & Wolter KG',
-      'Auenfeld Versicherung AG',
-      'Steinhagel Bau GmbH',
-      'Muehlenkamp Feinkost',
-      'Hollerbach Elektrotechnik',
-      'Rabenstein Chemie AG',
-      'Lindwurm Software GmbH',
-      'Ostwald & Pieper',
-    ] as const,
+    companies: companiesOf('de_DE'),
     // The Bundesnetzagentur keeps 1,000 "Drama Numbers" in each of five cities,
     // assigned to no subscriber for good: Berlin (0)30 23125, Frankfurt am Main
     // (0)69 90009, Hamburg (0)40 66969, Köln (0)221 4710 and München
@@ -318,40 +192,8 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
     ] as const,
   },
   es_ES: {
-    firstNames: [
-      'Carlos',
-      'Maria',
-      'Alejandro',
-      'Carmen',
-      'Javier',
-      'Lucia',
-      'Miguel',
-      'Marta',
-      'Daniel',
-      'Ana',
-      'Pablo',
-      'Elena',
-      'Diego',
-      'Laura',
-      'Sergio',
-    ] as const,
-    lastNames: [
-      'Garcia',
-      'Rodriguez',
-      'Martinez',
-      'Lopez',
-      'Gonzalez',
-      'Hernandez',
-      'Perez',
-      'Sanchez',
-      'Ramirez',
-      'Torres',
-      'Flores',
-      'Rivera',
-      'Gomez',
-      'Diaz',
-      'Morales',
-    ] as const,
+    firstNames: FIRST_NAMES.es_ES,
+    lastNames: LAST_NAMES.es_ES,
     cities: [
       'Madrid',
       'Barcelona',
@@ -364,18 +206,7 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Palma',
       'Granada',
     ] as const,
-    companies: [
-      'Construcciones Albarran',
-      'Grupo Valdeoro',
-      'Aceites del Guadalmar',
-      'Transportes Penalvar',
-      'Bodegas Riberalta',
-      'Seguros Castellmar',
-      'Textiles Arroyuelo',
-      'Ingenieria Sotomonte',
-      'Conservas Puertoalba',
-      'Laboratorios Encinar',
-    ] as const,
+    companies: companiesOf('es_ES'),
     // Spain publishes no numbers for fiction. Its numbering plan leaves every
     // nine-digit number starting with 3 pending attribution, so no subscriber
     // has one: "N=3. Pendiente de atribución" (plan nacional de numeración
@@ -394,40 +225,8 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
     ] as const,
   },
   ja_JP: {
-    firstNames: [
-      'Taro',
-      'Hanako',
-      'Yuki',
-      'Kenji',
-      'Sakura',
-      'Haruto',
-      'Yui',
-      'Sota',
-      'Hina',
-      'Ren',
-      'Mei',
-      'Kaito',
-      'Aoi',
-      'Riku',
-      'Mio',
-    ] as const,
-    lastNames: [
-      'Tanaka',
-      'Suzuki',
-      'Takahashi',
-      'Watanabe',
-      'Ito',
-      'Yamamoto',
-      'Nakamura',
-      'Kobayashi',
-      'Kato',
-      'Yoshida',
-      'Yamada',
-      'Sasaki',
-      'Yamaguchi',
-      'Matsumoto',
-      'Inoue',
-    ] as const,
+    firstNames: FIRST_NAMES.ja_JP,
+    lastNames: LAST_NAMES.ja_JP,
     cities: [
       'Tokyo',
       'Osaka',
@@ -440,18 +239,7 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Sendai',
       'Hiroshima',
     ] as const,
-    companies: [
-      'Kawabe Shoji',
-      'Midorigawa Denki',
-      'Hoshizora Kogyo',
-      'Kirisame Seimitsu',
-      'Shirakaba Foods',
-      'Tsukinowa Logistics',
-      'Hanamizuki Sangyo',
-      'Kuroiwa Kensetsu',
-      'Minatogawa Shoken',
-      'Yamabuki Software',
-    ] as const,
+    companies: companiesOf('ja_JP'),
     // Japan publishes no numbers for fiction. Its numbering plan, as the
     // Ministry of Internal Affairs and Communications notified it to the ITU
     // on 19 May 2014, leaves unused the mobile numbers whose digit after 090
@@ -468,40 +256,8 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
     ] as const,
   },
   pt_BR: {
-    firstNames: [
-      'Joao',
-      'Ana',
-      'Pedro',
-      'Maria',
-      'Lucas',
-      'Juliana',
-      'Gabriel',
-      'Fernanda',
-      'Rafael',
-      'Camila',
-      'Matheus',
-      'Larissa',
-      'Bruno',
-      'Beatriz',
-      'Thiago',
-    ] as const,
-    lastNames: [
-      'Silva',
-      'Santos',
-      'Oliveira',
-      'Souza',
-      'Rodrigues',
-      'Ferreira',
-      'Almeida',
-      'Pereira',
-      'Lima',
-      'Gomes',
-      'Costa',
-      'Ribeiro',
-      'Martins',
-      'Carvalho',
-      'Araujo',
-    ] as const,
+    firstNames: FIRST_NAMES.pt_BR,
+    lastNames: LAST_NAMES.pt_BR,
     cities: [
       'Sao Paulo',
       'Rio de Janeiro',
@@ -514,18 +270,7 @@ export const LOCALE_DATA: Record<SupportedLocale, LocaleDataSet> = {
       'Recife',
       'Porto Alegre',
     ] as const,
-    companies: [
-      'Construtora Barrocal',
-      'Laticinios Campo Verdejo',
-      'Transportadora Ribeirinha Sul',
-      'Grupo Aroeira Dourada',
-      'Tecelagem Morro Azul',
-      'Seguradora Cajuina',
-      'Farmacias Jaboticaba',
-      'Metalurgica Taquaral',
-      'Cafe Serra do Ipe',
-      'Bioquimica Pindorama',
-    ] as const,
+    companies: companiesOf('pt_BR'),
     // Brazil publishes no numbers for fiction. Anatel's Resolution 553 of
     // 14 December 2010, which gave every mobile number its leading 9, reserves
     // the series "90N7N6N5" (art. 19): no mobile number starts with 90. The

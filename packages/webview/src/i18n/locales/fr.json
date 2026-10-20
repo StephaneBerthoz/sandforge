@@ -59,7 +59,8 @@
       "autopilotNotReady": "Autopilot n'est pas encore chargé dans cette fenêtre, et rien n'a été modifié dans l'org. Attendez quelques secondes, puis réessayez ; si cela persiste, rechargez la fenêtre (Developer: Reload Window).",
       "autopilotStorageExceeded": "L'exécution Autopilot a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste dans l'org cible. Réduisez la sélection, ou libérez du stockage de données dans l'org cible.",
       "autopilotWriteDeclined": "Vous avez annulé l'exécution Autopilot avant qu'elle n'écrive quoi que ce soit. Rien n'a été écrit dans l'org cible.",
-      "autopilotConfirmationUnavailable": "L'exécution Autopilot a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée."
+      "autopilotConfirmationUnavailable": "L'exécution Autopilot a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",
+      "seedStorageExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit : ses enregistrements prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}}. Réduisez le nombre d'enregistrements, choisissez un modèle plus léger, ou libérez du stockage de données dans {{org}}."
     }
   },
   "status": {
@@ -640,15 +641,23 @@
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud - Démarrage",
-        "description": "Modèle pré-construit pour Sales Cloud avec Comptes, Contacts, Opportunités, Produits et Catalogues de prix. Inclut la chaîne complète d'intégrité référentielle pour les lignes d'opportunité."
+        "description": "Comptes, contacts, opportunités et produits tarifés dans le catalogue de prix standard, avec les lignes de produits de chaque opportunité : 7 600 enregistrements, environ 15 Mo, plus que les 5 Mo d'une Developer Edition."
       },
       "serviceCloudStarter": {
         "name": "Service Cloud - Démarrage",
-        "description": "Modèle pré-construit pour Service Cloud avec Comptes, Contacts, Requêtes, Commentaires de requête et articles Knowledge."
+        "description": "Comptes, contacts, requêtes, commentaires de requête et articles Knowledge : 3 800 enregistrements, environ 7,6 Mo, plus que les 5 Mo d'une Developer Edition. Les articles sont ignorés dans une org sans Knowledge."
       },
       "minimalDemo": {
         "name": "Démo minimale",
         "description": "Modèle de démo léger avec seulement Comptes, Contacts et Opportunités. Idéal pour les démos rapides et les tests."
+      },
+      "crmStarter": {
+        "name": "Démarrage CRM",
+        "description": "Comptes et leurs contacts, opportunités tarifées depuis le catalogue de prix standard avec leurs lignes de produits, et requêtes : environ 300 enregistrements, moins de 1 Mo, taillé pour les 5 Mo d'une Developer Edition neuve."
+      },
+      "leadsActivitiesStarter": {
+        "name": "Démarrage Pistes et activités",
+        "description": "Des pistes, les campagnes auxquelles elles ont répondu, et les appels et réunions prévus avec elles : environ 110 enregistrements. Un utilisateur sans la case Utilisateur marketing obtient les pistes et leurs activités, et un mot sur les campagnes."
       }
     },
     "gallery": {
@@ -761,7 +770,49 @@
         "values": "Valeurs"
       },
       "optional": "Remplir les règles des champs à partir d'un persona sectoriel (facultatif)",
-      "chosen": "Persona choisi : {{name}}"
+      "chosen": "Persona choisi : {{name}}",
+      "builtIn": {
+        "assureur-fr": {
+          "name": "Assureur français",
+          "description": "Compagnie d'assurance française avec contrats, sinistres et assurés."
+        },
+        "hospital-us": {
+          "name": "Hôpital américain",
+          "description": "Système hospitalier avec patients, actes et codes médicaux."
+        },
+        "ecommerce-b2c": {
+          "name": "E-commerce B2C",
+          "description": "Vente en ligne avec produits, commandes, clients et avis."
+        },
+        "banque-eu": {
+          "name": "Banque européenne",
+          "description": "Banque européenne avec comptes, transactions et codes IBAN/BIC."
+        },
+        "startup-saas": {
+          "name": "Startup SaaS",
+          "description": "Éditeur SaaS avec abonnements, MRR et suivi du churn."
+        },
+        "immobilier": {
+          "name": "Immobilier",
+          "description": "Agence immobilière avec biens, mandats et visites."
+        },
+        "education": {
+          "name": "Éducation",
+          "description": "Établissement d'enseignement avec élèves, cours et notes."
+        },
+        "logistique": {
+          "name": "Logistique",
+          "description": "Entreprise de logistique avec colis, entrepôts et suivi des expéditions."
+        },
+        "rh": {
+          "name": "Ressources humaines",
+          "description": "Service RH avec salariés, congés, paie et performance."
+        },
+        "ong": {
+          "name": "ONG/Association",
+          "description": "Organisation à but non lucratif avec donateurs, campagnes et bénévoles."
+        }
+      }
     },
     "adaptive": {
       "usingDefaults": "Utilisation des règles de champ par défaut.",

@@ -52,7 +52,8 @@
       "autopilotNotReady": "このウィンドウではまだ Autopilot が読み込まれていないため、組織では何も変更されていません。数秒待ってから、もう一度お試しください。この状態が続く場合は、ウィンドウを再読み込み（Developer: Reload Window）してください。",
       "autopilotStorageExceeded": "Autopilot の実行は何も書き込む前に拒否されました: そのレコードは、ターゲット組織に残っているデータストレージより多くの容量を使います。選択を絞り込むか、ターゲット組織のデータストレージを空けてください。",
       "autopilotWriteDeclined": "何も書き込まれる前に Autopilot の実行をキャンセルしました。ターゲット組織には何も書き込まれていません。",
-      "autopilotConfirmationUnavailable": "Autopilot の実行は何も書き込む前に停止しました: 確認が必要でしたが、確認を求めることができませんでした。"
+      "autopilotConfirmationUnavailable": "Autopilot の実行は何も書き込む前に停止しました: 確認が必要でしたが、確認を求めることができませんでした。",
+      "seedStorageExceeded": "シードは何も書き込む前に拒否されました: そのレコードは約{{estimate}} MBのデータストレージを使いますが、{{org}}の残りは{{max}} MB中{{remaining}} MBです。レコード数を減らすか、より軽いテンプレートを選ぶか、{{org}}のデータストレージを空けてください。"
     }
   },
   "status": {
@@ -594,15 +595,23 @@
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloudスターター",
-        "description": "Account、Contact、Opportunity、Product、Pricebookを含むSales Cloud向けの事前構築テンプレート。OpportunityLineItemの完全な参照整合性チェーンを含みます。"
+        "description": "取引先、取引先責任者、商談、標準価格表で価格設定された商品と各商談の商品: 7,600件、約15 MBで、Developer Editionの5 MBを超えます。"
       },
       "serviceCloudStarter": {
         "name": "Service Cloudスターター",
-        "description": "Account、Contact、Case、ケースコメント、ナレッジ記事を含むService Cloud向けの事前構築テンプレート。"
+        "description": "取引先、取引先責任者、ケース、ケースコメント、ナレッジ記事: 3,800件、約7.6 MBで、Developer Editionの5 MBを超えます。ナレッジが有効でない組織では記事はスキップされます。"
       },
       "minimalDemo": {
         "name": "最小デモ",
         "description": "Account、Contact、Opportunityのみの軽量デモテンプレート。簡単なデモやテストに最適です。"
+      },
+      "crmStarter": {
+        "name": "CRMスターター",
+        "description": "取引先とその取引先責任者、標準価格表の価格を使った商談とその商品、ケース: 約300件、1 MB未満で、新しいDeveloper Editionの5 MBのデータストレージに収まります。"
+      },
+      "leadsActivitiesStarter": {
+        "name": "リードと活動スターター",
+        "description": "リード、リードが反応したキャンペーン、リードとの電話や会議の予定: 約110件。マーケティングユーザーのチェックがないユーザーには、リードとその活動が作成され、キャンペーンについてはその旨が表示されます。"
       }
     },
     "gallery": {
@@ -708,7 +717,49 @@
         "values": "値"
       },
       "optional": "業界ペルソナから項目のルールを設定（任意）",
-      "chosen": "選択したペルソナ： {{name}}"
+      "chosen": "選択したペルソナ： {{name}}",
+      "builtIn": {
+        "assureur-fr": {
+          "name": "フランスの保険会社",
+          "description": "契約、保険金請求、被保険者を扱うフランスの保険会社。"
+        },
+        "hospital-us": {
+          "name": "米国の病院",
+          "description": "患者、処置、医療コードを扱う病院グループ。"
+        },
+        "ecommerce-b2c": {
+          "name": "B2C eコマース",
+          "description": "商品、注文、顧客、レビューを扱うオンライン小売。"
+        },
+        "banque-eu": {
+          "name": "欧州の銀行",
+          "description": "口座、取引、IBAN/BICコードを扱う欧州の銀行。"
+        },
+        "startup-saas": {
+          "name": "SaaSスタートアップ",
+          "description": "サブスクリプション、MRR指標、解約の追跡を扱うSaaS企業。"
+        },
+        "immobilier": {
+          "name": "不動産",
+          "description": "物件、媒介契約、内見を扱う不動産会社。"
+        },
+        "education": {
+          "name": "教育",
+          "description": "学生、コース、成績を扱う教育機関。"
+        },
+        "logistique": {
+          "name": "物流",
+          "description": "荷物、倉庫、配送追跡を扱う物流会社。"
+        },
+        "rh": {
+          "name": "人事",
+          "description": "従業員、休暇、給与、評価を扱う人事部門。"
+        },
+        "ong": {
+          "name": "NPO・非営利団体",
+          "description": "寄付者、キャンペーン、ボランティアを扱う非営利団体。"
+        }
+      }
     },
     "adaptive": {
       "usingDefaults": "デフォルトの項目ルールを使用しています。",

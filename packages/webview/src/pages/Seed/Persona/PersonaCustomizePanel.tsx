@@ -5,6 +5,7 @@ import { Card, CardHeader, CardBody } from '../../../components/ui/Card';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
+import { personaName } from './personaText';
 
 /** Props for the PersonaCustomizePanel component. */
 export interface PersonaCustomizePanelProps {
@@ -34,7 +35,7 @@ export const PersonaCustomizePanel: React.FC<PersonaCustomizePanelProps> = ({
   onConfirm,
   onCancel,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [edits, setEdits] = useState<Record<string, FieldEditState>>(() => {
     const initial: Record<string, FieldEditState> = {};
@@ -117,7 +118,10 @@ export const PersonaCustomizePanel: React.FC<PersonaCustomizePanelProps> = ({
 
   return (
     <Card data-testid="persona-customize-panel">
-      <CardHeader title={t('seed.persona.customize.title')} subtitle={persona.name} />
+      <CardHeader
+        title={t('seed.persona.customize.title')}
+        subtitle={personaName(persona, t, i18n)}
+      />
       <CardBody>
         <div className="flex flex-col gap-3">
           {Object.entries(persona.dataPatterns).map(([fieldName, pattern]) => (

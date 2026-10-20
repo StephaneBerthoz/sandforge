@@ -25,11 +25,17 @@ import type { ForgeSweepListing } from '../forge.types.js';
  *
  * `dryRun` is accepted only to be refused with DRY_RUN_UNSUPPORTED: a stored
  * request carrying it must be turned down by name rather than run as a real
- * seed that writes.
+ * seed that writes. `locale` names the locale the people and places are drawn
+ * in (`fr_FR`); absent, the org's default locale.
  */
 export interface SeedExecuteRequest extends BaseMessage {
   type: 'seed:execute';
-  payload: { orgId: string; template: z.input<typeof seedConfigSchema>; dryRun?: boolean };
+  payload: {
+    orgId: string;
+    template: z.input<typeof seedConfigSchema>;
+    locale?: string;
+    dryRun?: boolean;
+  };
 }
 
 /** Seed describe global objects request. */

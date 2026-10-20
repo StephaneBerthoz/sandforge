@@ -399,6 +399,101 @@ describe('FieldMapper', () => {
     });
   });
 
+  describe('close dates and stages', () => {
+    const TODAY = new Date('2026-10-20T10:00:00.000Z');
+    const opportunity = (closeDate: FieldRule): SeedObjectConfig => ({
+      ...createObjectConfig(
+        [
+          {
+            fieldApiName: 'StageName',
+            ruleType: 'picklist_random',
+            config: {
+              picklistValues: ['Prospecting', 'Negotiation/Review', 'Closed Won', 'Closed Lost'],
+            },
+          },
+          closeDate,
+        ],
+        200,
+      ),
+      objectApiName: 'Opportunity',
+    });
+
+    it('closes a won or lost opportunity before today, and an open one after it', async () => {
+      // A close date drawn on its own fell after today for opportunities
+      // already won or lost.
+      const real = new FieldMapper({
+        ...createMockDeps(),
+        fakerFallback: new FakerFallback('en_US', { today: () => TODAY }),
+      });
+      const records = await real.mapFields(
+        opportunity({
+          fieldApiName: 'CloseDate',
+          ruleType: 'faker',
+          config: { fakerMethod: 'date.soon' },
+        }),
+        new Map(),
+      );
+      const stages = new Set(records.map((r) => r['StageName']));
+      expect(stages.size).toBe(4);
+      for (const r of records) {
+        const close = new Date(String(r['CloseDate'])).getTime();
+        if (String(r['StageName']).startsWith('Closed'))
+          expect(close).toBeLessThan(TODAY.getTime());
+        else expect(close).toBeGreaterThan(TODAY.getTime());
+      }
+    });
+
+    it('keeps a close date the author set', async () => {
+      const real = new FieldMapper({ ...createMockDeps(), fakerFallback: new FakerFallback() });
+      const records = await real.mapFields(
+        opportunity({
+          fieldApiName: 'CloseDate',
+          ruleType: 'static',
+          config: { staticValue: '2027-01-15' },
+        }),
+        new Map(),
+      );
+      expect(records.every((r) => r['CloseDate'] === '2027-01-15')).toBe(true);
+    });
+  });
+
+  describe('draws', () => {
+    it('draws numbers, picks and parents from the draw it is given', async () => {
+      const config = createObjectConfig(
+        [
+          { fieldApiName: 'Score__c', ruleType: 'random', config: { minValue: 0, maxValue: 99 } },
+          {
+            fieldApiName: 'Tier__c',
+            ruleType: 'picklist_random',
+            config: { picklistValues: ['A', 'B', 'C'] },
+          },
+          {
+            fieldApiName: 'ParentId',
+            ruleType: 'reference',
+            config: { referenceObject: 'Account' },
+          },
+        ],
+        5,
+      );
+      const parents = new Map([['Account', ['001A', '001B', '001C', '001D']]]);
+      const draw = (): (() => number) => {
+        const values = [0.1, 0.7, 0.4, 0.95, 0.2, 0.55];
+        let at = 0;
+        return () => values[at++ % values.length];
+      };
+      const one = await new FieldMapper({ ...createMockDeps(), random: draw() }).mapFields(
+        config,
+        parents,
+      );
+      const two = await new FieldMapper({ ...createMockDeps(), random: draw() }).mapFields(
+        config,
+        parents,
+      );
+      expect(one).toEqual(two);
+      expect(one[0]).toEqual({ Score__c: 10, Tier__c: 'C', ParentId: '001B' });
+    });
+  });
+
   describe('generateValue', () => {
     it('should return static value', () => {
       const rule: FieldRule = {

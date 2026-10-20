@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import type { PersonaMsg } from '@sandforge/shared';
 import { DataTable } from '../../../components/ui/DataTable';
 import type { DataTableColumn } from '../../../components/ui/DataTable';
+import { personaName } from './personaText';
 
 /** Props for the PersonaPreviewPopover component. */
 export interface PersonaPreviewPopoverProps {
@@ -25,7 +26,7 @@ export const PersonaPreviewPopover: React.FC<PersonaPreviewPopoverProps> = ({
   sampleRecords,
   onClose,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const popoverRef = useRef<HTMLDivElement>(null);
 
   /** Close on click outside. */
@@ -76,7 +77,7 @@ export const PersonaPreviewPopover: React.FC<PersonaPreviewPopoverProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-(--sf-border-subtle)">
         <div className="flex flex-col">
-          <span className="text-xs font-semibold">{persona.name}</span>
+          <span className="text-xs font-semibold">{personaName(persona, t, i18n)}</span>
           <span className="text-[10px] text-(--sf-text-secondary)">
             {t('seed.persona.preview.sampleData')}
           </span>

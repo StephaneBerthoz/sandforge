@@ -77,13 +77,30 @@ import {
   seedRecordTypeOptions,
   templateForAccountKinds,
 } from '../../modules/seed/seedRecordTypes.js';
-import { ACCOUNT } from '../../core/common/platformRecords.js';
+import { ACCOUNT, leftOutForAccountKind } from '../../core/common/platformRecords.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { seedStorageGate } from '../../modules/seed/seedStorage.js';
+import { formatMB } from '../../modules/forge/ForgeRunGate.js';
+import { seedLocaleOf } from '../../modules/seed/seedLocale.js';
+import { objectsUnderDuplicateRules } from '../../modules/seed/seedDuplicateRules.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { isUncopyableObject } from '@sandforge/shared';
 
 /** Record count threshold above which streaming pipeline is used per object. */
 const STREAMING_THRESHOLD = 10_000;
+
+/** The code a seed refused for the data storage it takes is answered with. */
+const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
+
+/** What a seed runs with once its request is read. */
+interface SeedRunPayload {
+  orgId: string;
+  template: Record<string, unknown>;
+  /** The objects written as person accounts (`templateForAccountKinds`). */
+  personObjects: string[];
+  /** The locale its people and places are drawn in. */
+  locale: string;
+}
 
 /**
  * Extra `operation:failed` payload for transport-level seed failures.
@@ -691,15 +708,62 @@ export class SeedOpsHandler implements DomainHandler {
         });
         return;
       }
-      const payload: { orgId: string; template: Record<string, unknown> } = {
+      const payload: SeedRunPayload = {
         orgId: parsed.orgId,
         template: kinds.template as unknown as Record<string, unknown>,
+        personObjects: kinds.personObjects,
+        // The people and places of a seed are drawn in the org's own locale
+        // unless the request names one: the panel drew every seed in en_US.
+        locale: await seedLocaleOf(parsed.locale, conn),
       };
 
       // Planned record total, known upfront from the template. It feeds the
       // Production Guard impact summary (the sentence the user reads in the
       // production confirmation modal) and the Monitor "live operations" panel.
       const plannedRecords = parsed.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
+
+      // The storage the records take against what the org has left, before the
+      // guard is asked and before anything is written: a template three times
+      // a Developer Edition's 5 MB filled the org part way through its run.
+      const org = this.deps.orgManager.getOrg(payload.orgId);
+      const storage = await seedStorageGate(
+        conn,
+        kinds.template,
+        kinds.personObjects,
+        org?.alias ?? payload.orgId,
+      );
+      if (storage.check.verdict === 'unread') {
+        this.deps.log(
+          `[WARN] seed:execute ${operationId}: the data storage the org has left could not be ` +
+            `read (${storage.check.unread}): whether the records fit is not known`,
+        );
+      }
+      if (storage.refusal) {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          code: SEED_STORAGE_EXCEEDED,
+        });
+        const check = storage.check;
+        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(storage.refusal), {
+          code: SEED_STORAGE_EXCEEDED,
+          retryable: false,
+          extraPayload:
+            check.verdict === 'unread'
+              ? {}
+              : {
+                  estimateMB: Number(formatMB(check.estimateMB)),
+                  remainingMB: check.remainingMB,
+                  maxMB: check.maxMB,
+                  org: org?.alias ?? payload.orgId,
+                },
+        });
+        sendOperationFailed(this.deps, operationId, storage.refusal, false, { context: failure });
+        return;
+      }
 
       // Production guard check. No write without it: a guard that was never
       // injected refuses the run instead of waving it through.
@@ -726,7 +790,6 @@ export class SeedOpsHandler implements DomainHandler {
         });
         return;
       }
-      const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
         orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
@@ -843,7 +906,7 @@ export class SeedOpsHandler implements DomainHandler {
   private async executeSeed(
     msg: InboundRequest,
     conn: Awaited<ReturnType<typeof getJsforceConnection>>,
-    payload: { orgId: string; template: Record<string, unknown> },
+    payload: SeedRunPayload,
     operationId: string,
     abortController: AbortController,
     failure: OperationFailureContext,
@@ -895,6 +958,31 @@ export class SeedOpsHandler implements DomainHandler {
         this.liveTracker?.updateProgress(operationId, pct, overall, overallTotal, step);
       };
 
+      // An object an active duplicate rule watches goes through REST, whose
+      // header lets the rule's matches be saved, rather than as a Bulk API job,
+      // which carries none (`objectsUnderDuplicateRules`). Read once for the run.
+      let duplicateRules: Promise<ReadonlySet<string> | undefined> | undefined;
+      const watchedByDuplicateRule = async (objectApiName: string): Promise<boolean> => {
+        duplicateRules ??= objectsUnderDuplicateRules(conn).then((ruled) => {
+          if (!ruled) {
+            this.deps.log(
+              `[WARN] seed:execute ${operationId}: the org's duplicate rules could not be read: ` +
+                'an object of more than the Bulk API threshold goes as a Bulk API job, which a ' +
+                'duplicate rule may refuse',
+            );
+          }
+          return ruled;
+        });
+        const watched = (await duplicateRules)?.has(objectApiName) === true;
+        if (watched) {
+          this.deps.log(
+            `[INFO] seed:execute ${operationId}: ${objectApiName} goes through REST: an active ` +
+              'duplicate rule watches it, which a Bulk API job cannot waive',
+          );
+        }
+        return watched;
+      };
+
       const insertRecords = async (
         _orgId: string,
         objectApiName: string,
@@ -930,7 +1018,10 @@ export class SeedOpsHandler implements DomainHandler {
           };
         }
 
-        if (bulkExecutor.shouldUseBulkApi(records.length)) {
+        if (
+          bulkExecutor.shouldUseBulkApi(records.length) &&
+          !(await watchedByDuplicateRule(objectApiName))
+        ) {
           // Bulk API 2.0 path. A cancel that came before the insert opens no
           // job: the executor opened one all the same, then aborted it before
           // its upload, which wrote nothing but asked the org for a job, and
@@ -1045,9 +1136,11 @@ export class SeedOpsHandler implements DomainHandler {
       const { AIDataGenerator } = await import('../../modules/seed/AIDataGenerator.js');
       const { FakerFallback } = await import('../../modules/seed/FakerFallback.js');
       const { readExistingParentIds } = await import('../../modules/seed/existingParents.js');
+      const { seedObjectAccess } = await import('../../modules/seed/seedObjectAccess.js');
+      const { describedFieldsOf } = await import('../../modules/seed/describedFields.js');
 
       const aiGenerator = new AIDataGenerator(this.buildSeedCallAI());
-      const fakerFallback = new FakerFallback();
+      const fakerFallback = new FakerFallback(payload.locale);
       const fieldMapper = new FieldMapper({ aiGenerator, fakerFallback });
       const referenceLinker = new ReferenceLinker();
       const validator = new SeedValidator();
@@ -1059,26 +1152,29 @@ export class SeedOpsHandler implements DomainHandler {
 
       // One describe of the org per object, kept for the run. A template names
       // fields an org may not have: without this, one missing field refuses
-      // every record of the object. See `describeCreateableFields`.
-      const creatableByObject = new Map<string, ReadonlySet<string>>();
-      const describeCreateableFields = async (
-        objectApiName: string,
-      ): Promise<ReadonlySet<string>> => {
-        const cached = creatableByObject.get(objectApiName);
-        if (cached) return cached;
-        const described = await conn.describe(objectApiName);
-        const names = new Set(
-          (described.fields as Array<{ name: string; createable?: boolean }>)
-            .filter((f) => f.createable === true)
-            .map((f) => f.name),
-        );
-        creatableByObject.set(objectApiName, names);
-        return names;
-      };
+      // every record of the object. See `describeCreateableFields`. The same
+      // describe gives the values of its picklists, which a template's random
+      // picks are kept to (`describePicklistValues`).
+      const describedFields = describedFieldsOf((objectApiName) => conn.describe(objectApiName));
 
       const seedDeps = {
         validator,
-        describeCreateableFields,
+        describeCreateableFields: describedFields.createable,
+        describePicklistValues: describedFields.picklistValues,
+        // What the org requires and the template names no rule for, less what
+        // the kind of account written does not take.
+        describeRequiredFields: async (objectApiName: string) =>
+          (await describedFields.required(objectApiName)).filter(
+            (field) =>
+              !leftOutForAccountKind(
+                objectApiName,
+                field.fieldApiName,
+                payload.personObjects.includes(objectApiName) ? 'person' : 'business',
+              ),
+          ),
+        // An object the org has not, or the user may not create, is skipped
+        // with the reason, before its records are generated.
+        objectAccess: seedObjectAccess(conn),
         // A relation may draw its parents from records already in this org.
         readExistingParentIds: (objectApiName: string, where: string | undefined, limit: number) =>
           readExistingParentIds(conn, objectApiName, where, limit),

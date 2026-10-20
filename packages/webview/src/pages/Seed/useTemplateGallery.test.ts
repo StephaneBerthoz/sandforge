@@ -67,20 +67,27 @@ describe('useTemplateGallery', () => {
   it('returns pre-built templates when no saved templates exist', () => {
     const { result } = renderHook(() => useTemplateGallery());
 
-    expect(result.current.items.length).toBe(3);
+    expect(result.current.items.length).toBe(5);
     expect(result.current.items.every((i) => i.isPrebuilt)).toBe(true);
-    expect(result.current.items.map((i) => i.id)).toContain('prebuilt-sales-cloud-starter');
-    expect(result.current.items.map((i) => i.id)).toContain('prebuilt-service-cloud-starter');
+    // The template a new Developer Edition takes whole comes first, the
+    // others from the lightest to the heaviest: Sales Cloud Starter's 7,601
+    // records led, three times what such an org stores.
+    expect(result.current.items.map((i) => i.id)).toEqual([
+      'prebuilt-crm-starter',
+      'prebuilt-leads-activities-starter',
+      'prebuilt-minimal-demo',
+      'prebuilt-service-cloud-starter',
+      'prebuilt-sales-cloud-starter',
+    ]);
   });
 
-  it('lists the small demo first, marked as where a first seed starts, and no other', () => {
+  it('marks the first template as where a first seed starts, and no other', () => {
     // It came after two starters of thousands of records: the first card a
     // trailblazer on a Developer Edition met was more than the org holds.
     const { result } = renderHook(() => useTemplateGallery());
 
-    expect(result.current.items[0].id).toBe('prebuilt-minimal-demo');
     expect(result.current.items.filter((i) => i.recommended).map((i) => i.id)).toEqual([
-      'prebuilt-minimal-demo',
+      'prebuilt-crm-starter',
     ]);
   });
 
@@ -104,10 +111,10 @@ describe('useTemplateGallery', () => {
 
     const { result } = renderHook(() => useTemplateGallery());
 
-    expect(result.current.items.length).toBe(4);
-    expect(result.current.items[3].id).toBe('saved-1');
-    expect(result.current.items[3].isPrebuilt).toBe(false);
-    expect(result.current.items[3].template).toBeNull();
+    expect(result.current.items.length).toBe(6);
+    expect(result.current.items[5].id).toBe('saved-1');
+    expect(result.current.items[5].isPrebuilt).toBe(false);
+    expect(result.current.items[5].template).toBeNull();
   });
 
   it('computes correct objectCount and totalRecords for pre-built templates', () => {
@@ -115,8 +122,12 @@ describe('useTemplateGallery', () => {
 
     const salesCloud = result.current.items.find((i) => i.id === 'prebuilt-sales-cloud-starter');
     expect(salesCloud).toBeDefined();
-    expect(salesCloud?.objectCount).toBe(7);
-    expect(salesCloud?.totalRecords).toBe(7601);
+    expect(salesCloud?.objectCount).toBe(6);
+    expect(salesCloud?.totalRecords).toBe(7600);
+
+    const crm = result.current.items.find((i) => i.id === 'prebuilt-crm-starter');
+    expect(crm?.objectCount).toBe(7);
+    expect(crm?.totalRecords).toBe(295);
 
     const serviceCloud = result.current.items.find(
       (i) => i.id === 'prebuilt-service-cloud-starter',
@@ -138,7 +149,7 @@ describe('useTemplateGallery', () => {
 
     expect(template).toBeDefined();
     expect(template?.id).toBe('prebuilt-sales-cloud-starter');
-    expect(template?.objects.length).toBe(7);
+    expect(template?.objects.length).toBe(6);
     expect(mockMutate).not.toHaveBeenCalled();
   });
 

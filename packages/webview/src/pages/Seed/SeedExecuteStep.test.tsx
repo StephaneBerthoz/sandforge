@@ -95,7 +95,7 @@ describe('SeedExecuteStep', () => {
     renderStep();
 
     expect(screen.getByTestId('seed-fields-status').textContent).toBe(
-      'Using default field rules, with the patterns of the Assureur français persona.',
+      'Using default field rules, with the patterns of the French insurer persona.',
     );
   });
 

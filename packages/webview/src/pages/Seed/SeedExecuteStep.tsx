@@ -8,6 +8,7 @@ import { SeedRelationsEditor } from './SeedRelationsEditor';
 import { SeedRecordTypePicker } from './SeedRecordTypePicker';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { SeedVolumes } from './seedRelationDrafts';
+import { personaName } from './Persona/personaText';
 
 /** Props for the SeedExecuteStep section. */
 export interface SeedExecuteStepProps {
@@ -60,7 +61,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   fieldConfigs,
   volumes,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const persona = useSeedWizardStore((s) => s.selectedPersona);
 
   let fieldsLine: string;
@@ -70,7 +71,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
       : t('seed.adaptive.readingFields');
   } else {
     fieldsLine = persona
-      ? t('seed.adaptive.usingPersona', { persona: persona.name })
+      ? t('seed.adaptive.usingPersona', { persona: personaName(persona, t, i18n) })
       : t('seed.adaptive.usingDefaults');
   }
 

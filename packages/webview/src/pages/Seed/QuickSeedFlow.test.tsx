@@ -184,6 +184,37 @@ describe('QuickSeedFlow', () => {
       expect(setCount).toHaveBeenCalledWith('Account', 7);
     });
 
+    it('takes 0 for an object, counts no record of it, and starts nothing once all are 0', () => {
+      // The count stopped at 1, and an object could not be left out.
+      const setCount = vi.fn();
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+        customizedCounts: { Contact: 0 },
+        setCount,
+      };
+
+      const { rerender } = render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+      fireEvent.change(screen.getByTestId('quick-seed-count-Account'), { target: { value: '' } });
+      expect(setCount).toHaveBeenCalledWith('Account', 0);
+      expect(
+        within(screen.getByTestId('quick-seed-confirm')).getByText('50 records'),
+      ).toBeDefined();
+      expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+
+      rerender(
+        <QuickSeedFlow
+          quickSeed={{ ...quickSeed, customizedCounts: { Account: 0, Contact: 0 } }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(true);
+    });
+
     it('starts the run on Start once an org is chosen, and not before', () => {
       const execute = vi.fn();
       const quickSeed: QuickSeedState = {

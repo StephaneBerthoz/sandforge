@@ -156,6 +156,21 @@ vi.mock('./Persona/PersonaGallery', () => ({
       >
         Select Persona
       </button>
+      <button
+        data-testid="mock-persona-select-builtin"
+        onClick={() =>
+          onPersonaSelected({
+            id: 'assureur-fr',
+            name: 'Assureur français',
+            description: '',
+            industry: 'Insurance',
+            locale: 'fr-FR',
+            dataPatterns: {},
+          })
+        }
+      >
+        Select a built-in persona
+      </button>
     </div>
   ),
 }));
@@ -518,6 +533,18 @@ describe('SeedPage', () => {
     expect(choice.open).toBe(false);
     expect(choice.textContent).toContain('Persona chosen: Test');
     expect(screen.getByTestId('seed-wizard')).toBeDefined();
+  });
+
+  it('names a built-in persona chosen in the interface language, not the one it came in', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-generate'));
+    const choice = screen.getByTestId('seed-persona-choice') as HTMLDetailsElement;
+    choice.open = true;
+    fireEvent(choice, new Event('toggle'));
+    fireEvent.click(screen.getByTestId('mock-persona-select-builtin'));
+
+    expect(choice.textContent).toContain('Persona chosen: French insurer');
   });
 
   it('opens the clone wizard with the recommended source org selected when Home sends it here', () => {

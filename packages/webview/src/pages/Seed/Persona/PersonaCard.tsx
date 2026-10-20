@@ -17,6 +17,7 @@ import type { PersonaMsg } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../../components/ui/Card';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
+import { personaDescription, personaName } from './personaText';
 
 /** Maps persona industry strings to Lucide icon components. */
 const INDUSTRY_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -84,7 +85,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({
   onPreview,
   isCustom = false,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const IconComponent = getIndustryIcon(persona.industry);
   const fieldCount = Object.keys(persona.dataPatterns).length;
   const localeFlag = getLocaleFlag(persona.locale);
@@ -92,7 +93,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({
   return (
     <Card data-testid={`persona-card-${persona.id}`}>
       <CardHeader
-        title={persona.name}
+        title={personaName(persona, t, i18n)}
         action={
           <div className="flex items-center gap-2">
             <IconComponent className="w-4 h-4 text-(--sf-text-link)" />
@@ -102,7 +103,9 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({
       />
       <CardBody>
         <div className="flex flex-col gap-3">
-          <p className="text-xs text-(--sf-text-secondary) line-clamp-2">{persona.description}</p>
+          <p className="text-xs text-(--sf-text-secondary) line-clamp-2">
+            {personaDescription(persona, t, i18n)}
+          </p>
 
           <div className="flex gap-2 flex-wrap">
             <Badge variant="default">

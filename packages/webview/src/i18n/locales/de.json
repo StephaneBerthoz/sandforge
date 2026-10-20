@@ -59,7 +59,8 @@
       "autopilotNotReady": "Autopilot ist in diesem Fenster noch nicht geladen, und in der Org wurde nichts geändert. Warten Sie einige Sekunden und versuchen Sie es dann erneut; bleibt es so, laden Sie das Fenster neu (Developer: Reload Window).",
       "autopilotStorageExceeded": "Der Autopilot-Lauf wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen mehr Datenspeicher, als in der Ziel-Org übrig ist. Grenzen Sie die Auswahl ein oder geben Sie Datenspeicher in der Ziel-Org frei.",
       "autopilotWriteDeclined": "Sie haben den Autopilot-Lauf abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",
-      "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden."
+      "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
+      "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei."
     }
   },
   "status": {
@@ -640,15 +641,23 @@
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud Starter",
-        "description": "Vorgefertigte Vorlage für Sales Cloud mit Accounts, Contacts, Opportunities, Produkten und Preisbüchern. Enthält die vollständige referenzielle Integritätskette für OpportunityLineItems."
+        "description": "Accounts, Kontakte, Opportunities und Produkte mit Preisen im Standardpreisbuch, samt den Produktpositionen jeder Opportunity: 7.600 Datensätze, rund 15 MB, mehr als die 5 MB einer Developer Edition."
       },
       "serviceCloudStarter": {
         "name": "Service Cloud Starter",
-        "description": "Vorgefertigte Vorlage für Service Cloud mit Accounts, Contacts, Cases, Case-Kommentaren und Knowledge-Artikeln."
+        "description": "Accounts, Kontakte, Cases, Case-Kommentare und Knowledge-Artikel: 3.800 Datensätze, rund 7,6 MB, mehr als die 5 MB einer Developer Edition. In einer Org ohne Knowledge werden die Artikel übersprungen."
       },
       "minimalDemo": {
         "name": "Minimale Demo",
         "description": "Leichtgewichtige Demo-Vorlage mit nur Accounts, Contacts und Opportunities. Ideal für schnelle Demos und Tests."
+      },
+      "crmStarter": {
+        "name": "CRM-Starter",
+        "description": "Accounts mit ihren Kontakten, Opportunities mit Preisen aus dem Standardpreisbuch samt Produktpositionen, und Cases: rund 300 Datensätze, unter 1 MB, passend für die 5 MB einer neuen Developer Edition."
+      },
+      "leadsActivitiesStarter": {
+        "name": "Starter Leads & Aktivitäten",
+        "description": "Leads, die Kampagnen, auf die sie reagiert haben, und die mit ihnen geplanten Anrufe und Termine: rund 110 Datensätze. Ein Benutzer ohne das Kontrollkästchen Marketingbenutzer erhält die Leads und ihre Aktivitäten und einen Hinweis zu den Kampagnen."
       }
     },
     "gallery": {
@@ -761,7 +770,49 @@
         "values": "Werte"
       },
       "optional": "Feldregeln aus einer Branchen-Persona füllen (optional)",
-      "chosen": "Gewählte Persona: {{name}}"
+      "chosen": "Gewählte Persona: {{name}}",
+      "builtIn": {
+        "assureur-fr": {
+          "name": "Französischer Versicherer",
+          "description": "Französische Versicherungsgesellschaft mit Verträgen, Schadensfällen und Versicherten."
+        },
+        "hospital-us": {
+          "name": "US-Krankenhaus",
+          "description": "Krankenhausverbund mit Patienten, Eingriffen und medizinischen Codes."
+        },
+        "ecommerce-b2c": {
+          "name": "B2C-E-Commerce",
+          "description": "Onlinehandel mit Produkten, Bestellungen, Kunden und Bewertungen."
+        },
+        "banque-eu": {
+          "name": "Europäische Bank",
+          "description": "Europäische Bank mit Konten, Transaktionen und IBAN/BIC-Codes."
+        },
+        "startup-saas": {
+          "name": "SaaS-Start-up",
+          "description": "SaaS-Unternehmen mit Abonnements, MRR-Kennzahlen und Churn-Tracking."
+        },
+        "immobilier": {
+          "name": "Immobilien",
+          "description": "Immobilienagentur mit Objekten, Maklermandaten und Besichtigungen."
+        },
+        "education": {
+          "name": "Bildung",
+          "description": "Bildungseinrichtung mit Studierenden, Kursen und Noten."
+        },
+        "logistique": {
+          "name": "Logistik",
+          "description": "Logistikunternehmen mit Paketen, Lagern und Sendungsverfolgung."
+        },
+        "rh": {
+          "name": "Personalwesen",
+          "description": "Personalabteilung mit Mitarbeitenden, Abwesenheiten, Gehaltsabrechnung und Leistung."
+        },
+        "ong": {
+          "name": "Gemeinnützige Organisation",
+          "description": "Gemeinnützige Organisation mit Spendern, Kampagnen und Ehrenamtlichen."
+        }
+      }
     },
     "adaptive": {
       "usingDefaults": "Standard-Feldregeln werden verwendet.",

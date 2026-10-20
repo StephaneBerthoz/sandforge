@@ -35,7 +35,7 @@ describe('PersonaPreviewPopover', () => {
     );
 
     expect(screen.getByTestId('persona-preview-popover')).toBeDefined();
-    expect(screen.getByText('Assureur francais')).toBeDefined();
+    expect(screen.getByText('French insurer')).toBeDefined();
   });
 
   it('renders a DataTable with sample record values', () => {

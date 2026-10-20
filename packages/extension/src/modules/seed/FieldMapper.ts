@@ -7,6 +7,12 @@ import { fillDigitMask } from './LocaleData';
 export interface FieldMapperDependencies {
   aiGenerator: AIDataGenerator;
   fakerFallback: FakerFallback;
+  /**
+   * Draws the random numbers, picklist values and parents of the rules other
+   * than faker's; `Math.random` unless a caller fixes it — the command line's
+   * seeded draw.
+   */
+  random?: () => number;
 }
 
 /**
@@ -65,6 +71,8 @@ export class FieldMapper {
       });
     }
     const textRules = [...aiRules, ...fakerRules];
+    const random = this.deps.random ?? Math.random;
+    const datesTheStage = closeDateFollowsStage(objectConfig);
 
     const records: Record<string, unknown>[] = [];
 
@@ -72,7 +80,7 @@ export class FieldMapper {
       const record: Record<string, unknown> = {};
 
       for (const rule of otherRules) {
-        record[rule.fieldApiName] = generateValue(rule, i, existingIds);
+        record[rule.fieldApiName] = generateValue(rule, i, existingIds, random);
       }
 
       if (aiRecords[i]) {
@@ -93,11 +101,39 @@ export class FieldMapper {
         record[rule.fieldApiName] = fitToLength(record[rule.fieldApiName], rule.config.maxLength);
       }
 
+      if (datesTheStage && typeof record[OPPORTUNITY_STAGE] === 'string') {
+        record[OPPORTUNITY_CLOSE_DATE] = this.deps.fakerFallback.dateOf(
+          CLOSED_STAGE.test(record[OPPORTUNITY_STAGE]) ? 'pastDate' : 'futureDate',
+        );
+      }
+
       records.push(record);
     }
 
     return records;
   }
+}
+
+const OPPORTUNITY_STAGE = 'StageName';
+const OPPORTUNITY_CLOSE_DATE = 'CloseDate';
+
+/** A stage that closes an opportunity: `Closed Won`, `Closed Lost` and their like. */
+const CLOSED_STAGE = /closed/i;
+
+/**
+ * Whether an object's close date is drawn after its stage: an opportunity
+ * whose close date the faker draws and whose stage a rule sets. A close date
+ * drawn on its own fell after today for an opportunity won or lost, and
+ * before it for one still open; it now comes after today for an open stage
+ * and before it for a closed one. A close date the author set is theirs.
+ */
+function closeDateFollowsStage(objectConfig: SeedObjectConfig): boolean {
+  if (objectConfig.objectApiName !== 'Opportunity') return false;
+  const close = objectConfig.fieldRules.find((r) => r.fieldApiName === OPPORTUNITY_CLOSE_DATE);
+  return (
+    close?.ruleType === 'faker' &&
+    objectConfig.fieldRules.some((r) => r.fieldApiName === OPPORTUNITY_STAGE)
+  );
 }
 
 /**
@@ -192,22 +228,23 @@ export function generateValue(
   rule: FieldRule,
   index: number,
   existingIds: Map<string, string[]>,
+  random: () => number = Math.random,
 ): unknown {
   switch (rule.ruleType) {
     case 'static':
       return rule.config.staticValue ?? null;
 
     case 'random':
-      return generateRandomValue(rule, index);
+      return generateRandomValue(rule, random);
 
     case 'sequence':
       return generateSequenceValue(rule, index);
 
     case 'picklist_random':
-      return generatePicklistValue(rule);
+      return generatePicklistValue(rule, random);
 
     case 'reference':
-      return generateReferenceValue(rule, existingIds);
+      return generateReferenceValue(rule, existingIds, random);
 
     case 'formula':
       return rule.config.formula ?? null;
@@ -224,10 +261,10 @@ export function generateValue(
 }
 
 /** Generate a random value respecting min/max constraints */
-function generateRandomValue(rule: FieldRule, _index: number): unknown {
+function generateRandomValue(rule: FieldRule, random: () => number): unknown {
   const min = rule.config.minValue ?? 0;
   const max = rule.config.maxValue ?? 1000;
-  return Math.floor(min + Math.random() * (max - min + 1));
+  return Math.floor(min + random() * (max - min + 1));
 }
 
 /** Generate a sequence value with optional prefix */
@@ -256,17 +293,21 @@ function generatePatternValue(rule: FieldRule, index: number): string | null {
 }
 
 /** Pick a random value from the configured picklist values */
-function generatePicklistValue(rule: FieldRule): unknown {
+function generatePicklistValue(rule: FieldRule, random: () => number): unknown {
   const values = rule.config.picklistValues;
   if (!values || values.length === 0) {
     return null;
   }
-  const randomIndex = Math.floor(Math.random() * values.length);
+  const randomIndex = Math.floor(random() * values.length);
   return values[randomIndex];
 }
 
 /** Resolve a reference to a random ID from the target object's created IDs */
-function generateReferenceValue(rule: FieldRule, existingIds: Map<string, string[]>): unknown {
+function generateReferenceValue(
+  rule: FieldRule,
+  existingIds: Map<string, string[]>,
+  random: () => number,
+): unknown {
   const targetObject = rule.config.referenceObject;
   if (!targetObject) {
     return null;
@@ -277,6 +318,6 @@ function generateReferenceValue(rule: FieldRule, existingIds: Map<string, string
     return null;
   }
 
-  const randomIndex = Math.floor(Math.random() * ids.length);
+  const randomIndex = Math.floor(random() * ids.length);
   return ids[randomIndex];
 }

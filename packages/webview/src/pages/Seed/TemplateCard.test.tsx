@@ -35,7 +35,7 @@ describe('TemplateCard', () => {
     render(<TemplateCard item={mockItem} onUseThis={vi.fn()} />);
 
     expect(screen.getByText('Sales Cloud Starter')).toBeDefined();
-    expect(screen.getByText(/Pre-built template for Sales Cloud/)).toBeDefined();
+    expect(screen.getByText(/products priced in the standard price book/)).toBeDefined();
   });
 
   it('displays correct object count and record count', () => {

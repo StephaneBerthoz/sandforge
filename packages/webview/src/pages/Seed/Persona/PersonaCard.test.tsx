@@ -21,9 +21,26 @@ describe('PersonaCard', () => {
   it('renders persona name, description, and badges', () => {
     render(<PersonaCard persona={mockPersona} onSelect={vi.fn()} onPreview={vi.fn()} />);
 
-    expect(screen.getByText('Assureur francais')).toBeDefined();
-    expect(screen.getByText(/Compagnie d'assurance/)).toBeDefined();
+    // A built-in persona is named in the interface language, not in the
+    // language the extension wrote it in.
+    expect(screen.getByText('French insurer')).toBeDefined();
+    expect(
+      screen.getByText('French insurance company with policies, claims and policyholders.'),
+    ).toBeDefined();
     expect(screen.getByTestId('persona-card-assureur-fr')).toBeDefined();
+  });
+
+  it('keeps the name and description a created persona came with', () => {
+    render(
+      <PersonaCard
+        persona={{ ...mockPersona, id: 'custom-7', name: 'Mon assureur' }}
+        onSelect={vi.fn()}
+        onPreview={vi.fn()}
+        isCustom
+      />,
+    );
+    expect(screen.getByText('Mon assureur')).toBeDefined();
+    expect(screen.getByText(/Compagnie d'assurance/)).toBeDefined();
   });
 
   it('calls onSelect when Select button is clicked', () => {

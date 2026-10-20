@@ -14,6 +14,13 @@ describe('resolveFakerMethod', () => {
   it('maps a faker.js spelling to the method that generates it', () => {
     expect(resolveFakerMethod('finance.iban')).toBe('iban');
     expect(resolveFakerMethod('date.soon')).toBe('futureDate');
+    expect(resolveFakerMethod('date.birthdate')).toBe('birthdate');
+  });
+
+  it('generates what a meeting, a birth date and a case are written with', () => {
+    for (const method of ['futureDateTime', 'birthdate', 'caseSubject', 'caseComment']) {
+      expect(resolveFakerMethod(method)).toBe(method);
+    }
   });
 
   it('returns undefined for a method nothing generates', () => {

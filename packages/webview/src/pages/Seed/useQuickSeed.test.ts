@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useQuickSeed, isSeedTargetCandidate } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { CRM_STARTER, OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg, SeedTemplate } from '@sandforge/shared';
 
 function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
@@ -450,7 +450,9 @@ describe('useQuickSeed', () => {
     expect(result.current.selectedOrgId).toBe('');
   });
 
-  it('sets the count of an object, never below one record', () => {
+  it('sets the count of an object, and lets it be set to 0', () => {
+    // The count stopped at 1: an object nobody wanted, or one the org lacks,
+    // could not be taken off a template.
     const { result } = renderHook(() => useQuickSeed());
     act(() => {
       result.current.startQuickSeed(mockTemplate);
@@ -464,7 +466,71 @@ describe('useQuickSeed', () => {
     act(() => {
       result.current.setCount('Contact', 0);
     });
-    expect(result.current.customizedCounts).toEqual({ Account: 12, Contact: 1 });
+    expect(result.current.customizedCounts).toEqual({ Account: 12, Contact: 0 });
+  });
+
+  it('keeps the records a relation places under another in step with it', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(CRM_STARTER);
+    });
+    act(() => {
+      result.current.setCount('Account', 10);
+    });
+    // Three contacts and two opportunities an account; a case for two contacts in three.
+    expect(result.current.customizedCounts).toMatchObject({
+      Account: 10,
+      Contact: 30,
+      Opportunity: 20,
+      OpportunityLineItem: 30,
+      Case: 20,
+    });
+  });
+
+  it('sends no object set to 0, nor what cannot be written without it', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(CRM_STARTER);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.setCount('Product2', 0);
+    });
+    act(() => {
+      result.current.execute();
+    });
+
+    const sent = (mockMutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+    // The line items need the prices, which need the products.
+    expect(sent.objects.map((o) => o.objectApiName)).toEqual([
+      'Account',
+      'Contact',
+      'Opportunity',
+      'Case',
+    ]);
+    expect(sent.relations?.map((r) => r.childObject)).toEqual(['Contact', 'Opportunity', 'Case']);
+    expect(result.current.objectProgress.map((o) => o.objectApiName)).toEqual([
+      'Account',
+      'Contact',
+      'Opportunity',
+      'Case',
+    ]);
+  });
+
+  it('sends nothing once every object is set to 0', () => {
+    const { result } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate);
+      result.current.selectOrg('org-456');
+    });
+    act(() => {
+      result.current.setCount('Account', 0);
+      result.current.setCount('Contact', 0);
+    });
+    act(() => {
+      result.current.execute();
+    });
+    expect(mockMutate).not.toHaveBeenCalled();
   });
 
   it('waits on its run as long as a write run takes, and says the run may still be writing when it stops waiting', () => {

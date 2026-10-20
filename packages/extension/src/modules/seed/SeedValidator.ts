@@ -4,6 +4,7 @@ import {
   relationFor,
   resolveFakerMethod,
   seedDependencies,
+  seedsStandardPricebook,
 } from '@sandforge/shared';
 import type {
   SeedTemplate,
@@ -327,7 +328,9 @@ function isUsableDistribution(distribution: SeedRelation['distribution']): boole
 
 /**
  * Validate that all reference targets exist as objects in the template. A
- * rule on a lookup a relation fills is the relation's to answer.
+ * rule on a lookup a relation fills is the relation's to answer, and one on
+ * the standard price book the run's to match: every org has that book, and
+ * none can create it.
  */
 function validateReferenceTargets(template: SeedTemplate, errors: ValidationError[]): void {
   const objectNames = new Set(template.objects.map((o) => o.objectApiName));
@@ -336,6 +339,7 @@ function validateReferenceTargets(template: SeedTemplate, errors: ValidationErro
     const relation = relationFor(obj.objectApiName, template.relations);
     for (const rule of obj.fieldRules) {
       if (relation && rule.fieldApiName === relation.lookupField) continue;
+      if (seedsStandardPricebook(rule, objectNames)) continue;
       if (rule.ruleType === 'reference' && rule.config.referenceObject) {
         if (!objectNames.has(rule.config.referenceObject)) {
           errors.push({

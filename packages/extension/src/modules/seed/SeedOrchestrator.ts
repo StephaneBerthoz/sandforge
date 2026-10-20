@@ -9,7 +9,15 @@ import type {
   GrappeResult,
   UUID,
 } from '@sandforge/shared';
-import { childrenPerParent, relationFor, seedDependencies } from '@sandforge/shared';
+import type { DescribedSeedField, FieldRule } from '@sandforge/shared';
+import {
+  PRICEBOOK_OBJECT,
+  childrenPerParent,
+  describedFieldRule,
+  relationFor,
+  seedDependencies,
+  seedsStandardPricebook,
+} from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import { addWrittenWithoutFields, fieldsLeftOutNote } from '../../core/common/refusedFields.js';
@@ -57,6 +65,14 @@ export interface InsertResult {
    */
   rows?: InsertedRow[];
 }
+
+/**
+ * What the org lets a seed do with an object: create its records, or not —
+ * the user may not (`readOnly`, with why when the reason is known), or the
+ * org has no such object (`absent`, with the feature it needs when known).
+ */
+export type SeedObjectAccess =
+  { access: 'createable' } | { access: 'readOnly' | 'absent'; reason?: string };
 
 /** Function signature for generating unique IDs */
 export type GenerateIdFn = () => UUID;
@@ -115,10 +131,41 @@ export interface SeedOrchestratorDependencies {
    */
   describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
   /**
+   * Whether the org has an object and lets the user the seed runs as create
+   * its records. An object it has not — `Knowledge__kav` where Knowledge is
+   * off — or one the user may not create — a campaign without the Marketing
+   * User box — is skipped with that reason: a built-in template tried to
+   * insert its hundred articles into an org without Knowledge, and every one
+   * was refused. Optional: without it, or when it cannot tell, the platform
+   * answers the insert.
+   */
+  objectAccess?: (objectApiName: string) => Promise<SeedObjectAccess>;
+  /**
+   * The active values of an object's picklists, by field, as the org's
+   * describe gives them. A random pick keeps the values among them, or takes
+   * the org's own when it names none of them: a template wrote "Customer" as
+   * an account type, which no org has, and an unrestricted picklist took it
+   * as a value outside its list. Optional: without it the rule's values stand.
+   */
+  describePicklistValues?: (
+    objectApiName: string,
+  ) => Promise<ReadonlyMap<string, readonly string[]>>;
+  /**
+   * The fields the org refuses a record of `objectApiName` without and fills
+   * none of itself, lookups apart. One no rule names is given the rule the
+   * wizard gives a field it describes, and named in the result: an org with a
+   * required text field of its own on Account refused every account of every
+   * built-in template, and every contact, opportunity and case after them
+   * was skipped. Optional: without it the rules stand as written.
+   */
+  describeRequiredFields?: (objectApiName: string) => Promise<DescribedSeedField[]>;
+  /**
    * Ids of records already in the org, for a relation that draws its parents
    * from there: at most `limit` records of `objectApiName` matching `where`.
    * Without it such a relation cannot be honoured, and its child object is
-   * skipped rather than written with nothing to point at.
+   * skipped rather than written with nothing to point at. It also reads the
+   * org's standard price book, which a reference to `Pricebook2` in a seed
+   * that writes none points at (`seedsStandardPricebook`).
    */
   readExistingParentIds?: (
     objectApiName: string,
@@ -314,18 +361,26 @@ export class SeedOrchestrator {
           `${obj.objectApiName} to point at.`,
       );
     }
+    const closed = await this.closedObject(obj.objectApiName);
+    if (closed) return skipObject(run, obj.objectApiName, closed);
 
     this.reportProgress(obj.objectApiName, run.objectResults, plannedRecords);
 
     const own = withoutRelationLookup(obj, relation);
-    const { config: usable, dropped } = await this.dropRulesTheOrgCannotTake(own);
-    if (usable.fieldRules.length === 0 && own.fieldRules.length > 0) {
+    const { config: fitted, dropped } = await this.dropRulesTheOrgCannotTake(own);
+    if (fitted.fieldRules.length === 0 && own.fieldRules.length > 0) {
       return skipObject(
         run,
         obj.objectApiName,
         `Skipped: this org has none of the fields the template names (${dropped.join(', ')}).`,
       );
     }
+    const { config: usable, filled } = await this.withWhatTheOrgRequires(
+      await this.withTheOrgsPicklistValues(fitted),
+      relation,
+    );
+    const noStandardBook = await this.matchStandardPricebook(usable, run);
+    if (noStandardBook) return skipObject(run, obj.objectApiName, noStandardBook);
 
     let placed: PlacedChildren | undefined;
     if (relation) {
@@ -342,6 +397,11 @@ export class SeedOrchestrator {
         ...(dropped.length > 0
           ? [
               `Written without ${dropped.join(', ')}: this org does not have ${dropped.length === 1 ? 'that field' : 'those fields'}.`,
+            ]
+          : []),
+        ...(filled.length > 0
+          ? [
+              `Written with ${filled.join(', ')}, which this org requires and the template names no rule for.`,
             ]
           : []),
         ...(placed?.notes ?? []),
@@ -443,6 +503,121 @@ export class SeedOrchestrator {
       settledFields(ready),
       () => this.deps.signal?.aborted === true,
     );
+  }
+
+  /**
+   * Why the org takes no record of `objectApiName` from this seed — it has no
+   * such object, or the user may not create one — or undefined when it takes
+   * them, or nothing can tell.
+   */
+  private async closedObject(objectApiName: string): Promise<string | undefined> {
+    if (!this.deps.objectAccess) return undefined;
+    let found: SeedObjectAccess;
+    try {
+      found = await this.deps.objectAccess(objectApiName);
+    } catch {
+      return undefined;
+    }
+    if (found.access === 'createable') return undefined;
+    const why = found.reason ? ` (${found.reason})` : '';
+    return found.access === 'absent'
+      ? `Skipped: this org has no ${objectApiName} object${why}.`
+      : `Skipped: the user this seed runs as may not create ${objectApiName} records${why}.`;
+  }
+
+  /**
+   * The object's random picks, each keeping the values the org's picklist
+   * has, or taking the org's own active values when it names none of them.
+   * A pick on a field the org gives no values for is left as written, and so
+   * is the whole object when the org's picklists cannot be read.
+   */
+  private async withTheOrgsPicklistValues(
+    obj: SeedTemplate['objects'][number],
+  ): Promise<SeedTemplate['objects'][number]> {
+    if (!this.deps.describePicklistValues) return obj;
+    if (!obj.fieldRules.some((rule) => rule.ruleType === 'picklist_random')) return obj;
+    let picklists: ReadonlyMap<string, readonly string[]>;
+    try {
+      picklists = await this.deps.describePicklistValues(obj.objectApiName);
+    } catch {
+      return obj;
+    }
+    let changed = false;
+    const fieldRules = obj.fieldRules.map((rule) => {
+      const offered = picklists.get(rule.fieldApiName);
+      const values = rule.config.picklistValues;
+      if (rule.ruleType !== 'picklist_random' || !offered?.length || !values) return rule;
+      const kept = values.filter((value) => offered.includes(value));
+      if (kept.length === values.length) return rule;
+      changed = true;
+      return {
+        ...rule,
+        config: { ...rule.config, picklistValues: kept.length ? kept : [...offered] },
+      };
+    });
+    return changed ? { ...obj, fieldRules } : obj;
+  }
+
+  /**
+   * The object's rules, with one for each field the org requires and no rule
+   * names — the rule the wizard gives a field it describes — and those fields'
+   * names. A field no generator fits (a time, a multi-select picklist) is
+   * left for the org to refuse, as the wizard leaves it; so are all of them
+   * when the org's describe cannot be read.
+   */
+  private async withWhatTheOrgRequires(
+    obj: SeedTemplate['objects'][number],
+    relation: SeedRelation | undefined,
+  ): Promise<{ config: SeedTemplate['objects'][number]; filled: string[] }> {
+    if (!this.deps.describeRequiredFields) return { config: obj, filled: [] };
+    let required: DescribedSeedField[];
+    try {
+      required = await this.deps.describeRequiredFields(obj.objectApiName);
+    } catch {
+      return { config: obj, filled: [] };
+    }
+    const named = new Set([
+      ...obj.fieldRules.map((rule) => rule.fieldApiName),
+      ...(relation ? [relation.lookupField] : []),
+    ]);
+    const added: FieldRule[] = [];
+    for (const field of required) {
+      if (named.has(field.fieldApiName)) continue;
+      const rule = describedFieldRule(field);
+      if (rule.ruleType === 'static' && rule.config.staticValue === undefined) continue;
+      added.push({ fieldApiName: field.fieldApiName, fieldType: field.type, ...rule });
+    }
+    if (added.length === 0) return { config: obj, filled: [] };
+    return {
+      config: { ...obj, fieldRules: [...obj.fieldRules, ...added] },
+      filled: added.map((rule) => rule.fieldApiName),
+    };
+  }
+
+  /**
+   * Give the run the org's standard price book, which a reference to
+   * `Pricebook2` in a seed that writes none points at, read once for the
+   * run; or why the object is skipped when the book cannot be had. Its
+   * records then draw the book as a lookup to a record of the run.
+   */
+  private async matchStandardPricebook(
+    obj: SeedTemplate['objects'][number],
+    run: SeedRun,
+  ): Promise<string | undefined> {
+    if (!obj.fieldRules.some((rule) => seedsStandardPricebook(rule, run.written))) return undefined;
+    if (run.existingIds.has(PRICEBOOK_OBJECT)) return undefined;
+    const read = this.deps.readExistingParentIds;
+    const of = `${obj.objectApiName} points at the org's standard price book`;
+    if (!read) return `Skipped: ${of}, and this run cannot read it.`;
+    let ids: string[];
+    try {
+      ids = await read(PRICEBOOK_OBJECT, 'IsStandard = true', 1);
+    } catch (err: unknown) {
+      return `Skipped: ${of}, and reading it failed (${extractErrorMessage(err)}).`;
+    }
+    if (ids.length === 0) return `Skipped: ${of}, and the org shows none to this user.`;
+    run.existingIds.set(PRICEBOOK_OBJECT, ids);
+    return undefined;
   }
 
   /** Whether the org lets a seed write `field` on `objectApiName`; yes when nothing can tell. */
@@ -716,7 +891,13 @@ export class SeedOrchestrator {
 /** What a run carries from one object to the next. */
 interface SeedRun {
   relations: SeedRelation[];
-  /** The ids each object's insert returned, for the lookups and relations after it. */
+  /** The objects the template writes. */
+  written: ReadonlySet<string>;
+  /**
+   * The ids each object's insert returned, for the lookups and relations
+   * after it; and under `Pricebook2`, the org's standard price book once an
+   * object points at it.
+   */
   existingIds: Map<string, string[]>;
   /**
    * Objects that were asked for records and wrote none. What points at one of
@@ -730,6 +911,7 @@ interface SeedRun {
 function newRun(template: SeedTemplate): SeedRun {
   return {
     relations: template.relations ?? [],
+    written: new Set(template.objects.map((o) => o.objectApiName)),
     existingIds: new Map(),
     wroteNothing: new Set(),
     objectResults: [],

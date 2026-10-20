@@ -74,8 +74,28 @@ const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
  * host's own words are kept. A masking template DataOps no longer finds is
  * said here too, and an Autopilot request its module was not loaded for.
  */
-function guardRefusal(code: string | null, message: string | undefined): string | undefined {
+function guardRefusal(
+  code: string | null,
+  message: string | undefined,
+  payload: Record<string, unknown> = {},
+): string | undefined {
   if (!i18n.isInitialized) return undefined;
+  // A seed its records' data storage stopped before the first write, with the
+  // figures the host measured: the host's sentence is English.
+  if (code === 'SEED_STORAGE_EXCEEDED') {
+    const { estimateMB, remainingMB, maxMB, org } = payload;
+    return typeof estimateMB === 'number' &&
+      typeof remainingMB === 'number' &&
+      typeof maxMB === 'number' &&
+      typeof org === 'string'
+      ? i18n.t('common.refusal.seedStorageExceeded', {
+          estimate: estimateMB,
+          remaining: remainingMB,
+          max: maxMB,
+          org,
+        })
+      : undefined;
+  }
   if (code === 'GUARD_BLOCKED') {
     const said = message ?? '';
     const reason = said.startsWith(GUARD_BLOCKED_PREFIX)
@@ -289,7 +309,7 @@ export function useMessageResponse<T>(
           const said = typeof payloadMessage === 'string' ? payloadMessage : undefined;
           setErrorCode(code);
           setError(
-            guardRefusal(code, said) ??
+            guardRefusal(code, said, eventData.payload) ??
               said ??
               requestError('bridge.failed', { request: requestType }),
           );

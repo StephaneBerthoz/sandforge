@@ -33,10 +33,18 @@ describe('faker field defaults', () => {
     expect(defaultFakerMethod('email', 'Email')).toBe('email');
     expect(defaultFakerMethod('phone', 'Phone')).toBe('phone');
     expect(defaultFakerMethod('url', 'Website')).toBe('url');
-    expect(defaultFakerMethod('date', 'Birthdate')).toBe('pastDate');
+    expect(defaultFakerMethod('date', 'Signed__c')).toBe('pastDate');
     expect(defaultFakerMethod('datetime', 'Closed__c')).toBe('pastDate');
     expect(defaultFakerMethod('currency', 'AnnualRevenue')).toBe('integer');
     expect(defaultFakerMethod('double', 'Score__c')).toBe('integer');
+  });
+
+  it('dates a birth decades back and a close in the weeks to come', () => {
+    // Every date was drawn before 2024: each contact born a year or two ago,
+    // each opportunity already past its close.
+    expect(defaultFakerMethod('date', 'Birthdate')).toBe('birthdate');
+    expect(defaultFakerMethod('date', 'Birth_Date__c')).toBe('birthdate');
+    expect(defaultFakerMethod('date', 'CloseDate')).toBe('futureDate');
   });
 
   it('reads the field name of a text field', () => {
@@ -44,6 +52,27 @@ describe('faker field defaults', () => {
     expect(defaultFakerMethod('string', 'LastName')).toBe('lastName');
     expect(defaultFakerMethod('string', 'Contact_Name__c')).toBe('name');
     expect(defaultFakerMethod('textarea', 'Description')).toBe('sentence');
+  });
+
+  it('reads the parts of an address from their names, standard or custom', () => {
+    // Each of them got a lorem sentence.
+    expect(defaultFakerMethod('textarea', 'BillingStreet', 'Account')).toBe('streetAddress');
+    expect(defaultFakerMethod('textarea', 'Street', 'Lead')).toBe('streetAddress');
+    expect(defaultFakerMethod('string', 'MailingCity', 'Contact')).toBe('city');
+    expect(defaultFakerMethod('string', 'Office_City__c', 'Account')).toBe('city');
+    expect(defaultFakerMethod('string', 'ShippingState', 'Account')).toBe('state');
+    expect(defaultFakerMethod('string', 'BillingPostalCode', 'Account')).toBe('zipCode');
+    expect(defaultFakerMethod('string', 'Zip_Code__c', 'Account')).toBe('zipCode');
+    expect(defaultFakerMethod('string', 'OtherCountry', 'Contact')).toBe('country');
+    // Ending in the letters is no address.
+    expect(defaultFakerMethod('string', 'RealEstate__c', 'Account')).toBe('sentence');
+  });
+
+  it("gives a person's title a job title and a case's subject one a customer would write", () => {
+    expect(defaultFakerMethod('string', 'Title', 'Contact')).toBe('jobTitle');
+    expect(defaultFakerMethod('string', 'Title', 'Lead')).toBe('jobTitle');
+    expect(defaultFakerMethod('string', 'Title', 'Knowledge__kav')).toBe('sentence');
+    expect(defaultFakerMethod('string', 'Subject', 'Case')).toBe('caseSubject');
   });
 
   it("gives the name fields of an object that is not a person a company's name", () => {
@@ -106,6 +135,41 @@ describe('faker field defaults', () => {
       expect(describedFieldRule(described('LastName', 'string', { length: 80 }))).toEqual({
         ruleType: 'faker',
         config: { fakerMethod: 'lastName', maxLength: 80 },
+      });
+    });
+
+    it('leaves an optional text field its name says nothing of blank, and fills a required one', () => {
+      // A site, an account number, a department and a year started each read
+      // "lorem ipsum dolor sit amet", the year cut to "lore".
+      for (const name of ['Site', 'AccountNumber', 'YearStarted', 'Description']) {
+        expect(
+          describedFieldRule(
+            described(name, 'string', { objectApiName: 'Account', required: false }),
+          ),
+        ).toEqual({ ruleType: 'static', config: {} });
+      }
+      expect(
+        describedFieldRule(described('Code__c', 'string', { length: 20, required: true })),
+      ).toEqual({ ruleType: 'faker', config: { fakerMethod: 'sentence', maxLength: 20 } });
+      // Its length stays with it, for the rule it is given in Configure.
+      expect(
+        describedFieldRule(described('Site', 'string', { length: 80, required: false })),
+      ).toEqual({ ruleType: 'static', config: { maxLength: 80 } });
+      // What its name says is still filled, required or not.
+      expect(
+        describedFieldRule(
+          described('BillingCity', 'string', { objectApiName: 'Account', required: false }),
+        ),
+      ).toEqual({ ruleType: 'faker', config: { fakerMethod: 'city' } });
+      expect(
+        describedFieldRule(
+          described('Name', 'string', { objectApiName: 'Account', required: true }),
+        ),
+      ).toEqual({ ruleType: 'faker', config: { fakerMethod: 'company' } });
+      // A caller that does not say, the command line, is answered as before.
+      expect(describedFieldRule(described('Site', 'string'))).toEqual({
+        ruleType: 'faker',
+        config: { fakerMethod: 'sentence' },
       });
     });
 

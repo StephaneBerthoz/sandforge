@@ -1,0 +1,77 @@
+/**
+ * The data storage a seed takes, held against what the target has left before
+ * the first record is written — what Forge and Autopilot hold their runs to.
+ *
+ * A Developer Edition has 5 MB of data storage. The first template of the
+ * gallery wrote 7,601 records, about 15 MB at the 2 KB most records take: it
+ * filled the org part way through, and left it with records whose children
+ * were refused and a STORAGE_LIMIT_EXCEEDED on the first try. Seed read no
+ * storage at all; its planned records went to Production Guard alone.
+ */
+
+import type { SeedTemplate } from '@sandforge/shared';
+import {
+  countedStorageBytes,
+  readDataStorage,
+  storageCheckOf,
+  storageRefusal,
+  type LimitsTransport,
+  type StorageCheck,
+} from '../forge/ForgeRunGate.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+
+/**
+ * The storage a seed's records take once written, by the sizes Salesforce
+ * documents: each object's record count — the most a relation writes, as the
+ * guard counts it — at 2 KB a record, 4 KB a person account, 8 KB a campaign,
+ * 1 KB a campaign member, 4 KB an article.
+ *
+ * @param personObjects - The objects written as person accounts.
+ */
+export function seedStorageBytes(
+  template: Pick<SeedTemplate, 'objects'>,
+  personObjects: readonly string[],
+): number {
+  return template.objects.reduce(
+    (sum, object) =>
+      sum +
+      countedStorageBytes(object.objectApiName, {
+        rows: object.recordCount,
+        personAccounts: personObjects.includes(object.objectApiName) ? object.recordCount : 0,
+      }),
+    0,
+  );
+}
+
+/** What the seed takes against what the target has left, and why it cannot run when it cannot. */
+export interface SeedStorageGate {
+  check: StorageCheck;
+  /** Why nothing is written: the records take more than the target has left. */
+  refusal?: string;
+}
+
+/**
+ * Hold a seed to the data storage its target has left: refused past it, let
+ * through otherwise. A target that does not say what it has left — the user
+ * may not read its limits — lets the seed through, its check `unread`, for
+ * the caller to say so.
+ *
+ * @param target - The org, as the refusal names it.
+ */
+export async function seedStorageGate(
+  transport: LimitsTransport,
+  template: Pick<SeedTemplate, 'objects'>,
+  personObjects: readonly string[],
+  target: string,
+): Promise<SeedStorageGate> {
+  const plan = { storageBytes: seedStorageBytes(template, personObjects) };
+  let storage: Awaited<ReturnType<typeof readDataStorage>> | { unread: string };
+  try {
+    storage = await readDataStorage(transport);
+  } catch (err: unknown) {
+    storage = { unread: extractErrorMessage(err) };
+  }
+  const check = storageCheckOf(plan, storage);
+  const refusal = storageRefusal(check, target);
+  return refusal ? { check, refusal: `${refusal} Nothing was written.` } : { check };
+}

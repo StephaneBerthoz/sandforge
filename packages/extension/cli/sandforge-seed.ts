@@ -83,6 +83,11 @@ import { ReferenceLinker } from '../src/modules/seed/ReferenceLinker.js';
 import { FakerFallback } from '../src/modules/seed/FakerFallback.js';
 import { AIDataGenerator } from '../src/modules/seed/AIDataGenerator.js';
 import { readExistingParentIds } from '../src/modules/seed/existingParents.js';
+import { describedFieldsOf } from '../src/modules/seed/describedFields.js';
+import { seedObjectAccess } from '../src/modules/seed/seedObjectAccess.js';
+import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
+import { seedStorageGate } from '../src/modules/seed/seedStorage.js';
+import { formatMB, type StorageCheck } from '../src/modules/forge/ForgeRunGate.js';
 import { seedRunKept } from '../src/modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
@@ -114,7 +119,8 @@ Options:
                          the same numbers. Every run prints its seed
                                                            (default: drawn)
   --locale <xx_XX>       the names, addresses and phone numbers drawn:
-                         ${SUPPORTED_LOCALES.join(', ')}    (default: en_US)
+                         ${SUPPORTED_LOCALES.join(', ')}
+                                     (default: the org's default locale)
   --record-type <Object>=<Name>[,<Name>]
                          with --object, give that object's records this
                          record type, by API name; several take turns at
@@ -228,6 +234,13 @@ export function seededRandom(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/**
+ * What sets the faker's stream and the other rules' apart from the stream a
+ * relation draws from, all three from the run's seed.
+ */
+const FAKER_STREAM = 0x9e3779b9;
+const RULE_STREAM = 0x85ebca6b;
 
 /** `Child.Lookup=Parent`, each part an API name. */
 const RELATION_RE =
@@ -727,12 +740,17 @@ export function describeDistribution(distribution: SeedRelation['distribution'])
  * The orchestrator a run drives, the panel's, with what the command line
  * gives it: the org's reads and writes, the seed its draws are made with, the
  * locale the faker draws in. A dry run and a run built with the same seed give
- * each parent the same children.
+ * each parent the same children, and draw the same names, companies and
+ * values: the faker and the other rules draw from the seed too, each from a
+ * stream of its own, so that what one draws does not move the other's.
  */
 export function seedOrchestrator(deps: {
   insert: SeedOrchestratorDependencies['insert'];
   describeCreateableFields: NonNullable<SeedOrchestratorDependencies['describeCreateableFields']>;
   readExistingParentIds: NonNullable<SeedOrchestratorDependencies['readExistingParentIds']>;
+  describePicklistValues?: SeedOrchestratorDependencies['describePicklistValues'];
+  describeRequiredFields?: SeedOrchestratorDependencies['describeRequiredFields'];
+  objectAccess?: SeedOrchestratorDependencies['objectAccess'];
   seed: number;
   locale?: string;
 }): SeedOrchestrator {
@@ -740,6 +758,9 @@ export function seedOrchestrator(deps: {
     validator: new SeedValidator(),
     readExistingParentIds: deps.readExistingParentIds,
     describeCreateableFields: deps.describeCreateableFields,
+    ...(deps.describePicklistValues ? { describePicklistValues: deps.describePicklistValues } : {}),
+    ...(deps.describeRequiredFields ? { describeRequiredFields: deps.describeRequiredFields } : {}),
+    ...(deps.objectAccess ? { objectAccess: deps.objectAccess } : {}),
     planBuilder: new DataPlanBuilder(),
     // An AI generator that refuses. The faker answers every rule the templates
     // here carry, and a run that needs an API key is a run nobody can
@@ -752,7 +773,10 @@ export function seedOrchestrator(deps: {
             'AI key: use the panel for it, or replace the rule with a faker one.',
         );
       }),
-      fakerFallback: new FakerFallback(deps.locale),
+      fakerFallback: new FakerFallback(deps.locale, {
+        random: seededRandom(deps.seed ^ FAKER_STREAM),
+      }),
+      random: seededRandom(deps.seed ^ RULE_STREAM),
     }),
     referenceLinker: new ReferenceLinker(),
     insert: deps.insert,
@@ -760,6 +784,18 @@ export function seedOrchestrator(deps: {
     now: () => new Date().toISOString(),
     random: seededRandom(deps.seed),
   });
+}
+
+/** What the run says of the data storage its records take, against what the target has left. */
+export function storageLine(check: StorageCheck, target: string): string {
+  const taken = `data storage: about ${formatMB(check.estimateMB)} MB to write`;
+  if (check.verdict === 'unread') {
+    return `${taken}; what ${target} has left could not be read (${check.unread})`;
+  }
+  return (
+    `${taken}, ${target} has ${check.remainingMB} MB left of ${check.maxMB} MB` +
+    (check.verdict === 'near' ? ': close to what it has left' : '')
+  );
 }
 
 /** Run one seed from the given command line; exported so its parsing can be tested. */
@@ -778,6 +814,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`sandforge-seed  -> ${args.target}`);
   log(`seed: ${seed}  (--seed ${seed} draws the same again)`);
   const conn = makeConn(await loadOrg(args.target));
+  // Drawn in the org's own locale unless --locale says otherwise, as the
+  // panel draws.
+  const locale = await seedLocaleOf(args.locale, conn);
+  log(`locale: ${locale}${args.locale ? '' : "  (the org's; --locale draws in another)"}`);
 
   const now = new Date().toISOString();
   let template = prebuiltTemplate(args.templateId);
@@ -795,6 +835,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   /** What the run says of how it writes, beside its result: in the summary too. */
   const notes: string[] = [];
+  /** The objects written as person accounts, which take 4 KB of data storage a record. */
+  const personObjects: string[] = [];
   if (!template) {
     const objects: SeedTemplate['objects'] = [];
     for (const [index, spec] of args.objects.entries()) {
@@ -813,6 +855,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         }
         accountKind = decided.kind;
         if (accountKind === 'person') {
+          personObjects.push(ACCOUNT);
           const line = personAccountLine(chosen);
           log(line);
           notes.push(line.trim());
@@ -857,6 +900,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       updatedAt: now,
     };
   }
+
+  // The data storage the records take against what the target has left,
+  // before the first write, as the panel holds a seed: a dry run says what a
+  // real run would meet, and a real run past it writes nothing.
+  const storage = await seedStorageGate(conn, template, personObjects, args.target);
+  log(storageLine(storage.check, args.target));
+  if (storage.refusal) {
+    if (!args.dryRun) throw new Error(storage.refusal);
+    log(`  a real run would be refused: ${storage.refusal}`);
+  }
   log(`template: ${template.name} (${template.objects.length} object(s))`);
 
   const insert = async (
@@ -898,24 +951,28 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return { successIds, errors, rows };
   };
 
-  const creatableByObject = new Map<string, ReadonlySet<string>>();
+  const described = describedFieldsOf((objectApiName) => conn.sobject(objectApiName).describe());
 
   const orchestrator = seedOrchestrator({
     // A relation reads its parents from the org when told to, dry run or not:
     // a read writes nothing.
     readExistingParentIds: (objectApiName, where, limit) =>
       readExistingParentIds(conn, objectApiName, where, limit),
-    describeCreateableFields: async (objectApiName) => {
-      const cached = creatableByObject.get(objectApiName);
-      if (cached) return cached;
-      const described = await conn.sobject(objectApiName).describe();
-      const names = new Set(described.fields.filter((f) => f.createable).map((f) => f.name));
-      creatableByObject.set(objectApiName, names);
-      return names;
-    },
+    describeCreateableFields: described.createable,
+    describePicklistValues: described.picklistValues,
+    describeRequiredFields: async (objectApiName) =>
+      (await described.required(objectApiName)).filter(
+        (field) =>
+          !leftOutForAccountKind(
+            objectApiName,
+            field.fieldApiName,
+            personObjects.includes(objectApiName) ? 'person' : 'business',
+          ),
+      ),
+    objectAccess: seedObjectAccess(conn),
     insert,
     seed,
-    ...(args.locale !== undefined ? { locale: args.locale } : {}),
+    locale,
   });
 
   log(args.dryRun ? '\nexecuting… (DRY-RUN)' : '\nexecuting… (REAL)');

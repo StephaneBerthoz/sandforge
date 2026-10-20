@@ -11,6 +11,7 @@ import {
   rulesFromDescribe,
   seedOrchestrator,
   seededRandom,
+  storageLine,
 } from './sandforge-seed.js';
 import { FakerFallback } from '../src/modules/seed/FakerFallback.js';
 import { isReservedEmailDomain, isReservedPhone } from '../src/modules/seed/LocaleData.js';
@@ -158,6 +159,83 @@ describe('seeded draws', () => {
       expect(await contactsOf(seed, false)).toBe(expected(seed));
     }
     expect(expected(11)).not.toBe(expected(2026));
+  });
+
+  it('writes the same names and numbers for the same seed, and others for another', async () => {
+    // The seed drew the children of a relation only: the names came from the
+    // record's index, the same on every run whatever the seed.
+    const written = async (seed: number) => {
+      const sent: Array<Record<string, unknown>> = [];
+      const orchestrator = seedOrchestrator({
+        seed,
+        insert: async (_org, _object, records) => {
+          sent.push(...records);
+          return { successIds: records.map((_, i) => `dry-${i}`), errors: [] };
+        },
+        describeCreateableFields: async () => new Set(['FirstName', 'LastName', 'Score__c']),
+        readExistingParentIds: async () => [],
+      });
+      await orchestrator.execute(
+        {
+          id: 'cli-names',
+          name: 'sandforge-seed',
+          description: '',
+          version: 1,
+          strategy: 'faker',
+          objects: [
+            {
+              objectApiName: 'Contact',
+              recordCount: 20,
+              fieldRules: [
+                {
+                  fieldApiName: 'FirstName',
+                  ruleType: 'faker',
+                  config: { fakerMethod: 'firstName' },
+                },
+                {
+                  fieldApiName: 'LastName',
+                  ruleType: 'faker',
+                  config: { fakerMethod: 'lastName' },
+                },
+                {
+                  fieldApiName: 'Score__c',
+                  ruleType: 'random',
+                  config: { minValue: 0, maxValue: 99 },
+                },
+              ],
+              excludedFields: [],
+              insertOrder: 0,
+              batchSize: 200,
+            },
+          ],
+          tags: ['cli'],
+          createdAt: '2026-10-20T00:00:00.000Z',
+          updatedAt: '2026-10-20T00:00:00.000Z',
+        },
+        'TGT',
+      );
+      return sent;
+    };
+    expect(await written(7)).toEqual(await written(7));
+    expect(await written(7)).not.toEqual(await written(8));
+  });
+});
+
+describe('storage line', () => {
+  it('says what the records take against what the target has left', () => {
+    expect(
+      storageLine({ verdict: 'fits', estimateMB: 0.58, maxMB: 5, remainingMB: 5 }, 'my-dev-org'),
+    ).toBe('data storage: about 0.58 MB to write, my-dev-org has 5 MB left of 5 MB');
+    expect(
+      storageLine({ verdict: 'near', estimateMB: 4.2, maxMB: 5, remainingMB: 5 }, 'my-dev-org'),
+    ).toBe(
+      'data storage: about 4.2 MB to write, my-dev-org has 5 MB left of 5 MB: close to what it has left',
+    );
+    expect(
+      storageLine({ verdict: 'unread', estimateMB: 1, unread: 'API_DISABLED' }, 'my-dev-org'),
+    ).toBe(
+      'data storage: about 1 MB to write; what my-dev-org has left could not be read (API_DISABLED)',
+    );
   });
 });
 

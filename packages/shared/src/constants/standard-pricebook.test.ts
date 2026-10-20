@@ -4,9 +4,39 @@ import {
   PRICEBOOK_ENTRY_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   isPricebookEntry,
+  seedsStandardPricebook,
   splitStandardPricebookEntries,
   dedupePricebookEntries,
 } from './standard-pricebook.js';
+
+describe('seedsStandardPricebook', () => {
+  const toBook = {
+    ruleType: 'reference' as const,
+    config: { referenceObject: 'Pricebook2', referenceField: 'Id' },
+  };
+
+  it('reads a reference to a price book a seed does not write as the standard one', () => {
+    // The standard book is never created: a seed that wrote one made a custom
+    // book, and every price in it was refused.
+    expect(seedsStandardPricebook(toBook, new Set(['Product2', 'PricebookEntry']))).toBe(true);
+  });
+
+  it('leaves a reference to the price books a seed writes, and every other rule, alone', () => {
+    expect(seedsStandardPricebook(toBook, new Set(['Pricebook2', 'PricebookEntry']))).toBe(false);
+    expect(
+      seedsStandardPricebook(
+        { ruleType: 'reference', config: { referenceObject: 'Product2' } },
+        new Set(['PricebookEntry']),
+      ),
+    ).toBe(false);
+    expect(
+      seedsStandardPricebook(
+        { ruleType: 'static', config: { referenceObject: 'Pricebook2' } },
+        new Set(['PricebookEntry']),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe('isPricebookEntry', () => {
   it('names the one object the rule applies to', () => {

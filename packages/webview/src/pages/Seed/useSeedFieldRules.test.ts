@@ -219,10 +219,11 @@ describe('useSeedFieldRules', () => {
     });
 
     expect(count).toBe(2);
+    // The notes keep their own rule: an optional text field starts blank.
     expect(result.current.fieldConfigs[0].fields.map((f) => f.ruleType)).toEqual([
       'random',
       'picklist_random',
-      'faker',
+      'static',
     ]);
   });
 
@@ -291,7 +292,8 @@ describe('useSeedFieldRules', () => {
       objectApiName: 'Contact',
       objectLabel: 'Contact',
       fields: [
-        { ...describedField('Title', 'string'), length: 80 },
+        // The describe names the object, which makes Title a job title.
+        { ...describedField('Title', 'string'), length: 80, objectApiName: 'Contact' },
         describedField('Email', 'email'),
         describedField('Phone', 'phone'),
         describedField('Birthdate', 'date'),
@@ -339,8 +341,10 @@ describe('useSeedFieldRules', () => {
     act(() => {
       result.current.handleChangeFieldRule('Case', 'Subject', 'faker');
     });
+    // A case's subject is one a customer would write: the lorem sentence
+    // said nothing anyone could triage.
     expect(result.current.fieldConfigs[0].fields[0].config).toEqual({
-      fakerMethod: 'sentence',
+      fakerMethod: 'caseSubject',
       maxLength: 80,
     });
   });

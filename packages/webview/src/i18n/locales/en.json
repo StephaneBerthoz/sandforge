@@ -59,7 +59,8 @@
       "autopilotNotReady": "Autopilot is not loaded in this window yet, and nothing was changed in the org. Wait a few seconds, then try again; if it stays like this, reload the window (Developer: Reload Window).",
       "autopilotStorageExceeded": "The Autopilot run was refused before it wrote anything: its records take more data storage than the target org has left. Narrow the selection, or free data storage in the target org.",
       "autopilotWriteDeclined": "You cancelled the Autopilot run before it wrote anything. Nothing was written to the target org.",
-      "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked."
+      "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
+      "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}."
     }
   },
   "status": {
@@ -640,15 +641,23 @@
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud Starter",
-        "description": "Pre-built template for Sales Cloud with Accounts, Contacts, Opportunities, Products, and Price Books. Includes full referential integrity chain for OpportunityLineItems."
+        "description": "Accounts, contacts, opportunities, and products priced in the standard price book, with every opportunity's line items: 7,600 records, about 15 MB, more than the 5 MB of a Developer Edition."
       },
       "serviceCloudStarter": {
         "name": "Service Cloud Starter",
-        "description": "Pre-built template for Service Cloud with Accounts, Contacts, Cases, Case Comments, and Knowledge articles."
+        "description": "Accounts, contacts, cases, case comments and Knowledge articles: 3,800 records, about 7.6 MB, more than the 5 MB of a Developer Edition. The articles are skipped in an org without Knowledge."
       },
       "minimalDemo": {
         "name": "Minimal Demo",
         "description": "Lightweight demo template with just Accounts, Contacts, and Opportunities. Perfect for quick demos and testing."
+      },
+      "crmStarter": {
+        "name": "CRM Starter",
+        "description": "Accounts with their contacts, opportunities priced from the standard price book with their line items, and cases: about 300 records, under 1 MB, sized for the 5 MB of a new Developer Edition."
+      },
+      "leadsActivitiesStarter": {
+        "name": "Leads & Activities Starter",
+        "description": "Leads, the campaigns they answered, and the calls and meetings booked with them: about 110 records. A user without the Marketing User box gets the leads and their activities, and a word on the campaigns."
       }
     },
     "gallery": {
@@ -761,7 +770,49 @@
         "values": "Values"
       },
       "optional": "Fill the field rules from an industry persona (optional)",
-      "chosen": "Persona chosen: {{name}}"
+      "chosen": "Persona chosen: {{name}}",
+      "builtIn": {
+        "assureur-fr": {
+          "name": "French insurer",
+          "description": "French insurance company with policies, claims and policyholders."
+        },
+        "hospital-us": {
+          "name": "US hospital",
+          "description": "Hospital system with patients, procedures, and medical codes."
+        },
+        "ecommerce-b2c": {
+          "name": "B2C e-commerce",
+          "description": "Online retail with products, orders, customers, and reviews."
+        },
+        "banque-eu": {
+          "name": "European bank",
+          "description": "European bank with accounts, transactions, IBAN/BIC codes."
+        },
+        "startup-saas": {
+          "name": "SaaS startup",
+          "description": "SaaS company with subscriptions, MRR metrics, churn tracking."
+        },
+        "immobilier": {
+          "name": "Real estate",
+          "description": "Real estate agency with properties, mandates and viewings."
+        },
+        "education": {
+          "name": "Education",
+          "description": "Educational institution with students, courses, and grades."
+        },
+        "logistique": {
+          "name": "Logistics",
+          "description": "Logistics company with parcels, warehouses, and shipment tracking."
+        },
+        "rh": {
+          "name": "Human resources",
+          "description": "HR department with employees, leaves, payroll, and performance."
+        },
+        "ong": {
+          "name": "Non-profit",
+          "description": "Non-profit organization with donors, campaigns, and volunteers."
+        }
+      }
     },
     "adaptive": {
       "usingDefaults": "Using default field rules.",

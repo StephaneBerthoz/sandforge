@@ -523,6 +523,57 @@ describe('useMessageResponse', () => {
       },
     );
 
+    it('says a seed its data storage stopped in the interface language, with the figures', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message:
+              'The records to write take about 14.9 MB of data storage. Nothing was written.',
+            code: 'SEED_STORAGE_EXCEEDED',
+            estimateMB: 14.9,
+            remainingMB: 5,
+            maxMB: 5,
+            org: 'my-dev-org',
+          },
+          'req-1',
+        );
+      });
+      expect(result.current.errorCode).toBe('SEED_STORAGE_EXCEEDED');
+      expect(result.current.error).toBe(
+        i18n.t('common.refusal.seedStorageExceeded', {
+          estimate: 14.9,
+          remaining: 5,
+          max: 5,
+          org: 'my-dev-org',
+        }),
+      );
+      expect(result.current.error).toContain('14.9');
+      expect(result.current.error).toContain('my-dev-org');
+      expect(result.current.error).not.toContain('Nothing was written');
+    });
+
+    it("keeps the host's words for a storage refusal that came without its figures", () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          { message: 'Too big.', code: 'SEED_STORAGE_EXCEEDED' },
+          'req-1',
+        );
+      });
+      expect(result.current.error).toBe('Too big.');
+    });
+
     it('should use a generic message when the error payload has no message string', () => {
       const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
 

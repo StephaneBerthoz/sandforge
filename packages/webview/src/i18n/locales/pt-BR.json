@@ -59,7 +59,8 @@
       "autopilotNotReady": "O Autopilot ainda não foi carregado nesta janela, e nada foi alterado na org. Aguarde alguns segundos e tente novamente; se continuar assim, recarregue a janela (Developer: Reload Window).",
       "autopilotStorageExceeded": "A execução do Autopilot foi recusada antes de gravar qualquer coisa: seus registros ocupam mais armazenamento de dados do que resta na org de destino. Reduza a seleção ou libere armazenamento de dados na org de destino.",
       "autopilotWriteDeclined": "Você cancelou a execução do Autopilot antes que ela gravasse qualquer coisa. Nada foi gravado na org de destino.",
-      "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la."
+      "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",
+      "seedStorageExceeded": "O seed foi recusado antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Reduza o número de registros, escolha um modelo mais leve ou libere armazenamento de dados em {{org}}."
     }
   },
   "status": {
@@ -640,15 +641,23 @@
     "templates": {
       "salesCloudStarter": {
         "name": "Sales Cloud Starter",
-        "description": "Modelo pronto para Sales Cloud com Accounts, Contacts, Opportunities, Products e Price Books. Inclui a cadeia completa de integridade referencial para OpportunityLineItems."
+        "description": "Contas, contatos, oportunidades e produtos com preço no catálogo de preços padrão, com os itens de cada oportunidade: 7.600 registros, cerca de 15 MB, mais que os 5 MB de uma Developer Edition."
       },
       "serviceCloudStarter": {
         "name": "Service Cloud Starter",
-        "description": "Modelo pronto para Service Cloud com Accounts, Contacts, Cases, Case Comments e artigos de Knowledge."
+        "description": "Contas, contatos, casos, comentários de caso e artigos do Knowledge: 3.800 registros, cerca de 7,6 MB, mais que os 5 MB de uma Developer Edition. Os artigos são ignorados em uma org sem Knowledge."
       },
       "minimalDemo": {
         "name": "Demo mínima",
         "description": "Modelo de demo leve com apenas Accounts, Contacts e Opportunities. Perfeito para demos rápidas e testes."
+      },
+      "crmStarter": {
+        "name": "Início CRM",
+        "description": "Contas com seus contatos, oportunidades com preços do catálogo de preços padrão e seus itens, e casos: cerca de 300 registros, menos de 1 MB, na medida dos 5 MB de uma Developer Edition nova."
+      },
+      "leadsActivitiesStarter": {
+        "name": "Início Leads e atividades",
+        "description": "Leads, as campanhas a que responderam e as ligações e reuniões marcadas com eles: cerca de 110 registros. Um usuário sem a caixa Usuário de marketing recebe os leads e suas atividades, e um aviso sobre as campanhas."
       }
     },
     "gallery": {
@@ -761,7 +770,49 @@
         "values": "Valores"
       },
       "optional": "Preencher as regras dos campos a partir de uma persona do setor (opcional)",
-      "chosen": "Persona escolhida: {{name}}"
+      "chosen": "Persona escolhida: {{name}}",
+      "builtIn": {
+        "assureur-fr": {
+          "name": "Seguradora francesa",
+          "description": "Seguradora francesa com apólices, sinistros e segurados."
+        },
+        "hospital-us": {
+          "name": "Hospital americano",
+          "description": "Sistema hospitalar com pacientes, procedimentos e códigos médicos."
+        },
+        "ecommerce-b2c": {
+          "name": "E-commerce B2C",
+          "description": "Varejo online com produtos, pedidos, clientes e avaliações."
+        },
+        "banque-eu": {
+          "name": "Banco europeu",
+          "description": "Banco europeu com contas, transações e códigos IBAN/BIC."
+        },
+        "startup-saas": {
+          "name": "Startup SaaS",
+          "description": "Empresa SaaS com assinaturas, métricas de MRR e acompanhamento de churn."
+        },
+        "immobilier": {
+          "name": "Imobiliária",
+          "description": "Imobiliária com imóveis, mandatos e visitas."
+        },
+        "education": {
+          "name": "Educação",
+          "description": "Instituição de ensino com alunos, cursos e notas."
+        },
+        "logistique": {
+          "name": "Logística",
+          "description": "Empresa de logística com encomendas, armazéns e rastreamento de remessas."
+        },
+        "rh": {
+          "name": "Recursos humanos",
+          "description": "Departamento de RH com funcionários, afastamentos, folha de pagamento e desempenho."
+        },
+        "ong": {
+          "name": "ONG/Associação",
+          "description": "Organização sem fins lucrativos com doadores, campanhas e voluntários."
+        }
+      }
     },
     "adaptive": {
       "usingDefaults": "Usando as regras de campo padrão.",

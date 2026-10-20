@@ -22,6 +22,8 @@
  * products in scope alongside the custom ones, and writes them first.
  */
 
+import type { FieldRule } from '../types/seed.types.js';
+
 /** The join between a product and a price book. */
 export const PRICEBOOK_ENTRY_OBJECT = 'PricebookEntry';
 
@@ -42,6 +44,26 @@ export const STANDARD_PRICEBOOK_SOQL = 'SELECT Id FROM Pricebook2 WHERE IsStanda
 /** Whether this object is the one the rule above applies to. */
 export function isPricebookEntry(objectApiName: string): boolean {
   return objectApiName === PRICEBOOK_ENTRY_OBJECT;
+}
+
+/**
+ * Whether a seed's rule points at the org's standard price book: a reference
+ * to `Pricebook2` in a seed that writes no price book. The standard book is
+ * never created — every org has one, active or not — so such a rule is
+ * matched to it at the run, and its prices are the standard prices every
+ * other price needs first. A seed of a fresh Developer Edition writes its
+ * standard prices, the opportunities pointed at that book and their line
+ * items with the book left inactive, as the org takes them.
+ */
+export function seedsStandardPricebook(
+  rule: Pick<FieldRule, 'ruleType' | 'config'>,
+  writtenObjects: ReadonlySet<string>,
+): boolean {
+  return (
+    rule.ruleType === 'reference' &&
+    rule.config.referenceObject === PRICEBOOK_OBJECT &&
+    !writtenObjects.has(PRICEBOOK_OBJECT)
+  );
 }
 
 /**

@@ -929,7 +929,7 @@ async function openSeedStart(page: Page): Promise<MockBridge> {
 }
 
 test.describe('Seed — the start, and a template seeded from its one confirmation', () => {
-  test('opens on the gallery, the small demo first, and seeds it on the panel’s org after one Start', async ({
+  test('opens on the gallery, the CRM starter first, and seeds it on the panel’s org after one Start', async ({
     page,
   }) => {
     // The gallery sat behind "AI Generate" then "Start from Scratch"; Use This
@@ -940,7 +940,7 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
     const cards = page.getByTestId('template-gallery').locator('[data-testid^="template-card-"]');
     await expect(cards.first()).toHaveAttribute(
       'data-testid',
-      'template-card-prebuilt-minimal-demo',
+      'template-card-prebuilt-crm-starter',
     );
     await expect(cards.first().getByTestId('template-recommended')).toHaveText('Start here');
     await expect(page.getByTestId('seed-other-ways')).toContainText('Generate data');
@@ -952,6 +952,10 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
     await expect(page.getByTestId('quick-seed-org-selector')).toHaveValue('org-src-1');
     await expect(page.getByRole('button', { name: 'Start Seeding' })).toHaveCount(1);
     await page.getByTestId('quick-seed-count-Contact').fill('10');
+    // The cases a relation places under the contacts follow them; products
+    // set to 0 are left out, with their prices and the line items on them.
+    await expect(page.getByTestId('quick-seed-count-Case')).toHaveValue('6');
+    await page.getByTestId('quick-seed-count-Product2').fill('0');
 
     await page.getByTestId('btn-quick-seed-start').click();
     const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
@@ -960,8 +964,14 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
       template: { id: string; objects: Array<{ objectApiName: string; recordCount: number }> };
     };
     expect(sent.orgId).toBe('org-src-1');
-    expect(sent.template.id).toBe('prebuilt-minimal-demo');
+    expect(sent.template.id).toBe('prebuilt-crm-starter');
     expect(sent.template.objects.find((o) => o.objectApiName === 'Contact')?.recordCount).toBe(10);
+    expect(sent.template.objects.map((o) => o.objectApiName)).toEqual([
+      'Account',
+      'Contact',
+      'Opportunity',
+      'Case',
+    ]);
 
     // Running: its Cancel, which the one-click path did not have, stops it by its id.
     const operationId = String(request.id);

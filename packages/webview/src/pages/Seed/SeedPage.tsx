@@ -27,6 +27,7 @@ import { useQuickSeed } from './useQuickSeed';
 import { CsvUploadWizard } from './CsvUpload/CsvUploadWizard';
 import { CloneWizard } from './Clone/CloneWizard';
 import { PersonaGallery } from './Persona/PersonaGallery';
+import { personaName } from './Persona/personaText';
 import { SeedRunHistory } from './SeedRunHistory';
 
 /**
@@ -63,7 +64,7 @@ function modeForIntent(intent: NavigationIntent | null): SeedMode {
  * no field rule, and its "Browse Templates" button did nothing.
  */
 export const SeedPage: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const navigate = useAppStore((s) => s.navigate);
   const state = useSeedWizardState(t);
@@ -335,7 +336,7 @@ export const SeedPage: React.FC = () => {
             >
               <summary className="cursor-pointer text-xs font-medium text-(--sf-text-primary)">
                 {selectedPersona
-                  ? t('seed.persona.chosen', { name: selectedPersona.name })
+                  ? t('seed.persona.chosen', { name: personaName(selectedPersona, t, i18n) })
                   : t('seed.persona.optional')}
               </summary>
               {personaOpen && (

@@ -25,10 +25,23 @@ export const FAKER_METHOD_BY_FIELD_TYPE: Readonly<Record<string, FakerMethodName
 };
 
 /**
+ * A part of an address by its field name: the standard address fields
+ * (`Street`, `BillingStreet`, `MailingStreet`, `ShippingStreet`,
+ * `OtherStreet`) and a custom field whose name ends in the part after an
+ * underscore. A name that merely ends in the letters — `RealEstate__c` —
+ * is no address.
+ */
+function addressPart(part: string): RegExp {
+  return new RegExp(`^(billing|mailing|shipping|other)?${part}$|_${part}$`, 'i');
+}
+
+/**
  * Method by field name, for text fields, checked in order against the API
  * name without its `__c` or `__pc` suffix. A field these leave unanswered and
  * whose name ends in `Name` holds the name its object gives it (see
- * {@link defaultFakerMethod}); any other text field gets a sentence.
+ * {@link defaultFakerMethod}); any other text field gets a sentence when a
+ * method is asked for, and starts blank in the wizard unless the org requires
+ * it (see {@link describedFieldRule}).
  */
 export const FAKER_METHOD_BY_FIELD_NAME: ReadonlyArray<{
   pattern: RegExp;
@@ -50,6 +63,17 @@ export const FAKER_METHOD_BY_FIELD_NAME: ReadonlyArray<{
   // a person's, a lead's company and a user's company name are a company's.
   { pattern: /(contact|person|assistant|supplied)_?name$/i, method: 'name' },
   { pattern: /(company|account)_?name$|company$/i, method: 'company' },
+  // The parts of an address, standard (`BillingCity`, `MailingStreet`, a
+  // lead's `City`) or custom (`Office_City__c`). Every other text field got a
+  // lorem sentence: a street, a city and a postal code read "lorem ipsum
+  // dolor sit amet", and each part is drawn from the same address of the
+  // locale, so a record's city sits in its state and country.
+  { pattern: addressPart('street'), method: 'streetAddress' },
+  { pattern: addressPart('city'), method: 'city' },
+  { pattern: addressPart('state'), method: 'state' },
+  { pattern: addressPart('postal_?code'), method: 'zipCode' },
+  { pattern: /zip_?code$/i, method: 'zipCode' },
+  { pattern: addressPart('country'), method: 'country' },
 ];
 
 /** Describe types read by field name. */
@@ -79,23 +103,51 @@ const PERSON_ACCOUNT_FIELD = /^Person[A-Z]|__pc$/;
  * name on any other object. Without an object it is a company's: the standard
  * name fields of a person say whose name they hold (first, last, middle,
  * assistant), and the `Name` of a contact, a lead or a user is a compound no
- * insert writes, so a `Name` a seed fills belongs to something else.
+ * insert writes, so a `Name` a seed fills belongs to something else. Any
+ * other text field, which nothing in its name reads, gets a sentence.
  */
 export function defaultFakerMethod(
   fieldType: string,
   fieldApiName: string,
   objectApiName?: string,
 ): FakerMethodName | undefined {
+  const byName = fakerMethodByName(fieldType, fieldApiName, objectApiName);
+  if (byName) return byName;
+  return TEXT_FIELD_TYPES.has(fieldType.toLowerCase()) ? 'sentence' : undefined;
+}
+
+/**
+ * The method a field's type and name say it holds, or undefined for a text
+ * field nothing in its name reads — the sentence {@link defaultFakerMethod}
+ * falls back on — and for a type no method fills sensibly.
+ */
+function fakerMethodByName(
+  fieldType: string,
+  fieldApiName: string,
+  objectApiName: string | undefined,
+): FakerMethodName | undefined {
   const type = fieldType.toLowerCase();
+  const name = fieldApiName.replace(/__p?c$/i, '');
+  const person =
+    PERSON_ACCOUNT_FIELD.test(fieldApiName) ||
+    (objectApiName !== undefined && PERSON_OBJECTS.has(objectApiName.toLowerCase()));
   if (TEXT_FIELD_TYPES.has(type)) {
-    const name = fieldApiName.replace(/__p?c$/i, '');
     const byName = FAKER_METHOD_BY_FIELD_NAME.find(({ pattern }) => pattern.test(name))?.method;
     if (byName) return byName;
-    if (!/name$/i.test(name)) return 'sentence';
-    const person =
-      PERSON_ACCOUNT_FIELD.test(fieldApiName) ||
-      (objectApiName !== undefined && PERSON_OBJECTS.has(objectApiName.toLowerCase()));
+    // A person's title is the job they hold; an article's or a custom
+    // object's title is not.
+    if (person && /^title$/i.test(name)) return 'jobTitle';
+    // A case is opened about something a customer reports: the lorem
+    // subjects of seeded cases said nothing anyone could triage.
+    if (objectApiName?.toLowerCase() === 'case' && /^subject$/i.test(name)) return 'caseSubject';
+    if (!/name$/i.test(name)) return undefined;
     return person ? 'name' : 'company';
+  }
+  if (type === 'date') {
+    // Every date was drawn before 2024: each seeded opportunity was already
+    // past its close, and each contact born a year or two ago.
+    if (/birth_?date$/i.test(name)) return 'birthdate';
+    if (/close_?date$/i.test(name)) return 'futureDate';
   }
   // Own keys only: a describe type is data from the org.
   return Object.prototype.hasOwnProperty.call(FAKER_METHOD_BY_FIELD_TYPE, type)
@@ -118,6 +170,11 @@ export interface DescribedSeedField {
    * holds: a person's on a contact, a company's on an account.
    */
   objectApiName?: string;
+  /**
+   * Whether the org refuses a record without the field. A text field nothing
+   * in its name reads starts blank unless the org requires it.
+   */
+  required?: boolean;
 }
 
 /**
@@ -172,6 +229,20 @@ export function describedFieldRule(field: DescribedSeedField): {
   // coordinate is left for the author to set, like a type no generator fits.
   if (field.type === 'double' && COORDINATE_FIELD.test(field.fieldApiName)) {
     return { ruleType: 'static', config: {} };
+  }
+  // A text field nothing in its name reads starts blank, unless the org
+  // requires it: each one got a lorem sentence — a site, an account number, a
+  // department, a year cut to "lore" — and the records a wizard run wrote
+  // looked broken. The command line fills what the platform insists on and
+  // the fields a record is known by; the wizard starts from the same, and a
+  // field left blank is set in Configure.
+  if (
+    field.required === false &&
+    TEXT_FIELD_TYPES.has(field.type.toLowerCase()) &&
+    !fakerMethodByName(field.type, field.fieldApiName, field.objectApiName)
+  ) {
+    // The field's length stays with it, for the rule it is given in Configure.
+    return { ruleType: 'static', config: field.length > 0 ? { maxLength: field.length } : {} };
   }
   const fakerMethod = defaultFakerMethod(field.type, field.fieldApiName, field.objectApiName);
   // A whole number is drawn up to 1000, which a field of fewer digits refuses:
