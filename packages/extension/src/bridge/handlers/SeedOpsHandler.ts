@@ -5,12 +5,7 @@ import type {
   SeedExecutionResult,
   SeedExecuteRequest,
 } from '@sandforge/shared';
-import {
-  recordWriteHeaders,
-  integerDigitsOf,
-  sanitizeSoqlObjectName,
-  guardTierOf,
-} from '@sandforge/shared';
+import { integerDigitsOf, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -53,25 +48,10 @@ import {
 } from '../validatePayload.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
-import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import type {
-  BulkApiConnection,
-  BulkApiExecutorDeps,
-  BulkExecutionResult,
-} from '../../core/engine/BulkApiExecutor.js';
-import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import { seedInsert, type SeedInsertConnection } from '../../modules/seed/seedInsert.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
-import type {
-  InsertedRow,
-  InsertResult,
-  SeedProgressEvent,
-} from '../../modules/seed/SeedOrchestrator.js';
-import {
-  bulkSaveErrorDetail,
-  recordErrorText,
-  saveErrorDetail,
-} from '../../core/common/existingRecordMatch.js';
+import type { InsertResult, SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import {
   personRecordTypes,
@@ -89,12 +69,8 @@ import {
 } from '../../modules/seed/seedAutomation.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { seedLocaleOf } from '../../modules/seed/seedLocale.js';
-import { objectsUnderDuplicateRules } from '../../modules/seed/seedDuplicateRules.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { isUncopyableObject } from '@sandforge/shared';
-
-/** Record count threshold above which streaming pipeline is used per object. */
-const STREAMING_THRESHOLD = 10_000;
 
 /** The code a seed refused for the data storage it takes is answered with. */
 const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
@@ -180,35 +156,6 @@ function capResultForBridge(result: SeedExecutionResult): SeedExecutionResult {
 function seedFailureReason(result: SeedExecutionResult): string {
   const first = result.objectResults.flatMap((object) => object.errors)[0];
   return first ?? 'The seed wrote no records.';
-}
-
-/**
- * What a Bulk API job answered for each record, in the order sent, its
- * refusals read with the code and fields of their `sf__Error`
- * (`bulkSaveErrorDetail`): what a row refused on a field a validation rule
- * named is sent again from. Nothing when the job's answer cannot be laid on
- * the records one for one — a row matched to none, a record written without
- * its id said — or when the cancel aborted it: a row is never sent again on a
- * guess.
- */
-function bulkRows(result: BulkExecutionResult, sent: number): InsertedRow[] | undefined {
-  if (result.aborted || result.outcomes.length !== sent || (result.unmatchedIds?.length ?? 0) > 0) {
-    return undefined;
-  }
-  if (result.failures.some((failure) => failure.recordIndex < 0)) return undefined;
-  const rows: InsertedRow[] = new Array<InsertedRow>(sent);
-  for (const outcome of result.outcomes) {
-    if (outcome.recordIndex < 0 || outcome.recordIndex >= sent) return undefined;
-    if (outcome.success) {
-      if (!outcome.id) return undefined;
-      rows[outcome.recordIndex] = { id: outcome.id };
-    } else {
-      const error = outcome.error ?? 'Unknown error';
-      const detail = bulkSaveErrorDetail(error);
-      rows[outcome.recordIndex] = { error, ...(detail ? { errorDetails: [detail] } : {}) };
-    }
-  }
-  return rows.every((row) => row !== undefined) ? rows : undefined;
 }
 
 /** Message types handled by SeedOpsHandler. */
@@ -1060,7 +1007,6 @@ export class SeedOpsHandler implements DomainHandler {
 
     try {
       // Build robustness-aware insert function
-      const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
       const bulkManager = bulkManagerOf(this.deps);
       const retryOp = new RetryableOperation({
         retryConfig: robustnessConfig.retry,
@@ -1095,159 +1041,17 @@ export class SeedOpsHandler implements DomainHandler {
         this.liveTracker?.updateProgress(operationId, pct, overall, overallTotal, step);
       };
 
-      // An object an active duplicate rule watches goes through REST, whose
-      // header lets the rule's matches be saved, rather than as a Bulk API job,
-      // which carries none (`objectsUnderDuplicateRules`). Read once for the run.
-      let duplicateRules: Promise<ReadonlySet<string> | undefined> | undefined;
-      const watchedByDuplicateRule = async (objectApiName: string): Promise<boolean> => {
-        duplicateRules ??= objectsUnderDuplicateRules(conn).then((ruled) => {
-          if (!ruled) {
-            this.deps.log(
-              `[WARN] seed:execute ${operationId}: the org's duplicate rules could not be read: ` +
-                'an object of more than the Bulk API threshold goes as a Bulk API job, which a ' +
-                'duplicate rule may refuse',
-            );
-          }
-          return ruled;
-        });
-        const watched = (await duplicateRules)?.has(objectApiName) === true;
-        if (watched) {
-          this.deps.log(
-            `[INFO] seed:execute ${operationId}: ${objectApiName} goes through REST: an active ` +
-              'duplicate rule watches it, which a Bulk API job cannot waive',
-          );
-        }
-        return watched;
-      };
-
-      const insertRecords = async (
-        _orgId: string,
-        objectApiName: string,
-        records: Record<string, unknown>[],
-        batchSize: number,
-      ): Promise<InsertResult> => {
-        // Streaming path for large record sets
-        if (records.length > STREAMING_THRESHOLD) {
-          // A cancel that came before the insert opens no job: see the Bulk
-          // API path.
-          if (abortController.signal.aborted) return { successIds: [], errors: [], stopped: true };
-          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: conn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              reportInsertProgress(processed, total, `Streaming insert ${objectApiName}`);
-            },
-          };
-          const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps,
-            objectApiName,
-            'insert',
-            chunkedExecutor.createChunkGenerator(records),
-            records.length,
-          );
-          return {
-            successIds: streamResult.successIds,
-            errors: streamResult.errors,
-            // An upload the cancel stopped answers with nothing written: told
-            // nothing more, the run went on to the next object.
-            ...(streamResult.aborted ? { stopped: true } : {}),
-          };
-        }
-
-        if (
-          bulkExecutor.shouldUseBulkApi(records.length) &&
-          !(await watchedByDuplicateRule(objectApiName))
-        ) {
-          // Bulk API 2.0 path. A cancel that came before the insert opens no
-          // job: the executor opened one all the same, then aborted it before
-          // its upload, which wrote nothing but asked the org for a job, and
-          // for its abort, for an insert that never started.
-          if (abortController.signal.aborted) return { successIds: [], errors: [], stopped: true };
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: conn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              reportInsertProgress(processed, total, `Bulk insert ${objectApiName}`);
-            },
-            signal: abortController.signal,
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectApiName,
-            'insert',
-            records,
-          );
-          const rows = bulkRows(bulkResult, records.length);
-          return {
-            successIds: bulkResult.successIds,
-            errors: bulkResult.failures.map((f) => f.error),
-            ...(rows ? { rows } : {}),
-            // The cancel aborted the job before it was closed, as it does a
-            // streamed upload: none of its records was written.
-            ...(bulkResult.aborted ? { stopped: true } : {}),
-          };
-        }
-
-        // REST API path with retry and batching
-        const successIds: string[] = [];
-        const errors: string[] = [];
-        // What the org answered per record, in order: a row refused on fields
-        // a validation rule named is sent again without them from it.
-        const rows: InsertedRow[] = [];
-
-        for (let i = 0; i < records.length; i += batchSize) {
-          // A cancel stops the insert before each batch, with what the
-          // batches before it created: the rest of a large object used to be
-          // inserted after the seed was cancelled. The first batch included,
-          // as in the writer Sync writes through: the run looks at the cancel
-          // just before it inserts, and nothing between the two waits today,
-          // but a cancel that came between them would still send a batch.
-          if (abortController.signal.aborted) {
-            return { successIds, errors, rows, stopped: true };
-          }
-          const batch = records.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            // Seeded rows are invented and land in an org that may already
-            // hold rows like them — a duplicate rule stops exactly that. Forge
-            // learnt it in 1.25.3 and Sync in 1.28.0; a hundred seeded
-            // contacts were refused here for want of the same header. A
-            // unique index still refuses, which is right.
-            return conn
-              .sobject(objectApiName)
-              .create(batch, { headers: recordWriteHeaders() }) as Promise<
-              Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>
-            >;
-          });
-          // The batch failed and the cancel came before it was tried again:
-          // none of it was created, and nothing after it is sent.
-          if (retryResult.cancelled) return { successIds, errors, rows, stopped: true };
-
-          if (retryResult.success && retryResult.result) {
-            for (const r of retryResult.result) {
-              if (r.success && r.id) {
-                successIds.push(r.id);
-                rows.push({ id: r.id });
-              } else {
-                const error = recordErrorText(r.errors);
-                errors.push(error);
-                rows.push({ error, errorDetails: (r.errors ?? []).map(saveErrorDetail) });
-              }
-            }
-          } else {
-            // The whole batch is lost, not one record: `errors.length` is what
-            // SeedOrchestrator reports as recordsFailed, so a single push made
-            // a 180-record wipe-out read as "1 failed".
-            const failMsg = retryResult.error?.message ?? 'Insert failed after retries';
-            for (let k = 0; k < batch.length; k++) {
-              errors.push(failMsg);
-              rows.push({ error: failMsg });
-            }
-          }
-        }
-
-        return { successIds, errors, rows };
-      };
+      // The write path the command line takes too: see `seedInsert`.
+      const insertRecords = seedInsert({
+        conn: conn as unknown as SeedInsertConnection,
+        bulkThreshold: robustnessConfig.bulk.threshold,
+        bulkManager,
+        retry: retryOp,
+        signal: abortController.signal,
+        label: `seed:execute ${operationId}`,
+        log: (line) => this.deps.log(line),
+        onProgress: reportInsertProgress,
+      });
       const insertFn = async (
         orgId: string,
         objectApiName: string,

@@ -164,19 +164,41 @@ export class AutopilotHandler implements DomainHandler {
   private orchestrator?: AutopilotOrchestrator;
   private registry?: BackgroundOperationRegistry;
   private liveTracker?: LiveOperationTracker;
-  /** What reads the target's automation: Forge's reader, given with Forge's services. */
-  private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
+  /**
+   * What reads the target's automation for a run's gate: the handler's own
+   * reader, as Forge reads it, unless another is set. It was Forge's, handed
+   * over once Forge's composition had loaded: a run started before that, the
+   * Forge page never opened, counted none of the emails the target's flows
+   * send, and said so.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
   /**
-   * Inject what reads the target's automation, the reader Forge's Review and
-   * clone read it with: a run's gate counts the emails the target's flows
-   * send as the plan's records go in.
+   * Another reader of the target's automation than the handler's own: a run's
+   * gate counts the emails the target's flows send as the plan's records go in.
    */
   setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
     this.targetAutomation = reader;
+  }
+
+  /** The handler's own reader of the target's automation, as Forge reads it, off the activation path. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
   }
 
   /** Inject autopilot orchestrator. */
@@ -959,13 +981,6 @@ export class AutopilotHandler implements DomainHandler {
     writePlan: WritePlan,
   ): Promise<EmailCheck[]> {
     const reader = this.targetAutomation;
-    if (!reader) {
-      this.deps.log(
-        "[WARN] autopilot:execute: no reader of the target org's automation is set up: " +
-          'the emails its flows send were not counted',
-      );
-      return [];
-    }
     const emails = await autopilotEmails({
       plan: writePlan,
       objects: objectsThePlanWrites(plan),

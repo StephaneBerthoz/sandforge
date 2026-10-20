@@ -1574,3 +1574,76 @@ describe('a run of whole tables read page by page', () => {
     expect(vi.mocked(whole.deps.queryRecords).mock.calls.length).toBeGreaterThan(0);
   });
 });
+
+describe('a run of whole tables, with owners the target may not have', () => {
+  const OWNER = '005000000000001AAA';
+  const OTHER = '005000000000002AAA';
+  const MAPPED = '005000000000003AAA';
+  const TARGET_USER = '005000000000009AAA';
+  const schema: Schema = {
+    Contact: {
+      fields: [text('LastName'), lookup('OwnerId', 'User', true)],
+      rows: [
+        { Id: sourceId('Contact', 1), LastName: 'One', OwnerId: OWNER },
+        { Id: sourceId('Contact', 2), LastName: 'Two', OwnerId: OTHER },
+        { Id: sourceId('Contact', 3), LastName: 'Three', OwnerId: MAPPED },
+      ],
+    },
+  };
+  const graph = graphOf([node('Contact', 3)], []);
+
+  /** Run the contacts over a target whose users are `held`, or that refuses to say. */
+  async function runWith(held: string[] | 'refused', options: ExecuteOptions = {}) {
+    const orgs = fakeOrgs(schema);
+    const read = orgs.deps.queryRecords;
+    const asked: string[] = [];
+    orgs.deps.queryRecords = vi.fn(async (org: string, soql: string, onTruncated?: () => void) => {
+      if (org === 'tgt' && / FROM User /.test(soql)) {
+        asked.push(soql);
+        if (held === 'refused') throw new Error('INSUFFICIENT_ACCESS');
+        return held.filter((id) => soql.includes(id)).map((Id) => ({ Id }));
+      }
+      return read(org, soql, onTruncated);
+    });
+    const events: ForgeProgressEvent[] = [];
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+      stream: {},
+      ...options,
+    });
+    const owners = Object.values(orgs.written()['Contact'] ?? {}).map((row) => row['OwnerId']);
+    return { summary, events, owners, asked };
+  }
+
+  it('writes without its owner a row whose owner the target holds no user of, and says so', async () => {
+    // Two scratch orgs share no user: every contact of a run of whole tables
+    // was refused on its owner with INVALID_CROSS_REFERENCE_KEY.
+    const { summary, events, owners, asked } = await runWith([OWNER]);
+
+    expect(summary.successCount).toBe(3);
+    expect(owners.filter((owner) => owner !== undefined)).toEqual([OWNER]);
+    expect(asked).toHaveLength(1);
+    expect(events.find((e) => e.status === 'done')?.message).toContain(
+      'written without a lookup naming a record the target does not hold, which the platform fills (the owner with the user the run writes as): OwnerId on 2',
+    );
+  });
+
+  it("puts a mapped owner's user of the target in place, without asking about the source's", async () => {
+    const { owners, asked } = await runWith([], { ownerMappings: { [MAPPED]: TARGET_USER } });
+
+    expect(owners.filter((owner) => owner !== undefined)).toEqual([TARGET_USER]);
+    expect(asked.join(' ')).not.toContain(MAPPED);
+  });
+
+  it('carries the owners as read when the target will not say which users it holds', async () => {
+    const { owners } = await runWith('refused');
+
+    expect(owners.sort()).toEqual([MAPPED, OTHER, OWNER].sort());
+  });
+
+  it('asks nothing of a run that nullifies: it never carries an owner', async () => {
+    const { owners, asked } = await runWith([], { referenceFallback: 'nullify' });
+
+    expect(asked).toEqual([]);
+    expect(owners).toEqual([undefined, undefined, undefined]);
+  });
+});

@@ -11,7 +11,11 @@ import { BYTES_PER_MB, FORGE_READ_CEILING_PER_OBJECT, leftOutByTheUser } from '@
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
 import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
-import { runAnonymization, type ForgeAnonymizationMethods } from './ForgeAnonymizer.js';
+import {
+  runAnonymization,
+  type ForgeAnonymizationMethods,
+  type PIIFieldInfo,
+} from './ForgeAnonymizer.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { finishedRunStatus, forgeRunResult } from './runResult.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
@@ -244,115 +248,15 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   async execute(
     graph: ForgeGraph,
     config: ForgeConfig,
-    runOptions?: Pick<
-      ExecuteOptions,
-      'recordTypeMappings' | 'writtenBefore' | 'beforeWrite' | 'stream'
-    > & {
-      anonymizationRules?: ForgeAnonymizationMethods;
-      files?: ForgeFileCopyOption;
-    },
+    runOptions?: ForgeRunOptions,
   ): Promise<ForgeExecutionResult> {
     const startTime = Date.now();
 
     try {
-      // When inputMode === 'record', activate scoped execution so the
-      // executor only clones the transitive closure of the root record
-      // instead of the whole graph. Orphan parent expansion flows
-      // through ForgeConfig. The maxRecordsPerObject cap
-      // applies to all input modes — it's a safety knob, not scope-only.
-      const recordTypeMappings = runOptions?.recordTypeMappings;
-      const anonymization = runAnonymization(
-        config.anonymizePII,
-        graph,
-        runOptions?.anonymizationRules,
-        (fields) => this.deps.discoveryService.personalFields(fields),
+      const scoped = forgeExecuteOptions(graph, config, runOptions, (fields) =>
+        this.deps.discoveryService.personalFields(fields),
       );
-      const files: ExecuteOptions['files'] = runOptions?.files
-        ? {
-            maxFileBytes: runOptions.files.maxFileSizeMB * BYTES_PER_MB,
-            acceptedAsIs: runOptions.files.acceptedAsIs,
-          }
-        : undefined;
-      const writtenBefore = runOptions?.writtenBefore;
-      const beforeWrite = runOptions?.beforeWrite;
-      // Read page by page when it reads whole tables: see `ExecuteOptions.stream`.
       const stream = runOptions?.stream;
-      // The objects unchecked on the Forge page leave the run as objects
-      // excluded by name: the rows that cannot be written without one of
-      // their records are held back and said, not sent for the target to
-      // refuse. Discovery's own — the empty tables, what it could not read —
-      // stay nodes the run skips. So do the objects the user chose on the
-      // Gaps tab not to write: what points at them goes as at any object
-      // outside the clone.
-      const leftOut = [
-        ...new Set([
-          ...graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName),
-          ...(config.excludedObjects ?? []),
-        ]),
-      ];
-      const excludedObjects = leftOut.length > 0 ? leftOut : undefined;
-      // A simulation goes through every stage a real run does and writes
-      // nothing; the decisions apply to both.
-      const dryRun = config.dryRun === true ? true : undefined;
-      const decisions = runDecisionsOf(config);
-      // Only said when the user keeps them: absent, the executor neutralizes
-      // every email address and phone number it writes.
-      const keepContactPoints = config.keepContactPoints === true ? true : undefined;
-      const scoped: ExecuteOptions | undefined =
-        config.inputMode === 'record' && typeof config.recordId === 'string'
-          ? {
-              rootRecordId: config.recordId,
-              rootObjectApiName: graph.nodes[0]?.objectApiName,
-              expandOrphanParents: config.expandOrphanParents,
-              maxRecordsPerObject: config.maxRecordsPerObject,
-              fieldExclusions: config.fieldExclusions,
-              excludedObjects,
-              ownerMappings: config.ownerMappings,
-              objectSoqlFilters: config.objectSoqlFilters,
-              fieldMappings: config.fieldMappings,
-              recordTypeMappings,
-              anonymization,
-              keepContactPoints,
-              files,
-              writtenBefore,
-              beforeWrite,
-              stream,
-              dryRun,
-              decisions,
-            }
-          : config.maxRecordsPerObject != null ||
-              config.fieldExclusions ||
-              excludedObjects ||
-              config.ownerMappings ||
-              config.objectSoqlFilters ||
-              config.fieldMappings ||
-              recordTypeMappings ||
-              anonymization ||
-              keepContactPoints ||
-              files ||
-              writtenBefore ||
-              beforeWrite ||
-              stream ||
-              dryRun ||
-              decisions
-            ? {
-                maxRecordsPerObject: config.maxRecordsPerObject,
-                fieldExclusions: config.fieldExclusions,
-                excludedObjects,
-                ownerMappings: config.ownerMappings,
-                objectSoqlFilters: config.objectSoqlFilters,
-                fieldMappings: config.fieldMappings,
-                recordTypeMappings,
-                anonymization,
-                keepContactPoints,
-                files,
-                writtenBefore,
-                beforeWrite,
-                stream,
-                dryRun,
-                decisions,
-              }
-            : undefined;
 
       // Forge sets each record's owner itself: the target's assignment rules
       // apply only when the run asks for them.
@@ -385,4 +289,138 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       this.deps.setReadOptions?.({ maxRecordsPerObject: FORGE_READ_CEILING_PER_OBJECT });
     }
   }
+}
+
+/**
+ * What a run is handed besides the user's config: the RecordType translation
+ * table built by querying both orgs before a run, the method per PII category
+ * Review holds, whether the files of the records are copied, for a retry,
+ * what the run it retries wrote, what is to see every row before the first is
+ * written, and how a run of whole tables is read page by page.
+ */
+export type ForgeRunOptions = Pick<
+  ExecuteOptions,
+  'recordTypeMappings' | 'writtenBefore' | 'beforeWrite' | 'stream'
+> & {
+  anonymizationRules?: ForgeAnonymizationMethods;
+  files?: ForgeFileCopyOption;
+};
+
+/**
+ * What the executor is asked to do by a run of `config` over `graph`, as
+ * {@link ForgeOrchestrator.execute} asks it: a run from a record reads what
+ * that record reaches; any other reads whole tables, each through its own
+ * filter, page by page once `runOptions.stream` is given. Exported so that a
+ * run of whole tables from the command line is handed to the executor as the
+ * panel's is, rather than by a copy of these rules that could drift from them.
+ *
+ * @param personalFieldsOf - The personal fields of an object, as discovery
+ *   names them: what anonymization covers on a record read from outside the
+ *   graph.
+ */
+export function forgeExecuteOptions(
+  graph: ForgeGraph,
+  config: ForgeConfig,
+  runOptions: ForgeRunOptions | undefined,
+  personalFieldsOf: (fields: PIIFieldInfo[]) => string[],
+): ExecuteOptions | undefined {
+  // When inputMode === 'record', activate scoped execution so the
+  // executor only clones the transitive closure of the root record
+  // instead of the whole graph. Orphan parent expansion flows
+  // through ForgeConfig. The maxRecordsPerObject cap
+  // applies to all input modes — it's a safety knob, not scope-only.
+  const recordTypeMappings = runOptions?.recordTypeMappings;
+  const anonymization = runAnonymization(
+    config.anonymizePII,
+    graph,
+    runOptions?.anonymizationRules,
+    personalFieldsOf,
+  );
+  const files: ExecuteOptions['files'] = runOptions?.files
+    ? {
+        maxFileBytes: runOptions.files.maxFileSizeMB * BYTES_PER_MB,
+        acceptedAsIs: runOptions.files.acceptedAsIs,
+      }
+    : undefined;
+  const writtenBefore = runOptions?.writtenBefore;
+  const beforeWrite = runOptions?.beforeWrite;
+  // Read page by page when it reads whole tables: see `ExecuteOptions.stream`.
+  const stream = runOptions?.stream;
+  // The objects unchecked on the Forge page leave the run as objects
+  // excluded by name: the rows that cannot be written without one of
+  // their records are held back and said, not sent for the target to
+  // refuse. Discovery's own — the empty tables, what it could not read —
+  // stay nodes the run skips. So do the objects the user chose on the
+  // Gaps tab not to write: what points at them goes as at any object
+  // outside the clone.
+  const leftOut = [
+    ...new Set([
+      ...graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName),
+      ...(config.excludedObjects ?? []),
+    ]),
+  ];
+  const excludedObjects = leftOut.length > 0 ? leftOut : undefined;
+  // A simulation goes through every stage a real run does and writes
+  // nothing; the decisions apply to both.
+  const dryRun = config.dryRun === true ? true : undefined;
+  const decisions = runDecisionsOf(config);
+  // Only said when the user keeps them: absent, the executor neutralizes
+  // every email address and phone number it writes.
+  const keepContactPoints = config.keepContactPoints === true ? true : undefined;
+  const scoped: ExecuteOptions | undefined =
+    config.inputMode === 'record' && typeof config.recordId === 'string'
+      ? {
+          rootRecordId: config.recordId,
+          rootObjectApiName: graph.nodes[0]?.objectApiName,
+          expandOrphanParents: config.expandOrphanParents,
+          maxRecordsPerObject: config.maxRecordsPerObject,
+          fieldExclusions: config.fieldExclusions,
+          excludedObjects,
+          ownerMappings: config.ownerMappings,
+          objectSoqlFilters: config.objectSoqlFilters,
+          fieldMappings: config.fieldMappings,
+          recordTypeMappings,
+          anonymization,
+          keepContactPoints,
+          files,
+          writtenBefore,
+          beforeWrite,
+          stream,
+          dryRun,
+          decisions,
+        }
+      : config.maxRecordsPerObject != null ||
+          config.fieldExclusions ||
+          excludedObjects ||
+          config.ownerMappings ||
+          config.objectSoqlFilters ||
+          config.fieldMappings ||
+          recordTypeMappings ||
+          anonymization ||
+          keepContactPoints ||
+          files ||
+          writtenBefore ||
+          beforeWrite ||
+          stream ||
+          dryRun ||
+          decisions
+        ? {
+            maxRecordsPerObject: config.maxRecordsPerObject,
+            fieldExclusions: config.fieldExclusions,
+            excludedObjects,
+            ownerMappings: config.ownerMappings,
+            objectSoqlFilters: config.objectSoqlFilters,
+            fieldMappings: config.fieldMappings,
+            recordTypeMappings,
+            anonymization,
+            keepContactPoints,
+            files,
+            writtenBefore,
+            beforeWrite,
+            stream,
+            dryRun,
+            decisions,
+          }
+        : undefined;
+  return scoped;
 }

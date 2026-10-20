@@ -14,7 +14,7 @@ vi.mock('./sandforge-clone.js', async (importOriginal) => ({
 
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
-import { main, parseArgs } from './sandforge-autopilot';
+import { autopilotInterruptedLine, main, parseArgs } from './sandforge-autopilot';
 import { countingConnection, largeOrg } from '../src/test/largeOrg';
 
 /** What the target runs on the objects a plan writes. */
@@ -235,5 +235,70 @@ describe('sandforge-autopilot — what a plan copies', () => {
     const printed = out.join('');
     expect(printed).not.toContain('emails:');
     expect(printed).not.toContain('a real run would be refused');
+  });
+});
+
+describe('sandforge-autopilot — a run Ctrl-C stops', () => {
+  let out: string[];
+  let err: string[];
+
+  beforeEach(() => {
+    out = [];
+    err = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      out.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      err.push(String(chunk));
+      return true;
+    });
+    readAutomation.mockReset();
+    readAutomation.mockResolvedValue(automationOf([]));
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('stops between two calls, says what it wrote, names the records it created, and exits 130', async () => {
+    // Killed outright, a run printed nothing of the records it had created,
+    // and nothing could take them back.
+    // The whole run, for the calls it makes.
+    const whole = orgs(150);
+    await main(argv('--object', 'Lead', '--object', 'Obj004__c', '--json'));
+    const calls = whole.create.mock.calls.length;
+    out.length = 0;
+
+    const { create } = orgs(150);
+    create.mockImplementationOnce(async (records: unknown[]) => {
+      process.emit('SIGINT');
+      return records.map((_, i) => ({ id: `new-${i}`, success: true, errors: [] }));
+    });
+
+    await main(argv('--object', 'Lead', '--object', 'Obj004__c', '--json'));
+
+    // The calls under way went through; none was sent after them.
+    expect(calls).toBeGreaterThan(2);
+    expect(create.mock.calls.length).toBeLessThan(calls);
+    const sent = create.mock.calls
+      .map((call) => (call[0] as unknown[]).length)
+      .reduce((sum, rows) => sum + rows, 0);
+    const printed = JSON.parse(out.join('')) as {
+      interrupted?: boolean;
+      result: { stopped?: boolean; totalSuccess: number; stoppedObjects?: string[] };
+      created: Record<string, string[]>;
+    };
+    expect(printed.interrupted).toBe(true);
+    expect(printed.result).toMatchObject({ stopped: true, totalSuccess: sent });
+    expect(printed.result.stoppedObjects?.length).toBeGreaterThan(0);
+    expect(Object.values(printed.created).flat()).toHaveLength(sent);
+    expect(err.join('')).toContain(autopilotInterruptedLine(printed.result));
+    expect(err.join('')).toContain(
+      `interrupted: the run stopped before it was through, ${sent} record(s) written`,
+    );
+    expect(process.exitCode).toBe(130);
+    expect(process.listenerCount('SIGINT')).toBe(0);
   });
 });

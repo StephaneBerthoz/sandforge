@@ -419,6 +419,79 @@ describe('a sweep asked with the removal of a Frozen load', () => {
     expect(org.deletes).toEqual([]);
   });
 
+  it("reads the target's automation through its own reader, with none handed to it", async () => {
+    // The reader was Forge's, handed over once Forge's composition had
+    // loaded: listed before, the sweep said the automation was not read, and
+    // the task the work-order flow opened was not among what it would take.
+    const VERSION = '301000000000001AAA';
+    const asked: string[] = [];
+    const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+    const regular = org.conn.query;
+    const conn = {
+      ...org.conn,
+      version: '66.0',
+      query: vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+        if (
+          /FROM (FlowDefinitionView|DuplicateRule|UserSetupEntityAccess|CustomPermission)/.test(
+            soql,
+          )
+        ) {
+          asked.push(soql);
+          if (!/FROM FlowDefinitionView/.test(soql) || /ProcessType/.test(soql)) return page([]);
+          return page([
+            {
+              ApiName: 'Open_Call',
+              Label: 'Open call',
+              TriggerType: 'RecordAfterSave',
+              RecordTriggerType: 'Create',
+              TriggerObjectOrEvent: { QualifiedApiName: 'WorkOrder' },
+              ActiveVersionId: VERSION,
+            },
+          ]);
+        }
+        return regular(soql, options);
+      }),
+      tooling: {
+        query: vi.fn(async (soql: string) => {
+          asked.push(soql);
+          return page([]);
+        }),
+        queryMore: vi.fn(async () => page([])),
+      },
+      // The flow version, retrieved by id in a Tooling composite: it opens a task.
+      request: vi.fn(async ({ body }: { body: string }) => {
+        const { compositeRequest } = JSON.parse(body) as {
+          compositeRequest: Array<{ url: string; referenceId: string }>;
+        };
+        return {
+          compositeResponse: compositeRequest.map((sub) => ({
+            referenceId: sub.referenceId,
+            httpStatusCode: 200,
+            body: sub.url.endsWith(`/Flow/${VERSION}`)
+              ? { Id: VERSION, Metadata: { recordCreates: [{ name: 'Task', object: 'Task' }] } }
+              : { totalSize: 0, done: true, records: [] },
+          })),
+        };
+      }),
+    };
+    mockGetConn.mockResolvedValue(conn as never);
+    const own = new FrozenDatasetHandler(deps);
+
+    await own.handle(
+      buildMsg('frozen:remove:sweep', { targetOrgId: TARGET_ORG, loadedAt: LAST_WRITE }),
+    );
+
+    expect(errors('frozen:remove:sweep:error')).toEqual([]);
+    const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+      'frozen:remove:sweep:response',
+    );
+    expect(asked.some((soql) => /FROM FlowDefinitionView/.test(soql))).toBe(true);
+    expect(response.payload.listing.automationGaps?.error).toBeUndefined();
+    expect(response.payload.listing.found.map((f) => [f.objectApiName, f.count])).toEqual(
+      expect.arrayContaining([['Task', 1]]),
+    );
+  });
+
   it('refuses to list a sweep for a load other than the one shown', async () => {
     await handler.handle(
       buildMsg('frozen:remove:sweep', {

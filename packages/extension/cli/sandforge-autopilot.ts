@@ -123,8 +123,13 @@ and the plan says which. Before it writes, the run is held to --max-total, to
 the data storage the target has left, and to the daily emails the target's
 flows would send for its records: past any, nothing is written.
 
+Ctrl-C stops the run between two calls, as the panel's Stop does: the summary
+says what it wrote and which objects it did not, and --json names every record
+it created. Ctrl-C again ends the process at once.
+
 Exit codes: 0 the run finished (read the summary for per-object failures),
-1 the run could not be started or was refused, 2 a bad command line.
+1 the run could not be started or was refused, 2 a bad command line, 130 Ctrl-C
+stopped the run.
 `;
 
 /** Everything the command line settled. */
@@ -488,22 +493,43 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   log('\nexecuting… (REAL)');
-  const result = await orchestrator.executePlan(
-    plan,
-    graph,
-    rules,
-    recordCounts,
-    undefined,
-    undefined,
-    scan.parentIds,
-    args.keepContactPoints ? { keepContactPoints: true } : {},
-  );
+  // Ctrl-C stops the run as the panel's Stop does: between two calls, the
+  // batch in flight let through, and the result says what it wrote and which
+  // objects it did not. Killed outright, a run printed nothing of the records
+  // it had created. A second Ctrl-C ends the process at once.
+  const stop = new AbortController();
+  const interrupt = (): void => {
+    process.stderr.write(
+      '\ninterrupted: the run stops after the call under way, and says what it wrote ' +
+        '(Ctrl-C again ends it at once)\n',
+    );
+    stop.abort();
+  };
+  process.once('SIGINT', interrupt);
+  let result: ExecutionResult;
+  try {
+    result = await orchestrator.executePlan(
+      plan,
+      graph,
+      rules,
+      recordCounts,
+      undefined,
+      stop.signal,
+      scan.parentIds,
+      args.keepContactPoints ? { keepContactPoints: true } : {},
+    );
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
   const elapsedMs = Date.now() - t0;
+  const interrupted = stop.signal.aborted;
+  if (interrupted) process.exitCode = INTERRUPTED_EXIT;
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), elapsedMs }, null, 2)}\n`,
+      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
     );
+    if (interrupted) process.stderr.write(`${autopilotInterruptedLine(result)}\n`);
     return;
   }
 
@@ -515,7 +541,30 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (result.fatalError) log(`  the run died with: ${result.fatalError}`);
   for (const line of contactPointLines(result)) log(line);
   for (const line of outcomeLines(result)) log(line);
+  if (interrupted) {
+    process.stderr.write(`${autopilotInterruptedLine(result)}\n`);
+    return;
+  }
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
+const INTERRUPTED_EXIT = 130;
+
+/**
+ * What a run Ctrl-C stopped says last: that it stopped, the objects it did
+ * not write, and where the ids of what it created are. Exported so it can be
+ * tested.
+ */
+export function autopilotInterruptedLine(
+  result: Pick<ExecutionResult, 'stoppedObjects' | 'totalSuccess'>,
+): string {
+  const cut = result.stoppedObjects ?? [];
+  return (
+    `interrupted: the run stopped before it was through, ${result.totalSuccess} record(s) ` +
+    `written${cut.length > 0 ? `, ${cut.join(', ')} cut short or not written` : ''}; ` +
+    '--json names every record it created'
+  );
 }
 
 /**

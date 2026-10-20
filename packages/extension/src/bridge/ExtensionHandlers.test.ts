@@ -235,9 +235,10 @@ describe('ExtensionHandlers', () => {
   });
 
   describe("the reader of the target's automation", () => {
-    it("hands Forge's reader to an Autopilot run's gate, as to a Frozen removal's sweep", () => {
-      // Autopilot read none of the target's automation, and its gate could
-      // not count the emails a plan's records make the target send.
+    it("leaves an Autopilot run's gate and a Frozen removal's sweep to readers of their own", () => {
+      // Handed Forge's reader once Forge's composition loaded, a gate or a
+      // sweep before that — the Forge page never opened — read nothing of the
+      // target's automation. Each reads it through its own from the start.
       const inner = handlers as unknown as {
         autopilotHandler: { setTargetAutomation: (reader: unknown) => void };
         frozenHandler: { setTargetAutomation: (reader: unknown) => void };
@@ -253,8 +254,8 @@ describe('ExtensionHandlers', () => {
         >[1],
       );
 
-      expect(autopilot).toHaveBeenCalledWith(reader);
-      expect(frozen).toHaveBeenCalledWith(reader);
+      expect(autopilot).not.toHaveBeenCalled();
+      expect(frozen).not.toHaveBeenCalled();
     });
   });
 

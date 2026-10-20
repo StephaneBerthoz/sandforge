@@ -9,7 +9,9 @@
  *
  * It drives the same `SeedOrchestrator` the panel drives, with the same
  * validator, plan builder, field mapper and reference linker, and writes
- * through the same REST batching. What it leaves out is what the panel adds
+ * through the same write path (`seedInsert`): REST calls, a Bulk API job past
+ * 200 records of an object, one job gathered in chunks past 10 000, an object
+ * an active duplicate rule watches through REST. What it leaves out is what the panel adds
  * around a run: progress posted to a webview, the AI field generator (the
  * faker fallback covers every rule on its own) and grappe partitioning.
  *
@@ -45,14 +47,21 @@ import type {
   SeedTemplate,
 } from '@sandforge/shared';
 import {
+  DEFAULT_ROBUSTNESS_CONFIG,
   PREBUILT_SEED_TEMPLATES,
   SEED_RELATION_LIMITS,
   describedFieldRule,
   groupRecordErrors,
-  recordWriteHeaders,
   integerDigitsOf,
   plannedChildCount,
 } from '@sandforge/shared';
+import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
+import { RetryableOperation } from '../src/core/engine/RetryableOperation.js';
+import {
+  STREAMING_THRESHOLD,
+  seedInsert,
+  type SeedInsertConnection,
+} from '../src/modules/seed/seedInsert.js';
 import { ACCOUNT, leftOutForAccountKind } from '../src/core/common/platformRecords.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { LOCALE_DATA } from '../src/modules/seed/LocaleData.js';
@@ -73,11 +82,9 @@ import {
 import { loadOrg, makeConn } from './sfSession.js';
 import {
   SeedOrchestrator,
-  type InsertedRow,
   type InsertResult,
   type SeedOrchestratorDependencies,
 } from '../src/modules/seed/SeedOrchestrator.js';
-import { recordErrorText, saveErrorDetail } from '../src/core/common/existingRecordMatch.js';
 import { SeedValidator } from '../src/modules/seed/SeedValidator.js';
 import { DataPlanBuilder } from '../src/modules/seed/DataPlanBuilder.js';
 import { FieldMapper } from '../src/modules/seed/FieldMapper.js';
@@ -126,7 +133,15 @@ One of:
 
 Options:
   --list-templates       name the built-in templates, then stop
-  --batch-size <n>       records per write call            (default: 200)
+  --batch-size <n>       records per REST call             (default: 200)
+                         As in the panel, an object of more than 200 records
+                         goes as a Bulk API 2.0 job — through REST all the same
+                         when an active duplicate rule watches it, as a job
+                         cannot carry the header that lets the rule's matches
+                         be saved — and one of more than 10 000 as one job its
+                         records are gathered for 2 000 at a time. Ctrl-C
+                         stops the run before its next call, or aborts the
+                         job still open, and the summary says what it wrote
   --dry-run              build and map, write nothing      (default: off)
   --seed <n>             draw as the run that printed this seed did: the
                          same command with the same seed plans and writes
@@ -774,8 +789,11 @@ export function seedOrchestrator(deps: {
   objectAccess?: SeedOrchestratorDependencies['objectAccess'];
   seed: number;
   locale?: string;
+  /** The run's Ctrl-C: the orchestrator stops before its next object, as at the panel's Cancel. */
+  signal?: AbortSignal;
 }): SeedOrchestrator {
   return new SeedOrchestrator({
+    ...(deps.signal ? { signal: deps.signal } : {}),
     validator: new SeedValidator(),
     readExistingParentIds: deps.readExistingParentIds,
     describeCreateableFields: deps.describeCreateableFields,
@@ -805,6 +823,21 @@ export function seedOrchestrator(deps: {
     now: () => new Date().toISOString(),
     random: seededRandom(deps.seed),
   });
+}
+
+/**
+ * How the panel's write path sends an insert of `count` records, as a dry run
+ * says it: past 10 000, one Bulk API job its records are gathered for 2 000 at
+ * a time; past `bulkThreshold`, a Bulk API job — or REST, for an object an
+ * active duplicate rule watches, which a run finds out as it writes; under
+ * it, REST calls. Exported so it can be tested.
+ */
+export function seedWritePathOf(count: number, bulkThreshold: number): string {
+  if (count > STREAMING_THRESHOLD) return '(one Bulk API job, its records gathered 2000 at a time)';
+  if (count > bulkThreshold) {
+    return '(a Bulk API job, or REST when an active duplicate rule watches the object)';
+  }
+  return '(REST)';
 }
 
 /** What the run says of the data storage its records take, against what the target has left. */
@@ -986,46 +1019,55 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   log(`template: ${template.name} (${template.objects.length} object(s))`);
 
+  // Ctrl-C stops the run as the panel's Cancel does: before the next call, or
+  // the Bulk API job still open aborted; what was written is kept in the
+  // summary, which --remove takes back.
+  const stop = new AbortController();
+  const interrupt = (): void => {
+    process.stderr.write(
+      '\ninterrupted: the seed stops before its next call to the org, and says what it wrote\n',
+    );
+    stop.abort();
+  };
+  if (!args.dryRun) process.once('SIGINT', interrupt);
+  // The panel's write path (`seedInsert`): an object of more than the Bulk API
+  // threshold goes as a job, past 10 000 records one job uploaded a chunk at a
+  // time, an object a duplicate rule watches through REST.
+  const robustness = DEFAULT_ROBUSTNESS_CONFIG;
+  const progressSaid = new Map<string, number>();
+  const write = seedInsert({
+    conn: conn as unknown as SeedInsertConnection,
+    bulkThreshold: robustness.bulk.threshold,
+    bulkManager: new BulkApiManager(robustness.bulk.maxConcurrentJobs),
+    retry: new RetryableOperation({ retryConfig: robustness.retry, signal: stop.signal }),
+    signal: stop.signal,
+    label: 'sandforge-seed',
+    log: (line) => log(`  ${line}`),
+    onProgress: (processed, total, step) => {
+      const tenth = total > 0 ? Math.floor((processed / total) * 10) : 10;
+      if ((progressSaid.get(step) ?? -1) >= tenth) return;
+      progressSaid.set(step, tenth);
+      log(`  ${step}: ${processed} of ${total}`);
+    },
+  });
   const insert = async (
-    _orgId: string,
+    orgId: string,
     objectApiName: string,
     records: Record<string, unknown>[],
     batchSize: number,
   ): Promise<InsertResult> => {
     if (args.dryRun) {
-      log(`  [dry-run] ${objectApiName}: ${records.length} record(s)`);
+      log(
+        `  [dry-run] ${objectApiName}: ${records.length} record(s) ${seedWritePathOf(records.length, robustness.bulk.threshold)}`,
+      );
       return { successIds: records.map((_, i) => `dry-${i}`), errors: [] };
     }
-    const successIds: string[] = [];
-    const errors: string[] = [];
-    // Per record, in order: what a row refused on fields a validation rule
-    // named is written again from, without them.
-    const rows: InsertedRow[] = [];
-    for (let at = 0; at < records.length; at += batchSize) {
-      const batch = records.slice(at, at + batchSize);
-      const written = (await conn
-        .sobject(objectApiName)
-        .create(batch, { headers: recordWriteHeaders() })) as Array<{
-        success: boolean;
-        id?: string;
-        errors?: unknown[];
-      }>;
-      for (const one of written) {
-        if (one.success && one.id) {
-          successIds.push(one.id);
-          rows.push({ id: one.id });
-        } else {
-          // Every error of the record, with its code and the fields it named,
-          // as the panel writes it: the first message alone was kept, its
-          // code gone, and the summary could neither group nor name them.
-          const error = recordErrorText(one.errors);
-          errors.push(error);
-          rows.push({ error, errorDetails: (one.errors ?? []).map(saveErrorDetail) });
-        }
-      }
-    }
-    log(`  ${objectApiName}: ${successIds.length} written, ${errors.length} refused`);
-    return { successIds, errors, rows };
+    const answer = await write(orgId, objectApiName, records, batchSize);
+    log(
+      `  ${objectApiName}: ${answer.successIds.length} written, ${answer.errors.length} refused` +
+        (answer.stopped ? ', stopped' : ''),
+    );
+    return answer;
   };
 
   const described = describedFieldsOf((objectApiName) => conn.sobject(objectApiName).describe());
@@ -1050,11 +1092,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     insert,
     seed,
     locale,
+    signal: stop.signal,
   });
 
   log(args.dryRun ? '\nexecuting… (DRY-RUN)' : '\nexecuting… (REAL)');
-  const result = await orchestrator.execute(template, args.target);
+  let result: Awaited<ReturnType<typeof orchestrator.execute>>;
+  try {
+    result = await orchestrator.execute(template, args.target);
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
   const elapsedMs = Date.now() - t0;
+  // Said last, after the summary that names what it wrote: the run stopped.
+  const interrupted = stop.signal.aborted;
+  if (interrupted) process.exitCode = INTERRUPTED_EXIT;
   const created = result.objectResults.reduce((sum, o) => sum + o.createdIds.length, 0);
   // The org's own id, so --remove takes the run back from it and no other,
   // whatever alias names it then.
@@ -1081,11 +1132,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           },
           result,
           elapsedMs,
+          ...(interrupted ? { interrupted: true } : {}),
         },
         null,
         2,
       )}\n`,
     );
+    if (interrupted) process.stderr.write(`${seedInterruptedLine()}\n`);
     return;
   }
 
@@ -1101,6 +1154,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       `\ncreated ${created} record(s) in ${args.target}: run with --json and save the summary to ` +
         'a file, and --remove takes them back from it',
     );
+  }
+  if (interrupted) {
+    process.stderr.write(`${seedInterruptedLine()}\n`);
+    return;
   }
   log(`\ndone in ${elapsedMs}ms`);
 }
@@ -1124,6 +1181,17 @@ export function refusalLines(errors: readonly string[]): string[] {
   });
   const others = groups.length - MAX_SUMMARY_REASONS;
   return others > 0 ? [...lines, `and ${others} other reason(s)`] : lines;
+}
+
+/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
+const INTERRUPTED_EXIT = 130;
+
+/** What a seed Ctrl-C stopped says last. Exported so it can be tested. */
+export function seedInterruptedLine(): string {
+  return (
+    'interrupted: the seed stopped before it was through; the summary above says what it ' +
+    'wrote, and --remove takes it back from that summary saved to a file (--json)'
+  );
 }
 
 /** The org's own id, or undefined when it does not say. */

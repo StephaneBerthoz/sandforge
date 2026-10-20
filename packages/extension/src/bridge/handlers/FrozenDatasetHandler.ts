@@ -633,8 +633,18 @@ export class FrozenDatasetHandler implements DomainHandler {
   private registry?: BackgroundOperationRegistry;
   /** What the Monitor's Live Operations panel lists, with a Cancel for each run. */
   private liveTracker?: LiveOperationTracker;
-  /** Reads what the target's flows create, for the sweep of a load's removal: Forge's reader. */
-  private targetAutomation?: Pick<TargetAutomationReader, 'read'>;
+  /**
+   * Reads what the target's flows create, for the sweep of a load's removal:
+   * the handler's own reader, as Forge reads it, unless another is set. It
+   * was Forge's, handed over once Forge's composition had loaded: a sweep
+   * asked before that, the Forge page never opened, said the automation was
+   * not read.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
   /** What keeps the pseudonymization salt between extractions: see {@link setSaltKeeper}. */
   private saltKeeper: FrozenSaltKeeper = commandLineSaltKeeper();
 
@@ -703,12 +713,25 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
-   * Inject what reads the target's automation — Forge's, which its sweep
-   * reads too: the objects the target's flows create as a load's records are
-   * written, which the sweep of a load's removal looks at.
+   * Another reader of the target's automation than the handler's own: the
+   * objects the target's flows create as a load's records are written, which
+   * the sweep of a load's removal looks at.
    */
   setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
     this.targetAutomation = reader;
+  }
+
+  /** The handler's own reader of the target's automation, as Forge reads it, off the activation path. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
   }
 
   /**
@@ -3020,21 +3043,17 @@ export class FrozenDatasetHandler implements DomainHandler {
     const remap = new Set([...load.mapping.values()].map((recordId) => recordId.slice(0, 15)));
     const reader = this.targetAutomation;
     let automation: ForgeTargetAutomation | { error: string };
-    if (!reader) {
-      automation = { error: 'Target automation reader not configured' };
-    } else {
-      try {
-        automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
-          'frozen:remove sweep automation',
-          () =>
-            reader.read(
-              load.orgId,
-              created.map((object) => object.objectApiName),
-            ),
-        );
-      } catch (err: unknown) {
-        automation = { error: extractErrorMessage(err) };
-      }
+    try {
+      automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
+        'frozen:remove sweep automation',
+        () =>
+          reader.read(
+            load.orgId,
+            created.map((object) => object.objectApiName),
+          ),
+      );
+    } catch (err: unknown) {
+      automation = { error: extractErrorMessage(err) };
     }
     return {
       writtenBetween: load.writtenBetween,

@@ -21,7 +21,13 @@ const validateConnection = vi.hoisted(() => vi.fn());
 
 import { loadOrg } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
-import { dryRunLines, main, parseArgs, resultLines } from './sandforge-dataops';
+import {
+  dryRunLines,
+  main,
+  maskingInterruptedLine,
+  parseArgs,
+  resultLines,
+} from './sandforge-dataops';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -523,6 +529,113 @@ describe('sandforge-dataops', () => {
       expect(upsert).toHaveBeenCalledTimes(1);
       expect(rows).toEqual(before);
       expect(stdout).toContain('Rollback completed: 20 records restored');
+    });
+
+    it('stops a run at Ctrl-C before its next page, keeps what it masked to resume, and exits 130', async () => {
+      // Killed outright, a run left no entry in the audit trail and no
+      // checkpoint, its records half masked and nothing to say which.
+      orgIs('Developer Edition');
+      const rows = contactsOf(700, 700);
+      const { update } = orgOf(rows);
+      update.mockImplementationOnce(async (batch: Array<Record<string, unknown>>) => {
+        process.emit('SIGINT');
+        return batch.map((sent) => {
+          Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
+          return { success: true, id: sent.Id };
+        });
+      });
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--yes',
+      );
+
+      expect(code).toBe(130);
+      expect(stdout).toContain('Anonymization cancelled');
+      expect(stderr).toContain(maskingInterruptedLine());
+      const masked = rows.filter((r) => !String(r.Email).startsWith('person')).length;
+      expect(masked).toBeGreaterThan(0);
+      expect(masked).toBeLessThan(700);
+      expect(process.listenerCount('SIGINT')).toBe(0);
+
+      stdout = '';
+      process.exitCode = undefined;
+      const resumed = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--resume',
+        '--yes',
+      );
+      expect(resumed).toBeUndefined();
+      expect(rows.filter((r) => String(r.Email).startsWith('person'))).toEqual([]);
+    });
+
+    it('writes every row of a snapshot back with --rewrite-all, as sandforge-backup does', async () => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(30, 20);
+      const { upsert } = orgOf(rows);
+      await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--where',
+        "LastName LIKE 'Scoped%'",
+        '--yes',
+      );
+      const snapshotId = /snapshot (\S+): 20 record\(s\)/.exec(stdout)?.[1];
+      // Put back once: every row now holds the snapshot's values.
+      await run('anonymize', '--org', 'ORG', '--restore', snapshotId!, '--yes');
+      upsert.mockClear();
+
+      stdout = '';
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotId!,
+        '--rewrite-all',
+        '--yes',
+      );
+
+      expect(code).toBeUndefined();
+      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(upsert.mock.calls[0][0]).toHaveLength(20);
+      expect(stdout).toContain(', every row written back…');
+      expect(stdout).toContain('Rollback completed: 20 records restored');
+    });
+
+    it('refuses --rewrite-all without a restore', () => {
+      expect(() =>
+        parseArgs(
+          argv(
+            'anonymize',
+            '--org',
+            'O',
+            '--object',
+            'Contact',
+            '--template',
+            't',
+            '--rewrite-all',
+          ),
+        ),
+      ).toThrow(ExitCalled);
+      expect(stderr).toContain('--rewrite-all goes with --restore.');
     });
 
     it('refuses a production org, and neither writes nor keeps a snapshot', async () => {

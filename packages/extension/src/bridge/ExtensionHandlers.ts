@@ -567,14 +567,10 @@ export class ExtensionHandlers {
    */
   setForgeOrchestrator(orchestrator: ForgeOrchestrator, services?: ForgeServices): void {
     this.forgeHandler.setForgeOrchestrator(orchestrator, services);
-    // The sweep of a Frozen load's removal reads the target's automation as
-    // Forge's does, and so does an Autopilot run's gate, for the emails its
-    // flows send. A Seed run's sweep reads it through a reader of its own,
-    // there from the start.
-    if (services?.targetAutomation) {
-      this.frozenHandler.setTargetAutomation(services.targetAutomation);
-      this.autopilotHandler.setTargetAutomation(services.targetAutomation);
-    }
+    // The sweep of a Frozen load's removal, an Autopilot run's gate and a Seed
+    // run's sweep read the target's automation through readers of their own,
+    // there from the start: handed Forge's once its composition loaded, a
+    // sweep or a gate before that read none.
   }
 
   /**

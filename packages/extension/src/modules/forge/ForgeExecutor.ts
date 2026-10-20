@@ -1294,6 +1294,8 @@ interface PageCarry {
   readonly picklists: PicklistChangeTally;
   /** The rows written in another currency than they were read in. */
   readonly currencies: CurrencyReplacementTally;
+  /** Per lookup, the rows sent without it, the target holding no record of the id it names. */
+  readonly lookupsNotCarried: Map<string, number>;
   writtenWithoutFields?: WrittenWithoutFields;
   /** The flags of relations linked to that could not be given back. */
   readonly flagsNotKept: string[];
@@ -1323,6 +1325,7 @@ function emptyPageCarry(): PageCarry {
     heldWholeRows: 0,
     picklists: new PicklistChangeTally(),
     currencies: new CurrencyReplacementTally(),
+    lookupsNotCarried: new Map(),
     flagsNotKept: [],
   };
 }
@@ -1446,6 +1449,12 @@ interface ExecutionState {
    * See `readWhatTheyCannotBeWrittenWithout`.
    */
   readonly askedForRowsThatNeedThem: Map<string, Set<string>>;
+  /**
+   * Of the ids a lookup at an object no clone creates names — a user, a queue
+   * — those the target was asked for, each with whether it holds a record of
+   * it: asked once a run. See `idsTheTargetLacks`.
+   */
+  readonly targetHolds: Map<string, boolean>;
   /**
    * Objects no node of the graph holds whose records rows read cannot be
    * written without, read by id once every node has been read: the node each
@@ -2633,6 +2642,29 @@ function readsBeforeWriting(config: ForgeStageConfig): boolean {
   return config.isScoped === true || config.files !== undefined || config.beforeWrite !== undefined;
 }
 
+/**
+ * What an object's line says of the rows a write sends without a lookup the
+ * target holds no record of — the owner a user of the source names — per
+ * field: the platform fills it, the owner with the user the run writes as.
+ * Nothing when no row went without one.
+ */
+function lookupsNotCarriedNote(rows: ReadonlyMap<string, number>): string {
+  if (rows.size === 0) return '';
+  const fields = [...rows].map(([field, count]) => `${field} on ${count}`).join(', ');
+  return `, written without a lookup naming a record the target does not hold, which the platform fills (the owner with the user the run writes as): ${fields}`;
+}
+
+/** Count into `rows`, per lookup, the cleaned rows that go without it: see `lookupsNotCarriedNote`. */
+function countLookupsNotCarried(
+  rows: Map<string, number>,
+  cleaned: ReadonlyArray<Pick<CleanedRecord, 'lookupsNotCarried'>>,
+): Map<string, number> {
+  for (const { lookupsNotCarried = [] } of cleaned) {
+    for (const field of lookupsNotCarried) rows.set(field, (rows.get(field) ?? 0) + 1);
+  }
+  return rows;
+}
+
 /** What an object's progress says of `count` emails waiting for the task each names. */
 function waitingForTheirTask(count: number): string {
   return `${count} on a case waiting for ${count === 1 ? 'its task' : 'their tasks'}`;
@@ -3115,6 +3147,7 @@ export class ForgeExecutor {
       waitingFor: new Map<string, ForgeGraphNode[]>(),
       readAgainUnder: new Map<string, NodeReadOnce[]>(),
       askedForRowsThatNeedThem: new Map<string, Set<string>>(),
+      targetHolds: new Map<string, boolean>(),
       parentsOutside: new Map<string, ForgeGraphNode>(),
       readAsParents: new Map<string, { count: number; neededBy: Set<string> }>(),
       idsRead: store
@@ -4030,6 +4063,80 @@ export class ForgeExecutor {
   }
 
   /**
+   * Of the ids `rows` carry in a lookup at an object no clone creates — a
+   * user, a queue — that the write sends (`carried`), those the target holds
+   * no record of: each id asked of every object the lookup can name, once a
+   * run. An owner mapped to a user of the target is not asked about.
+   *
+   * A run of whole tables carries such ids as read (`referenceFallback:
+   * 'keep'`), which two sandboxes of one production share. Between two orgs
+   * that do not share their users — two scratch orgs, a Developer Edition and
+   * a sandbox — run for real, the target refused every row with
+   * INVALID_CROSS_REFERENCE_KEY on its owner. An id the target could not be
+   * asked about, a query refused, is carried as before.
+   */
+  private async idsTheTargetLacks(
+    state: ExecutionState,
+    fieldInfos: readonly FieldInfo[],
+    rows: readonly Record<string, unknown>[],
+    carried: (field: string) => boolean,
+  ): Promise<ReadonlySet<string>> {
+    const fields = fieldInfos.filter(
+      (field) =>
+        field.isReference &&
+        field.name !== 'RecordTypeId' &&
+        carried(field.name) &&
+        (field.referenceTo ?? []).length > 0 &&
+        (field.referenceTo ?? []).every((target) => isNeverCopied(target)),
+    );
+    const owners = state.config.ownerMappings;
+    /** Per object asked, the ids not yet asked about. */
+    const toAsk = new Map<string, Set<string>>();
+    for (const field of fields) {
+      for (const row of rows) {
+        const id = row[field.name];
+        if (typeof id !== 'string' || !SALESFORCE_ID.test(id) || state.targetHolds.has(id))
+          continue;
+        if (field.name === 'OwnerId' && owners[id] !== undefined) continue;
+        for (const object of field.referenceTo ?? []) {
+          toAsk.set(object, (toAsk.get(object) ?? new Set<string>()).add(id));
+        }
+      }
+    }
+    /** Ids found in an object asked, and ids a query of an object could not settle. */
+    const found = new Set<string>();
+    const unsettled = new Set<string>();
+    for (const [object, ids] of toAsk) {
+      for (const list of idLists([...ids])) {
+        try {
+          const held = await this.deps.queryRecords(
+            state.targetOrgId,
+            `SELECT Id FROM ${assertSoqlIdentifier(object)} WHERE Id IN (${list})`,
+          );
+          for (const record of held) {
+            const id = record['Id'];
+            if (typeof id === 'string') {
+              found.add(id);
+              found.add(id.slice(0, 15));
+            }
+          }
+        } catch {
+          for (const id of ids) unsettled.add(id);
+        }
+      }
+    }
+    for (const ids of toAsk.values()) {
+      for (const id of ids) {
+        if (found.has(id) || found.has(id.slice(0, 15))) state.targetHolds.set(id, true);
+        else if (!unsettled.has(id)) state.targetHolds.set(id, false);
+      }
+    }
+    const lacking = new Set<string>();
+    for (const [id, held] of state.targetHolds) if (!held) lacking.add(id);
+    return lacking;
+  }
+
+  /**
    * The rows of `node`'s count the run this one retries wrote: the ids it
    * links to, told from the object's key prefix in the source. None for an
    * object read after the checkpoint of a run it resumes, whose count leaves
@@ -4474,6 +4581,7 @@ export class ForgeExecutor {
     const picklists =
       picklistChangesNote(carry.picklists.list()) +
       currencyReplacementsNote(carry.currencies.list()) +
+      lookupsNotCarriedNote(carry.lookupsNotCarried) +
       pricesSwappedNote(state, object);
     const withoutFields = writtenWithoutFieldsNote(carry.writtenWithoutFields);
     const readById = readAsParentsNote(state, object);
@@ -4538,7 +4646,8 @@ export class ForgeExecutor {
         `${stopped}: ${pagedCounts(state.config, carry, held)}, ${notSent} not sent` +
         `${ownSentNote(carry.sentOnTheirOwn)}${carry.flagsNotKept.map((flags) => `, ${flags}`).join('')}` +
         `${picklistChangesNote(carry.picklists.list())}` +
-        `${currencyReplacementsNote(carry.currencies.list())}${pricesSwappedNote(state, object)}` +
+        `${currencyReplacementsNote(carry.currencies.list())}` +
+        `${lookupsNotCarriedNote(carry.lookupsNotCarried)}${pricesSwappedNote(state, object)}` +
         `${writtenWithoutFieldsNote(carry.writtenWithoutFields)}${leftToThePlatformNote(state, object)}`,
     });
   }
@@ -10392,6 +10501,21 @@ export class ForgeExecutor {
         ? (row: Readonly<Record<string, unknown>>) =>
             state.prices.convertedInto.get(String(row['Id']))
         : undefined;
+      // The users and queues a run that carries such ids as read names that
+      // the target holds no record of: a row goes without the lookup, rather
+      // than be refused for it.
+      const targetLacks =
+        config.referenceFallback === 'keep'
+          ? await this.idsTheTargetLacks(
+              state,
+              fieldInfos,
+              toWrite,
+              (field) =>
+                effectiveCreatableSet.has(field) &&
+                !excludedFields.has(field) &&
+                fieldRename[field] === undefined,
+            )
+          : undefined;
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,
         records: toWrite,
@@ -10402,6 +10526,7 @@ export class ForgeExecutor {
         failedObjects: state.failedObjects,
         writtenObjects: state.writtenObjects,
         ownerMappings: config.ownerMappings,
+        ...(targetLacks && targetLacks.size > 0 ? { targetLacks } : {}),
         excludedFields,
         fieldRename,
         creatableFields: effectiveCreatableSet,
@@ -10448,7 +10573,10 @@ export class ForgeExecutor {
       const picklists =
         picklistChangesNote(changed.list()) +
         currencyReplacementsNote(currenciesChanged.list()) +
+        lookupsNotCarriedNote(countLookupsNotCarried(new Map(), cleanedRecords)) +
         (page ? '' : pricesSwappedNote(state, node.objectApiName));
+      // Said on the line that ends an object read page by page, for all its pages.
+      if (page) countLookupsNotCarried(page.lookupsNotCarried, cleanedRecords);
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
       if (state.recordTypeMapper && config.recordTypeMappings) {
         recordsToInsert = state.recordTypeMapper.apply(

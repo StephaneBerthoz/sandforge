@@ -37,6 +37,7 @@ import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { anonymizationTemplateSavePayloadSchema } from '../src/bridge/validatePayload.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
 import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
+import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import { isSafeSoqlWhere, SOQL_WHERE_RULE } from '../src/core/common/soqlValidator.js';
 import { personAccountRules } from '../src/modules/dataops/personAccountMasking.js';
@@ -51,7 +52,7 @@ Usage:
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
     --org <alias> [--object <ApiName>] (--template <id> | --rules <file>) [options]
   pnpm exec tsx packages/extension/cli/sandforge-dataops.ts anonymize \\
-    --org <alias> --restore <snapshot> [--store <dir>] [--yes]
+    --org <alias> --restore <snapshot> [--rewrite-all] [--store <dir>] [--yes]
 
 Required:
   anonymize              the command
@@ -75,7 +76,12 @@ Options:
   --resume               mask only what the last run of the same template, object
                          and filter left, from where it stopped
   --restore <snapshot>   put back the values a snapshot holds, by Id: the id a run
-                         printed
+                         printed. It reads the org's values first and writes only
+                         the rows where one of them differs from the snapshot, and
+                         says how many it found unchanged
+  --rewrite-all          with --restore: write every row of the snapshot back,
+                         the ones the org already holds as the snapshot does
+                         included
   --store <dir>          where snapshots, saved templates and checkpoints live; the
                          directory sandforge-backup reads and lists
                          (default: a temp directory, which the system may clear)
@@ -91,8 +97,13 @@ A run takes a snapshot of the records it masks, their masked fields as they are,
 before its first write, and writes nothing unless the snapshot holds every one of
 them. A production org is refused.
 
+Ctrl-C stops a run as the panel's Cancel does: before its next page, what it
+masked recorded in the audit trail of the store, and --resume masks only what it
+left. Ctrl-C again ends the process at once.
+
 Exit codes: 0 the run finished (read the summary for records left unmasked),
-1 it could not start, was refused or failed, 2 a bad command line.
+1 it could not start, was refused or failed, 2 a bad command line, 130 Ctrl-C
+stopped the run.
 `;
 
 /** What the run does. */
@@ -113,6 +124,8 @@ interface CliArgs {
   rules?: FileRules;
   where?: string;
   restoreId?: string;
+  /** With a restore: every row of the snapshot written back, the unchanged ones too. */
+  rewriteAll: boolean;
   storeDir: string;
   /** The cap of records per object a snapshot reads, when the line sets one. */
   maxRecords?: number;
@@ -193,8 +206,11 @@ export function parseArgs(argv: string[]): CliArgs {
   if (maxRecords !== undefined && !/^[1-9]\d*$/.test(maxRecords)) {
     refuseLine(`Not a number of records: "${maxRecords}"`);
   }
+  const rewriteAll = args.includes('--rewrite-all');
+  if (rewriteAll && restoreId === undefined) refuseLine('--rewrite-all goes with --restore.');
   const common = {
     org,
+    rewriteAll,
     storeDir: get('--store') ?? join(tmpdir(), 'sandforge-backups'),
     ...(maxRecords !== undefined ? { maxRecords: Number(maxRecords) } : {}),
     yes: args.includes('--yes'),
@@ -444,6 +460,18 @@ export function dryRunLines(
   return lines;
 }
 
+/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
+const INTERRUPTED_EXIT = 130;
+
+/** What a masking run Ctrl-C stopped says last. Exported so it can be tested. */
+export function maskingInterruptedLine(): string {
+  return (
+    'interrupted: the masking stopped before it was through; what it masked is in the audit ' +
+    'trail, the snapshot puts their values back (--restore), and the same line with --resume ' +
+    'masks only what it left'
+  );
+}
+
 /** The posted messages, with a preview's original values left out (see --json). */
 function withoutOriginals(posted: readonly Posted[]): Posted[] {
   return posted.map((message) => {
@@ -500,6 +528,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // of a run is printed as it goes, every tenth of the way.
   const posted: Posted[] = [];
   const lastPercent = new Map<string, number>();
+  // Where the masking run and its snapshot are listed while they go, as in
+  // the extension: what Ctrl-C stops them through.
+  const registry = new BackgroundOperationRegistry();
   const handler = new DataOpsHandler({
     log: (message: string) => {
       if (/^\[(WARN|INFO)\]/.test(message)) log(`  ${message}`);
@@ -534,6 +565,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           : fallback,
     },
     infraServices: {
+      backgroundRegistry: registry,
       // The guard asks before a write to a production org, and the question is
       // answered here: no. `--yes` answers the question this command asks, not
       // the one the guard would put to a person in front of the extension.
@@ -618,8 +650,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       log('Nothing written.');
       return;
     }
-    log(`restoring ${restoreId} into ${args.org}…`);
-    const answer = await send('dataops:rollback', { orgId: args.org, operationId: restoreId });
+    log(
+      `restoring ${restoreId} into ${args.org}` +
+        `${args.rewriteAll ? ', every row written back' : ''}…`,
+    );
+    const answer = await send('dataops:rollback', {
+      orgId: args.org,
+      operationId: restoreId,
+      ...(args.rewriteAll ? { rewriteAll: true } : {}),
+    });
     emit('restore');
     if (failed(answer)) {
       fail(reason(answer));
@@ -742,12 +781,36 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   log(args.mode === 'resume' ? 'resuming…' : 'masking…');
-  const answer = await send('dataops:anonymize', {
-    ...scope,
-    ...(args.mode === 'resume' ? { resumeFrom: checkpoint!.id } : { snapshot: true }),
-  });
+  // Ctrl-C stops the run as the panel's Cancel does, through the registry
+  // the run is listed in: before its next page, with what it masked kept in
+  // the audit trail and the checkpoint a resume carries on from. Killed
+  // outright, it left neither. A second Ctrl-C ends the process at once.
+  let interrupted = false;
+  const interrupt = (): void => {
+    interrupted = true;
+    process.stderr.write(
+      '\ninterrupted: the masking stops before its next page, and says what it masked ' +
+        '(Ctrl-C again ends it at once)\n',
+    );
+    for (const operation of registry.getRunning()) registry.abort(operation.operationId);
+  };
+  process.once('SIGINT', interrupt);
+  let answer: Posted;
+  try {
+    answer = await send('dataops:anonymize', {
+      ...scope,
+      ...(args.mode === 'resume' ? { resumeFrom: checkpoint!.id } : { snapshot: true }),
+    });
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
   emit(args.mode);
   for (const line of resultLines(answer.payload ?? {}, restoreLine)) log(line);
+  if (interrupted) {
+    process.stderr.write(`${maskingInterruptedLine()}\n`);
+    process.exitCode = INTERRUPTED_EXIT;
+    return;
+  }
   if (failed(answer)) {
     process.exitCode = 1;
     return;

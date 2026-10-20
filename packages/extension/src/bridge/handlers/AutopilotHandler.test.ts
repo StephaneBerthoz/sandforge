@@ -1541,6 +1541,8 @@ describe('AutopilotHandler', () => {
         recordCounts: Map<string, number>;
         personAccounts: Map<string, number>;
       };
+      /** What the connection to the target answers besides its limits. */
+      conn?: Record<string, unknown>;
     }) {
       const read = vi.fn(async () => {
         if (!options.automation) throw new Error('no automation given');
@@ -1572,6 +1574,7 @@ describe('AutopilotHandler', () => {
       });
       handler.setOrchestrator(orchestrator);
       mockGetConn.mockResolvedValue({
+        ...options.conn,
         request: vi.fn(async () => ({
           DataStorageMB: { Max: 200, Remaining: options.remainingMB },
           SingleEmail: { Max: 15, Remaining: options.singleEmailsLeft ?? 15 },
@@ -1625,6 +1628,37 @@ describe('AutopilotHandler', () => {
       conditionsBound: 25,
       requests: 4,
     };
+
+    it("reads the target's automation through its own reader, with none handed to it", async () => {
+      // The reader was Forge's, handed over once Forge's composition had
+      // loaded: a run started before, the Forge page never opened, counted
+      // none of the emails the target's flows send.
+      const asked: string[] = [];
+      const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+      const answered = vi.fn(async (soql: string) => {
+        asked.push(soql);
+        return page([]);
+      });
+
+      const { orchestrator, errors } = await run({
+        remainingMB: 150,
+        conn: {
+          version: '66.0',
+          query: answered,
+          queryMore: vi.fn(async () => page([])),
+          tooling: { query: answered, queryMore: vi.fn(async () => page([])) },
+        },
+      });
+
+      expect(asked.some((soql) => /FROM FlowDefinitionView/.test(soql))).toBe(true);
+      expect(
+        vi
+          .mocked(deps.log)
+          .mock.calls.some(([line]) => String(line).includes("no reader of the target org's")),
+      ).toBe(false);
+      expect(errors).toEqual([]);
+      expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+    });
 
     it("asks before a plan the target's flows would send more emails for than it has left today, and writes nothing when declined", async () => {
       // A Developer Edition sends fifteen single emails a day: the 3 000 leads

@@ -80,6 +80,13 @@ export interface CleanedRecord {
    * read in, and what became of its amounts (`core/common/recordCurrencies.ts`).
    */
   currencyChange?: CurrencyChange;
+  /**
+   * The lookups at an object no clone creates — a user, a queue — the payload
+   * goes without because the target holds no record of the id it names
+   * (`CleanNodeRecordsInput.targetLacks`): the platform fills them, the owner
+   * with the user the run writes as. Absent, there were none.
+   */
+  lookupsNotCarried?: string[];
 }
 
 /** Field sets derived from the *target* org describe (schema-drift defense). */
@@ -218,6 +225,14 @@ export interface CleanNodeRecordsInput {
   writtenObjects?: ReadonlySet<string>;
   /** Per-object owner remap (source `OwnerId` → target `OwnerId`). */
   ownerMappings: Record<string, string>;
+  /**
+   * Ids a lookup at an object no clone creates names — a user, a queue — that
+   * the target was asked for and holds no record of. A run that carries such
+   * ids as read (`referenceFallback: 'keep'`) sends a row without the lookup
+   * naming one, as a run that nullifies sends every such lookup: carried, the
+   * target refused the whole row. See {@link cleanNodeRecords}.
+   */
+  targetLacks?: ReadonlySet<string>;
   /** Field exclusions resolved for this node. */
   excludedFields: ReadonlySet<string>;
   /** Source→target field rename map resolved for this node. */
@@ -318,6 +333,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     failedObjects,
     writtenObjects,
     ownerMappings,
+    targetLacks,
     excludedFields,
     fieldRename,
     creatableFields,
@@ -474,6 +490,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const cleaned: Record<string, unknown> = {};
     // Written under a rename: the field map answers for what the target takes.
     const renamed = new Set<string>();
+    /** The lookups the row goes without, the target holding no record of their id. */
+    const lookupsNotCarried: string[] = [];
     for (const key of Object.keys(remapped)) {
       if (excludedFields.has(key)) continue;
       // Field-mapping path: if the source field is renamed on target,
@@ -507,6 +525,12 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
        * whose target can never be in the graph, rather than one whose target
        * was in it and was not cloned — and conflating the two is what broke
        * three of that option's tests when it did not make the distinction.
+       * Except for an id the target was found to hold no record of
+       * (`targetLacks`): two sandboxes of one production share their users'
+       * ids, any other two orgs do not, and carried between two scratch orgs,
+       * the owner had the target refuse every row of a run of whole tables
+       * with INVALID_CROSS_REFERENCE_KEY. Such a row goes without the lookup,
+       * the platform filling it.
        */
       if (
         // `RecordTypeId` names an object no clone creates, and has its own
@@ -514,11 +538,15 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
         // in the target org. The nullify loop above exempts it for the same
         // reason, and this rule forgot to until three of its tests said so.
         key !== 'RecordTypeId' &&
-        referenceFallback !== 'keep' &&
         uncopyableLookups.has(key) &&
         !(key === 'OwnerId' && ownerResolved)
       ) {
-        continue;
+        if (referenceFallback !== 'keep') continue;
+        const value = remapped[key];
+        if (typeof value === 'string' && targetLacks?.has(value)) {
+          lookupsNotCarried.push(key);
+          continue;
+        }
       }
       // A field only a person account holds goes with none else, and a
       // person account's computed `Name` with no write: see
@@ -594,6 +622,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       nullifiedFks: nullifiedFks.filter((nf) => !filled.includes(nf.field)),
       picklistChanges,
       ...(currencyChange ? { currencyChange } : {}),
+      ...(lookupsNotCarried.length > 0 ? { lookupsNotCarried } : {}),
     };
   });
 }

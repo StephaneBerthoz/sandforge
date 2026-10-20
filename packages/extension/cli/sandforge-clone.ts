@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
 /**
- * sandforge-clone — headless record-scoped clone CLI.
+ * sandforge-clone — headless clone CLI, of one record or of whole tables.
  *
  * Wraps the production discovery + scoped-execute pipeline so devs can
  * run a Forge from the terminal without opening VSCode. The script
  * delegates org auth to the `sf` CLI (`sf org display`) and reuses the
  * exact same orchestrator/executor as the wizard.
+ *
+ * `--object` (with `--where`) clones whole tables instead of a record, as the
+ * panel runs a query: the executor is handed what the panel's orchestrator
+ * hands it for the same config (`forgeExecuteOptions`), and reads and writes
+ * each table a page at a time, its journal on disk.
  *
  * A run printed with `--json` and saved to a file can be taken back: `--remove`
  * deletes from the target the records that run created, with the removal the
@@ -20,6 +25,9 @@
  *     --record <recordId> --source <alias> --target <alias>
  *     [--depth direct|full|custom] [--custom-depth <n>]
  *     [--max <n>] [--anonymize] [--dry-run]
+ *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+ *     --object Account --where "<condition>" --object Contact --where "<condition>" \
+ *     --source <alias> --target <alias> [--dry-run] [--resume <journal>]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
  *       [--sweep | --sweep-list] [--audit <file>]
@@ -94,6 +102,7 @@ import type {
   ObjectDescribe,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
+import { forgeExecuteOptions } from '../src/modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 import { ForgeStops } from '../src/modules/forge/ForgeStops.js';
 import { cursorPages, queryAllPages } from '../src/modules/forge/queryAllPages.js';
@@ -232,7 +241,14 @@ import {
 } from '../src/modules/forge/RunVerifier.js';
 
 export interface CliArgs {
-  record: string;
+  /** The record a clone of one record starts from; undefined for a clone of whole tables. */
+  record: string | undefined;
+  /**
+   * The tables a clone of whole tables reads (`--object`, each with its
+   * `--where`), the first the one discovery starts from; undefined for a
+   * clone of one record.
+   */
+  tables: TableArg[] | undefined;
   source: string;
   target: string;
   depth: 'direct' | 'full' | 'custom';
@@ -333,12 +349,15 @@ export interface CliArgs {
 /** The flags that read a run's choices from a file. */
 type ChoicesFlag = '--config' | '--template';
 
-const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox,
-or remove what a run of it created.
+const HELP = `sandforge-clone — Forge a clone of one record, or of whole tables, from a source org
+to a target sandbox, or remove what a run of it created.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --record <id> --source <alias> --target <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+    --object <ApiName> [--where <condition>] [--object <ApiName> [--where <condition>]]... \\
+    --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
       [--sweep | --sweep-list] [--audit <file>]
@@ -385,9 +404,29 @@ Usage:
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically);
-                         may come from --template instead
+                         may come from --template instead; --object (below)
+                         clones whole tables instead
   --source <alias>       sf CLI alias of the source org
   --target <alias>       sf CLI alias of the target sandbox
+
+Clone whole tables, in place of --record:
+  --object <ApiName>     a table to clone; repeat for more. The first is where
+                         discovery starts, and each other must be in its graph
+                         (--depth, --max-nodes): a parent one of them points at,
+                         or a child that hangs from one. Every other object
+                         discovery reaches is left out.
+  --where <condition>    the rows of the --object before it: a SOQL condition,
+                         written without WHERE         (default: every row)
+                         The run is the panel's run of a query: each table read
+                         with the org's cursor in the order of its ids and
+                         written a page at a time, so the run holds a page of
+                         rows whatever a table holds, and keeps what it wrote in
+                         its journal as it goes; --resume reads each table after
+                         the last row the run wrote. Parents go before the tables
+                         that point at them, their lookups given the records the
+                         run created. A run that copies files (--files) reads
+                         each table whole. Not with --record, --template,
+                         --upsert, --expand-orphans or --rehearse.
 
 Options:
   --depth <mode>         direct | full | custom    (default: custom)
@@ -682,6 +721,7 @@ const FLAG_OF_FIELD: Readonly<Record<string, string>> = {
   ownerMappings: '--owner-map',
   objectSoqlFilters: '--filter',
   fieldMappings: '--map',
+  soqlQuery: '--object',
 };
 
 /** The keys of a Forge config `--config` takes: what decides, leaves out, filters and maps. */
@@ -724,6 +764,197 @@ export function queryRootOf(soql: string): string | undefined {
     flat = flat.replace(/\([^()]*\)/g, ' ');
   }
   return /\bFROM\s+([A-Za-z][A-Za-z0-9_]*)/i.exec(flat)?.[1];
+}
+
+/** A table a clone of whole tables reads: its object, and the condition its rows are read under. */
+export interface TableArg {
+  objectApiName: string;
+  /** The SOQL condition given with `--where`, written without WHERE; every row when absent. */
+  where?: string;
+}
+
+/**
+ * The tables `--object` names, each with the `--where` that follows it, in
+ * the order given; undefined when none is named. Exits 2 on a name that is
+ * not an API name, an object named twice, and a `--where` with no object
+ * before it, a second one for the same object, or no condition.
+ */
+function tableArgs(args: readonly string[]): TableArg[] | undefined {
+  const tables: TableArg[] = [];
+  function refuse(line: string): never {
+    process.stderr.write(`${line}\n`);
+    process.exit(2);
+  }
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if (flag !== '--object' && flag !== '--where') continue;
+    const value = args[i + 1];
+    if (value === undefined || value.startsWith('--')) {
+      refuse(
+        flag === '--object'
+          ? '--object takes the API name of a table to clone.'
+          : '--where takes a SOQL condition, written without WHERE.',
+      );
+    }
+    i++;
+    if (flag === '--object') {
+      if (!API_NAME_RE.test(value)) {
+        refuse(`Invalid --object value "${value}" (must match SObject API name pattern)`);
+      }
+      if (tables.some((table) => table.objectApiName === value)) {
+        refuse(`--object ${value} is named twice.`);
+      }
+      tables.push({ objectApiName: value });
+      continue;
+    }
+    const last = tables.at(-1);
+    if (!last) refuse('--where filters the --object before it: name the table first.');
+    else if (last.where !== undefined) {
+      refuse(`--object ${last.objectApiName} is given two --where: join them with AND.`);
+    } else if (value.trim() === '') {
+      refuse(`--where for ${last.objectApiName} is empty.`);
+    } else last.where = value.trim();
+  }
+  return tables.length > 0 ? tables : undefined;
+}
+
+/**
+ * The query a clone of whole tables is discovered from, as the panel's query
+ * mode sends one: the first table, under its condition. Exported so it can be
+ * tested.
+ */
+export function tablesQueryOf(tables: readonly TableArg[]): string {
+  const [root] = tables;
+  return `SELECT Id FROM ${root.objectApiName}${root.where ? ` WHERE ${root.where}` : ''}`;
+}
+
+/**
+ * The objects of the graph a clone of whole tables leaves out: every one
+ * discovery reached that the command line does not name. Read whole, a table
+ * nobody named would go to the target with every row it holds — the parents
+ * the named tables point at are named with them, and written first.
+ * Exported so it can be tested.
+ */
+export function tablesLeftOut(
+  graph: Pick<ForgeGraph, 'nodes'>,
+  tables: readonly TableArg[],
+): string[] {
+  const named = new Set(tables.map((table) => table.objectApiName));
+  return graph.nodes.map((node) => node.objectApiName).filter((name) => !named.has(name));
+}
+
+/**
+ * The tables the command line names that discovery did not reach from the
+ * first: none of their rows could be read. Exported so it can be tested.
+ */
+export function tablesNotReached(
+  graph: Pick<ForgeGraph, 'nodes'>,
+  tables: readonly TableArg[],
+): string[] {
+  const reached = new Set(graph.nodes.map((node) => node.objectApiName));
+  return tables.map((table) => table.objectApiName).filter((name) => !reached.has(name));
+}
+
+/**
+ * The Forge config of a clone of whole tables, as the panel's query mode
+ * sends one: its query, each table's condition as that object's filter, and
+ * every choice of the command line in the fields the panel's run reads them
+ * from. The objects discovery reached and the command line does not name are
+ * left out. Exported so it can be tested.
+ */
+export function tablesRunConfig(args: CliArgs, graph: Pick<ForgeGraph, 'nodes'>): ForgeConfig {
+  const tables = args.tables ?? [];
+  const excludedObjects = [...new Set([...args.excludedObjects, ...tablesLeftOut(graph, tables)])];
+  return {
+    inputMode: 'soql',
+    soqlQuery: tablesQueryOf(tables),
+    depth: args.depth,
+    ...(args.depth === 'custom' ? { customDepth: args.customDepth } : {}),
+    sourceOrgId: args.source,
+    targetOrgId: args.target,
+    anonymizePII: args.anonymize,
+    skipEmpty: true,
+    batchSize: 'auto',
+    ...(args.maxRecordsPerObject !== undefined
+      ? { maxRecordsPerObject: args.maxRecordsPerObject }
+      : {}),
+    ...(Object.keys(args.fieldExclusions).length > 0
+      ? { fieldExclusions: args.fieldExclusions }
+      : {}),
+    ...(excludedObjects.length > 0 ? { excludedObjects } : {}),
+    ...(Object.keys(args.ownerMappings).length > 0 ? { ownerMappings: args.ownerMappings } : {}),
+    ...(Object.keys(args.objectSoqlFilters).length > 0
+      ? { objectSoqlFilters: args.objectSoqlFilters }
+      : {}),
+    ...(Object.keys(args.fieldMappings).length > 0 ? { fieldMappings: args.fieldMappings } : {}),
+    ...(args.keepContactPoints ? { keepContactPoints: true } : {}),
+    ...(args.applyAssignmentRules ? { applyAssignmentRules: true } : {}),
+    ...(args.dryRun ? { dryRun: true } : {}),
+    ...args.decisions,
+  };
+}
+
+/**
+ * What the executor is asked to do by a clone of whole tables: what the
+ * panel's orchestrator asks of it for the same config (`forgeExecuteOptions`),
+ * read page by page to the ceiling of each object — the diagnostic's pages
+ * when it is set. The journal and the gate are added as for a clone of one
+ * record (`withTheJournal`, `beforeWrite`). Exported so it can be tested.
+ */
+export function tablesExecuteOptions(
+  args: CliArgs,
+  config: ForgeConfig,
+  graph: ForgeGraph,
+  recordTypeMappings: RecordTypeMapping[],
+  personalFieldsOf: (fields: PIIFieldInfo[]) => string[],
+): ExecuteOptions {
+  return (
+    forgeExecuteOptions(
+      graph,
+      config,
+      {
+        recordTypeMappings,
+        anonymizationRules: args.anonymizationRules,
+        ...(args.files ? { files: args.files } : {}),
+        stream: {
+          ceiling: args.readCeiling,
+          ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
+        },
+      },
+      personalFieldsOf,
+    ) ?? {}
+  );
+}
+
+/**
+ * The input of a run, as a Forge config holds it: the record a clone of one
+ * record starts from, or the query a clone of whole tables is discovered
+ * from. Exported so it can be tested.
+ */
+export function cloneInputOf(
+  args: Pick<CliArgs, 'record' | 'tables'>,
+): Pick<ForgeConfig, 'inputMode' | 'recordId' | 'soqlQuery'> {
+  return args.tables
+    ? { inputMode: 'soql', soqlQuery: tablesQueryOf(args.tables) }
+    : { inputMode: 'record', recordId: args.record };
+}
+
+/** The run's first line names what it clones: its record, or each table under its condition. */
+export function cloneInputLine(args: Pick<CliArgs, 'record' | 'tables'>): string {
+  if (!args.tables) return `record=${args.record ?? ''}`;
+  return `tables=${args.tables
+    .map((table) => (table.where ? `${table.objectApiName} (${table.where})` : table.objectApiName))
+    .join(', ')}`;
+}
+
+/** What a run's lines and summary call what it cloned: its record, or the tables it read. */
+export function cloneSubjectOf(run: {
+  record?: string;
+  objects?: ReadonlyArray<{ objectApiName: string }>;
+}): string {
+  if (run.record) return run.record;
+  const objects = (run.objects ?? []).map((object) => object.objectApiName);
+  return objects.length > 0 ? objects.join(', ') : 'the run';
 }
 
 /** The largest file read as a run's choices: a template with every decision a graph holds stays well under it. */
@@ -836,6 +1067,22 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     fileChoices.objectSoqlFilters = filters;
   }
 
+  // Whole tables instead of a record: the objects named, each through its
+  // filter, read and written as the panel runs a query.
+  const tables = tableArgs(args);
+  if (tables) {
+    const refused = ['--record', '--template', '--upsert', '--expand-orphans', '--rehearse'].filter(
+      (flag) => has(flag),
+    );
+    if (refused.length > 0) {
+      process.stderr.write(
+        `--object clones whole tables, as the panel runs a query: it does not go with ` +
+          `${refused.join(', ')}, which ${refused.length === 1 ? 'goes' : 'go'} with a clone ` +
+          'of one record (--record).\n',
+      );
+      process.exit(2);
+    }
+  }
   const templateRecord =
     template?.config.inputMode === 'record' ? template.config.recordId : undefined;
   if (template && !has('--record') && !templateRecord) {
@@ -845,10 +1092,10 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     );
     process.exit(2);
   }
-  const record = get('--record') ?? templateRecord;
+  const record = tables ? undefined : (get('--record') ?? templateRecord);
   const source = get('--source');
   const target = get('--target');
-  if (!record || !source || !target) {
+  if ((!record && !tables) || !source || !target) {
     process.stderr.write('Missing required flag. Run with --help for usage.\n');
     process.exit(2);
   }
@@ -963,6 +1210,31 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     }
     objectSoqlFilters[obj] = where;
   }
+  // The condition given with an --object is that table's filter, over the
+  // file's; given with --filter too, the run could not say which one it read.
+  const filtered = new Set(
+    collectRepeated('--filter').map((raw) => raw.slice(0, raw.indexOf('='))),
+  );
+  for (const table of tables ?? []) {
+    if (table.where === undefined) continue;
+    if (filtered.has(table.objectApiName)) {
+      process.stderr.write(
+        `--where and --filter both filter ${table.objectApiName}: give one of them.\n`,
+      );
+      process.exit(2);
+    }
+    if (table.where.length > 512) {
+      process.stderr.write(`--where for "${table.objectApiName}" exceeds 512 chars\n`);
+      process.exit(2);
+    }
+    if (/--|\/\*|\*\/|;\s*$/.test(table.where)) {
+      process.stderr.write(
+        `--where for "${table.objectApiName}" contains forbidden tokens (--, /*, */, trailing ;)\n`,
+      );
+      process.exit(2);
+    }
+    objectSoqlFilters[table.objectApiName] = table.where;
+  }
   const fieldMappings: Record<string, Record<string, string>> = Object.fromEntries(
     Object.entries(fileChoices.fieldMappings ?? {}).map(([obj, renames]) => [obj, { ...renames }]),
   );
@@ -1036,8 +1308,9 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   // Without it `--depth deep` was cast into the union, and a malformed record
   // ID or object name was only refused after both orgs had been authenticated.
   const checked = forgeConfigSchemaStrict.safeParse({
-    inputMode: 'record',
-    recordId: record,
+    ...(tables
+      ? { inputMode: 'soql', soqlQuery: tablesQueryOf(tables) }
+      : { inputMode: 'record', recordId: record }),
     depth: depthRaw,
     customDepth: depthRaw === 'custom' ? customDepth : undefined,
     sourceOrgId: source,
@@ -1068,6 +1341,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
 
   return {
     record,
+    tables,
     source,
     target,
     depth: checked.data.depth,
@@ -1163,6 +1437,9 @@ export function cliRunSetup(args: CliArgs, targetOrgId: string): Record<string, 
     source: args.source,
     targetOrgId: targetOrgId.slice(0, 15),
     record: args.record,
+    // Only a clone of whole tables names them: a clone of one record keeps
+    // the fingerprint its journals were begun with.
+    ...(args.tables ? { tables: args.tables } : {}),
     depth: args.depth,
     customDepth: args.depth === 'custom' ? args.customDepth : null,
     maxNodes: args.maxNodes ?? null,
@@ -1228,8 +1505,8 @@ export async function resumeRefusal(
     return {
       code: 'RESUME_CHANGED',
       message:
-        'The clone is set up otherwise than the run to take up: give the same record, orgs, ' +
-        'depth, choices and flags it ran with. Nothing was written.',
+        'The clone is set up otherwise than the run to take up: give the same record or ' +
+        'tables, orgs, depth, choices and flags it ran with. Nothing was written.',
     };
   }
   return undefined;
@@ -2651,7 +2928,18 @@ const runSummarySchema = z.object({
   source: z.string(),
   target: z.string().min(1),
   targetOrgId: summaryIdSchema.optional(),
-  record: z.string(),
+  // The record a clone of one record started from, or the tables a clone of
+  // whole tables read: what its lines call the run.
+  record: z.string().optional(),
+  objects: z
+    .array(
+      z.object({
+        objectApiName: z.string().regex(API_NAME_RE, 'not an API name'),
+        where: z.string().max(512).optional(),
+      }),
+    )
+    .max(500)
+    .optional(),
   dryRun: z.literal(false),
   elapsedMs: z.number().nonnegative(),
   finishedAt: summaryDateSchema.optional(),
@@ -2740,13 +3028,26 @@ async function runSummaryOfJournal(
   // A run a killed process left has no end: its journal's last write is when it stopped.
   const recordedAt = end?.at ?? statSync(filePath).mtime.toISOString();
   const elapsed = Date.parse(recordedAt) - Date.parse(read.startedAt);
+  const startedWith = read.resume?.startedWith;
+  const record = read.resume?.recordId ?? startedWith?.config.recordId;
+  // A clone of whole tables names the tables its graph took, each under its filter.
+  const objects =
+    !record && startedWith?.config.inputMode === 'soql'
+      ? startedWith.graph.nodes
+          .filter((node) => node.included)
+          .map(({ objectApiName }) => {
+            const where = startedWith.config.objectSoqlFilters?.[objectApiName];
+            return where !== undefined ? { objectApiName, where } : { objectApiName };
+          })
+      : undefined;
   const parsed = runSummarySchema.safeParse({
     tool: 'sandforge-clone',
     version: 1,
     source: read.resume?.sourceOrgId ?? '',
     target,
     targetOrgId: read.targetOrgId,
-    record: read.resume?.recordId ?? read.resume?.startedWith?.config.recordId ?? '',
+    record: record ?? (objects ? undefined : ''),
+    ...(objects ? { objects } : {}),
     dryRun: false,
     elapsedMs: Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0,
     finishedAt: recordedAt,
@@ -2850,7 +3151,7 @@ export function removalPlanLines(
       idRemapWithTheirRecord: summary.result.withTheirRecordSourceIds,
     }).length + summary.result.updatedSourceIds.length;
   return [
-    `the clone of ${summary.record} wrote to ${args.target}${ended ? ` until ${ended}` : ''}; ` +
+    `the clone of ${cloneSubjectOf(summary)} wrote to ${args.target}${ended ? ` until ${ended}` : ''}; ` +
       `a removal deletes the ${planned} record(s) it created, children first:`,
     ...plan.map((object) => `  ${object.objectApiName}: ${object.ids.length}`),
     `${stay} record(s) the target already held, which the run linked to or wrote over, stay`,
@@ -4091,7 +4392,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // CI job that saved it to a file read the progress lines in front of the
   // JSON, and failed on them. What the run says on the way goes to stderr.
   const say = (line: string): void => (args.json ? console.error(line) : console.log(line));
-  say(`sandforge-clone  ${args.source} -> ${args.target}  record=${args.record}`);
+  say(`sandforge-clone  ${args.source} -> ${args.target}  ${cloneInputLine(args)}`);
   for (const line of choicesLines(args)) say(line);
 
   const sourceOrg = await loadOrg(args.source);
@@ -4106,8 +4407,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const runAudit = (): ForgeRunAudit =>
     (audit ??= new ForgeRunAudit(
       {
-        inputMode: 'record',
-        recordId: args.record,
+        ...cloneInputOf(args),
         depth: args.depth,
         sourceOrgId: args.source,
         targetOrgId: args.target,
@@ -4166,8 +4466,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const requestsSent = (): number => requestsOf.reduce((sum, sent) => sum + sent(), 0);
 
   const config: ForgeConfig = {
-    inputMode: 'record',
-    recordId: args.record,
+    ...cloneInputOf(args),
     depth: args.depth,
     customDepth: args.depth === 'custom' ? args.customDepth : undefined,
     sourceOrgId: args.source,
@@ -4175,6 +4474,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     anonymizePII: args.anonymize,
     skipEmpty: true,
     batchSize: 'auto',
+    // A table is counted under its filter, as the panel's discovery of a query
+    // counts the object after FROM: a count of the whole table would say an
+    // empty filter's table held rows.
+    ...(args.tables && Object.keys(args.objectSoqlFilters).length > 0
+      ? { objectSoqlFilters: args.objectSoqlFilters }
+      : {}),
   };
 
   const piiDetector = new PIIDetector();
@@ -4214,15 +4519,31 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const root = discovered.nodes[0]?.objectApiName;
   if (root !== undefined && args.excludedObjects.includes(root)) {
     process.stderr.write(
-      `--exclude-object ${root}: the record to clone is of this object, and nothing would be ` +
-        'left to clone.\n',
+      `--exclude-object ${root}: the ${args.tables ? 'first table' : 'record'} to clone is of ` +
+        'this object, and nothing would be left to clone.\n',
     );
     process.exit(2);
   }
+  // A table named and never reached would read nothing, and the run would say
+  // it had cloned what it was given: refused before a row is read.
+  const notReached = args.tables ? tablesNotReached(discovered, args.tables) : [];
+  if (notReached.length > 0) {
+    process.stderr.write(
+      `--object ${notReached.join(', ')}: discovery from ${root ?? args.tables?.[0]?.objectApiName} ` +
+        `did not reach ${notReached.length === 1 ? 'it' : 'them'} ` +
+        `(${discovered.nodes.length} object(s), depth ${args.depth === 'custom' ? args.customDepth : args.depth}): ` +
+        'name first a table it hangs from or points at, or raise --depth or --max-nodes.\n',
+    );
+    process.exit(2);
+  }
+  // The config the run goes with: a clone of whole tables leaves out every
+  // object discovery reached that the command line does not name.
+  const runConfig = args.tables ? tablesRunConfig(args, discovered) : config;
+  const objectsLeftOut = runConfig.excludedObjects ?? args.excludedObjects;
   // Listed as excluded and out of the plan; the run leaves them out as well,
   // and those discovery never reached, which it would otherwise add.
   const graph = withTemplateFields(
-    withObjectsLeftOut(discovered, new Set(args.excludedObjects)),
+    withObjectsLeftOut(discovered, new Set(objectsLeftOut)),
     args.anonymizeFields,
   );
   const plan = new ForgePlanGenerator().generate(graph);
@@ -4258,7 +4579,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
             action: 'list-objects',
             source: args.source,
             target: args.target,
-            record: args.record,
+            ...(args.tables ? { tables: args.tables } : { record: args.record }),
             graph: graphJson(graph, plan),
             objects: listed,
             elapsedMs: Date.now() - t0,
@@ -4354,7 +4675,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const targetAutomation = await targetAutomationReader(conns.get(args.target)!).readForGraph(
     args.target,
     graph,
-    new Set(args.excludedObjects),
+    new Set(objectsLeftOut),
   );
   say('');
   for (const line of automationLines(targetAutomation, args.target, {
@@ -4365,7 +4686,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   }
   // What may refuse taking the run back, said before it writes: a flow before
   // a delete, a trigger on one, a record that locks past Draft.
-  const removalRisks = removalRisksOf(targetAutomation, new Set(args.excludedObjects));
+  const removalRisks = removalRisksOf(targetAutomation, new Set(objectsLeftOut));
   for (const line of removalRiskLines(removalRisks, args.target)) say(line);
   // What that automation may reach: the records' own addresses and numbers,
   // unless they go neutralized.
@@ -4387,7 +4708,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       maxRecordsPerObject: args.maxRecordsPerObject,
       fieldExclusions: args.fieldExclusions,
       fieldMappings: args.fieldMappings,
-      excludedObjects: args.excludedObjects,
+      excludedObjects: objectsLeftOut,
     },
   );
   say('');
@@ -4423,7 +4744,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // client's sandbox, a flow on orders sent each to an external system as the
   // clone gave it back its status.
   const updated = objectsUpdatedAfterInsert(graph, {
-    leftOut: new Set(args.excludedObjects),
+    leftOut: new Set(objectsLeftOut),
     upsert: args.upsert,
   });
   const automationStop = automationRefusal(targetAutomation, args.target, {
@@ -4800,7 +5121,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   };
 
   say(
-    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''}${args.pageSize !== undefined ? `, READ IN PAGES OF ${args.pageSize}` : ''})`,
+    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.tables ? ', WHOLE TABLES' : ''}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.applyAssignmentRules ? ', ASSIGNMENT-RULES' : ''}${args.files ? ', FILES' : ''}${args.pageSize !== undefined ? `, READ IN PAGES OF ${args.pageSize}` : ''})`,
   );
   // The record types were read for the run, before the executor had it: the
   // extension counts them among its calls. A summary that counts none is left
@@ -4826,7 +5147,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // The org the run wrote to, by its own id: a removal goes to that org and
     // to no other, whatever alias names it by then.
     ...(targetOrgId ? { targetOrgId } : {}),
-    record: args.record,
+    // The record it cloned from, or the tables it read, each under its condition.
+    ...(args.tables ? { objects: args.tables } : { record: args.record }),
     dryRun: args.dryRun,
     upsert: args.upsert,
     expandOrphans: args.expandOrphans,
@@ -4886,9 +5208,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         sourceOrgId: args.source,
         fingerprint,
         targetSalesforceOrgId: targetOrgId,
-        recordId: args.record,
-        // The command's own choices are in the fingerprint: `cliRunSetup`.
-        startedWith: { graph, config },
+        ...(args.record ? { recordId: args.record } : {}),
+        // The command's own choices are in the fingerprint: `cliRunSetup`. A
+        // clone of whole tables keeps the config it ran with, its filters and
+        // the objects it left out, which the summary of its journal names.
+        startedWith: { graph, config: runConfig },
       });
     }
     journalStore = journals.openAt(journalPath);
@@ -4961,9 +5285,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       },
       withTheJournal(
         {
-          ...executeOptions(args, graph, recordTypeMappings, (fields) =>
-            discovery.personalFields(fields),
-          ),
+          // A clone of whole tables goes as the panel's run of a query goes:
+          // each table read and written page by page.
+          ...(args.tables
+            ? tablesExecuteOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
+                discovery.personalFields(fields),
+              )
+            : executeOptions(args, graph, recordTypeMappings, (fields) =>
+                discovery.personalFields(fields),
+              )),
           beforeWrite,
         },
         journalStore,

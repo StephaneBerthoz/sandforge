@@ -58,6 +58,7 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
+import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import { commandLineGuard } from './commandLineGuard.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { commandLineSaltKeeper } from '../src/modules/frozendataset/FrozenSalt.js';
@@ -1058,116 +1059,192 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The salt from the environment, or the file given; none is made up here.
   handler.setSaltKeeper(commandLineSaltKeeper(process.env, args.saltFile));
 
-  const send = (type: string, payload: Record<string, unknown>): Promise<boolean> =>
-    handler.handle({ id: `cli-${type}-${Date.now()}`, type, payload } as never);
+  // The extraction, the load and the removal are listed while they run, as in
+  // the extension: what Ctrl-C stops them through, as the panel's Cancel does.
+  // A load stopped so is recorded in the sas with what it wrote, which
+  // `remove` takes back; killed outright, it left the records it had written
+  // and no record of them. A second Ctrl-C ends the process at once.
+  const registry = new BackgroundOperationRegistry();
+  handler.setRegistry(registry);
+  /** The request the handler has, which a Ctrl-C before its run started cancels. */
+  let underWay: string | undefined;
+  let interrupted = false;
+  const interrupt = (): void => {
+    interrupted = true;
+    process.stderr.write(
+      `\ninterrupted: the ${args.step} stops after the call under way, and says what it wrote ` +
+        '(Ctrl-C again ends it at once)\n',
+    );
+    for (const operation of registry.getRunning()) registry.abort(operation.operationId);
+    if (underWay) registry.cancelBeforeStart(underWay);
+    // Nothing under way — a question on the terminal: nothing was written.
+    if (!underWay) process.exit(INTERRUPTED_EXIT);
+  };
+  process.once('SIGINT', interrupt);
 
-  // The configuration goes in the way the panel saves it: through the schema.
-  await send('frozen:config:save', { config });
-  if (failed) {
-    process.exitCode = 1;
+  const send = async (type: string, payload: Record<string, unknown>): Promise<boolean> => {
+    const id = `cli-${type}-${Date.now()}`;
+    underWay = id;
+    try {
+      return await handler.handle({ id, type, payload } as never);
+    } finally {
+      underWay = undefined;
+    }
+  };
+  let ran: 'through' | 'ended';
+  try {
+    ran = await runStep();
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
+  if (ran === 'ended' && !interrupted) {
+    // The configuration refused, a load or a removal declined, nothing to
+    // remove: said already, and nothing more is.
+    if (failed) process.exitCode = 1;
     return;
   }
-
-  switch (args.step) {
-    case 'select':
-      log(`selecting from ${args.source}…`);
-      await send('frozen:select', { sourceOrgId });
-      break;
-    case 'extract':
-      log(`extracting from ${args.source}…`);
-      await send('frozen:extract', {
-        sourceOrgId,
-        ...(args.author ? { author: args.author } : {}),
-      });
-      break;
-    case 'load': {
-      if (args.dryRun) {
-        // Nothing is written: nothing to confirm.
-        log(`reading what a load into ${args.target}${args.pilot ? ' (pilot)' : ''} would do…`);
-        await send('frozen:load:preview', {
-          targetOrgId,
-          ...(args.pilot ? { pilot: true } : {}),
-          ...(args.reload ? { reload: true } : {}),
-        });
-        break;
-      }
-      if (!args.yes) {
-        const ok = await confirm(
-          `Load the frozen dataset into ${args.target}${args.reload ? ', purging first what earlier loads created' : ''}?`,
-        );
-        if (!ok) {
-          log('Nothing written.');
-          return;
-        }
-      }
-      log(`loading into ${args.target}${args.pilot ? ' (pilot)' : ''}…`);
-      await send('frozen:load', {
-        targetOrgId,
-        ...(args.pilot ? { pilot: true } : {}),
-        ...(args.reload ? { reload: true } : {}),
-      });
-      break;
+  if (interrupted) {
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify({ tool: 'sandforge-frozen', posted }, null, 2)}\n`);
     }
-    case 'verify':
-      log(`verifying ${args.target}…`);
-      await send('frozen:verify', { targetOrgId });
-      break;
-    case 'remove': {
-      // What the page reads before it offers the removal, read the same way.
-      quiet = true;
-      await send('frozen:status', {});
-      quiet = false;
-      // The loads into the target, which a load into another org leaves named.
-      const status = posted.filter((m) => m.type === 'frozen:status:response').at(-1)?.payload
-        ?.status as { loadRecords?: LoadRecords[] } | undefined;
-      const records = status?.loadRecords?.find((load) => load.orgId === targetOrgId);
-      if (!records) {
-        // Nothing to do is no failure.
-        log(`No load into ${args.target} is recorded in this sas: nothing to remove.`);
-        return;
-      }
-      if (args.sweepList) {
-        // What a sweep would delete, read and said; nothing is deleted, the
-        // load's own records included.
-        log(`reading what a sweep of ${args.target} would take…`);
-        await send('frozen:remove:sweep', { targetOrgId, loadedAt: records.loadedAt });
-        break;
-      }
-      for (const line of removalPlanLines(records, args.target ?? '')) log(line);
-      if (args.sweep) {
-        log(
-          "before them, a sweep deletes what the target's automation created during the load, " +
-            "as the load's user — run with --sweep-list to see what",
-        );
-      }
-      if (!args.yes && removalAsks(records)) {
-        // Typed, as the panel asks it: the name of the org the records leave.
-        const answer = await typed(`Type ${args.target} to delete them:`);
-        if (answer !== args.target) {
-          log('Nothing deleted.');
-          return;
-        }
-      }
-      log(`removing from ${args.target}…`);
-      await send('frozen:remove', {
-        targetOrgId,
-        loadedAt: records.loadedAt,
-        ...(args.includeChanged ? { includeChanged: true } : {}),
-        ...(args.sweep ? { sweep: true } : {}),
-      });
-      break;
-    }
-    case 'status':
-      await send('frozen:status', {});
-      break;
+    process.stderr.write(`${frozenInterruptedLine(args.step)}\n`);
+    process.exitCode = INTERRUPTED_EXIT;
+    return;
   }
-
   if (failed) process.exitCode = 1;
   if (args.json) {
     process.stdout.write(`${JSON.stringify({ tool: 'sandforge-frozen', posted }, null, 2)}\n`);
     return;
   }
   log(`done in ${Date.now() - t0}ms`);
+
+  /**
+   * The step itself: the configuration saved, then the step's own request;
+   * `ended` when it stopped short of its request, having said why.
+   */
+  async function runStep(): Promise<'through' | 'ended'> {
+    // The configuration goes in the way the panel saves it: through the schema.
+    await send('frozen:config:save', { config });
+    if (failed) return 'ended';
+
+    switch (args.step) {
+      case 'select':
+        log(`selecting from ${args.source}…`);
+        await send('frozen:select', { sourceOrgId });
+        break;
+      case 'extract':
+        log(`extracting from ${args.source}…`);
+        await send('frozen:extract', {
+          sourceOrgId,
+          ...(args.author ? { author: args.author } : {}),
+        });
+        break;
+      case 'load': {
+        if (args.dryRun) {
+          // Nothing is written: nothing to confirm.
+          log(`reading what a load into ${args.target}${args.pilot ? ' (pilot)' : ''} would do…`);
+          await send('frozen:load:preview', {
+            targetOrgId,
+            ...(args.pilot ? { pilot: true } : {}),
+            ...(args.reload ? { reload: true } : {}),
+          });
+          break;
+        }
+        if (!args.yes) {
+          const ok = await confirm(
+            `Load the frozen dataset into ${args.target}${args.reload ? ', purging first what earlier loads created' : ''}?`,
+          );
+          if (!ok) {
+            log('Nothing written.');
+            return 'ended';
+          }
+        }
+        log(`loading into ${args.target}${args.pilot ? ' (pilot)' : ''}…`);
+        await send('frozen:load', {
+          targetOrgId,
+          ...(args.pilot ? { pilot: true } : {}),
+          ...(args.reload ? { reload: true } : {}),
+        });
+        break;
+      }
+      case 'verify':
+        log(`verifying ${args.target}…`);
+        await send('frozen:verify', { targetOrgId });
+        break;
+      case 'remove': {
+        // What the page reads before it offers the removal, read the same way.
+        quiet = true;
+        await send('frozen:status', {});
+        quiet = false;
+        // The loads into the target, which a load into another org leaves named.
+        const status = posted.filter((m) => m.type === 'frozen:status:response').at(-1)?.payload
+          ?.status as { loadRecords?: LoadRecords[] } | undefined;
+        const records = status?.loadRecords?.find((load) => load.orgId === targetOrgId);
+        if (!records) {
+          // Nothing to do is no failure.
+          log(`No load into ${args.target} is recorded in this sas: nothing to remove.`);
+          return 'ended';
+        }
+        if (args.sweepList) {
+          // What a sweep would delete, read and said; nothing is deleted, the
+          // load's own records included.
+          log(`reading what a sweep of ${args.target} would take…`);
+          await send('frozen:remove:sweep', { targetOrgId, loadedAt: records.loadedAt });
+          break;
+        }
+        for (const line of removalPlanLines(records, args.target ?? '')) log(line);
+        if (args.sweep) {
+          log(
+            "before them, a sweep deletes what the target's automation created during the load, " +
+              "as the load's user — run with --sweep-list to see what",
+          );
+        }
+        if (!args.yes && removalAsks(records)) {
+          // Typed, as the panel asks it: the name of the org the records leave.
+          const answer = await typed(`Type ${args.target} to delete them:`);
+          if (answer !== args.target) {
+            log('Nothing deleted.');
+            return 'ended';
+          }
+        }
+        log(`removing from ${args.target}…`);
+        await send('frozen:remove', {
+          targetOrgId,
+          loadedAt: records.loadedAt,
+          ...(args.includeChanged ? { includeChanged: true } : {}),
+          ...(args.sweep ? { sweep: true } : {}),
+        });
+        break;
+      }
+      case 'status':
+        await send('frozen:status', {});
+        break;
+    }
+    return 'through';
+  }
+}
+
+/** The exit code of a step Ctrl-C stopped, as a shell gives a process SIGINT ended. */
+const INTERRUPTED_EXIT = 130;
+
+/**
+ * What a step Ctrl-C stopped says last: what was kept of it, and what takes
+ * it back. Exported so it can be tested.
+ */
+export function frozenInterruptedLine(step: string): string {
+  if (step === 'load') {
+    return (
+      'interrupted: the load stopped before it was through; what it wrote is recorded in the ' +
+      'sas and the audit trail, and `remove` takes it back'
+    );
+  }
+  if (step === 'remove') {
+    return (
+      'interrupted: the removal stopped before it was through; what it deleted is recorded, and ' +
+      '`remove` again takes what it left'
+    );
+  }
+  return `interrupted: the ${step} stopped before it was through`;
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.
