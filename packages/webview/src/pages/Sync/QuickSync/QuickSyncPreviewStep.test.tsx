@@ -140,6 +140,49 @@ describe('QuickSyncPreviewStep', () => {
     expect(screen.queryByTestId('quick-sync-result-errors-Pricebook2')).toBeNull();
   });
 
+  it('says the rows written in another currency and the prices it settled, as the Sync tab does, with no refusal listed', () => {
+    // Quick Sync runs the same sync as the Sync tab, whose results and history
+    // say both; its own results said neither.
+    const entries = {
+      objectApiName: 'PricebookEntry',
+      operation: 'insert' as const,
+      processed: 2,
+      success: 2,
+      failed: 0,
+      skipped: 0,
+      conflictCount: 0,
+      errors: [],
+      currenciesReplaced: [
+        {
+          objectApiName: 'PricebookEntry',
+          from: 'GBP',
+          to: 'USD',
+          chosenBy: 'corporate' as const,
+          rows: 1,
+          fields: ['UnitPrice'],
+        },
+      ],
+      pricesSettled: [
+        { from: 'GBP', to: 'USD', how: 'replaced' as const, forLines: false, prices: 2 },
+        { from: 'GBP', to: 'EUR', how: 'converted' as const, forLines: true, prices: 1 },
+      ],
+    };
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        result={{ ...mockResult, objectResults: [entries] }}
+      />,
+    );
+
+    const currencies = screen.getByRole('region', { name: 'Written in another currency' });
+    expect(currencies.textContent).toContain('GBP');
+    expect(currencies.textContent).toContain('UnitPrice');
+    const prices = screen.getByRole('region', { name: 'Prices in another currency' });
+    expect(screen.getAllByTestId('results-price-currencies-row')).toHaveLength(2);
+    expect(prices.textContent).toContain('EUR');
+    expect(screen.queryByTestId('quick-sync-result-errors-PricebookEntry')).toBeNull();
+  });
+
   it('calls a run a cancel stopped cancelled, not partial', () => {
     render(
       <QuickSyncPreviewStep

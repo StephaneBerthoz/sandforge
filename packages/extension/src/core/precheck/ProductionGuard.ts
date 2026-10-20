@@ -524,13 +524,17 @@ export class ProductionGuard {
     if (request.operation === 'deploy') {
       // No override lifts this one. A metadata deployment changes what every
       // user of the org runs, and SandForge offers it to move changes between
-      // sandboxes; an org of unknown type is here too (orgTypeToGuardTier).
+      // development orgs; an org of unknown type is here too (orgTypeToGuardTier).
+      const words = this.options.questionWords ?? ENGLISH_QUESTION_WORDS;
+      const name = this.options.orgNameOf?.(request.orgId);
       return {
         allowed: false,
         requiresConfirmation: false,
-        blockedReason:
-          `deploy is not allowed on production org ${request.orgId}: ` +
-          'SandForge deploys metadata to sandboxes only',
+        blockedReason: words.deployRefused(
+          name
+            ? words.org(request.orgTier, name, true)
+            : words.org(request.orgTier, request.orgId, false),
+        ),
         warnings,
         impactSummary: buildImpactSummary(request),
       };
@@ -644,7 +648,8 @@ export const RELATED_RECORDS_ALSO_WRITTEN = 'the related records the run adds';
 /**
  * The words a confirmation's question is put in, piece by piece, so a
  * language can order them its own way: the sentence of each operation, how
- * many of what, what it writes besides, and the org.
+ * many of what, what it writes besides, and the org. The refusal of a
+ * deployment is put in them too, the org named as a question names it.
  */
 export interface QuestionWords {
   /** The whole question, `things` and `org` put in the operation's sentence. */
@@ -655,6 +660,13 @@ export interface QuestionWords {
   besides: (counted: string, alsoWrites: string) => string;
   /** The org, by its tier and its alias — or by its id when nobody named it. */
   org: (tier: SafetyTier, name: string, named: boolean) => string;
+  /**
+   * Why a deployment to `org` is refused: the orgs SandForge deploys to are
+   * those `isDevelopmentOrg` accepts — a sandbox, a scratch org or a
+   * Developer Edition org. The refusal said "to sandboxes only" after the
+   * last two became development orgs, and in English in every language.
+   */
+  deployRefused: (org: string) => string;
 }
 
 /** The question in English, as every host without translations asks it. */
@@ -683,6 +695,8 @@ export const ENGLISH_QUESTION_WORDS: QuestionWords = {
         : `at most ${count.atMost} ${unit}s`,
   besides: (counted, alsoWrites) => `${counted}, plus ${alsoWrites},`,
   org: (tier, name, named) => (named ? `the ${tier} org "${name}"` : `the ${tier} org ${name}`),
+  deployRefused: (org) =>
+    `SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to ${org}.`,
 };
 
 /**

@@ -454,7 +454,7 @@
     "deployment": {
       "title": "Aus {{source}} in {{target}} bereitstellen",
       "intro": "Wählen Sie, was {{source}} enthält und {{target}} nicht oder anders enthält. SandForge ruft es aus {{source}} ab und validiert es zuerst in {{target}}: Das Ziel kompiliert es, führt die gewählten Tests aus und behält nichts. Nur eine erfolgreiche Validierung kann bereitgestellt werden, nachdem Sie bestätigt haben. Aus dem Ziel wird nichts gelöscht.",
-      "targetRefused": "{{target}} ist eine Produktions-Org oder eine Org, von der SandForge nicht sagen kann, ob sie eine Sandbox ist. SandForge stellt nur in Sandboxes bereit.",
+      "targetRefused": "{{target}} ist eine Produktions-Org oder eine, von der SandForge nicht sagen kann, dass sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org ist. SandForge stellt nur in solche bereit.",
       "pickLegend": "Bereitzustellende Komponenten: {{picked}} von {{total}} ausgewählt",
       "noneDeployable": "Nichts, was dieser Vergleich gefunden hat, kann daraus bereitgestellt werden.",
       "changeLegend": "Nur in der Quelle: Die Bereitstellung erstellt es in {{target}}. Geändert: Beide enthalten es, und die Bereitstellung ersetzt, was {{target}} enthält.",
@@ -1494,7 +1494,7 @@
   },
   "migration": {
     "title": "Migration",
-    "subtitle": "Importieren Sie eine vorhandene Migrationsdefinition und konvertieren Sie sie in eine SandForge-Synchronisationskonfiguration. Der Import liest die Datei und ändert nichts; das Ausführen der konvertierten Konfiguration schreibt Datensätze in den Ziel-Org.",
+    "subtitle": "Importieren Sie eine vorhandene Migrationsdefinition und konvertieren Sie sie in eine SandForge-Synchronisationskonfiguration. Der Import liest die Datei und ändert nichts; das Ausführen der konvertierten Konfiguration schreibt Datensätze in die Ziel-Org.",
     "sourceTitle": "Quelldatei",
     "type": {
       "sfdmu": {
@@ -2455,7 +2455,7 @@
       "gaps1430": "Wissen, was das Ziel ablehnen würde, bevor geschrieben wird",
       "gaps1430Desc": "Simulieren führt einen Klon durch seine Schreibphase, ohne zu schreiben; Proben fragt das Ziel selbst, in zurückgesetzten Transaktionen. Der Tab Abweichungen listet die Funde, mit einer Entscheidung per Klick für jede, gespeichert in der Vorlage.",
       "results1430": "Aus den Ergebnissen handeln",
-      "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Zielorg, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
+      "results1430Desc": "Öffnen Sie einen erstellten Datensatz in der Ziel-Org, speichern Sie die Ergebnisse als CSV oder JSON, entfernen Sie den Lauf direkt und wiederholen Sie übersprungene Objekte. Vorlagen lassen sich als JSON-Dateien exportieren und importieren.",
       "sweepAutomation1540": "Entfernen, was die Automatisierung des Ziels erstellt hat",
       "sweepAutomation1540Desc": "Eine Forge-Entfernung kann jetzt auch zurücknehmen, was die Automatisierung des Ziels während des Laufs erstellt hat, zuerst aufgelistet und erfragt. Der Automatisierungsbericht liest die Startbedingung jedes Flows, und die Überprüfung zählt ein vom Ziel geleertes Lookup nicht mehr als defekt.",
       "scaleTested1550": "Sync, Seed, Autopilot und Frozen halten im großen Maßstab",
@@ -4437,7 +4437,7 @@
       "explanation": "Ein eindeutiges Feld hat einen Wert erhalten, den ein Datensatz der Org bereits trägt, oft einer, den ein früherer Lauf geschrieben hat.",
       "action": "Entfernen Sie, was der frühere Lauf geschrieben hat — seine Ergebnisse bieten es an —, oder ändern Sie den Wert, und starten Sie dann erneut.",
       "forge": {
-        "explanation": "Im Ziel-Org existiert bereits ein Datensatz mit demselben eindeutigen Wert, oft aus einem früheren Lauf geklont.",
+        "explanation": "In der Ziel-Org existiert bereits ein Datensatz mit demselben eindeutigen Wert, oft aus einem früheren Lauf geklont.",
         "action": "Entfernen Sie, was der frühere Lauf erstellt hat — „Die von diesem Durchlauf erstellten Datensätze entfernen“ in seinen Ergebnissen —, und starten Sie dann erneut. Über die Befehlszeile aktualisiert --upsert per externer ID, wo das Objekt eine hat."
       },
       "seed": {
@@ -4448,8 +4448,8 @@
       "explanation": "Eine Nachschlagebeziehung verweist auf einen Datensatz, der in der Org nicht existiert, oft einen Benutzer wie den Inhaber.",
       "action": "Bringen Sie den Datensatz, auf den sie verweist, zuerst in die Org, oder lassen Sie die Nachschlagebeziehung leer und setzen Sie sie danach.",
       "forge": {
-        "explanation": "Eine Nachschlagebeziehung verweist auf einen Datensatz, der im Ziel-Org nicht existiert, oft einen Benutzer wie den Inhaber.",
-        "action": "Legen Sie den referenzierten Datensatz im Ziel-Org an oder ordnen Sie ihn zu, oder lassen Sie das Feld leer und füllen Sie es nach dem Klonen."
+        "explanation": "Eine Nachschlagebeziehung verweist auf einen Datensatz, der in der Ziel-Org nicht existiert, oft einen Benutzer wie den Inhaber.",
+        "action": "Legen Sie den referenzierten Datensatz in der Ziel-Org an oder ordnen Sie ihn zu, oder lassen Sie das Feld leer und füllen Sie es nach dem Klonen."
       }
     },
     "recordTypeUnavailable": {
@@ -4472,7 +4472,7 @@
       "explanation": "Ein Feld, das die Org verlangt, hat keinen Wert.",
       "action": "Geben Sie dem Feld einen Wert, oder bringen Sie den Datensatz, auf den es verweisen muss, zuerst in die Org, und starten Sie dann erneut.",
       "forge": {
-        "explanation": "Ein Pflichtfeld hat keinen Wert: {{detail}}.",
+        "explanation": "Ein Feld, das die Ziel-Org verlangt, hat keinen Wert.",
         "action": "Aktivieren Sie „Übergeordnete automatisch abrufen“, oder erhöhen Sie die Tiefe, damit das erforderliche übergeordnete Objekt mitgeklont wird."
       },
       "seed": {
@@ -4484,7 +4484,7 @@
       "action": "Fügen Sie den Wert im Setup der Org der Auswahlliste und dem Datensatztyp hinzu, oder ändern Sie den Wert, und starten Sie dann erneut.",
       "forge": {
         "explanation": "Ein Auswahllistenwert aus der Quelle wird von der Ziel-Org nicht angenommen: Das Feld enthält ihn nicht, oder der Datensatztyp, mit dem der Datensatz geschrieben wird, nimmt ihn nicht an — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an. Nennt die Ablehnung ein Feld, dem der Datensatz einen Wert gibt, schreibt der Klon den Datensatz ohne dieses Feld erneut; ein hier aufgeführter Datensatz konnte so nicht geschrieben werden.",
-        "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste und zum Datensatztyp des Datensatzes hinzu, oder ändern Sie den Wert im Quelldatensatz."
+        "action": "Fügen Sie den Wert im Setup der Ziel-Org zur Auswahlliste und zum Datensatztyp des Datensatzes hinzu, oder ändern Sie den Wert im Quelldatensatz."
       },
       "seed": {
         "action": "Geben Sie dem Feld die Werte, die die Org dafür vorsieht."
@@ -4506,8 +4506,8 @@
       "action": "Prüfen Sie die Sicherheit auf Feldebene Ihres Benutzers für das Feld in der Org, und ob das Feld dort mit demselben Typ existiert."
     },
     "fieldIntegrity": {
-      "explanation": "Salesforce hat den Datensatz wegen einer Integritätsregel abgelehnt: {{detail}}.",
-      "action": "Lesen Sie das Detail: Salesforce nennt meist das betroffene Feld oder die Regel."
+      "explanation": "Salesforce hat den Datensatz wegen einer Integritätsregel abgelehnt.",
+      "action": "Lesen Sie die Meldung der Org: Salesforce nennt darin meist das betroffene Feld oder die Regel."
     },
     "cannotInsertEntity": {
       "explanation": "Salesforce nimmt keine neuen Datensätze dieses Objekts an (ein Verlaufs-, Audit- oder Systemobjekt).",
@@ -4540,7 +4540,7 @@
       "explanation": "Dieses Objekt existiert in der Org nicht, oder Ihr Benutzer kann es nicht sehen.",
       "action": "Stellen Sie das Objekt in der Org bereit oder geben Sie Ihrem Benutzer Zugriff darauf, oder lassen Sie das Objekt aus dem Lauf aus.",
       "forge": {
-        "explanation": "Dieses Objekt existiert im Ziel-Org nicht, oder Ihr Benutzer kann es nicht sehen.",
+        "explanation": "Dieses Objekt existiert in der Ziel-Org nicht, oder Ihr Benutzer kann es nicht sehen.",
         "action": "Vergleichen Sie die Schemas beider Orgs, oder nehmen Sie dieses Objekt vom Klonen aus."
       }
     },
@@ -4549,14 +4549,14 @@
       "action": "Prüfen Sie, ob der Datensatz in der Org noch existiert und Ihr Benutzer ihn sehen kann.",
       "forge": {
         "explanation": "Salesforce hat den angeforderten Datensatz oder die Ressource nicht gefunden.",
-        "action": "Prüfen Sie die Datensatz-ID und ob sie zum Quell-Org gehört."
+        "action": "Prüfen Sie die Datensatz-ID und ob sie zur Quell-Org gehört."
       }
     },
     "stringTooLong": {
       "explanation": "Ein Wert ist länger, als das Feld zulässt.",
       "action": "Kürzen Sie den Wert, oder geben Sie dem Feld in der Org die Länge, die der Wert braucht.",
       "forge": {
-        "explanation": "Ein Wert ist länger, als das Feld erlaubt: {{detail}}.",
+        "explanation": "Ein Wert aus der Quelle ist länger, als das Feld in der Ziel-Org zulässt.",
         "action": "Kürzen Sie den Quellwert, oder geben Sie dem Feld in beiden Orgs dieselbe Länge."
       }
     },

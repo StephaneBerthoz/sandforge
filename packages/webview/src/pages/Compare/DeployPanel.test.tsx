@@ -257,13 +257,31 @@ describe('DeployPanel', () => {
   ])('refuses %s as the target before anything is sent', (_what, target) => {
     renderPanel([ORGS[0], target as SalesforceOrg]);
 
-    expect(screen.getByTestId('deploy-target-refused').textContent).toContain(
-      'SandForge deploys to sandboxes only',
-    );
+    // "SandForge deploys to sandboxes only" was said after a scratch org and a
+    // Developer Edition became development orgs, which this panel deploys to.
+    const refused = screen.getByTestId('deploy-target-refused').textContent ?? '';
+    expect(refused).toContain('a sandbox, a scratch org or a Developer Edition org');
+    expect(refused).not.toContain('sandboxes only');
     pick('ApexClass:Invoicing');
     expect(validateButton().disabled).toBe(true);
     fireEvent.click(validateButton());
     expect(validation.mutate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a scratch org', { ...org('org-2', 'Dev', 'Scratch'), safetyTier: OrgSafetyTier.LOW }],
+    [
+      'a Developer Edition org',
+      {
+        ...org('org-2', 'Dev', 'Developer'),
+        safetyTier: OrgSafetyTier.LOW,
+        metadata: { apiVersion: '66.0', edition: 'Developer Edition', features: [] },
+      },
+    ],
+  ])('takes %s as the target it says it deploys to', (_what, target) => {
+    renderPanel([ORGS[0], target]);
+
+    expect(screen.queryByTestId('deploy-target-refused')).toBeNull();
   });
 
   it('deploys a successful validation once its target is typed, naming the validation only', () => {

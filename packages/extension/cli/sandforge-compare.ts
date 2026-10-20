@@ -14,11 +14,11 @@
  * one this tool can send.
  *
  * Usage:
- *   npx tsx packages/extension/cli/sandforge-compare.ts \
+ *   pnpm exec tsx packages/extension/cli/sandforge-compare.ts \
  *     --source SRC --target TGT --type ApexClass --type Flow
- *   npx tsx packages/extension/cli/sandforge-compare.ts \
+ *   pnpm exec tsx packages/extension/cli/sandforge-compare.ts \
  *     --source SRC --target TGT --op permissions --op drift
- *   npx tsx packages/extension/cli/sandforge-compare.ts \
+ *   pnpm exec tsx packages/extension/cli/sandforge-compare.ts \
  *     --source SRC --target TGT --validate ApexClass:Invoicing \
  *     --tests RunSpecifiedTests --run-test InvoicingTest
  *
@@ -49,7 +49,7 @@ import type { PanelAnswer } from './panelHost.js';
 const HELP = `sandforge-compare — compare two orgs the way the Compare page does, without the editor.
 
 Usage:
-  npx tsx packages/extension/cli/sandforge-compare.ts --source <alias> --target <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-compare.ts --source <alias> --target <alias> [options]
 
 Required:
   --source <alias>       sf CLI alias of the source org

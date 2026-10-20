@@ -250,7 +250,7 @@
               "markdown": "walkthrough/connect-org.md"
             },
             "completionEvents": [
-              "onCommand:sandforge.openOrgs"
+              "onContext:sandforge.hasOrg"
             ]
           },
           {

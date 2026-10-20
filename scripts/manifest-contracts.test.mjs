@@ -97,6 +97,41 @@ test('every walkthrough completion event names a contributed command', () => {
   assert.deepEqual(dangling, []);
 });
 
+/** The production sources of the extension, as text. */
+function extensionSources(dir = join(repoRoot, EXTENSION, 'src'), out = []) {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) extensionSources(full, out);
+    else if (full.endsWith('.ts') && !full.endsWith('.test.ts'))
+      out.push(readFileSync(full, 'utf8'));
+  }
+  return out;
+}
+
+test('every walkthrough step that completes on a context names one the extension sets', () => {
+  // The editor ticks such a step once its context key is true; a key nothing
+  // sets leaves the step outstanding for ever, as a dangling command would.
+  const setters = extensionSources().filter((source) => source.includes("'setContext'"));
+  const steps = (contributes.walkthroughs ?? []).flatMap((walkthrough) => walkthrough.steps ?? []);
+
+  const unset = [];
+  let read = 0;
+  for (const step of steps) {
+    for (const event of step.completionEvents ?? []) {
+      const expression = /^onContext:(.+)$/.exec(event)?.[1];
+      if (!expression) continue;
+      for (const [key] of expression.matchAll(/sandforge\.[\w.]+/g)) {
+        read += 1;
+        if (!setters.some((source) => source.includes(`'${key}'`)))
+          unset.push(`${step.id}: ${key}`);
+      }
+    }
+  }
+  // Positive control: the Connect step completes on one.
+  assert.ok(read > 0, 'no step completes on a context — re-read this gate');
+  assert.deepEqual(unset, []);
+});
+
 test('the view, its container and the provider are one name', () => {
   // Rename the container and the two keybindings below stop firing, silently:
   // their `when` clause names it as a workbench viewlet id. Rename the view and

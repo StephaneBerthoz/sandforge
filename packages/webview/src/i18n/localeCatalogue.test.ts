@@ -157,6 +157,85 @@ describe('a language names one thing with one word', () => {
     expect(offenders('es', /\b(?:el|un)\s+sandbox\b/).length).toBeGreaterThan(5);
   });
 
+  /* German wrote "in den Ziel-Org", "im Ziel-Org", "zum Quell-Org" and "des
+     Ziel-Orgs" beside "die Ziel-Org" on the same screens. Salesforce's German
+     UI writes "die Organisation", and "die Org" follows it: a word only a
+     masculine or neuter noun takes, before Org, fails here. "der" is left
+     alone, as the feminine dative and genitive. */
+  const MASCULINE_OR_NEUTER_BEFORE_ORG = (() => {
+    const either = (words: readonly string[]) =>
+      words.map((w) => `[${w[0].toUpperCase()}${w[0]}]${w.slice(1)}`).join('|');
+    const singular = either([
+      ...['dem', 'den', 'das', 'ein', 'einem', 'einen', 'im', 'vom', 'zum', 'beim', 'am', 'ans'],
+      ...['ins', 'kein', 'keinem', 'keinen', 'diesem', 'diesen', 'jedem', 'jeden', 'ihrem'],
+      ...['ihren', 'seinem', 'seinen', 'unserem', 'unseren', 'welchem', 'welchen'],
+    ]);
+    const genitive = either(['des', 'eines', 'dieses', 'jedes', 'keines', 'ihres', 'welches']);
+    const adjectives = String.raw`(?:(?!(?:der|die|das|den|dem|des)\b)\p{Ll}+(?:e|en|er|es|em)\s+){0,2}`;
+    const org = String.raw`(?:\p{L}+-)*Org`;
+    return new RegExp(
+      String.raw`(?<![\p{L}-])(?:(?:${singular})\s+${adjectives}${org}(?![\p{L}-])|(?:${genitive})\s+${adjectives}${org}s\b)`,
+      'u',
+    );
+  })();
+
+  it('German makes an org feminine, as Salesforce’s German makes the Organisation', () => {
+    const EXTENSION_DIR = join(SRC, '..', '..', 'extension');
+    const json = (file: string) =>
+      new Map(
+        Object.entries(
+          JSON.parse(readFileSync(join(EXTENSION_DIR, file), 'utf8')) as Record<string, string>,
+        ),
+      );
+    const walkthrough = new Map<string, string>();
+    const dir = join(EXTENSION_DIR, 'walkthrough');
+    for (const name of readdirSync(dir).filter((file) => file.endsWith('.nls.de.md'))) {
+      readFileSync(join(dir, name), 'utf8')
+        .split('\n')
+        .forEach((line, index) => walkthrough.set(`${name}:${index + 1}`, line));
+    }
+    const surfaces = [
+      flatten(load('de')),
+      json('package.nls.de.json'),
+      json(join('l10n', 'bundle.l10n.de.json')),
+      walkthrough,
+    ];
+    const masculine = surfaces.flatMap((values) =>
+      [...values]
+        .filter(([, value]) => MASCULINE_OR_NEUTER_BEFORE_ORG.test(value))
+        .map(([key, value]) => `${key} = ${value}`),
+    );
+    expect(masculine).toEqual([]);
+    // Controls: the rule reads the forms that shipped, and leaves the
+    // feminine ones, the plural and a compound alone.
+    for (const shipped of [
+      'schreibt Datensätze in den Ziel-Org.',
+      'Im Ziel-Org existiert bereits ein Datensatz',
+      'ob sie zum Quell-Org gehört',
+      'im Setup des Ziel-Orgs',
+      'einen neuen Org',
+    ]) {
+      expect({ shipped, caught: MASCULINE_OR_NEUTER_BEFORE_ORG.test(shipped) }).toEqual({
+        shipped,
+        caught: true,
+      });
+    }
+    for (const fine of [
+      'in die Ziel-Org',
+      'In der Ziel-Org existiert',
+      'zur Quell-Org',
+      'im Setup der Ziel-Org',
+      'zwischen den beiden Orgs',
+      'Basierend auf Ihrem Org-Typ',
+    ]) {
+      expect({ fine, caught: MASCULINE_OR_NEUTER_BEFORE_ORG.test(fine) }).toEqual({
+        fine,
+        caught: false,
+      });
+    }
+    expect(offenders('de', /\bdie (?:\p{L}+-)?Org\b/u).length).toBeGreaterThan(20);
+  });
+
   it.each(['fr', 'es', 'pt-BR'])(
     '%s writes Flow, the Salesforce feature, with its capital',
     (locale) => {

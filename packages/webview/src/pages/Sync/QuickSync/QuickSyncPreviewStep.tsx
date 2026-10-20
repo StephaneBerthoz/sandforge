@@ -9,6 +9,8 @@ import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { SyncRunControls } from '../SyncRunControls';
 import { RecordErrorGroups } from '../../../components/ui/RecordErrorGroups';
 import { SyncPricebookLine } from '../SyncPricebookLine';
+import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
+import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -104,7 +106,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
               title={obj.objectApiName}
               subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
             />
-            {(obj.errors.length > 0 || obj.standardPricebookMatched) && (
+            {(obj.errors.length > 0 ||
+              obj.standardPricebookMatched ||
+              (obj.currenciesReplaced?.length ?? 0) > 0 ||
+              (obj.pricesSettled?.length ?? 0) > 0) && (
               <CardBody>
                 {/* No refusal: said beside the object's line, as the Sync tab says it. */}
                 {obj.standardPricebookMatched && (
@@ -121,6 +126,16 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                     : {})}
                   testIdPrefix="quick-sync-result"
                 />
+                {/* No refusal either: the rows written in another currency, and
+                    the prices read in one the target lacks, said as the Sync
+                    tab and its history say them. Quick Sync runs the same
+                    sync, and its results said neither. */}
+                {obj.currenciesReplaced && obj.currenciesReplaced.length > 0 && (
+                  <ForgeCurrenciesResult entries={obj.currenciesReplaced} />
+                )}
+                {obj.pricesSettled && obj.pricesSettled.length > 0 && (
+                  <PriceCurrenciesResult entries={obj.pricesSettled} />
+                )}
               </CardBody>
             )}
           </Card>

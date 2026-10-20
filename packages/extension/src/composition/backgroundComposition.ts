@@ -754,6 +754,11 @@ export const L10N_QUESTION_WORDS: QuestionWords = {
     named
       ? vscode.l10n.t('the {0} org "{1}"', tierWord(tier), name)
       : vscode.l10n.t('the {0} org {1}', tierWord(tier), name),
+  deployRefused: (org) =>
+    vscode.l10n.t(
+      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.',
+      org,
+    ),
 };
 
 /**

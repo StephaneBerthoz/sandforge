@@ -454,7 +454,7 @@
     "deployment": {
       "title": "Desplegar de {{source}} a {{target}}",
       "intro": "Elija lo que {{source}} contiene y {{target}} no, o contiene de otra forma. SandForge lo recupera de {{source}} y lo valida primero en {{target}}: el destino lo compila, ejecuta las pruebas que elija y no conserva nada. Solo se puede desplegar una validación que haya tenido éxito, una vez que confirme. No se elimina nada del destino.",
-      "targetRefused": "{{target}} es una org de producción, o una org de la que SandForge no puede saber si es un sandbox. SandForge solo despliega en sandboxes.",
+      "targetRefused": "{{target}} es una org de producción, o una que SandForge no puede confirmar que sea un sandbox, una scratch org o una org Developer Edition. SandForge solo despliega en esas.",
       "pickLegend": "Componentes para desplegar: {{picked}} de {{total}} elegidos",
       "noneDeployable": "Nada de lo que encontró esta comparación se puede desplegar desde ella.",
       "changeLegend": "Solo en el origen: el despliegue lo crea en {{target}}. Modificado: ambas lo contienen, y el despliegue reemplaza lo que contiene {{target}}.",
@@ -4472,7 +4472,7 @@
       "explanation": "Un campo que la org exige no tiene valor.",
       "action": "Dé un valor al campo, o lleve primero a la org el registro al que debe apuntar, y vuelva a ejecutar.",
       "forge": {
-        "explanation": "Un campo obligatorio no tiene valor: {{detail}}.",
+        "explanation": "Un campo que la org de destino exige no tiene valor.",
         "action": "Active «Obtener padres automáticamente», o aumente la profundidad para que el padre requerido forme parte de la clonación."
       },
       "seed": {
@@ -4506,8 +4506,8 @@
       "action": "Compruebe la seguridad a nivel de campo de su usuario para el campo en la org, y que el campo exista allí con el mismo tipo."
     },
     "fieldIntegrity": {
-      "explanation": "Salesforce rechazó el registro por una regla de integridad: {{detail}}.",
-      "action": "Lea el detalle: Salesforce suele indicar el campo o la regla implicados."
+      "explanation": "Salesforce rechazó el registro por una regla de integridad.",
+      "action": "Lea el mensaje de la org: Salesforce suele indicar en él el campo o la regla implicados."
     },
     "cannotInsertEntity": {
       "explanation": "Salesforce no acepta registros nuevos de este objeto (un objeto de historial, auditoría o sistema).",
@@ -4556,7 +4556,7 @@
       "explanation": "Un valor es más largo de lo que admite el campo.",
       "action": "Acorte el valor, o dé al campo de la org la longitud que necesita el valor.",
       "forge": {
-        "explanation": "Un valor supera la longitud que permite el campo: {{detail}}.",
+        "explanation": "Un valor del origen es más largo de lo que admite el campo del destino.",
         "action": "Acorte el valor de origen, o dé al campo la misma longitud en ambas orgs."
       }
     },

@@ -19,9 +19,9 @@
  * the alerts are kept for every org together, and only show what they do then.
  *
  * Usage:
- *   npx tsx packages/extension/cli/sandforge-monitor.ts --org TGT
- *   npx tsx packages/extension/cli/sandforge-monitor.ts --org TGT --op refresh --repeat 3
- *   npx tsx packages/extension/cli/sandforge-monitor.ts --org SRC --org TGT --op refresh --op alerts
+ *   pnpm exec tsx packages/extension/cli/sandforge-monitor.ts --org TGT
+ *   pnpm exec tsx packages/extension/cli/sandforge-monitor.ts --org TGT --op refresh --repeat 3
+ *   pnpm exec tsx packages/extension/cli/sandforge-monitor.ts --org SRC --org TGT --op refresh --op alerts
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -37,7 +37,7 @@ import type { PanelAnswer, PanelRequest } from './panelHost.js';
 const HELP = `sandforge-monitor — read an org the way the Monitor page does, without the editor.
 
 Usage:
-  npx tsx packages/extension/cli/sandforge-monitor.ts --org <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-monitor.ts --org <alias> [options]
 
 Required:
   --org <alias>          sf CLI alias of the org; repeat to read several in turn

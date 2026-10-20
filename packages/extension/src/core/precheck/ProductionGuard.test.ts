@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { guardTierOf, isDevelopmentOrg } from '@sandforge/shared';
 import { ProductionGuard, confirmationQuestionOf, largeVolumeThreshold } from './ProductionGuard';
 import type { OperationRequest, RunConfirmation } from './ProductionGuard';
 
@@ -270,8 +271,46 @@ describe('ProductionGuard', () => {
       const result = guard.check(deploy({ orgTier: 'production' }));
 
       expect(result.allowed).toBe(false);
-      expect(result.blockedReason).toContain('deploy is not allowed on production org org-001');
-      expect(result.blockedReason).toContain('sandboxes only');
+      expect(result.blockedReason).toBe(
+        'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, ' +
+          'not to the production org org-001.',
+      );
+    });
+
+    it('names the org it refuses by the alias the user knows it by', () => {
+      const named = new ProductionGuard({ orgNameOf: () => 'Acme Prod' });
+
+      expect(named.check(deploy({ orgTier: 'production' })).blockedReason).toContain(
+        'not to the production org "Acme Prod".',
+      );
+    });
+
+    /*
+     * The refusal said SandForge deployed "to sandboxes only" after a scratch
+     * org and a Developer Edition had become development orgs, which Compare
+     * deploys to. It names each kind of org the shared rule accepts, and the
+     * guard lets a deployment through to each.
+     */
+    it('names, as the orgs it deploys to, every kind the shared rule calls a development org', () => {
+      const kinds: Array<[orgType: string, edition: string, said: string]> = [
+        ['Sandbox', 'Enterprise Edition', 'a sandbox'],
+        ['Scratch', 'Developer Edition', 'a scratch org'],
+        ['Developer', 'Developer Edition', 'a Developer Edition org'],
+      ];
+      const refusal = guard.check(deploy({ orgTier: 'production' })).blockedReason ?? '';
+      for (const [orgType, edition, said] of kinds) {
+        const org = { orgType, metadata: { edition } };
+        expect({ orgType, development: isDevelopmentOrg(org) }).toEqual({
+          orgType,
+          development: true,
+        });
+        expect(guard.check(deploy({ orgTier: guardTierOf(org) })).allowed).toBe(true);
+        expect(refusal).toContain(said);
+      }
+      expect(
+        isDevelopmentOrg({ orgType: 'Production', metadata: { edition: 'Enterprise Edition' } }),
+      ).toBe(false);
+      expect(refusal).not.toMatch(/sandboxes only/);
     });
 
     it('refuses it even with a production override, which lifts only the delete block', () => {

@@ -221,8 +221,8 @@ describe('CompareHandler deployments', () => {
       expect(error()?.payload).toMatchObject({
         code: 'GUARD_BLOCKED',
         message:
-          'Operation blocked by Production Guard: deploy is not allowed on production org tgt: ' +
-          'SandForge deploys metadata to sandboxes only',
+          'Operation blocked by Production Guard: SandForge deploys metadata only to a sandbox, ' +
+          'a scratch org or a Developer Edition org, not to the production org tgt.',
       });
       expect(error()?.correlationId).toBe('req-validate');
     });

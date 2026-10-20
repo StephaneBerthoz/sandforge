@@ -492,8 +492,20 @@ describe('extension', () => {
     // + the two Frozen dataset salt commands (copy, use)
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker
-    // + performanceTracker + sandbox refresh detection + pipeline triggers = 38
-    expect(context.subscriptions.length).toBe(38);
+    // + performanceTracker + sandbox refresh detection + pipeline triggers
+    // + the context the walkthrough's Connect step completes on = 39
+    expect(context.subscriptions.length).toBe(39);
+  });
+
+  it('tells the editor at activation that no org is registered yet, which Get Started reads', async () => {
+    activate(createContext());
+    const vscode = await import('vscode');
+
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      'setContext',
+      'sandforge.hasOrg',
+      false,
+    );
   });
 
   it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {

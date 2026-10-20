@@ -203,11 +203,14 @@ describe('translateError in Forge', () => {
     expect(result?.explanationKey).toBe('errors.invalidCrossReferenceKey.forge.explanation');
   });
 
-  it('captures REQUIRED_FIELD_MISSING detail in vars', () => {
+  it('explains REQUIRED_FIELD_MISSING without saying the org’s line again', () => {
+    // The line is shown right above the hint; Forge's wording interpolated it
+    // and the reader read the same fields twice.
     const result = forge('REQUIRED_FIELD_MISSING: Required fields are missing: [NameInsuredId]');
     expect(result?.code).toBe('REQUIRED_FIELD_MISSING');
     expect(result?.severity).toBe('error');
-    expect(result?.vars?.detail).toContain('Required fields');
+    expect(result?.explanationKey).toBe('errors.requiredFieldMissing.forge.explanation');
+    expect(result?.vars).toBeUndefined();
   });
 
   it('still reads the code of a refusal followed by the fields it named', () => {
@@ -218,13 +221,16 @@ describe('translateError in Forge', () => {
     expect(result?.explanationKey).toBe('errors.invalidPicklist.forge.explanation');
   });
 
-  it('captures FIELD_INTEGRITY_EXCEPTION detail', () => {
-    const result = forge(
+  it('explains FIELD_INTEGRITY_EXCEPTION and STRING_TOO_LONG without saying the org’s line again', () => {
+    const integrity = forge(
       'FIELD_INTEGRITY_EXCEPTION: Every asset needs an account, a contact, or both.: Account ID, Contact ID',
     );
-    expect(result?.code).toBe('FIELD_INTEGRITY_EXCEPTION');
-    expect(result?.severity).toBe('error');
-    expect(result?.vars?.detail).toContain('Every asset needs');
+    expect(integrity?.code).toBe('FIELD_INTEGRITY_EXCEPTION');
+    expect(integrity?.severity).toBe('error');
+    expect(integrity?.vars).toBeUndefined();
+    const tooLong = forge('STRING_TOO_LONG: Name: data value too large: Acme (max length=5)');
+    expect(tooLong?.explanationKey).toBe('errors.stringTooLong.forge.explanation');
+    expect(tooLong?.vars).toBeUndefined();
   });
 
   it('translates an object that takes no insert as info', () => {
@@ -378,7 +384,6 @@ describe('translateError in every other module', () => {
       code: 'DUPLICATE_VALUE',
       explanationKey: 'errors.duplicateValue.explanation',
       actionKey: 'errors.duplicateValue.action',
-      vars: undefined,
       severity: 'warning',
       docUrl: helpSearchUrlOf('DUPLICATE_VALUE'),
       docKind: 'search',
@@ -391,14 +396,8 @@ describe('translateError in every other module', () => {
     });
     expect(result?.explanationKey).toBe('errors.requiredFieldMissing.explanation');
     expect(result?.actionKey).toBe('errors.requiredFieldMissing.seed.action');
-    // The org's line is shown right above the hint: the shared wording does
-    // not say it again, where Forge's names the fields in its sentence.
+    // The org's line is shown right above the hint: no wording says it again.
     expect(result?.vars).toBeUndefined();
-    expect(
-      translateError('REQUIRED_FIELD_MISSING: Required fields are missing: [Name]', {
-        module: 'forge',
-      })?.vars,
-    ).toEqual({ detail: 'Required fields are missing: [Name]' });
   });
 
   it('falls back to the shared action for a code a seed has no wording of its own for', () => {

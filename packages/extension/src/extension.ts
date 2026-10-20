@@ -46,6 +46,7 @@ import { LANDING_COMMAND } from './composition/moduleCommands';
 import { registerFrozenSaltCommands } from './composition/frozenSaltCommands';
 import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposition';
 import { wirePipelineTriggers } from './composition/pipelineTriggerComposition';
+import { wireHasOrgContext } from './composition/orgContextComposition';
 import { fileTriggerClaims } from './modules/automation/TriggerClaims';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -386,6 +387,13 @@ export function activate(context: vscode.ExtensionContext): void {
   // 10. SidebarViewProvider (WebView-based sidebar navigation)
   // Pre-load orgs so they're available when sidebar mounts
   orgRegistry.loadAll();
+  // Whether an org is registered, which the Get Started walkthrough's Connect
+  // step completes on: set from the orgs just loaded, and on every change.
+  context.subscriptions.push(
+    wireHasOrgContext(orgManager, (command, ...args) =>
+      vscode.commands.executeCommand(command, ...args),
+    ),
+  );
 
   // 10a. The schedule and sandbox refresh triggers of the saved pipelines.
   // After the orgs are loaded: whether a pipeline can run depends on the orgs

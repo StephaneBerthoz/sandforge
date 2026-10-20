@@ -425,7 +425,7 @@
     "deployment": {
       "title": "{{source}} から {{target}} へデプロイ",
       "intro": "{{source}} にあって {{target}} にないもの、または内容が異なるものを選択します。SandForge は {{source}} から取得し、まず {{target}} で検証します。ターゲットはコンパイルし、選択したテストを実行し、何も保持しません。デプロイできるのは成功した検証だけで、確認後に行われます。ターゲットからは何も削除されません。",
-      "targetRefused": "{{target}} は本番組織か、SandForge が Sandbox と判断できない組織です。SandForge は Sandbox にのみデプロイします。",
+      "targetRefused": "{{target}} は本番組織か、SandForge が Sandbox、スクラッチ組織、Developer Edition 組織のいずれとも判断できない組織です。SandForge はこれらにのみデプロイします。",
       "pickLegend": "デプロイするコンポーネント：{{total}} 件中 {{picked}} 件を選択",
       "noneDeployable": "この比較で見つかったものは、ここからデプロイできません。",
       "changeLegend": "ソースにのみ存在：デプロイで {{target}} に作成されます。変更：両方にあり、デプロイで {{target}} の内容が置き換えられます。",
@@ -4228,7 +4228,7 @@
       "explanation": "組織が必須とする項目に値がありません。",
       "action": "項目に値を指定するか、その項目が参照すべきレコードを先に組織に用意してから、もう一度実行してください。",
       "forge": {
-        "explanation": "必須項目に値がありません: {{detail}}。",
+        "explanation": "ターゲット組織が必須とする項目に値がありません。",
         "action": "「親を自動取得」をオンにするか、必要な親が複製に含まれるよう深さを上げてください。"
       },
       "seed": {
@@ -4262,8 +4262,8 @@
       "action": "組織でその項目に対するユーザーの項目レベルセキュリティと、項目が同じ型で存在するかを確認してください。"
     },
     "fieldIntegrity": {
-      "explanation": "Salesforce が整合性ルールによりレコードを拒否しました: {{detail}}。",
-      "action": "詳細を確認してください。Salesforce は通常、該当する項目またはルールを示します。"
+      "explanation": "Salesforce が整合性ルールによりレコードを拒否しました。",
+      "action": "組織のメッセージを確認してください。Salesforce は通常、該当する項目またはルールを示します。"
     },
     "cannotInsertEntity": {
       "explanation": "Salesforce はこのオブジェクトの新しいレコードを受け付けません (履歴、監査、またはシステムのオブジェクト)。",
@@ -4312,7 +4312,7 @@
       "explanation": "値が項目で許可される長さを超えています。",
       "action": "値を短くするか、組織の項目に値が必要とする長さを設定してください。",
       "forge": {
-        "explanation": "値が項目の最大長を超えています: {{detail}}。",
+        "explanation": "ソースの値が、ターゲットの項目で許可される長さを超えています。",
         "action": "ソースの値を短くするか、両組織で項目の長さを揃えてください。"
       }
     },

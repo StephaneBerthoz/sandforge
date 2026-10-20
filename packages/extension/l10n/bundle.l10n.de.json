@@ -138,6 +138,7 @@
   "the related records the run adds": "die verknüpften Datensätze, die der Lauf hinzufügt",
   "the {0} org \"{1}\"": "die {0}-Org „{1}“",
   "the {0} org {1}": "die {0}-Org {1}",
+  "SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.": "SandForge stellt Metadaten nur in eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org bereit, nicht in {0}.",
   "production": "Produktions",
   "staging": "Staging",
   "development": "Entwicklungs",

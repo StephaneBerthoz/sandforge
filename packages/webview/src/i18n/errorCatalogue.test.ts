@@ -157,6 +157,21 @@ describe('the error catalogue’s keys', () => {
     }
   });
 
+  /*
+   * The org's line is shown right above every hint. Forge's wordings of a
+   * missing required field and of a value too long, and the shared wording of
+   * an integrity rule, interpolated it and said it a second time under itself.
+   */
+  it('says the org’s line again in no wording, in no locale', () => {
+    expect(
+      hints.filter((hint) => hint.vars?.detail !== undefined).map((hint) => hint.code),
+    ).toEqual([]);
+    for (const [locale, bundle] of Object.entries(LOCALES)) {
+      const repeating = keys.filter((key) => placeholders(lookup(bundle, key)).includes('detail'));
+      expect({ locale, repeating }).toEqual({ locale, repeating: [] });
+    }
+  });
+
   it('names the code in both link labels, in every locale', () => {
     for (const [locale, bundle] of Object.entries(LOCALES)) {
       for (const key of ['errors.guideLink', 'errors.searchLink']) {

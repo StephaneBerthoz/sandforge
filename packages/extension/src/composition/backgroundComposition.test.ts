@@ -296,6 +296,34 @@ describe('production confirmation modal (localized)', () => {
     );
   });
 
+  it('refuses a deployment to production in the UI language, naming the orgs it deploys to', () => {
+    // The refusal was English in every language, and said "to sandboxes
+    // only" after a scratch org and a Developer Edition became development orgs.
+    l10nBundle.current = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+    ) as Record<string, string>;
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+      orgNameOf: () => 'Acme Prod',
+    });
+
+    const check = productionGuard.check({
+      orgId: 'org-prod-1',
+      orgTier: 'production',
+      operation: 'deploy',
+      objectName: 'ApexClass',
+      recordCount: 1,
+      module: 'compare',
+    });
+
+    expect(check.allowed).toBe(false);
+    expect(check.blockedReason).toBe(
+      'SandForge ne déploie des métadonnées que vers une sandbox, une scratch org ou une org ' +
+        "Developer Edition, pas vers l'org de production « Acme Prod ».",
+    );
+  });
+
   it('does not tell a confirmation another tier asks for that it writes to production', async () => {
     // Staging asks before a delete, a deployment or a large volume, and the
     // modal said "SandForge: production operation … writes data to a

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
 import { themeContrastShortfalls } from './helpers/theme-contrast';
-import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX } from './fixtures';
+import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX, type MockOrg } from './fixtures';
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
@@ -6312,21 +6312,27 @@ async function openDeviceCode(bridge: MockBridge, page: Page, theme: StateTheme)
 /**
  * Open Compare's Deploy tab on a comparison holding a component of each kind
  * the tab lists: one that differs, one only the source holds, one only the
- * target holds, and one it could not read.
+ * target holds, and one it could not read. Into the QA sandbox, or into the
+ * target given.
  */
-async function openDeployTab(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+async function openDeployTab(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+  target: MockOrg = QA_SANDBOX,
+): Promise<void> {
   await openPanel(bridge, page, 'compare', theme);
-  await bridge.seedOrgs(MOCK_ORGS);
+  await bridge.seedOrgs([DEV_SANDBOX, target]);
   await page.getByTestId('compare-page').waitFor({ timeout: 10_000 });
   await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
-  await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+  await page.getByLabel('Target Org').selectOption(target.id);
   await page.getByTestId('cat-ApexClass').click();
   await page.getByTestId('run-compare-btn').click();
   await bridge.waitForMessage('compare:execute', { timeout: 10_000 });
   await answerAll(page, 'compare:execute', 'compare:execute:response', {
     configId: '4f1a2b3c-0000-4000-8000-000000000004',
     sourceOrgId: DEV_SANDBOX.id,
-    targetOrgId: QA_SANDBOX.id,
+    targetOrgId: target.id,
     mode: 'metadata',
     summary: {
       totalItems: 4,
@@ -7138,6 +7144,22 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Compare deploy tab refusing a production target, naming the orgs it deploys to', async ({
+      page,
+    }) => {
+      await openDeployTab(bridge, page, theme, {
+        ...QA_SANDBOX,
+        id: 'org-prod-1',
+        alias: 'Production',
+        orgType: 'Production',
+      });
+      await expect(page.getByTestId('deploy-target-refused')).toContainText(
+        'a sandbox, a scratch org or a Developer Edition org',
+      );
+
+      await expectReadable(page, theme);
+    });
+
     test('Compare deploy tab after a validation that failed', async ({ page }) => {
       await openDeployTab(bridge, page, theme);
       await validateInvoicing(page);
@@ -7575,6 +7597,98 @@ for (const theme of STATE_THEMES) {
         "Standard price book: matched to the target org's, never written.",
       );
       await expect(page.getByTestId('sync-result-errors-Pricebook2')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Quick Sync results of prices read in a currency the target lacks, said as the Sync tab says them', async ({
+      page,
+    }) => {
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.addInitScript(
+        (args: { source: string; target: string }) => {
+          const host = window as unknown as {
+            acquireVsCodeApi: () => { setState: (state: unknown) => void };
+            __SANDFORGE_MODULE__?: string;
+          };
+          // The flow on its preview, as a reader who picked the orgs and the
+          // object left it.
+          host.acquireVsCodeApi().setState({
+            quickSyncDraft: {
+              sourceOrgId: args.source,
+              targetOrgId: args.target,
+              selectedObjects: ['PricebookEntry'],
+              parentObjects: [],
+            },
+            quickSyncStep: 'preview',
+            quickSyncPreview: {
+              objects: [
+                {
+                  objectApiName: 'PricebookEntry',
+                  recordCount: 2,
+                  estimatedApiCalls: 1,
+                  isParentDependency: false,
+                },
+              ],
+              totalRecords: 2,
+              totalApiCalls: 1,
+              estimatedDurationSec: 1,
+            },
+          });
+          host.__SANDFORGE_MODULE__ = 'sync';
+        },
+        { source: DEV_SANDBOX.id, target: QA_SANDBOX.id },
+      );
+      await page.goto('/');
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('quick-sync-start-btn').click();
+      await page.getByTestId('quick-sync-go-btn').click();
+      await bridge.respondToNext('quicksync:execute', 'quicksync:execute:response', {
+        syncConfig: { id: 'cfg-quick-axe' },
+        objectCount: 1,
+      });
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-quick-axe',
+        operationId: 'run-quick-axe',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'PricebookEntry',
+            operation: 'insert',
+            processed: 2,
+            success: 2,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            currenciesReplaced: [
+              {
+                objectApiName: 'PricebookEntry',
+                from: 'GBP',
+                to: 'USD',
+                chosenBy: 'corporate',
+                rows: 1,
+                fields: ['UnitPrice'],
+              },
+            ],
+            pricesSettled: [
+              { from: 'GBP', to: 'USD', how: 'replaced', forLines: false, prices: 2 },
+              { from: 'GBP', to: 'EUR', how: 'converted', forLines: true, prices: 1 },
+            ],
+          },
+        ],
+        totalProcessed: 2,
+        totalSuccess: 2,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      });
+      await page.getByTestId('quick-sync-results').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-currencies')).toBeVisible();
+      await expect(page.getByTestId('results-price-currencies-row')).toHaveCount(2);
+      await expect(page.getByTestId('quick-sync-result-errors-PricebookEntry')).toHaveCount(0);
 
       await expectReadable(page, theme);
     });

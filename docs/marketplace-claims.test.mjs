@@ -593,6 +593,20 @@ test('the Get Started walkthrough fills the org it just connected with Seed, bef
 });
 
 /**
+ * "Connect your first org" completed on the command that opens the
+ * Organizations page: opening the page ticked it with no org connected, and
+ * the next step offered to fill an org nobody had. It completes once an org
+ * is registered.
+ */
+test('the Connect step of the walkthrough completes once an org is registered, not on opening the page', () => {
+  const connect = (manifest().contributes?.walkthroughs ?? [])
+    .flatMap((w) => w.steps ?? [])
+    .find((step) => step.id === 'sandforge.connectOrg');
+  assert.ok(connect, 'the connect-org step is gone — re-read this gate');
+  assert.deepEqual(connect.completionEvents, ['onContext:sandforge.hasOrg']);
+});
+
+/**
  * The Forge step, after the step that fills the one org a newcomer has, told
  * them to paste a record "from your UAT org" into "your dev sandbox", as if
  * everyone held both. Forge copies from one org into another: the step says so,

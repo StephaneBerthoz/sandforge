@@ -430,6 +430,30 @@ test('each script row of ci-examples names every flag its --help lists, and no o
   );
 });
 
+/**
+ * Compare's and Monitor's help said `npx tsx`, the other eight and the
+ * command-line page `pnpm exec tsx`: `npx` may fetch a tsx of its own where
+ * the checkout has one installed, and a reader comparing two helps read two
+ * ways of running them.
+ */
+test('every script’s help runs it the way ci-examples says every script is run', () => {
+  const said = /is invoked as `(.+?) packages\/extension\/cli\/sandforge-<name>\.ts \.\.\.`/.exec(
+    read('ci-examples', 'README.md'),
+  )?.[1];
+  assert.equal(said, 'pnpm exec tsx', 'ci-examples no longer says how a script is run');
+  const offenders = [];
+  for (const script of scripts()) {
+    const help = /const HELP = `([\s\S]*?)`;/.exec(read(...CLI_DIR, `${script}.ts`))?.[1] ?? '';
+    const runs = help.split('\n').filter((line) => line.includes(`cli/${script}.ts`));
+    if (runs.length === 0) offenders.push(`${script}: no usage line`);
+    for (const line of runs) {
+      if (!line.trimStart().startsWith(`${said} packages/extension/cli/${script}.ts`))
+        offenders.push(`${script}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `help run otherwise:\n  ${offenders.join('\n  ')}`);
+});
+
 test("ci-examples names every refusal of a real clone before it writes, the emails' included", () => {
   assert.match(
     read(...CLI_DIR, 'sandforge-clone.ts'),

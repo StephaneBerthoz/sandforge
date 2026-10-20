@@ -115,11 +115,6 @@ interface Entry {
   /** What a seed does about it, the explanation being the shared one. */
   seedAction?: string;
   /**
-   * Which explanations interpolate the detail the message gave after the
-   * code: every wording, or Forge's alone.
-   */
-  detail?: 'all' | 'forge';
-  /**
    * Whether the code is SandForge's own rather than the platform's: no search
    * of Salesforce Help is linked for it.
    */
@@ -179,7 +174,6 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
   },
   REQUIRED_FIELD_MISSING: {
     severity: 'error',
-    detail: 'forge',
     keys: ['errors.requiredFieldMissing.explanation', 'errors.requiredFieldMissing.action'],
     forge: [
       'errors.requiredFieldMissing.forge.explanation',
@@ -212,7 +206,6 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
   },
   FIELD_INTEGRITY_EXCEPTION: {
     severity: 'error',
-    detail: 'all',
     keys: ['errors.fieldIntegrity.explanation', 'errors.fieldIntegrity.action'],
   },
   // Every refusal under this code but an object that takes no insert (a
@@ -249,7 +242,6 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
   },
   STRING_TOO_LONG: {
     severity: 'warning',
-    detail: 'forge',
     keys: ['errors.stringTooLong.explanation', 'errors.stringTooLong.action'],
     forge: ['errors.stringTooLong.forge.explanation', 'errors.stringTooLong.forge.action'],
   },
@@ -680,17 +672,13 @@ export function cataloguedErrorCodes(): string[] {
 }
 
 /**
- * The hint of one entry, in the module's wording.
+ * The hint of one entry, in the module's wording. No wording repeats what
+ * the message said after the code: the org's line is shown right above the
+ * hint, and Forge's wordings that said it again put the same line twice.
  *
  * @param code - The code the hint is said under.
- * @param detail - What the message said after the code, for the entries that interpolate it.
  */
-function hintOf(
-  code: string,
-  entry: Entry,
-  module: ErrorHintModule | undefined,
-  detail: string,
-): ErrorHint {
+function hintOf(code: string, entry: Entry, module: ErrorHintModule | undefined): ErrorHint {
   const forgeWording = module === 'forge' && entry.forge !== undefined;
   const [explanationKey, actionKey] =
     forgeWording && entry.forge
@@ -698,12 +686,10 @@ function hintOf(
       : module === 'seed' && entry.seedAction
         ? [entry.keys[0], entry.seedAction]
         : entry.keys;
-  const saysDetail = entry.detail === 'all' || (entry.detail === 'forge' && forgeWording);
   return {
     code,
     explanationKey,
     actionKey,
-    vars: saysDetail ? { detail: detail || code } : undefined,
     severity: entry.severity,
     ...docOf(code, entry, module),
   };
@@ -725,14 +711,13 @@ function docOf(
 /** The hint of a code read in a message, its message variants tried first. */
 function hintOfCodeIn(
   code: string,
-  detail: string,
   raw: string,
   module: ErrorHintModule | undefined,
 ): ErrorHint | null {
   const variant = VARIANTS.find((v) => v.code === code && v.match.test(raw));
-  if (variant) return hintOf(variant.says, variant.entry, module, detail);
+  if (variant) return hintOf(variant.says, variant.entry, module);
   const entry = entryOf(code);
-  return entry ? hintOf(code, entry, module, detail) : null;
+  return entry ? hintOf(code, entry, module) : null;
 }
 
 /** What {@link translateError} is told beside the message. */
@@ -766,7 +751,7 @@ export function translateError(raw: string, options: TranslateErrorOptions = {})
       const [explanationKey, actionKey] = refusal.keys;
       return { code, explanationKey, actionKey, severity: refusal.severity };
     }
-    const sent = hintOfCodeIn(code, LEADING_CODE.exec(trimmed)?.[2] ?? '', trimmed, module);
+    const sent = hintOfCodeIn(code, trimmed, module);
     if (sent) return sent;
   }
   if (!trimmed) return null;
@@ -776,14 +761,14 @@ export function translateError(raw: string, options: TranslateErrorOptions = {})
   }
   const leading = LEADING_CODE.exec(trimmed);
   if (leading) {
-    const [, found, detail] = leading;
-    const known = hintOfCodeIn(found, detail, trimmed, module);
+    const [, found] = leading;
+    const known = hintOfCodeIn(found, trimmed, module);
     if (known) return known;
     if (NO_REASON_CODES.has(found)) return null;
     return { code: found, severity: 'error', ...docOf(found, undefined, module) };
   }
   const inner = INNER_CODE.exec(trimmed);
-  if (inner) return hintOfCodeIn(inner[1], inner[2], trimmed, module);
+  if (inner) return hintOfCodeIn(inner[1], trimmed, module);
   return null;
 }
 

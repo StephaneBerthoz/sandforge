@@ -454,7 +454,7 @@
     "deployment": {
       "title": "Deploy from {{source}} to {{target}}",
       "intro": "Pick what {{source}} holds that {{target}} does not, or holds differently. SandForge retrieves it from {{source}} and validates it in {{target}} first: the target compiles it, runs the tests you choose, and keeps nothing. Only a validation that succeeded can be deployed, once you confirm. Nothing is deleted from the target.",
-      "targetRefused": "{{target}} is a production org, or one SandForge cannot tell is a sandbox. SandForge deploys to sandboxes only.",
+      "targetRefused": "{{target}} is a production org, or one SandForge cannot tell is a sandbox, a scratch org or a Developer Edition org. SandForge deploys to those only.",
       "pickLegend": "Components to deploy: {{picked}} of {{total}} picked",
       "noneDeployable": "Nothing this comparison found can be deployed from it.",
       "changeLegend": "Only in the source: the deployment creates it in {{target}}. Modified: both hold it, and the deployment replaces what {{target}} holds.",
@@ -4472,7 +4472,7 @@
       "explanation": "A field the org requires has no value.",
       "action": "Give the field a value, or bring the record it must point to into the org first, then run again.",
       "forge": {
-        "explanation": "A required field has no value: {{detail}}.",
+        "explanation": "A field the target org requires has no value.",
         "action": "Turn on \"Auto-fetch parents\", or raise the depth so the required parent is part of the clone."
       },
       "seed": {
@@ -4506,8 +4506,8 @@
       "action": "Check your user's field-level security on the field in the org, and that the field exists there with the same type."
     },
     "fieldIntegrity": {
-      "explanation": "Salesforce rejected the record on an integrity rule: {{detail}}.",
-      "action": "Read the detail: Salesforce usually names the field or the rule involved."
+      "explanation": "Salesforce rejected the record on an integrity rule.",
+      "action": "Read the org's message: Salesforce usually names the field or the rule involved."
     },
     "cannotInsertEntity": {
       "explanation": "Salesforce does not accept new records of this object (a history, audit or system object).",
@@ -4556,7 +4556,7 @@
       "explanation": "A value is longer than the field allows.",
       "action": "Shorten the value, or give the field in the org the length the value needs.",
       "forge": {
-        "explanation": "A value is longer than the field allows: {{detail}}.",
+        "explanation": "A value from the source is longer than the target's field allows.",
         "action": "Shorten the source value, or give the field the same length in both orgs."
       }
     },
