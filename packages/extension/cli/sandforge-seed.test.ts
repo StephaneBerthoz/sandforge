@@ -3,8 +3,10 @@ import {
   describeDistribution,
   parseArgs,
   prebuiltTemplate,
+  refusalLines,
   rulesFromDescribe,
 } from './sandforge-seed.js';
+import { recordErrorText } from '../src/core/common/existingRecordMatch.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -381,6 +383,66 @@ describe('rulesFromDescribe', () => {
         ruleType: 'picklist_random',
         config: { picklistValues: ['Open'] },
       },
+    ]);
+  });
+});
+
+describe('the refusals the summary prints', () => {
+  it('writes a refusal with its code and the fields it named, as the panel does', () => {
+    // The command line kept the first message alone: "Required fields are
+    // missing: [LastName]", its code gone.
+    expect(
+      recordErrorText([
+        {
+          statusCode: 'REQUIRED_FIELD_MISSING',
+          message: 'Required fields are missing: [LastName]',
+          fields: ['LastName'],
+        },
+        {
+          statusCode: 'INVALID_EMAIL_ADDRESS',
+          message: 'Email: invalid email address',
+          fields: ['Email'],
+        },
+      ]),
+    ).toBe(
+      'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]; ' +
+        'INVALID_EMAIL_ADDRESS: Email: invalid email address [Email]',
+    );
+  });
+
+  it('groups them by reason, the most frequent first, with how many and one example', () => {
+    const errors = [
+      ...Array.from(
+        { length: 50 },
+        () => 'STANDARD_PRICE_NOT_DEFINED: No standard price defined for this product',
+      ),
+      'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+    ];
+
+    expect(refusalLines(errors)).toEqual([
+      '50 × STANDARD_PRICE_NOT_DEFINED',
+      '  STANDARD_PRICE_NOT_DEFINED: No standard price defined for this product',
+      '1 × REQUIRED_FIELD_MISSING (LastName)',
+      '  REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+    ]);
+  });
+
+  it('names a reason with no code by its words, and counts the reasons past five', () => {
+    const errors = [
+      'A_A: a',
+      'B_B: b',
+      'C_C: c',
+      'D_D: d',
+      'E_E: e',
+      'F_F: f',
+      'Insert failed after retries',
+    ];
+
+    const lines = refusalLines(errors);
+
+    expect(lines.at(-1)).toBe('and 2 other reason(s)');
+    expect(refusalLines(['Insert failed after retries', 'Insert failed after retries'])).toEqual([
+      '2 × Insert failed after retries',
     ]);
   });
 });

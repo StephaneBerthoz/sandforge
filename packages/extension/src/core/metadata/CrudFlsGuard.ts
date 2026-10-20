@@ -3,6 +3,28 @@ import type { ObjectDescribe, FieldDescribe } from './describeTypes.js';
 /** DML operation type that requires CRUD permission verification. */
 export type CrudOperation = 'insert' | 'update' | 'upsert' | 'delete';
 
+/**
+ * The code a refusal of the guard's is said under, in front of its English:
+ * the panels word it in the interface language by that code (the error
+ * catalogue's `CRUD_FLS_DENIED`), where they showed the sentence as it came.
+ */
+export const CRUD_FLS_DENIED = 'CRUD_FLS_DENIED';
+
+/**
+ * The refusal of fields the user may not write, as the guard and the restore
+ * that partitions a backup's fields word it.
+ */
+export function flsViolation(
+  objectApiName: string,
+  deniedFields: readonly string[],
+  operation: CrudOperation,
+): string {
+  return (
+    `${CRUD_FLS_DENIED}: FLS violation on '${objectApiName}': fields [${deniedFields.join(', ')}] ` +
+    `are not ${operation === 'insert' ? 'createable' : 'updateable'}.`
+  );
+}
+
 /** Result of a CRUD/FLS permission check. */
 export interface CrudFlsCheckResult {
   /** Whether the operation is allowed. */
@@ -53,7 +75,7 @@ export class CrudFlsGuard {
     if (!allowed) {
       return {
         allowed: false,
-        reason: `User lacks '${operation}' permission on '${objectApiName}'.`,
+        reason: `${CRUD_FLS_DENIED}: User lacks '${operation}' permission on '${objectApiName}'.`,
         deniedFields: [],
       };
     }
@@ -108,9 +130,7 @@ export class CrudFlsGuard {
     if (deniedFields.length > 0) {
       return {
         allowed: false,
-        reason:
-          `FLS violation on '${objectApiName}': fields [${deniedFields.join(', ')}] ` +
-          `are not ${operation === 'insert' ? 'createable' : 'updateable'}.`,
+        reason: flsViolation(objectApiName, deniedFields, operation),
         deniedFields,
       };
     }

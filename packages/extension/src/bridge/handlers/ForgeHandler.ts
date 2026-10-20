@@ -99,7 +99,10 @@ import {
   consultProductionGuard,
   strongerDecision,
 } from '../../core/precheck/consultProductionGuard.js';
-import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
+import {
+  RELATED_RECORDS_ALSO_WRITTEN,
+  largeVolumeThreshold,
+} from '../../core/precheck/ProductionGuard.js';
 import type {
   OperationRequest,
   ProductionGuard,
@@ -834,7 +837,7 @@ function guardedWrites(
 ): Pick<OperationRequest, 'objectName' | 'recordCount' | 'alsoWrites'> {
   const written = graph.nodes.filter((node) => node.included);
   const objectName = written.map((node) => node.objectApiName).join(', ') || 'ForgeData';
-  const alsoWrites = 'the related records the run adds';
+  const alsoWrites = RELATED_RECORDS_ALSO_WRITTEN;
   const cap = config.maxRecordsPerObject;
   // Record-scoped as the orchestrator runs it: an input of one record.
   let atMost = config.inputMode === 'record' && typeof config.recordId === 'string';

@@ -15,6 +15,12 @@ export interface BridgeQueryState<T> {
   loading: boolean;
   /** Error message if the query failed or timed out. */
   error: string | null;
+  /**
+   * The code the handler's error carried, or null: no error, one with no
+   * code, a timeout or a rejection at the bridge. A banner says from it what
+   * the error means and what to do.
+   */
+  errorCode: string | null;
   /** Manually re-send the query. */
   refetch: () => void;
 }
@@ -59,7 +65,7 @@ export function useBridgeQuery<T>(
   const skip = options?.skip ?? false;
   const errorType = options?.errorType ?? `${requestType.split(':')[0]}:error`;
 
-  const { listen, data, loading, error, setLoading, setError } = useMessageResponse<T>({
+  const { listen, data, loading, error, errorCode, setLoading, setError } = useMessageResponse<T>({
     requestType,
     responseType,
     timeoutMs,
@@ -123,5 +129,8 @@ export function useBridgeQuery<T>(
 
   // Same identity until something changes, so the query can be handed to a
   // memoised component without re-rendering it on every parent render.
-  return useMemo(() => ({ data, loading, error, refetch }), [data, loading, error, refetch]);
+  return useMemo(
+    () => ({ data, loading, error, errorCode, refetch }),
+    [data, loading, error, errorCode, refetch],
+  );
 }

@@ -260,7 +260,12 @@ export const ForgeResultsVerify: React.FC<ForgeResultsVerifyProps> = ({ run }) =
         </p>
       )}
       {verify.error && (
-        <ErrorBanner message={verify.error} data-testid="forge-results-verify-error" />
+        <ErrorBanner
+          message={verify.error}
+          code={verify.errorCode}
+          module="forge"
+          data-testid="forge-results-verify-error"
+        />
       )}
       {verification && <ForgeVerificationView verification={verification} />}
     </div>

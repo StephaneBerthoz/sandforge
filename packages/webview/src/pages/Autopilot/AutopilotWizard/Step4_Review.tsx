@@ -122,7 +122,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
     <div className="flex flex-col gap-(--sf-space-4)" data-testid="step4-review">
       <p className="text-sm text-text-secondary">{t('autopilot.step4.description')}</p>
 
-      {error && <ErrorBanner message={error} data-testid="autopilot-execute-error" />}
+      {error && <ErrorBanner message={error} code={null} data-testid="autopilot-execute-error" />}
 
       {/* Emails and phone numbers, neutralized unless unticked, as a Forge
           run's are: the compliance step this replaces defaulted to copying

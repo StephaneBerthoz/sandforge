@@ -100,6 +100,13 @@ function resetStore(): void {
 
 /* ---- Tests ---- */
 
+/** A table cell's text, the error catalogue's hint under it set aside. */
+function textBesideHint(cell: Element): string | null {
+  const copy = cell.cloneNode(true) as Element;
+  copy.querySelector('[data-testid="error-hint"]')?.remove();
+  return copy.textContent;
+}
+
 describe('FrozenPage', () => {
   beforeEach(() => {
     mockOrgState = {
@@ -658,11 +665,18 @@ describe('FrozenPage', () => {
     const failures = screen.getByTestId('frozen-report-failures');
     expect(failures.textContent).toContain('Why records failed');
     const rows = Array.from(failures.querySelectorAll('tbody tr')).map((row) =>
-      Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent),
+      Array.from(row.querySelectorAll('td')).map(textBesideHint),
     );
     expect(rows).toEqual([
       ['Contact', 'REQUIRED_FIELD_MISSING', 'Required fields are missing: [LastName]', '2'],
       ['Contact', 'INVALID_EMAIL_ADDRESS', 'Email: invalid email address', '1'],
+    ]);
+    // Under each reason, what it means and what to do: the table said the
+    // code and the org's words alone.
+    const hints = Array.from(failures.querySelectorAll('[data-testid="error-hint"]'));
+    expect(hints.map((hint) => hint.textContent)).toEqual([
+      expect.stringContaining(en.errors.requiredFieldMissing.action),
+      expect.stringContaining(en.errors.invalidEmail.action),
     ]);
   });
 
@@ -848,7 +862,7 @@ describe('FrozenPage', () => {
     expect(purge.textContent).toContain('What the reload purged of earlier loads');
     const rowsOf = (table: Element): Array<Array<string | null>> =>
       Array.from(table.querySelectorAll('tbody tr')).map((row) =>
-        Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent),
+        Array.from(row.querySelectorAll('td')).map(textBesideHint),
       );
     const [purged] = Array.from(purge.querySelectorAll('table'));
     expect(rowsOf(purged)).toEqual([
@@ -868,6 +882,9 @@ describe('FrozenPage', () => {
         '1',
       ],
     ]);
+    expect(failures.querySelector('[data-testid="error-hint"]')?.textContent).toContain(
+      en.errors.deleteFailed.action,
+    );
     // Records of earlier loads, not of this dataset: the load's own failures stay apart.
     expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
   });

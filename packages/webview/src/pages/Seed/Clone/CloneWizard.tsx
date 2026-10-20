@@ -123,6 +123,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
       {clone.error && (
         <ErrorBanner
           message={clone.error}
+          code={null}
           onDismiss={clone.dismissError}
           data-testid="clone-error"
         />

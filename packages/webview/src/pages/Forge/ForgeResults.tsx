@@ -32,9 +32,9 @@ import type {
 import { idMapCsv, idMapRows, leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
-import { translateForgeError } from './forgeErrorTranslator';
-import type { TranslatedError } from './forgeErrorTranslator';
-import { ForgeErrorHint } from './ForgeErrorHint';
+import { translateError } from '@sandforge/shared';
+import type { ErrorHint } from '@sandforge/shared';
+import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { KPICard } from '../../components/ui/KPICard';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { Button } from '../../components/ui/Button';
@@ -208,7 +208,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
    * the time comes to do it.
    */
   const stoppedHint = useMemo(
-    () => (stoppedOn === null || stoppedByCancel ? null : translateForgeError(stoppedOn)),
+    () =>
+      stoppedOn === null || stoppedByCancel ? null : translateError(stoppedOn, { module: 'forge' }),
     [stoppedOn, stoppedByCancel],
   );
 
@@ -827,7 +828,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                 ? t('forge.runCancelled')
                 : t('forge.runStoppedOn', { message: stoppedOn })}
             </p>
-            {stoppedHint && <ForgeErrorHint hint={stoppedHint} />}
+            {stoppedHint && <ErrorExplanation hint={stoppedHint} />}
           </div>
         </div>
       )}
@@ -1642,13 +1643,15 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                       </div>
                       <ul className="space-y-2">
                         {sample.messages.map((msg, mi) => {
-                          const translated = translateForgeError(msg);
+                          const translated = translateError(msg, { module: 'forge' });
                           return (
                             <li key={mi} className="space-y-1">
                               <div className="text-status-error wrap-break-word font-mono">
                                 └ {msg}
                               </div>
-                              {translated && <ForgeErrorHint hint={translated} className="ml-4" />}
+                              {translated && (
+                                <ErrorExplanation hint={translated} className="ml-4" />
+                              )}
                             </li>
                           );
                         })}
@@ -1668,7 +1671,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
 /** One sample of a note, each of its messages with the hint said under it, if any. */
 interface NoteSample {
   recordSummary: string;
-  messages: Array<{ text: string; hint: TranslatedError | null }>;
+  messages: Array<{ text: string; hint: ErrorHint | null }>;
 }
 
 /**
@@ -1681,7 +1684,7 @@ function samplesWithHints(note: ForgeExecutionError): NoteSample[] {
   return note.samples.map(({ recordSummary, messages }) => ({
     recordSummary,
     messages: messages.map((text) => {
-      const hint = translateForgeError(text);
+      const hint = translateError(text, { module: 'forge' });
       const said = hint && JSON.stringify([hint.explanationKey, hint.actionKey, hint.vars ?? {}]);
       if (!said || given.has(said)) return { text, hint: null };
       given.add(said);
@@ -1736,7 +1739,7 @@ const ForgeNotesPanel: React.FC<{ notes: readonly ForgeExecutionError[] }> = ({ 
                         <span aria-hidden="true">└ </span>
                         {text}
                       </div>
-                      {hint && <ForgeErrorHint hint={hint} className="ml-4" />}
+                      {hint && <ErrorExplanation hint={hint} className="ml-4" />}
                     </div>
                   ))}
                 </li>

@@ -7,6 +7,7 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { SyncRunControls } from '../SyncRunControls';
+import { RecordErrorGroups } from '../../../components/ui/RecordErrorGroups';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -104,11 +105,17 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             />
             {obj.errors.length > 0 && (
               <CardBody>
-                {obj.errors.map((err, i) => (
-                  <p key={i} className="text-[10px] text-status-error">
-                    {err}
-                  </p>
-                ))}
+                <RecordErrorGroups
+                  objectApiName={obj.objectApiName}
+                  errors={obj.errors}
+                  {...(obj.refusalsDropped
+                    ? {
+                        recordsFailed: obj.failed,
+                        recordsListed: obj.failed - obj.refusalsDropped,
+                      }
+                    : {})}
+                  testIdPrefix="quick-sync-result"
+                />
               </CardBody>
             )}
           </Card>

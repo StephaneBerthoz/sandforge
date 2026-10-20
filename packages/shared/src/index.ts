@@ -172,6 +172,27 @@ export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export * from './utils/account-kinds.js';
 export {
+  FORGE_GUIDE_URL,
+  SALESFORCE_HELP_SEARCH_URL,
+  bannerHintOf,
+  cataloguedErrorCodes,
+  guideAnchorOf,
+  helpSearchUrlOf,
+  isCataloguedErrorCode,
+  panelWordingOf,
+  translateError,
+  type ErrorHint,
+  type ErrorHintModule,
+  type ErrorHintSeverity,
+  type TranslateErrorOptions,
+} from './utils/error-hints.js';
+export {
+  groupRecordErrors,
+  parseRecordError,
+  type ParsedRecordError,
+  type RecordErrorGroup,
+} from './utils/record-error-groups.js';
+export {
   forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,

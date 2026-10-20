@@ -840,13 +840,15 @@ describe('MessageBroker', () => {
       const panels = [createMockPanel(), createMockPanel()];
       for (const panel of panels) broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      broker.showFixSuggestion({ source: 'knowledge-base', text: 'Wait a moment and retry.' });
+      const suggestion = {
+        source: 'catalogue',
+        code: 'UNABLE_TO_LOCK_ROW',
+        actionKey: 'errors.rowLocked.action',
+      } as const;
+      broker.showFixSuggestion(suggestion);
 
       expect(showFixSuggestion).toHaveBeenCalledOnce();
-      expect(showFixSuggestion).toHaveBeenCalledWith({
-        source: 'knowledge-base',
-        text: 'Wait a moment and retry.',
-      });
+      expect(showFixSuggestion).toHaveBeenCalledWith(suggestion);
       for (const panel of panels) expect(panel.webview.postMessage).not.toHaveBeenCalled();
     });
 

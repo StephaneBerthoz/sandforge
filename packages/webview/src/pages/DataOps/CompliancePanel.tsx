@@ -100,7 +100,13 @@ export const CompliancePanel: React.FC<CompliancePanelProps> = ({ orgId }) => {
             {t('dataops.inventory.run')}
           </Button>
         </div>
-        {inventory.error && <ErrorBanner message={inventory.error} data-testid="inventory-error" />}
+        {inventory.error && (
+          <ErrorBanner
+            message={inventory.error}
+            code={inventory.errorCode}
+            data-testid="inventory-error"
+          />
+        )}
         {result && (
           <div className="flex flex-col gap-3" data-testid="inventory-results">
             <p className="text-xs text-text-secondary">

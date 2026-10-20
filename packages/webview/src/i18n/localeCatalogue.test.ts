@@ -214,7 +214,9 @@ describe('a language names one thing with one word', () => {
     expect(naming(host, ORG_WORD)).toEqual([]);
     expect(naming(host, FIELD_WORD)).toEqual([]);
     expect(nls.get('command.openOrgs')).toBe('SandForge: 組織に接続');
-    expect(naming(host, /項目/).length).toBeGreaterThan(5);
+    // Positive control on 組織: the host's field words were the table of known
+    // error codes', which the panels' catalogue now says in their place.
+    expect(naming(host, /組織/).length).toBeGreaterThan(5);
   });
 
   it('the Japanese walkthrough bodies name them the same way', () => {

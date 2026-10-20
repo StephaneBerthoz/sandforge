@@ -81,37 +81,12 @@ describe('AIToolsHandler', () => {
     expect(result).toBe(false);
   });
 
-  it('handles ai:nl2soql without modules with correlationId', async () => {
+  it('no longer answers ai:nl2soql: Forge drafts through ai:forge-plan, and Seed asked nothing since', async () => {
     const result = await handler.handle(
       createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }),
     );
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:nl2soql:response');
-    expect(response.payload.success).toBe(false);
-    expect(response.correlationId).toBe('msg-1');
-  });
-
-  it('handles ai:nl2soql with modules with correlationId', async () => {
-    const mockModules: Partial<AIModules> = {
-      nl2soql: {
-        generateSOQL: vi.fn().mockResolvedValue({
-          soql: 'SELECT Id FROM Account',
-          explanation: 'Gets all accounts',
-        }),
-        validateSOQL: vi.fn().mockReturnValue({ valid: true, errors: [], verified: true }),
-      } as unknown as AIModules['nl2soql'],
-    };
-    handler.setAIModules(mockModules as AIModules);
-
-    const result = await handler.handle(
-      createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }),
-    );
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:nl2soql:response');
-    expect(response.payload.success).toBe(true);
-    expect(response.correlationId).toBe('msg-1');
+    expect(result).toBe(false);
+    expect(deps.broker.postToWebview).not.toHaveBeenCalled();
   });
 
   it('does not claim ai:resolve-error — a failure is resolved where it is raised', async () => {
@@ -275,7 +250,7 @@ describe('AIToolsHandler', () => {
     });
   });
 
-  describe('nl2soql schema context', () => {
+  describe('the schema a Forge draft is asked with', () => {
     /** A real NL2SOQL over a scripted model, so prompt and validation are the shipped ones. */
     function realNL2SOQL(soql: string) {
       const provider = vi
@@ -289,7 +264,7 @@ describe('AIToolsHandler', () => {
       const provider = realNL2SOQL('SELECT Id, Name FROM Account');
 
       await handler.handle(
-        createMsg('ai:nl2soql', { query: 'all accounts with their industry', orgId: 'org1' }),
+        createMsg('ai:forge-plan', { prompt: 'all accounts with their industry', orgId: 'org1' }),
       );
 
       const prompt = provider.mock.calls[0][0] as string;
@@ -304,99 +279,25 @@ describe('AIToolsHandler', () => {
       );
       realNL2SOQL('SELECT Id FROM Account');
 
-      await handler.handle(createMsg('ai:nl2soql', { query: 'list the accounts', orgId: 'org1' }));
+      await handler.handle(
+        createMsg('ai:forge-plan', { prompt: 'list the accounts', orgId: 'org1' }),
+      );
 
       expect(describe_.mock.calls.map((c) => c[0])).toEqual(['Account']);
     });
 
-    it('reports a field the model invented on a described object', async () => {
-      realNL2SOQL('SELECT Id, Bogus__c FROM Account');
-
-      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
-
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.payload.success).toBe(false);
-      expect(response.payload.error).toContain('Bogus__c');
-      // The draft still reaches the user — it is flagged, not swallowed.
-      expect(response.payload.soql).toBe('SELECT Id, Bogus__c FROM Account');
-    });
-
-    it('accepts a query whose fields all come from the describe', async () => {
-      realNL2SOQL('SELECT Id, Name, Industry FROM Account');
-
-      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
-
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.payload.success).toBe(true);
-      expect(response.payload.error).toBeUndefined();
-    });
-
-    it('does not claim a field check when the request names no known object', async () => {
-      const describe_ = vi.fn().mockResolvedValue(ACCOUNT_DESCRIBE);
-      vi.mocked(getJsforceConnection).mockResolvedValue(
-        mockConnection(describe_) as unknown as Awaited<ReturnType<typeof getJsforceConnection>>,
-      );
+    it('sends the names of the catalog alone when the request names no known object', async () => {
       const provider = realNL2SOQL('SELECT Id, Bogus__c FROM Contact');
 
       await handler.handle(
-        createMsg('ai:nl2soql', { query: 'everything from last week', orgId: 'org1' }),
+        createMsg('ai:forge-plan', { prompt: 'everything from last week', orgId: 'org1' }),
       );
 
-      expect(describe_).not.toHaveBeenCalled();
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.payload.success).toBe(true);
       // The fallback catalog is names only, and never offers an object that
       // cannot appear in a FROM clause.
       const prompt = provider.mock.calls[0][0] as string;
       expect(prompt).toContain('Contact (Contact)');
       expect(prompt).not.toContain('AccountFeed');
-    });
-
-    it('tells the panel the draft was not checked against the org', async () => {
-      realNL2SOQL('SELECT Id, Bogus__c FROM Contact');
-
-      await handler.handle(
-        createMsg('ai:nl2soql', { query: 'everything from last week', orgId: 'org1' }),
-      );
-
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.payload.success).toBe(true);
-      expect(response.payload.verified).toBe(false);
-      expect(response.payload.unverifiedReason).toBe('fields-unknown');
-    });
-
-    it('tells the panel a draft over a described object still checked nothing', async () => {
-      realNL2SOQL('SELECT COUNT(Id) FROM Account');
-
-      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
-
-      // Account was described here, so the panel must not read this as the org
-      // withholding its field list.
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.payload.success).toBe(true);
-      expect(response.payload.verified).toBe(false);
-      expect(response.payload.unverifiedReason).toBe('nothing-to-check');
-    });
-
-    it('tells the panel the draft was checked when the fields came from a describe', async () => {
-      realNL2SOQL('SELECT Id, Name FROM Account');
-
-      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
-
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.payload.success).toBe(true);
-      expect(response.payload.verified).toBe(true);
-      expect(response.payload.unverifiedReason).toBeUndefined();
-    });
-
-    it('reports an object that exists in no catalog entry', async () => {
-      realNL2SOQL('SELECT Id FROM Invented__c');
-
-      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
-
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.payload.success).toBe(false);
-      expect(response.payload.error).toContain('Invented__c');
     });
 
     it('reuses the cached describe across two requests on the same org', async () => {
@@ -407,8 +308,8 @@ describe('AIToolsHandler', () => {
       );
       realNL2SOQL('SELECT Id FROM Account');
 
-      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
-      await handler.handle(createMsg('ai:nl2soql', { query: 'accounts again', orgId: 'org1' }));
+      await handler.handle(createMsg('ai:forge-plan', { prompt: 'all accounts', orgId: 'org1' }));
+      await handler.handle(createMsg('ai:forge-plan', { prompt: 'accounts again', orgId: 'org1' }));
 
       expect(describe_).toHaveBeenCalledTimes(1);
       expect(conn.describeGlobal).toHaveBeenCalledTimes(1);
@@ -422,9 +323,9 @@ describe('AIToolsHandler', () => {
       );
       realNL2SOQL('SELECT Id FROM Account');
 
-      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
+      await handler.handle(createMsg('ai:forge-plan', { prompt: 'all accounts', orgId: 'org1' }));
       handler.forgetOrg('org1');
-      await handler.handle(createMsg('ai:nl2soql', { query: 'accounts again', orgId: 'org1' }));
+      await handler.handle(createMsg('ai:forge-plan', { prompt: 'accounts again', orgId: 'org1' }));
 
       expect(describe_).toHaveBeenCalledTimes(2);
       expect(conn.describeGlobal).toHaveBeenCalledTimes(2);
@@ -629,7 +530,6 @@ describe('AIToolsHandler', () => {
     }
 
     it.each([
-      ['ai:nl2soql', { query: 'all accounts', orgId: 'org1' }],
       ['ai:forge-plan', { prompt: 'accounts in energy', orgId: 'org1' }],
       ['ai:generate-pipeline', { description: 'tidy the data the way we like it' }],
     ] as const)(
@@ -638,7 +538,7 @@ describe('AIToolsHandler', () => {
         const generateSOQL = untilStopped();
         const generatePipeline = untilStopped();
         handler.setAIModules({
-          nl2soql: { generateSOQL, validateSOQL: vi.fn() },
+          nl2soql: { generateSOQL },
           pipelineGenerator: { generatePipeline },
         } as unknown as AIModules);
 
@@ -663,7 +563,7 @@ describe('AIToolsHandler', () => {
     it('stops waiting on the org before the model is asked anything', async () => {
       const generateSOQL = vi.fn();
       handler.setAIModules({
-        nl2soql: { generateSOQL, validateSOQL: vi.fn() },
+        nl2soql: { generateSOQL },
       } as unknown as AIModules);
       const conn = mockConnection();
       // The catalogue never comes back.
@@ -672,7 +572,9 @@ describe('AIToolsHandler', () => {
         conn as unknown as Awaited<ReturnType<typeof getJsforceConnection>>,
       );
 
-      const asked = handler.handle(createMsg('ai:nl2soql', { query: 'accounts', orgId: 'org1' }));
+      const asked = handler.handle(
+        createMsg('ai:forge-plan', { prompt: 'accounts', orgId: 'org1' }),
+      );
       await vi.waitFor(() => expect(conn.describeGlobal).toHaveBeenCalled());
       await stop('msg-1');
       await asked;
@@ -686,10 +588,12 @@ describe('AIToolsHandler', () => {
     it('stops only the request it names, and leaves alone one that waits on nothing', async () => {
       const generateSOQL = untilStopped();
       handler.setAIModules({
-        nl2soql: { generateSOQL, validateSOQL: vi.fn() },
+        nl2soql: { generateSOQL },
       } as unknown as AIModules);
 
-      const asked = handler.handle(createMsg('ai:nl2soql', { query: 'accounts', orgId: 'org1' }));
+      const asked = handler.handle(
+        createMsg('ai:forge-plan', { prompt: 'accounts', orgId: 'org1' }),
+      );
       await vi.waitFor(() => expect(generateSOQL).toHaveBeenCalled());
       await stop('another-request');
       await stop('msg-0');
@@ -707,11 +611,10 @@ describe('AIToolsHandler', () => {
       handler.setAIModules({
         nl2soql: {
           generateSOQL: vi.fn().mockRejectedValue(new Error('overloaded')),
-          validateSOQL: vi.fn(),
         },
       } as unknown as AIModules);
 
-      await handler.handle(createMsg('ai:nl2soql', { query: 'accounts', orgId: 'org1' }));
+      await handler.handle(createMsg('ai:forge-plan', { prompt: 'accounts', orgId: 'org1' }));
 
       expect(posted()[0].payload).toEqual({ success: false, error: 'overloaded' });
     });
@@ -726,8 +629,8 @@ describe('AIToolsHandler', () => {
       expect(response.payload.code).toBe('INVALID_PAYLOAD');
     });
 
-    it('rejects ai:nl2soql without orgId (INVALID_PAYLOAD)', async () => {
-      const result = await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts' }));
+    it('rejects ai:forge-plan without orgId (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('ai:forge-plan', { prompt: 'all accounts' }));
       expect(result).toBe(true);
 
       const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];

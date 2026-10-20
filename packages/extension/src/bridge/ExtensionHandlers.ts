@@ -532,7 +532,7 @@ export class ExtensionHandlers {
   setAIModules(modules: AIModules | undefined): void {
     this.aiHandler.setAIModules(modules);
     // Mutate the shared deps object so `sendOperationFailed` can ask the model
-    // about a failure the table of known codes cannot answer — once, where it
+    // about a failure the error catalogue cannot answer — once, where it
     // is raised.
     // Taking the modules away takes the resolver with them: turning AI off
     // must stop the model being asked about a failure.
@@ -820,7 +820,6 @@ export class ExtensionHandlers {
         'ai:conversation:delete',
         'ai:status',
         'ai:save-key',
-        'ai:nl2soql',
         'ai:tool:cancel',
         'ai:forge-plan',
         'ai:anomaly-scan',

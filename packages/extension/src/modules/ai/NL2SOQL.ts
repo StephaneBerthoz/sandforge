@@ -2,11 +2,7 @@
 export type { AIProvider } from './types.js';
 import type { AIProvider, AIProviderOptions } from './types.js';
 import type { z } from 'zod';
-import {
-  NL2SOQLReplySchema,
-  parseModelJson,
-  type NL2SOQLUnverifiedReason,
-} from '@sandforge/shared';
+import { NL2SOQLReplySchema, parseModelJson } from '@sandforge/shared';
 import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
 import { NL2SOQL_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
 
@@ -15,9 +11,8 @@ import { NL2SOQL_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js'
  *
  * An empty `fields` array means "not described", not "no fields": describing
  * every object in an org costs one REST round trip each, so the caller
- * describes a handful and leaves the rest as bare API names. Both the prompt
- * and {@link NL2SOQL.validateSOQL} read the distinction — neither invents
- * fields for an object nobody fetched.
+ * describes a handful and leaves the rest as bare API names. The prompt reads
+ * the distinction, and invents no field for an object nobody fetched.
  */
 export interface SchemaContext {
   objects: Array<{
@@ -41,24 +36,6 @@ export interface NL2SOQLResult {
   alternatives?: string[];
 }
 
-/** Validation result for a SOQL query against a schema. */
-export interface SOQLValidationResult {
-  valid: boolean;
-  errors: string[];
-  /**
-   * Whether at least one selected field name was actually compared against a
-   * describe.
-   *
-   * `false` when nothing was: the queried object carries no described fields,
-   * or every item in the SELECT list is one this check steps over. Either way
-   * the query may still reference fields that do not exist, so a caller must
-   * not report a `valid: true, verified: false` result as a checked query.
-   */
-  verified: boolean;
-  /** Which of the two shapes of "nothing was compared" applies, when `verified` is false. */
-  unverifiedReason?: NL2SOQLUnverifiedReason;
-}
-
 /** A saved SOQL query with a user-defined label. */
 export interface SOQLFavorite {
   soql: string;
@@ -66,9 +43,10 @@ export interface SOQLFavorite {
 }
 
 /**
- * Converts natural language queries into SOQL statements
- * using an AI provider, with validation, history tracking,
- * and favorites management.
+ * Converts natural language queries into SOQL statements using an AI
+ * provider, with history tracking and favorites management. The draft is
+ * checked by its caller: Forge's AI tab checks it against the source org
+ * (`checkForgeRootQuery`).
  */
 export class NL2SOQL {
   private readonly provider: AIProvider;
@@ -99,97 +77,6 @@ export class NL2SOQL {
 
     this.history.push(result);
     return result;
-  }
-
-  /**
-   * Validate a SOQL query against the provided schema.
-   *
-   * Checks that the queried object exists in the catalog and that every plain
-   * field in the SELECT list exists on it. Fields are only checked when the
-   * object carries a describe: against an object left as a bare API name the
-   * result comes back `verified: false` rather than flagging every field as
-   * unknown — an empty `fields` array means nobody fetched them, so calling
-   * them all invented would be a lie in the other direction.
-   *
-   * A described object is not enough on its own. Relationship paths and
-   * functions are handed to the org to judge, so a SELECT list made only of
-   * those leaves the check with nothing compared, and it comes back
-   * `verified: false` too: the flag counts work done, not work available.
-   *
-   * A subquery is not checked either, in the SELECT list or in WHERE: the
-   * query around it is. Its object and fields are left to the org.
-   *
-   * @param soql - The SOQL query to validate
-   * @param schema - The Salesforce schema context
-   * @returns Validation result with any errors found
-   */
-  validateSOQL(soql: string, schema: SchemaContext): SOQLValidationResult {
-    const errors: string[] = [];
-
-    if (!soql.trim()) {
-      return { valid: false, errors: ['SOQL query is empty'], verified: true };
-    }
-
-    // A parent-child subquery sits in the SELECT list, before the outer FROM,
-    // so read as written its child relationship (`Contacts`) is taken for the
-    // queried object and a valid query is rejected. Each subquery becomes `()`
-    // first: the field check steps over bracketed items like any function.
-    const outer = maskSubqueries(soql);
-
-    const objectMatch = /FROM\s+(\w+)/i.exec(outer);
-    if (!objectMatch) {
-      errors.push('No FROM clause found in SOQL query');
-      return { valid: false, errors, verified: true };
-    }
-
-    const objectName = objectMatch[1];
-    const objectDef = schema.objects.find(
-      (o) => o.apiName.toLowerCase() === objectName.toLowerCase(),
-    );
-
-    if (!objectDef) {
-      errors.push(`Object "${objectName}" not found in schema`);
-      return { valid: false, errors, verified: true };
-    }
-
-    const selectMatch = /SELECT\s+(.+?)\s+FROM/i.exec(outer);
-    if (!selectMatch) {
-      errors.push('No SELECT clause found in SOQL query');
-      return { valid: false, errors, verified: true };
-    }
-
-    const selectClause = selectMatch[1];
-    if (selectClause.trim() === '*') {
-      errors.push('Wildcard (*) is not supported in SOQL');
-      return { valid: false, errors, verified: true };
-    }
-
-    if (objectDef.fields.length === 0) {
-      return { valid: true, errors, verified: false, unverifiedReason: 'fields-unknown' };
-    }
-
-    const fieldNames = selectClause.split(',').map((f) => f.trim());
-    const knownFieldNames = new Set(objectDef.fields.map((f) => f.apiName.toLowerCase()));
-    let compared = 0;
-
-    for (const fieldName of fieldNames) {
-      if (fieldName === '') continue;
-      // Skip aggregate functions and relationship fields
-      if (/\(/.test(fieldName) || fieldName.includes('.')) continue;
-
-      compared++;
-      if (!knownFieldNames.has(fieldName.toLowerCase())) {
-        errors.push(`Field "${fieldName}" not found on object "${objectName}"`);
-      }
-    }
-
-    // Every item was skipped, so the describe was never consulted and no error
-    // can have been raised: an accepted draft nobody checked.
-    if (compared === 0) {
-      return { valid: true, errors, verified: false, unverifiedReason: 'nothing-to-check' };
-    }
-
-    return { valid: errors.length === 0, errors, verified: true };
   }
 
   /**
@@ -305,64 +192,4 @@ function parseAIResponse(response: string): NL2SOQLResult {
   }
 
   return result;
-}
-
-/**
- * `soql` with every parenthesised subquery replaced by `()`, a nested one
- * going with the one around it. A bracket inside a string literal is text, not
- * nesting; a subquery left unclosed runs to the end of the query.
- */
-function maskSubqueries(soql: string): string {
-  let out = '';
-  let i = 0;
-  while (i < soql.length) {
-    if (soql[i] === "'") {
-      const end = endOfLiteral(soql, i);
-      out += soql.slice(i, end);
-      i = end;
-    } else if (soql[i] === '(' && /^\(\s*SELECT\b/i.test(soql.slice(i))) {
-      out += '()';
-      i = endOfGroup(soql, i);
-    } else {
-      out += soql[i];
-      i++;
-    }
-  }
-  return out;
-}
-
-/** Index just past the string literal that opens at `start`; `\'` does not close it. */
-function endOfLiteral(soql: string, start: number): number {
-  let i = start + 1;
-  while (i < soql.length) {
-    if (soql[i] === '\\') {
-      i += 2;
-    } else if (soql[i] === "'") {
-      return i + 1;
-    } else {
-      i++;
-    }
-  }
-  return soql.length;
-}
-
-/** Index just past the bracket that closes the one at `start`. */
-function endOfGroup(soql: string, start: number): number {
-  let depth = 0;
-  let i = start;
-  while (i < soql.length) {
-    const ch = soql[i];
-    if (ch === "'") {
-      i = endOfLiteral(soql, i);
-      continue;
-    }
-    if (ch === '(') {
-      depth++;
-    } else if (ch === ')') {
-      depth--;
-      if (depth === 0) return i + 1;
-    }
-    i++;
-  }
-  return soql.length;
 }

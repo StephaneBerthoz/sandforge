@@ -12,7 +12,6 @@ export {
   createPreviewResponse,
   createDescribeResponse,
   createAIChatResponse,
-  createNL2SOQLResponse,
   createErrorResolverResponse,
   createSchemaResultResponse,
   createPlanReadyResponse,

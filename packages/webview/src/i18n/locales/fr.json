@@ -61,14 +61,18 @@
       "autopilotWriteDeclined": "Vous avez annulé l'exécution Autopilot avant qu'elle n'écrive quoi que ce soit. Rien n'a été écrit dans l'org cible.",
       "autopilotConfirmationUnavailable": "L'exécution Autopilot a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",
       "seedStorageExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit : ses enregistrements prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}}. Réduisez le nombre d'enregistrements, choisissez un modèle plus léger, ou libérez du stockage de données dans {{org}}.",
-      "orgAuthExpired": "La session avec cette org a expiré et n'a pas pu être renouvelée. Reconnectez-la depuis la page Organisations (Reconnecter, sur sa carte).",
-      "orgTemporarilyUnreachable": "Cette org a échoué plusieurs fois de suite : SandForge attend un moment avant de la rappeler. Réessayez dans une minute.",
       "seedEmailsExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Réduisez le nombre d'enregistrements, mettez {{objects}} à 0, désactivez {{senders}}, ou attribuez-vous la permission qui les fait taire."
     },
     "list": {
       "separator": ", ",
       "and": " et "
-    }
+    },
+    "recordErrors": {
+      "group": "{{n}} × {{reason}}",
+      "listed": "Regroupés à partir des {{listed}} premiers des {{failed}} enregistrements refusés."
+    },
+    "details": "Détails",
+    "optional": "Facultatif"
   },
   "status": {
     "apiUsage": "Utilisation API",
@@ -141,7 +145,6 @@
     },
     "moreMethods": "Plus de méthodes",
     "cliMissing": "La Salesforce CLI (sf) ne répond pas sur cette machine. Importer depuis SF CLI et OAuth (Web) passent par elle.",
-    "noCliOrgs": "La Salesforce CLI ne contient encore aucune org. Connectez-vous avec OAuth (Web) : il ouvre la page de connexion Salesforce dans votre navigateur.",
     "aliasOptionalHint": "Facultatif : sans alias, l'org est nommée d'après son nom d'utilisateur.",
     "connectedNext": {
       "title": "{{alias}} est connectée",
@@ -925,7 +928,6 @@
     },
     "emptyState": {
       "title": "Remplissez votre sandbox de données de test réalistes",
-      "description": "Seed génère des données synthétiques — modèles, IA, CSV ou autre org — pour développer et tester sans données de production.",
       "step2": "Choisissez un modèle ou un mode : IA, CSV, Clone",
       "step3": "Choisissez les objets et les volumes d'enregistrements",
       "step4": "Exécutez puis consultez les résultats"
@@ -936,19 +938,7 @@
     "results": {
       "aiFallback": "L'IA n'a renvoyé aucune valeur, ces champs ont donc reçu des phrases générées : {{fields}}. L'IA est désactivée, ou l'appel a été refusé (le journal SandForge en donne la raison).",
       "aiFallbackShort": "La réponse de l'IA omettait des valeurs, ces champs ont donc reçu des phrases générées : {{fields}}.",
-      "errorGroup": "{{n}} × {{reason}}",
-      "errorsListed": "Regroupés à partir des {{listed}} premiers des {{failed}} enregistrements refusés.",
-      "openRecord": "Ouvrir un {{object}} créé dans {{org}}",
-      "errorHint": {
-        "requiredFieldMissing": "L'org exige une valeur que le seed n'a pas fournie. Passez par l'assistant et donnez une règle au champ à son étape Configuration.",
-        "validationRule": "Une règle de validation de l'org a refusé les valeurs générées. Donnez aux champs qu'elle vérifie des règles dont elle accepte les valeurs, ou désactivez-la le temps du seed.",
-        "restrictedPicklist": "Une valeur générée ne fait pas partie de cette liste de sélection restreinte, ou n'est pas acceptée par le type d'enregistrement. Donnez au champ les valeurs que l'org prévoit pour lui.",
-        "duplicateValue": "Un champ unique a reçu une valeur qu'un enregistrement de l'org porte déjà. Donnez au champ une règle dont les valeurs ne se répètent pas.",
-        "duplicateRule": "Une règle de doublons de l'org réglée sur Bloquer a refusé l'enregistrement généré. Désactivez-la le temps du seed, ou réglez son action à la création sur Autoriser.",
-        "storageFull": "L'org n'a plus d'espace de stockage de données : une Developer Edition en compte 5 Mo. Supprimez un seed précédent, ou générez moins d'enregistrements.",
-        "standardPrice": "Salesforce n'accepte le prix d'un produit dans un catalogue de prix personnalisé qu'une fois que ce produit a un prix dans le catalogue standard. Donnez d'abord un prix standard à ces produits.",
-        "flowFailed": "Un Flow de l'org a échoué à l'enregistrement, et l'org a refusé l'enregistrement. Corrigez le Flow, ou désactivez-le le temps du seed."
-      }
+      "openRecord": "Ouvrir un {{object}} créé dans {{org}}"
     },
     "sampleRecordCount_one": "{{count}} enregistrement d'exemple",
     "sampleRecordCount_other": "{{count}} enregistrements d'exemple",
@@ -1115,10 +1105,7 @@
     "addTransform": "Ajouter une transformation",
     "addMapping": "Ajouter un mapping",
     "autoMap": "Mapping auto",
-    "unmapped": "Non mappé",
     "suggestedMappings": "Mappings suggérés",
-    "autoMatch": "Correspondance auto",
-    "fieldMapperHint": "Cliquez sur un champ source, puis sur un champ cible pour créer un mapping",
     "selectAndConfigure": "Sélectionner les orgs et les objets",
     "templates": {
       "title": "Modèles de démarrage rapide",
@@ -1399,9 +1386,7 @@
     },
     "delta": {
       "toggle": "Ne copier que ce qui a changé depuis la dernière exécution réussie (delta)",
-      "toggleHint": "Chaque objet lit les enregistrements que sa source a modifiés depuis sa dernière exécution réussie, en commençant cinq minutes plus tôt pour rattraper les enregistrements validés pendant une lecture. La première exécution, une exécution après un changement de son filtre, de ses champs, de sa clé ou de son mappage, ou après l'activation ou la désactivation de ses fichiers, et une exécution après « Tout relire la prochaine fois » lisent tout. Ce qu'une exécution delta lit deux fois, elle l'écrit deux fois : chaque objet doit donc être écrit par upsert sur un External ID, ou par mise à jour. Un repère n'est conservé que pour une configuration enregistrée : enregistrez-la, puis lancez-la d'ici, depuis les configurations enregistrées ou par une planification.",
       "deletes": "Supprimer dans la cible ce que la source a supprimé",
-      "deletesHint": "Désactivé sauf si coché. Une exécution delta lit la corbeille de la source pour les enregistrements supprimés depuis sa dernière exécution réussie, dans le filtre de l'objet, et supprime le seul enregistrement cible auquel chacun est relié par la clé sur laquelle l'écriture fait correspondre. Un enregistrement cible qu'elle ne peut relier à exactement un enregistrement supprimé, ou dont un enregistrement source porte encore la clé, est conservé. Les enregistrements vidés de la corbeille ne sont pas vus. Production Guard juge l'exécution comme une suppression.",
       "needsKey": "Une exécution delta exige que chaque objet soit écrit par upsert sur un External ID, ou par mise à jour : {{objects}}.",
       "withDeletes": "Delta, suppressions reportées",
       "since": "Delta depuis le {{time}}",
@@ -1425,15 +1410,19 @@
         "no_modstamp": "Lecture complète (la source ne donne pas de SystemModstamp pour cet objet)",
         "not_saved": "Lecture complète (configuration non enregistrée : aucun repère n'est conservé)",
         "removed": "Lecture complète (un retrait a repris des copies écrites)"
-      }
+      },
+      "toggleDetails": "Chaque objet lit les enregistrements que sa source a modifiés depuis sa dernière exécution réussie, en commençant cinq minutes plus tôt pour rattraper les enregistrements validés pendant une lecture. La première exécution, une exécution après un changement de son filtre, de ses champs, de sa clé ou de son mappage, ou après l'activation ou la désactivation de ses fichiers, et une exécution après « Tout relire la prochaine fois » lisent tout. Ce qu'une exécution delta lit deux fois, elle l'écrit deux fois : chaque objet doit donc être écrit par upsert sur un External ID, ou par mise à jour. Un repère n'est conservé que pour une configuration enregistrée : enregistrez-la, puis lancez-la d'ici, depuis les configurations enregistrées ou par une planification.",
+      "deletesDetails": "Désactivé sauf si coché. Une exécution delta lit la corbeille de la source pour les enregistrements supprimés depuis sa dernière exécution réussie, dans le filtre de l'objet, et supprime le seul enregistrement cible auquel chacun est relié par la clé sur laquelle l'écriture fait correspondre. Un enregistrement cible qu'elle ne peut relier à exactement un enregistrement supprimé, ou dont un enregistrement source porte encore la clé, est conservé. Les enregistrements vidés de la corbeille ne sont pas vus. Production Guard juge l'exécution comme une suppression.",
+      "toggleHint": "Ne lit que les enregistrements modifiés depuis la dernière exécution réussie de cette configuration enregistrée.",
+      "deletesHint": "Supprime aussi dans la cible les enregistrements supprimés dans la source depuis cette exécution."
     },
     "contactPoints": {
       "toggle": "Neutraliser les e-mails et les numéros de téléphone (recommandé)",
-      "toggleHint": "Activé sauf si décoché. Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne. Décoché, ils sont copiés tels que la source les contient, et les Flows de la cible peuvent écrire et envoyer des SMS à de vraies personnes. Le champ sur lequel l'écriture fait correspondre est gardé tel que lu."
+      "toggleDetails": "Activé sauf si décoché. Chaque adresse e-mail est écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne. Décoché, ils sont copiés tels que la source les contient, et les Flows de la cible peuvent écrire et envoyer des SMS à de vraies personnes. Le champ sur lequel l'écriture fait correspondre est gardé tel que lu.",
+      "toggleHint": "Écrit chaque e-mail sous .invalid et chaque numéro de téléphone comme un numéro fictif, pour que l'automatisation de la cible n'atteigne personne."
     },
     "files": {
       "toggle": "Copier les fichiers de ces enregistrements",
-      "toggleHint": "Désactivé sauf si coché. Une fois les enregistrements d'un objet écrits, la dernière version de chaque fichier Salesforce lié à l'un d'eux, et leurs pièces jointes classiques, sont copiées et liées aux copies des enregistrements dans la cible. Une configuration enregistrée retient quel fichier elle a copié où : l'exécuter de nouveau ne copie un fichier que si la source en a une version plus récente, ajoutée comme version de la copie, jamais comme second fichier. Avant que l'exécution n'écrive quoi que ce soit, le stockage de fichiers de la cible est lu et une exécution dont les fichiers ne tiendraient pas est refusée. Un fichier plus gros que la taille maximale, et les fichiers au-delà de ce qu'une exécution copie au plus, sont ignorés et comptés ; l'exécution suivante copie ces derniers. Retirer une exécution reprend, avec ses enregistrements, les fichiers qu'elle a créés ; une version ajoutée à une copie antérieure reste.",
       "maxFileSize": "Fichier le plus gros (Mo, 35 au plus)",
       "maxRun": "Copie maximale par exécution (Mo, 2000 au plus)",
       "needsSave": "Cette configuration copie des fichiers : enregistrez-la d'abord. Une configuration enregistrée retient les fichiers qu'elle a copiés, pour qu'une deuxième exécution ne les copie pas de nouveau ; une configuration non enregistrée est refusée.",
@@ -1465,7 +1454,9 @@
       "failed_one": "{{count}} fichier n'a pas pu être copié : les notes ci-dessous disent pourquoi",
       "failed_other": "{{count}} fichiers n'ont pas pu être copiés : les notes ci-dessous disent pourquoi",
       "storage": "Ces fichiers occupent {{size}} des {{left}} de stockage de fichiers qui restent à la cible.",
-      "wouldNotFit": "Ces fichiers occupent {{size}} et il reste {{left}} de stockage de fichiers à la cible : une exécution serait refusée avant d'écrire quoi que ce soit."
+      "wouldNotFit": "Ces fichiers occupent {{size}} et il reste {{left}} de stockage de fichiers à la cible : une exécution serait refusée avant d'écrire quoi que ce soit.",
+      "toggleDetails": "Désactivé sauf si coché. Une fois les enregistrements d'un objet écrits, la dernière version de chaque fichier Salesforce lié à l'un d'eux, et leurs pièces jointes classiques, sont copiées et liées aux copies des enregistrements dans la cible. Une configuration enregistrée retient quel fichier elle a copié où : l'exécuter de nouveau ne copie un fichier que si la source en a une version plus récente, ajoutée comme version de la copie, jamais comme second fichier. Avant que l'exécution n'écrive quoi que ce soit, le stockage de fichiers de la cible est lu et une exécution dont les fichiers ne tiendraient pas est refusée. Un fichier plus gros que la taille maximale, et les fichiers au-delà de ce qu'une exécution copie au plus, sont ignorés et comptés ; l'exécution suivante copie ces derniers. Retirer une exécution reprend, avec ses enregistrements, les fichiers qu'elle a créés ; une version ajoutée à une copie antérieure reste.",
+      "toggleHint": "Copie aussi les fichiers Salesforce et les pièces jointes des enregistrements écrits."
     },
     "removal": {
       "title": "Ce que cette exécution a créé",
@@ -1492,7 +1483,8 @@
       "unfinishedTitle": "Exécutions jamais terminées",
       "unfinishedNote": "Une fenêtre s'est fermée pendant ces exécutions, ou l'historique ne les liste plus. Ce qu'elles ont créé est conservé, et peut être retiré.",
       "unfinishedRun": "{{config}}, lancée le {{date}}"
-    }
+    },
+    "noCustomMapping": "Aucune correspondance personnalisée : les champs de même nom d'API sont copiés."
   },
   "migration": {
     "title": "Migration",
@@ -2680,19 +2672,19 @@
     "title": "Aide & Ressources",
     "gettingStarted": "Premiers pas",
     "gettingStartedDesc": "Apprenez les bases de SandForge",
-    "gettingStartedContent": "1. Connectez votre org Salesforce via la page Organisations.\n2. Avec Forge, clonez un vrai enregistrement, et les enregistrements qui l'entourent, dans votre sandbox.\n3. Ouvrez le Moniteur pour vérifier la santé de votre org.\n4. Utilisez Seed pour générer des données de test, ou Sync pour copier des données entre deux orgs.\n5. Explorez Compare, DataOps, le Jeu figé et Automation pour les workflows avancés.",
+    "gettingStartedContent": "1. Connectez votre org Salesforce depuis la page Organisations.\n2. Remplissez-la avec Seed : un modèle comme CRM Starter écrit des comptes, contacts, opportunités et requêtes liés, après avoir vérifié le stockage de l'org.\n3. Clonez avec Forge : copiez un enregistrement réel et tout ce qui l'entoure depuis une autre org.\n4. Ouvrez le Moniteur pour vérifier la santé, les limites et les jobs de l'org.\n5. Explorez Sync, Compare, DataOps, le Jeu figé et Automation quand vous en avez besoin.",
     "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org en temps réel :\n- Jauge de score de santé avec facteurs contributifs\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Alertes pour les seuils critiques\n\nAstuce : Activez le rafraîchissement auto pour un suivi continu.",
-    "seedContent": "L'assistant Seed génère des données de test réalistes :\n1. Sélectionnez votre org cible\n2. Choisissez les objets à alimenter\n3. Configurez les règles de champs (IA, Faker, statique, séquence...)\n4. Fixez le nombre d'enregistrements — un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n5. Vérifiez et exécutez\n\nAstuce : Utilisez la génération IA pour les données les plus réalistes.",
+    "seedContent": "En cinq étapes :\n1. Sélectionnez votre org cible\n2. Choisissez les objets à alimenter\n3. Configurez les règles de champs (IA, Faker, statique, séquence...)\n4. Fixez le nombre d'enregistrements — un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n5. Vérifiez et exécutez\n\nAstuce : Utilisez la génération IA pour les données les plus réalistes.",
     "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Complet ou delta : une exécution complète lit chaque objet en entier ; une exécution delta d'une configuration enregistrée lit chaque objet depuis là où sa dernière exécution réussie s'est arrêtée, et peut supprimer dans la cible ce que la source a supprimé. Une configuration qui demande l'incrémental est refusée\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Onglet Temps réel : suit les événements de modification (Change Data Capture) que l'org source publie et écrit chaque modification dans la cible dès qu'elle arrive, retrouvée par un ID externe, l'ID d'enregistrement ou le mapping d'une sync enregistrée ; les suppressions seulement sur demande. Pour suivre un autre objet, sélectionnez-le dans Configuration → Change Data Capture sur l'org source. Un changement dont l'enregistrement cible a été modifié après lui est tranché par la stratégie, ou mis en attente dans l'onglet Conflits\n- Retirer ce qu'une exécution a créé : depuis ses résultats ou son entrée d'historique, le retrait d'une exécution supprime les enregistrements qu'elle a insérés, ou écrits par upsert là où la cible n'en avait aucun, et les fichiers qu'elle a créés ; Production Guard le refuse sur une org de production. Les enregistrements qu'une exécution a mis à jour gardent leurs nouvelles valeurs : faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre les objets que masquent les modèles d’anonymisation : Contact, Lead, Account et Opportunity pour ceux livrés)",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Instantanés : les objets des deux orgs, capturés en direct à l'ouverture de l'onglet\n- Écarts : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déploiement : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox",
     "dataopsContent": "Opérations sur les données de l'org sélectionnée :\n- Sauvegarde : un instantané des objets que masquent les modèles d’anonymisation, ou de ceux que masque le modèle choisi, conservé dans le stockage de l'extension\n- Restauration : remet une sauvegarde, en entier, dans l'org d'où elle provient\n- Anonymisation : masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA ; c'est irréversible, alors sauvegardez d'abord\n- Qualité : pour les objets que vous choisissez, compte à quelle fréquence chaque champ est rempli, quelles valeurs d'une clé comme Name ou Email plusieurs enregistrements partagent, et combien d'enregistrements personne n'a modifiés depuis un nombre de jours donné ; le comptage est fait par l'org, et rien n'est lu enregistrement par enregistrement ni écrit\n- Conformité : trouve les champs des objets choisis qui contiennent des données personnelles, confirmés sur un échantillon de leurs 200 derniers enregistrements ; puis trouve les enregistrements d'une personne par e-mail, nom ou téléphone, les exporte dans un fichier, et les efface sur place ou les supprime, après un examen, une confirmation saisie et Production Guard ; un journal local garde des décomptes de chaque demande, jamais la personne concernée\n- Nettoyage : compte les enregistrements que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée ; chaque groupe peut être exporté, ou supprimé après un examen, une confirmation saisie et Production Guard, au plus 1 000 à la fois",
     "automationContent": "Constructeur visuel de pipelines :\n- La palette propose les types d'étapes qu'un pipeline exécute : Sauvegarde, Comparaison, Vérification préalable, Délai et Notification ; une étape Condition vient avec un modèle de la Marketplace. Un pipeline qui contient une étape écrivant dans une org, ou une étape Script, Approbation, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
-    "forgeContent": "Forge clone un enregistrement réel, et les enregistrements qui l'entourent, d'une org vers une autre :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : les ID sont remappés à l'écriture ; un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale\n\nCloner directement, sous Découvrir le graphe, lance la découverte puis le clonage de ce qu'elle a trouvé, sans s'arrêter sur le graphe ni sur la revue : l'exécution est envoyée comme la revue l'envoie quand rien n'y a été changé, Production Guard la juge comme toute exécution, et la comparaison des métadonnées entre les deux orgs n'est pas lancée.\n\nGraphe ou tableau : les écrans de découverte, de revue et d'exécution dessinent un graphe de 25 objets au plus et listent un graphe plus grand dans un tableau. Le sélecteur Vue graphe / Vue tableau choisit l'autre vue sur tous les écrans jusqu'à la fermeture du panneau ; le paramètre sandforge.forge.graphView (auto, graph ou table) choisit la vue à l'ouverture.\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
+    "forgeContent": "En quatre étapes :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : les ID sont remappés à l'écriture ; un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale\n\nCloner directement, sous Découvrir le graphe, lance la découverte puis le clonage de ce qu'elle a trouvé, sans s'arrêter sur le graphe ni sur la revue : l'exécution est envoyée comme la revue l'envoie quand rien n'y a été changé, Production Guard la juge comme toute exécution, et la comparaison des métadonnées entre les deux orgs n'est pas lancée.\n\nGraphe ou tableau : les écrans de découverte, de revue et d'exécution dessinent un graphe de 25 objets au plus et listent un graphe plus grand dans un tableau. Le sélecteur Vue graphe / Vue tableau choisit l'autre vue sur tous les écrans jusqu'à la fermeture du panneau ; le paramètre sandforge.forge.graphView (auto, graph ou table) choisit la vue à l'ouverture.\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
     "frozenContent": "Le jeu figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Pseudonymisation déterministe, avec un sel conservé hors du dépôt\n- Un contrôle en quatre points doit réussir avant que le jeu soit écrit\n- Chargement : cibles sandbox uniquement, avec un Pilote facultatif sur un seul dossier racine avant le chargement complet, et une vérification après le chargement",
     "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
-    "aiContent": "L'Assistant IA, avec votre propre clé Anthropic :\n- Chat, et NL2SOQL, personas personnalisés et règles de champ IA dans Seed\n- Brouillons de pipeline dans Automation\n- Une table intégrée de codes d'erreur Salesforce répond d'abord aux codes qu'elle connaît, sur votre machine, que l'IA soit activée ou non, et n'envoie rien\n- Rien n'est envoyé pour une liste fixe de messages propres à SandForge, comme une confirmation de production refusée, une exécution en double ou un refus CRUD, FLS ou Production Guard, ni pour un échec survenu sans vue SandForge ouverte\n- Quand l'IA est activée, toute autre exécution Seed, Sync, DataOps ou Automation en échec envoie son message d'erreur, avec ses Id Salesforce remplacés par <id>, et la suggestion revient en notification VS Code\n- Désactivez cet envoi avec sandforge.ai.errorResolution : le reste de l'assistant continue de fonctionner\n- Les conseils de schéma de Compare et le scan d'anomalies de Monitor reposent sur des règles : ils fonctionnent avec l'IA désactivée et sans clé\n- Configurez votre clé API dans Paramètres > IA",
+    "aiContent": "L'Assistant IA, avec votre propre clé Anthropic :\n- Chat, NL2SOQL dans l'onglet IA de Forge, et personas personnalisés et règles de champ IA dans Seed\n- Brouillons de pipeline dans Automation\n- Une table intégrée de codes d'erreur Salesforce répond d'abord aux codes qu'elle connaît, sur votre machine, que l'IA soit activée ou non, et n'envoie rien\n- Rien n'est envoyé pour une liste fixe de messages propres à SandForge, comme une confirmation de production refusée, une exécution en double ou un refus CRUD, FLS ou Production Guard, ni pour un échec survenu sans vue SandForge ouverte\n- Quand l'IA est activée, toute autre exécution Seed, Sync, DataOps ou Automation en échec envoie son message d'erreur, avec ses Id Salesforce remplacés par <id>, et la suggestion revient en notification VS Code\n- Désactivez cet envoi avec sandforge.ai.errorResolution : le reste de l'assistant continue de fonctionner\n- Les conseils de schéma de Compare et le scan d'anomalies de Monitor reposent sur des règles : ils fonctionnent avec l'IA désactivée et sans clé\n- Configurez votre clé API dans Paramètres > IA",
     "shortcutsContent": "G + lettre — Accéder à un module (ex. G puis F pour Forge, G puis Y pour Sync, G puis L pour l'Aide)\nCtrl+K — Palette de commandes\nEscape — Fermer les modales et dialogues\nTab — Naviguer entre les éléments\nEntrée/Espace — Activer les boutons et liens",
-    "faqContent": "Q : Pourquoi mon Score de Santé est-il bas ?\nR : Vérifiez l'utilisation des limites API, les jobs échoués et la consommation de stockage.\n\nQ : Comment corriger les erreurs de timeout ?\nR : SandForge n'a aucun réglage de délai pour les appels Salesforce. Réduisez la taille de lot (sandforge.seed.defaultBatchSize et sandforge.sync.defaultBatchSize dans les paramètres de VS Code) et découpez une grosse exécution en plusieurs petites. Grappe ne rend pas une exécution plus rapide : il signale la progression partition par partition.\n\nQ : Puis-je annuler une opération de sync ?\nR : En partie. Le retrait d'une exécution, depuis ses résultats ou son entrée d'historique, supprime ce qu'elle a créé : les enregistrements qu'elle a insérés, ou écrits par upsert là où la cible n'en avait aucun, et ses fichiers. Les enregistrements qu'elle a mis à jour gardent leurs nouvelles valeurs. Avant une exécution risquée, faites une sauvegarde DataOps de l'org cible : elle couvre les objets que masquent les modèles d’anonymisation, et ne se restaure que dans cette org.\n\nQ : Comment connecter une org de production en sécurité ?\nR : Les orgs de production sont auto-détectées et marquées comme niveau de sécurité Critique.",
+    "faqContent": "Q : Pourquoi mon Score de Santé est-il bas ?\nR : Vérifiez l'utilisation des limites API, les jobs échoués et la consommation de stockage.\n\nQ : Comment corriger les erreurs de timeout ?\nR : SandForge n'a aucun réglage de délai pour les appels Salesforce. Réduisez la taille de lot (sandforge.seed.defaultBatchSize et sandforge.sync.defaultBatchSize dans les paramètres de VS Code) et découpez une grosse exécution en plusieurs petites. Grappe ne rend pas une exécution plus rapide : il signale la progression partition par partition.\n\nQ : Puis-je annuler une opération de sync ?\nR : En partie. Le retrait d'une exécution, depuis ses résultats ou son entrée d'historique, supprime ce qu'elle a créé : les enregistrements qu'elle a insérés, ou écrits par upsert là où la cible n'en avait aucun, et ses fichiers. Les enregistrements qu'elle a mis à jour gardent leurs nouvelles valeurs. Avant une exécution risquée, faites une sauvegarde DataOps de l'org cible : elle couvre les objets que masquent les modèles d’anonymisation, et ne se restaure que dans cette org.\n\nQ : Comment connecter une org de production en sécurité ?\nR : SandForge détecte une org de production et la marque du niveau de sécurité Critique. Production Guard y refuse d'emblée une suppression ou un déploiement de métadonnées, et vous demande de confirmer toute autre écriture avant qu'elle ne s'exécute (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
     "shortcuts": "Raccourcis clavier",
     "troubleshooting": "Dépannage",
@@ -2711,9 +2703,9 @@
     "sfStackExchangeDesc": "Questions-réponses de la communauté Salesforce",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Démarrer la visite guidée",
-    "autopilotContent": "Autopilot copie les objets que vous choisissez d'une org source vers une org cible, en trois étapes :\n1. Choisissez l'org source et l'org cible\n2. Sélectionnez les objets à copier\n3. Relisez le plan (vagues, enregistrements, appels API, champs PII), puis lancez-le. Les e-mails et les numéros de téléphone sont neutralisés sauf si vous décochez la case — chaque adresse sous .invalid, chaque numéro fictif — et Avancé choisit un référentiel de conformité qui anonymise davantage (RGPD, CCPA, HIPAA ou PCI-DSS)",
+    "autopilotContent": "En trois étapes :\n1. Choisissez l'org source et l'org cible\n2. Sélectionnez les objets à copier\n3. Relisez le plan (vagues, enregistrements, appels API, champs PII), puis lancez-le. Les e-mails et les numéros de téléphone sont neutralisés sauf si vous décochez la case — chaque adresse sous .invalid, chaque numéro fictif — et Avancé choisit un référentiel de conformité qui anonymise davantage (RGPD, CCPA, HIPAA ou PCI-DSS)",
     "migrationContent": "Migration convertit une définition de migration existante en configuration Sync :\n- Importez un export.json SFDMU, ou un fichier .json ou .csv\n- L'import lit le fichier et ne modifie aucune org\n- Exécuter la configuration convertie écrit des enregistrements dans l'org cible",
-    "reportsContent": "Rapports lit l'historique des exécutions que Forge et Sync conservent déjà :\n- Exécutions : chaque exécution avec son statut, sa durée et son nombre d'enregistrements, exportable en JSON\n- Analyses : taux de réussite calculés à partir de ces exécutions\n- Piste d'audit et lignage des données : bientôt disponible, rien ne les enregistre encore"
+    "reportsContent": "Rapports montre ce que les exécutions de SandForge ont fait :\n- Exécutions : chaque exécution Forge et Sync avec son statut, sa durée et son nombre d'enregistrements, exportable en JSON\n- Analyses : taux de réussite calculés à partir de ces exécutions\n- Journal d'audit : chaque exécution qui écrit dans une org — un clonage Forge, une synchronisation, un seed, un import CSV, un clonage d'enregistrements, une exécution Autopilot, une restauration, un masquage ou un chargement de jeu figé — avec ce qu'elle a écrit dans chaque objet et ce que Production Guard a décidé\n- Lignée de données : d'où viennent les enregistrements qu'une exécution a écrits — une autre org, des données générées, un fichier CSV, une sauvegarde ou un jeu figé — et combien de chaque objet"
   },
   "emptyState": {
     "connectViaSfdx": "Connectez une org (connexion depuis votre navigateur)",
@@ -2750,7 +2742,6 @@
     "opsLast7d": "Ops (7 jours)",
     "limitWarnings": "Alertes limites",
     "forgeASandbox": "Forger une Sandbox",
-    "forgeDescription": "Cloner des enregistrements avec résolution complète des dépendances",
     "recordIdPlaceholder": "ID d'enregistrement (ex. 001...)",
     "startForge": "Lancer Forge",
     "invalidRecordId": "ID d'enregistrement ou URL Salesforce invalide",
@@ -2837,7 +2828,6 @@
       "declined": "Répétition annulée à sa confirmation. Rien n'a été envoyé à la cible.",
       "error": "La répétition n'a pas pu se faire : {{error}}"
     },
-    "subtitle": "Cloner des enregistrements avec résolution complète des dépendances",
     "recordTab": "Enregistrement",
     "soqlTab": "SOQL",
     "templateTab": "Modèle",
@@ -3112,7 +3102,6 @@
     "quickStartTemplateHint": "Saute la découverte et utilise les objets connus du modèle starter. Les counts d'enregistrements seront calculés pendant l'exécution.",
     "emptyState": {
       "title": "Peuplez votre sandbox à partir d'un enregistrement réel",
-      "description": "Forge clone un enregistrement racine et tout son graphe de relations — Accounts, Contacts, Opportunities, Cases — vers votre sandbox, en remappant les ID à l'écriture. Un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale.",
       "step1Select": "Sélectionnez une org source",
       "step2": "Collez l'ID d'un enregistrement racine (ex. un Account de recette)",
       "step3": "Découvrez son graphe de relations",
@@ -3480,189 +3469,6 @@
         "resultCancelled": "Le balayage n'est pas allé jusqu'au bout : ce qu'il avait fait est listé.",
         "resultRefused": "Le balayage a été refusé et n'a rien supprimé.",
         "sweptOn": "Balayé le {{date}} :"
-      }
-    },
-    "error": {
-      "duplicateValue": {
-        "explanation": "Un enregistrement avec la même valeur unique existe déjà dans l'org cible, souvent cloné par une exécution précédente.",
-        "action": "Supprimez les enregistrements créés par l'exécution précédente, ou lancez le clonage en ligne de commande avec --upsert, qui met à jour par ID externe quand l'objet en a un."
-      },
-      "invalidCrossReferenceKey": {
-        "explanation": "Une recherche pointe vers un enregistrement absent de l'org cible, souvent un utilisateur comme le propriétaire.",
-        "action": "Créez ou associez l'enregistrement référencé dans l'org cible, ou laissez la recherche vide et renseignez-la après le clonage."
-      },
-      "requiredFieldMissing": {
-        "explanation": "Un champ obligatoire n'a pas de valeur : {{detail}}.",
-        "action": "Activez « Récupérer les parents automatiquement », ou augmentez la profondeur pour que le parent requis fasse partie du clonage."
-      },
-      "invalidPicklist": {
-        "explanation": "Une valeur de liste de sélection de la source n'est pas acceptée par l'org cible : le champ ne la contient pas, ou le type d'enregistrement avec lequel l'enregistrement est écrit ne l'accepte pas — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune. Quand le refus désigne un champ auquel l'enregistrement donne une valeur, le clone écrit de nouveau l'enregistrement sans ce champ ; un enregistrement listé ici n'a pas pu être écrit ainsi.",
-        "action": "Ajoutez la valeur à la liste de sélection dans le Setup de l'org cible, et au type d'enregistrement de l'enregistrement, ou modifiez la valeur sur l'enregistrement source."
-      },
-      "fieldCustomValidation": {
-        "explanation": "Une règle de validation de l'org cible a refusé l'enregistrement. Quand la règle désigne un champ auquel l'enregistrement donne une valeur, le clone écrit de nouveau l'enregistrement sans ce champ ; un enregistrement listé ici n'a pas pu être écrit ainsi.",
-        "action": "Modifiez la valeur sur l'enregistrement source, ou ajustez la règle dans l'org cible, puis relancez les objets en échec."
-      },
-      "invalidFieldForInsert": {
-        "explanation": "Un champ ne peut pas être renseigné à la création : il est calculé, masqué par la sécurité au niveau du champ, ou absent de l'org cible.",
-        "action": "Vérifiez la sécurité au niveau du champ pour votre utilisateur dans l'org cible, et comparez le champ entre les deux orgs."
-      },
-      "fieldIntegrity": {
-        "explanation": "Salesforce a rejeté l'enregistrement sur une règle d'intégrité : {{detail}}.",
-        "action": "Lisez le détail : Salesforce nomme en général le champ ou la règle en cause."
-      },
-      "cannotInsertEntity": {
-        "explanation": "Salesforce n'accepte pas de nouveaux enregistrements pour cet objet (objet d'historique, d'audit ou système).",
-        "action": "Excluez cet objet du clonage."
-      },
-      "automationRefused": {
-        "explanation": "Une automatisation de l'org cible — un déclencheur, un Flow ou un processus qui s'exécute quand un enregistrement est sauvegardé — a échoué sur cet enregistrement, et l'org cible l'a refusé. Le message la désigne en général, avec ce qui s'est mal passé.",
-        "action": "Corrigez cette automatisation dans l'org cible, ou désactivez-la le temps du clonage, puis relancez les objets en échec."
-      },
-      "insufficientAccess": {
-        "explanation": "Votre utilisateur dans l'org cible n'a pas les droits nécessaires à cette écriture.",
-        "action": "Demandez l'autorisation manquante à un administrateur, ou connectez l'org cible avec un utilisateur qui la possède."
-      },
-      "storageLimit": {
-        "explanation": "L'org cible n'a plus d'espace de stockage de données.",
-        "action": "Supprimez de l'org cible les enregistrements dont vous n'avez plus besoin, puis relancez."
-      },
-      "invalidType": {
-        "explanation": "Cet objet n'existe pas dans l'org cible, ou votre utilisateur ne peut pas le voir.",
-        "action": "Comparez les schémas des deux orgs, ou excluez cet objet du clonage."
-      },
-      "notFound": {
-        "explanation": "Salesforce n'a pas trouvé l'enregistrement ou la ressource demandée.",
-        "action": "Vérifiez l'ID de l'enregistrement et qu'il appartient bien à l'org source."
-      },
-      "stringTooLong": {
-        "explanation": "Une valeur dépasse la longueur autorisée par le champ : {{detail}}.",
-        "action": "Raccourcissez la valeur source, ou donnez au champ la même longueur dans les deux orgs."
-      },
-      "lookupFilter": {
-        "explanation": "Un filtre de recherche de l'org cible a refusé l'enregistrement vers lequel celui-ci pointe : là-bas, cet enregistrement ne remplit pas les critères du filtre — un champ que le filtre vérifie y a une autre valeur, ou aucune — ou le filtre vérifie l'utilisateur sous lequel le clone écrit.",
-        "action": "Dans le Setup de l'org cible, rendez le filtre de recherche facultatif ou désactivez-le le temps du clonage, ou donnez à l'enregistrement pointé les valeurs que le filtre demande ; puis relancez les objets en échec."
-      },
-      "duplicateRule": {
-        "explanation": "Une règle de doublons de l'org cible réglée sur Bloquer a refusé l'enregistrement. Le clone passe déjà outre toute règle réglée sur Autoriser, et relie une ligne à l'enregistrement dont elle est le doublon quand la règle n'en désigne qu'un ; cette règle n'en a désigné aucun de cet objet, ou plusieurs.",
-        "action": "Dans le Setup de l'org cible, désactivez cette règle de doublons le temps du clonage, ou réglez son action à la création sur Autoriser ; puis relancez les objets en échec."
-      },
-      "inactiveUser": {
-        "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org cible. Le clone laisse chaque enregistrement qu'il crée à l'utilisateur sous lequel il écrit : cet utilisateur vient donc de l'org cible — une règle d'attribution, ou un Flow qui fixe le propriétaire ou attribue une tâche — ou d'une correspondance de propriétaire passée en ligne de commande.",
-        "action": "Dans l'org cible, faites pointer cette règle ou ce Flow vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur ; avec --owner-map, associez le propriétaire à un utilisateur actif. Puis relancez les objets en échec."
-      },
-      "entityDeleted": {
-        "explanation": "L'enregistrement, ou un enregistrement vers lequel il pointe, a été supprimé dans l'org cible : un enregistrement écrit par une exécution précédente, supprimé depuis et relié par une relance de cette exécution, ou un enregistrement supprimé pendant l'exécution, à la main ou par l'automatisation de l'org cible.",
-        "action": "Restaurez-le depuis la Corbeille de l'org cible, puis relancez les objets en échec ; ou lancez un nouveau clonage depuis la revue, et non une relance, pour qu'il écrive cet enregistrement à nouveau."
-      },
-      "rowLocked": {
-        "explanation": "L'org cible n'a pas pu verrouiller l'enregistrement, ou celui dont il dépend, parce qu'une autre opération le tenait à ce moment : un traitement, une intégration, ou l'automatisation de l'org cible encore à l'œuvre sur des enregistrements que le clone venait d'écrire. C'est en général passager.",
-        "action": "Relancez les objets en échec. Si le verrou revient, attendez que les traitements et les intégrations qui écrivent ces enregistrements dans l'org cible soient terminés, puis relancez."
-      },
-      "requestLimit": {
-        "explanation": "Salesforce a refusé la requête : l'org à laquelle elle s'adressait a épuisé les requêtes d'API qui lui sont permises sur 24 heures, ou exécute trop de requêtes longues à la fois. Le clone écrit jusqu'à 200 enregistrements par requête, et ses lectures et ses descriptions prennent des requêtes à part.",
-        "action": "Attendez que le compteur de cette org libère des requêtes — la page Moniteur affiche sa consommation d'API — puis relancez ; une profondeur plus faible ou moins d'enregistrements par objet demandent moins de requêtes."
-      },
-      "sessionExpired": {
-        "explanation": "Salesforce n'accepte plus la session que SandForge détient pour cette org : elle a expiré, ou a été fermée par une déconnexion, un changement de mot de passe ou un administrateur.",
-        "action": "Authentifiez de nouveau l'org — Connecter Org, ou une connexion avec Salesforce CLI — puis relancez."
-      },
-      "crossReferenceAccess": {
-        "explanation": "L'utilisateur sous lequel le clone écrit n'a pas accès à un enregistrement vers lequel celui-ci pointe dans l'org cible — en lecture ou, pour le principal d'une relation principal-détails, en modification : un enregistrement que cet utilisateur ne possède pas et qui ne lui est pas partagé, comme un enregistrement que l'org cible avait déjà et que le clone a relié au lieu de l'écrire.",
-        "action": "Dans l'org cible, partagez cet enregistrement avec l'utilisateur, ou donnez-lui Afficher tout ou Modifier tout sur son objet, ou connectez l'org cible avec un utilisateur qui a cet accès, comme un administrateur ; puis relancez les objets en échec."
-      },
-      "numberOutOfRange": {
-        "explanation": "Un nombre dépasse ce que le champ accepte dans l'org cible : le champ y admet moins de chiffres avant la virgule que la valeur source n'en a.",
-        "action": "Donnez au champ la même longueur et le même nombre de décimales dans l'org cible que dans la source, ou modifiez la valeur sur l'enregistrement source ; puis relancez les objets en échec."
-      },
-      "malformedId": {
-        "explanation": "Un champ qui attend un ID dans l'org cible a reçu autre chose : le champ y est une recherche et, dans la source, d'un autre type — un champ texte, par exemple — ou une correspondance de champs y écrit la valeur d'un autre champ.",
-        "action": "Donnez au champ le même type dans les deux orgs. En ligne de commande, excluez-le avec --exclude Objet.Champ, ou corrigez le --map qui le remplit ; puis relancez les objets en échec."
-      },
-      "flowFailed": {
-        "explanation": "Un Flow de l'org cible — un Flow déclenché par un enregistrement, ou un processus, qui s'exécute comme un Flow — a échoué pendant la sauvegarde, et l'org cible a refusé l'enregistrement ; le message désigne le Flow et ce qui s'est mal passé. Une cause fréquente dans une sandbox est une action Envoyer un e-mail : quand la délivrabilité des e-mails de l'org est réglée sur Aucun accès, l'action échoue dès qu'elle utilise un modèle d'e-mail ou consigne l'e-mail. Une sandbox nouvelle ou actualisée est réglée sur E-mail système uniquement.",
-        "action": "Désactivez ce Flow dans l'org cible le temps du clonage, ou corrigez-le, puis relancez les objets en échec ; l'onglet Automatisation de la revue nomme les autorisations personnalisées qui font taire un Flow pour l'utilisateur qui les détient. Ne réglez pas la délivrabilité de l'org cible sur Tous les e-mails pour faire passer une action Envoyer un e-mail : le Flow pourrait alors envoyer des e-mails aux personnes des enregistrements clonés."
-      },
-      "guideLink": "{{code}} dans le guide Forge",
-      "cycleFkUnresolved": {
-        "explanation": "Le champ '{{fieldName}}' pointe vers un enregistrement que cette exécution n'a pas écrit (ID source {{sourceRefId}}) : l'enregistrement a échoué, ou son objet a échoué, a été ignoré ou ne peut pas être écrit dans l'org cible. L'enregistrement a été écrit sans ce lien.",
-        "action": "Corrigez ce qui a tenu cet enregistrement à l'écart — son erreur, ou celle de son objet, figure dans cette liste — puis relancez les objets en échec : la relance l'écrit et renseigne ce lien. Sinon, renseignez le champ à la main ensuite."
-      },
-      "lookupOutsideClone": {
-        "explanation": "L'enregistrement vers lequel pointe cette recherche n'est pas dans le clone : aucune lecture de l'exécution ne l'a pris. La recherche peut rester vide : l'enregistrement a été écrit sans elle, et rien n'a échoué.",
-        "action": "Si l'org cible a besoin du lien, amenez-y l'enregistrement pointé — clonez-le à part, ou retrouvez celui qui s'y trouve déjà — puis renseignez la recherche à la main."
-      },
-      "notInTarget": {
-        "explanation": "Interrogée sur cet objet, l'org cible a répondu qu'elle n'en a pas : l'objet n'y existe pas — un objet personnalisé ou une fonctionnalité que cette org n'a pas — ou l'utilisateur sous lequel le clone écrit ne peut pas le voir. Aucun de ses enregistrements n'a été lu ni écrit.",
-        "action": "Déployez l'objet dans l'org cible, ou donnez-y accès à l'utilisateur sous lequel le clone écrit ; d'ici là, excluez-le du clonage, comme cette exécution l'a fait."
-      },
-      "notCreateable": {
-        "explanation": "L'org cible décrit cet objet mais n'en accepte aucune insertion pour l'utilisateur sous lequel le clone écrit : un objet d'historique ou système que la plateforme écrit elle-même, ou un objet que le profil de cet utilisateur ne peut pas créer. Ses enregistrements ont été laissés de côté.",
-        "action": "Donnez à l'utilisateur sous lequel le clone écrit le droit de créer l'objet dans l'org cible si ses enregistrements y sont nécessaires ; sinon, laissez l'objet hors du clone."
-      },
-      "standardPriceMissing": {
-        "explanation": "Salesforce refuse de tarifer un produit dans un catalogue personnalisé tant que ce produit n'a pas de prix dans le catalogue standard, et cette entrée standard est absente de l'org cible.",
-        "action": "Ajoutez un prix standard pour ces produits dans l'org cible, puis relancez le clone."
-      },
-      "recordTypeUnavailable": {
-        "explanation": "Le type d'enregistrement existe dans l'org cible et la correspondance est bonne, mais il n'est pas accessible à l'utilisateur sous lequel le clone s'exécute.",
-        "action": "Affectez ce type d'enregistrement au profil de cet utilisateur dans l'org cible, ou excluez le champ RecordTypeId pour cet objet."
-      },
-      "recordTypeHeldBack": {
-        "explanation": "L'utilisateur sous lequel le clone s'exécute ne peut pas utiliser ce type d'enregistrement dans l'org cible : l'objet a été retenu avant qu'aucun de ses enregistrements ne soit écrit, et les objets qui en dépendent ont été ignorés.",
-        "action": "Dans l'org cible, donnez à cet utilisateur l'accès au type d'enregistrement, ou activez-le s'il est inactif — ou excluez le champ RecordTypeId pour cet objet afin que ses enregistrements prennent le type d'enregistrement par défaut de l'utilisateur."
-      },
-      "outOfScope": {
-        "explanation": "Aucun des enregistrements parents de cet objet ne fait partie du clonage, et ce n'est pas l'objet racine : aucun de ses enregistrements n'a été cloné.",
-        "action": "Augmentez la profondeur si vous voulez des enregistrements de cet objet dans le clonage."
-      },
-      "guardBlocked": {
-        "explanation": "Production Guard a refusé cette exécution avant toute lecture, pour la raison que donne le message. Rien n'a été écrit.",
-        "action": "Vérifiez que la cible est bien l'org où vous vouliez écrire, puis relancez depuis la revue."
-      },
-      "guardDeclined": {
-        "explanation": "L'exécution a été annulée à la confirmation de Production Guard, avant toute lecture. Rien n'a été écrit.",
-        "action": "Revenez à la revue, relancez quand vous voulez vraiment écrire dans cette org, et confirmez."
-      },
-      "notInitialized": {
-        "explanation": "Une partie de SandForge dont l'exécution a besoin n'était pas prête dans cette fenêtre : le module Forge, ou Production Guard, sans lequel rien n'est écrit. Rien n'a été écrit.",
-        "action": "Rechargez la fenêtre (Developer: Reload Window), puis relancez."
-      },
-      "forgeRunning": {
-        "explanation": "Une autre exécution Forge est encore en cours dans cette fenêtre, et Forge n'en mène qu'une à la fois. Celle-ci n'a rien écrit.",
-        "action": "Attendez la fin de cette exécution — une exécution à laquelle on a demandé de s'arrêter s'arrête une fois l'étape en cours terminée — puis relancez."
-      },
-      "duplicateRun": {
-        "explanation": "La même exécution a été envoyée de nouveau alors qu'elle était encore en cours, ou moins d'une minute après avoir écrit ses enregistrements, et refusée pour qu'ils ne soient pas écrits deux fois. Celle-ci n'a rien écrit.",
-        "action": "Consultez les résultats de la première exécution avant de relancer : une minute après qu'elle a écrit, la même exécution est de nouveau acceptée."
-      },
-      "retryUnavailable": {
-        "explanation": "Le nouvel essai n'a pas pu démarrer : ce qu'a écrit l'exécution qu'il reprend n'est pas connu ici — elle n'est plus dans l'historique, n'a gardé aucune trace de ce qu'elle a écrit ou a écrit dans une autre org, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
-        "action": "Relancez le clonage depuis la revue."
-      },
-      "resumeUnavailable": {
-        "explanation": "Cette exécution ne peut pas être reprise là où elle s'est arrêtée : elle a déjà été reprise ou son exécution s'est terminée, elle n'a gardé aucun journal, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
-        "action": "Relancez-la depuis ses résultats, ou relancez le clonage depuis la revue."
-      },
-      "resumeTargetChanged": {
-        "explanation": "L'org dans laquelle cette exécution a écrit n'est plus celle qu'elle était — actualisée, remplacée, ou plus enregistrée dans SandForge — : ce que l'exécution a écrit n'y est pas pour la poursuivre. Rien n'a été écrit.",
-        "action": "Relancez le clonage depuis la revue dans l'org telle qu'elle est aujourd'hui."
-      },
-      "resumeChanged": {
-        "explanation": "Cette exécution serait maintenant configurée autrement que la partie qu'elle reprend : le clonage affiché sur la page, ou le paramètre sandforge.forge.maxRecordsPerObject, a changé depuis son arrêt. Rien n'a été écrit.",
-        "action": "Remettez le paramètre, ou relancez plutôt l'exécution : un nouvel essai relit le clonage et rattache ce que cette exécution a écrit."
-      },
-      "filesNotAccepted": {
-        "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",
-        "action": "Dans la revue, acceptez que les fichiers soient copiés tels qu'ils sont, ou désactivez la copie, puis relancez."
-      },
-      "abortedBeforeStart": {
-        "explanation": "Vous avez arrêté l'exécution avant qu'elle ne démarre. Rien n'a été écrit.",
-        "action": "Relancez-la depuis la revue quand vous êtes prêt."
-      },
-      "unknown": {
-        "explanation": "{{detail}}",
-        "action": "Recherchez ce code d'erreur dans la documentation Salesforce."
       }
     },
     "soqlObjectNameInvalid": "« {{object}} » n'est pas un nom d'API d'objet : la clause WHERE ne peut pas être envoyée sous ce nom. Il doit commencer par une lettre et compter au plus 80 lettres, chiffres ou tirets bas.",
@@ -4117,7 +3923,6 @@
     },
     "emptyState": {
       "title": "Provisionnez votre sandbox automatiquement",
-      "description": "Laissez Autopilot scanner le schéma de votre org, générer un plan d'exécution et peupler votre sandbox avec des données réalistes.",
       "cta": "Sélectionner un org"
     }
   },
@@ -4197,7 +4002,8 @@
       "load": "Charger"
     },
     "salt": {
-      "created": "Cette première extraction a créé le sel avec lequel chaque pseudonyme est tiré, et le garde dans le stockage secret de VS Code : chaque extraction suivante pseudonymise les mêmes enregistrements de la même façon. Un collègue qui extrait ce jeu de données a besoin du même sel : copiez-le avec « SandForge : Copier le sel du jeu de référence figé » et transmettez-le-lui comme un mot de passe ; il le définit avec « SandForge : Utiliser un sel de jeu de référence figé ». Qui le détient peut savoir de quelle valeur source un pseudonyme a été tiré."
+      "created": "Cette première extraction a créé le sel avec lequel chaque pseudonyme est tiré, et le garde dans le stockage secret de VS Code : chaque extraction suivante pseudonymise les mêmes enregistrements de la même façon. Un collègue qui extrait ce jeu de données a besoin du même sel : copiez-le avec « SandForge : Copier le sel du jeu de référence figé » et transmettez-le-lui comme un mot de passe ; il le définit avec « SandForge : Utiliser un sel de jeu de référence figé ». Qui le détient peut savoir de quelle valeur source un pseudonyme a été tiré.",
+      "createdTitle": "Sel du jeu figé"
     },
     "manifest": {
       "version": "Jeu v{{version}}"
@@ -4592,5 +4398,398 @@
     "runFinished": "{{name}} terminé. Écrits : {{written}} sur {{total}}.",
     "runStoppedWritten": "{{name}} arrêté avant sa fin. Écrits : {{written}} sur {{total}}.",
     "runStopped": "{{name}} arrêté à {{percent}} %."
+  },
+  "errors": {
+    "guideLink": "{{code}} dans le guide Forge",
+    "searchLink": "Rechercher {{code}} dans l'aide Salesforce",
+    "standardPriceMissing": {
+      "explanation": "Salesforce n'accepte le prix d'un produit dans un catalogue de prix personnalisé qu'une fois que ce produit a un prix dans le catalogue standard, et ce prix standard n'est pas dans l'org.",
+      "action": "Donnez d'abord un prix standard à ces produits dans l'org, puis relancez.",
+      "forge": {
+        "explanation": "Salesforce refuse de tarifer un produit dans un catalogue personnalisé tant que ce produit n'a pas de prix dans le catalogue standard, et cette entrée standard est absente de l'org cible.",
+        "action": "Ajoutez un prix standard pour ces produits dans l'org cible, puis relancez le clone."
+      },
+      "seed": {
+        "action": "Donnez d'abord un prix standard à ces produits."
+      }
+    },
+    "duplicateValue": {
+      "explanation": "Un champ unique a reçu une valeur qu'un enregistrement de l'org porte déjà, souvent un enregistrement écrit par une exécution précédente.",
+      "action": "Supprimez ce que l'exécution précédente a écrit — ses résultats le proposent — ou changez la valeur, puis relancez.",
+      "forge": {
+        "explanation": "Un enregistrement avec la même valeur unique existe déjà dans l'org cible, souvent cloné par une exécution précédente.",
+        "action": "Supprimez ce que l'exécution précédente a créé — Supprimer les enregistrements créés par cette exécution, sur ses résultats — puis relancez. En ligne de commande, --upsert met à jour par ID externe quand l'objet en a un."
+      },
+      "seed": {
+        "action": "Donnez au champ une règle dont les valeurs ne se répètent pas."
+      }
+    },
+    "invalidCrossReferenceKey": {
+      "explanation": "Une recherche pointe vers un enregistrement qui n'existe pas dans l'org, souvent un utilisateur comme le propriétaire.",
+      "action": "Faites d'abord entrer dans l'org l'enregistrement pointé, ou laissez la recherche vide et renseignez-la ensuite.",
+      "forge": {
+        "explanation": "Une recherche pointe vers un enregistrement absent de l'org cible, souvent un utilisateur comme le propriétaire.",
+        "action": "Créez ou associez l'enregistrement référencé dans l'org cible, ou laissez la recherche vide et renseignez-la après le clonage."
+      }
+    },
+    "recordTypeUnavailable": {
+      "explanation": "Le type d'enregistrement existe dans l'org, mais l'utilisateur sous lequel l'exécution écrit ne peut pas l'utiliser.",
+      "action": "Dans le Setup de l'org, donnez ce type d'enregistrement au profil de cet utilisateur ou à un ensemble d'autorisations, puis relancez.",
+      "forge": {
+        "explanation": "Le type d'enregistrement existe dans l'org cible et la correspondance est bonne, mais il n'est pas accessible à l'utilisateur sous lequel le clone s'exécute.",
+        "action": "Affectez ce type d'enregistrement au profil de cet utilisateur dans l'org cible, ou laissez RecordTypeId hors de cet objet dans Revue → Réglages."
+      }
+    },
+    "recordTypeHeldBack": {
+      "explanation": "L'utilisateur sous lequel l'exécution écrit ne peut pas utiliser ce type d'enregistrement dans l'org cible : l'objet a été retenu avant qu'aucun de ses enregistrements ne soit écrit.",
+      "action": "Dans l'org cible, donnez à cet utilisateur l'accès au type d'enregistrement, ou activez-le s'il est inactif, puis relancez.",
+      "forge": {
+        "explanation": "L'utilisateur sous lequel le clone s'exécute ne peut pas utiliser ce type d'enregistrement dans l'org cible : l'objet a été retenu avant qu'aucun de ses enregistrements ne soit écrit, et les objets qui en dépendent ont été ignorés.",
+        "action": "Dans l'org cible, donnez à cet utilisateur l'accès au type d'enregistrement, ou activez-le s'il est inactif. Ou associez le type d'enregistrement dans Revue → Écarts, ou laissez RecordTypeId de côté dans Revue → Réglages, pour que ses enregistrements prennent le type d'enregistrement par défaut de l'utilisateur."
+      }
+    },
+    "requiredFieldMissing": {
+      "explanation": "Un champ que l'org exige n'a pas de valeur.",
+      "action": "Donnez une valeur au champ, ou faites d'abord entrer dans l'org l'enregistrement vers lequel il doit pointer, puis relancez.",
+      "forge": {
+        "explanation": "Un champ obligatoire n'a pas de valeur : {{detail}}.",
+        "action": "Activez « Récupérer les parents automatiquement », ou augmentez la profondeur pour que le parent requis fasse partie du clonage."
+      },
+      "seed": {
+        "action": "Passez par l'assistant et donnez une règle au champ à son étape Configuration."
+      }
+    },
+    "invalidPicklist": {
+      "explanation": "Une valeur de liste de sélection n'est pas acceptée par l'org : le champ ne la contient pas, ou le type d'enregistrement de l'enregistrement ne l'autorise pas.",
+      "action": "Ajoutez la valeur à la liste de sélection et au type d'enregistrement dans le Setup de l'org, ou changez la valeur, puis relancez.",
+      "forge": {
+        "explanation": "Une valeur de liste de sélection de la source n'est pas acceptée par l'org cible : le champ ne la contient pas, ou le type d'enregistrement avec lequel l'enregistrement est écrit ne l'accepte pas — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune. Quand le refus désigne un champ auquel l'enregistrement donne une valeur, le clone écrit de nouveau l'enregistrement sans ce champ ; un enregistrement listé ici n'a pas pu être écrit ainsi.",
+        "action": "Ajoutez la valeur à la liste de sélection dans le Setup de l'org cible, et au type d'enregistrement de l'enregistrement, ou modifiez la valeur sur l'enregistrement source."
+      },
+      "seed": {
+        "action": "Donnez au champ les valeurs que l'org prévoit pour lui."
+      }
+    },
+    "fieldCustomValidation": {
+      "explanation": "Une règle de validation de l'org a refusé l'enregistrement.",
+      "action": "Changez les valeurs que la règle vérifie, ou désactivez la règle dans le Setup de l'org le temps de l'écriture, puis relancez.",
+      "forge": {
+        "explanation": "Une règle de validation de l'org cible a refusé l'enregistrement. Quand la règle désigne un champ auquel l'enregistrement donne une valeur, le clone écrit de nouveau l'enregistrement sans ce champ ; un enregistrement listé ici n'a pas pu être écrit ainsi.",
+        "action": "Modifiez la valeur sur l'enregistrement source, ou ajustez la règle dans l'org cible, puis relancez les objets en échec."
+      },
+      "seed": {
+        "action": "Donnez aux champs qu'elle vérifie des règles dont elle accepte les valeurs, ou désactivez-la le temps du seed."
+      }
+    },
+    "invalidFieldForInsert": {
+      "explanation": "Un champ ne peut pas être renseigné à la création : il est calculé, masqué par la sécurité au niveau du champ, ou absent de l'org.",
+      "action": "Vérifiez la sécurité au niveau du champ de votre utilisateur dans l'org, et que le champ y existe avec le même type."
+    },
+    "fieldIntegrity": {
+      "explanation": "Salesforce a rejeté l'enregistrement sur une règle d'intégrité : {{detail}}.",
+      "action": "Lisez le détail : Salesforce nomme en général le champ ou la règle en cause."
+    },
+    "cannotInsertEntity": {
+      "explanation": "Salesforce n'accepte pas de nouveaux enregistrements de cet objet (un objet d'historique, d'audit ou système).",
+      "action": "Laissez cet objet hors de l'exécution.",
+      "forge": {
+        "explanation": "Salesforce n'accepte pas de nouveaux enregistrements pour cet objet (objet d'historique, d'audit ou système).",
+        "action": "Excluez cet objet du clonage."
+      }
+    },
+    "automationRefused": {
+      "explanation": "Une automatisation de l'org — un déclencheur, un Flow ou un processus qui s'exécute à la sauvegarde d'un enregistrement — a échoué sur cet enregistrement, et l'org l'a refusé. Le message la nomme en général.",
+      "action": "Corrigez cette automatisation dans l'org, ou désactivez-la le temps de l'écriture, puis relancez.",
+      "forge": {
+        "explanation": "Une automatisation de l'org cible — un déclencheur, un Flow ou un processus qui s'exécute quand un enregistrement est sauvegardé — a échoué sur cet enregistrement, et l'org cible l'a refusé. Le message la désigne en général, avec ce qui s'est mal passé.",
+        "action": "Corrigez cette automatisation dans l'org cible, ou désactivez-la le temps du clonage, puis relancez les objets en échec."
+      }
+    },
+    "insufficientAccess": {
+      "explanation": "Votre utilisateur dans l'org n'a pas les droits nécessaires à cette écriture.",
+      "action": "Demandez l'autorisation manquante à un administrateur, ou connectez l'org avec un utilisateur qui la possède."
+    },
+    "storageLimit": {
+      "explanation": "L'org n'a plus d'espace de stockage de données : une Developer Edition en compte 5 Mo.",
+      "action": "Supprimez les enregistrements dont vous n'avez plus besoin — les résultats d'une exécution proposent de retirer ce qu'elle a écrit — puis relancez.",
+      "seed": {
+        "action": "Supprimez un seed précédent, ou générez moins d'enregistrements."
+      }
+    },
+    "invalidType": {
+      "explanation": "Cet objet n'existe pas dans l'org, ou votre utilisateur ne le voit pas.",
+      "action": "Déployez l'objet dans l'org ou donnez-y accès à votre utilisateur, ou laissez l'objet hors de l'exécution.",
+      "forge": {
+        "explanation": "Cet objet n'existe pas dans l'org cible, ou votre utilisateur ne peut pas le voir.",
+        "action": "Comparez les schémas des deux orgs, ou excluez cet objet du clonage."
+      }
+    },
+    "notFound": {
+      "explanation": "Salesforce n'a pas trouvé l'enregistrement ou la ressource demandés.",
+      "action": "Vérifiez que l'enregistrement existe toujours dans l'org et que votre utilisateur le voit.",
+      "forge": {
+        "explanation": "Salesforce n'a pas trouvé l'enregistrement ou la ressource demandée.",
+        "action": "Vérifiez l'ID de l'enregistrement et qu'il appartient bien à l'org source."
+      }
+    },
+    "stringTooLong": {
+      "explanation": "Une valeur est plus longue que ce que le champ accepte.",
+      "action": "Raccourcissez la valeur, ou donnez au champ de l'org la longueur qu'elle demande.",
+      "forge": {
+        "explanation": "Une valeur dépasse la longueur autorisée par le champ : {{detail}}.",
+        "action": "Raccourcissez la valeur source, ou donnez au champ la même longueur dans les deux orgs."
+      }
+    },
+    "lookupFilter": {
+      "explanation": "Un filtre de recherche de l'org a refusé l'enregistrement pointé : il ne remplit pas les critères du filtre, ou le filtre vérifie l'utilisateur sous lequel l'exécution écrit.",
+      "action": "Dans le Setup de l'org, rendez le filtre de recherche facultatif ou désactivez-le le temps de l'écriture, ou donnez à l'enregistrement pointé les valeurs que le filtre demande ; puis relancez.",
+      "forge": {
+        "explanation": "Un filtre de recherche de l'org cible a refusé l'enregistrement vers lequel celui-ci pointe : là-bas, cet enregistrement ne remplit pas les critères du filtre — un champ que le filtre vérifie y a une autre valeur, ou aucune — ou le filtre vérifie l'utilisateur sous lequel le clone écrit.",
+        "action": "Dans le Setup de l'org cible, rendez le filtre de recherche facultatif ou désactivez-le le temps du clonage, ou donnez à l'enregistrement pointé les valeurs que le filtre demande ; puis relancez les objets en échec."
+      }
+    },
+    "duplicateRule": {
+      "explanation": "Une règle de doublons de l'org réglée sur Bloquer a refusé l'enregistrement.",
+      "action": "Dans le Setup de l'org, désactivez la règle le temps de l'écriture, ou réglez son action à la création sur Autoriser ; puis relancez.",
+      "forge": {
+        "explanation": "Une règle de doublons de l'org cible réglée sur Bloquer a refusé l'enregistrement. Le clone passe déjà outre toute règle réglée sur Autoriser, et relie une ligne à l'enregistrement dont elle est le doublon quand la règle n'en désigne qu'un ; cette règle n'en a désigné aucun de cet objet, ou plusieurs.",
+        "action": "Dans le Setup de l'org cible, désactivez cette règle de doublons le temps du clonage, ou réglez son action à la création sur Autoriser ; puis relancez les objets en échec."
+      },
+      "seed": {
+        "action": "Désactivez-la le temps du seed, ou réglez son action à la création sur Autoriser."
+      }
+    },
+    "inactiveUser": {
+      "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org.",
+      "action": "Faites pointer la règle d'attribution ou le Flow qui choisit cet utilisateur vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur, puis relancez.",
+      "forge": {
+        "explanation": "Salesforce a refusé l'enregistrement parce qu'il appartiendrait, ou serait attribué, à un utilisateur inactif dans l'org cible. Le clone laisse chaque enregistrement qu'il crée à l'utilisateur sous lequel il écrit : cet utilisateur vient donc de l'org cible — une règle d'attribution, ou un Flow qui fixe le propriétaire ou attribue une tâche — ou d'un propriétaire donné dans Revue → Réglages.",
+        "action": "Dans l'org cible, faites pointer cette règle ou ce Flow vers un utilisateur actif ou une file d'attente, ou réactivez l'utilisateur ; ou, dans Revue → Réglages, confiez les enregistrements à un utilisateur actif sous Propriétaires confiés aux utilisateurs de la cible. Puis relancez les objets en échec."
+      }
+    },
+    "entityDeleted": {
+      "explanation": "L'enregistrement, ou un enregistrement vers lequel il pointe, a été supprimé dans l'org.",
+      "action": "Restaurez-le depuis la corbeille de l'org, ou faites pointer l'enregistrement vers un enregistrement qui existe, puis relancez.",
+      "forge": {
+        "explanation": "L'enregistrement, ou un enregistrement vers lequel il pointe, a été supprimé dans l'org cible : un enregistrement écrit par une exécution précédente, supprimé depuis et relié par une relance de cette exécution, ou un enregistrement supprimé pendant l'exécution, à la main ou par l'automatisation de l'org cible.",
+        "action": "Restaurez-le depuis la Corbeille de l'org cible, puis relancez les objets en échec ; ou lancez un nouveau clonage depuis la revue, et non une relance, pour qu'il écrive cet enregistrement à nouveau."
+      }
+    },
+    "rowLocked": {
+      "explanation": "L'org n'a pas pu verrouiller l'enregistrement, ou celui dont il dépend, parce qu'une autre opération le tenait à ce moment. C'est en général passager.",
+      "action": "Relancez dans un instant. Si cela revient, attendez que les traitements et les intégrations qui écrivent ces enregistrements soient terminés.",
+      "forge": {
+        "explanation": "L'org cible n'a pas pu verrouiller l'enregistrement, ou celui dont il dépend, parce qu'une autre opération le tenait à ce moment : un traitement, une intégration, ou l'automatisation de l'org cible encore à l'œuvre sur des enregistrements que le clone venait d'écrire. C'est en général passager.",
+        "action": "Relancez les objets en échec. Si le verrou revient, attendez que les traitements et les intégrations qui écrivent ces enregistrements dans l'org cible soient terminés, puis relancez."
+      }
+    },
+    "requestLimit": {
+      "explanation": "Salesforce a refusé la requête : l'org a consommé les requêtes d'API qui lui sont permises sur 24 heures, ou exécute trop de requêtes longues à la fois.",
+      "action": "Attendez que l'org libère des requêtes — la page Moniteur affiche sa consommation d'API — puis relancez, avec moins d'enregistrements si possible.",
+      "forge": {
+        "explanation": "Salesforce a refusé la requête : l'org à laquelle elle s'adressait a épuisé les requêtes d'API qui lui sont permises sur 24 heures, ou exécute trop de requêtes longues à la fois. Le clone écrit jusqu'à 200 enregistrements par requête, et ses lectures et ses descriptions prennent des requêtes à part.",
+        "action": "Attendez que le compteur de cette org libère des requêtes — la page Moniteur affiche sa consommation d'API — puis relancez ; une profondeur plus faible ou moins d'enregistrements par objet demandent moins de requêtes."
+      }
+    },
+    "sessionExpired": {
+      "explanation": "Salesforce n'accepte plus la session que SandForge détient pour cette org : elle a expiré, ou a été fermée par une déconnexion, un changement de mot de passe ou un administrateur.",
+      "action": "Reconnectez l'org depuis la page Organisations (Reconnecter, sur sa carte), puis relancez."
+    },
+    "crossReferenceAccess": {
+      "explanation": "L'utilisateur sous lequel l'exécution écrit ne peut pas lire un enregistrement vers lequel celui-ci pointe, ou ne peut pas modifier le maître d'une relation principal-détails.",
+      "action": "Partagez cet enregistrement avec l'utilisateur, donnez-lui Afficher tout ou Modifier tout sur son objet, ou connectez l'org avec un utilisateur qui a cet accès ; puis relancez.",
+      "forge": {
+        "explanation": "L'utilisateur sous lequel le clone écrit n'a pas accès à un enregistrement vers lequel celui-ci pointe dans l'org cible — en lecture ou, pour le principal d'une relation principal-détails, en modification : un enregistrement que cet utilisateur ne possède pas et qui ne lui est pas partagé, comme un enregistrement que l'org cible avait déjà et que le clone a relié au lieu de l'écrire.",
+        "action": "Dans l'org cible, partagez cet enregistrement avec l'utilisateur, ou donnez-lui Afficher tout ou Modifier tout sur son objet, ou connectez l'org cible avec un utilisateur qui a cet accès, comme un administrateur ; puis relancez les objets en échec."
+      }
+    },
+    "numberOutOfRange": {
+      "explanation": "Un nombre a plus de chiffres avant la virgule que le champ n'en accepte dans l'org.",
+      "action": "Donnez au champ la longueur et les décimales que la valeur demande, ou changez la valeur, puis relancez.",
+      "forge": {
+        "explanation": "Un nombre dépasse ce que le champ accepte dans l'org cible : le champ y admet moins de chiffres avant la virgule que la valeur source n'en a.",
+        "action": "Donnez au champ la même longueur et le même nombre de décimales dans l'org cible que dans la source, ou modifiez la valeur sur l'enregistrement source ; puis relancez les objets en échec."
+      }
+    },
+    "malformedId": {
+      "explanation": "Un champ qui attend un ID a reçu autre chose : le champ est une recherche dans cette org et d'un autre type là d'où vient la valeur, ou une correspondance de champs le remplit avec la valeur d'un autre champ.",
+      "action": "Donnez au champ le même type dans les deux orgs, ou corrigez la correspondance qui le remplit, puis relancez.",
+      "forge": {
+        "explanation": "Un champ qui attend un ID dans l'org cible a reçu autre chose : le champ y est une recherche et, dans la source, d'un autre type — un champ texte, par exemple — ou une correspondance de champs y écrit la valeur d'un autre champ.",
+        "action": "Donnez au champ le même type dans les deux orgs, ou, dans Revue → Réglages, laissez le champ de côté ou corrigez le renommage de champ qui le remplit ; puis relancez les objets en échec."
+      }
+    },
+    "flowFailed": {
+      "explanation": "Un Flow de l'org a échoué pendant la sauvegarde, et l'org a refusé l'enregistrement ; le message désigne le Flow. Une action Envoyer un e-mail échoue ainsi quand la délivrabilité des e-mails de l'org est réglée sur Aucun accès.",
+      "action": "Corrigez le Flow, ou désactivez-le le temps de l'écriture, puis relancez. Ne réglez pas la délivrabilité sur Tous les e-mails pour passer outre : le Flow pourrait alors envoyer des e-mails aux personnes des enregistrements.",
+      "forge": {
+        "explanation": "Un Flow de l'org cible — un Flow déclenché par un enregistrement, ou un processus, qui s'exécute comme un Flow — a échoué pendant la sauvegarde, et l'org cible a refusé l'enregistrement ; le message désigne le Flow et ce qui s'est mal passé. Une cause fréquente dans une sandbox est une action Envoyer un e-mail : quand la délivrabilité des e-mails de l'org est réglée sur Aucun accès, l'action échoue dès qu'elle utilise un modèle d'e-mail ou consigne l'e-mail. Une sandbox nouvelle ou actualisée est réglée sur E-mail système uniquement.",
+        "action": "Désactivez ce Flow dans l'org cible le temps du clonage, ou corrigez-le, puis relancez les objets en échec ; l'onglet Automatisation de la revue nomme les autorisations personnalisées qui font taire un Flow pour l'utilisateur qui les détient. Ne réglez pas la délivrabilité de l'org cible sur Tous les e-mails pour faire passer une action Envoyer un e-mail : le Flow pourrait alors envoyer des e-mails aux personnes des enregistrements clonés."
+      },
+      "seed": {
+        "action": "Corrigez le Flow, ou désactivez-le le temps du seed."
+      }
+    },
+    "deleteFailed": {
+      "explanation": "L'enregistrement n'a pas pu être supprimé : d'autres enregistrements pointent encore vers lui, ou un déclencheur ou un Flow de l'org a refusé la suppression.",
+      "action": "Supprimez d'abord les enregistrements qui pointent vers lui — le retrait d'une exécution prend les enfants avant les parents — ou corrigez l'automatisation qui l'a refusée, puis retirez de nouveau."
+    },
+    "invalidEmail": {
+      "explanation": "Un champ e-mail contient une valeur qui n'est pas une adresse e-mail valide.",
+      "action": "Corrigez la valeur, ou laissez le champ hors de l'exécution, puis relancez."
+    },
+    "serverUnavailable": {
+      "explanation": "Salesforce n'a pas pu servir la requête à ce moment, en général pendant une maintenance ou une courte interruption de service.",
+      "action": "Attendez quelques minutes, puis relancez ; Salesforce Trust (status.salesforce.com) affiche les maintenances et les incidents."
+    },
+    "requestTooLong": {
+      "explanation": "Salesforce a arrêté une requête qui a duré plus longtemps qu'il ne le permet : un gros lot, une requête trop large, ou une automatisation lourde sur l'objet.",
+      "action": "Relancez avec moins d'enregistrements, ou avec l'automatisation de l'org sur l'objet désactivée le temps de l'écriture."
+    },
+    "allOrNoneRolledBack": {
+      "explanation": "Un enregistrement d'un lot écrit en tout ou rien a échoué : Salesforce a annulé tout le lot.",
+      "action": "Corrigez l'enregistrement en échec — son erreur figure avec celle-ci — puis relancez."
+    },
+    "invalidField": {
+      "explanation": "La requête nomme un champ que l'objet n'a pas dans l'org, ou que votre utilisateur ne voit pas.",
+      "action": "Vérifiez que le champ existe dans l'org sous ce nom d'API et que votre utilisateur peut le lire, ou laissez-le hors de l'exécution."
+    },
+    "limitExceeded": {
+      "explanation": "Une limite Salesforce a été dépassée : une limite de la transaction, ou une limite de l'org.",
+      "action": "Relancez avec moins d'enregistrements ; si le message nomme une limite de l'org, libérez-en d'abord une partie."
+    },
+    "circularDependency": {
+      "explanation": "Les enregistrements pointeraient les uns vers les autres en boucle, ce qu'un champ de hiérarchie comme Parent n'autorise pas.",
+      "action": "Rompez la boucle dans les données, ou laissez le champ de hiérarchie de côté et renseignez-le ensuite."
+    },
+    "entityLocked": {
+      "explanation": "L'enregistrement est verrouillé, en général par un processus d'approbation, et seul un administrateur ou l'approbateur peut le modifier.",
+      "action": "Rappelez ou terminez l'approbation dans l'org, ou connectez l'org avec un utilisateur autorisé à modifier les enregistrements verrouillés, puis relancez."
+    },
+    "apiDisabledForOrg": {
+      "explanation": "Cette org n'autorise pas l'accès par API : son édition n'a pas d'API, comme Professional ou Essentials sans l'option API.",
+      "action": "Connectez une org dont l'édition inclut l'API — une Developer Edition, une sandbox, Enterprise ou Unlimited — ou demandez à Salesforce d'activer l'API pour cette org."
+    },
+    "apiDisabledForUser": {
+      "explanation": "L'utilisateur sous lequel SandForge se connecte n'a pas le droit d'utiliser l'API : l'autorisation API activée est désactivée pour lui.",
+      "action": "Demandez à un administrateur d'activer API activée dans le profil de l'utilisateur ou un ensemble d'autorisations, puis reconnectez l'org depuis la page Organisations."
+    },
+    "convertedLead": {
+      "explanation": "Cette piste a été convertie, et Salesforce ne permet pas de modifier une piste convertie.",
+      "action": "Laissez les pistes converties hors de l'exécution, avec un filtre IsConverted = false, puis relancez."
+    },
+    "licenseLimit": {
+      "explanation": "L'org n'a plus de licence disponible pour cela : toutes les licences d'utilisateur, de fonctionnalité ou d'ensemble d'autorisations de ce type sont attribuées.",
+      "action": "Libérez une licence dans le Setup de l'org — désactivez un utilisateur qui n'en a plus besoin — ou laissez ces enregistrements hors de l'exécution."
+    },
+    "duplicateUsername": {
+      "explanation": "Un nom d'utilisateur est déjà pris : les noms d'utilisateur sont uniques dans toutes les orgs Salesforce, sandbox comprises.",
+      "action": "Donnez aux utilisateurs des noms d'utilisateur à eux, comme celui de la source suivi d'un suffixe, puis relancez."
+    },
+    "invalidOperation": {
+      "explanation": "Salesforce n'autorise pas cette opération sur cet objet, ou pas dans ce contexte.",
+      "action": "Vérifiez que l'objet accepte cette opération et que votre utilisateur a l'autorisation qu'elle demande."
+    },
+    "transferRequiresRead": {
+      "explanation": "Le nouveau propriétaire ne peut pas lire l'enregistrement, ou un enregistrement dont il dépend : la propriété n'a pas pu être transférée.",
+      "action": "Donnez au nouveau propriétaire l'accès en lecture à l'objet et à ses enregistrements associés, ou choisissez un autre propriétaire."
+    },
+    "permissionDenied": {
+      "explanation": "Votre utilisateur dans l'org n'a pas une autorisation que cette écriture demande, sur l'objet ou sur des champs qu'elle écrit ; le message les nomme.",
+      "action": "Demandez à un administrateur de l'accorder dans votre profil ou un ensemble d'autorisations, ou laissez ces champs hors de l'exécution."
+    },
+    "parentRefused": {
+      "explanation": "Un enregistrement vers lequel celui-ci pointe a été refusé dans la même exécution : celui-ci a été retenu plutôt qu'écrit sans lui.",
+      "action": "Corrigez ce qui a refusé cet enregistrement — sa raison figure avec son objet — puis relancez."
+    },
+    "personAccountNotWritten": {
+      "explanation": "Le compte personnel de ce contact n'est pas dans l'org cible, et Salesforce écrit le contact d'un compte personnel avec son compte.",
+      "action": "Incluez les comptes personnels dans l'exécution, ou corrigez ce qui les a refusés, puis relancez."
+    },
+    "personContactNotLookedUp": {
+      "explanation": "Le contact que Salesforce a écrit avec son compte personnel n'a pas pu être retrouvé dans l'org cible : les enregistrements qui pointent vers lui ont été retenus.",
+      "action": "Relancez : c'est en général passager. Si cela revient, vérifiez que votre utilisateur peut lire Contact dans l'org cible."
+    },
+    "orgAuthExpired": {
+      "explanation": "La session avec cette org a expiré et n'a pas pu être renouvelée.",
+      "action": "Reconnectez-la depuis la page Organisations (Reconnecter, sur sa carte)."
+    },
+    "orgTemporarilyUnreachable": {
+      "explanation": "Cette org a échoué plusieurs fois de suite : SandForge attend un moment avant de la rappeler.",
+      "action": "Réessayez dans une minute."
+    },
+    "noCliOrgs": {
+      "explanation": "La Salesforce CLI ne contient encore aucune org.",
+      "action": "Connectez-vous avec OAuth (Web) : il ouvre la page de connexion Salesforce dans votre navigateur."
+    },
+    "cycleFkUnresolved": {
+      "explanation": "Le champ '{{fieldName}}' pointe vers un enregistrement que cette exécution n'a pas écrit (ID source {{sourceRefId}}) : l'enregistrement a échoué, ou son objet a échoué, a été ignoré ou ne peut pas être écrit dans l'org cible. L'enregistrement a été écrit sans ce lien.",
+      "action": "Corrigez ce qui a tenu cet enregistrement à l'écart — son erreur, ou celle de son objet, figure dans cette liste — puis relancez les objets en échec : la relance l'écrit et renseigne ce lien. Sinon, renseignez le champ à la main ensuite."
+    },
+    "outOfScope": {
+      "explanation": "Aucun des enregistrements parents de cet objet ne fait partie du clonage, et ce n'est pas l'objet racine : aucun de ses enregistrements n'a été cloné.",
+      "action": "Augmentez la profondeur si vous voulez des enregistrements de cet objet dans le clonage."
+    },
+    "lookupOutsideClone": {
+      "explanation": "L'enregistrement vers lequel pointe cette recherche n'est pas dans le clone : aucune lecture de l'exécution ne l'a pris. La recherche peut rester vide : l'enregistrement a été écrit sans elle, et rien n'a échoué.",
+      "action": "Si l'org cible a besoin du lien, amenez-y l'enregistrement pointé — clonez-le à part, ou retrouvez celui qui s'y trouve déjà — puis renseignez la recherche à la main."
+    },
+    "notInTarget": {
+      "explanation": "Interrogée sur cet objet, l'org cible a répondu qu'elle n'en a pas : l'objet n'y existe pas — un objet personnalisé ou une fonctionnalité que cette org n'a pas — ou l'utilisateur sous lequel le clone écrit ne peut pas le voir. Aucun de ses enregistrements n'a été lu ni écrit.",
+      "action": "Déployez l'objet dans l'org cible, ou donnez-y accès à l'utilisateur sous lequel le clone écrit ; d'ici là, excluez-le du clonage, comme cette exécution l'a fait."
+    },
+    "notCreateable": {
+      "explanation": "L'org cible décrit cet objet mais n'en accepte aucune insertion pour l'utilisateur sous lequel le clone écrit : un objet d'historique ou système que la plateforme écrit elle-même, ou un objet que le profil de cet utilisateur ne peut pas créer. Ses enregistrements ont été laissés de côté.",
+      "action": "Donnez à l'utilisateur sous lequel le clone écrit le droit de créer l'objet dans l'org cible si ses enregistrements y sont nécessaires ; sinon, laissez l'objet hors du clone."
+    },
+    "guardBlocked": {
+      "explanation": "Production Guard a refusé cette exécution avant toute lecture, pour la raison que donne le message. Rien n'a été écrit.",
+      "action": "Vérifiez que la cible est bien l'org où vous vouliez écrire, puis relancez depuis la revue."
+    },
+    "guardDeclined": {
+      "explanation": "L'exécution a été annulée à la confirmation de Production Guard, avant toute lecture. Rien n'a été écrit.",
+      "action": "Revenez à la revue, relancez quand vous voulez vraiment écrire dans cette org, et confirmez."
+    },
+    "notInitialized": {
+      "explanation": "Une partie de SandForge dont l'exécution a besoin n'était pas prête dans cette fenêtre : le module Forge, ou Production Guard, sans lequel rien n'est écrit. Rien n'a été écrit.",
+      "action": "Rechargez la fenêtre (Developer: Reload Window), puis relancez."
+    },
+    "forgeRunning": {
+      "explanation": "Une autre exécution Forge est encore en cours dans cette fenêtre, et Forge n'en mène qu'une à la fois. Celle-ci n'a rien écrit.",
+      "action": "Attendez la fin de cette exécution — une exécution à laquelle on a demandé de s'arrêter s'arrête une fois l'étape en cours terminée — puis relancez."
+    },
+    "duplicateRun": {
+      "explanation": "La même exécution a été envoyée de nouveau alors qu'elle était encore en cours, ou moins d'une minute après avoir écrit ses enregistrements, et refusée pour qu'ils ne soient pas écrits deux fois. Celle-ci n'a rien écrit.",
+      "action": "Consultez les résultats de la première exécution avant de relancer : une minute après qu'elle a écrit, la même exécution est de nouveau acceptée."
+    },
+    "retryUnavailable": {
+      "explanation": "Le nouvel essai n'a pas pu démarrer : ce qu'a écrit l'exécution qu'il reprend n'est pas connu ici — elle n'est plus dans l'historique, n'a gardé aucune trace de ce qu'elle a écrit ou a écrit dans une autre org, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
+      "action": "Relancez le clonage depuis la revue."
+    },
+    "resumeUnavailable": {
+      "explanation": "Cette exécution ne peut pas être reprise là où elle s'est arrêtée : elle a déjà été reprise ou son exécution s'est terminée, elle n'a gardé aucun journal, ou ses enregistrements ont été supprimés. Rien n'a été écrit.",
+      "action": "Relancez-la depuis ses résultats, ou relancez le clonage depuis la revue."
+    },
+    "resumeTargetChanged": {
+      "explanation": "L'org dans laquelle cette exécution a écrit n'est plus celle qu'elle était — actualisée, remplacée, ou plus enregistrée dans SandForge — : ce que l'exécution a écrit n'y est pas pour la poursuivre. Rien n'a été écrit.",
+      "action": "Relancez le clonage depuis la revue dans l'org telle qu'elle est aujourd'hui."
+    },
+    "resumeChanged": {
+      "explanation": "Cette exécution serait maintenant configurée autrement que la partie qu'elle reprend : le clonage affiché sur la page, ou le paramètre sandforge.forge.maxRecordsPerObject, a changé depuis son arrêt. Rien n'a été écrit.",
+      "action": "Remettez le paramètre, ou relancez plutôt l'exécution : un nouvel essai relit le clonage et rattache ce que cette exécution a écrit."
+    },
+    "filesNotAccepted": {
+      "explanation": "Cette exécution anonymise ses enregistrements et copie leurs fichiers, dont le contenu ne peut pas être anonymisé : les fichiers ne sont copiés qu'une fois que vous acceptez qu'ils le soient tels qu'ils sont. Rien n'a été lu ni écrit.",
+      "action": "Dans la revue, acceptez que les fichiers soient copiés tels qu'ils sont, ou désactivez la copie, puis relancez."
+    },
+    "abortedBeforeStart": {
+      "explanation": "Vous avez arrêté l'exécution avant qu'elle ne démarre. Rien n'a été écrit.",
+      "action": "Relancez-la depuis la revue quand vous êtes prêt."
+    }
+  },
+  "moduleSummary": {
+    "forge": "Copier un enregistrement réel et tout ce qui l'entoure dans une autre org",
+    "autopilot": "Copier des objets entiers d'une org vers une autre",
+    "seed": "Remplir une org de données fictives réalistes"
   }
 }

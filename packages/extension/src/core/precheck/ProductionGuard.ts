@@ -318,6 +318,13 @@ export interface ProductionGuardOptions {
    */
   orgNameOf?: (orgId: string) => string | undefined;
   /**
+   * The words the question is put in ({@link confirmationQuestionOf}):
+   * English by default; the host's translations, keyed on the same English,
+   * in VS Code. The modal around it was translated and the question in it was
+   * English in every language.
+   */
+  questionWords?: QuestionWords;
+  /**
    * Puts a run's question ({@link RunConfirmation}) to the user: what the
    * target runs as the run inserts, and the source tables it reads with no
    * cap past the ceiling, before it reads; how much it writes and
@@ -394,7 +401,14 @@ export class ProductionGuard {
     const result = this.checkTier(request);
     const { orgNameOf } = this.options;
     if (!result.requiresConfirmation || !orgNameOf) return result;
-    return { ...result, question: confirmationQuestionOf(request, orgNameOf(request.orgId)) };
+    return {
+      ...result,
+      question: confirmationQuestionOf(
+        request,
+        orgNameOf(request.orgId),
+        this.options.questionWords,
+      ),
+    };
   }
 
   /** The rules of the request's tier. */
@@ -603,14 +617,54 @@ function unitOf(request: OperationRequest): string {
   return request.operation === 'deploy' ? 'components' : 'records';
 }
 
-/** What each operation does, as the question says it. */
-const OPERATION_WORDS: Readonly<Record<OperationRequest['operation'], string>> = {
-  insert: 'Insert',
-  update: 'Update',
-  upsert: 'Insert or update',
-  delete: 'Delete',
-  hardDelete: 'Permanently delete',
-  deploy: 'Deploy',
+/**
+ * What a Forge clone writes besides the records it counts before the run:
+ * the catalog, order items and parents its records name.
+ */
+export const RELATED_RECORDS_ALSO_WRITTEN = 'the related records the run adds';
+
+/**
+ * The words a confirmation's question is put in, piece by piece, so a
+ * language can order them its own way: the sentence of each operation, how
+ * many of what, what it writes besides, and the org.
+ */
+export interface QuestionWords {
+  /** The whole question, `things` and `org` put in the operation's sentence. */
+  sentence: (operation: OperationRequest['operation'], things: string, org: string) => string;
+  /** How many records, or components for a deployment; none counted, the plural alone. */
+  counted: (unit: 'record' | 'component', count: OperationRequest['recordCount']) => string;
+  /** The records counted, then what the operation writes besides. */
+  besides: (counted: string, alsoWrites: string) => string;
+  /** The org, by its tier and its alias — or by its id when nobody named it. */
+  org: (tier: SafetyTier, name: string, named: boolean) => string;
+}
+
+/** The question in English, as every host without translations asks it. */
+export const ENGLISH_QUESTION_WORDS: QuestionWords = {
+  sentence: (operation, things, org) => {
+    switch (operation) {
+      case 'insert':
+        return `Insert ${things} into ${org}.`;
+      case 'update':
+        return `Update ${things} in ${org}.`;
+      case 'upsert':
+        return `Insert or update ${things} in ${org}.`;
+      case 'delete':
+        return `Delete ${things} in ${org}.`;
+      case 'hardDelete':
+        return `Permanently delete ${things} in ${org}.`;
+      case 'deploy':
+        return `Deploy ${things} to ${org}.`;
+    }
+  },
+  counted: (unit, count) =>
+    count === 'unknown'
+      ? `${unit}s`
+      : typeof count === 'number'
+        ? `${count} ${unit}${count === 1 ? '' : 's'}`
+        : `at most ${count.atMost} ${unit}s`,
+  besides: (counted, alsoWrites) => `${counted}, plus ${alsoWrites},`,
+  org: (tier, name, named) => (named ? `the ${tier} org "${name}"` : `the ${tier} org ${name}`),
 };
 
 /**
@@ -628,23 +682,19 @@ const NO_OBJECT_NAMES = new Set(['SeedData', 'SyncData', 'CloneData', 'Autopilot
  *
  * @param orgName - The alias the user knows the org by; absent, its id.
  */
-export function confirmationQuestionOf(request: OperationRequest, orgName?: string): string {
+export function confirmationQuestionOf(
+  request: OperationRequest,
+  orgName?: string,
+  words: QuestionWords = ENGLISH_QUESTION_WORDS,
+): string {
   const unit = request.operation === 'deploy' ? 'component' : 'record';
-  const { recordCount } = request;
-  const counted =
-    recordCount === 'unknown'
-      ? `${unit}s`
-      : typeof recordCount === 'number'
-        ? `${recordCount} ${unit}${recordCount === 1 ? '' : 's'}`
-        : `at most ${recordCount.atMost} ${unit}s`;
   const objects = NO_OBJECT_NAMES.has(request.objectName) ? '' : ` (${request.objectName})`;
-  const besides = request.alsoWrites ? `, plus ${request.alsoWrites},` : '';
-  const where =
-    request.operation === 'deploy' ? 'to' : request.operation === 'insert' ? 'into' : 'in';
+  const counted = `${words.counted(unit, request.recordCount)}${objects}`;
+  const things = request.alsoWrites ? words.besides(counted, request.alsoWrites) : counted;
   const org = orgName
-    ? `the ${request.orgTier} org "${orgName}"`
-    : `the ${request.orgTier} org ${request.orgId}`;
-  return `${OPERATION_WORDS[request.operation]} ${counted}${objects}${besides} ${where} ${org}.`;
+    ? words.org(request.orgTier, orgName, true)
+    : words.org(request.orgTier, request.orgId, false);
+  return words.sentence(request.operation, things, org);
 }
 
 /** Build a human-readable impact summary for an operation */

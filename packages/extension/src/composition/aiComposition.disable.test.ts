@@ -177,9 +177,9 @@ describe('initAIComposition — turning AI off mid-session', () => {
     expect(lastOf('ai:error')?.payload.message).toContain('not configured');
   });
 
-  it('stops ai:nl2soql from reaching the model once AI is turned off', async () => {
+  it('stops a Forge draft from reaching the model once AI is turned off', async () => {
     await initAIComposition(makeDeps());
-    await aiHandler.handle(request('ai:nl2soql', { query: 'all accounts', orgId: 'org-1' }));
+    await aiHandler.handle(request('ai:forge-plan', { prompt: 'all accounts', orgId: 'org-1' }));
     expect(chat).toHaveBeenCalled();
 
     aiEnabled = false;
@@ -187,10 +187,10 @@ describe('initAIComposition — turning AI off mid-session', () => {
 
     chat.mockClear();
     posted.length = 0;
-    await aiHandler.handle(request('ai:nl2soql', { query: 'all accounts', orgId: 'org-1' }));
+    await aiHandler.handle(request('ai:forge-plan', { prompt: 'all accounts', orgId: 'org-1' }));
 
     expect(chat).not.toHaveBeenCalled();
-    expect(lastOf('ai:nl2soql:response')?.payload.success).toBe(false);
+    expect(lastOf('ai:forge-plan:response')?.payload.success).toBe(false);
   });
 
   /**

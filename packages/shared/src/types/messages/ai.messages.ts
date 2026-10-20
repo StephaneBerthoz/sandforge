@@ -40,8 +40,8 @@ export interface AIChatCancelRequest extends BaseMessage {
 }
 
 /**
- * Stop waiting for a model-backed tool's answer: a NL2SOQL draft, a Forge
- * root query drafted from a description, or an Automation pipeline draft.
+ * Stop waiting for a model-backed tool's answer: a Forge root query drafted
+ * from a description, or an Automation pipeline draft.
  * `requestId` is the id of the request that asked. The call to the model is
  * aborted, nothing of it is applied, and that request is answered on its own
  * response channel with `success: false` and code `CANCELLED` — a draft the
@@ -162,47 +162,6 @@ export interface AIStatusResponse extends BaseMessage {
 }
 
 // ─── AI Feature Messages ────────────────────────────────────────────────────
-
-/** NL2SOQL: convert natural language to SOQL */
-export interface AINL2SOQLRequest extends BaseMessage {
-  type: 'ai:nl2soql';
-  payload: { query: string; orgId: string };
-}
-
-/**
- * Why a NL2SOQL draft came back unchecked.
- *
- * - `fields-unknown`: the org returned no field list for the queried object,
- *   so nothing but the model's own guess backs the field names.
- * - `nothing-to-check`: the org did return one, but every item the draft
- *   selects is a shape the check steps over — a path into a related record,
- *   or a function — so it compared nothing.
- */
-export type NL2SOQLUnverifiedReason = 'fields-unknown' | 'nothing-to-check';
-
-/**
- * Response from AI natural-language to SOQL conversion.
- *
- * `verified` says whether at least one field name of the draft was actually
- * compared against the org's describe. `false` means none was — the draft is
- * still returned, and the panel says so, naming the cause `unverifiedReason`
- * carries. Both are optional: a producer that cannot tell omits them, and a
- * reader treats the absence as "not stated" rather than as a check that
- * passed. `unverifiedReason` is meaningless unless `verified` is `false`.
- */
-export interface AINL2SOQLResponse extends BaseMessage {
-  type: 'ai:nl2soql:response';
-  payload: {
-    success: boolean;
-    soql?: string;
-    explanation?: string;
-    error?: string;
-    verified?: boolean;
-    unverifiedReason?: NL2SOQLUnverifiedReason;
-    /** `CANCELLED`: stopped by the user (`ai:tool:cancel`) before an answer came. */
-    code?: 'CANCELLED';
-  };
-}
 
 /**
  * Forge: turn a description into the root query discovery starts from, or

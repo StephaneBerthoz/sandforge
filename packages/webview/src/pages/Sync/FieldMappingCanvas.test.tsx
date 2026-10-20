@@ -95,7 +95,8 @@ describe('FieldMappingCanvas', () => {
     expect(screen.getByText('Field Mapping (1)')).toBeDefined();
   });
 
-  it('should show unmapped text when no mappings', () => {
+  it('says what an empty list does: fields with the same API name are copied', () => {
+    // "Unmapped" read as if nothing would be copied, with one object as with several.
     render(
       <FieldMappingCanvas
         sourceFields={sourceFields}
@@ -106,7 +107,10 @@ describe('FieldMappingCanvas', () => {
         onChangeMappingType={vi.fn()}
       />,
     );
-    expect(screen.getByText('Unmapped')).toBeDefined();
+    expect(screen.getByTestId('field-mapping-none').textContent).toBe(
+      'No custom mapping: fields with the same API name are copied.',
+    );
+    expect(screen.queryByText('Unmapped')).toBeNull();
   });
 
   it('should show add mapping row', () => {

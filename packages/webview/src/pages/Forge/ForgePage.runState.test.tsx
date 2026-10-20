@@ -218,9 +218,9 @@ describe('ForgePage — a run that stops on an error', () => {
 
     // The kind of failure is kept with the words, as the extension keyed it.
     expect(useForgeStore.getState().runError?.code).toBe('EXECUTE_ERROR');
-    const explanation = i18n.t('forge.error.requestLimit.explanation');
+    const explanation = i18n.t('errors.requestLimit.forge.explanation');
     const onTheRun = within(screen.getByTestId('forge-execution-error'));
-    expect(onTheRun.getByTestId('forge-error-translation').textContent).toContain(explanation);
+    expect(onTheRun.getByTestId('error-hint').textContent).toContain(explanation);
     expect(onTheRun.getByRole('link').getAttribute('href')).toMatch(
       /forge-quickstart\.md#error-request-limit-exceeded$/,
     );
@@ -229,7 +229,7 @@ describe('ForgePage — a run that stops on an error', () => {
 
     const results = await screen.findByTestId('forge-results');
     const stoppedBanner = within(within(results).getByTestId('forge-results-stopped'));
-    expect(stoppedBanner.getByTestId('forge-error-translation').textContent).toContain(explanation);
+    expect(stoppedBanner.getByTestId('error-hint').textContent).toContain(explanation);
     expect(stoppedBanner.getByRole('link').getAttribute('href')).toMatch(
       /forge-quickstart\.md#error-request-limit-exceeded$/,
     );

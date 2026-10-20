@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // otherwise have to provide its initialiser.
 import i18n from 'i18next';
 
-import type { BaseMessage } from '@sandforge/shared';
+import { panelWordingOf, type BaseMessage } from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
 import { listWords } from '../utils/listWords';
 
@@ -83,12 +83,11 @@ function guardRefusal(
 ): string | undefined {
   if (!i18n.isInitialized) return undefined;
   // A connection the user can act on, worded by the host in English with a
-  // CLI command once: an expired session, or an org that failed several times
-  // in a row and is left alone for a moment.
-  if (code === 'ORG_AUTH_EXPIRED') return i18n.t('common.refusal.orgAuthExpired');
-  if (code === 'ORG_TEMPORARILY_UNREACHABLE') {
-    return i18n.t('common.refusal.orgTemporarilyUnreachable');
-  }
+  // CLI command once: an expired session, an org that failed several times
+  // in a row and is left alone for a moment, an import that found no org in
+  // the CLI. The error catalogue words them, what happened and what to do.
+  const worded = panelWordingOf(code);
+  if (worded) return `${i18n.t(worded.explanationKey)} ${i18n.t(worded.actionKey)}`;
   // A seed its records' data storage stopped before the first write, with the
   // figures the host measured: the host's sentence is English.
   if (code === 'SEED_STORAGE_EXCEEDED') {

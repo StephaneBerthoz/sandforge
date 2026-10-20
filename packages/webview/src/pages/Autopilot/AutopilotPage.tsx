@@ -246,7 +246,7 @@ export const AutopilotPage: React.FC = () => {
       <EmptyState
         module="autopilot"
         title={t('autopilot.emptyState.title')}
-        description={t('autopilot.emptyState.description')}
+        description={t('moduleSummary.autopilot')}
         actionLabel={t('autopilot.emptyState.cta')}
         onAction={() => navigate('orgs')}
       />

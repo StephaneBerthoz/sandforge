@@ -35,8 +35,8 @@ import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
 import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { estimatedApiCallsOf } from './forgeApiCalls';
-import { translateForgeError } from './forgeErrorTranslator';
-import { ForgeErrorHint } from './ForgeErrorHint';
+import { translateError } from '@sandforge/shared';
+import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { ForgeExecutionTable } from './ForgeExecutionTable';
 import { ForgeViewToggle } from './ForgeViewToggle';
 
@@ -110,7 +110,9 @@ export const ForgeExecution: React.FC = () => {
    */
   const runErrorHint = useMemo(
     () =>
-      runError && !runError.cancelled ? translateForgeError(runError.message, runError.code) : null,
+      runError && !runError.cancelled
+        ? translateError(runError.message, { code: runError.code, module: 'forge' })
+        : null,
     [runError],
   );
   /** Whether an abort was asked for and the run has not answered: it stops once its step is done. */
@@ -288,7 +290,7 @@ export const ForgeExecution: React.FC = () => {
                 ? t('forge.runCancelled')
                 : t('forge.runStoppedOn', { message: runError.message })}
             </p>
-            {runErrorHint && <ForgeErrorHint hint={runErrorHint} />}
+            {runErrorHint && <ErrorExplanation hint={runErrorHint} />}
             {runError.stoppedRun && (
               <p data-testid="forge-execution-error-written">
                 {t('forge.runStoppedWrote', { count: runError.stoppedRun.createdCount ?? 0 })}

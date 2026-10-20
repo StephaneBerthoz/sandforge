@@ -18,7 +18,7 @@ Chat about your Salesforce work, draft pipelines and SOQL in plain English, and 
 
 ## Error resolution
 
-While AI is on, a failed Seed, Sync, DataOps or Automation run sends its error message — every Salesforce Id in it replaced by `<id>` — to the model for a fix suggestion shown as a VS Code notification. A built-in table of common Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing. The failures SandForge writes itself, and any failure raised with no SandForge view open, send nothing either. `sandforge.ai.errorResolution` turns that sending off on its own; turning AI off stops it at once.
+While AI is on, a failed Seed, Sync, DataOps or Automation run sends its error message — every Salesforce Id in it replaced by `<id>` — to the model for a fix suggestion shown as a VS Code notification. A built-in table of common Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing: every module shows its answer under the error, in the interface language, and the notification says it only when the page that ran the operation does not. The failures SandForge writes itself, and any failure raised with no SandForge view open, send nothing either. `sandforge.ai.errorResolution` turns that sending off on its own; turning AI off stops it at once.
 
 What each feature sends, a failed run included, is listed in the FAQ under [Is my data sent to external services?](../faq.md#is-my-data-sent-to-external-services)
 

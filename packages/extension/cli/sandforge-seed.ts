@@ -48,6 +48,7 @@ import {
   PREBUILT_SEED_TEMPLATES,
   SEED_RELATION_LIMITS,
   describedFieldRule,
+  groupRecordErrors,
   recordWriteHeaders,
   integerDigitsOf,
   plannedChildCount,
@@ -76,7 +77,7 @@ import {
   type InsertResult,
   type SeedOrchestratorDependencies,
 } from '../src/modules/seed/SeedOrchestrator.js';
-import { saveErrorDetail } from '../src/core/common/existingRecordMatch.js';
+import { recordErrorText, saveErrorDetail } from '../src/core/common/existingRecordMatch.js';
 import { SeedValidator } from '../src/modules/seed/SeedValidator.js';
 import { DataPlanBuilder } from '../src/modules/seed/DataPlanBuilder.js';
 import { FieldMapper } from '../src/modules/seed/FieldMapper.js';
@@ -1007,14 +1008,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         .create(batch, { headers: recordWriteHeaders() })) as Array<{
         success: boolean;
         id?: string;
-        errors?: Array<{ message: string }>;
+        errors?: unknown[];
       }>;
       for (const one of written) {
         if (one.success && one.id) {
           successIds.push(one.id);
           rows.push({ id: one.id });
         } else {
-          const error = one.errors?.[0]?.message ?? 'Unknown insert error';
+          // Every error of the record, with its code and the fields it named,
+          // as the panel writes it: the first message alone was kept, its
+          // code gone, and the summary could neither group nor name them.
+          const error = recordErrorText(one.errors);
           errors.push(error);
           rows.push({ error, errorDetails: (one.errors ?? []).map(saveErrorDetail) });
         }
@@ -1089,7 +1093,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`created: ${String((result as { totalRecordsCreated?: number }).totalRecordsCreated ?? 0)}`);
   for (const entry of result.objectResults ?? []) {
     log(`  ${entry.objectApiName}: ${entry.recordsCreated} created, ${entry.recordsFailed} failed`);
-    for (const error of (entry.errors ?? []).slice(0, 3)) log(`      ${error}`);
+    for (const line of refusalLines(entry.errors ?? [])) log(`      ${line}`);
   }
   log(`seed: ${seed}`);
   if (!args.dryRun && created > 0) {
@@ -1099,6 +1103,27 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
   }
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+/** Reasons the summary names for one object; the others are counted. */
+const MAX_SUMMARY_REASONS = 5;
+
+/**
+ * An object's refusals as the summary says them: grouped by what refused them
+ * — the status code and the fields it named — the most frequent first, each
+ * with how many records and the first one's words, as the panel's results
+ * group them. The summary printed the first three refusals as they came, and
+ * a rule refusing fifty records read as three identical lines.
+ */
+export function refusalLines(errors: readonly string[]): string[] {
+  const groups = groupRecordErrors(errors);
+  const lines = groups.slice(0, MAX_SUMMARY_REASONS).flatMap((group) => {
+    const fields = group.fields.length > 0 ? ` (${group.fields.join(', ')})` : '';
+    const head = `${group.count} × ${group.code ?? group.example}${fields}`;
+    return group.code === null ? [head] : [head, `  ${group.example}`];
+  });
+  const others = groups.length - MAX_SUMMARY_REASONS;
+  return others > 0 ? [...lines, `and ${others} other reason(s)`] : lines;
 }
 
 /** The org's own id, or undefined when it does not say. */

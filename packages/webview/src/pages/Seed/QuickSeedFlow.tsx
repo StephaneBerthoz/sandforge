@@ -11,7 +11,7 @@ import { Input } from '../../components/ui/Input';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
-import { SeedResultErrors } from './SeedResultErrors';
+import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
@@ -79,6 +79,8 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
       {quickSeed.error && (
         <ErrorBanner
           message={quickSeed.error}
+          code={null}
+          module="seed"
           onDismiss={() => quickSeed.setError(null)}
           data-testid="quick-seed-error"
         />
@@ -238,10 +240,12 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   />
                   {obj.errors.length > 0 && (
                     <CardBody>
-                      <SeedResultErrors
+                      <RecordErrorGroups
                         objectApiName={obj.objectApiName}
                         errors={obj.errors}
                         recordsFailed={obj.recordsFailed}
+                        module="seed"
+                        testIdPrefix="seed-result"
                       />
                     </CardBody>
                   )}

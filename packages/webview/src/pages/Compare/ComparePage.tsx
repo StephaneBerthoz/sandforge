@@ -206,12 +206,18 @@ export const ComparePage: React.FC = () => {
       />
 
       {error && (
-        <ErrorBanner message={error} onDismiss={() => setError(null)} data-testid="compare-error" />
+        <ErrorBanner
+          message={error}
+          code={null}
+          onDismiss={() => setError(null)}
+          data-testid="compare-error"
+        />
       )}
 
       {schemaAdvice.error && (
         <ErrorBanner
           message={schemaAdvice.error}
+          code={schemaAdvice.errorCode}
           onDismiss={() => schemaAdvice.reset()}
           data-testid="schema-advice-error"
         />

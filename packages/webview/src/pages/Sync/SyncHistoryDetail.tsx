@@ -9,6 +9,7 @@ import { formatStoredDate } from '../../utils/formatters';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
+import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 
 /** Map sync status to badge variant. */
@@ -179,11 +180,17 @@ export const SyncHistoryDetail: React.FC = () => {
               )}
               {obj.errors.length > 0 && (
                 <div className="mt-1">
-                  {obj.errors.map((err, i) => (
-                    <p key={i} className="text-[10px] text-status-error">
-                      {err}
-                    </p>
-                  ))}
+                  <RecordErrorGroups
+                    objectApiName={obj.objectApiName}
+                    errors={obj.errors}
+                    {...(obj.refusalsDropped
+                      ? {
+                          recordsFailed: obj.failed,
+                          recordsListed: obj.failed - obj.refusalsDropped,
+                        }
+                      : {})}
+                    testIdPrefix="sync-history"
+                  />
                 </div>
               )}
               {/* The rows written in another currency: no error, said as Forge's results say them. */}

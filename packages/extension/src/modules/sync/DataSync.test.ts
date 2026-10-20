@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DataSync } from './DataSync';
+import { DataSync, MAX_RESULT_REFUSALS_PER_OBJECT, buildObjectResult } from './DataSync';
 import { targetWriteFieldsOf } from './targetWriteFields';
 import type { DataSyncDeps, OperationOutcome } from './DataSync';
 import { WriteCancelledError } from './WriteCancelledError';
@@ -784,5 +784,33 @@ describe('DataSync — a record type the running user cannot use', () => {
 
     expect(insert.mock.calls[0][1]).toEqual([{ Name: 'Globex', RecordTypeId: CUSTOMER }]);
     expect(result.errors).toEqual([]);
+  });
+});
+
+describe('buildObjectResult', () => {
+  /** A record refused by the same validation rule. */
+  const refused = (): OperationOutcome => ({
+    success: false,
+    errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33. [Phone]'],
+  });
+
+  it('keeps the refusals of the first thousand records refused and counts the others', () => {
+    // A rule refusing every record of a large object posted one line per
+    // record, uncapped, into the page and into the run's history.
+    const outcomes = Array.from({ length: MAX_RESULT_REFUSALS_PER_OBJECT + 250 }, refused);
+
+    const result = buildObjectResult('Contact', 'insert', outcomes, ['A note of the run.']);
+
+    expect(result.failed).toBe(MAX_RESULT_REFUSALS_PER_OBJECT + 250);
+    expect(result.errors).toHaveLength(MAX_RESULT_REFUSALS_PER_OBJECT + 1);
+    expect(result.errors.at(-1)).toBe('A note of the run.');
+    expect(result.refusalsDropped).toBe(250);
+  });
+
+  it('says nothing was left out when every refusal fits', () => {
+    const result = buildObjectResult('Contact', 'insert', [refused(), refused()]);
+
+    expect(result.errors).toHaveLength(2);
+    expect(result).not.toHaveProperty('refusalsDropped');
   });
 });

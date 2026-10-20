@@ -100,11 +100,54 @@ describe('HelpPage', () => {
     expect(ids.slice(0, 2)).toEqual(['help-section-getting-started', 'help-section-forge']);
   });
 
-  it('starts a new user on Forge right after connecting an org, in every language', () => {
+  it('leads a new user from connecting to filling with Seed, cloning with Forge, then the Monitor, in every language', () => {
+    // The order Home and the walkthrough use: an empty org is the problem, and
+    // checking its health came third.
     for (const [lng, bundle] of Object.entries(LOCALES)) {
       const steps = bundle.help.gettingStartedContent.split('\n');
-      expect(steps[1], lng).toMatch(/^2\. .*Forge/);
+      expect(steps[1], lng).toMatch(/^2\. .*Seed/);
+      expect(steps[2], lng).toMatch(/^3\. .*Forge/);
+      expect(steps[3], lng).toContain(bundle.nav.monitor);
     }
+  });
+
+  it('opens Forge, Seed and Autopilot on the sentence the side panel, Home and their empty state say', () => {
+    render(<HelpPage />);
+    for (const [id, title, summary] of [
+      ['forge', 'nav.forge', 'moduleSummary.forge'],
+      ['seed', 'nav.seed', 'moduleSummary.seed'],
+      ['autopilot', 'nav.autopilot', 'moduleSummary.autopilot'],
+    ]) {
+      fireEvent.click(screen.getByText(title));
+      expect(screen.getByTestId(`help-summary-${id}`).textContent).toBe(summary);
+    }
+  });
+
+  it('says one thing of each module in every language: Forge as the side panel says it, Autopilot as copying objects', () => {
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      expect({ lng, forge: bundle.moduleSummary.forge }).toEqual({
+        lng,
+        forge: bundle.sidePanel.forgeDesc,
+      });
+    }
+    // Autopilot was said to "populate your sandbox with realistic data", as Seed does.
+    expect(en.moduleSummary.autopilot).toBe('Copy whole objects from one org to another');
+    expect(en.moduleSummary.seed).toBe('Fill an org with realistic fake data');
+  });
+
+  it('says Reports shows the audit trail and the lineage it renders, not that they are coming', () => {
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      expect(bundle.help.reportsContent, lng).toContain(bundle.reports.audit);
+      expect(bundle.help.reportsContent, lng).toContain(bundle.reports.lineage);
+    }
+    expect(en.help.reportsContent).not.toMatch(/coming soon/i);
+  });
+
+  it('says Production Guard refuses a delete on a production org, where it was said to ask', () => {
+    expect(en.help.faqContent).not.toContain('All destructive operations require confirmation');
+    expect(en.help.faqContent).toContain(
+      'refuses a delete or a metadata deployment there outright',
+    );
   });
 
   it('should render the new troubleshooting and release notes sections', () => {

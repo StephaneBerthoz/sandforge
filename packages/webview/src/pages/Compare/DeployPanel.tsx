@@ -386,7 +386,11 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
       )}
 
       {validation.error && (
-        <ErrorBanner message={validation.error} data-testid="deploy-validation-error" />
+        <ErrorBanner
+          message={validation.error}
+          code={validation.errorCode}
+          data-testid="deploy-validation-error"
+        />
       )}
       {stale && (
         <p className="text-xs text-status-warning" data-testid="deploy-validation-stale">
@@ -402,7 +406,11 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
       )}
 
       {deployment.error && (
-        <ErrorBanner message={deployment.error} data-testid="deploy-deployment-error" />
+        <ErrorBanner
+          message={deployment.error}
+          code={deployment.errorCode}
+          data-testid="deploy-deployment-error"
+        />
       )}
       {deployed && (
         <DeploymentReportView

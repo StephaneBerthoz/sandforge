@@ -41,7 +41,8 @@ const NO_PLURAL_NEEDED: Record<string, string> = {
   'compare.coverage.unreadable': 'a label and a number ("Content that cannot be read…: 1")',
   'compare.coverage.readFailed': 'a label and a number ("Read failed: 1")',
   'compare.coverage.managedLeftOut': 'a label and a number ("…, left out as asked: 1")',
-  'seed.results.errorGroup': 'a number and a status code ("50 × REQUIRED_FIELD_MISSING"), no noun',
+  'common.recordErrors.group':
+    'a number and a status code ("50 × REQUIRED_FIELD_MISSING"), no noun',
 };
 
 /** Every string of a catalogue, as `a.b.c` → value. */

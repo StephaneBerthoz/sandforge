@@ -282,10 +282,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
   return (
     <div className="flex flex-col gap-4" data-testid="frozen-extract-tab">
       {lastError && (
-        <ErrorBanner
-          message={`${lastError.code}: ${lastError.message}`}
-          data-testid="frozen-error"
-        />
+        <ErrorBanner message={lastError.message} code={lastError.code} data-testid="frozen-error" />
       )}
 
       {/* ── Configuration ─────────────────────────────────────────────── */}
@@ -490,7 +487,9 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               {selectStepText(t, selectStep)}
             </p>
           )}
-          {selectMutation.error && <ErrorBanner message={selectMutation.error} />}
+          {selectMutation.error && (
+            <ErrorBanner message={selectMutation.error} code={selectMutation.errorCode} />
+          )}
           {selection && (
             <>
               {selection.stopped && (
@@ -579,7 +578,9 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
           <p className="text-xs text-text-secondary" data-testid="frozen-salt-hint">
             {t('frozen.extract.saltHint')}
           </p>
-          {extractMutation.error && <ErrorBanner message={extractMutation.error} />}
+          {extractMutation.error && (
+            <ErrorBanner message={extractMutation.error} code={extractMutation.errorCode} />
+          )}
           {extractMutation.data && (
             <>
               <p className="text-xs text-text-secondary" data-testid="frozen-extract-summary">

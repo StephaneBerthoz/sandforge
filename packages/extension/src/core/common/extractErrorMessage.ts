@@ -38,7 +38,7 @@ function readErrorCode(err: unknown): string | undefined {
  *
  * Once an error has been rendered for the UI there is no code field left —
  * `operation:failed` carries a plain string. Anything keyed on the code (the
- * error knowledge base) therefore has to recover it from that string, and the
+ * error catalogue) therefore has to recover it from that string, and the
  * only shape worth trusting is the one this module produces: the code, alone
  * or followed by `": "` and the API's text. A segment that does not start that
  * way is treated as having no code rather than guessed at.

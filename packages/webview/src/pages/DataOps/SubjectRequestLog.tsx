@@ -110,7 +110,13 @@ export const SubjectRequestLog: React.FC<SubjectRequestLogProps> = ({ orgId, ver
         )}
       </div>
       <p className="text-xs text-text-secondary">{t('dataops.dsrLog.intro')}</p>
-      {logQuery.error && <ErrorBanner message={logQuery.error} data-testid="dsr-log-error" />}
+      {logQuery.error && (
+        <ErrorBanner
+          message={logQuery.error}
+          code={logQuery.errorCode}
+          data-testid="dsr-log-error"
+        />
+      )}
       {entries.length === 0 ? (
         <p className="text-xs text-text-secondary" data-testid="dsr-log-empty">
           {t('dataops.dsrLog.empty')}

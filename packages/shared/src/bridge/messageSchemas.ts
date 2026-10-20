@@ -476,9 +476,7 @@ const AIMessages = [
   msg('ai:save-key'),
   msg('ai:save-key:response'),
   msg('ai:error'),
-  msg('ai:nl2soql'),
-  msg('ai:nl2soql:response'),
-  // Stops the model call of a NL2SOQL, Forge plan or pipeline draft request.
+  // Stops the model call of a Forge plan or pipeline draft request.
   msg('ai:tool:cancel'),
   msg('ai:forge-plan'),
   msg('ai:forge-plan:response'),

@@ -2,7 +2,6 @@ import type { HandlerDeps, DomainHandler, InboundRequest } from '../HandlerTypes
 import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
-  aiNl2SoqlPayloadSchema,
   aiForgePlanPayloadSchema,
   aiGeneratePipelinePayloadSchema,
   aiToolCancelPayloadSchema,
@@ -21,12 +20,7 @@ import { checkForgeRootQuery } from '../../../modules/ai/forgeRootQuery.js';
 import { InFlightCalls, untilAborted } from './inFlightCalls.js';
 
 /** Message types handled by AIToolsHandler. */
-const AI_TOOLS_TYPES = new Set([
-  'ai:nl2soql',
-  'ai:forge-plan',
-  'ai:generate-pipeline',
-  'ai:tool:cancel',
-]);
+const AI_TOOLS_TYPES = new Set(['ai:forge-plan', 'ai:generate-pipeline', 'ai:tool:cancel']);
 
 /**
  * What a draft the user stopped is answered with, on its own channel: no
@@ -79,8 +73,8 @@ interface SchemaConnection {
 /**
  * Sub-handler for AI tool messages.
  *
- * Handles NL2SOQL translation, Forge's root query drafts and pipeline
- * generation. Error resolution is not one of them and has no channel in
+ * Handles Forge's root query drafts, NL2SOQL's from a description, and
+ * pipeline generation. Error resolution is not one of them and has no channel in
  * either direction: a failure is resolved once by `sendOperationFailed`, on
  * the side that raises it, and the suggestion is shown there as a VS Code
  * notification.
@@ -128,8 +122,8 @@ export class AIToolsHandler implements DomainHandler {
 
   /**
    * Inject the model-backed modules. Passing `undefined` takes them
-   * away, so an AI switched off mid-session stops NL2SOQL, error resolution
-   * and pipeline drafts from reaching a provider.
+   * away, so an AI switched off mid-session stops Forge's query drafts, error
+   * resolution and pipeline drafts from reaching a provider.
    */
   setAIModules(modules: AIModules | undefined): void {
     this.aiModules = modules;
@@ -157,9 +151,6 @@ export class AIToolsHandler implements DomainHandler {
     if (!AI_TOOLS_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
-      case 'ai:nl2soql':
-        await this.handleNL2SOQL(msg);
-        return true;
       case 'ai:forge-plan':
         await this.handleForgePlan(msg);
         return true;
@@ -185,87 +176,12 @@ export class AIToolsHandler implements DomainHandler {
     this.drafting.abort(parsed.requestId);
   }
 
-  private async handleNL2SOQL(msg: InboundRequest): Promise<void> {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(aiNl2SoqlPayloadSchema, msg, 'ai:error', this.deps);
-    if (!parsed) return;
-    const { query, orgId } = parsed;
-    const call = this.drafting.begin(msg.id);
-    try {
-      const nl2soql = this.aiModules?.nl2soql;
-      if (!nl2soql) {
-        throw new Error(AI_NOT_CONFIGURED);
-      }
-      const conn = await untilAborted(this.connect(orgId), call.signal);
-      const catalog = await untilAborted(this.loadCatalog(orgId, conn), call.signal);
-      const { result, described } = await this.draft(
-        nl2soql,
-        query,
-        orgId,
-        conn,
-        catalog,
-        call.signal,
-      );
-
-      // The validator holds every catalog entry the prompt did not describe as
-      // a bare name, so a FROM on an object nobody described is reported as
-      // unverified instead of as a non-existent object.
-      const describedNames = new Set(described.map((o) => o.apiName));
-      const validationContext: SchemaContext = {
-        objects: [
-          ...described,
-          ...catalog
-            .filter((s) => !describedNames.has(s.name))
-            .map((s) => ({ apiName: s.name, label: s.label, fields: [] })),
-        ],
-      };
-
-      const validation = nl2soql.validateSOQL(result.soql, validationContext);
-
-      // A rejected query is still shown: the draft is the useful part, the
-      // error says which piece of it the org does not have. Swallowing it
-      // would leave the user with nothing to correct.
-      //
-      // `verified` travels with it because an accepted draft is two different
-      // things: one whose fields came back from a describe, and one nothing
-      // was compared against. Computing the difference and dropping it would
-      // put both on screen as the same answer. The reason travels too: the
-      // panel has one sentence per cause, and guessing which applies from the
-      // draft alone would put the wrong one on screen.
-      const response = buildResponse(this.deps, msg, 'ai:nl2soql:response', {
-        success: validation.valid,
-        soql: result.soql,
-        explanation: result.explanation,
-        verified: validation.verified,
-        ...(validation.unverifiedReason ? { unverifiedReason: validation.unverifiedReason } : {}),
-        ...(validation.valid ? {} : { error: validation.errors.join(' ') }),
-      });
-      this.deps.broker.postToWebview(response);
-    } catch (err: unknown) {
-      if (call.signal.aborted) {
-        this.deps.broker.postToWebview(
-          buildResponse(this.deps, msg, 'ai:nl2soql:response', { ...STOPPED }),
-        );
-        this.deps.log(`[TX] ai:nl2soql:response cancelled`);
-        return;
-      }
-      this.deps.log(`[ERR] ai:nl2soql: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'ai:nl2soql:response', {
-        success: false,
-        error: extractErrorMessage(err),
-      });
-      this.deps.broker.postToWebview(errResp);
-    } finally {
-      call.end();
-    }
-  }
-
   /**
    * Draft the query Forge's discovery starts from, or check again one the user
    * edited, against the source org.
    *
-   * The draft is NL2SOQL's, from the same prompt context, so the model is sent
-   * nothing more than the Seed helper sends it. The check is Forge's own: the
+   * The draft is NL2SOQL's, from the prompt context of the objects the
+   * description names. The check is Forge's own: the
    * object after FROM, then every field and relationship the query names at
    * its top level, then the org's parser (see `checkForgeRootQuery`). An
    * edited query reaches no model and is sent with no provider set up.

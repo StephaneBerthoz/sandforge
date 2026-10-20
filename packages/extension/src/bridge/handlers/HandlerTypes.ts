@@ -5,10 +5,14 @@ import type {
   GrappeConfig,
   RobustnessConfig,
 } from '@sandforge/shared';
-import { DEFAULT_GRAPPE_CONFIG, DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
+import {
+  DEFAULT_GRAPPE_CONFIG,
+  DEFAULT_ROBUSTNESS_CONFIG,
+  isCataloguedErrorCode,
+  translateError,
+} from '@sandforge/shared';
 import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
 import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
-import { hasKnownResolution, resolveKnownError } from '../../core/common/errorKnowledgeBase.js';
 import type { ErrorResolver, OperationContext } from '../../modules/ai/ErrorResolver.js';
 import type { MessageBroker } from '../MessageBroker.js';
 import type { OrgManager } from '../../core/connection/OrgManager.js';
@@ -85,7 +89,7 @@ export interface HandlerDeps {
    * `ExtensionHandlers.setAIModules`). Absent whenever the AI stack is not
    * configured — `aiComposition` only builds it with AI enabled and a stored
    * key — which is exactly when a failed operation must not reach the model.
-   * The table of known error codes answers either way. See {@link sendOperationFailed}.
+   * The error catalogue answers either way. See {@link sendOperationFailed}.
    */
   errorResolver?: ErrorResolver;
   /**
@@ -503,6 +507,8 @@ export function sendHandlerError(
   // code and offers Reconnect on the org where the run failed.
   const connection = err instanceof OrgConnectionError ? err : undefined;
   const orphan = UNCORRELATED in origin;
+  const code = options.code ?? connection?.code ?? 'UNKNOWN';
+  if (!orphan) noteHintShownInPanel(deps.broker, message, code);
   deps.log(
     `[ERR] ${context}: ${message}${orphan ? ` (uncorrelated: ${String(origin.reason)})` : ''}`,
   );
@@ -517,7 +523,7 @@ export function sendHandlerError(
     ...(orphan ? {} : { correlationId: origin.id }),
     payload: {
       message,
-      code: options.code ?? connection?.code ?? 'UNKNOWN',
+      code,
       retryable: options.retryable ?? false,
       ...(connection ? { orgId: connection.orgId } : {}),
       ...options.extraPayload,
@@ -673,7 +679,7 @@ export function sendOperationFailed(
 /**
  * Failure messages SandForge writes itself.
  *
- * None of them is a Salesforce error: the table of known codes cannot answer
+ * None of them is a Salesforce error: the error catalogue cannot answer
  * them, and the model can only paraphrase what they already say — at the cost
  * of a call, and of the org ids several of them name. Matched here, on the
  * message, because a handler that throws one of them reaches
@@ -689,10 +695,10 @@ const SANDFORGE_AUTHORED_FAILURES: readonly RegExp[] = [
   // The duplicate-operation and per-org lock guards.
   /^Duplicate operation: /,
   /^A backup or rollback operation is already running for org /,
-  // CrudFlsGuard refusals.
+  // CrudFlsGuard refusals, said under its code, and as a sync rethrows one.
   /^Object describe not available for '/,
-  /^User lacks '[^']*' permission on '/,
-  /^FLS violation on '/,
+  /^CRUD_FLS_DENIED: /,
+  /^CRUD\/FLS check failed for /,
   // Rollback preconditions.
   /^No backup found for operation /,
   /^Backup \S+ was taken from org /,
@@ -716,18 +722,52 @@ function isSandForgeAuthoredFailure(message: string): boolean {
   return SANDFORGE_AUTHORED_FAILURES.some((pattern) => pattern.test(message));
 }
 
+/** How long after a panel was sent an error its hint counts as shown there. */
+const SHOWN_IN_PANEL_MS = 10_000;
+
+/**
+ * The codes whose hint a panel was sent an error with, and when, per broker:
+ * the panel that asked shows the hint under that error.
+ */
+const hintsShownInPanel = new WeakMap<object, Map<string, number>>();
+
+/**
+ * Note that the panel waiting on a request is being sent an error the error
+ * catalogue explains: its banner shows the hint under it (`ErrorBanner`'s
+ * code), so the notification about the same failure would say it twice.
+ */
+function noteHintShownInPanel(broker: object, message: string, code: string): void {
+  const hint = translateError(message, { code });
+  if (!hint?.actionKey) return;
+  const shown = hintsShownInPanel.get(broker) ?? new Map<string, number>();
+  const now = Date.now();
+  for (const [known, at] of shown) if (now - at > SHOWN_IN_PANEL_MS) shown.delete(known);
+  shown.set(hint.code, now);
+  hintsShownInPanel.set(broker, shown);
+}
+
+/** Whether a panel was just sent an error with the hint of `code` under it. */
+function hintWasShownInPanel(broker: object, code: string): boolean {
+  const at = hintsShownInPanel.get(broker)?.get(code);
+  return at !== undefined && Date.now() - at <= SHOWN_IN_PANEL_MS;
+}
+
 /**
  * Find a fix suggestion for a failure and have the host show it once.
  *
- * The table of known Salesforce error codes answers first, AI on or off: it is
- * keyed on the code, so the code has to be recovered from the message with
+ * The error catalogue answers first, AI on or off — the one every panel reads
+ * its hints from, so the notification says what the hint says. It is keyed
+ * on the code, which is recovered from the message with
  * {@link extractErrorCode}, the inverse of the `CODE: text` shape
- * `extractErrorMessage` produces. Only what the table cannot answer goes to
- * the model, and only while the AI stack is wired.
+ * `extractErrorMessage` produces. Only what the catalogue cannot answer goes
+ * to the model, and only while the AI stack is wired.
  *
- * Nothing is asked when no SandForge view is open — a scheduled run failing
- * with every panel closed has nobody to show an answer to — nor about a
- * message SandForge wrote itself.
+ * Nothing is shown when the panel that ran the operation was just sent the
+ * same failure and shows its hint under it: the host's own table and the
+ * panel's hint used to fire together, and gave conflicting advice. Nothing is
+ * asked when no SandForge view is open — a scheduled run failing with every
+ * panel closed has nobody to show an answer to — nor about a message
+ * SandForge wrote itself.
  *
  * Fire-and-forget: the caller is on an error path and must not wait, and a
  * resolution that fails is an extra the user never asked for — it is logged,
@@ -741,13 +781,14 @@ function resolveFailedOperation(
   const watched = deps.broker.panelCount > 0;
   if (!watched || isSandForgeAuthoredFailure(error)) return;
 
-  const errorCode = extractErrorCode(error, hasKnownResolution) ?? 'UNKNOWN';
-  const known = resolveKnownError({ errorCode, message: error });
-  if (known) {
+  const errorCode = extractErrorCode(error, isCataloguedErrorCode) ?? 'UNKNOWN';
+  const known = translateError(error, { code: errorCode });
+  if (known?.actionKey) {
+    if (hintWasShownInPanel(deps.broker, known.code)) return;
     deps.broker.showFixSuggestion({
-      source: 'knowledge-base',
-      text: suggestedFix(known),
-      code: errorCode,
+      source: 'catalogue',
+      code: known.code,
+      actionKey: known.actionKey,
     });
     return;
   }

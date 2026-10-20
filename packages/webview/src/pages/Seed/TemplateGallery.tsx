@@ -42,7 +42,9 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
         <p className="text-xs text-(--sf-text-secondary) mt-0.5">{t('seed.gallery.subtitle')}</p>
       </div>
 
-      {error && <ErrorBanner message={error} data-testid="gallery-error" />}
+      {error && (
+        <ErrorBanner message={error} code={null} module="seed" data-testid="gallery-error" />
+      )}
 
       {loading ? (
         <div

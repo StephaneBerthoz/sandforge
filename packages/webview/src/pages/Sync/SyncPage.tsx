@@ -28,8 +28,6 @@ import { ObjectSetEditor } from './ObjectSetEditor';
 import { SyncTemplatePicker } from './SyncTemplatePicker';
 import { SankeyFlow } from './SankeyFlow';
 import type { SankeyNode, SankeyLink } from './SankeyFlow';
-import { FieldMapper } from '../../components/graph/FieldMapper';
-import type { FieldMapping as FieldMapperMapping } from '../../components/graph/FieldMapper';
 import { GrappeProgressPanel } from '../../components/GrappeProgressPanel';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -52,6 +50,7 @@ import { SyncSimulationResults } from './SyncSimulationResults';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
+import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -70,10 +69,30 @@ const OFFERED_SYNC_TABS: readonly SyncTab[] = [
   'conflicts',
 ];
 
+/**
+ * The rest of a toggle's hint, one click away: the sentence under the toggle
+ * says what it does, and the screen reader reads that sentence alone on
+ * focus. The hints ran to 770 characters at ten pixels, read in full on every
+ * focus.
+ */
+const ToggleDetails: React.FC<{ testId: string; children: React.ReactNode }> = ({
+  testId,
+  children,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <details className="text-xs text-text-secondary" data-testid={testId}>
+      <summary className="cursor-pointer text-text-primary">{t('common.details')}</summary>
+      <p className="mt-1">{children}</p>
+    </details>
+  );
+};
+
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
-  { id: 'field-mapping', labelKey: 'sync.fieldMapping' },
-  { id: 'transforms', labelKey: 'sync.transforms' },
+  // Both pass with nothing set: two orgs of the same schema need neither.
+  { id: 'field-mapping', labelKey: 'sync.fieldMapping', optional: true },
+  { id: 'transforms', labelKey: 'sync.transforms', optional: true },
   { id: 'review', labelKey: 'sync.review' },
   { id: 'execute', labelKey: 'sync.execute' },
   { id: 'results', labelKey: 'sync.results' },
@@ -364,7 +383,9 @@ export const SyncPage: React.FC = () => {
         }
       />
 
-      {error && <ErrorBanner message={error} onDismiss={clearError} data-testid="sync-error" />}
+      {error && (
+        <ErrorBanner message={error} code={null} onDismiss={clearError} data-testid="sync-error" />
+      )}
 
       {/* Tab navigation */}
       <div
@@ -499,9 +520,12 @@ export const SyncPage: React.FC = () => {
                   />
                   {t('sync.delta.toggle')}
                 </label>
-                <p id={deltaHintId} className="text-[10px] text-text-secondary">
+                <p id={deltaHintId} className="text-xs text-text-secondary">
                   {t('sync.delta.toggleHint')}
                 </p>
+                <ToggleDetails testId="sync-delta-details">
+                  {t('sync.delta.toggleDetails')}
+                </ToggleDetails>
                 {/* Dimmed by colour, not opacity: a faded label falls below
                     AA on the light themes. */}
                 <label
@@ -519,9 +543,12 @@ export const SyncPage: React.FC = () => {
                   />
                   {t('sync.delta.deletes')}
                 </label>
-                <p id={deletesHintId} className="text-[10px] text-text-secondary">
+                <p id={deletesHintId} className="text-xs text-text-secondary">
                   {t('sync.delta.deletesHint')}
                 </p>
+                <ToggleDetails testId="sync-delta-deletes-details">
+                  {t('sync.delta.deletesDetails')}
+                </ToggleDetails>
                 {deltaBlockers.length > 0 && (
                   <p
                     className="text-xs text-status-warning"
@@ -551,9 +578,12 @@ export const SyncPage: React.FC = () => {
                   />
                   {t('sync.contactPoints.toggle')}
                 </label>
-                <p id={contactPointsHintId} className="text-[10px] text-text-secondary">
+                <p id={contactPointsHintId} className="text-xs text-text-secondary">
                   {t('sync.contactPoints.toggleHint')}
                 </p>
+                <ToggleDetails testId="sync-contact-points-details">
+                  {t('sync.contactPoints.toggleDetails')}
+                </ToggleDetails>
               </div>
 
               {/* The files of the records it writes: off unless ticked, with the
@@ -572,9 +602,12 @@ export const SyncPage: React.FC = () => {
                   />
                   {t('sync.files.toggle')}
                 </label>
-                <p id={filesHintId} className="text-[10px] text-text-secondary">
+                <p id={filesHintId} className="text-xs text-text-secondary">
                   {t('sync.files.toggleHint')}
                 </p>
+                <ToggleDetails testId="sync-files-details">
+                  {t('sync.files.toggleDetails')}
+                </ToggleDetails>
                 {copyFiles && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
                     <label className="flex flex-col gap-1 text-xs text-text-primary">
@@ -708,23 +741,16 @@ export const SyncPage: React.FC = () => {
                   </p>
                 </div>
               )}
-              <FieldMapper
-                sourceFields={sourceFields.map((f) => f.apiName)}
-                targetFields={targetFields.map((f) => f.apiName)}
-                mappings={mappings.map((m): FieldMapperMapping => ({
-                  sourceField: m.sourceField,
-                  targetField: m.targetField,
-                }))}
-                onMappingChange={(fmMappings) => {
-                  setMappings(
-                    fmMappings.map((fm) => ({
-                      sourceField: fm.sourceField,
-                      targetField: fm.targetField,
-                      type: 'direct' as MappingType,
-                    })),
-                  );
-                }}
-                onAutoMatch={() => {
+              {/* One editor for the mappings: two edited the same list, one
+                  of them drawing lines and the other a table. */}
+              <FieldMappingCanvas
+                sourceFields={sourceFields}
+                targetFields={targetFields}
+                mappings={mappings}
+                onAddMapping={handleAddMapping}
+                onRemoveMapping={handleRemoveMapping}
+                onChangeMappingType={handleMappingTypeChange}
+                onAutoMap={() => {
                   const auto = sourceFields
                     .filter((sf) => targetFields.some((tf) => tf.apiName === sf.apiName))
                     .map((sf) => ({
@@ -734,14 +760,6 @@ export const SyncPage: React.FC = () => {
                     }));
                   setMappings(auto);
                 }}
-              />
-              <FieldMappingCanvas
-                sourceFields={sourceFields}
-                targetFields={targetFields}
-                mappings={mappings}
-                onAddMapping={handleAddMapping}
-                onRemoveMapping={handleRemoveMapping}
-                onChangeMappingType={handleMappingTypeChange}
               />
             </div>
           )}
@@ -999,11 +1017,17 @@ export const SyncPage: React.FC = () => {
                               testId={`sync-result-files-${obj.objectApiName}`}
                             />
                           )}
-                          {obj.errors.map((err, i) => (
-                            <p key={i} className="text-[10px] text-status-error">
-                              {err}
-                            </p>
-                          ))}
+                          <RecordErrorGroups
+                            objectApiName={obj.objectApiName}
+                            errors={obj.errors}
+                            {...(obj.refusalsDropped
+                              ? {
+                                  recordsFailed: obj.failed,
+                                  recordsListed: obj.failed - obj.refusalsDropped,
+                                }
+                              : {})}
+                            testIdPrefix="sync-result"
+                          />
                         </CardBody>
                       )}
                     </Card>

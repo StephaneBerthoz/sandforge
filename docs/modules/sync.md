@@ -7,7 +7,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 1. Navigate to **Sync** from the sidebar (requires at least 2 connected orgs)
 2. Select a source org and a target org, then choose direction and conflict strategy
 3. Configure the object set -- pick which objects to sync and set batch sizes
-4. Map fields between source and target using the drag-and-drop Field Mapper or auto-match
+4. Map fields between source and target if their names differ (optional: with no mapping, fields with the same API name are copied)
 5. Add transforms (optional), review the Sankey flow diagram, then simulate the run to see what it would write, and run it
 
 ## Features
@@ -66,10 +66,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 
 ### Field Mapping
 
-Two mapping interfaces work together:
-
-- **Field Mapper** -- Visual drag-and-drop canvas showing source fields on the left and target fields on the right. Draw lines to create mappings, or click "Auto Match" to map fields with matching API names.
-- **Field Mapping Canvas** -- Detailed table view with mapping type selection (Direct, Lookup, Formula, etc.) and per-mapping controls.
+The Field Mapping step is optional: an object with no mapping has its fields with the same API name copied, and the step says so. Its editor lists the mappings with a mapping type each (Direct, Rename, Transform, Constant, Formula, Exclude, Add-On) and a remove control; pick a source and a target field to add one, or click "Auto Map" to map every field whose API name is the same in both orgs.
 
 ### Transforms
 
@@ -307,11 +304,11 @@ Before execution, the Review step shows:
   platform writes its values back in; a row the job answered nothing for says
   so, and names the records the job wrote that no row was matched to, which
   the SandForge output channel lists in full
-- Detailed error messages per object for troubleshooting
+- Per object, the records refused grouped by reason -- the status code and the fields it named, how many records, one example in the org's words, and what it means and what to do; a run keeps the refusals of the first 1,000 records refused per object, its history entry the first 50, and both say when they kept fewer than were refused
 
 ## Tips
 
-- Use "Auto Match" in the Field Mapper first, then manually adjust the few fields that do not match
+- Use "Auto Map" on the Field Mapping step first, then adjust the few fields that do not match
 - Narrow the object set and batch sizes for recurring syncs -- a full run reprocesses the full scope; save a recurring one in delta mode to read only what changed
 - Files travel with their records, never as objects: `Attachment`, `ContentVersion` and `Document` are not offered in the object picker, are absent from the prebuilt templates, and a configuration naming one is refused before it runs -- Bulk API 2.0 rejects base64, so such a run used to break past 200 records. Tick **Copy the files of these records** instead (see [Files](#files))
 - Simulate before a run that updates or deletes: an update or a delete cannot be taken back, and the simulation says how many records it would touch

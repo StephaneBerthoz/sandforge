@@ -74,7 +74,11 @@ export const ObjectPicker: React.FC<ObjectPickerProps> = ({
     <fieldset className="flex flex-col gap-2" data-testid={`${testIdPrefix}-objects`}>
       <legend className="mb-1 text-xs font-medium text-text-primary">{legend}</legend>
       {objectsQuery.error && (
-        <ErrorBanner message={objectsQuery.error} data-testid={`${testIdPrefix}-objects-error`} />
+        <ErrorBanner
+          message={objectsQuery.error}
+          code={objectsQuery.errorCode}
+          data-testid={`${testIdPrefix}-objects-error`}
+        />
       )}
       {objectsQuery.loading && (
         <p role="status" className="text-xs text-text-secondary">

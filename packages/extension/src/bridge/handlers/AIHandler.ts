@@ -44,7 +44,6 @@ const AI_TYPES = new Set([
   'ai:conversation:delete',
   'ai:status',
   'ai:save-key',
-  'ai:nl2soql',
   'ai:tool:cancel',
   'ai:forge-plan',
   'ai:anomaly-scan',
@@ -58,7 +57,7 @@ const AI_TYPES = new Set([
  * Delegates to focused sub-handlers:
  * - {@link AIChatHandler} — chat, conversations, status, key management
  * - {@link AIAnalysisHandler} — anomaly scan, schema advice (rule-based)
- * - {@link AIToolsHandler} — NL2SOQL, Forge root queries, pipeline generation
+ * - {@link AIToolsHandler} — Forge root queries, pipeline generation
  */
 export class AIHandler implements DomainHandler {
   private readonly chatHandler: AIChatHandler;

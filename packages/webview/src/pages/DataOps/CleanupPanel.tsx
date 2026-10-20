@@ -280,7 +280,9 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId }) => {
         {t('dataops.cleanupScan.method', { limit: number(CLEANUP_ACTION_LIMIT) })}
       </p>
 
-      {scan.error && <ErrorBanner message={scan.error} data-testid="cleanup-scan-error" />}
+      {scan.error && (
+        <ErrorBanner message={scan.error} code={scan.errorCode} data-testid="cleanup-scan-error" />
+      )}
 
       <p aria-live="polite" className="text-xs" data-testid="cleanup-export-status">
         {exportStatus?.saved.status === 'saved' &&
@@ -296,7 +298,11 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId }) => {
         {exportStatus?.saved.status === 'error' && exportStatus.saved.message}
       </p>
       {exportRecords.error && (
-        <ErrorBanner message={exportRecords.error} data-testid="cleanup-export-error" />
+        <ErrorBanner
+          message={exportRecords.error}
+          code={exportRecords.errorCode}
+          data-testid="cleanup-export-error"
+        />
       )}
 
       {review && (
@@ -318,7 +324,13 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId }) => {
               {t('dataops.cleanupScan.reviewing')}
             </p>
           )}
-          {plan.error && <ErrorBanner message={plan.error} data-testid="cleanup-review-error" />}
+          {plan.error && (
+            <ErrorBanner
+              message={plan.error}
+              code={plan.errorCode}
+              data-testid="cleanup-review-error"
+            />
+          )}
           {planned && (
             <>
               <RemovalPlanView mode="delete" plan={[planned.plan]} />
@@ -332,7 +344,11 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({ orgId }) => {
             </>
           )}
           {remove.error && (
-            <ErrorBanner message={remove.error} data-testid="cleanup-delete-error" />
+            <ErrorBanner
+              message={remove.error}
+              code={remove.errorCode}
+              data-testid="cleanup-delete-error"
+            />
           )}
           {remove.data?.outcome && (
             <RemovalOutcomeView mode="delete" outcome={remove.data.outcome} />

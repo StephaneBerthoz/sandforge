@@ -405,6 +405,82 @@ describe('SyncPage', () => {
     expect(screen.getByText(/starting five minutes earlier/)).toBeDefined();
   });
 
+  it('maps fields in one editor, and says what an object with no mapping gets', () => {
+    // Two editors edited the same list, and a single object's empty list read
+    // "Unmapped" with nothing to say that its fields are copied all the same.
+    draft.value = {
+      currentStep: 1,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [{ objectApiName: 'Account', operation: 'insert', batchSize: 200, where: '' }],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    expect(screen.getAllByTestId('field-mapping-canvas')).toHaveLength(1);
+    expect(screen.queryByTestId('field-mapper')).toBeNull();
+    expect(screen.getByTestId('field-mapping-none').textContent).toBe(
+      'No custom mapping: fields with the same API name are copied.',
+    );
+  });
+
+  it('marks Field Mapping and Transforms as steps that ask nothing to go on', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    expect(screen.getByTestId('sync-optional-field-mapping').textContent).toBe('Optional');
+    expect(screen.getByTestId('sync-optional-transforms').textContent).toBe('Optional');
+    expect(screen.queryByTestId('sync-optional-review')).toBeNull();
+  });
+
+  it('says what each toggle does in one sentence, the rest one click away', () => {
+    // The hints ran to 770 characters at ten pixels, all of it read by a
+    // screen reader on every focus.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    for (const [toggleId, detailsId, short, detail] of [
+      [
+        'sync-delta-toggle',
+        'sync-delta-details',
+        "Reads only the records changed since this saved configuration's last good run.",
+        /starting five minutes earlier/,
+      ],
+      [
+        'sync-delta-deletes',
+        'sync-delta-deletes-details',
+        'Also deletes in the target the records deleted in the source since that run.',
+        /recycle bin/,
+      ],
+      [
+        'sync-contact-points-toggle',
+        'sync-contact-points-details',
+        "Writes every email under .invalid and every phone number as a fictional one, so the target's automation reaches no one.",
+        /flows can email and text real people/,
+      ],
+      [
+        'sync-files-toggle',
+        'sync-files-details',
+        'Also copies the Salesforce Files and attachments of the records it writes.',
+        /never as a second file/,
+      ],
+    ] as const) {
+      const described = screen.getByTestId(toggleId).getAttribute('aria-describedby') ?? '';
+      const sentence = document.getElementById(described);
+      expect({ toggleId, said: sentence?.textContent }).toEqual({ toggleId, said: short });
+      expect(sentence?.className).toContain('text-xs');
+      const details = screen.getByTestId(detailsId) as HTMLDetailsElement;
+      expect(details.tagName).toBe('DETAILS');
+      expect(details.open).toBe(false);
+      expect(details.textContent).toMatch(detail);
+      expect(sentence?.textContent).not.toMatch(detail);
+    }
+  });
+
   describe('delta', () => {
     const upsertEntry = {
       objectApiName: 'Account',

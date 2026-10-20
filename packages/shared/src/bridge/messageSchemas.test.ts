@@ -242,7 +242,7 @@ describe('retired AI channels', () => {
   });
 
   it('still accepts the AI requests that ship, in the same envelope', () => {
-    for (const type of ['ai:chat', 'ai:nl2soql', 'ai:generate-pipeline']) {
+    for (const type of ['ai:chat', 'ai:forge-plan', 'ai:generate-pipeline']) {
       expect(
         EnvelopedMessageSchema.safeParse({
           protocolVersion: PROTOCOL_VERSION,
@@ -281,6 +281,10 @@ describe('requests no screen sends', () => {
     'forge:target-preflight:request',
     'forge:target-preflight:response',
     'forge:target-preflight:error',
+    // Seed's NL2SOQL helper was its only sender; Forge drafts its query
+    // through ai:forge-plan.
+    'ai:nl2soql',
+    'ai:nl2soql:response',
     // The online/offline banner was removed; the status it asked for was read
     // once on mount and never displayed.
     'connectivity:status',

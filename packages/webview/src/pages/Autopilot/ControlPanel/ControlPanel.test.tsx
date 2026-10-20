@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../../i18n';
+import en from '../../../i18n/locales/en.json';
 import { ControlPanel } from './ControlPanel';
 
 /** Captured bridge messages sent by the control panel. */
@@ -350,6 +351,19 @@ describe('ControlPanel node detail — what the node came to', () => {
     expect(refusals.textContent).toContain('Pricebook2Id');
     expect(refusals.textContent).toContain('2 records');
     expect(refusals.textContent).toContain('invalid cross reference id');
+  });
+
+  it('says under each refusal what it means and what to do, as Forge says it of the same code', () => {
+    // The list printed the code and the org's words, with no next step.
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    const hint = within(screen.getByTestId('node-refusals')).getByTestId('error-hint');
+    expect(hint.textContent).toContain(en.errors.invalidCrossReferenceKey.explanation);
+    expect(hint.textContent).toContain(en.errors.invalidCrossReferenceKey.action);
+    expect(within(hint).getByRole('link').textContent).toBe(
+      'Search Salesforce Help for INVALID_CROSS_REFERENCE_KEY',
+    );
   });
 
   it('shows the records linked to what the target held, and the statuses given back', () => {

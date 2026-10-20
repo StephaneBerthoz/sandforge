@@ -8,6 +8,12 @@ interface HelpSection {
   id: string;
   titleKey: string;
   contentKey: string;
+  /**
+   * The module's one sentence, said first: the side panel, Home and the
+   * module's empty state say it in the same words. Forge was described three
+   * ways, and Autopilot as if it generated data.
+   */
+  summaryKey?: string;
   /** Optional icon displayed next to the section title. */
   icon?: string;
 }
@@ -28,14 +34,26 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   // Forge first: the sidebar hero, the walkthrough and the welcome wizard all
   // lead with it.
-  { id: 'forge', titleKey: 'nav.forge', contentKey: 'help.forgeContent', icon: '\uD83D\uDD28' },
+  {
+    id: 'forge',
+    titleKey: 'nav.forge',
+    summaryKey: 'moduleSummary.forge',
+    contentKey: 'help.forgeContent',
+    icon: '\uD83D\uDD28',
+  },
   {
     id: 'monitor',
     titleKey: 'nav.monitor',
     contentKey: 'help.monitorContent',
     icon: '\uD83D\uDCCA',
   },
-  { id: 'seed', titleKey: 'nav.seed', contentKey: 'help.seedContent', icon: '\uD83C\uDF31' },
+  {
+    id: 'seed',
+    titleKey: 'nav.seed',
+    summaryKey: 'moduleSummary.seed',
+    contentKey: 'help.seedContent',
+    icon: '\uD83C\uDF31',
+  },
   { id: 'sync', titleKey: 'nav.sync', contentKey: 'help.syncContent', icon: '\uD83D\uDD04' },
   {
     id: 'compare',
@@ -65,6 +83,7 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'autopilot',
     titleKey: 'nav.autopilot',
+    summaryKey: 'moduleSummary.autopilot',
     contentKey: 'help.autopilotContent',
     icon: '\u2708\uFE0F',
   },
@@ -134,8 +153,9 @@ export const HelpPage: React.FC = () => {
     const query = searchQuery.toLowerCase();
     return HELP_SECTIONS.filter((section) => {
       const title = t(section.titleKey).toLowerCase();
+      const summary = section.summaryKey ? t(section.summaryKey).toLowerCase() : '';
       const content = t(section.contentKey).toLowerCase();
-      return title.includes(query) || content.includes(query);
+      return title.includes(query) || summary.includes(query) || content.includes(query);
     });
   }, [searchQuery, t]);
 
@@ -225,6 +245,15 @@ export const HelpPage: React.FC = () => {
                     whiteSpace: 'pre-line',
                   }}
                 >
+                  {section.summaryKey && (
+                    <p
+                      className="mb-2 text-sm font-medium"
+                      style={{ color: 'var(--sf-text-primary)', whiteSpace: 'normal' }}
+                      data-testid={`help-summary-${section.id}`}
+                    >
+                      {t(section.summaryKey)}
+                    </p>
+                  )}
                   {t(section.contentKey)}
                 </div>
               )}

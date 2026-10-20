@@ -61,14 +61,18 @@
       "autopilotWriteDeclined": "Canceló la ejecución de Autopilot antes de que escribiera nada. No se escribió nada en la org de destino.",
       "autopilotConfirmationUnavailable": "La ejecución de Autopilot se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
       "seedStorageExceeded": "El seed se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB. Reduzca el número de registros, elija una plantilla más ligera o libere almacenamiento de datos en {{org}}.",
-      "orgAuthExpired": "La sesión con esta org ha caducado y no se pudo renovar. Vuelva a conectarla en la página Organizaciones (Intentar reconectar, en su tarjeta).",
-      "orgTemporarilyUnreachable": "Esta org falló varias veces seguidas, así que SandForge espera un momento antes de volver a llamarla. Vuelva a intentarlo en un minuto.",
       "seedEmailsExceeded": "El seed se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Reduzca el número de registros, ponga {{objects}} a 0, desactive {{senders}} o asígnese el permiso que los silencia."
     },
     "list": {
       "separator": ", ",
       "and": " y "
-    }
+    },
+    "recordErrors": {
+      "group": "{{n}} × {{reason}}",
+      "listed": "Agrupados a partir de los primeros {{listed}} de los {{failed}} registros rechazados."
+    },
+    "details": "Detalles",
+    "optional": "Opcional"
   },
   "status": {
     "apiUsage": "Uso de API",
@@ -141,7 +145,6 @@
     },
     "moreMethods": "Más métodos",
     "cliMissing": "La Salesforce CLI (sf) no responde en este equipo. Importar desde SF CLI y OAuth (Web) funcionan con ella.",
-    "noCliOrgs": "La Salesforce CLI aún no tiene ninguna org. Inicie sesión con OAuth (Web): abre el inicio de sesión de Salesforce en su navegador.",
     "aliasOptionalHint": "Opcional: sin alias, la org toma el nombre de su nombre de usuario.",
     "connectedNext": {
       "title": "{{alias}} está conectada",
@@ -925,7 +928,6 @@
     },
     "emptyState": {
       "title": "Llene su sandbox con datos de prueba realistas",
-      "description": "Seed genera datos sintéticos — plantillas, IA, CSV u otra org — para desarrollar y probar sin datos de producción.",
       "step2": "Elija una plantilla o un modo: IA, CSV, Clonar",
       "step3": "Elija objetos y volúmenes de registros",
       "step4": "Ejecute y revise los resultados"
@@ -936,19 +938,7 @@
     "results": {
       "aiFallback": "La IA no devolvió ningún valor, así que estos campos recibieron frases generadas: {{fields}}. La IA está desactivada, o la llamada fue rechazada (el registro de SandForge indica el motivo).",
       "aiFallbackShort": "A la respuesta de la IA le faltaban valores, así que estos campos recibieron frases generadas: {{fields}}.",
-      "errorGroup": "{{n}} × {{reason}}",
-      "errorsListed": "Agrupados a partir de los primeros {{listed}} de los {{failed}} registros rechazados.",
-      "openRecord": "Abrir un {{object}} creado en {{org}}",
-      "errorHint": {
-        "requiredFieldMissing": "La org exige un valor que la ejecución no proporcionó. Haga el seed desde el asistente y dé una regla al campo en su paso Configurar.",
-        "validationRule": "Una regla de validación de la org rechazó los valores generados. Dé a los campos que comprueba reglas cuyos valores acepte, o desactívela mientras hace el seed.",
-        "restrictedPicklist": "Un valor generado no forma parte de esta lista de selección restringida, o el tipo de registro no lo acepta. Dé al campo los valores que la org prevé para él.",
-        "duplicateValue": "Un campo único recibió un valor que ya tiene un registro de la org. Dé al campo una regla cuyos valores no se repitan.",
-        "duplicateRule": "Una regla de duplicados de la org configurada en Bloquear rechazó el registro generado. Desactívela mientras hace el seed, o configure su acción al crear en Permitir.",
-        "storageFull": "La org no tiene más almacenamiento de datos: una Developer Edition tiene 5 MB. Elimine un seed anterior, o genere menos registros.",
-        "standardPrice": "Salesforce solo acepta el precio de un producto en una lista de precios personalizada cuando el producto ya tiene un precio en la lista de precios estándar. Dé primero un precio estándar a estos productos.",
-        "flowFailed": "Un Flow de la org falló al guardar el registro, y la org rechazó el registro. Corrija el Flow, o desactívelo mientras hace el seed."
-      }
+      "openRecord": "Abrir un {{object}} creado en {{org}}"
     },
     "sampleRecordCount_one": "{{count}} registro de muestra",
     "sampleRecordCount_other": "{{count}} registros de muestra",
@@ -1115,10 +1105,7 @@
     "addTransform": "Agregar transformación",
     "addMapping": "Agregar mapeo",
     "autoMap": "Mapeo automático",
-    "unmapped": "Sin mapear",
     "suggestedMappings": "Mapeos sugeridos",
-    "autoMatch": "Coincidencia automática",
-    "fieldMapperHint": "Haga clic en un campo origen y luego en un campo destino para crear un mapeo",
     "selectAndConfigure": "Seleccionar orgs y objetos",
     "templates": {
       "title": "Plantillas de inicio rápido",
@@ -1399,9 +1386,7 @@
     },
     "delta": {
       "toggle": "Copiar solo lo que cambió desde la última ejecución correcta (delta)",
-      "toggleHint": "Cada objeto lee los registros que su origen modificó desde su última ejecución correcta, empezando cinco minutos antes para recoger los guardados confirmados durante una lectura. La primera ejecución, una ejecución tras cambiar su filtro, sus campos, su clave o su asignación, o tras activar o desactivar sus archivos, y una ejecución tras «Ejecutar completo la próxima vez» lo leen todo. Lo que una ejecución delta lee dos veces lo escribe dos veces, así que cada objeto debe escribirse por upsert sobre un External ID, o por actualización. Solo se guarda una marca para una configuración guardada: guárdela y ejecútela desde aquí, desde las configuraciones guardadas o con una programación.",
       "deletes": "Eliminar en el destino lo que el origen eliminó",
-      "deletesHint": "Desactivado salvo que se marque. Una ejecución delta lee la papelera del origen en busca de los registros eliminados desde su última ejecución correcta, dentro del filtro del objeto, y elimina el único registro de destino al que cada uno está vinculado por la clave con la que la escritura empareja. Se conserva un registro de destino que no pueda vincular a exactamente un registro eliminado, o cuya clave aún tenga un registro de origen. Los registros vaciados de la papelera no se ven. Production Guard juzga la ejecución como una eliminación.",
       "needsKey": "Una ejecución delta necesita que cada objeto se escriba por upsert sobre un External ID, o por actualización: {{objects}}.",
       "withDeletes": "Delta, eliminaciones aplicadas",
       "since": "Delta desde {{time}}",
@@ -1425,15 +1410,19 @@
         "no_modstamp": "Lectura completa (el origen no da SystemModstamp para este objeto)",
         "not_saved": "Lectura completa (configuración no guardada: no se guarda ninguna marca)",
         "removed": "Lectura completa (una eliminación quitó copias escritas)"
-      }
+      },
+      "toggleDetails": "Cada objeto lee los registros que su origen modificó desde su última ejecución correcta, empezando cinco minutos antes para recoger los guardados confirmados durante una lectura. La primera ejecución, una ejecución tras cambiar su filtro, sus campos, su clave o su asignación, o tras activar o desactivar sus archivos, y una ejecución tras «Ejecutar completo la próxima vez» lo leen todo. Lo que una ejecución delta lee dos veces lo escribe dos veces, así que cada objeto debe escribirse por upsert sobre un External ID, o por actualización. Solo se guarda una marca para una configuración guardada: guárdela y ejecútela desde aquí, desde las configuraciones guardadas o con una programación.",
+      "deletesDetails": "Desactivado salvo que se marque. Una ejecución delta lee la papelera del origen en busca de los registros eliminados desde su última ejecución correcta, dentro del filtro del objeto, y elimina el único registro de destino al que cada uno está vinculado por la clave con la que la escritura empareja. Se conserva un registro de destino que no pueda vincular a exactamente un registro eliminado, o cuya clave aún tenga un registro de origen. Los registros vaciados de la papelera no se ven. Production Guard juzga la ejecución como una eliminación.",
+      "toggleHint": "Lee solo los registros modificados desde la última ejecución correcta de esta configuración guardada.",
+      "deletesHint": "También elimina en el destino los registros eliminados en el origen desde esa ejecución."
     },
     "contactPoints": {
       "toggle": "Neutralizar los correos y los números de teléfono (recomendado)",
-      "toggleHint": "Activado salvo que se desmarque. Cada dirección de correo se escribe bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie. Desmarcado, se copian tal como los tiene el origen, y los flujos del destino pueden enviar correos y SMS a personas reales. El campo con el que la escritura empareja se conserva tal como se leyó."
+      "toggleDetails": "Activado salvo que se desmarque. Cada dirección de correo se escribe bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie. Desmarcado, se copian tal como los tiene el origen, y los flujos del destino pueden enviar correos y SMS a personas reales. El campo con el que la escritura empareja se conserva tal como se leyó.",
+      "toggleHint": "Escribe cada email bajo .invalid y cada número de teléfono como uno ficticio, para que la automatización del destino no llegue a nadie."
     },
     "files": {
       "toggle": "Copiar los archivos de estos registros",
-      "toggleHint": "Desactivado salvo que se marque. Una vez escritos los registros de un objeto, la última versión de cada archivo de Salesforce vinculado a uno de ellos, y sus archivos adjuntos clásicos, se copian y se vinculan a las copias de los registros en el destino. Una configuración guardada recuerda qué archivo copió y dónde: ejecutarla de nuevo copia un archivo solo si el origen tiene una versión más reciente, que se añade como versión de la copia, nunca como un segundo archivo. Antes de que la ejecución escriba nada, se lee el almacenamiento de archivos del destino y se rechaza una ejecución cuyos archivos no cabrían. Un archivo más grande que el tamaño máximo, y los archivos que superan lo máximo que copia una ejecución, se omiten y se cuentan; la siguiente ejecución copia estos últimos. Quitar una ejecución retira, con sus registros, los archivos que creó; una versión añadida a una copia anterior se queda.",
       "maxFileSize": "Archivo más grande (MB, 35 como máximo)",
       "maxRun": "Máximo por ejecución (MB, 2000 como máximo)",
       "needsSave": "Esta configuración copia archivos: guárdela primero. Una configuración guardada recuerda los archivos que copió, para que una segunda ejecución no los vuelva a copiar; una sin guardar se rechaza.",
@@ -1465,7 +1454,9 @@
       "failed_one": "{{count}} archivo no se pudo copiar: las notas de abajo dicen por qué",
       "failed_other": "{{count}} archivos no se pudieron copiar: las notas de abajo dicen por qué",
       "storage": "Estos archivos ocupan {{size}} de los {{left}} de almacenamiento de archivos que le quedan al destino.",
-      "wouldNotFit": "Estos archivos ocupan {{size}} y al destino le quedan {{left}} de almacenamiento de archivos: se rechazaría una ejecución antes de escribir nada."
+      "wouldNotFit": "Estos archivos ocupan {{size}} y al destino le quedan {{left}} de almacenamiento de archivos: se rechazaría una ejecución antes de escribir nada.",
+      "toggleDetails": "Desactivado salvo que se marque. Una vez escritos los registros de un objeto, la última versión de cada archivo de Salesforce vinculado a uno de ellos, y sus archivos adjuntos clásicos, se copian y se vinculan a las copias de los registros en el destino. Una configuración guardada recuerda qué archivo copió y dónde: ejecutarla de nuevo copia un archivo solo si el origen tiene una versión más reciente, que se añade como versión de la copia, nunca como un segundo archivo. Antes de que la ejecución escriba nada, se lee el almacenamiento de archivos del destino y se rechaza una ejecución cuyos archivos no cabrían. Un archivo más grande que el tamaño máximo, y los archivos que superan lo máximo que copia una ejecución, se omiten y se cuentan; la siguiente ejecución copia estos últimos. Quitar una ejecución retira, con sus registros, los archivos que creó; una versión añadida a una copia anterior se queda.",
+      "toggleHint": "También copia los archivos de Salesforce y los adjuntos de los registros escritos."
     },
     "removal": {
       "title": "Lo que creó esta ejecución",
@@ -1492,7 +1483,8 @@
       "unfinishedTitle": "Ejecuciones que nunca terminaron",
       "unfinishedNote": "Una ventana se cerró durante estas ejecuciones, o el historial ya no las lista. Lo que crearon se conserva, y se puede quitar.",
       "unfinishedRun": "{{config}}, iniciada el {{date}}"
-    }
+    },
+    "noCustomMapping": "Sin asignación personalizada: se copian los campos con el mismo nombre de API."
   },
   "migration": {
     "title": "Migración",
@@ -2680,19 +2672,19 @@
     "title": "Ayuda y Recursos",
     "gettingStarted": "Primeros pasos",
     "gettingStartedDesc": "Aprenda los conceptos básicos de SandForge",
-    "gettingStartedContent": "1. Conecte su org Salesforce desde la página de Organizaciones.\n2. Use Forge para clonar un registro real, y los registros que lo rodean, en su sandbox.\n3. Abra el Monitor para verificar la salud de su org.\n4. Use Seed para generar datos de prueba, o Sync para copiar datos entre dos orgs.\n5. Explore Compare, DataOps, Dataset congelado y Automatización para flujos de trabajo avanzados.",
+    "gettingStartedContent": "1. Conecte su org Salesforce en la página Organizaciones.\n2. Llénela con Seed: una plantilla como CRM Starter escribe cuentas, contactos, oportunidades y casos vinculados, tras comprobar el almacenamiento de la org.\n3. Clone con Forge: copie un registro real y todo lo que lo rodea desde otra org.\n4. Abra el Monitor para comprobar la salud, los límites y los jobs de la org.\n5. Explore Sync, Compare, DataOps, Dataset congelado y Automatización cuando los necesite.",
     "monitorContent": "El panel de Monitor muestra la salud de la org en tiempo real:\n- Indicador de puntaje de salud con factores contribuyentes\n- Límites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Alertas para umbrales críticos\n\nConsejo: Habilite la actualización automática para monitoreo continuo.",
-    "seedContent": "El asistente de Seed genera datos de prueba realistas:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estático, secuencia...)\n4. Fije el número de registros — un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n5. Revise y ejecute\n\nConsejo: Use la generación IA para los datos más realistas.",
+    "seedContent": "En cinco pasos:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estático, secuencia...)\n4. Fije el número de registros — un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n5. Revise y ejecute\n\nConsejo: Use la generación IA para los datos más realistas.",
     "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Completa o delta: una ejecución completa lee cada objeto entero; una ejecución delta de una configuración guardada lee cada objeto desde donde terminó su última ejecución correcta, y puede eliminar en el destino lo que el origen eliminó. Una configuración que pide incremental se rechaza\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas, minúsculas y recorte de espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; el mapeo de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Pestaña Tiempo real: sigue los eventos de cambio (Change Data Capture) que publica la org de origen y escribe cada cambio en el destino en cuanto llega, localizado por un ID externo, el ID de registro o la asignación de una sync guardada; las eliminaciones solo si se piden. Para seguir otro objeto, selecciónelo en Configuración → Change Data Capture en la org de origen. Un cambio cuyo registro de destino se editó después lo decide la estrategia, o queda retenido en la pestaña Conflictos\n- Quitar lo que creó una ejecución: desde sus resultados o su entrada del historial, la eliminación de una ejecución borra los registros que insertó, o escribió por upsert donde el destino no tenía ninguno, y los archivos que creó; Production Guard la rechaza en una org de producción. Los registros que una ejecución actualizó conservan sus nuevos valores, así que haga primero un respaldo DataOps de la org de destino (cubre los objetos que enmascaran las plantillas de anonimización: Contact, Lead, Account y Opportunity en las incluidas)",
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Snapshots: los objetos de ambas orgs, capturados en vivo al abrir la pestaña\n- Desvío: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Despliegue: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox",
     "dataopsContent": "Operaciones de datos en la org seleccionada:\n- Respaldo: una instantánea de los objetos que enmascaran las plantillas de anonimización, o de los que enmascara la plantilla elegida, guardada en el almacenamiento de la extensión\n- Restauración: devuelve un respaldo, entero, a la org de la que se tomó\n- Anonimización: enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA; es irreversible, así que haga un respaldo antes\n- Calidad: para los objetos que elija, cuenta con qué frecuencia se rellena cada campo, qué valores de una clave como Name o Email comparten varios registros y cuántos registros nadie ha modificado en un número de días; la org hace el recuento, y no se lee registro por registro ni se escribe nada\n- Cumplimiento: encuentra los campos de los objetos elegidos que contienen datos personales, confirmados en una muestra de sus últimos 200 registros; después encuentra los registros de una persona por correo, nombre o teléfono, los exporta a un archivo y los anonimiza in situ o los elimina, tras una revisión, una confirmación escrita y Production Guard; un registro local guarda recuentos de cada solicitud, nunca a quién se refería\n- Limpieza: cuenta los registros que nadie ha modificado en un número de días, los que dejan vacío un campo de búsqueda en el que se apoya el negocio y las copias sobrantes de un valor repetido; cada grupo puede exportarse, o eliminarse tras una revisión, una confirmación escrita y Production Guard, como mucho 1.000 a la vez",
     "automationContent": "Constructor visual de pipelines:\n- La paleta ofrece los tipos de pasos que un pipeline ejecuta: Respaldo, Comparación, Pre-verificación, Retraso y Notificación; un paso Condición viene con una plantilla del Marketplace. Un pipeline que contenga un paso que escribe en una org, o un paso Script, Aprobación, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
-    "forgeContent": "Forge clona un registro real, y los registros a su alrededor, de una org a otra:\n1. Pegue un ID de registro o una URL de Salesforce y elija las orgs de origen y destino\n2. Descubrir grafo recorre las relaciones desde ese registro\n3. Ajuste la profundidad, los registros por objeto y la anonimización de PII\n4. Revise el plan y ejecútelo: los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica\n\nClonar directamente, bajo Descubrir grafo, ejecuta el descubrimiento y luego la clonación de lo que encontró, sin detenerse en el grafo ni en la revisión: la ejecución se envía como la envía la revisión cuando no se cambió nada allí, Production Guard la juzga como cualquier ejecución y no se ejecuta la comparación de metadatos entre las dos orgs.\n\nGrafo o tabla: las pantallas de descubrimiento, revisión y ejecución dibujan un grafo de hasta 25 objetos y enumeran uno mayor en una tabla. El selector Vista de grafo / Vista de tabla elige la otra vista en todas las pantallas hasta que se cierra el panel; el ajuste sandforge.forge.graphView (auto, graph o table) elige la vista con la que se abren.\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",
+    "forgeContent": "En cuatro pasos:\n1. Pegue un ID de registro o una URL de Salesforce y elija las orgs de origen y destino\n2. Descubrir grafo recorre las relaciones desde ese registro\n3. Ajuste la profundidad, los registros por objeto y la anonimización de PII\n4. Revise el plan y ejecútelo: los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica\n\nClonar directamente, bajo Descubrir grafo, ejecuta el descubrimiento y luego la clonación de lo que encontró, sin detenerse en el grafo ni en la revisión: la ejecución se envía como la envía la revisión cuando no se cambió nada allí, Production Guard la juzga como cualquier ejecución y no se ejecuta la comparación de metadatos entre las dos orgs.\n\nGrafo o tabla: las pantallas de descubrimiento, revisión y ejecución dibujan un grafo de hasta 25 objetos y enumeran uno mayor en una tabla. El selector Vista de grafo / Vista de tabla elige la otra vista en todas las pantallas hasta que se cierra el panel; el ajuste sandforge.forge.graphView (auto, graph o table) elige la vista con la que se abren.\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",
     "frozenContent": "Dataset congelado extrae un conjunto de datos de un sandbox de origen una sola vez y lo reproduce idéntico tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Seudonimización determinista, con una sal que se guarda fuera del repositorio\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: solo sandboxes como destino, con un Piloto opcional sobre un único expediente raíz antes de la carga completa, y una verificación después de la carga",
     "grappeContent": "Grappe divide una operación grande en particiones e informa el progreso al completarse cada una:\n- Actívelo con el ajuste sandforge.grappe.enabled\n- Una ejecución de Seed por encima del umbral de registros informa cada partición, una Sync por encima de ese umbral informa una partición por objeto y un plan de Autopilot solo informa su inicio y su fin\n- Las particiones se procesan una tras otra: Grappe no hace más rápida una ejecución",
-    "aiContent": "El Asistente IA, con su propia clave de Anthropic:\n- Chat, y NL2SOQL, personas personalizadas y reglas de campo IA en Seed\n- Borradores de pipeline en Automation\n- Una tabla integrada de códigos de error de Salesforce responde primero a los códigos que conoce, en su máquina, con la IA activada o desactivada, y no envía nada\n- No se envía nada por una lista fija de mensajes propios de SandForge, como una confirmación de producción rechazada, una ejecución duplicada o un rechazo CRUD, FLS o de Production Guard, ni por un fallo ocurrido sin ninguna vista de SandForge abierta\n- Con la IA activada, cualquier otra ejecución fallida de Seed, Sync, DataOps o Automation envía su mensaje de error, con sus Id de Salesforce reemplazados por <id>, y la sugerencia vuelve como notificación de VS Code\n- Desactive ese envío con sandforge.ai.errorResolution: el resto del asistente sigue funcionando\n- Los consejos de esquema de Compare y el escaneo de anomalías de Monitor se basan en reglas: funcionan con la IA desactivada y sin clave\n- Configure su clave API en Configuración > IA",
+    "aiContent": "El Asistente IA, con su propia clave de Anthropic:\n- Chat, NL2SOQL en la pestaña IA de Forge, y personas personalizadas y reglas de campo IA en Seed\n- Borradores de pipeline en Automation\n- Una tabla integrada de códigos de error de Salesforce responde primero a los códigos que conoce, en su máquina, con la IA activada o desactivada, y no envía nada\n- No se envía nada por una lista fija de mensajes propios de SandForge, como una confirmación de producción rechazada, una ejecución duplicada o un rechazo CRUD, FLS o de Production Guard, ni por un fallo ocurrido sin ninguna vista de SandForge abierta\n- Con la IA activada, cualquier otra ejecución fallida de Seed, Sync, DataOps o Automation envía su mensaje de error, con sus Id de Salesforce reemplazados por <id>, y la sugerencia vuelve como notificación de VS Code\n- Desactive ese envío con sandforge.ai.errorResolution: el resto del asistente sigue funcionando\n- Los consejos de esquema de Compare y el escaneo de anomalías de Monitor se basan en reglas: funcionan con la IA desactivada y sin clave\n- Configure su clave API en Configuración > IA",
     "shortcutsContent": "G + letra — Ir a un módulo (p. ej. G y luego F para Forge, G y luego Y para Sync, G y luego L para Ayuda)\nCtrl+K — Paleta de comandos\nEscape — Cerrar modales y diálogos\nTab — Navegar entre elementos\nEnter/Espacio — Activar botones y enlaces",
-    "faqContent": "P: ¿Por qué mi Puntaje de Salud es bajo?\nR: Verifique el uso de límites de API, jobs fallidos y consumo de almacenamiento. El puntaje pondera múltiples factores.\n\nP: ¿Cómo solucionar errores de timeout?\nR: SandForge no tiene ningún ajuste de tiempo de espera para las llamadas a Salesforce. Reduzca el tamaño de lote (sandforge.seed.defaultBatchSize y sandforge.sync.defaultBatchSize en la configuración de VS Code) y divida una ejecución grande en varias más pequeñas. Grappe no hace más rápida una ejecución: informa el progreso por partición.\n\nP: ¿Puedo deshacer una operación de sync?\nR: En parte. La eliminación de una ejecución, desde sus resultados o su entrada del historial, borra lo que creó: los registros que insertó, o escribió por upsert donde el destino no tenía ninguno, y sus archivos. Los registros que actualizó conservan sus nuevos valores. Antes de una ejecución arriesgada, haga un respaldo DataOps de la org de destino: cubre los objetos que enmascaran las plantillas de anonimización, y solo se restaura en esa org.\n\nP: ¿Cómo conectar una org de producción de forma segura?\nR: Las orgs de producción se detectan automáticamente y se marcan con nivel de seguridad Crítico. Todas las operaciones destructivas requieren confirmación.",
+    "faqContent": "P: ¿Por qué mi Puntaje de Salud es bajo?\nR: Verifique el uso de límites de API, jobs fallidos y consumo de almacenamiento. El puntaje pondera múltiples factores.\n\nP: ¿Cómo solucionar errores de timeout?\nR: SandForge no tiene ningún ajuste de tiempo de espera para las llamadas a Salesforce. Reduzca el tamaño de lote (sandforge.seed.defaultBatchSize y sandforge.sync.defaultBatchSize en la configuración de VS Code) y divida una ejecución grande en varias más pequeñas. Grappe no hace más rápida una ejecución: informa el progreso por partición.\n\nP: ¿Puedo deshacer una operación de sync?\nR: En parte. La eliminación de una ejecución, desde sus resultados o su entrada del historial, borra lo que creó: los registros que insertó, o escribió por upsert donde el destino no tenía ninguno, y sus archivos. Los registros que actualizó conservan sus nuevos valores. Antes de una ejecución arriesgada, haga un respaldo DataOps de la org de destino: cubre los objetos que enmascaran las plantillas de anonimización, y solo se restaura en esa org.\n\nP: ¿Cómo conectar una org de producción de forma segura?\nR: SandForge detecta una org de producción y la marca con el nivel de seguridad Crítico. Production Guard rechaza allí de entrada una eliminación o un despliegue de metadatos, y le pide confirmar cualquier otra escritura antes de que se ejecute (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
     "shortcuts": "Atajos de teclado",
     "troubleshooting": "Solución de problemas",
@@ -2711,9 +2703,9 @@
     "sfStackExchangeDesc": "Preguntas y respuestas de la comunidad para desarrolladores de Salesforce",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Iniciar tour guiado",
-    "autopilotContent": "Autopilot copia los objetos que elija de una org de origen a una org de destino, en tres pasos:\n1. Elija la org de origen y la de destino\n2. Seleccione los objetos que desea copiar\n3. Revise el plan (oleadas, registros, llamadas a la API, campos PII) y ejecútelo. Los correos y los números de teléfono se neutralizan salvo que lo desmarque — cada dirección bajo .invalid, cada número ficticio — y Avanzado elige un marco de cumplimiento que anonimiza más (RGPD, CCPA, HIPAA o PCI-DSS)",
+    "autopilotContent": "En tres pasos:\n1. Elija la org de origen y la de destino\n2. Seleccione los objetos que desea copiar\n3. Revise el plan (oleadas, registros, llamadas a la API, campos PII) y ejecútelo. Los correos y los números de teléfono se neutralizan salvo que lo desmarque — cada dirección bajo .invalid, cada número ficticio — y Avanzado elige un marco de cumplimiento que anonimiza más (RGPD, CCPA, HIPAA o PCI-DSS)",
     "migrationContent": "Migración convierte una definición de migración existente en una configuración de Sync:\n- Importe un export.json de SFDMU, o un archivo .json o .csv\n- La importación lee el archivo y no cambia nada en ninguna org\n- Ejecutar la configuración convertida escribe registros en la org de destino",
-    "reportsContent": "Reportes lee el historial de ejecuciones que Forge y Sync ya conservan:\n- Ejecuciones: cada ejecución con su estado, duración y número de registros, exportable en JSON\n- Análisis: tasas de éxito calculadas a partir de esas ejecuciones\n- Registro de auditoría y linaje de datos: próximamente, nada los registra todavía"
+    "reportsContent": "Reportes muestra lo que hicieron las ejecuciones de SandForge:\n- Ejecuciones: cada ejecución de Forge y Sync con su estado, duración y número de registros, exportable en JSON\n- Análisis: tasas de éxito calculadas a partir de esas ejecuciones\n- Registro de auditoría: cada ejecución que escribe en una org — una clonación Forge, una sincronización, un seed, una importación CSV, una clonación de registros, una ejecución de Autopilot, una restauración, un enmascaramiento o una carga de dataset congelado — con lo que escribió en cada objeto y lo que decidió Production Guard\n- Linaje de datos: de dónde vinieron los registros que escribió una ejecución — otra org, datos generados, un archivo CSV, un respaldo o un dataset congelado — y cuántos de cada objeto"
   },
   "emptyState": {
     "connectViaSfdx": "Conecte una org (inicio de sesión en el navegador)",
@@ -2750,7 +2742,6 @@
     "opsLast7d": "Ops (7 días)",
     "limitWarnings": "Advertencias de límites",
     "forgeASandbox": "Forjar un sandbox",
-    "forgeDescription": "Clone registros con resolución completa de dependencias",
     "recordIdPlaceholder": "ID de registro (p. ej. 001...)",
     "startForge": "Iniciar Forge",
     "invalidRecordId": "ID o URL de registro de Salesforce no válido",
@@ -2837,7 +2828,6 @@
       "declined": "Ensayo cancelado en su confirmación. No se envió nada al destino.",
       "error": "No se pudo hacer el ensayo: {{error}}"
     },
-    "subtitle": "Clone registros con resolución completa de dependencias",
     "recordTab": "Registro",
     "soqlTab": "SOQL",
     "templateTab": "Plantilla",
@@ -3112,7 +3102,6 @@
     "quickStartTemplateHint": "Omita el descubrimiento y use el conjunto de objetos conocido de la plantilla inicial. Las cantidades de registros se consultarán durante la ejecución.",
     "emptyState": {
       "title": "Rellene su sandbox a partir de un registro real",
-      "description": "Forge clona un registro raíz y todo su grafo de relaciones — Accounts, Contacts, Opportunities, Cases — hacia su sandbox, reasignando los ID al escribir. Un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica.",
       "step1Select": "Seleccione una org de origen",
       "step2": "Pegue el ID de un registro raíz (p. ej. una Account de UAT)",
       "step3": "Descubra su grafo de relaciones",
@@ -3480,189 +3469,6 @@
         "resultCancelled": "El barrido no llegó al final: lo que hizo hasta entonces aparece en la lista.",
         "resultRefused": "El barrido se rechazó y no eliminó nada.",
         "sweptOn": "Barrido el {{date}}:"
-      }
-    },
-    "error": {
-      "duplicateValue": {
-        "explanation": "Ya existe en la org de destino un registro con el mismo valor único, a menudo clonado por una ejecución anterior.",
-        "action": "Elimine los registros que creó la ejecución anterior, o ejecute la clonación desde la línea de comandos con --upsert, que actualiza por ID externo cuando el objeto tiene uno."
-      },
-      "invalidCrossReferenceKey": {
-        "explanation": "Una búsqueda apunta a un registro que no existe en la org de destino, a menudo un usuario como el propietario.",
-        "action": "Cree o asigne el registro referenciado en la org de destino, o deje la búsqueda vacía y complétela después de la clonación."
-      },
-      "requiredFieldMissing": {
-        "explanation": "Un campo obligatorio no tiene valor: {{detail}}.",
-        "action": "Active «Obtener padres automáticamente», o aumente la profundidad para que el padre requerido forme parte de la clonación."
-      },
-      "invalidPicklist": {
-        "explanation": "Un valor de lista de selección del origen no lo acepta la org de destino: el campo no lo contiene, o el tipo de registro con el que se escribe el registro no lo acepta — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno. Cuando el rechazo indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
-        "action": "Añada el valor a la lista de selección en el Setup de la org de destino, y al tipo de registro del registro, o cambie el valor en el registro de origen."
-      },
-      "fieldCustomValidation": {
-        "explanation": "Una regla de validación de la org de destino rechazó el registro. Cuando la regla indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
-        "action": "Cambie el valor en el registro de origen, o ajuste la regla en la org de destino, y luego reintente los objetos fallidos."
-      },
-      "invalidFieldForInsert": {
-        "explanation": "Un campo no se puede establecer al crear: es calculado, está oculto por la seguridad a nivel de campo o no existe en la org de destino.",
-        "action": "Revise la seguridad a nivel de campo de su usuario en la org de destino y compare el campo entre ambas orgs."
-      },
-      "fieldIntegrity": {
-        "explanation": "Salesforce rechazó el registro por una regla de integridad: {{detail}}.",
-        "action": "Lea el detalle: Salesforce suele indicar el campo o la regla implicados."
-      },
-      "cannotInsertEntity": {
-        "explanation": "Salesforce no acepta registros nuevos de este objeto (objeto de historial, auditoría o sistema).",
-        "action": "Excluya este objeto de la clonación."
-      },
-      "automationRefused": {
-        "explanation": "Una automatización de la org de destino — un desencadenador, un Flow o un proceso que se ejecuta al guardar un registro — falló en este registro, y la org de destino lo rechazó. El mensaje suele nombrarla, con lo que salió mal.",
-        "action": "Corrija esa automatización en la org de destino, o desactívela mientras clona, y luego reintente los objetos fallidos."
-      },
-      "insufficientAccess": {
-        "explanation": "Su usuario en la org de destino no tiene el acceso que requiere esta escritura.",
-        "action": "Pida el permiso que falta a un administrador, o conecte la org de destino con un usuario que lo tenga."
-      },
-      "storageLimit": {
-        "explanation": "La org de destino no tiene espacio de almacenamiento de datos disponible.",
-        "action": "Elimine de la org de destino los registros que ya no necesite y vuelva a ejecutar."
-      },
-      "invalidType": {
-        "explanation": "Este objeto no existe en la org de destino, o su usuario no puede verlo.",
-        "action": "Compare los esquemas de ambas orgs, o excluya este objeto de la clonación."
-      },
-      "notFound": {
-        "explanation": "Salesforce no encontró el registro o recurso solicitado.",
-        "action": "Compruebe el ID del registro y que pertenezca a la org de origen."
-      },
-      "stringTooLong": {
-        "explanation": "Un valor supera la longitud que permite el campo: {{detail}}.",
-        "action": "Acorte el valor de origen, o dé al campo la misma longitud en ambas orgs."
-      },
-      "lookupFilter": {
-        "explanation": "Un filtro de búsqueda de la org de destino rechazó el registro al que apunta este: allí, ese registro no cumple los criterios del filtro — un campo que el filtro comprueba tiene otro valor, o ninguno — o el filtro comprueba el usuario con el que escribe el clon.",
-        "action": "En el Setup de la org de destino, haga opcional el filtro de búsqueda o desactívelo mientras clona, o dé al registro apuntado los valores que pide el filtro; luego reintente los objetos fallidos."
-      },
-      "duplicateRule": {
-        "explanation": "Una regla de duplicados de la org de destino configurada para Bloquear rechazó el registro. El clon ya guarda por encima de toda regla configurada para Permitir, y vincula una fila al registro que duplica cuando la regla nombra solo uno; esta regla no nombró ninguno de este objeto, o nombró varios.",
-        "action": "En el Setup de la org de destino, desactive esta regla de duplicados mientras clona, o configure su acción al crear en Permitir; luego reintente los objetos fallidos."
-      },
-      "inactiveUser": {
-        "explanation": "Salesforce rechazó el registro porque pertenecería, o estaría asignado, a un usuario inactivo en la org de destino. El clon deja cada registro que crea al usuario con el que escribe, así que ese usuario viene de la org de destino — una regla de asignación, o un Flow que fija el propietario o asigna una tarea — o de una asignación de propietario dada en la línea de comandos.",
-        "action": "En la org de destino, haga que esa regla o ese Flow apunte a un usuario activo o a una cola, o reactive al usuario; con --owner-map, asigne el propietario a un usuario activo. Luego reintente los objetos fallidos."
-      },
-      "entityDeleted": {
-        "explanation": "El registro, o un registro al que apunta, se eliminó en la org de destino: uno que escribió una ejecución anterior, eliminado desde entonces y vinculado por un reintento de esa ejecución, o uno eliminado mientras la ejecución avanzaba, a mano o por la automatización de la org de destino.",
-        "action": "Restáurelo desde la Papelera de reciclaje de la org de destino y luego reintente los objetos fallidos, o vuelva a lanzar la clonación desde la revisión en lugar de como reintento, para que escriba de nuevo ese registro."
-      },
-      "rowLocked": {
-        "explanation": "La org de destino no pudo bloquear el registro, o aquel del que depende, porque otra operación lo tenía en ese momento: un trabajo, una integración o la propia automatización de la org de destino, que aún trabajaba en registros que el clon acababa de escribir. Suele ser pasajero.",
-        "action": "Reintente los objetos fallidos. Si el bloqueo vuelve, espere a que terminen los trabajos y las integraciones que escriben esos registros en la org de destino, y luego reintente."
-      },
-      "requestLimit": {
-        "explanation": "Salesforce rechazó la solicitud: la org a la que iba ha agotado las solicitudes de API que tiene permitidas en 24 horas, o ejecuta demasiadas solicitudes largas a la vez. El clon escribe hasta 200 registros por solicitud, y sus lecturas y descripciones consumen solicitudes propias.",
-        "action": "Espere a que el contador de esa org libere solicitudes — la página Monitor muestra su uso de API — y luego reintente; una profundidad menor o menos registros por objeto consumen menos solicitudes."
-      },
-      "sessionExpired": {
-        "explanation": "Salesforce ya no acepta la sesión que SandForge tiene para esta org: caducó, o se cerró por un cierre de sesión, un cambio de contraseña o un administrador.",
-        "action": "Vuelva a autenticar la org — Conectar Org, o un inicio de sesión con Salesforce CLI — y luego reintente."
-      },
-      "crossReferenceAccess": {
-        "explanation": "El usuario con el que escribe el clon no tiene acceso a un registro al que apunta este en la org de destino — de lectura o, para el principal de una relación principal-detalle, de edición: un registro que ese usuario no posee ni tiene compartido, como uno que la org de destino ya tenía y que el clon vinculó en lugar de escribirlo.",
-        "action": "En la org de destino, comparta ese registro con el usuario, o dele Ver todo o Modificar todo en su objeto, o conecte la org de destino con un usuario que tenga ese acceso, como un administrador; luego reintente los objetos fallidos."
-      },
-      "numberOutOfRange": {
-        "explanation": "Un número supera lo que el campo admite en la org de destino: allí el campo permite menos dígitos antes del separador decimal que los que tiene el valor de origen.",
-        "action": "Dé al campo la misma longitud y las mismas posiciones decimales en la org de destino que en el origen, o cambie el valor en el registro de origen; luego reintente los objetos fallidos."
-      },
-      "malformedId": {
-        "explanation": "Un campo que espera un ID en la org de destino recibió otra cosa: allí el campo es una búsqueda y en el origen es de otro tipo — un campo de texto, por ejemplo — o una asignación de campos escribe en él el valor de otro campo.",
-        "action": "Dé al campo el mismo tipo en ambas orgs. Desde la línea de comandos, exclúyalo con --exclude Objeto.Campo, o corrija el --map que lo rellena; luego reintente los objetos fallidos."
-      },
-      "flowFailed": {
-        "explanation": "Un Flow de la org de destino — un Flow desencadenado por registro, o un proceso, que se ejecuta como tal — falló al guardarse el registro, y la org de destino lo rechazó; el mensaje nombra el Flow y lo que salió mal. Una causa frecuente en un sandbox es una acción Enviar email: con la capacidad de entrega de email de la org en Sin acceso, la acción falla en cuanto usa una plantilla de email o registra el email. Un sandbox nuevo o actualizado está en Solo email del sistema.",
-        "action": "Desactive ese Flow en la org de destino mientras clona, o corríjalo, y luego reintente los objetos fallidos; la pestaña Automatización de la revisión nombra los permisos personalizados que silencian un Flow para el usuario que los tiene. No ponga la capacidad de entrega de la org de destino en Todos los emails para que pase una acción Enviar email: el Flow podría entonces enviar emails a las personas de los registros clonados."
-      },
-      "guideLink": "{{code}} en la guía de Forge",
-      "cycleFkUnresolved": {
-        "explanation": "El campo '{{fieldName}}' apunta a un registro que esta ejecución no escribió (ID de origen {{sourceRefId}}): el registro falló, o su objeto falló, se omitió o no se puede escribir en la org de destino. El registro se escribió sin ese vínculo.",
-        "action": "Corrija lo que dejó fuera ese registro — su error, o el de su objeto, aparece en esta lista — y luego reintente los objetos fallidos: el reintento lo escribe y completa este vínculo. Si no, complete el campo a mano después."
-      },
-      "lookupOutsideClone": {
-        "explanation": "El registro al que apunta esta búsqueda no está en el clon: ninguna lectura de la ejecución lo tomó. La búsqueda puede quedar vacía, así que el registro se escribió sin ella, y nada falló.",
-        "action": "Si la org de destino necesita el vínculo, lleve allí el registro al que apunta — clónelo por separado, o busque el que ya está allí — y luego complete la búsqueda a mano."
-      },
-      "notInTarget": {
-        "explanation": "Al preguntarle por este objeto, la org de destino respondió que no lo tiene: el objeto no existe allí — un objeto personalizado o una función que esa org no tiene — o el usuario con el que escribe el clon no puede verlo. Ninguno de sus registros se leyó ni se escribió.",
-        "action": "Despliegue el objeto en la org de destino, o dé acceso a él allí al usuario con el que escribe el clon; mientras tanto, exclúyalo de la clonación, como hizo esta ejecución."
-      },
-      "notCreateable": {
-        "explanation": "La org de destino describe este objeto pero no acepta ninguna inserción suya para el usuario con el que escribe el clon: un objeto de historial o de sistema que la plataforma escribe ella misma, o uno que el perfil de ese usuario no puede crear. Sus registros se dejaron fuera.",
-        "action": "Dé al usuario con el que escribe el clon el permiso de crear el objeto en la org de destino si allí se necesitan sus registros; si no, deje el objeto fuera del clon."
-      },
-      "standardPriceMissing": {
-        "explanation": "Salesforce no pone precio a un producto en un catálogo personalizado mientras ese producto no tenga precio en el estándar, y esa entrada estándar no está en la org de destino.",
-        "action": "Añade un precio estándar para estos productos en la org de destino y vuelve a lanzar el clon."
-      },
-      "recordTypeUnavailable": {
-        "explanation": "El tipo de registro existe en la org de destino y la correspondencia es correcta, pero no está disponible para el usuario con el que se ejecuta el clon.",
-        "action": "Asigna el tipo de registro al perfil de ese usuario en la org de destino, o excluye el campo RecordTypeId para este objeto."
-      },
-      "recordTypeHeldBack": {
-        "explanation": "El usuario con el que se ejecuta el clon no puede usar este tipo de registro en la org de destino, así que el objeto se retuvo antes de escribir ninguno de sus registros y se omitieron los objetos que dependen de él.",
-        "action": "En la org de destino, dé a ese usuario acceso al tipo de registro, o actívelo si está inactivo, o excluya el campo RecordTypeId para este objeto para que sus registros tomen el tipo de registro predeterminado del usuario."
-      },
-      "outOfScope": {
-        "explanation": "Ninguno de los registros padre de este objeto forma parte de la clonación y no es el objeto raíz, así que no se clonó ninguno de sus registros.",
-        "action": "Aumente la profundidad si necesita registros de este objeto en la clonación."
-      },
-      "guardBlocked": {
-        "explanation": "Production Guard rechazó esta ejecución antes de leer nada, por el motivo que da el mensaje. No se escribió nada.",
-        "action": "Compruebe que el destino es la org en la que quería escribir y vuelva a ejecutar desde la revisión."
-      },
-      "guardDeclined": {
-        "explanation": "La ejecución se canceló en la confirmación de Production Guard, antes de leer nada. No se escribió nada.",
-        "action": "Vuelva a la revisión, ejecute de nuevo cuando quiera escribir en esta org y confirme."
-      },
-      "notInitialized": {
-        "explanation": "Una parte de SandForge que la ejecución necesita no estaba lista en esta ventana: el módulo Forge, o Production Guard, sin el cual no se escribe nada. No se escribió nada.",
-        "action": "Recargue la ventana (Developer: Reload Window) y vuelva a ejecutar."
-      },
-      "forgeRunning": {
-        "explanation": "Otra ejecución de Forge sigue en curso en esta ventana, y Forge ejecuta una cada vez. Esta no escribió nada.",
-        "action": "Espere a que esa ejecución termine — una ejecución a la que se pidió detenerse termina cuando acaba el paso en curso — y vuelva a ejecutar."
-      },
-      "duplicateRun": {
-        "explanation": "La misma ejecución se envió de nuevo mientras seguía en curso, o menos de un minuto después de escribir sus registros, y se rechazó para que no se escriban dos veces. Esta no escribió nada.",
-        "action": "Revise los resultados de la primera ejecución antes de volver a ejecutar: un minuto después de que escribió, la misma ejecución se acepta de nuevo."
-      },
-      "retryUnavailable": {
-        "explanation": "El reintento no pudo empezar: lo que escribió la ejecución que reintenta no se conoce aquí — ya no está en el historial, no guardó registro de lo que escribió o escribió en otra org, o sus registros se eliminaron. No se escribió nada.",
-        "action": "Vuelva a ejecutar la clonación desde la revisión."
-      },
-      "resumeUnavailable": {
-        "explanation": "Esta ejecución no puede retomarse donde se detuvo: ya se retomó o su ejecución terminó, no guardó ningún diario, o se eliminaron sus registros. No se escribió nada.",
-        "action": "Reinténtela desde sus resultados, o vuelva a ejecutar la clonación desde la revisión."
-      },
-      "resumeTargetChanged": {
-        "explanation": "La org en la que escribió esta ejecución ya no es la que era — actualizada, sustituida o ya no registrada en SandForge —, así que lo que escribió la ejecución no está allí para continuar. No se escribió nada.",
-        "action": "Vuelva a ejecutar la clonación desde la revisión en la org tal como está ahora."
-      },
-      "resumeChanged": {
-        "explanation": "Esta ejecución quedaría ahora configurada de otro modo que la parte que retoma: la clonación de la página, o el ajuste sandforge.forge.maxRecordsPerObject, cambió desde que se detuvo. No se escribió nada.",
-        "action": "Restablezca el ajuste, o reintente la ejecución en su lugar: un reintento vuelve a leer la clonación y vincula lo que escribió esta ejecución."
-      },
-      "filesNotAccepted": {
-        "explanation": "Esta ejecución anonimiza sus registros y copia sus archivos, cuyo contenido no se puede anonimizar: los archivos solo se copian cuando acepta que se copien tal como están. No se leyó ni escribió nada.",
-        "action": "En la revisión, acepte que los archivos se copien tal como están, o desactive la copia, y vuelva a ejecutar."
-      },
-      "abortedBeforeStart": {
-        "explanation": "Detuvo la ejecución antes de que empezara. No se escribió nada.",
-        "action": "Vuelva a ejecutarla desde la revisión cuando esté listo."
-      },
-      "unknown": {
-        "explanation": "{{detail}}",
-        "action": "Busque este código de error en la documentación de Salesforce."
       }
     },
     "soqlObjectNameInvalid": "«{{object}}» no es un nombre de API de SObject, así que la cláusula WHERE no puede enviarse con él. Debe empezar por una letra y tener como máximo 80 letras, dígitos o guiones bajos.",
@@ -4117,7 +3923,6 @@
     },
     "emptyState": {
       "title": "Aprovisione su sandbox automáticamente",
-      "description": "Deje que Autopilot analice el esquema de su org, genere un plan de ejecución y pueble su sandbox con datos realistas.",
       "cta": "Seleccionar una org"
     }
   },
@@ -4197,7 +4002,8 @@
       "load": "Cargar"
     },
     "salt": {
-      "created": "Esta primera extracción creó la sal con la que se saca cada seudónimo y la guarda en el almacenamiento secreto de VS Code: cada extracción posterior seudonimiza los mismos registros de la misma manera. Un compañero que extraiga este conjunto de datos necesita la misma sal: cópiela con «SandForge: Copiar la sal del Frozen Dataset» y pásesela como pasaría una contraseña; él la define con «SandForge: Usar una sal para el Frozen Dataset». Quien la tiene puede saber de qué valor de origen se sacó un seudónimo."
+      "created": "Esta primera extracción creó la sal con la que se saca cada seudónimo y la guarda en el almacenamiento secreto de VS Code: cada extracción posterior seudonimiza los mismos registros de la misma manera. Un compañero que extraiga este conjunto de datos necesita la misma sal: cópiela con «SandForge: Copiar la sal del Frozen Dataset» y pásesela como pasaría una contraseña; él la define con «SandForge: Usar una sal para el Frozen Dataset». Quien la tiene puede saber de qué valor de origen se sacó un seudónimo.",
+      "createdTitle": "Sal del dataset congelado"
     },
     "manifest": {
       "version": "Conjunto de datos v{{version}}"
@@ -4592,5 +4398,398 @@
     "runFinished": "{{name}} terminado. Escritos: {{written}} de {{total}}.",
     "runStoppedWritten": "{{name}} detenido antes de terminar. Escritos: {{written}} de {{total}}.",
     "runStopped": "{{name}} detenido al {{percent}} %."
+  },
+  "errors": {
+    "guideLink": "{{code}} en la guía de Forge",
+    "searchLink": "Buscar {{code}} en la Ayuda de Salesforce",
+    "standardPriceMissing": {
+      "explanation": "Salesforce solo acepta el precio de un producto en una lista de precios personalizada cuando el producto ya tiene un precio en la lista de precios estándar, y ese precio estándar no está en la org.",
+      "action": "Dé primero un precio estándar a estos productos en la org y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Salesforce no pone precio a un producto en un catálogo personalizado mientras ese producto no tenga precio en el estándar, y esa entrada estándar no está en la org de destino.",
+        "action": "Añade un precio estándar para estos productos en la org de destino y vuelve a lanzar el clon."
+      },
+      "seed": {
+        "action": "Dé primero un precio estándar a estos productos."
+      }
+    },
+    "duplicateValue": {
+      "explanation": "Un campo único recibió un valor que ya tiene un registro de la org, a menudo uno que escribió una ejecución anterior.",
+      "action": "Elimine lo que escribió la ejecución anterior — sus resultados lo ofrecen — o cambie el valor, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Ya existe en la org de destino un registro con el mismo valor único, a menudo clonado por una ejecución anterior.",
+        "action": "Elimine lo que creó la ejecución anterior — Eliminar los registros que creó esta ejecución, en sus resultados — y vuelva a ejecutar. Desde la línea de comandos, --upsert actualiza por ID externo cuando el objeto tiene uno."
+      },
+      "seed": {
+        "action": "Dé al campo una regla cuyos valores no se repitan."
+      }
+    },
+    "invalidCrossReferenceKey": {
+      "explanation": "Una búsqueda apunta a un registro que no existe en la org, a menudo un usuario como el propietario.",
+      "action": "Lleve primero a la org el registro al que apunta, o deje la búsqueda vacía y complétela después.",
+      "forge": {
+        "explanation": "Una búsqueda apunta a un registro que no existe en la org de destino, a menudo un usuario como el propietario.",
+        "action": "Cree o asigne el registro referenciado en la org de destino, o deje la búsqueda vacía y complétela después de la clonación."
+      }
+    },
+    "recordTypeUnavailable": {
+      "explanation": "El tipo de registro existe en la org, pero el usuario con el que escribe la ejecución no puede usarlo.",
+      "action": "En el Setup de la org, dé el tipo de registro al perfil de ese usuario o a un conjunto de permisos, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "El tipo de registro existe en la org de destino y la correspondencia es correcta, pero no está disponible para el usuario con el que se ejecuta el clon.",
+        "action": "Asigne el tipo de registro al perfil de ese usuario en la org de destino, o deje RecordTypeId fuera de este objeto en Revisión → Ajustes."
+      }
+    },
+    "recordTypeHeldBack": {
+      "explanation": "El usuario con el que escribe la ejecución no puede usar este tipo de registro en la org de destino, así que el objeto se retuvo antes de escribir ninguno de sus registros.",
+      "action": "En la org de destino, dé a ese usuario acceso al tipo de registro, o actívelo si está inactivo, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "El usuario con el que se ejecuta el clon no puede usar este tipo de registro en la org de destino, así que el objeto se retuvo antes de escribir ninguno de sus registros y se omitieron los objetos que dependen de él.",
+        "action": "En la org de destino, dé a ese usuario acceso al tipo de registro, o actívelo si está inactivo. O asigne el tipo de registro en Revisión → Discrepancias, o deje fuera RecordTypeId en Revisión → Ajustes, para que sus registros tomen el tipo de registro predeterminado del usuario."
+      }
+    },
+    "requiredFieldMissing": {
+      "explanation": "Un campo que la org exige no tiene valor.",
+      "action": "Dé un valor al campo, o lleve primero a la org el registro al que debe apuntar, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Un campo obligatorio no tiene valor: {{detail}}.",
+        "action": "Active «Obtener padres automáticamente», o aumente la profundidad para que el padre requerido forme parte de la clonación."
+      },
+      "seed": {
+        "action": "Haga el seed desde el asistente y dé una regla al campo en su paso Configurar."
+      }
+    },
+    "invalidPicklist": {
+      "explanation": "Un valor de lista de selección no es uno que la org acepte: el campo no lo tiene, o el tipo de registro del registro no lo permite.",
+      "action": "Añada el valor a la lista de selección y al tipo de registro en el Setup de la org, o cambie el valor, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Un valor de lista de selección del origen no lo acepta la org de destino: el campo no lo contiene, o el tipo de registro con el que se escribe el registro no lo acepta — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno. Cuando el rechazo indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
+        "action": "Añada el valor a la lista de selección en el Setup de la org de destino, y al tipo de registro del registro, o cambie el valor en el registro de origen."
+      },
+      "seed": {
+        "action": "Dé al campo los valores que la org prevé para él."
+      }
+    },
+    "fieldCustomValidation": {
+      "explanation": "Una regla de validación de la org rechazó el registro.",
+      "action": "Cambie los valores que comprueba la regla, o desactívela en el Setup de la org mientras escribe la ejecución, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Una regla de validación de la org de destino rechazó el registro. Cuando la regla indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
+        "action": "Cambie el valor en el registro de origen, o ajuste la regla en la org de destino, y luego reintente los objetos fallidos."
+      },
+      "seed": {
+        "action": "Dé a los campos que comprueba reglas cuyos valores acepte, o desactívela mientras hace el seed."
+      }
+    },
+    "invalidFieldForInsert": {
+      "explanation": "Un campo no se puede establecer al crear: es calculado, está oculto por la seguridad a nivel de campo o no existe en la org.",
+      "action": "Compruebe la seguridad a nivel de campo de su usuario para el campo en la org, y que el campo exista allí con el mismo tipo."
+    },
+    "fieldIntegrity": {
+      "explanation": "Salesforce rechazó el registro por una regla de integridad: {{detail}}.",
+      "action": "Lea el detalle: Salesforce suele indicar el campo o la regla implicados."
+    },
+    "cannotInsertEntity": {
+      "explanation": "Salesforce no acepta registros nuevos de este objeto (un objeto de historial, auditoría o sistema).",
+      "action": "Deje este objeto fuera de la ejecución.",
+      "forge": {
+        "explanation": "Salesforce no acepta registros nuevos de este objeto (objeto de historial, auditoría o sistema).",
+        "action": "Excluya este objeto de la clonación."
+      }
+    },
+    "automationRefused": {
+      "explanation": "Una automatización de la org — un desencadenador, un Flow o un proceso que se ejecuta al guardar un registro — falló en este registro, y la org lo rechazó. El mensaje suele nombrarla.",
+      "action": "Corrija esa automatización en la org, o desactívela mientras escribe la ejecución, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Una automatización de la org de destino — un desencadenador, un Flow o un proceso que se ejecuta al guardar un registro — falló en este registro, y la org de destino lo rechazó. El mensaje suele nombrarla, con lo que salió mal.",
+        "action": "Corrija esa automatización en la org de destino, o desactívela mientras clona, y luego reintente los objetos fallidos."
+      }
+    },
+    "insufficientAccess": {
+      "explanation": "Su usuario en la org no tiene el acceso que requiere esta escritura.",
+      "action": "Pida el permiso que falta a un administrador, o conecte la org con un usuario que lo tenga."
+    },
+    "storageLimit": {
+      "explanation": "La org no tiene más almacenamiento de datos: una Developer Edition tiene 5 MB.",
+      "action": "Elimine los registros que ya no necesite — los resultados de una ejecución ofrecen quitar lo que escribió — y vuelva a ejecutar.",
+      "seed": {
+        "action": "Elimine un seed anterior, o genere menos registros."
+      }
+    },
+    "invalidType": {
+      "explanation": "Este objeto no existe en la org, o su usuario no puede verlo.",
+      "action": "Implemente el objeto en la org o dé acceso a su usuario, o deje el objeto fuera de la ejecución.",
+      "forge": {
+        "explanation": "Este objeto no existe en la org de destino, o su usuario no puede verlo.",
+        "action": "Compare los esquemas de ambas orgs, o excluya este objeto de la clonación."
+      }
+    },
+    "notFound": {
+      "explanation": "Salesforce no encontró el registro o el recurso solicitado.",
+      "action": "Compruebe que el registro sigue existiendo en la org y que su usuario puede verlo.",
+      "forge": {
+        "explanation": "Salesforce no encontró el registro o recurso solicitado.",
+        "action": "Compruebe el ID del registro y que pertenezca a la org de origen."
+      }
+    },
+    "stringTooLong": {
+      "explanation": "Un valor es más largo de lo que admite el campo.",
+      "action": "Acorte el valor, o dé al campo de la org la longitud que necesita el valor.",
+      "forge": {
+        "explanation": "Un valor supera la longitud que permite el campo: {{detail}}.",
+        "action": "Acorte el valor de origen, o dé al campo la misma longitud en ambas orgs."
+      }
+    },
+    "lookupFilter": {
+      "explanation": "Un filtro de búsqueda de la org rechazó el registro al que apunta la búsqueda: no cumple los criterios del filtro, o el filtro comprueba el usuario con el que escribe la ejecución.",
+      "action": "En el Setup de la org, haga opcional el filtro de búsqueda o desactívelo mientras escribe la ejecución, o dé al registro apuntado los valores que pide el filtro; luego vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Un filtro de búsqueda de la org de destino rechazó el registro al que apunta este: allí, ese registro no cumple los criterios del filtro — un campo que el filtro comprueba tiene otro valor, o ninguno — o el filtro comprueba el usuario con el que escribe el clon.",
+        "action": "En el Setup de la org de destino, haga opcional el filtro de búsqueda o desactívelo mientras clona, o dé al registro apuntado los valores que pide el filtro; luego reintente los objetos fallidos."
+      }
+    },
+    "duplicateRule": {
+      "explanation": "Una regla de duplicados de la org configurada en Bloquear rechazó el registro.",
+      "action": "En el Setup de la org, desactive la regla mientras escribe la ejecución, o configure su acción al crear en Permitir; luego vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Una regla de duplicados de la org de destino configurada para Bloquear rechazó el registro. El clon ya guarda por encima de toda regla configurada para Permitir, y vincula una fila al registro que duplica cuando la regla nombra solo uno; esta regla no nombró ninguno de este objeto, o nombró varios.",
+        "action": "En el Setup de la org de destino, desactive esta regla de duplicados mientras clona, o configure su acción al crear en Permitir; luego reintente los objetos fallidos."
+      },
+      "seed": {
+        "action": "Desactívela mientras hace el seed, o configure su acción al crear en Permitir."
+      }
+    },
+    "inactiveUser": {
+      "explanation": "Salesforce rechazó el registro porque pertenecería, o estaría asignado, a un usuario inactivo en la org.",
+      "action": "Haga que la regla de asignación o el Flow que elige a ese usuario apunte a un usuario activo o a una cola, o reactive al usuario, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Salesforce rechazó el registro porque pertenecería, o estaría asignado, a un usuario inactivo en la org de destino. El clon deja cada registro que crea al usuario con el que escribe, así que ese usuario viene de la org de destino — una regla de asignación, o un Flow que fija el propietario o asigna una tarea — o de un propietario dado en Revisión → Ajustes.",
+        "action": "En la org de destino, haga que esa regla o ese Flow apunte a un usuario activo o a una cola, o reactive al usuario; o, en Revisión → Ajustes, dé los registros a un usuario activo en Propietarios asignados a usuarios del destino. Luego reintente los objetos fallidos."
+      }
+    },
+    "entityDeleted": {
+      "explanation": "El registro, o un registro al que apunta, se eliminó en la org.",
+      "action": "Restáurelo desde la papelera de reciclaje de la org, o haga que el registro apunte a uno que exista, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "El registro, o un registro al que apunta, se eliminó en la org de destino: uno que escribió una ejecución anterior, eliminado desde entonces y vinculado por un reintento de esa ejecución, o uno eliminado mientras la ejecución avanzaba, a mano o por la automatización de la org de destino.",
+        "action": "Restáurelo desde la Papelera de reciclaje de la org de destino y luego reintente los objetos fallidos, o vuelva a lanzar la clonación desde la revisión en lugar de como reintento, para que escriba de nuevo ese registro."
+      }
+    },
+    "rowLocked": {
+      "explanation": "La org no pudo bloquear el registro, o aquel del que depende, porque otra operación lo tenía en ese momento. Suele ser pasajero.",
+      "action": "Vuelva a ejecutar en un momento. Si se repite, espere a que terminen los trabajos y las integraciones que escriben esos registros.",
+      "forge": {
+        "explanation": "La org de destino no pudo bloquear el registro, o aquel del que depende, porque otra operación lo tenía en ese momento: un trabajo, una integración o la propia automatización de la org de destino, que aún trabajaba en registros que el clon acababa de escribir. Suele ser pasajero.",
+        "action": "Reintente los objetos fallidos. Si el bloqueo vuelve, espere a que terminen los trabajos y las integraciones que escriben esos registros en la org de destino, y luego reintente."
+      }
+    },
+    "requestLimit": {
+      "explanation": "Salesforce rechazó la solicitud: la org consumió las solicitudes de API que tiene permitidas en 24 horas, o ejecuta demasiadas solicitudes largas a la vez.",
+      "action": "Espere a que la org libere solicitudes — la página Monitor muestra su uso de API — y vuelva a ejecutar, con menos registros si puede.",
+      "forge": {
+        "explanation": "Salesforce rechazó la solicitud: la org a la que iba ha agotado las solicitudes de API que tiene permitidas en 24 horas, o ejecuta demasiadas solicitudes largas a la vez. El clon escribe hasta 200 registros por solicitud, y sus lecturas y descripciones consumen solicitudes propias.",
+        "action": "Espere a que el contador de esa org libere solicitudes — la página Monitor muestra su uso de API — y luego reintente; una profundidad menor o menos registros por objeto consumen menos solicitudes."
+      }
+    },
+    "sessionExpired": {
+      "explanation": "Salesforce ya no acepta la sesión que SandForge tiene para esta org: caducó, o se cerró por un cierre de sesión, un cambio de contraseña o un administrador.",
+      "action": "Vuelva a conectar la org en la página Organizaciones (Intentar reconectar, en su tarjeta) y vuelva a ejecutar."
+    },
+    "crossReferenceAccess": {
+      "explanation": "El usuario con el que escribe la ejecución no puede leer un registro al que apunta este, o no puede editar el maestro de una relación maestro-detalle.",
+      "action": "Comparta ese registro con el usuario, dele Ver todo o Modificar todo en su objeto, o conecte la org con un usuario que tenga ese acceso; luego vuelva a ejecutar.",
+      "forge": {
+        "explanation": "El usuario con el que escribe el clon no tiene acceso a un registro al que apunta este en la org de destino — de lectura o, para el principal de una relación principal-detalle, de edición: un registro que ese usuario no posee ni tiene compartido, como uno que la org de destino ya tenía y que el clon vinculó en lugar de escribirlo.",
+        "action": "En la org de destino, comparta ese registro con el usuario, o dele Ver todo o Modificar todo en su objeto, o conecte la org de destino con un usuario que tenga ese acceso, como un administrador; luego reintente los objetos fallidos."
+      }
+    },
+    "numberOutOfRange": {
+      "explanation": "Un número tiene más dígitos antes del separador decimal de los que admite el campo en la org.",
+      "action": "Dé al campo la longitud y los decimales que necesita el valor, o cambie el valor, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Un número supera lo que el campo admite en la org de destino: allí el campo permite menos dígitos antes del separador decimal que los que tiene el valor de origen.",
+        "action": "Dé al campo la misma longitud y las mismas posiciones decimales en la org de destino que en el origen, o cambie el valor en el registro de origen; luego reintente los objetos fallidos."
+      }
+    },
+    "malformedId": {
+      "explanation": "Un campo que espera un ID recibió otra cosa: el campo es una búsqueda en esta org y de otro tipo allí de donde viene el valor, o una asignación de campos lo rellena con el valor de otro campo.",
+      "action": "Dé al campo el mismo tipo en ambas orgs, o corrija la asignación que lo rellena, y vuelva a ejecutar.",
+      "forge": {
+        "explanation": "Un campo que espera un ID en la org de destino recibió otra cosa: allí el campo es una búsqueda y en el origen es de otro tipo — un campo de texto, por ejemplo — o una asignación de campos escribe en él el valor de otro campo.",
+        "action": "Dé al campo el mismo tipo en ambas orgs, o, en Revisión → Ajustes, deje fuera el campo o corrija el cambio de nombre de campo que lo rellena; luego reintente los objetos fallidos."
+      }
+    },
+    "flowFailed": {
+      "explanation": "Un Flow de la org falló al guardar el registro, y la org rechazó el registro; el mensaje nombra el Flow. Una acción Enviar email falla así cuando la capacidad de entrega de email de la org está en Sin acceso.",
+      "action": "Corrija el Flow, o desactívelo mientras escribe la ejecución, y vuelva a ejecutar. No ponga la capacidad de entrega en Todos los emails para evitarlo: el Flow podría entonces enviar emails a las personas de los registros.",
+      "forge": {
+        "explanation": "Un Flow de la org de destino — un Flow desencadenado por registro, o un proceso, que se ejecuta como tal — falló al guardarse el registro, y la org de destino lo rechazó; el mensaje nombra el Flow y lo que salió mal. Una causa frecuente en un sandbox es una acción Enviar email: con la capacidad de entrega de email de la org en Sin acceso, la acción falla en cuanto usa una plantilla de email o registra el email. Un sandbox nuevo o actualizado está en Solo email del sistema.",
+        "action": "Desactive ese Flow en la org de destino mientras clona, o corríjalo, y luego reintente los objetos fallidos; la pestaña Automatización de la revisión nombra los permisos personalizados que silencian un Flow para el usuario que los tiene. No ponga la capacidad de entrega de la org de destino en Todos los emails para que pase una acción Enviar email: el Flow podría entonces enviar emails a las personas de los registros clonados."
+      },
+      "seed": {
+        "action": "Corrija el Flow, o desactívelo mientras hace el seed."
+      }
+    },
+    "deleteFailed": {
+      "explanation": "El registro no se pudo eliminar: otros registros aún apuntan a él, o un desencadenador o un Flow de la org rechazó la eliminación.",
+      "action": "Elimine primero los registros que apuntan a él — la eliminación de una ejecución quita los hijos antes que los padres — o corrija la automatización que la rechazó, y vuelva a eliminar."
+    },
+    "invalidEmail": {
+      "explanation": "Un campo de email contiene un valor que no es una dirección de email válida.",
+      "action": "Corrija el valor, o deje el campo fuera de la ejecución, y vuelva a ejecutar."
+    },
+    "serverUnavailable": {
+      "explanation": "Salesforce no pudo atender la solicitud en ese momento, normalmente durante un mantenimiento o una breve interrupción del servicio.",
+      "action": "Espere unos minutos y vuelva a ejecutar; Salesforce Trust (status.salesforce.com) muestra los mantenimientos y los incidentes."
+    },
+    "requestTooLong": {
+      "explanation": "Salesforce detuvo una solicitud que duró más de lo que permite: un lote grande, una consulta amplia o una automatización pesada en el objeto.",
+      "action": "Vuelva a ejecutar con menos registros, o con la automatización de la org en el objeto desactivada mientras escribe la ejecución."
+    },
+    "allOrNoneRolledBack": {
+      "explanation": "Un registro de un lote escrito en modo todo o nada falló, así que Salesforce revirtió todo el lote.",
+      "action": "Corrija el registro que falló — su propio error aparece junto a este — y vuelva a ejecutar."
+    },
+    "invalidField": {
+      "explanation": "La solicitud nombra un campo que el objeto no tiene en la org, o uno que su usuario no puede ver.",
+      "action": "Compruebe que el campo existe en la org con este nombre de API y que su usuario puede leerlo, o déjelo fuera de la ejecución."
+    },
+    "limitExceeded": {
+      "explanation": "Se superó un límite de Salesforce: un límite de la transacción, o uno de la org.",
+      "action": "Vuelva a ejecutar con menos registros; si el mensaje nombra un límite de la org, libere primero una parte."
+    },
+    "circularDependency": {
+      "explanation": "Los registros apuntarían unos a otros en un bucle, algo que un campo de jerarquía como Parent no permite.",
+      "action": "Rompa el bucle en los datos, o deje fuera el campo de jerarquía y complételo después."
+    },
+    "entityLocked": {
+      "explanation": "El registro está bloqueado, normalmente por un proceso de aprobación, y solo un administrador o el aprobador puede editarlo.",
+      "action": "Recupere o termine la aprobación en la org, o conecte la org con un usuario autorizado a editar registros bloqueados, y vuelva a ejecutar."
+    },
+    "apiDisabledForOrg": {
+      "explanation": "Esta org no permite el acceso por API: su edición no tiene API, como Professional o Essentials sin el complemento de API.",
+      "action": "Conecte una org cuya edición incluya la API — una Developer Edition, un sandbox, Enterprise o Unlimited — o pida a Salesforce que active la API para esta org."
+    },
+    "apiDisabledForUser": {
+      "explanation": "El usuario con el que se conecta SandForge no puede usar la API: el permiso API activada está desactivado para ese usuario.",
+      "action": "Pida a un administrador que active API activada en el perfil del usuario o en un conjunto de permisos, y vuelva a conectar la org en la página Organizaciones."
+    },
+    "convertedLead": {
+      "explanation": "Este candidato se convirtió, y Salesforce no permite actualizar un candidato convertido.",
+      "action": "Deje fuera de la ejecución los candidatos convertidos, con un filtro IsConverted = false, y vuelva a ejecutar."
+    },
+    "licenseLimit": {
+      "explanation": "La org no tiene licencias disponibles para esto: todas las licencias de usuario, de función o de conjunto de permisos de ese tipo están asignadas.",
+      "action": "Libere una licencia en el Setup de la org — desactive un usuario que ya no la necesite — o deje estos registros fuera de la ejecución."
+    },
+    "duplicateUsername": {
+      "explanation": "Un nombre de usuario ya está en uso: los nombres de usuario son únicos en todas las orgs de Salesforce, sandboxes incluidos.",
+      "action": "Dé a los usuarios nombres de usuario propios, como el del origen con un sufijo, y vuelva a ejecutar."
+    },
+    "invalidOperation": {
+      "explanation": "Salesforce no permite esta operación en este objeto, o no en este contexto.",
+      "action": "Compruebe que el objeto admite esta operación y que su usuario tiene el permiso que necesita."
+    },
+    "transferRequiresRead": {
+      "explanation": "El nuevo propietario no puede leer el registro, o un registro del que depende, así que no se pudo transferir la propiedad.",
+      "action": "Dé al nuevo propietario acceso de lectura al objeto y a sus registros relacionados, o elija otro propietario."
+    },
+    "permissionDenied": {
+      "explanation": "A su usuario en la org le falta un permiso que necesita esta escritura, en el objeto o en campos que escribe; el mensaje los nombra.",
+      "action": "Pida a un administrador que se lo conceda en su perfil o en un conjunto de permisos, o deje esos campos fuera de la ejecución."
+    },
+    "parentRefused": {
+      "explanation": "Un registro al que apunta este se rechazó en la misma ejecución, así que este se retuvo en lugar de escribirse sin él.",
+      "action": "Corrija lo que rechazó ese registro — su motivo aparece junto a su objeto — y vuelva a ejecutar."
+    },
+    "personAccountNotWritten": {
+      "explanation": "La cuenta personal de este contacto no está en la org de destino, y Salesforce escribe el contacto de una cuenta personal con su cuenta.",
+      "action": "Incluya las cuentas personales en la ejecución, o corrija lo que las rechazó, y vuelva a ejecutar."
+    },
+    "personContactNotLookedUp": {
+      "explanation": "El contacto que Salesforce escribió con su cuenta personal no se pudo buscar en la org de destino, así que se retuvieron los registros que apuntan a él.",
+      "action": "Vuelva a ejecutar: suele ser pasajero. Si se repite, compruebe que su usuario puede leer Contact en la org de destino."
+    },
+    "orgAuthExpired": {
+      "explanation": "La sesión con esta org ha caducado y no se pudo renovar.",
+      "action": "Vuelva a conectarla en la página Organizaciones (Intentar reconectar, en su tarjeta)."
+    },
+    "orgTemporarilyUnreachable": {
+      "explanation": "Esta org falló varias veces seguidas, así que SandForge espera un momento antes de volver a llamarla.",
+      "action": "Vuelva a intentarlo en un minuto."
+    },
+    "noCliOrgs": {
+      "explanation": "La Salesforce CLI aún no tiene ninguna org.",
+      "action": "Inicie sesión con OAuth (Web): abre el inicio de sesión de Salesforce en su navegador."
+    },
+    "cycleFkUnresolved": {
+      "explanation": "El campo '{{fieldName}}' apunta a un registro que esta ejecución no escribió (ID de origen {{sourceRefId}}): el registro falló, o su objeto falló, se omitió o no se puede escribir en la org de destino. El registro se escribió sin ese vínculo.",
+      "action": "Corrija lo que dejó fuera ese registro — su error, o el de su objeto, aparece en esta lista — y luego reintente los objetos fallidos: el reintento lo escribe y completa este vínculo. Si no, complete el campo a mano después."
+    },
+    "outOfScope": {
+      "explanation": "Ninguno de los registros padre de este objeto forma parte de la clonación y no es el objeto raíz, así que no se clonó ninguno de sus registros.",
+      "action": "Aumente la profundidad si necesita registros de este objeto en la clonación."
+    },
+    "lookupOutsideClone": {
+      "explanation": "El registro al que apunta esta búsqueda no está en el clon: ninguna lectura de la ejecución lo tomó. La búsqueda puede quedar vacía, así que el registro se escribió sin ella, y nada falló.",
+      "action": "Si la org de destino necesita el vínculo, lleve allí el registro al que apunta — clónelo por separado, o busque el que ya está allí — y luego complete la búsqueda a mano."
+    },
+    "notInTarget": {
+      "explanation": "Al preguntarle por este objeto, la org de destino respondió que no lo tiene: el objeto no existe allí — un objeto personalizado o una función que esa org no tiene — o el usuario con el que escribe el clon no puede verlo. Ninguno de sus registros se leyó ni se escribió.",
+      "action": "Despliegue el objeto en la org de destino, o dé acceso a él allí al usuario con el que escribe el clon; mientras tanto, exclúyalo de la clonación, como hizo esta ejecución."
+    },
+    "notCreateable": {
+      "explanation": "La org de destino describe este objeto pero no acepta ninguna inserción suya para el usuario con el que escribe el clon: un objeto de historial o de sistema que la plataforma escribe ella misma, o uno que el perfil de ese usuario no puede crear. Sus registros se dejaron fuera.",
+      "action": "Dé al usuario con el que escribe el clon el permiso de crear el objeto en la org de destino si allí se necesitan sus registros; si no, deje el objeto fuera del clon."
+    },
+    "guardBlocked": {
+      "explanation": "Production Guard rechazó esta ejecución antes de leer nada, por el motivo que da el mensaje. No se escribió nada.",
+      "action": "Compruebe que el destino es la org en la que quería escribir y vuelva a ejecutar desde la revisión."
+    },
+    "guardDeclined": {
+      "explanation": "La ejecución se canceló en la confirmación de Production Guard, antes de leer nada. No se escribió nada.",
+      "action": "Vuelva a la revisión, ejecute de nuevo cuando quiera escribir en esta org y confirme."
+    },
+    "notInitialized": {
+      "explanation": "Una parte de SandForge que la ejecución necesita no estaba lista en esta ventana: el módulo Forge, o Production Guard, sin el cual no se escribe nada. No se escribió nada.",
+      "action": "Recargue la ventana (Developer: Reload Window) y vuelva a ejecutar."
+    },
+    "forgeRunning": {
+      "explanation": "Otra ejecución de Forge sigue en curso en esta ventana, y Forge ejecuta una cada vez. Esta no escribió nada.",
+      "action": "Espere a que esa ejecución termine — una ejecución a la que se pidió detenerse termina cuando acaba el paso en curso — y vuelva a ejecutar."
+    },
+    "duplicateRun": {
+      "explanation": "La misma ejecución se envió de nuevo mientras seguía en curso, o menos de un minuto después de escribir sus registros, y se rechazó para que no se escriban dos veces. Esta no escribió nada.",
+      "action": "Revise los resultados de la primera ejecución antes de volver a ejecutar: un minuto después de que escribió, la misma ejecución se acepta de nuevo."
+    },
+    "retryUnavailable": {
+      "explanation": "El reintento no pudo empezar: lo que escribió la ejecución que reintenta no se conoce aquí — ya no está en el historial, no guardó registro de lo que escribió o escribió en otra org, o sus registros se eliminaron. No se escribió nada.",
+      "action": "Vuelva a ejecutar la clonación desde la revisión."
+    },
+    "resumeUnavailable": {
+      "explanation": "Esta ejecución no puede retomarse donde se detuvo: ya se retomó o su ejecución terminó, no guardó ningún diario, o se eliminaron sus registros. No se escribió nada.",
+      "action": "Reinténtela desde sus resultados, o vuelva a ejecutar la clonación desde la revisión."
+    },
+    "resumeTargetChanged": {
+      "explanation": "La org en la que escribió esta ejecución ya no es la que era — actualizada, sustituida o ya no registrada en SandForge —, así que lo que escribió la ejecución no está allí para continuar. No se escribió nada.",
+      "action": "Vuelva a ejecutar la clonación desde la revisión en la org tal como está ahora."
+    },
+    "resumeChanged": {
+      "explanation": "Esta ejecución quedaría ahora configurada de otro modo que la parte que retoma: la clonación de la página, o el ajuste sandforge.forge.maxRecordsPerObject, cambió desde que se detuvo. No se escribió nada.",
+      "action": "Restablezca el ajuste, o reintente la ejecución en su lugar: un reintento vuelve a leer la clonación y vincula lo que escribió esta ejecución."
+    },
+    "filesNotAccepted": {
+      "explanation": "Esta ejecución anonimiza sus registros y copia sus archivos, cuyo contenido no se puede anonimizar: los archivos solo se copian cuando acepta que se copien tal como están. No se leyó ni escribió nada.",
+      "action": "En la revisión, acepte que los archivos se copien tal como están, o desactive la copia, y vuelva a ejecutar."
+    },
+    "abortedBeforeStart": {
+      "explanation": "Detuvo la ejecución antes de que empezara. No se escribió nada.",
+      "action": "Vuelva a ejecutarla desde la revisión cuando esté listo."
+    }
+  },
+  "moduleSummary": {
+    "forge": "Copiar un registro real y todo lo que lo rodea a otra org",
+    "autopilot": "Copiar objetos completos de una org a otra",
+    "seed": "Llenar una org con datos ficticios realistas"
   }
 }

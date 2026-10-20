@@ -296,7 +296,12 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           </p>
         )}
         {mine && removal.error && (
-          <ErrorBanner message={removal.error} data-testid="forge-history-remove-error" />
+          <ErrorBanner
+            message={removal.error}
+            code={removal.errorCode}
+            module="forge"
+            data-testid="forge-history-remove-error"
+          />
         )}
         {answer && <ForgeRunRemovalResult result={answer} org={org ?? ''} />}
       </div>

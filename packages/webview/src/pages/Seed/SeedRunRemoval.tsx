@@ -271,7 +271,14 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
           )}
         </div>
       )}
-      {removal.error && <ErrorBanner message={removal.error} data-testid="seed-removal-error" />}
+      {removal.error && (
+        <ErrorBanner
+          message={removal.error}
+          code={removal.errorCode}
+          module="seed"
+          data-testid="seed-removal-error"
+        />
+      )}
       {result && <ForgeRunRemovalResult result={result} org={org} />}
       <DangerConfirm
         open={confirming}

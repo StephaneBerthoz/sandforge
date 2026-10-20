@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import {
@@ -19,6 +19,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from '../../theme/orgStyles';
+import { orgTypeLabel } from '../../utils/orgFormatters';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -45,6 +46,7 @@ import { MonitorOrgInfoBar } from './MonitorOrgInfoBar';
 import { MonitorTrendsJobsRow } from './MonitorTrendsJobsRow';
 import { MonitorLimitsSection } from './MonitorLimitsSection';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type {
   SalesforceOrg,
@@ -52,6 +54,7 @@ import type {
   ExecutionAbortResponse,
   SyncRunControlAnswer,
 } from '@sandforge/shared';
+import { bannerHintOf, registeredOrgType } from '@sandforge/shared';
 
 /* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
 export type { JobDisplayInfo } from './monitorUtils';
@@ -61,46 +64,63 @@ const RESUMED_RUN_WAIT_MS = 24 * 60 * 60 * 1000;
 
 /** What a refusal to take a Forge run up says, by the code the extension sent. */
 const RESUME_REFUSAL_KEYS: Readonly<Record<string, string>> = {
-  RESUME_UNAVAILABLE: 'forge.error.resumeUnavailable.explanation',
-  RESUME_TARGET_CHANGED: 'forge.error.resumeTargetChanged.explanation',
-  RESUME_CHANGED: 'forge.error.resumeChanged.explanation',
+  RESUME_UNAVAILABLE: 'errors.resumeUnavailable.explanation',
+  RESUME_TARGET_CHANGED: 'errors.resumeTargetChanged.explanation',
+  RESUME_CHANGED: 'errors.resumeChanged.explanation',
 };
+
+/**
+ * The style of an org's badge, by the type it is registered as once its
+ * edition is read: a Developer Edition an earlier build registered as a
+ * production org wore the red of one.
+ */
+function orgBadgeStyle(org: SalesforceOrg): string {
+  return (
+    ORG_TYPE_STYLES[registeredOrgType(org.orgType, org.metadata?.edition)] ?? ORG_TYPE_STYLE_DEFAULT
+  );
+}
 
 /** Org card for the empty state — click to select. */
 const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => void }> = ({
   org,
   onSelect,
-}) => (
-  <button
-    className={cn(
-      'flex items-center gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-3',
-      'hover:bg-surface-2 hover:border-active transition-all text-left w-full',
-    )}
-    onClick={() => onSelect(org.id)}
-    data-testid={`empty-org-${org.id}`}
-  >
-    <span
+}) => {
+  const { t } = useTranslation();
+  return (
+    <button
       className={cn(
-        'h-2 w-2 rounded-full shrink-0',
-        org.status === 'connected' ? 'bg-status-success' : 'bg-text-secondary',
+        'flex items-center gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-3',
+        'hover:bg-surface-2 hover:border-active transition-all text-left w-full',
       )}
-    />
-    <div className="flex-1 min-w-0">
-      <div className="text-sm font-medium text-text-primary truncate">
-        {org.alias || org.username}
-      </div>
-      <div className="text-xs text-text-secondary truncate">{org.instanceUrl}</div>
-    </div>
-    <span
-      className={cn(
-        'text-[9px] font-bold px-1.5 py-0.5 rounded-sm border shrink-0',
-        ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT,
-      )}
+      onClick={() => onSelect(org.id)}
+      data-testid={`empty-org-${org.id}`}
     >
-      {org.orgType === 'Production' ? 'PROD' : org.orgType.toUpperCase()}
-    </span>
-  </button>
-);
+      <span
+        className={cn(
+          'h-2 w-2 rounded-full shrink-0',
+          org.status === 'connected' ? 'bg-status-success' : 'bg-text-secondary',
+        )}
+      />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-text-primary truncate">
+          {org.alias || org.username}
+        </div>
+        <div className="text-xs text-text-secondary truncate">{org.instanceUrl}</div>
+      </div>
+      <span
+        className={cn(
+          'text-[9px] font-bold px-1.5 py-0.5 rounded-sm border shrink-0',
+          orgBadgeStyle(org),
+        )}
+        data-testid={`empty-org-type-${org.id}`}
+      >
+        {/* The label every other badge shows, in the interface language: the raw
+          type, upper-cased, called a Developer Edition PRODUCTION. */}
+        {orgTypeLabel(org, t)}
+      </span>
+    </button>
+  );
+};
 
 /** Main monitoring dashboard page. */
 export const MonitorPage: React.FC = () => {
@@ -165,6 +185,7 @@ export const MonitorPage: React.FC = () => {
     openApexJobsError,
     orgHealthStatus,
   } = useMonitorPageData();
+  const errorHint = useMemo(() => (error ? bannerHintOf(error, null) : null), [error]);
 
   /**
    * The insights the band shows, split by what they may do. Filtered here
@@ -374,10 +395,11 @@ export const MonitorPage: React.FC = () => {
               <span
                 className={cn(
                   'text-[9px] font-bold px-1.5 py-0.5 rounded-sm border shrink-0',
-                  ORG_TYPE_STYLES[currentOrg.orgType] ?? '',
+                  orgBadgeStyle(currentOrg),
                 )}
+                data-testid="monitor-org-type"
               >
-                {currentOrg.orgType === 'Production' ? 'PROD' : currentOrg.orgType.toUpperCase()}
+                {orgTypeLabel(currentOrg, t)}
               </span>
             </>
           )}
@@ -456,6 +478,12 @@ export const MonitorPage: React.FC = () => {
             {t('monitor.details', 'Details')}
           </Button>
         </div>
+      )}
+      {/* What stopped the refresh and what to do, when the catalogue knows it:
+          an org whose edition has no API answered the first call with a code
+          the banner above did not say. */}
+      {error && !connectionLost && errorHint && (
+        <ErrorExplanation hint={errorHint} className="text-xs" />
       )}
 
       {/* ── Error details (expandable) ── */}

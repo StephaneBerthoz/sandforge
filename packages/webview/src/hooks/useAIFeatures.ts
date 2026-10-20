@@ -5,7 +5,6 @@
 
 import { useCallback, useMemo, useRef } from 'react';
 import type {
-  AINL2SOQLResponse,
   AISchemaAdviceResponse,
   AIAnomalyScanResponse,
   AIGeneratePipelineResponse,
@@ -30,7 +29,8 @@ export interface StoppableAITool<T> extends BridgeMutationState<T> {
 /**
  * Give a model-backed request a Stop.
  *
- * A NL2SOQL draft, a Forge root query and an Automation pipeline draft each
+ * A Forge root query drafted from a description and an Automation pipeline
+ * draft each
  * wait on a provider, and a slow one held the page under a spinner until its
  * answer or its timeout, with no way to give up. The chat could be stopped;
  * these could not.
@@ -55,11 +55,6 @@ export function useStoppableAITool<T>(mutation: BridgeMutationState<T>): Stoppab
     () => ({ mutate, data, loading, error, errorCode, reset, requestId, stop }),
     [mutate, data, loading, error, errorCode, reset, requestId, stop],
   );
-}
-
-/** Convert natural language to SOQL. */
-export function useNL2SOQL() {
-  return useStoppableAITool(useBridgeMutation<AINL2SOQLResponse['payload']>('ai:nl2soql'));
 }
 
 /** Schema advice for an org — rule-based, no model call. */

@@ -321,7 +321,13 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
         )}
       </div>
 
-      {search.error && <ErrorBanner message={search.error} data-testid="dsr-search-error" />}
+      {search.error && (
+        <ErrorBanner
+          message={search.error}
+          code={search.errorCode}
+          data-testid="dsr-search-error"
+        />
+      )}
 
       {result && (
         <div className="flex flex-col gap-3" data-testid="dsr-results">
@@ -365,7 +371,11 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
                   {exportStatus?.status === 'error' && exportStatus.message}
                 </p>
                 {exportRecords.error && (
-                  <ErrorBanner message={exportRecords.error} data-testid="dsr-export-error" />
+                  <ErrorBanner
+                    message={exportRecords.error}
+                    code={exportRecords.errorCode}
+                    data-testid="dsr-export-error"
+                  />
                 )}
               </div>
 
@@ -412,7 +422,13 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
             </>
           )}
 
-          {review.error && <ErrorBanner message={review.error} data-testid="dsr-review-error" />}
+          {review.error && (
+            <ErrorBanner
+              message={review.error}
+              code={review.errorCode}
+              data-testid="dsr-review-error"
+            />
+          )}
 
           {plan && (
             <div className="flex flex-col gap-2" data-testid="dsr-plan">
@@ -435,7 +451,13 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
             </div>
           )}
 
-          {erase.error && <ErrorBanner message={erase.error} data-testid="dsr-erase-error" />}
+          {erase.error && (
+            <ErrorBanner
+              message={erase.error}
+              code={erase.errorCode}
+              data-testid="dsr-erase-error"
+            />
+          )}
           {erase.data?.outcome && (
             <RemovalOutcomeView mode={erase.data.mode} outcome={erase.data.outcome} />
           )}

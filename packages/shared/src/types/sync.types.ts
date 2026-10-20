@@ -431,6 +431,14 @@ export interface SyncObjectResult {
   conflictCount: number;
   errors: string[];
   /**
+   * Refused records whose refusals `errors` leaves out: a run keeps those of
+   * the first records it counts, and its history fewer. Absent when it left
+   * none out. A validation rule refusing every record of a large object
+   * posted one line per record, uncapped, into the page and into each of
+   * the five hundred history entries kept.
+   */
+  refusalsDropped?: number;
+  /**
    * Of the records an upsert wrote, those it created and those it updated,
    * as the org said for each. A record the org said neither of is in
    * neither. Absent for the other operations.

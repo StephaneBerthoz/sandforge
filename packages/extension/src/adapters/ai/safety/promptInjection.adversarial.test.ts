@@ -120,7 +120,7 @@ describe('Prompt injection adversarial', () => {
         .fn<AIProvider>()
         .mockResolvedValue(JSON.stringify({ explanation: 'ok', suggestions: [], confidence: 0.5 }));
 
-      // An errorCode absent from KNOWLEDGE_BASE is the only path that reaches AI.
+      // A code the error catalogue does not explain is the only one the host asks AI about.
       await new ErrorResolver(provider).resolveError(
         { errorCode: 'NOT_A_KNOWN_CODE', message: BREAKOUT },
         { module: 'seed', operation: 'insert' },

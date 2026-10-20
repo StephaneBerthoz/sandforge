@@ -191,7 +191,13 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
           )}
         </div>
       )}
-      {removal.error && <ErrorBanner message={removal.error} data-testid="sync-removal-error" />}
+      {removal.error && (
+        <ErrorBanner
+          message={removal.error}
+          code={removal.errorCode}
+          data-testid="sync-removal-error"
+        />
+      )}
       {result && (
         <>
           <ForgeRunRemovalResult result={result} org={org} />

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
+import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useNotificationStore, resetNotificationCounter } from '../../stores/useNotificationStore';
 import { MonitorPage } from './MonitorPage';
@@ -630,6 +631,37 @@ describe('MonitorPage', () => {
   });
 
   // 10. Error handling
+  it('says under the refresh banner what an error the catalogue knows means, and what to do', () => {
+    // An org whose edition has no API refused the first call: the page said
+    // "Failed to refresh", and the code only in a toast.
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error:
+        'Connection failed for "Dev": API_DISABLED_FOR_ORG: API is not enabled for this Organization or Partner',
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('error-hint').textContent).toContain(
+      'This org does not allow API access',
+    );
+  });
+
+  it('says nothing more under the refresh banner of an error the catalogue does not know', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: 'Connection timeout',
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    expect(screen.queryByTestId('error-hint')).toBeNull();
+  });
+
   it('should show error retry banner on query error and add a notification', () => {
     mockMonitorQueryState = {
       data: standardMonitorPayload,
@@ -799,6 +831,32 @@ describe('MonitorPage', () => {
     // Header shows the org alias and org type badge
     expect(screen.getByText('DevSandbox')).toBeDefined();
     expect(screen.getByText('SANDBOX')).toBeDefined();
+  });
+
+  it('labels a Developer Edition an earlier build registered as production by its edition, as every other badge does', () => {
+    // The header and the empty-state cards upper-cased the raw type: a
+    // Developer Edition read PROD, in red, in every language.
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const developerEdition = createMockOrg({
+      orgType: 'Production',
+      metadata: {
+        apiVersion: '59.0',
+        features: [],
+        lastRefreshed: '2024-01-01T00:00:00Z',
+        edition: 'Developer Edition',
+      },
+    } as Partial<SalesforceOrg>);
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [developerEdition] });
+    render(<MonitorPage />);
+
+    const badge = screen.getByTestId('monitor-org-type');
+    expect(badge.textContent).toBe('DEVELOPER');
+    expect(badge.className).not.toContain(ORG_TYPE_STYLES.Production);
   });
 
   it('should render HealthScoreCard when healthReport is present in payload', () => {

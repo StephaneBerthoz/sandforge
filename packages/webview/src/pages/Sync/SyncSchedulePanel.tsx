@@ -492,7 +492,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
   // than read as no configuration saved.
   const shownError = error ?? configsQuery.error;
   const errorBanner = shownError ? (
-    <ErrorBanner message={shownError} data-testid="sync-schedule-error" />
+    <ErrorBanner message={shownError} code={null} data-testid="sync-schedule-error" />
   ) : null;
 
   // Read apart from the schedules: listed while those load too.

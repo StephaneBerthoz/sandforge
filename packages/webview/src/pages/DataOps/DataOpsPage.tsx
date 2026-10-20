@@ -489,7 +489,12 @@ export const DataOpsPage: React.FC = () => {
       )}
 
       {error && (
-        <ErrorBanner message={error} onDismiss={() => setError(null)} data-testid="dataops-error" />
+        <ErrorBanner
+          message={error}
+          code={null}
+          onDismiss={() => setError(null)}
+          data-testid="dataops-error"
+        />
       )}
 
       {/* KPI summary row */}

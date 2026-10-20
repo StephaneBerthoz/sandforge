@@ -14,7 +14,7 @@ import type {
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
-import { FORGE_GUIDE_URL } from './forgeErrorTranslator';
+import { FORGE_GUIDE_URL } from '@sandforge/shared';
 import { useForgeRunGateStore } from './runGate';
 
 /* ---- Mocks ---- */
@@ -364,9 +364,9 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
 
     const stopped = screen.getByTestId('forge-results-stopped');
-    const hint = within(stopped).getByTestId('forge-error-translation');
-    expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.explanation'));
-    expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.action'));
+    const hint = within(stopped).getByTestId('error-hint');
+    expect(hint.textContent).toContain(i18n.t('errors.requestLimit.forge.explanation'));
+    expect(hint.textContent).toContain(i18n.t('errors.requestLimit.forge.action'));
     expect(within(hint).getByRole('link').getAttribute('href')).toBe(
       `${FORGE_GUIDE_URL}#error-request-limit-exceeded`,
     );
@@ -2663,13 +2663,11 @@ describe('ForgeResults', () => {
       mockResult = Object.assign(makeMockResult(), { errors: [lookupsLeftEmpty, sentOnTheirOwn] });
       render(<ForgeResults />);
 
-      const hints = within(screen.getByTestId('forge-notes-panel')).getAllByTestId(
-        'forge-error-translation',
-      );
+      const hints = within(screen.getByTestId('forge-notes-panel')).getAllByTestId('error-hint');
       // Both lookups say the same thing, and a contact sent on its own needs no hint.
       expect(hints).toHaveLength(1);
-      expect(hints[0].textContent).toContain(i18n.t('forge.error.lookupOutsideClone.explanation'));
-      expect(hints[0].textContent).toContain(i18n.t('forge.error.lookupOutsideClone.action'));
+      expect(hints[0].textContent).toContain(i18n.t('errors.lookupOutsideClone.explanation'));
+      expect(hints[0].textContent).toContain(i18n.t('errors.lookupOutsideClone.action'));
     });
 
     it("counts an object with two reports once in the red panel's header", () => {
@@ -2733,9 +2731,9 @@ describe('ForgeResults', () => {
 
       fireEvent.click(within(screen.getByTestId('forge-errors-row')).getByRole('button'));
 
-      const hint = screen.getByTestId('forge-error-translation');
-      expect(hint.textContent).toContain(i18n.t('forge.error.notInTarget.explanation'));
-      expect(hint.textContent).toContain(i18n.t('forge.error.notInTarget.action'));
+      const hint = screen.getByTestId('error-hint');
+      expect(hint.textContent).toContain(i18n.t('errors.notInTarget.explanation'));
+      expect(hint.textContent).toContain(i18n.t('errors.notInTarget.action'));
     });
 
     it("links a refused row's hint to its code's row in the guide", () => {
@@ -2744,7 +2742,7 @@ describe('ForgeResults', () => {
 
       fireEvent.click(within(screen.getByTestId('forge-errors-row')).getByRole('button'));
 
-      const hint = screen.getByTestId('forge-error-translation');
+      const hint = screen.getByTestId('error-hint');
       const link = within(hint).getByRole('link', {
         name: 'FIELD_CUSTOM_VALIDATION_EXCEPTION in the Forge guide',
       });
@@ -2760,8 +2758,8 @@ describe('ForgeResults', () => {
 
       fireEvent.click(within(screen.getByTestId('forge-errors-row')).getByRole('button'));
 
-      expect(screen.getAllByTestId('forge-error-translation')).toHaveLength(2);
-      expect(screen.queryByTestId('forge-error-guide-link')).toBeNull();
+      expect(screen.getAllByTestId('error-hint')).toHaveLength(2);
+      expect(screen.queryByTestId('error-hint-link')).toBeNull();
     });
 
     it('offers no retry for a run whose only reports are notes', () => {

@@ -34,12 +34,14 @@ const DROP_REASON_KEYS: Readonly<Record<string, string>> = {
 
 /**
  * The host notifications said in the interface language, by the code they
- * carry. A notification with a code not listed here shows the host's
- * message, which is English.
+ * carry: their message, and their title where it is more than a module's
+ * name. A notification with a code not listed here shows the host's words,
+ * which are English — the first extraction's salt was titled "Frozen dataset
+ * salt" in every language over a translated message.
  */
-const NOTIFICATION_CODE_KEYS: Readonly<Record<string, string>> = {
-  AUTOPILOT_NOT_READY: 'common.refusal.autopilotNotReady',
-  FROZEN_SALT_CREATED: 'frozen.salt.created',
+const NOTIFICATION_CODE_KEYS: Readonly<Record<string, { message: string; title?: string }>> = {
+  AUTOPILOT_NOT_READY: { message: 'common.refusal.autopilotNotReady' },
+  FROZEN_SALT_CREATED: { message: 'frozen.salt.created', title: 'frozen.salt.createdTitle' },
 };
 
 /** Props for BridgeProvider. */
@@ -166,8 +168,8 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
       msg.payload.code !== undefined ? NOTIFICATION_CODE_KEYS[msg.payload.code] : undefined;
     useNotificationStore.getState().addNotification({
       level: msg.payload.level,
-      title: msg.payload.title,
-      message: key ? t(key) : msg.payload.message,
+      title: key?.title ? t(key.title) : msg.payload.title,
+      message: key ? t(key.message) : msg.payload.message,
       autoDismissMs: msg.payload.autoDismissMs,
       // Dropped until now: a host notification could carry buttons and the
       // toast rendered none of them.

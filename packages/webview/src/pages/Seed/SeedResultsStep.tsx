@@ -12,7 +12,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SeedRunRemoval } from './SeedRunRemoval';
-import { SeedResultErrors } from './SeedResultErrors';
+import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
 
 const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
@@ -175,10 +175,12 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                             })}
                       </p>
                     )}
-                    <SeedResultErrors
+                    <RecordErrorGroups
                       objectApiName={obj.objectApiName}
                       errors={obj.errors}
                       recordsFailed={obj.recordsFailed}
+                      module="seed"
+                      testIdPrefix="seed-result"
                     />
                   </div>
                 </CardBody>

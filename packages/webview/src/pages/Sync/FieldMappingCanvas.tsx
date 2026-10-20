@@ -128,7 +128,14 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
       </div>
 
       {mappings.length === 0 && autoMapSuggestions.length === 0 && (
-        <p className="text-xs text-center text-(--sf-text-secondary) py-2">{t('sync.unmapped')}</p>
+        <p
+          className="text-xs text-center text-(--sf-text-secondary) py-2"
+          data-testid="field-mapping-none"
+        >
+          {/* What an empty list does, for one object as for several: "Unmapped"
+              read as if nothing would be copied. */}
+          {t('sync.noCustomMapping')}
+        </p>
       )}
 
       {/* Auto-map suggestions preview */}

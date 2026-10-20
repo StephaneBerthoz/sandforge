@@ -48,126 +48,19 @@ describe('ErrorResolver', () => {
     vi.useRealTimers();
   });
 
-  // --- Knowledge base resolution ---
+  // --- The catalogue answers first ---
 
-  describe('known error resolution', () => {
-    it('should resolve REQUIRED_FIELD_MISSING from knowledge base without calling AI', async () => {
-      const error: SalesforceError = {
-        errorCode: 'REQUIRED_FIELD_MISSING',
-        message: 'Required fields are missing: [Name]',
-        fields: ['Name'],
-        objectName: 'Account',
-      };
+  it('asks the model even of a code the error catalogue explains: the catalogue is asked before it', async () => {
+    // The resolver read its own table first; the host asks the catalogue every
+    // panel reads before it reaches the resolver (resolveFailedOperation).
+    const error: SalesforceError = {
+      errorCode: 'REQUIRED_FIELD_MISSING',
+      message: 'Required fields are missing: [Name]',
+    };
 
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
+    await resolver.resolveError(error, BASE_CONTEXT);
 
-      expect(mockProvider).not.toHaveBeenCalled();
-      expect(resolution.explanation).toContain('required field');
-      expect(resolution.confidence).toBe(0.95);
-      expect(resolution.suggestions.length).toBeGreaterThan(0);
-    });
-
-    it('should resolve UNABLE_TO_LOCK_ROW as auto-fixable', async () => {
-      const error: SalesforceError = {
-        errorCode: 'UNABLE_TO_LOCK_ROW',
-        message: 'unable to obtain exclusive access to this record',
-      };
-
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(resolution.autoFixable).toBe(true);
-      expect(resolution.autoFixAction).toBe('retry');
-    });
-
-    it('should resolve DUPLICATE_VALUE from knowledge base', async () => {
-      const error: SalesforceError = {
-        errorCode: 'DUPLICATE_VALUE',
-        message: 'duplicate value found',
-        fields: ['External_Id__c'],
-      };
-
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(resolution.explanation).toContain('duplicate');
-      expect(resolution.explanation).toContain('External_Id__c');
-    });
-
-    it('should resolve STRING_TOO_LONG as auto-fixable', async () => {
-      const error: SalesforceError = {
-        errorCode: 'STRING_TOO_LONG',
-        message: 'value too long',
-        fields: ['Description'],
-      };
-
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(resolution.autoFixable).toBe(true);
-      expect(resolution.autoFixAction).toBe('truncate_fields');
-    });
-
-    it('should resolve REQUEST_LIMIT_EXCEEDED with retry suggestion', async () => {
-      const error: SalesforceError = {
-        errorCode: 'REQUEST_LIMIT_EXCEEDED',
-        message: 'TotalRequests Limit exceeded.',
-      };
-
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(resolution.autoFixable).toBe(true);
-      const retryAction = resolution.suggestions.find((s) => s.action === 'retry');
-      expect(retryAction).toBeDefined();
-    });
-
-    it('should resolve INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY as not auto-fixable', async () => {
-      const error: SalesforceError = {
-        errorCode: 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
-        message: 'insufficient access rights on cross-reference id',
-      };
-
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(resolution.autoFixable).toBe(false);
-      expect(resolution.suggestions.length).toBeGreaterThanOrEqual(2);
-    });
-
-    it('should add batch size suggestion when batch is large', async () => {
-      const largeContext: OperationContext = { ...BASE_CONTEXT, batchSize: 500 };
-      const error: SalesforceError = {
-        errorCode: 'UNABLE_TO_LOCK_ROW',
-        message: 'lock contention',
-      };
-
-      const resolution = await resolver.resolveError(error, largeContext);
-
-      const contextualSuggestion = resolution.suggestions.find(
-        (s) => s.action === 'reduce_batch_size' && s.description.includes('500'),
-      );
-      expect(contextualSuggestion).toBeDefined();
-    });
-
-    it('should answer the ten most common error codes without calling AI', async () => {
-      const requiredCodes = [
-        'FIELD_CUSTOM_VALIDATION_EXCEPTION',
-        'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
-        'DUPLICATE_VALUE',
-        'REQUIRED_FIELD_MISSING',
-        'STRING_TOO_LONG',
-        'INVALID_CROSS_REFERENCE_KEY',
-        'ENTITY_IS_DELETED',
-        'DELETE_FAILED',
-        'UNABLE_TO_LOCK_ROW',
-        'REQUEST_LIMIT_EXCEEDED',
-      ];
-
-      for (const code of requiredCodes) {
-        const error: SalesforceError = { errorCode: code, message: `${code} test` };
-        const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-        expect(resolution.confidence).toBe(0.95);
-        expect(resolution.suggestions.length).toBeGreaterThan(0);
-      }
-      expect(mockProvider).not.toHaveBeenCalled();
-    });
+    expect(mockProvider).toHaveBeenCalledTimes(1);
   });
 
   // --- AI fallback resolution ---

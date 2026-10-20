@@ -185,7 +185,12 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
         </p>
       )}
       {removal.error && (
-        <ErrorBanner message={removal.error} data-testid="forge-results-remove-error" />
+        <ErrorBanner
+          message={removal.error}
+          code={removal.errorCode}
+          module="forge"
+          data-testid="forge-results-remove-error"
+        />
       )}
       {answered && <ForgeRunRemovalResult result={answered.result} org={org ?? ''} />}
       <ForgeRunRemovalConfirm

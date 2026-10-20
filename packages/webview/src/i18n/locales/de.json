@@ -61,14 +61,18 @@
       "autopilotWriteDeclined": "Sie haben den Autopilot-Lauf abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",
       "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
-      "orgAuthExpired": "Die Sitzung mit dieser Org ist abgelaufen und konnte nicht erneuert werden. Verbinden Sie sie auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte).",
-      "orgTemporarilyUnreachable": "Diese Org ist mehrmals hintereinander fehlgeschlagen, daher wartet SandForge einen Moment, bevor es sie erneut aufruft. Versuchen Sie es in einer Minute erneut.",
       "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält."
     },
     "list": {
       "separator": ", ",
       "and": " und "
-    }
+    },
+    "recordErrors": {
+      "group": "{{n}} × {{reason}}",
+      "listed": "Gruppiert aus den ersten {{listed}} der {{failed}} abgelehnten Datensätze."
+    },
+    "details": "Details",
+    "optional": "Optional"
   },
   "status": {
     "apiUsage": "API-Nutzung",
@@ -141,7 +145,6 @@
     },
     "moreMethods": "Weitere Methoden",
     "cliMissing": "Die Salesforce CLI (sf) antwortet auf diesem Rechner nicht. Aus SF CLI importieren und OAuth (Web) laufen über sie.",
-    "noCliOrgs": "Die Salesforce CLI enthält noch keine Org. Melden Sie sich mit OAuth (Web) an: Es öffnet die Salesforce-Anmeldung in Ihrem Browser.",
     "aliasOptionalHint": "Optional: Ohne Alias wird die Org nach ihrem Benutzernamen benannt.",
     "connectedNext": {
       "title": "{{alias}} ist verbunden",
@@ -925,7 +928,6 @@
     },
     "emptyState": {
       "title": "Füllen Sie Ihre Sandbox mit realistischen Testdaten",
-      "description": "Seed erzeugt synthetische Daten — aus Vorlagen, KI, CSV oder einer anderen Org — damit Sie ohne Produktionsdaten entwickeln und testen können.",
       "step2": "Vorlage oder Modus wählen: KI, CSV, Klonen",
       "step3": "Objekte und Datensatzmengen festlegen",
       "step4": "Ausführen und Ergebnisse prüfen"
@@ -936,19 +938,7 @@
     "results": {
       "aiFallback": "Die KI hat keine Werte geliefert, daher erhielten diese Felder generierte Sätze: {{fields}}. Die KI ist ausgeschaltet, oder der Aufruf wurde abgelehnt (das SandForge-Protokoll nennt den Grund).",
       "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}.",
-      "errorGroup": "{{n}} × {{reason}}",
-      "errorsListed": "Gruppiert aus den ersten {{listed}} der {{failed}} abgelehnten Datensätze.",
-      "openRecord": "Ein erstelltes {{object}} in {{org}} öffnen",
-      "errorHint": {
-        "requiredFieldMissing": "Die Org verlangt einen Wert, den der Lauf nicht geliefert hat. Starten Sie den Seed über den Assistenten und geben Sie dem Feld im Schritt Konfigurieren eine Regel.",
-        "validationRule": "Eine Validierungsregel der Org hat die generierten Werte abgelehnt. Geben Sie den Feldern, die sie prüft, Regeln mit Werten, die sie annimmt, oder deaktivieren Sie die Regel während des Seeds.",
-        "restrictedPicklist": "Ein generierter Wert gehört nicht zu dieser eingeschränkten Auswahlliste oder wird vom Datensatztyp nicht akzeptiert. Geben Sie dem Feld die Werte, die die Org dafür vorsieht.",
-        "duplicateValue": "Ein eindeutiges Feld hat einen Wert erhalten, den ein Datensatz der Org bereits trägt. Geben Sie dem Feld eine Regel, deren Werte sich nicht wiederholen.",
-        "duplicateRule": "Eine auf Blockieren gesetzte Duplikatregel der Org hat den generierten Datensatz abgelehnt. Deaktivieren Sie die Regel während des Seeds oder setzen Sie ihre Aktion beim Erstellen auf Zulassen.",
-        "storageFull": "Die Org hat keinen Datenspeicher mehr: Eine Developer Edition fasst 5 MB. Entfernen Sie einen früheren Seed oder erzeugen Sie weniger Datensätze.",
-        "standardPrice": "Salesforce nimmt den Preis eines Produkts in einem benutzerdefinierten Preisbuch erst an, wenn das Produkt einen Preis im Standardpreisbuch hat. Geben Sie diesen Produkten zuerst einen Standardpreis.",
-        "flowFailed": "Ein Flow der Org ist beim Speichern des Datensatzes fehlgeschlagen, und die Org hat den Datensatz abgelehnt. Korrigieren Sie den Flow oder deaktivieren Sie ihn während des Seeds."
-      }
+      "openRecord": "Ein erstelltes {{object}} in {{org}} öffnen"
     },
     "sampleRecordCount_one": "{{count}} Beispieldatensatz",
     "sampleRecordCount_other": "{{count}} Beispieldatensätze",
@@ -1115,10 +1105,7 @@
     "addTransform": "Transformation hinzufügen",
     "addMapping": "Zuordnung hinzufügen",
     "autoMap": "Auto-Zuordnung",
-    "unmapped": "Nicht zugeordnet",
     "suggestedMappings": "Vorgeschlagene Zuordnungen",
-    "autoMatch": "Auto-Zuordnung",
-    "fieldMapperHint": "Klicken Sie auf ein Quellfeld und dann auf ein Zielfeld, um eine Zuordnung zu erstellen",
     "selectAndConfigure": "Orgs und Objekte auswählen",
     "templates": {
       "title": "Schnellstart-Vorlagen",
@@ -1399,9 +1386,7 @@
     },
     "delta": {
       "toggle": "Nur kopieren, was sich seit dem letzten erfolgreichen Lauf geändert hat (Delta)",
-      "toggleHint": "Jedes Objekt liest die Datensätze, die seine Quelle seit seinem letzten erfolgreichen Lauf geändert hat, und beginnt fünf Minuten früher, um Speicherungen zu erfassen, die während eines Lesevorgangs festgeschrieben wurden. Der erste Lauf, ein Lauf nach einer Änderung von Filter, Feldern, Schlüssel oder Zuordnung oder nach dem Ein- oder Ausschalten der Dateien und ein Lauf nach „Nächstes Mal vollständig ausführen“ lesen alles. Was ein Delta-Lauf zweimal liest, schreibt er zweimal; daher muss jedes Objekt per Upsert auf eine External ID oder per Aktualisierung geschrieben werden. Ein Wasserzeichen wird nur für eine gespeicherte Konfiguration aufbewahrt: Speichern Sie sie und führen Sie sie dann hier, aus den gespeicherten Konfigurationen oder per Zeitplan aus.",
       "deletes": "Im Ziel löschen, was die Quelle gelöscht hat",
-      "deletesHint": "Aus, sofern nicht angehakt. Ein Delta-Lauf liest im Papierkorb der Quelle die seit seinem letzten erfolgreichen Lauf gelöschten Datensätze innerhalb des Objektfilters und löscht den einen Zieldatensatz, mit dem jeder über den Schlüssel verbunden ist, auf den das Schreiben abgleicht. Ein Zieldatensatz, den er nicht genau einem gelöschten Datensatz zuordnen kann oder dessen Schlüssel ein Quelldatensatz noch trägt, bleibt erhalten. Aus dem Papierkorb entfernte Datensätze werden nicht gesehen. Production Guard beurteilt den Lauf als Löschung.",
       "needsKey": "Ein Delta-Lauf verlangt, dass jedes Objekt per Upsert auf eine External ID oder per Aktualisierung geschrieben wird: {{objects}}.",
       "withDeletes": "Delta, Löschungen übertragen",
       "since": "Delta seit {{time}}",
@@ -1425,15 +1410,19 @@
         "no_modstamp": "Vollständig gelesen (die Quelle liefert für dieses Objekt kein SystemModstamp)",
         "not_saved": "Vollständig gelesen (keine gespeicherte Konfiguration: es wird kein Wasserzeichen aufbewahrt)",
         "removed": "Vollständig gelesen (ein Entfernen hat geschriebene Kopien zurückgenommen)"
-      }
+      },
+      "toggleDetails": "Jedes Objekt liest die Datensätze, die seine Quelle seit seinem letzten erfolgreichen Lauf geändert hat, und beginnt fünf Minuten früher, um Speicherungen zu erfassen, die während eines Lesevorgangs festgeschrieben wurden. Der erste Lauf, ein Lauf nach einer Änderung von Filter, Feldern, Schlüssel oder Zuordnung oder nach dem Ein- oder Ausschalten der Dateien und ein Lauf nach „Nächstes Mal vollständig ausführen“ lesen alles. Was ein Delta-Lauf zweimal liest, schreibt er zweimal; daher muss jedes Objekt per Upsert auf eine External ID oder per Aktualisierung geschrieben werden. Ein Wasserzeichen wird nur für eine gespeicherte Konfiguration aufbewahrt: Speichern Sie sie und führen Sie sie dann hier, aus den gespeicherten Konfigurationen oder per Zeitplan aus.",
+      "deletesDetails": "Aus, sofern nicht angehakt. Ein Delta-Lauf liest im Papierkorb der Quelle die seit seinem letzten erfolgreichen Lauf gelöschten Datensätze innerhalb des Objektfilters und löscht den einen Zieldatensatz, mit dem jeder über den Schlüssel verbunden ist, auf den das Schreiben abgleicht. Ein Zieldatensatz, den er nicht genau einem gelöschten Datensatz zuordnen kann oder dessen Schlüssel ein Quelldatensatz noch trägt, bleibt erhalten. Aus dem Papierkorb entfernte Datensätze werden nicht gesehen. Production Guard beurteilt den Lauf als Löschung.",
+      "toggleHint": "Liest nur die Datensätze, die seit dem letzten erfolgreichen Lauf dieser gespeicherten Konfiguration geändert wurden.",
+      "deletesHint": "Löscht im Ziel auch die Datensätze, die seit diesem Lauf in der Quelle gelöscht wurden."
     },
     "contactPoints": {
       "toggle": "E-Mail-Adressen und Telefonnummern neutralisieren (empfohlen)",
-      "toggleHint": "An, sofern nicht abgewählt. Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält, und die Flows des Ziels können echten Personen E-Mails und SMS senden. Das Feld, auf das das Schreiben abgleicht, bleibt wie gelesen."
+      "toggleDetails": "An, sofern nicht abgewählt. Jede E-Mail-Adresse wird unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht. Abgewählt werden sie so kopiert, wie die Quelle sie enthält, und die Flows des Ziels können echten Personen E-Mails und SMS senden. Das Feld, auf das das Schreiben abgleicht, bleibt wie gelesen.",
+      "toggleHint": "Schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive, sodass die Automatisierung des Ziels niemanden erreicht."
     },
     "files": {
       "toggle": "Die Dateien dieser Datensätze kopieren",
-      "toggleHint": "Aus, sofern nicht angehakt. Sobald die Datensätze eines Objekts geschrieben sind, werden die neueste Version jeder Salesforce-Datei, die mit einem von ihnen verknüpft ist, und ihre klassischen Anhänge kopiert und mit den Kopien der Datensätze im Ziel verknüpft. Eine gespeicherte Konfiguration merkt sich, welche Datei sie wohin kopiert hat: Ein erneuter Lauf kopiert eine Datei nur, wenn die Quelle eine neuere Version hat, die als Version der Kopie hinzugefügt wird, nie als zweite Datei. Bevor der Lauf etwas schreibt, wird der Dateispeicher des Ziels gelesen, und ein Lauf, dessen Dateien nicht hineinpassen, wird abgelehnt. Eine Datei, die größer als die Höchstgröße ist, und die Dateien über der Höchstmenge eines Laufs werden übersprungen und gezählt; der nächste Lauf kopiert Letztere. Das Entfernen eines Laufs nimmt mit seinen Datensätzen die Dateien zurück, die er erstellt hat; eine einer früheren Kopie hinzugefügte Version bleibt.",
       "maxFileSize": "Größte Datei (MB, höchstens 35)",
       "maxRun": "Höchstmenge pro Lauf (MB, höchstens 2000)",
       "needsSave": "Diese Konfiguration kopiert Dateien: Speichern Sie sie zuerst. Eine gespeicherte Konfiguration merkt sich, welche Dateien sie kopiert hat, damit ein zweiter Lauf sie nicht erneut kopiert; eine nicht gespeicherte wird abgelehnt.",
@@ -1465,7 +1454,9 @@
       "failed_one": "{{count}} Datei konnte nicht kopiert werden: Die Hinweise unten sagen, warum",
       "failed_other": "{{count}} Dateien konnten nicht kopiert werden: Die Hinweise unten sagen, warum",
       "storage": "Diese Dateien belegen {{size}} der {{left}} Dateispeicher, die dem Ziel bleiben.",
-      "wouldNotFit": "Diese Dateien belegen {{size}}, und dem Ziel bleiben {{left}} Dateispeicher: Ein Lauf würde abgelehnt, bevor er etwas schreibt."
+      "wouldNotFit": "Diese Dateien belegen {{size}}, und dem Ziel bleiben {{left}} Dateispeicher: Ein Lauf würde abgelehnt, bevor er etwas schreibt.",
+      "toggleDetails": "Aus, sofern nicht angehakt. Sobald die Datensätze eines Objekts geschrieben sind, werden die neueste Version jeder Salesforce-Datei, die mit einem von ihnen verknüpft ist, und ihre klassischen Anhänge kopiert und mit den Kopien der Datensätze im Ziel verknüpft. Eine gespeicherte Konfiguration merkt sich, welche Datei sie wohin kopiert hat: Ein erneuter Lauf kopiert eine Datei nur, wenn die Quelle eine neuere Version hat, die als Version der Kopie hinzugefügt wird, nie als zweite Datei. Bevor der Lauf etwas schreibt, wird der Dateispeicher des Ziels gelesen, und ein Lauf, dessen Dateien nicht hineinpassen, wird abgelehnt. Eine Datei, die größer als die Höchstgröße ist, und die Dateien über der Höchstmenge eines Laufs werden übersprungen und gezählt; der nächste Lauf kopiert Letztere. Das Entfernen eines Laufs nimmt mit seinen Datensätzen die Dateien zurück, die er erstellt hat; eine einer früheren Kopie hinzugefügte Version bleibt.",
+      "toggleHint": "Kopiert auch die Salesforce-Dateien und Anhänge der geschriebenen Datensätze."
     },
     "removal": {
       "title": "Was dieser Lauf erstellt hat",
@@ -1492,7 +1483,8 @@
       "unfinishedTitle": "Nie beendete Läufe",
       "unfinishedNote": "Während dieser Läufe wurde ein Fenster geschlossen, oder der Verlauf führt sie nicht mehr. Was sie erstellt haben, wird aufbewahrt und kann entfernt werden.",
       "unfinishedRun": "{{config}}, gestartet am {{date}}"
-    }
+    },
+    "noCustomMapping": "Keine eigene Zuordnung: Felder mit demselben API-Namen werden kopiert."
   },
   "migration": {
     "title": "Migration",
@@ -2680,19 +2672,19 @@
     "title": "Hilfe & Ressourcen",
     "gettingStarted": "Erste Schritte",
     "gettingStartedDesc": "Lernen Sie die Grundlagen von SandForge",
-    "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org über die Organisationsseite.\n2. Klonen Sie mit Forge einen echten Datensatz und die Datensätze um ihn herum in Ihre Sandbox.\n3. Öffnen Sie den Monitor, um die Gesundheit Ihrer Org zu prüfen.\n4. Verwenden Sie Seed, um Testdaten zu generieren, oder Sync, um Daten zwischen zwei Orgs zu kopieren.\n5. Entdecken Sie Compare, DataOps, den eingefrorenen Datensatz und Automation für erweiterte Workflows.",
+    "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org auf der Seite Organisationen.\n2. Füllen Sie sie mit Seed: Eine Vorlage wie CRM Starter schreibt verknüpfte Accounts, Kontakte, Opportunities und Fälle, nachdem sie den Speicher der Org geprüft hat.\n3. Klonen Sie mit Forge: Kopieren Sie einen echten Datensatz mit allem, was dazugehört, aus einer anderen Org.\n4. Öffnen Sie den Monitor, um Gesundheit, Limits und Jobs der Org zu prüfen.\n5. Entdecken Sie Sync, Compare, DataOps, den eingefrorenen Datensatz und Automation, wenn Sie sie brauchen.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen für kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung für kontinuierliche Überwachung.",
-    "seedContent": "Der Seed-Assistent generiert realistische Testdaten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
+    "seedContent": "In fünf Schritten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Vollständig oder Delta: Ein vollständiger Lauf liest jedes Objekt ganz; ein Delta-Lauf einer gespeicherten Konfiguration liest jedes Objekt ab dem Punkt, an dem sein letzter erfolgreicher Lauf aufhörte, und kann im Ziel löschen, was die Quelle gelöscht hat. Eine Konfiguration, die Inkrementell verlangt, wird abgelehnt\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Trimmen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Tab „Echtzeit“: folgt den Änderungsereignissen (Change Data Capture), die die Quell-Org veröffentlicht, und schreibt jede Änderung sofort in das Ziel, gefunden über eine externe ID, die Datensatz-ID oder die Zuordnung einer gespeicherten Sync; Löschungen nur auf Wunsch. Um einem weiteren Objekt zu folgen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus. Über eine Änderung, deren Zieldatensatz danach bearbeitet wurde, entscheidet die Strategie, oder sie wird auf dem Tab „Konflikte“ zurückgehalten\n- Entfernen, was ein Lauf erstellt hat: Aus den Ergebnissen oder dem Verlaufseintrag eines Laufs löscht sein Entfernen die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo das Ziel keinen hatte, und die Dateien, die er erstellt hat; Production Guard verweigert es in einer Produktions-Org. Die Datensätze, die ein Lauf aktualisiert hat, behalten ihre neuen Werte: Erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst die Objekte, die die Anonymisierungsvorlagen maskieren: Contact, Lead, Account und Opportunity bei den mitgelieferten)",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie dann die Validierung in einer Sandbox bereit",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein Snapshot der Objekte, die die Anonymisierungsvorlagen maskieren, oder derer, die die gewählte Vorlage maskiert, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance: findet die Felder der gewählten Objekte mit personenbezogenen Daten, bestätigt an einer Stichprobe ihrer letzten 200 Datensätze; findet dann die Datensätze einer Person über E-Mail, Name oder Telefon, exportiert sie in eine Datei und anonymisiert sie direkt oder löscht sie – nach einer Prüfung, einer eingetippten Bestätigung und Production Guard; ein lokales Protokoll hält Zahlen zu jeder Anfrage fest, nie die betroffene Person\n- Bereinigung: zählt die Datensätze, die seit einer Anzahl von Tagen niemand geändert hat, die, die ein Lookup-Feld leer lassen, auf das sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts; jede Gruppe lässt sich exportieren oder nach einer Prüfung, einer eingetippten Bestätigung und Production Guard löschen, höchstens 1.000 auf einmal",
     "automationContent": "Visueller Pipeline-Builder:\n- Die Palette bietet die Schritttypen an, die eine Pipeline ausführt: Sicherung, Vergleich, Vorabprüfung, Verzögerung und Benachrichtigung; ein Bedingungsschritt kommt mit einer Vorlage aus dem Marketplace. Eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
-    "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nDirekt klonen, unter Graph ermitteln, führt die Ermittlung und danach das Klonen des Gefundenen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten: Der Lauf wird so gesendet, wie die Überprüfung ihn sendet, wenn dort nichts geändert wurde, Production Guard beurteilt ihn wie jeden Lauf, und der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt.\n\nGraph oder Tabelle: Die Bildschirme Ermittlung, Überprüfung und Ausführung zeichnen einen Graphen mit bis zu 25 Objekten und listen einen größeren in einer Tabelle. Der Umschalter Graph-Ansicht / Tabellenansicht wählt auf allen Bildschirmen die andere Ansicht, bis das Panel geschlossen wird; die Einstellung sandforge.forge.graphView (auto, graph oder table) wählt die Ansicht, mit der sie öffnen.\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
+    "forgeContent": "In vier Schritten:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nDirekt klonen, unter Graph ermitteln, führt die Ermittlung und danach das Klonen des Gefundenen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten: Der Lauf wird so gesendet, wie die Überprüfung ihn sendet, wenn dort nichts geändert wurde, Production Guard beurteilt ihn wie jeden Lauf, und der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt.\n\nGraph oder Tabelle: Die Bildschirme Ermittlung, Überprüfung und Ausführung zeichnen einen Graphen mit bis zu 25 Objekten und listen einen größeren in einer Tabelle. Der Umschalter Graph-Ansicht / Tabellenansicht wählt auf allen Bildschirmen die andere Ansicht, bis das Panel geschlossen wird; die Einstellung sandforge.forge.graphView (auto, graph oder table) wählt die Ansicht, mit der sie öffnen.\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
-    "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat sowie NL2SOQL, eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in Automation\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automation-Lauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Die Schema-Empfehlungen von Compare und der Anomalie-Scan von Monitor sind regelbasiert: Sie laufen mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
+    "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat, NL2SOQL im KI-Tab von Forge sowie eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in Automation\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automation-Lauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Die Schema-Empfehlungen von Compare und der Anomalie-Scan von Monitor sind regelbasiert: Sie laufen mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
     "shortcutsContent": "G + Taste — Zu einem Modul springen (z. B. G dann F für Forge, G dann Y für Sync, G dann L für Hilfe)\nStrg+K — Befehlspalette\nEscape — Modale und Dialoge schließen\nTab — Zwischen Elementen navigieren\nEnter/Leertaste — Schaltflächen und Links aktivieren",
-    "faqContent": "F: Warum ist mein Gesundheitswert niedrig?\nA: Prüfen Sie die API-Limit-Nutzung, fehlgeschlagene Jobs und den Speicherverbrauch. Der Wert gewichtet mehrere Faktoren.\n\nF: Wie behebe ich Timeout-Fehler?\nA: SandForge hat keine Timeout-Einstellung für Salesforce-Aufrufe. Verringern Sie die Stapelgröße (sandforge.seed.defaultBatchSize und sandforge.sync.defaultBatchSize in den VS Code-Einstellungen) und teilen Sie einen großen Lauf in kleinere auf. Grappe macht einen Lauf nicht schneller: Es meldet den Fortschritt je Partition.\n\nF: Kann ich eine Sync-Operation rückgängig machen?\nA: Teilweise. Das Entfernen eines Laufs, aus seinen Ergebnissen oder seinem Verlaufseintrag, löscht, was er erstellt hat: die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo das Ziel keinen hatte, und seine Dateien. Die Datensätze, die er aktualisiert hat, behalten ihre neuen Werte. Erstellen Sie vor einem riskanten Lauf eine DataOps-Sicherung der Ziel-Org: Sie umfasst die Objekte, die die Anonymisierungsvorlagen maskieren, und lässt sich nur in diese Org zurückspielen.\n\nF: Wie verbinde ich eine Produktions-Org sicher?\nA: Produktions-Orgs werden automatisch erkannt und als kritische Sicherheitsstufe markiert. Alle destruktiven Operationen erfordern eine Bestätigung.",
+    "faqContent": "F: Warum ist mein Gesundheitswert niedrig?\nA: Prüfen Sie die API-Limit-Nutzung, fehlgeschlagene Jobs und den Speicherverbrauch. Der Wert gewichtet mehrere Faktoren.\n\nF: Wie behebe ich Timeout-Fehler?\nA: SandForge hat keine Timeout-Einstellung für Salesforce-Aufrufe. Verringern Sie die Stapelgröße (sandforge.seed.defaultBatchSize und sandforge.sync.defaultBatchSize in den VS Code-Einstellungen) und teilen Sie einen großen Lauf in kleinere auf. Grappe macht einen Lauf nicht schneller: Es meldet den Fortschritt je Partition.\n\nF: Kann ich eine Sync-Operation rückgängig machen?\nA: Teilweise. Das Entfernen eines Laufs, aus seinen Ergebnissen oder seinem Verlaufseintrag, löscht, was er erstellt hat: die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo das Ziel keinen hatte, und seine Dateien. Die Datensätze, die er aktualisiert hat, behalten ihre neuen Werte. Erstellen Sie vor einem riskanten Lauf eine DataOps-Sicherung der Ziel-Org: Sie umfasst die Objekte, die die Anonymisierungsvorlagen maskieren, und lässt sich nur in diese Org zurückspielen.\n\nF: Wie verbinde ich eine Produktions-Org sicher?\nA: SandForge erkennt eine Produktions-Org und markiert sie mit der kritischen Sicherheitsstufe. Production Guard lehnt dort ein Löschen oder eine Metadaten-Bereitstellung von vornherein ab und lässt Sie jeden anderen Schreibvorgang bestätigen, bevor er läuft (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
     "shortcuts": "Tastenkürzel",
     "troubleshooting": "Fehlerbehebung",
@@ -2711,9 +2703,9 @@
     "sfStackExchangeDesc": "Community-Fragen & -Antworten für Salesforce-Entwickler",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Geführte Tour starten",
-    "autopilotContent": "Autopilot kopiert die ausgewählten Objekte in drei Schritten aus einer Quell-Org in eine Ziel-Org:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn. E-Mail-Adressen und Telefonnummern werden neutralisiert, sofern Sie das nicht abwählen — jede Adresse unter .invalid, jede Nummer fiktiv —, und unter Erweitert wählen Sie ein Compliance-Framework, das mehr anonymisiert (DSGVO, CCPA, HIPAA oder PCI-DSS)",
+    "autopilotContent": "In drei Schritten:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn. E-Mail-Adressen und Telefonnummern werden neutralisiert, sofern Sie das nicht abwählen — jede Adresse unter .invalid, jede Nummer fiktiv —, und unter Erweitert wählen Sie ein Compliance-Framework, das mehr anonymisiert (DSGVO, CCPA, HIPAA oder PCI-DSS)",
     "migrationContent": "Migration wandelt eine bestehende Migrationsdefinition in eine Sync-Konfiguration um:\n- Importieren Sie eine SFDMU-export.json oder eine .json- bzw. .csv-Datei\n- Der Import liest die Datei und ändert in keiner Org etwas\n- Das Ausführen der umgewandelten Konfiguration schreibt Datensätze in die Ziel-Org",
-    "reportsContent": "Berichte liest den Ausführungsverlauf, den Forge und Sync bereits führen:\n- Ausführungen: jeder Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Trail und Datenherkunft: Demnächst, noch zeichnet nichts sie auf"
+    "reportsContent": "Berichte zeigt, was die Läufe von SandForge getan haben:\n- Ausführungen: jeder Forge- und Sync-Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Protokoll: jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datensatzes — mit dem, was er in jedes Objekt geschrieben hat, und wie Production Guard entschieden hat\n- Datenherkunft: woher die Datensätze kamen, die ein Lauf geschrieben hat — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Datensatz — und wie viele je Objekt"
   },
   "emptyState": {
     "connectViaSfdx": "Verbinden Sie eine Org (Anmeldung im Browser)",
@@ -2750,7 +2742,6 @@
     "opsLast7d": "Operationen (7 Tage)",
     "limitWarnings": "Limit-Warnungen",
     "forgeASandbox": "Eine Sandbox schmieden",
-    "forgeDescription": "Klonen Sie Datensätze mit vollständiger Abhängigkeitsauflösung",
     "recordIdPlaceholder": "Datensatz-ID (z. B. 001...)",
     "startForge": "Forge starten",
     "invalidRecordId": "Keine gültige Salesforce-Datensatz-ID oder URL",
@@ -2837,7 +2828,6 @@
       "declined": "Generalprobe bei ihrer Bestätigung abgebrochen. An das Ziel wurde nichts gesendet.",
       "error": "Die Generalprobe konnte nicht laufen: {{error}}"
     },
-    "subtitle": "Datensätze mit vollständiger Abhängigkeitsauflösung klonen",
     "recordTab": "Datensatz",
     "soqlTab": "SOQL",
     "templateTab": "Vorlage",
@@ -3112,7 +3102,6 @@
     "quickStartTemplateHint": "Ermittlung überspringen und den bekannten Objektsatz der Starter-Vorlage verwenden. Datensatzanzahlen werden während der Ausführung abgefragt.",
     "emptyState": {
       "title": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
-      "description": "Forge klont einen Stammdatensatz und seinen gesamten Beziehungsgraphen — Accounts, Contacts, Opportunities, Cases — in Ihre Sandbox und ordnet die IDs beim Schreiben neu zu. Ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn.",
       "step1Select": "Quell-Org auswählen",
       "step2": "ID eines Stammdatensatzes einfügen (z. B. ein Account aus UAT)",
       "step3": "Beziehungsgraphen ermitteln",
@@ -3480,189 +3469,6 @@
         "resultCancelled": "Das Aufräumen lief nicht bis zum Ende: Was es bis dahin tat, ist aufgeführt.",
         "resultRefused": "Das Aufräumen wurde abgelehnt und hat nichts gelöscht.",
         "sweptOn": "Aufgeräumt am {{date}}:"
-      }
-    },
-    "error": {
-      "duplicateValue": {
-        "explanation": "Im Ziel-Org existiert bereits ein Datensatz mit demselben eindeutigen Wert, oft aus einem früheren Lauf geklont.",
-        "action": "Löschen Sie die Datensätze des früheren Laufs, oder starten Sie das Klonen über die Befehlszeile mit --upsert, das bei Objekten mit externer ID aktualisiert."
-      },
-      "invalidCrossReferenceKey": {
-        "explanation": "Eine Nachschlagebeziehung verweist auf einen Datensatz, der im Ziel-Org nicht existiert, oft einen Benutzer wie den Inhaber.",
-        "action": "Legen Sie den referenzierten Datensatz im Ziel-Org an oder ordnen Sie ihn zu, oder lassen Sie das Feld leer und füllen Sie es nach dem Klonen."
-      },
-      "requiredFieldMissing": {
-        "explanation": "Ein Pflichtfeld hat keinen Wert: {{detail}}.",
-        "action": "Aktivieren Sie „Übergeordnete automatisch abrufen“, oder erhöhen Sie die Tiefe, damit das erforderliche übergeordnete Objekt mitgeklont wird."
-      },
-      "invalidPicklist": {
-        "explanation": "Ein Auswahllistenwert aus der Quelle wird von der Ziel-Org nicht angenommen: Das Feld enthält ihn nicht, oder der Datensatztyp, mit dem der Datensatz geschrieben wird, nimmt ihn nicht an — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an. Nennt die Ablehnung ein Feld, dem der Datensatz einen Wert gibt, schreibt der Klon den Datensatz ohne dieses Feld erneut; ein hier aufgeführter Datensatz konnte so nicht geschrieben werden.",
-        "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste und zum Datensatztyp des Datensatzes hinzu, oder ändern Sie den Wert im Quelldatensatz."
-      },
-      "fieldCustomValidation": {
-        "explanation": "Eine Validierungsregel der Ziel-Org hat den Datensatz abgelehnt. Nennt die Regel ein Feld, dem der Datensatz einen Wert gibt, schreibt der Klon den Datensatz ohne dieses Feld erneut; ein hier aufgeführter Datensatz konnte so nicht geschrieben werden.",
-        "action": "Ändern Sie den Wert im Quelldatensatz oder passen Sie die Regel in der Ziel-Org an, und wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "invalidFieldForInsert": {
-        "explanation": "Ein Feld kann beim Anlegen nicht gesetzt werden: Es wird berechnet, durch Feldsicherheit verborgen oder fehlt im Ziel-Org.",
-        "action": "Prüfen Sie die Feldsicherheit Ihres Benutzers im Ziel-Org und vergleichen Sie das Feld zwischen beiden Orgs."
-      },
-      "fieldIntegrity": {
-        "explanation": "Salesforce hat den Datensatz wegen einer Integritätsregel abgelehnt: {{detail}}.",
-        "action": "Lesen Sie das Detail: Salesforce nennt meist das betroffene Feld oder die Regel."
-      },
-      "cannotInsertEntity": {
-        "explanation": "Salesforce nimmt für dieses Objekt keine neuen Datensätze an (Verlaufs-, Audit- oder Systemobjekt).",
-        "action": "Nehmen Sie dieses Objekt vom Klonen aus."
-      },
-      "automationRefused": {
-        "explanation": "Eine Automatisierung der Ziel-Org — ein Trigger, ein Flow oder ein Prozess, der beim Speichern eines Datensatzes läuft — ist bei diesem Datensatz fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt. Die Meldung nennt sie meist, mit dem, was schiefging.",
-        "action": "Beheben Sie diese Automatisierung in der Ziel-Org oder schalten Sie sie für die Dauer des Klonens ab, und wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "insufficientAccess": {
-        "explanation": "Ihrem Benutzer im Ziel-Org fehlen die für diesen Schreibvorgang nötigen Rechte.",
-        "action": "Bitten Sie einen Administrator um die fehlende Berechtigung, oder verbinden Sie den Ziel-Org mit einem Benutzer, der sie hat."
-      },
-      "storageLimit": {
-        "explanation": "Im Ziel-Org ist kein Datenspeicher mehr frei.",
-        "action": "Löschen Sie nicht mehr benötigte Datensätze im Ziel-Org und starten Sie dann erneut."
-      },
-      "invalidType": {
-        "explanation": "Dieses Objekt existiert im Ziel-Org nicht, oder Ihr Benutzer kann es nicht sehen.",
-        "action": "Vergleichen Sie die Schemas beider Orgs, oder nehmen Sie dieses Objekt vom Klonen aus."
-      },
-      "notFound": {
-        "explanation": "Salesforce hat den angeforderten Datensatz oder die Ressource nicht gefunden.",
-        "action": "Prüfen Sie die Datensatz-ID und ob sie zum Quell-Org gehört."
-      },
-      "stringTooLong": {
-        "explanation": "Ein Wert ist länger, als das Feld erlaubt: {{detail}}.",
-        "action": "Kürzen Sie den Quellwert, oder geben Sie dem Feld in beiden Orgs dieselbe Länge."
-      },
-      "lookupFilter": {
-        "explanation": "Ein Suchfilter der Ziel-Org hat den Datensatz abgelehnt, auf den dieser verweist: Dort erfüllt dieser Datensatz die Kriterien des Filters nicht — ein Feld, das der Filter prüft, hat einen anderen Wert oder keinen —, oder der Filter prüft den Benutzer, unter dem der Klon schreibt.",
-        "action": "Machen Sie den Suchfilter im Setup der Ziel-Org optional oder deaktivieren Sie ihn für die Dauer des Klonens, oder geben Sie dem Datensatz, auf den verwiesen wird, die Werte, die der Filter verlangt; wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "duplicateRule": {
-        "explanation": "Eine Duplikatregel der Ziel-Org, die auf Blockieren steht, hat den Datensatz abgelehnt. Der Klon speichert bereits über jede Regel hinweg, die auf Zulassen steht, und verknüpft eine Zeile mit dem Datensatz, den sie dupliziert, wenn die Regel genau einen nennt; diese Regel hat keinen dieses Objekts genannt, oder mehrere.",
-        "action": "Deaktivieren Sie diese Duplikatregel im Setup der Ziel-Org für die Dauer des Klonens, oder stellen Sie ihre Aktion beim Erstellen auf Zulassen; wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "inactiveUser": {
-        "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Ziel-Org inaktiv ist. Der Klon überlässt jeden Datensatz, den er anlegt, dem Benutzer, unter dem er schreibt: Dieser Benutzer kommt also aus der Ziel-Org — eine Zuweisungsregel oder ein Flow, der den Inhaber setzt oder eine Aufgabe zuweist — oder aus einer Inhaberzuordnung in der Befehlszeile.",
-        "action": "Richten Sie diese Regel oder diesen Flow in der Ziel-Org auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder; ordnen Sie mit --owner-map den Inhaber einem aktiven Benutzer zu. Wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "entityDeleted": {
-        "explanation": "Der Datensatz oder ein Datensatz, auf den er verweist, wurde in der Ziel-Org gelöscht: einer, den ein früherer Lauf geschrieben hat, seitdem gelöscht und von einer Wiederholung dieses Laufs verknüpft, oder einer, der während des Laufs gelöscht wurde, von Hand oder von der Automatisierung der Ziel-Org.",
-        "action": "Stellen Sie ihn aus dem Papierkorb der Ziel-Org wieder her und wiederholen Sie dann die fehlgeschlagenen Objekte, oder starten Sie den Klon erneut aus der Überprüfung statt als Wiederholung, damit er diesen Datensatz neu schreibt."
-      },
-      "rowLocked": {
-        "explanation": "Die Ziel-Org konnte den Datensatz oder den, an dem er hängt, nicht sperren, weil ein anderer Vorgang ihn in dem Moment hielt: ein Job, eine Integration oder die eigene Automatisierung der Ziel-Org, die noch an Datensätzen arbeitete, die der Klon gerade geschrieben hatte. Das ist meist vorübergehend.",
-        "action": "Wiederholen Sie die fehlgeschlagenen Objekte. Kommt die Sperre wieder, warten Sie, bis die Jobs und Integrationen, die diese Datensätze in der Ziel-Org schreiben, fertig sind, und wiederholen Sie dann."
-      },
-      "requestLimit": {
-        "explanation": "Salesforce hat die Anfrage abgelehnt: Die Org, an die sie ging, hat die API-Anfragen aufgebraucht, die ihr in 24 Stunden zustehen, oder führt zu viele lange Anfragen gleichzeitig aus. Der Klon schreibt bis zu 200 Datensätze pro Anfrage, und seine Lese- und Describe-Vorgänge brauchen eigene Anfragen.",
-        "action": "Warten Sie, bis der Zähler dieser Org wieder Anfragen freigibt — die Seite Monitor zeigt ihre API-Nutzung —, und wiederholen Sie dann; eine geringere Tiefe oder weniger Datensätze pro Objekt brauchen weniger Anfragen."
-      },
-      "sessionExpired": {
-        "explanation": "Salesforce akzeptiert die Sitzung, die SandForge für diese Org hält, nicht mehr: Sie ist abgelaufen oder wurde durch eine Abmeldung, eine Passwortänderung oder einen Administrator beendet.",
-        "action": "Authentifizieren Sie die Org erneut — über „Org verbinden“ oder eine Anmeldung mit der Salesforce CLI — und versuchen Sie es dann erneut."
-      },
-      "crossReferenceAccess": {
-        "explanation": "Dem Benutzer, unter dem der Klon schreibt, fehlt der Zugriff auf einen Datensatz, auf den dieser in der Ziel-Org verweist — Lesezugriff oder, beim Master-Datensatz einer Master-Detail-Beziehung, Bearbeitungszugriff: ein Datensatz, den dieser Benutzer weder besitzt noch freigegeben bekommen hat, etwa einer, den die Ziel-Org schon hatte und den der Klon verknüpft statt geschrieben hat.",
-        "action": "Geben Sie diesen Datensatz in der Ziel-Org für den Benutzer frei, oder geben Sie ihm „Alle anzeigen“ oder „Alle ändern“ für sein Objekt, oder verbinden Sie die Ziel-Org mit einem Benutzer, der diesen Zugriff hat, etwa einem Administrator; wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "numberOutOfRange": {
-        "explanation": "Eine Zahl ist größer, als das Feld in der Ziel-Org zulässt: Das Feld erlaubt dort weniger Stellen vor dem Komma, als der Quellwert hat.",
-        "action": "Geben Sie dem Feld in der Ziel-Org dieselbe Länge und dieselben Nachkommastellen wie in der Quelle, oder ändern Sie den Wert im Quelldatensatz; wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "malformedId": {
-        "explanation": "Ein Feld, das in der Ziel-Org eine ID erwartet, hat etwas anderes erhalten: Das Feld ist dort eine Nachschlagebeziehung und in der Quelle von anderem Typ — etwa ein Textfeld —, oder eine Feldzuordnung schreibt den Wert eines anderen Felds hinein.",
-        "action": "Geben Sie dem Feld in beiden Orgs denselben Typ. Schließen Sie es über die Befehlszeile mit --exclude Objekt.Feld aus, oder korrigieren Sie das --map, das es füllt; wiederholen Sie dann die fehlgeschlagenen Objekte."
-      },
-      "flowFailed": {
-        "explanation": "Ein Flow der Ziel-Org — ein datensatzgesteuerter Flow oder ein Prozess, der als solcher läuft — ist beim Speichern des Datensatzes fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt; die Meldung nennt den Flow und was schiefging. Eine Ursache, der eine Sandbox oft begegnet, ist eine Aktion „E-Mail senden“: Steht die E-Mail-Zustellbarkeit der Org auf „Kein Zugriff“, schlägt die Aktion fehl, sobald sie eine E-Mail-Vorlage verwendet oder die E-Mail protokolliert. Eine neue oder aktualisierte Sandbox steht auf „Nur System-E-Mail“.",
-        "action": "Deaktivieren Sie diesen Flow in der Ziel-Org für die Dauer des Klonens oder beheben Sie ihn, und wiederholen Sie dann die fehlgeschlagenen Objekte; der Tab „Automatisierung“ der Überprüfung nennt die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, still halten. Stellen Sie die Zustellbarkeit der Ziel-Org nicht auf „Alle E-Mails“, um eine Aktion „E-Mail senden“ durchzulassen: Der Flow könnte dann den Personen der geklonten Datensätze E-Mails senden."
-      },
-      "guideLink": "{{code}} im Forge-Leitfaden",
-      "cycleFkUnresolved": {
-        "explanation": "Das Feld '{{fieldName}}' verweist auf einen Datensatz, den dieser Lauf nicht geschrieben hat (Quell-ID {{sourceRefId}}): Der Datensatz ist fehlgeschlagen, oder sein Objekt ist fehlgeschlagen, wurde übersprungen oder kann nicht in die Ziel-Org geschrieben werden. Der Datensatz wurde ohne diese Verknüpfung geschrieben.",
-        "action": "Beheben Sie, was diesen Datensatz ferngehalten hat — sein Fehler oder der seines Objekts steht in dieser Liste —, und wiederholen Sie dann die fehlgeschlagenen Objekte: Die Wiederholung schreibt ihn und füllt diese Verknüpfung. Andernfalls setzen Sie das Feld danach von Hand."
-      },
-      "lookupOutsideClone": {
-        "explanation": "Der Datensatz, auf den diese Nachschlagebeziehung verweist, ist nicht im Klon: Kein Lesevorgang des Laufs hat ihn erfasst. Die Nachschlagebeziehung darf leer bleiben, also wurde der Datensatz ohne sie geschrieben, und nichts ist fehlgeschlagen.",
-        "action": "Braucht die Ziel-Org die Verknüpfung, bringen Sie den Datensatz, auf den sie verweist, dorthin — klonen Sie ihn eigens, oder suchen Sie den dort schon vorhandenen — und setzen Sie die Nachschlagebeziehung dann von Hand."
-      },
-      "notInTarget": {
-        "explanation": "Nach diesem Objekt gefragt, hat die Ziel-Org geantwortet, dass sie keines hat: Das Objekt existiert dort nicht — ein benutzerdefiniertes Objekt oder eine Funktion, die diese Org nicht hat — oder der Benutzer, unter dem der Klon schreibt, kann es nicht sehen. Keiner seiner Datensätze wurde gelesen oder geschrieben.",
-        "action": "Stellen Sie das Objekt in der Ziel-Org bereit, oder geben Sie dem Benutzer, unter dem der Klon schreibt, dort Zugriff darauf; bis dahin nehmen Sie es vom Klonen aus, wie dieser Lauf es getan hat."
-      },
-      "notCreateable": {
-        "explanation": "Die Ziel-Org beschreibt dieses Objekt, nimmt aber für den Benutzer, unter dem der Klon schreibt, keine Einfügung davon an: ein Verlaufs- oder Systemobjekt, das die Plattform selbst schreibt, oder eines, das das Profil dieses Benutzers nicht erstellen darf. Seine Datensätze wurden ausgelassen.",
-        "action": "Geben Sie dem Benutzer, unter dem der Klon schreibt, das Recht, das Objekt in der Ziel-Org zu erstellen, wenn seine Datensätze dort benötigt werden; andernfalls lassen Sie das Objekt aus dem Klon heraus."
-      },
-      "standardPriceMissing": {
-        "explanation": "Salesforce vergibt keinen Preis für ein Produkt in einem benutzerdefinierten Preisbuch, solange das Produkt keinen Preis im Standardpreisbuch hat, und dieser Standardeintrag fehlt in der Ziel-Org.",
-        "action": "Legen Sie in der Ziel-Org einen Standardpreis für diese Produkte an und starten Sie den Klon erneut."
-      },
-      "recordTypeUnavailable": {
-        "explanation": "Der Datensatztyp existiert in der Ziel-Org und wurde korrekt zugeordnet, steht dem Benutzer, unter dem der Klon läuft, aber nicht zur Verfügung.",
-        "action": "Weisen Sie den Datensatztyp dem Profil dieses Benutzers in der Ziel-Org zu, oder schließen Sie das Feld RecordTypeId für dieses Objekt aus."
-      },
-      "recordTypeHeldBack": {
-        "explanation": "Der Benutzer, unter dem der Klon läuft, kann diesen Datensatztyp in der Ziel-Org nicht verwenden. Das Objekt wurde daher zurückgehalten, bevor einer seiner Datensätze geschrieben wurde, und die davon abhängigen Objekte wurden übersprungen.",
-        "action": "Geben Sie diesem Benutzer in der Ziel-Org Zugriff auf den Datensatztyp, oder aktivieren Sie ihn, falls er inaktiv ist — oder schließen Sie das Feld RecordTypeId für dieses Objekt aus, damit seine Datensätze den Standard-Datensatztyp des Benutzers erhalten."
-      },
-      "outOfScope": {
-        "explanation": "Keiner der übergeordneten Datensätze dieses Objekts ist im Klon, und es ist nicht das Stammobjekt; daher wurde keiner seiner Datensätze geklont.",
-        "action": "Erhöhen Sie die Tiefe, wenn Datensätze dieses Objekts mitgeklont werden sollen."
-      },
-      "guardBlocked": {
-        "explanation": "Production Guard hat diesen Lauf abgelehnt, bevor etwas gelesen wurde, aus dem Grund, den die Meldung nennt. Es wurde nichts geschrieben.",
-        "action": "Prüfen Sie, ob das Ziel die Org ist, in die Sie schreiben wollten, und starten Sie dann erneut aus der Überprüfung."
-      },
-      "guardDeclined": {
-        "explanation": "Der Lauf wurde bei der Bestätigung von Production Guard abgebrochen, bevor etwas gelesen wurde. Es wurde nichts geschrieben.",
-        "action": "Gehen Sie zurück zur Überprüfung, starten Sie erneut, wenn Sie in diese Org schreiben wollen, und bestätigen Sie."
-      },
-      "notInitialized": {
-        "explanation": "Ein Teil von SandForge, den der Lauf braucht, war in diesem Fenster nicht bereit: das Forge-Modul oder Production Guard, ohne den nichts geschrieben wird. Es wurde nichts geschrieben.",
-        "action": "Laden Sie das Fenster neu (Developer: Reload Window) und starten Sie dann erneut."
-      },
-      "forgeRunning": {
-        "explanation": "In diesem Fenster läuft noch ein anderer Forge-Lauf, und Forge führt jeweils nur einen aus. Dieser hat nichts geschrieben.",
-        "action": "Warten Sie, bis jener Lauf endet — ein Lauf, der angehalten werden soll, endet, sobald der laufende Schritt fertig ist — und starten Sie dann erneut."
-      },
-      "duplicateRun": {
-        "explanation": "Derselbe Lauf wurde erneut gesendet, während er noch lief oder weniger als eine Minute nachdem er seine Datensätze geschrieben hatte, und abgelehnt, damit sie nicht doppelt geschrieben werden. Dieser hat nichts geschrieben.",
-        "action": "Sehen Sie sich die Ergebnisse des ersten Laufs an, bevor Sie erneut starten: Eine Minute nachdem er geschrieben hat, wird derselbe Lauf wieder angenommen."
-      },
-      "retryUnavailable": {
-        "explanation": "Die Wiederholung konnte nicht starten: Was der wiederholte Lauf geschrieben hat, ist hier nicht bekannt — er ist nicht mehr im Verlauf, hat keine Aufzeichnung dessen behalten, was er geschrieben hat, oder hat in eine andere Org geschrieben, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
-        "action": "Starten Sie das Klonen erneut aus der Überprüfung."
-      },
-      "resumeUnavailable": {
-        "explanation": "Dieser Lauf kann nicht dort fortgesetzt werden, wo er stoppte: Er wurde bereits fortgesetzt oder sein Lauf ist beendet, er hat kein Journal geführt, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
-        "action": "Wiederholen Sie ihn über seine Ergebnisse, oder führen Sie den Klon erneut über die Überprüfung aus."
-      },
-      "resumeTargetChanged": {
-        "explanation": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr dieselbe — aktualisiert, ersetzt oder nicht mehr in SandForge registriert —, daher ist das, was der Lauf geschrieben hat, nicht da, um daran anzuknüpfen. Es wurde nichts geschrieben.",
-        "action": "Führen Sie den Klon erneut über die Überprüfung in die Org aus, wie sie jetzt ist."
-      },
-      "resumeChanged": {
-        "explanation": "Dieser Lauf wäre jetzt anders eingerichtet als der Teil, den er fortsetzt: Der Klon auf der Seite oder die Einstellung sandforge.forge.maxRecordsPerObject hat sich geändert, seit er stoppte. Es wurde nichts geschrieben.",
-        "action": "Setzen Sie die Einstellung zurück, oder wiederholen Sie den Lauf stattdessen: Eine Wiederholung liest den Klon erneut und verknüpft, was dieser Lauf geschrieben hat."
-      },
-      "filesNotAccepted": {
-        "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",
-        "action": "Akzeptieren Sie in der Überprüfung, dass die Dateien so kopiert werden, wie sie sind, oder schalten Sie das Kopieren aus, und starten Sie dann erneut."
-      },
-      "abortedBeforeStart": {
-        "explanation": "Sie haben den Lauf gestoppt, bevor er begann. Es wurde nichts geschrieben.",
-        "action": "Starten Sie ihn erneut aus der Überprüfung, wenn Sie bereit sind."
-      },
-      "unknown": {
-        "explanation": "{{detail}}",
-        "action": "Schlagen Sie diesen Fehlercode in der Salesforce-Dokumentation nach."
       }
     },
     "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
@@ -4117,7 +3923,6 @@
     },
     "emptyState": {
       "title": "Stellen Sie Ihre Sandbox automatisch bereit",
-      "description": "Lassen Sie Autopilot Ihr Org-Schema scannen, einen Ausführungsplan erzeugen und Ihre Sandbox mit realistischen Daten füllen.",
       "cta": "Org auswählen"
     }
   },
@@ -4197,7 +4002,8 @@
       "load": "Laden"
     },
     "salt": {
-      "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team diesen Datensatz extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des Frozen Dataset kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das Frozen Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde."
+      "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team diesen Datensatz extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des Frozen Dataset kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das Frozen Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde.",
+      "createdTitle": "Salt des eingefrorenen Datensatzes"
     },
     "manifest": {
       "version": "Datensatz v{{version}}"
@@ -4592,5 +4398,398 @@
     "runFinished": "{{name}} abgeschlossen. Geschrieben: {{written}} von {{total}}.",
     "runStoppedWritten": "{{name}} vor dem Ende angehalten. Geschrieben: {{written}} von {{total}}.",
     "runStopped": "{{name}} bei {{percent}} % angehalten."
+  },
+  "errors": {
+    "guideLink": "{{code}} im Forge-Leitfaden",
+    "searchLink": "{{code}} in der Salesforce-Hilfe suchen",
+    "standardPriceMissing": {
+      "explanation": "Salesforce nimmt den Preis eines Produkts in einem benutzerdefinierten Preisbuch erst an, wenn das Produkt einen Preis im Standardpreisbuch hat, und dieser Standardpreis fehlt in der Org.",
+      "action": "Geben Sie diesen Produkten in der Org zuerst einen Standardpreis und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Salesforce vergibt keinen Preis für ein Produkt in einem benutzerdefinierten Preisbuch, solange das Produkt keinen Preis im Standardpreisbuch hat, und dieser Standardeintrag fehlt in der Ziel-Org.",
+        "action": "Legen Sie in der Ziel-Org einen Standardpreis für diese Produkte an und starten Sie den Klon erneut."
+      },
+      "seed": {
+        "action": "Geben Sie diesen Produkten zuerst einen Standardpreis."
+      }
+    },
+    "duplicateValue": {
+      "explanation": "Ein eindeutiges Feld hat einen Wert erhalten, den ein Datensatz der Org bereits trägt, oft einer, den ein früherer Lauf geschrieben hat.",
+      "action": "Entfernen Sie, was der frühere Lauf geschrieben hat — seine Ergebnisse bieten es an —, oder ändern Sie den Wert, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Im Ziel-Org existiert bereits ein Datensatz mit demselben eindeutigen Wert, oft aus einem früheren Lauf geklont.",
+        "action": "Entfernen Sie, was der frühere Lauf erstellt hat — „Die von diesem Durchlauf erstellten Datensätze entfernen“ in seinen Ergebnissen —, und starten Sie dann erneut. Über die Befehlszeile aktualisiert --upsert per externer ID, wo das Objekt eine hat."
+      },
+      "seed": {
+        "action": "Geben Sie dem Feld eine Regel, deren Werte sich nicht wiederholen."
+      }
+    },
+    "invalidCrossReferenceKey": {
+      "explanation": "Eine Nachschlagebeziehung verweist auf einen Datensatz, der in der Org nicht existiert, oft einen Benutzer wie den Inhaber.",
+      "action": "Bringen Sie den Datensatz, auf den sie verweist, zuerst in die Org, oder lassen Sie die Nachschlagebeziehung leer und setzen Sie sie danach.",
+      "forge": {
+        "explanation": "Eine Nachschlagebeziehung verweist auf einen Datensatz, der im Ziel-Org nicht existiert, oft einen Benutzer wie den Inhaber.",
+        "action": "Legen Sie den referenzierten Datensatz im Ziel-Org an oder ordnen Sie ihn zu, oder lassen Sie das Feld leer und füllen Sie es nach dem Klonen."
+      }
+    },
+    "recordTypeUnavailable": {
+      "explanation": "Der Datensatztyp existiert in der Org, aber der Benutzer, unter dem der Lauf schreibt, kann ihn nicht verwenden.",
+      "action": "Geben Sie den Datensatztyp im Setup der Org dem Profil dieses Benutzers oder einem Berechtigungssatz, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Der Datensatztyp existiert in der Ziel-Org und wurde korrekt zugeordnet, steht dem Benutzer, unter dem der Klon läuft, aber nicht zur Verfügung.",
+        "action": "Weisen Sie den Datensatztyp dem Profil dieses Benutzers in der Ziel-Org zu, oder lassen Sie RecordTypeId für dieses Objekt unter Überprüfung → Einstellungen aus."
+      }
+    },
+    "recordTypeHeldBack": {
+      "explanation": "Der Benutzer, unter dem der Lauf schreibt, kann diesen Datensatztyp in der Ziel-Org nicht verwenden. Das Objekt wurde daher zurückgehalten, bevor einer seiner Datensätze geschrieben wurde.",
+      "action": "Geben Sie diesem Benutzer in der Ziel-Org Zugriff auf den Datensatztyp, oder aktivieren Sie ihn, falls er inaktiv ist, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Der Benutzer, unter dem der Klon läuft, kann diesen Datensatztyp in der Ziel-Org nicht verwenden. Das Objekt wurde daher zurückgehalten, bevor einer seiner Datensätze geschrieben wurde, und die davon abhängigen Objekte wurden übersprungen.",
+        "action": "Geben Sie diesem Benutzer in der Ziel-Org Zugriff auf den Datensatztyp, oder aktivieren Sie ihn, falls er inaktiv ist. Oder ordnen Sie den Datensatztyp unter Überprüfung → Abweichungen zu, oder lassen Sie RecordTypeId unter Überprüfung → Einstellungen aus, damit seine Datensätze den Standard-Datensatztyp des Benutzers erhalten."
+      }
+    },
+    "requiredFieldMissing": {
+      "explanation": "Ein Feld, das die Org verlangt, hat keinen Wert.",
+      "action": "Geben Sie dem Feld einen Wert, oder bringen Sie den Datensatz, auf den es verweisen muss, zuerst in die Org, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Ein Pflichtfeld hat keinen Wert: {{detail}}.",
+        "action": "Aktivieren Sie „Übergeordnete automatisch abrufen“, oder erhöhen Sie die Tiefe, damit das erforderliche übergeordnete Objekt mitgeklont wird."
+      },
+      "seed": {
+        "action": "Starten Sie den Seed über den Assistenten und geben Sie dem Feld im Schritt Konfigurieren eine Regel."
+      }
+    },
+    "invalidPicklist": {
+      "explanation": "Ein Auswahllistenwert wird von der Org nicht angenommen: Das Feld enthält ihn nicht, oder der Datensatztyp des Datensatzes lässt ihn nicht zu.",
+      "action": "Fügen Sie den Wert im Setup der Org der Auswahlliste und dem Datensatztyp hinzu, oder ändern Sie den Wert, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Ein Auswahllistenwert aus der Quelle wird von der Ziel-Org nicht angenommen: Das Feld enthält ihn nicht, oder der Datensatztyp, mit dem der Datensatz geschrieben wird, nimmt ihn nicht an — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an. Nennt die Ablehnung ein Feld, dem der Datensatz einen Wert gibt, schreibt der Klon den Datensatz ohne dieses Feld erneut; ein hier aufgeführter Datensatz konnte so nicht geschrieben werden.",
+        "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste und zum Datensatztyp des Datensatzes hinzu, oder ändern Sie den Wert im Quelldatensatz."
+      },
+      "seed": {
+        "action": "Geben Sie dem Feld die Werte, die die Org dafür vorsieht."
+      }
+    },
+    "fieldCustomValidation": {
+      "explanation": "Eine Validierungsregel der Org hat den Datensatz abgelehnt.",
+      "action": "Ändern Sie die Werte, die die Regel prüft, oder deaktivieren Sie die Regel im Setup der Org, solange der Lauf schreibt, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Eine Validierungsregel der Ziel-Org hat den Datensatz abgelehnt. Nennt die Regel ein Feld, dem der Datensatz einen Wert gibt, schreibt der Klon den Datensatz ohne dieses Feld erneut; ein hier aufgeführter Datensatz konnte so nicht geschrieben werden.",
+        "action": "Ändern Sie den Wert im Quelldatensatz oder passen Sie die Regel in der Ziel-Org an, und wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "seed": {
+        "action": "Geben Sie den Feldern, die sie prüft, Regeln mit Werten, die sie annimmt, oder deaktivieren Sie die Regel während des Seeds."
+      }
+    },
+    "invalidFieldForInsert": {
+      "explanation": "Ein Feld kann beim Erstellen nicht gesetzt werden: Es ist berechnet, durch die Sicherheit auf Feldebene verborgen oder fehlt in der Org.",
+      "action": "Prüfen Sie die Sicherheit auf Feldebene Ihres Benutzers für das Feld in der Org, und ob das Feld dort mit demselben Typ existiert."
+    },
+    "fieldIntegrity": {
+      "explanation": "Salesforce hat den Datensatz wegen einer Integritätsregel abgelehnt: {{detail}}.",
+      "action": "Lesen Sie das Detail: Salesforce nennt meist das betroffene Feld oder die Regel."
+    },
+    "cannotInsertEntity": {
+      "explanation": "Salesforce nimmt keine neuen Datensätze dieses Objekts an (ein Verlaufs-, Audit- oder Systemobjekt).",
+      "action": "Lassen Sie dieses Objekt aus dem Lauf aus.",
+      "forge": {
+        "explanation": "Salesforce nimmt für dieses Objekt keine neuen Datensätze an (Verlaufs-, Audit- oder Systemobjekt).",
+        "action": "Nehmen Sie dieses Objekt vom Klonen aus."
+      }
+    },
+    "automationRefused": {
+      "explanation": "Eine Automatisierung der Org — ein Trigger, ein Flow oder ein Prozess, der beim Speichern eines Datensatzes läuft — ist bei diesem Datensatz fehlgeschlagen, und die Org hat ihn abgelehnt. Die Meldung nennt sie meist.",
+      "action": "Beheben Sie diese Automatisierung in der Org, oder schalten Sie sie ab, solange der Lauf schreibt, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Eine Automatisierung der Ziel-Org — ein Trigger, ein Flow oder ein Prozess, der beim Speichern eines Datensatzes läuft — ist bei diesem Datensatz fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt. Die Meldung nennt sie meist, mit dem, was schiefging.",
+        "action": "Beheben Sie diese Automatisierung in der Ziel-Org oder schalten Sie sie für die Dauer des Klonens ab, und wiederholen Sie dann die fehlgeschlagenen Objekte."
+      }
+    },
+    "insufficientAccess": {
+      "explanation": "Ihrem Benutzer in der Org fehlen die für diesen Schreibvorgang nötigen Rechte.",
+      "action": "Bitten Sie einen Administrator um die fehlende Berechtigung, oder verbinden Sie die Org mit einem Benutzer, der sie hat."
+    },
+    "storageLimit": {
+      "explanation": "Die Org hat keinen Datenspeicher mehr: Eine Developer Edition fasst 5 MB.",
+      "action": "Löschen Sie nicht mehr benötigte Datensätze — die Ergebnisse eines Laufs bieten an, zu entfernen, was er geschrieben hat —, und starten Sie dann erneut.",
+      "seed": {
+        "action": "Entfernen Sie einen früheren Seed oder erzeugen Sie weniger Datensätze."
+      }
+    },
+    "invalidType": {
+      "explanation": "Dieses Objekt existiert in der Org nicht, oder Ihr Benutzer kann es nicht sehen.",
+      "action": "Stellen Sie das Objekt in der Org bereit oder geben Sie Ihrem Benutzer Zugriff darauf, oder lassen Sie das Objekt aus dem Lauf aus.",
+      "forge": {
+        "explanation": "Dieses Objekt existiert im Ziel-Org nicht, oder Ihr Benutzer kann es nicht sehen.",
+        "action": "Vergleichen Sie die Schemas beider Orgs, oder nehmen Sie dieses Objekt vom Klonen aus."
+      }
+    },
+    "notFound": {
+      "explanation": "Salesforce hat den angeforderten Datensatz oder die Ressource nicht gefunden.",
+      "action": "Prüfen Sie, ob der Datensatz in der Org noch existiert und Ihr Benutzer ihn sehen kann.",
+      "forge": {
+        "explanation": "Salesforce hat den angeforderten Datensatz oder die Ressource nicht gefunden.",
+        "action": "Prüfen Sie die Datensatz-ID und ob sie zum Quell-Org gehört."
+      }
+    },
+    "stringTooLong": {
+      "explanation": "Ein Wert ist länger, als das Feld zulässt.",
+      "action": "Kürzen Sie den Wert, oder geben Sie dem Feld in der Org die Länge, die der Wert braucht.",
+      "forge": {
+        "explanation": "Ein Wert ist länger, als das Feld erlaubt: {{detail}}.",
+        "action": "Kürzen Sie den Quellwert, oder geben Sie dem Feld in beiden Orgs dieselbe Länge."
+      }
+    },
+    "lookupFilter": {
+      "explanation": "Ein Suchfilter der Org hat den Datensatz abgelehnt, auf den die Nachschlagebeziehung verweist: Er erfüllt die Kriterien des Filters nicht, oder der Filter prüft den Benutzer, unter dem der Lauf schreibt.",
+      "action": "Machen Sie den Suchfilter im Setup der Org optional oder deaktivieren Sie ihn, solange der Lauf schreibt, oder geben Sie dem Datensatz, auf den verwiesen wird, die Werte, die der Filter verlangt; starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Ein Suchfilter der Ziel-Org hat den Datensatz abgelehnt, auf den dieser verweist: Dort erfüllt dieser Datensatz die Kriterien des Filters nicht — ein Feld, das der Filter prüft, hat einen anderen Wert oder keinen —, oder der Filter prüft den Benutzer, unter dem der Klon schreibt.",
+        "action": "Machen Sie den Suchfilter im Setup der Ziel-Org optional oder deaktivieren Sie ihn für die Dauer des Klonens, oder geben Sie dem Datensatz, auf den verwiesen wird, die Werte, die der Filter verlangt; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      }
+    },
+    "duplicateRule": {
+      "explanation": "Eine auf Blockieren gesetzte Duplikatregel der Org hat den Datensatz abgelehnt.",
+      "action": "Deaktivieren Sie die Regel im Setup der Org, solange der Lauf schreibt, oder stellen Sie ihre Aktion beim Erstellen auf Zulassen; starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Eine Duplikatregel der Ziel-Org, die auf Blockieren steht, hat den Datensatz abgelehnt. Der Klon speichert bereits über jede Regel hinweg, die auf Zulassen steht, und verknüpft eine Zeile mit dem Datensatz, den sie dupliziert, wenn die Regel genau einen nennt; diese Regel hat keinen dieses Objekts genannt, oder mehrere.",
+        "action": "Deaktivieren Sie diese Duplikatregel im Setup der Ziel-Org für die Dauer des Klonens, oder stellen Sie ihre Aktion beim Erstellen auf Zulassen; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      },
+      "seed": {
+        "action": "Deaktivieren Sie die Regel während des Seeds oder setzen Sie ihre Aktion beim Erstellen auf Zulassen."
+      }
+    },
+    "inactiveUser": {
+      "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Org inaktiv ist.",
+      "action": "Richten Sie die Zuweisungsregel oder den Flow, der diesen Benutzer wählt, auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Salesforce hat den Datensatz abgelehnt, weil er einem Benutzer gehören oder zugewiesen würde, der in der Ziel-Org inaktiv ist. Der Klon überlässt jeden Datensatz, den er anlegt, dem Benutzer, unter dem er schreibt: Dieser Benutzer kommt also aus der Ziel-Org — eine Zuweisungsregel oder ein Flow, der den Inhaber setzt oder eine Aufgabe zuweist — oder aus einem Inhaber, der unter Überprüfung → Einstellungen angegeben wurde.",
+        "action": "Richten Sie diese Regel oder diesen Flow in der Ziel-Org auf einen aktiven Benutzer oder eine Warteschlange aus, oder aktivieren Sie den Benutzer wieder; oder geben Sie die Datensätze unter Überprüfung → Einstellungen bei „Besitzer, die Benutzern des Ziels zugewiesen werden“ einem aktiven Benutzer. Wiederholen Sie dann die fehlgeschlagenen Objekte."
+      }
+    },
+    "entityDeleted": {
+      "explanation": "Der Datensatz oder ein Datensatz, auf den er verweist, wurde in der Org gelöscht.",
+      "action": "Stellen Sie ihn aus dem Papierkorb der Org wieder her, oder lassen Sie den Datensatz auf einen existierenden verweisen, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Der Datensatz oder ein Datensatz, auf den er verweist, wurde in der Ziel-Org gelöscht: einer, den ein früherer Lauf geschrieben hat, seitdem gelöscht und von einer Wiederholung dieses Laufs verknüpft, oder einer, der während des Laufs gelöscht wurde, von Hand oder von der Automatisierung der Ziel-Org.",
+        "action": "Stellen Sie ihn aus dem Papierkorb der Ziel-Org wieder her und wiederholen Sie dann die fehlgeschlagenen Objekte, oder starten Sie den Klon erneut aus der Überprüfung statt als Wiederholung, damit er diesen Datensatz neu schreibt."
+      }
+    },
+    "rowLocked": {
+      "explanation": "Die Org konnte den Datensatz oder den, an dem er hängt, nicht sperren, weil ein anderer Vorgang ihn in dem Moment hielt. Das ist meist vorübergehend.",
+      "action": "Starten Sie gleich erneut. Kommt es wieder, warten Sie, bis die Jobs und Integrationen, die diese Datensätze schreiben, fertig sind.",
+      "forge": {
+        "explanation": "Die Ziel-Org konnte den Datensatz oder den, an dem er hängt, nicht sperren, weil ein anderer Vorgang ihn in dem Moment hielt: ein Job, eine Integration oder die eigene Automatisierung der Ziel-Org, die noch an Datensätzen arbeitete, die der Klon gerade geschrieben hatte. Das ist meist vorübergehend.",
+        "action": "Wiederholen Sie die fehlgeschlagenen Objekte. Kommt die Sperre wieder, warten Sie, bis die Jobs und Integrationen, die diese Datensätze in der Ziel-Org schreiben, fertig sind, und wiederholen Sie dann."
+      }
+    },
+    "requestLimit": {
+      "explanation": "Salesforce hat die Anfrage abgelehnt: Die Org hat die API-Anfragen, die ihr über 24 Stunden zustehen, verbraucht, oder führt zu viele lange Anfragen gleichzeitig aus.",
+      "action": "Warten Sie, bis die Org wieder Anfragen freigibt — die Seite Monitor zeigt ihre API-Nutzung —, und starten Sie dann erneut, wenn möglich mit weniger Datensätzen.",
+      "forge": {
+        "explanation": "Salesforce hat die Anfrage abgelehnt: Die Org, an die sie ging, hat die API-Anfragen aufgebraucht, die ihr in 24 Stunden zustehen, oder führt zu viele lange Anfragen gleichzeitig aus. Der Klon schreibt bis zu 200 Datensätze pro Anfrage, und seine Lese- und Describe-Vorgänge brauchen eigene Anfragen.",
+        "action": "Warten Sie, bis der Zähler dieser Org wieder Anfragen freigibt — die Seite Monitor zeigt ihre API-Nutzung —, und wiederholen Sie dann; eine geringere Tiefe oder weniger Datensätze pro Objekt brauchen weniger Anfragen."
+      }
+    },
+    "sessionExpired": {
+      "explanation": "Salesforce akzeptiert die Sitzung, die SandForge für diese Org hält, nicht mehr: Sie ist abgelaufen oder wurde durch eine Abmeldung, eine Passwortänderung oder einen Administrator beendet.",
+      "action": "Verbinden Sie die Org auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte), und starten Sie dann erneut."
+    },
+    "crossReferenceAccess": {
+      "explanation": "Der Benutzer, unter dem der Lauf schreibt, kann einen Datensatz, auf den dieser verweist, nicht lesen, oder den Master einer Master-Detail-Beziehung nicht bearbeiten.",
+      "action": "Geben Sie diesen Datensatz für den Benutzer frei, geben Sie dem Benutzer „Alle anzeigen“ oder „Alle ändern“ für sein Objekt, oder verbinden Sie die Org mit einem Benutzer, der diesen Zugriff hat; starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Dem Benutzer, unter dem der Klon schreibt, fehlt der Zugriff auf einen Datensatz, auf den dieser in der Ziel-Org verweist — Lesezugriff oder, beim Master-Datensatz einer Master-Detail-Beziehung, Bearbeitungszugriff: ein Datensatz, den dieser Benutzer weder besitzt noch freigegeben bekommen hat, etwa einer, den die Ziel-Org schon hatte und den der Klon verknüpft statt geschrieben hat.",
+        "action": "Geben Sie diesen Datensatz in der Ziel-Org für den Benutzer frei, oder geben Sie ihm „Alle anzeigen“ oder „Alle ändern“ für sein Objekt, oder verbinden Sie die Ziel-Org mit einem Benutzer, der diesen Zugriff hat, etwa einem Administrator; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      }
+    },
+    "numberOutOfRange": {
+      "explanation": "Eine Zahl hat mehr Stellen vor dem Komma, als das Feld in der Org zulässt.",
+      "action": "Geben Sie dem Feld die Länge und die Nachkommastellen, die der Wert braucht, oder ändern Sie den Wert, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Eine Zahl ist größer, als das Feld in der Ziel-Org zulässt: Das Feld erlaubt dort weniger Stellen vor dem Komma, als der Quellwert hat.",
+        "action": "Geben Sie dem Feld in der Ziel-Org dieselbe Länge und dieselben Nachkommastellen wie in der Quelle, oder ändern Sie den Wert im Quelldatensatz; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      }
+    },
+    "malformedId": {
+      "explanation": "Ein Feld, das eine ID erwartet, hat etwas anderes erhalten: Das Feld ist in dieser Org eine Nachschlagebeziehung und dort, woher der Wert kommt, von anderem Typ, oder eine Feldzuordnung füllt es mit dem Wert eines anderen Felds.",
+      "action": "Geben Sie dem Feld in beiden Orgs denselben Typ, oder korrigieren Sie die Zuordnung, die es füllt, und starten Sie dann erneut.",
+      "forge": {
+        "explanation": "Ein Feld, das in der Ziel-Org eine ID erwartet, hat etwas anderes erhalten: Das Feld ist dort eine Nachschlagebeziehung und in der Quelle von anderem Typ — etwa ein Textfeld —, oder eine Feldzuordnung schreibt den Wert eines anderen Felds hinein.",
+        "action": "Geben Sie dem Feld in beiden Orgs denselben Typ, oder lassen Sie unter Überprüfung → Einstellungen das Feld aus oder korrigieren Sie die Feldumbenennung, die es füllt; wiederholen Sie dann die fehlgeschlagenen Objekte."
+      }
+    },
+    "flowFailed": {
+      "explanation": "Ein Flow der Org ist beim Speichern des Datensatzes fehlgeschlagen, und die Org hat den Datensatz abgelehnt; die Meldung nennt den Flow. Eine Aktion „E-Mail senden“ schlägt so fehl, wenn die E-Mail-Zustellbarkeit der Org auf „Kein Zugriff“ steht.",
+      "action": "Beheben Sie den Flow, oder deaktivieren Sie ihn, solange der Lauf schreibt, und starten Sie dann erneut. Stellen Sie die Zustellbarkeit nicht auf „Alle E-Mails“, um daran vorbeizukommen: Der Flow könnte dann den Personen der Datensätze E-Mails senden.",
+      "forge": {
+        "explanation": "Ein Flow der Ziel-Org — ein datensatzgesteuerter Flow oder ein Prozess, der als solcher läuft — ist beim Speichern des Datensatzes fehlgeschlagen, und die Ziel-Org hat ihn abgelehnt; die Meldung nennt den Flow und was schiefging. Eine Ursache, der eine Sandbox oft begegnet, ist eine Aktion „E-Mail senden“: Steht die E-Mail-Zustellbarkeit der Org auf „Kein Zugriff“, schlägt die Aktion fehl, sobald sie eine E-Mail-Vorlage verwendet oder die E-Mail protokolliert. Eine neue oder aktualisierte Sandbox steht auf „Nur System-E-Mail“.",
+        "action": "Deaktivieren Sie diesen Flow in der Ziel-Org für die Dauer des Klonens oder beheben Sie ihn, und wiederholen Sie dann die fehlgeschlagenen Objekte; der Tab „Automatisierung“ der Überprüfung nennt die benutzerdefinierten Berechtigungen, die einen Flow für den Benutzer, der sie hat, still halten. Stellen Sie die Zustellbarkeit der Ziel-Org nicht auf „Alle E-Mails“, um eine Aktion „E-Mail senden“ durchzulassen: Der Flow könnte dann den Personen der geklonten Datensätze E-Mails senden."
+      },
+      "seed": {
+        "action": "Korrigieren Sie den Flow oder deaktivieren Sie ihn während des Seeds."
+      }
+    },
+    "deleteFailed": {
+      "explanation": "Der Datensatz konnte nicht gelöscht werden: Andere Datensätze verweisen noch auf ihn, oder ein Trigger oder Flow der Org hat das Löschen abgelehnt.",
+      "action": "Löschen Sie zuerst die Datensätze, die auf ihn verweisen — das Entfernen eines Laufs nimmt untergeordnete vor übergeordneten —, oder beheben Sie die Automatisierung, die es abgelehnt hat, und entfernen Sie dann erneut."
+    },
+    "invalidEmail": {
+      "explanation": "Ein E-Mail-Feld enthält einen Wert, der keine gültige E-Mail-Adresse ist.",
+      "action": "Korrigieren Sie den Wert, oder lassen Sie das Feld aus dem Lauf aus, und starten Sie dann erneut."
+    },
+    "serverUnavailable": {
+      "explanation": "Salesforce konnte die Anfrage in dem Moment nicht bedienen, meist während einer Wartung oder einer kurzen Dienststörung.",
+      "action": "Warten Sie einige Minuten und starten Sie dann erneut; Salesforce Trust (status.salesforce.com) zeigt Wartungen und Störungen."
+    },
+    "requestTooLong": {
+      "explanation": "Salesforce hat eine Anfrage gestoppt, die länger lief, als es zulässt: ein großer Stapel, eine breite Abfrage oder schwere Automatisierung auf dem Objekt.",
+      "action": "Starten Sie erneut mit weniger Datensätzen, oder mit der Automatisierung der Org auf dem Objekt abgeschaltet, solange der Lauf schreibt."
+    },
+    "allOrNoneRolledBack": {
+      "explanation": "Ein Datensatz eines Stapels, der ganz oder gar nicht geschrieben wird, ist fehlgeschlagen, daher hat Salesforce den ganzen Stapel zurückgesetzt.",
+      "action": "Beheben Sie den fehlgeschlagenen Datensatz — sein eigener Fehler steht bei diesem —, und starten Sie dann erneut."
+    },
+    "invalidField": {
+      "explanation": "Die Anfrage nennt ein Feld, das das Objekt in der Org nicht hat, oder eines, das Ihr Benutzer nicht sehen kann.",
+      "action": "Prüfen Sie, ob das Feld in der Org unter diesem API-Namen existiert und Ihr Benutzer es lesen kann, oder lassen Sie es aus dem Lauf aus."
+    },
+    "limitExceeded": {
+      "explanation": "Ein Salesforce-Limit wurde überschritten: ein Limit der Transaktion oder eines der Org.",
+      "action": "Starten Sie erneut mit weniger Datensätzen; nennt die Meldung ein Limit der Org, geben Sie zuerst einen Teil davon frei."
+    },
+    "circularDependency": {
+      "explanation": "Die Datensätze würden in einer Schleife aufeinander verweisen, was ein Hierarchiefeld wie Parent nicht zulässt.",
+      "action": "Brechen Sie die Schleife in den Daten auf, oder lassen Sie das Hierarchiefeld aus und setzen Sie es danach."
+    },
+    "entityLocked": {
+      "explanation": "Der Datensatz ist gesperrt, meist durch einen Genehmigungsprozess, und nur ein Administrator oder der Genehmigende kann ihn bearbeiten.",
+      "action": "Rufen Sie die Genehmigung in der Org zurück oder schließen Sie sie ab, oder verbinden Sie die Org mit einem Benutzer, der gesperrte Datensätze bearbeiten darf, und starten Sie dann erneut."
+    },
+    "apiDisabledForOrg": {
+      "explanation": "Diese Org erlaubt keinen API-Zugriff: Ihre Edition hat keine API, etwa Professional oder Essentials ohne das API-Add-on.",
+      "action": "Verbinden Sie eine Org, deren Edition die API enthält — eine Developer Edition, eine Sandbox, Enterprise oder Unlimited —, oder bitten Sie Salesforce, die API für diese Org zu aktivieren."
+    },
+    "apiDisabledForUser": {
+      "explanation": "Der Benutzer, unter dem SandForge sich verbindet, darf die API nicht verwenden: Die Berechtigung „API aktiviert“ ist für ihn aus.",
+      "action": "Bitten Sie einen Administrator, „API aktiviert“ im Profil des Benutzers oder einem Berechtigungssatz einzuschalten, und verbinden Sie die Org dann auf der Seite Organisationen erneut."
+    },
+    "convertedLead": {
+      "explanation": "Dieser Lead wurde konvertiert, und Salesforce lässt keinen konvertierten Lead aktualisieren.",
+      "action": "Lassen Sie konvertierte Leads mit einem Filter auf IsConverted = false aus dem Lauf aus, und starten Sie dann erneut."
+    },
+    "licenseLimit": {
+      "explanation": "Die Org hat dafür keine Lizenz mehr frei: Jede Benutzer-, Funktions- oder Berechtigungssatzlizenz dieser Art ist zugewiesen.",
+      "action": "Geben Sie im Setup der Org eine Lizenz frei — deaktivieren Sie einen Benutzer, der keine mehr braucht —, oder lassen Sie diese Datensätze aus dem Lauf aus."
+    },
+    "duplicateUsername": {
+      "explanation": "Ein Benutzername ist bereits vergeben: Benutzernamen sind über alle Salesforce-Orgs hinweg eindeutig, Sandboxes eingeschlossen.",
+      "action": "Geben Sie den Benutzern eigene Benutzernamen, etwa den der Quelle mit einem Suffix, und starten Sie dann erneut."
+    },
+    "invalidOperation": {
+      "explanation": "Salesforce erlaubt diesen Vorgang für dieses Objekt nicht, oder nicht in diesem Kontext.",
+      "action": "Prüfen Sie, ob das Objekt diesen Vorgang annimmt und Ihr Benutzer die nötige Berechtigung hat."
+    },
+    "transferRequiresRead": {
+      "explanation": "Der neue Inhaber kann den Datensatz oder einen Datensatz, von dem er abhängt, nicht lesen, daher konnte der Besitz nicht übertragen werden.",
+      "action": "Geben Sie dem neuen Inhaber Lesezugriff auf das Objekt und seine verknüpften Datensätze, oder wählen Sie einen anderen Inhaber."
+    },
+    "permissionDenied": {
+      "explanation": "Ihrem Benutzer in der Org fehlt eine Berechtigung, die dieser Schreibvorgang braucht, auf dem Objekt oder auf Feldern, die er schreibt; die Meldung nennt sie.",
+      "action": "Bitten Sie einen Administrator, sie in Ihrem Profil oder einem Berechtigungssatz zu gewähren, oder lassen Sie diese Felder aus dem Lauf aus."
+    },
+    "parentRefused": {
+      "explanation": "Ein Datensatz, auf den dieser verweist, wurde im selben Lauf abgelehnt, daher wurde dieser zurückgehalten, statt ohne ihn geschrieben zu werden.",
+      "action": "Beheben Sie, was diesen Datensatz abgelehnt hat — der Grund steht bei seinem Objekt —, und starten Sie dann erneut."
+    },
+    "personAccountNotWritten": {
+      "explanation": "Das Personenkonto dieses Kontakts ist nicht in der Ziel-Org, und Salesforce schreibt den Kontakt eines Personenkontos mit seinem Konto.",
+      "action": "Nehmen Sie die Personenkonten in den Lauf auf, oder beheben Sie, was sie abgelehnt hat, und starten Sie dann erneut."
+    },
+    "personContactNotLookedUp": {
+      "explanation": "Der Kontakt, den Salesforce mit seinem Personenkonto geschrieben hat, konnte in der Ziel-Org nicht nachgeschlagen werden, daher wurden die Datensätze, die auf ihn verweisen, zurückgehalten.",
+      "action": "Starten Sie erneut: Das ist meist vorübergehend. Kommt es wieder, prüfen Sie, ob Ihr Benutzer Contact in der Ziel-Org lesen kann."
+    },
+    "orgAuthExpired": {
+      "explanation": "Die Sitzung mit dieser Org ist abgelaufen und konnte nicht erneuert werden.",
+      "action": "Verbinden Sie sie auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte)."
+    },
+    "orgTemporarilyUnreachable": {
+      "explanation": "Diese Org ist mehrmals hintereinander fehlgeschlagen, daher wartet SandForge einen Moment, bevor es sie erneut aufruft.",
+      "action": "Versuchen Sie es in einer Minute erneut."
+    },
+    "noCliOrgs": {
+      "explanation": "Die Salesforce CLI enthält noch keine Org.",
+      "action": "Melden Sie sich mit OAuth (Web) an: Es öffnet die Salesforce-Anmeldung in Ihrem Browser."
+    },
+    "cycleFkUnresolved": {
+      "explanation": "Das Feld '{{fieldName}}' verweist auf einen Datensatz, den dieser Lauf nicht geschrieben hat (Quell-ID {{sourceRefId}}): Der Datensatz ist fehlgeschlagen, oder sein Objekt ist fehlgeschlagen, wurde übersprungen oder kann nicht in die Ziel-Org geschrieben werden. Der Datensatz wurde ohne diese Verknüpfung geschrieben.",
+      "action": "Beheben Sie, was diesen Datensatz ferngehalten hat — sein Fehler oder der seines Objekts steht in dieser Liste —, und wiederholen Sie dann die fehlgeschlagenen Objekte: Die Wiederholung schreibt ihn und füllt diese Verknüpfung. Andernfalls setzen Sie das Feld danach von Hand."
+    },
+    "outOfScope": {
+      "explanation": "Keiner der übergeordneten Datensätze dieses Objekts ist im Klon, und es ist nicht das Stammobjekt; daher wurde keiner seiner Datensätze geklont.",
+      "action": "Erhöhen Sie die Tiefe, wenn Datensätze dieses Objekts mitgeklont werden sollen."
+    },
+    "lookupOutsideClone": {
+      "explanation": "Der Datensatz, auf den diese Nachschlagebeziehung verweist, ist nicht im Klon: Kein Lesevorgang des Laufs hat ihn erfasst. Die Nachschlagebeziehung darf leer bleiben, also wurde der Datensatz ohne sie geschrieben, und nichts ist fehlgeschlagen.",
+      "action": "Braucht die Ziel-Org die Verknüpfung, bringen Sie den Datensatz, auf den sie verweist, dorthin — klonen Sie ihn eigens, oder suchen Sie den dort schon vorhandenen — und setzen Sie die Nachschlagebeziehung dann von Hand."
+    },
+    "notInTarget": {
+      "explanation": "Nach diesem Objekt gefragt, hat die Ziel-Org geantwortet, dass sie keines hat: Das Objekt existiert dort nicht — ein benutzerdefiniertes Objekt oder eine Funktion, die diese Org nicht hat — oder der Benutzer, unter dem der Klon schreibt, kann es nicht sehen. Keiner seiner Datensätze wurde gelesen oder geschrieben.",
+      "action": "Stellen Sie das Objekt in der Ziel-Org bereit, oder geben Sie dem Benutzer, unter dem der Klon schreibt, dort Zugriff darauf; bis dahin nehmen Sie es vom Klonen aus, wie dieser Lauf es getan hat."
+    },
+    "notCreateable": {
+      "explanation": "Die Ziel-Org beschreibt dieses Objekt, nimmt aber für den Benutzer, unter dem der Klon schreibt, keine Einfügung davon an: ein Verlaufs- oder Systemobjekt, das die Plattform selbst schreibt, oder eines, das das Profil dieses Benutzers nicht erstellen darf. Seine Datensätze wurden ausgelassen.",
+      "action": "Geben Sie dem Benutzer, unter dem der Klon schreibt, das Recht, das Objekt in der Ziel-Org zu erstellen, wenn seine Datensätze dort benötigt werden; andernfalls lassen Sie das Objekt aus dem Klon heraus."
+    },
+    "guardBlocked": {
+      "explanation": "Production Guard hat diesen Lauf abgelehnt, bevor etwas gelesen wurde, aus dem Grund, den die Meldung nennt. Es wurde nichts geschrieben.",
+      "action": "Prüfen Sie, ob das Ziel die Org ist, in die Sie schreiben wollten, und starten Sie dann erneut aus der Überprüfung."
+    },
+    "guardDeclined": {
+      "explanation": "Der Lauf wurde bei der Bestätigung von Production Guard abgebrochen, bevor etwas gelesen wurde. Es wurde nichts geschrieben.",
+      "action": "Gehen Sie zurück zur Überprüfung, starten Sie erneut, wenn Sie in diese Org schreiben wollen, und bestätigen Sie."
+    },
+    "notInitialized": {
+      "explanation": "Ein Teil von SandForge, den der Lauf braucht, war in diesem Fenster nicht bereit: das Forge-Modul oder Production Guard, ohne den nichts geschrieben wird. Es wurde nichts geschrieben.",
+      "action": "Laden Sie das Fenster neu (Developer: Reload Window) und starten Sie dann erneut."
+    },
+    "forgeRunning": {
+      "explanation": "In diesem Fenster läuft noch ein anderer Forge-Lauf, und Forge führt jeweils nur einen aus. Dieser hat nichts geschrieben.",
+      "action": "Warten Sie, bis jener Lauf endet — ein Lauf, der angehalten werden soll, endet, sobald der laufende Schritt fertig ist — und starten Sie dann erneut."
+    },
+    "duplicateRun": {
+      "explanation": "Derselbe Lauf wurde erneut gesendet, während er noch lief oder weniger als eine Minute nachdem er seine Datensätze geschrieben hatte, und abgelehnt, damit sie nicht doppelt geschrieben werden. Dieser hat nichts geschrieben.",
+      "action": "Sehen Sie sich die Ergebnisse des ersten Laufs an, bevor Sie erneut starten: Eine Minute nachdem er geschrieben hat, wird derselbe Lauf wieder angenommen."
+    },
+    "retryUnavailable": {
+      "explanation": "Die Wiederholung konnte nicht starten: Was der wiederholte Lauf geschrieben hat, ist hier nicht bekannt — er ist nicht mehr im Verlauf, hat keine Aufzeichnung dessen behalten, was er geschrieben hat, oder hat in eine andere Org geschrieben, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
+      "action": "Starten Sie das Klonen erneut aus der Überprüfung."
+    },
+    "resumeUnavailable": {
+      "explanation": "Dieser Lauf kann nicht dort fortgesetzt werden, wo er stoppte: Er wurde bereits fortgesetzt oder sein Lauf ist beendet, er hat kein Journal geführt, oder seine Datensätze wurden entfernt. Es wurde nichts geschrieben.",
+      "action": "Wiederholen Sie ihn über seine Ergebnisse, oder führen Sie den Klon erneut über die Überprüfung aus."
+    },
+    "resumeTargetChanged": {
+      "explanation": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr dieselbe — aktualisiert, ersetzt oder nicht mehr in SandForge registriert —, daher ist das, was der Lauf geschrieben hat, nicht da, um daran anzuknüpfen. Es wurde nichts geschrieben.",
+      "action": "Führen Sie den Klon erneut über die Überprüfung in die Org aus, wie sie jetzt ist."
+    },
+    "resumeChanged": {
+      "explanation": "Dieser Lauf wäre jetzt anders eingerichtet als der Teil, den er fortsetzt: Der Klon auf der Seite oder die Einstellung sandforge.forge.maxRecordsPerObject hat sich geändert, seit er stoppte. Es wurde nichts geschrieben.",
+      "action": "Setzen Sie die Einstellung zurück, oder wiederholen Sie den Lauf stattdessen: Eine Wiederholung liest den Klon erneut und verknüpft, was dieser Lauf geschrieben hat."
+    },
+    "filesNotAccepted": {
+      "explanation": "Dieser Lauf anonymisiert seine Datensätze und kopiert ihre Dateien, deren Inhalt nicht anonymisiert werden kann: Dateien werden erst kopiert, wenn Sie akzeptieren, dass sie so kopiert werden, wie sie sind. Es wurde nichts gelesen oder geschrieben.",
+      "action": "Akzeptieren Sie in der Überprüfung, dass die Dateien so kopiert werden, wie sie sind, oder schalten Sie das Kopieren aus, und starten Sie dann erneut."
+    },
+    "abortedBeforeStart": {
+      "explanation": "Sie haben den Lauf gestoppt, bevor er begann. Es wurde nichts geschrieben.",
+      "action": "Starten Sie ihn erneut aus der Überprüfung, wenn Sie bereit sind."
+    }
+  },
+  "moduleSummary": {
+    "forge": "Einen echten Datensatz mit allem, was dazugehört, in eine andere Org kopieren",
+    "autopilot": "Ganze Objekte von einer Org in eine andere kopieren",
+    "seed": "Eine Org mit realistischen erfundenen Daten füllen"
   }
 }

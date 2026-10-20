@@ -42,7 +42,7 @@ import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
-import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
+import { CRUD_FLS_DENIED, CrudFlsGuard, flsViolation } from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/describeTypes.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import {
@@ -2341,6 +2341,7 @@ export class DataOpsHandler implements DomainHandler {
             'dataops:error',
             msg,
             new Error(crudCheck.reason),
+            { code: CRUD_FLS_DENIED },
           );
           sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false, {
             context: failure,
@@ -2361,9 +2362,11 @@ export class DataOpsHandler implements DomainHandler {
         // A business field this org may not write is still a hard stop: dropping
         // it would restore the record with that column silently missing.
         if (denied.length > 0) {
-          const reason = `FLS violation on '${safeObj}': fields [${denied.join(', ')}] are not updateable.`;
+          const reason = flsViolation(safeObj, denied, 'upsert');
           this.deps.log(`[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${reason}`);
-          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(reason));
+          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(reason), {
+            code: CRUD_FLS_DENIED,
+          });
           sendOperationFailed(this.deps, rollbackOpId, reason, false, { context: failure });
           return;
         }

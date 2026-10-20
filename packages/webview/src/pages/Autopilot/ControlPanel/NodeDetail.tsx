@@ -1,10 +1,25 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AutopilotRefusal } from '@sandforge/shared';
+import { translateError } from '@sandforge/shared';
+import { ErrorExplanation } from '../../../components/ui/ErrorExplanation';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { uiLocale } from '../../../utils/formatters';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
+
+/**
+ * What a refusal means and what to do about it, from the error catalogue: the
+ * list said the code and the org's words, with no next step, where Forge
+ * explained the same code in six languages.
+ */
+const RefusalHint: React.FC<{ refusal: AutopilotRefusal }> = ({ refusal }) => {
+  const hint = useMemo(
+    () => translateError(`${refusal.statusCode}: ${refusal.message}`),
+    [refusal.statusCode, refusal.message],
+  );
+  return hint ? <ErrorExplanation hint={hint} /> : null;
+};
 
 /**
  * Why the target refused records: one line per status code and fields, with
@@ -39,6 +54,7 @@ const RefusalList: React.FC<{ title: string; refusals: AutopilotRefusal[]; testI
               </span>
             </span>
             <span className="wrap-break-word text-text-secondary">{refusal.message}</span>
+            <RefusalHint refusal={refusal} />
           </li>
         ))}
       </ul>

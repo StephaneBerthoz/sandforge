@@ -11,6 +11,8 @@ export interface WizardStep {
   id: string;
   labelKey: string;
   descriptionKey?: string;
+  /** Whether the step asks nothing to go on: Next passes it as it stands, and it says so. */
+  optional?: boolean;
 }
 
 /** Props for the Wizard component. */
@@ -184,6 +186,19 @@ export const Wizard: React.FC<WizardProps> = ({
                 >
                   {t(step.labelKey)}
                 </span>
+                {step.optional && (
+                  <span
+                    className={cn(
+                      'text-[11px]',
+                      status === 'current' && 'text-(--vscode-list-activeSelectionForeground,#fff)',
+                      status === 'completed' && 'text-text-primary',
+                      status === 'future' && 'text-(--vscode-descriptionForeground,#868686)',
+                    )}
+                    data-testid={tid(testIdPrefix, `optional-${step.id}`)}
+                  >
+                    {t('common.optional')}
+                  </span>
+                )}
                 {step.descriptionKey && (
                   <span
                     className={cn(

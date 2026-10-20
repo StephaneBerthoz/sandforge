@@ -549,7 +549,9 @@ describe('useMessageResponse', () => {
         );
       });
 
-      expect(result.current.error).toBe(i18n.t('common.refusal.orgAuthExpired'));
+      expect(result.current.error).toBe(
+        `${i18n.t('errors.orgAuthExpired.explanation')} ${i18n.t('errors.orgAuthExpired.action')}`,
+      );
       const [toast] = useNotificationStore.getState().notifications;
       expect(toast.message).toBe(i18n.t('org.sessionExpired.message', { org: 'my-dev-org' }));
       act(() => toast.actions?.[0].onAction?.());
@@ -558,6 +560,30 @@ describe('useMessageResponse', () => {
         route: 'orgs',
         reconnectOrgId: 'org-7',
       });
+    });
+
+    it('says an import that found no org in the CLI by the catalogue, with no terminal command', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse(
+          'org:error',
+          {
+            message:
+              'The Salesforce CLI holds no connected org yet. Sign in with OAuth (Web) on the Organizations page.',
+            code: 'NO_CLI_ORGS',
+          },
+          'req-1',
+        );
+      });
+
+      expect(result.current.error).toBe(
+        `${i18n.t('errors.noCliOrgs.explanation')} ${i18n.t('errors.noCliOrgs.action')}`,
+      );
+      expect(result.current.errorCode).toBe('NO_CLI_ORGS');
     });
 
     it('says an org left alone after repeated failures in the interface language, with no circuit breaker', () => {
@@ -574,7 +600,9 @@ describe('useMessageResponse', () => {
         );
       });
 
-      expect(result.current.error).toBe(i18n.t('common.refusal.orgTemporarilyUnreachable'));
+      expect(result.current.error).toBe(
+        `${i18n.t('errors.orgTemporarilyUnreachable.explanation')} ${i18n.t('errors.orgTemporarilyUnreachable.action')}`,
+      );
       expect(result.current.error).not.toMatch(/circuit/i);
     });
 

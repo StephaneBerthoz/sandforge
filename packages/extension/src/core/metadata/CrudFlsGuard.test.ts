@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { CrudFlsGuard } from './CrudFlsGuard';
+import { CrudFlsGuard, CRUD_FLS_DENIED, flsViolation } from './CrudFlsGuard';
 import type { ObjectDescribe } from './describeTypes';
 import type { DescribeFetchFn, CrudOperation } from './CrudFlsGuard';
 
@@ -72,6 +72,8 @@ describe('CrudFlsGuard', () => {
       const result = await guard.checkCrudPermission('Account', 'insert');
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('insert');
+      // Said under its code, which the panel words in the interface language.
+      expect(result.reason.startsWith(`${CRUD_FLS_DENIED}: `)).toBe(true);
     });
 
     it('should deny upsert when object is not both createable and updateable', async () => {
@@ -139,5 +141,14 @@ describe('CrudFlsGuard', () => {
       const result = await guard.checkCrudAndFls('Account', 'insert', ['NonExistentField__c']);
       expect(result.allowed).toBe(true);
     });
+  });
+});
+
+describe('flsViolation', () => {
+  it('says the fields refused under the code the panels word it by', () => {
+    expect(flsViolation('Account', ['Rating', 'Secret__c'], 'update')).toBe(
+      "CRUD_FLS_DENIED: FLS violation on 'Account': fields [Rating, Secret__c] are not updateable.",
+    );
+    expect(flsViolation('Account', ['Rating'], 'insert')).toContain('are not createable');
   });
 });

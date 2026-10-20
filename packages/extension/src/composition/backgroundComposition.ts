@@ -2,7 +2,12 @@ import * as vscode from 'vscode';
 import { PerformanceTracker } from '../core/engine/PerformanceTracker';
 import { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import { OfflineManager } from '../core/connection/OfflineManager';
-import { ProductionGuard } from '../core/precheck/ProductionGuard';
+import {
+  ProductionGuard,
+  RELATED_RECORDS_ALSO_WRITTEN,
+  type QuestionWords,
+  type SafetyTier,
+} from '../core/precheck/ProductionGuard';
 import type {
   AutomationConfirmation,
   FiredOnInsert,
@@ -661,6 +666,66 @@ export function wireOfflineNotifications(offlineManager: OfflineManager): void {
   });
 }
 
+/** An org's tier as the confirmation's question says it. */
+function tierWord(tier: SafetyTier): string {
+  switch (tier) {
+    case 'production':
+      return vscode.l10n.t('production');
+    case 'staging':
+      return vscode.l10n.t('staging');
+    case 'development':
+      return vscode.l10n.t('development');
+    case 'scratch':
+      return vscode.l10n.t('scratch');
+  }
+}
+
+/**
+ * The confirmation's question in the UI language. Every piece is a whole
+ * phrase with its placeholders, so a language orders the operation, the
+ * records and the org its own way; the English keys are the guard's own words.
+ */
+export const L10N_QUESTION_WORDS: QuestionWords = {
+  sentence: (operation, things, org) => {
+    switch (operation) {
+      case 'insert':
+        return vscode.l10n.t('Insert {0} into {1}.', things, org);
+      case 'update':
+        return vscode.l10n.t('Update {0} in {1}.', things, org);
+      case 'upsert':
+        return vscode.l10n.t('Insert or update {0} in {1}.', things, org);
+      case 'delete':
+        return vscode.l10n.t('Delete {0} in {1}.', things, org);
+      case 'hardDelete':
+        return vscode.l10n.t('Permanently delete {0} in {1}.', things, org);
+      case 'deploy':
+        return vscode.l10n.t('Deploy {0} to {1}.', things, org);
+    }
+  },
+  counted: (unit, count) => {
+    if (unit === 'component') {
+      if (count === 'unknown') return vscode.l10n.t('components');
+      if (typeof count !== 'number') return vscode.l10n.t('at most {0} components', count.atMost);
+      return count === 1 ? vscode.l10n.t('1 component') : vscode.l10n.t('{0} components', count);
+    }
+    if (count === 'unknown') return vscode.l10n.t('records');
+    if (typeof count !== 'number') return vscode.l10n.t('at most {0} records', count.atMost);
+    return count === 1 ? vscode.l10n.t('1 record') : vscode.l10n.t('{0} records', count);
+  },
+  besides: (counted, alsoWrites) =>
+    vscode.l10n.t(
+      '{0}, plus {1},',
+      counted,
+      alsoWrites === RELATED_RECORDS_ALSO_WRITTEN
+        ? vscode.l10n.t('the related records the run adds')
+        : alsoWrites,
+    ),
+  org: (tier, name, named) =>
+    named
+      ? vscode.l10n.t('the {0} org "{1}"', tierWord(tier), name)
+      : vscode.l10n.t('the {0} org {1}', tierWord(tier), name),
+};
+
 /**
  * Build the infrastructure layer: perf tracker, production guard, offline
  * manager, PII detector, and the background operation registry.
@@ -680,6 +745,7 @@ export function createBackgroundComposition(
     isProdConfirmationRequired: () =>
       services.getSandforgeSetting('safety.requireProdConfirmation', true),
     orgNameOf: deps.orgNameOf,
+    questionWords: L10N_QUESTION_WORDS,
     requestConfirmation: async (impactSummary, orgTier, question) => {
       // The action label doubles as the equality check, so it MUST be the same
       // value on both sides — comparing against a hardcoded 'Execute' would

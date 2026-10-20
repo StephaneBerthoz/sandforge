@@ -827,6 +827,9 @@ export function withCurrencies(
   return currencies.length > 0 ? { ...result, currenciesReplaced: [...currencies] } : result;
 }
 
+/** Refused records of one object whose refusals a run's result keeps. */
+export const MAX_RESULT_REFUSALS_PER_OBJECT = 1_000;
+
 /**
  * Build a SyncObjectResult from operation outcomes. The run builds one from
  * the outcomes of a write its cancel stopped, too: the records never sent have
@@ -847,6 +850,7 @@ export function buildObjectResult(
   let linked = 0;
   let linkedBy: string | undefined;
   const errors: string[] = [];
+  let refused = 0;
   const split = { created: 0, updated: 0 };
 
   for (const outcome of outcomes) {
@@ -860,9 +864,15 @@ export function buildObjectResult(
     } else {
       failed++;
       // A record held back is said once per reason, counted, in the notes.
-      if (!outcome.heldBack) errors.push(...outcome.errors);
+      // The refusals of the first records are kept, as Seed keeps them: the
+      // page groups them by reason, and a thousand say every reason a large
+      // object meets.
+      if (!outcome.heldBack && refused++ < MAX_RESULT_REFUSALS_PER_OBJECT) {
+        errors.push(...outcome.errors);
+      }
     }
   }
+  const refusalsDropped = Math.max(0, refused - MAX_RESULT_REFUSALS_PER_OBJECT);
 
   return {
     objectApiName,
@@ -878,6 +888,7 @@ export function buildObjectResult(
       ...(linked > 0 ? [linkedNote(objectApiName, linked, linkedBy)] : []),
       ...notes,
     ],
+    ...(refusalsDropped > 0 ? { refusalsDropped } : {}),
     // What each upserted record became, as the org said: the audit trail
     // counts them as created or updated rather than as "upserted".
     ...(operation === 'upsert' ? { upsertSplit: split } : {}),

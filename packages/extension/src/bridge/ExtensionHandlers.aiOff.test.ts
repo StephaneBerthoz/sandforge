@@ -43,7 +43,7 @@ function createSecretStorage(): SecretStorageAdapter {
  *
  * The webview never asked — the host resolves a failure where it raises it —
  * so the guard belongs here, on the path a real failure takes: a backup that
- * fails with a Salesforce code outside the table of known errors.
+ * fails with a Salesforce code the error catalogue does not explain.
  */
 describe('ExtensionHandlers — failed runs with AI turned off', () => {
   let handlers: ExtensionHandlers;

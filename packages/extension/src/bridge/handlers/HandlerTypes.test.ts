@@ -20,7 +20,11 @@ import type { BaseMessage } from '@sandforge/shared';
 import { ErrorResolver, type AIProvider } from '../../modules/ai/ErrorResolver.js';
 import { MessageBroker, type FixSuggestion } from '../MessageBroker.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
-import { CrudFlsGuard, type DescribeFetchFn } from '../../core/metadata/CrudFlsGuard.js';
+import {
+  CrudFlsGuard,
+  type DescribeFetchFn,
+  flsViolation,
+} from '../../core/metadata/CrudFlsGuard.js';
 import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import type { OrgRegistry } from '../../core/connection/OrgRegistry.js';
@@ -349,9 +353,10 @@ describe('sendNotification', () => {
  *
  * `sendOperationFailed` is the only emitter of `operation:failed`, and the
  * broker fans that message out to every open panel. The suggestion is decided
- * once, here, and shown once by the host: a curated answer from the table of
- * known Salesforce error codes whether AI is on or off, and a model answer
- * only while AI is on, for a Salesforce message, with a SandForge view open.
+ * once, here, and shown once by the host: the error catalogue's answer
+ * whether AI is on or off — the one the panels' hints read — and a model
+ * answer only while AI is on, for a Salesforce message, with a SandForge view
+ * open.
  */
 describe('sendOperationFailed — fix suggestion', () => {
   /** A broker with real panel bookkeeping, `panels` mock views and a spied host notifier. */
@@ -387,7 +392,7 @@ describe('sendOperationFailed — fix suggestion', () => {
   /** Let every pending resolution settle. */
   const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-  it('answers a known error code from the table, without calling the model', () => {
+  it('answers a known error code from the catalogue the panels read, without calling the model', () => {
     const deps = createResolvingDeps();
 
     sendOperationFailed(
@@ -398,13 +403,73 @@ describe('sendOperationFailed — fix suggestion', () => {
     );
 
     expect(deps.provider).not.toHaveBeenCalled();
-    // The code travels with the line: the table is written in English, and the
-    // host keys its translation on the entry the code selects.
+    // The key of what the panel's hint says to do: the host words it in the
+    // panels' language, where its own table gave other advice in English.
     expect(deps.showFixSuggestion).toHaveBeenCalledWith({
-      source: 'knowledge-base',
-      text: 'Wait a moment and retry. Row locks are usually transient.',
+      source: 'catalogue',
       code: 'UNABLE_TO_LOCK_ROW',
+      actionKey: 'errors.rowLocked.action',
     });
+  });
+
+  it('answers the codes the host table never held, as the panel does', () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(deps, 'op-1', 'ENTITY_IS_LOCKED: entity is locked for editing', true);
+
+    expect(deps.provider).not.toHaveBeenCalled();
+    expect(deps.showFixSuggestion).toHaveBeenCalledWith({
+      source: 'catalogue',
+      code: 'ENTITY_IS_LOCKED',
+      actionKey: 'errors.entityLocked.action',
+    });
+  });
+
+  it('shows nothing the panel that ran the operation already shows under the same failure', () => {
+    // The host's table and the panel's hint both fired on one failure, and
+    // gave conflicting advice for DUPLICATE_VALUE.
+    const deps = createResolvingDeps();
+    const failure = 'DUPLICATE_VALUE: duplicate value found: ExternalId__c';
+
+    sendHandlerError(deps, 'sync:execute', 'sync:error', REQUEST, new Error(failure));
+    sendOperationFailed(deps, 'op-1', failure, true);
+
+    expect(deps.showFixSuggestion).not.toHaveBeenCalled();
+    expect(deps.provider).not.toHaveBeenCalled();
+  });
+
+  it('still shows it when the error the panel was sent was another', () => {
+    const deps = createResolvingDeps();
+
+    sendHandlerError(
+      deps,
+      'sync:execute',
+      'sync:error',
+      REQUEST,
+      new Error('UNABLE_TO_LOCK_ROW: unable to obtain exclusive access'),
+    );
+    sendOperationFailed(deps, 'op-1', 'DUPLICATE_VALUE: duplicate value found', true);
+
+    expect(deps.showFixSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'DUPLICATE_VALUE' }),
+    );
+  });
+
+  it('still shows it when the panel was sent the error with no request behind it', () => {
+    // An uncorrelated error is shown by no panel's banner.
+    const deps = createResolvingDeps();
+    const failure = 'DUPLICATE_VALUE: duplicate value found';
+
+    sendHandlerError(
+      deps,
+      'sync:execute',
+      'sync:error',
+      uncorrelated('schedule tick, no request' as never),
+      new Error(failure),
+    );
+    sendOperationFailed(deps, 'op-1', failure, true);
+
+    expect(deps.showFixSuggestion).toHaveBeenCalledTimes(1);
   });
 
   it('answers a known error code with AI off', () => {
@@ -420,9 +485,9 @@ describe('sendOperationFailed — fix suggestion', () => {
     );
 
     expect(deps.showFixSuggestion).toHaveBeenCalledWith({
-      source: 'knowledge-base',
-      text: 'API limits reset on a rolling 24-hour basis. Wait before retrying.',
+      source: 'catalogue',
       code: 'REQUEST_LIMIT_EXCEEDED',
+      actionKey: 'errors.requestLimit.action',
     });
   });
 
@@ -438,7 +503,7 @@ describe('sendOperationFailed — fix suggestion', () => {
 
     expect(deps.provider).not.toHaveBeenCalled();
     expect(deps.showFixSuggestion).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'knowledge-base' }),
+      expect.objectContaining({ source: 'catalogue', code: 'DUPLICATE_VALUE' }),
     );
   });
 
@@ -566,7 +631,8 @@ describe('sendOperationFailed — fix suggestion', () => {
       'A backup or rollback operation is already running for org 00D000000000001AAA. Please wait for it to complete.',
       noDescribe.reason,
       noUpsert.reason,
-      "FLS violation on 'Account': fields [Secret__c] are not updateable.",
+      flsViolation('Account', ['Secret__c'], 'update'),
+      `CRUD/FLS check failed for insert on Account: ${noUpsert.reason}`,
       'No backup found for operation req-3. Cannot rollback.',
       'Backup req-3 was taken from org 00D000000000001AAA and cannot be restored into org 00D000000000002AAA.',
       'Restore not run: uat answers as org 00D000000000002AAA, not as org 00D000000000001AAA, which backup req-3 was taken from, and the restore into the org it is now was not confirmed.',
@@ -576,7 +642,7 @@ describe('sendOperationFailed — fix suggestion', () => {
     ];
     // The samples are the producers' own text, not a paraphrase of it.
     expect(noDescribe.reason).toMatch(/^Object describe not available for 'Account'/);
-    expect(noUpsert.reason).toBe("User lacks 'upsert' permission on 'Account'.");
+    expect(noUpsert.reason).toBe("CRUD_FLS_DENIED: User lacks 'upsert' permission on 'Account'.");
     expect(productionBlock.blockedReason).toContain('00D000000000001AAA');
     expect(orgNotFound).toBe('Org not found: 00D000000000001AAA');
     expect(noCredentials).toBe(

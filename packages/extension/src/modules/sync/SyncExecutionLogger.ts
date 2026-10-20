@@ -1,6 +1,41 @@
-import type { SyncConfig, SyncExecutionResult, SyncHistoryEntry } from '@sandforge/shared';
+import type {
+  SyncConfig,
+  SyncExecutionResult,
+  SyncHistoryEntry,
+  SyncObjectResult,
+} from '@sandforge/shared';
 import type { ExportFormat } from '@sandforge/shared';
 import type { SyncHistoryStore } from './SyncHistoryStore.js';
+
+/**
+ * Refusals of one object a history entry keeps. The history holds five
+ * hundred entries; one of a validation rule refusing every record of a large
+ * object held a line per record, and the page that reopens it groups them by
+ * reason, which fifty say as well as a thousand.
+ */
+export const MAX_HISTORY_REFUSALS_PER_OBJECT = 50;
+
+/** `STATUS_CODE:` in front of a line: a record's refusal rather than a note of the run's. */
+const REFUSAL_LINE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+:/;
+
+/**
+ * An object's result as its history entry keeps it: its first refusals, and
+ * every note of the run's — a line with no status code in front — once each,
+ * however far down the list it came. What is left out is counted, beside what
+ * the run had already left out.
+ */
+export function objectResultForHistory(result: SyncObjectResult): SyncObjectResult {
+  if (result.errors.length <= MAX_HISTORY_REFUSALS_PER_OBJECT) return result;
+  const kept = result.errors.slice(0, MAX_HISTORY_REFUSALS_PER_OBJECT);
+  let dropped = 0;
+  for (const line of result.errors.slice(MAX_HISTORY_REFUSALS_PER_OBJECT)) {
+    if (REFUSAL_LINE.test(line)) dropped++;
+    else if (!kept.includes(line)) kept.push(line);
+    else dropped++;
+  }
+  if (dropped === 0) return { ...result, errors: kept };
+  return { ...result, errors: kept, refusalsDropped: (result.refusalsDropped ?? 0) + dropped };
+}
 
 /**
  * Intercepts sync execution results and persists them as history entries.
@@ -46,7 +81,7 @@ export class SyncExecutionLogger {
       // structuredClone preserves Date / Map / undefined properly, unlike
       // JSON round-trip which silently drops them.
       configSnapshot: structuredClone(config),
-      result,
+      result: { ...result, objectResults: result.objectResults.map(objectResultForHistory) },
       startTime: new Date(startTimeMs).toISOString(),
       endTime: result.timestamp,
       triggeredBy,

@@ -195,7 +195,7 @@ export const SeedPage: React.FC = () => {
       <EmptyState
         module="seed"
         title={t('seed.emptyState.title')}
-        description={t('seed.emptyState.description')}
+        description={t('moduleSummary.seed')}
         steps={[
           t('emptyState.connectViaSfdx'),
           t('seed.emptyState.step2'),
@@ -243,6 +243,8 @@ export const SeedPage: React.FC = () => {
       {state.error && (
         <ErrorBanner
           message={state.error}
+          code={null}
+          module="seed"
           onDismiss={() => state.setError(null)}
           data-testid="seed-error"
         />

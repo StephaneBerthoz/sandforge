@@ -61,14 +61,18 @@
       "autopilotWriteDeclined": "You cancelled the Autopilot run before it wrote anything. Nothing was written to the target org.",
       "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
-      "orgAuthExpired": "The session with this org has expired and could not be renewed. Reconnect it on the Organizations page (Try Reconnect on its card).",
-      "orgTemporarilyUnreachable": "This org failed several times in a row, so SandForge waits a moment before calling it again. Try again in a minute.",
       "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet."
     },
     "list": {
       "separator": ", ",
       "and": " and "
-    }
+    },
+    "recordErrors": {
+      "group": "{{n}} × {{reason}}",
+      "listed": "Grouped from the first {{listed}} of the {{failed}} records refused."
+    },
+    "details": "Details",
+    "optional": "Optional"
   },
   "status": {
     "apiUsage": "API usage",
@@ -141,7 +145,6 @@
     },
     "moreMethods": "More methods",
     "cliMissing": "The Salesforce CLI (sf) does not answer on this machine. Import from SF CLI and OAuth (Web) run on it.",
-    "noCliOrgs": "The Salesforce CLI holds no org yet. Sign in with OAuth (Web): it opens the Salesforce login in your browser.",
     "aliasOptionalHint": "Optional: without one, the org is named after its username.",
     "connectedNext": {
       "title": "{{alias}} is connected",
@@ -925,7 +928,6 @@
     },
     "emptyState": {
       "title": "Fill your sandbox with realistic test data",
-      "description": "Seed generates synthetic data — from templates, AI, CSV or another org — so you can build and test without production data.",
       "step2": "Pick a template or a mode: AI, CSV, Clone",
       "step3": "Choose objects and record volumes",
       "step4": "Execute and review the results"
@@ -936,19 +938,7 @@
     "results": {
       "aiFallback": "AI returned no values, so these fields received generated sentences: {{fields}}. AI is off, or the call was refused (the SandForge log gives the reason).",
       "aiFallbackShort": "The AI answer left values out, so these fields received generated sentences: {{fields}}.",
-      "errorGroup": "{{n}} × {{reason}}",
-      "errorsListed": "Grouped from the first {{listed}} of the {{failed}} records refused.",
-      "openRecord": "Open a created {{object}} in {{org}}",
-      "errorHint": {
-        "requiredFieldMissing": "The org requires a value the run did not give. Seed from the wizard, and give the field a rule on its Configure step.",
-        "validationRule": "A validation rule of the org refused the values generated. Give the fields it checks rules whose values it accepts, or deactivate the rule while you seed.",
-        "restrictedPicklist": "A value generated is not one this restricted picklist takes, or not one the record type takes. Give the field the values the org lists for it.",
-        "duplicateValue": "A unique field got a value a record of the org already holds. Give the field a rule whose values do not repeat.",
-        "duplicateRule": "A duplicate rule of the org set to Block refused the record generated. Deactivate the rule while you seed, or set its action on create to Allow.",
-        "storageFull": "The org has no data storage left: a Developer Edition holds 5 MB. Remove an earlier seed, or seed fewer records.",
-        "standardPrice": "Salesforce prices a product in a custom price book only once the product has a price in the standard price book. Give these products a standard price first.",
-        "flowFailed": "A Flow of the org failed as the record was saved, and the org refused the record. Fix the Flow, or deactivate it while you seed."
-      }
+      "openRecord": "Open a created {{object}} in {{org}}"
     },
     "sampleRecordCount_one": "{{count}} sample record",
     "sampleRecordCount_other": "{{count}} sample records",
@@ -1115,10 +1105,7 @@
     "addTransform": "Add Transform",
     "addMapping": "Add Mapping",
     "autoMap": "Auto Map",
-    "unmapped": "Unmapped",
     "suggestedMappings": "Suggested Mappings",
-    "autoMatch": "Auto Match",
-    "fieldMapperHint": "Click a source field, then a target field to create a mapping",
     "selectAndConfigure": "Select Orgs & Objects",
     "templates": {
       "title": "Quick Start Templates",
@@ -1399,9 +1386,7 @@
     },
     "delta": {
       "toggle": "Copy only what changed since the last good run (delta)",
-      "toggleHint": "Each object reads the records its source changed since its last successful run, starting five minutes earlier to catch saves that landed during a read. The first run, a run after its filter, fields, key or mapping changed or its files were turned on or off, and a run after \"Run full next time\" read everything. What a delta run reads twice it writes twice, so every object must be written by upsert on an External ID, or by update. A watermark is kept for a saved configuration only: save it, then run it from here, from the saved configurations or on a schedule.",
       "deletes": "Delete in the target what the source deleted",
-      "deletesHint": "Off unless ticked. A delta run reads the source's recycle bin for the records deleted since its last good run, within the object's filter, and deletes the one target record each is tied to by the key the write matches on. A target record it cannot tie to exactly one deleted record, or whose key a source record still holds, is kept. Records emptied from the recycle bin are not seen. Production Guard judges the run as a delete.",
       "needsKey": "A delta run needs every object written by upsert on an External ID, or by update: {{objects}}.",
       "withDeletes": "Delta, deletions carried",
       "since": "Delta since {{time}}",
@@ -1425,15 +1410,19 @@
         "no_modstamp": "Full read (the source gives no SystemModstamp for this object)",
         "not_saved": "Full read (not a saved configuration: no watermark is kept)",
         "removed": "Full read (a removal took back copies it had written)"
-      }
+      },
+      "toggleDetails": "Each object reads the records its source changed since its last successful run, starting five minutes earlier to catch saves that landed during a read. The first run, a run after its filter, fields, key or mapping changed or its files were turned on or off, and a run after \"Run full next time\" read everything. What a delta run reads twice it writes twice, so every object must be written by upsert on an External ID, or by update. A watermark is kept for a saved configuration only: save it, then run it from here, from the saved configurations or on a schedule.",
+      "deletesDetails": "Off unless ticked. A delta run reads the source's recycle bin for the records deleted since its last good run, within the object's filter, and deletes the one target record each is tied to by the key the write matches on. A target record it cannot tie to exactly one deleted record, or whose key a source record still holds, is kept. Records emptied from the recycle bin are not seen. Production Guard judges the run as a delete.",
+      "toggleHint": "Reads only the records changed since this saved configuration's last good run.",
+      "deletesHint": "Also deletes in the target the records deleted in the source since that run."
     },
     "contactPoints": {
       "toggle": "Neutralize emails and phone numbers (recommended)",
-      "toggleHint": "On unless unticked. Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them, and the target's flows can email and text real people. The field a write matches on is kept as read."
+      "toggleDetails": "On unless unticked. Every email address is written under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. Unticked, they are copied as the source holds them, and the target's flows can email and text real people. The field a write matches on is kept as read.",
+      "toggleHint": "Writes every email under .invalid and every phone number as a fictional one, so the target's automation reaches no one."
     },
     "files": {
       "toggle": "Copy the files of these records",
-      "toggleHint": "Off unless ticked. Once an object's records are written, the latest version of each Salesforce File linked to one of them, and their legacy attachments, are copied and linked to the records' copies in the target. A saved configuration remembers which file it copied where: running it again copies a file only when the source holds a newer version, which is added as a version of the copy, never as a second file. Before the run writes anything, the target's file storage is read and a run whose files would not fit is refused. A file larger than the largest size, and the files past the most a run copies, are skipped and counted; the next run copies the latter. Removing a run takes back the files it created with its records; a version it added to an earlier copy stays.",
       "maxFileSize": "Largest file (MB, up to 35)",
       "maxRun": "Most a run copies (MB, up to 2000)",
       "needsSave": "This configuration copies files: save it first. A saved configuration remembers which files it copied, so a second run does not copy them again; an unsaved one is refused.",
@@ -1465,7 +1454,9 @@
       "failed_one": "{{count}} file could not be copied: the notes below say why",
       "failed_other": "{{count}} files could not be copied: the notes below say why",
       "storage": "These files take {{size}} of the {{left}} of file storage the target has left.",
-      "wouldNotFit": "These files take {{size}} and the target has {{left}} of file storage left: a run would be refused before writing anything."
+      "wouldNotFit": "These files take {{size}} and the target has {{left}} of file storage left: a run would be refused before writing anything.",
+      "toggleDetails": "Off unless ticked. Once an object's records are written, the latest version of each Salesforce File linked to one of them, and their legacy attachments, are copied and linked to the records' copies in the target. A saved configuration remembers which file it copied where: running it again copies a file only when the source holds a newer version, which is added as a version of the copy, never as a second file. Before the run writes anything, the target's file storage is read and a run whose files would not fit is refused. A file larger than the largest size, and the files past the most a run copies, are skipped and counted; the next run copies the latter. Removing a run takes back the files it created with its records; a version it added to an earlier copy stays.",
+      "toggleHint": "Also copies the Salesforce Files and attachments of the records it writes."
     },
     "removal": {
       "title": "What this run created",
@@ -1492,7 +1483,8 @@
       "unfinishedTitle": "Runs that never ended",
       "unfinishedNote": "A window closed under these runs, or the history no longer lists them. What they created is kept, and can be removed.",
       "unfinishedRun": "{{config}}, started {{date}}"
-    }
+    },
+    "noCustomMapping": "No custom mapping: fields with the same API name are copied."
   },
   "migration": {
     "title": "Migration",
@@ -2680,19 +2672,19 @@
     "title": "Help & Resources",
     "gettingStarted": "Getting Started",
     "gettingStartedDesc": "Learn the basics of SandForge",
-    "gettingStartedContent": "1. Connect your Salesforce org using the Organizations page.\n2. Use Forge to clone a real record, and the records around it, into your sandbox.\n3. Open the Monitor to check your org health.\n4. Use Seed to generate test data, or Sync to copy data between two orgs.\n5. Explore Compare, DataOps, Frozen Dataset and Automation for advanced workflows.",
+    "gettingStartedContent": "1. Connect your Salesforce org on the Organizations page.\n2. Fill it with Seed: a template such as CRM Starter writes linked accounts, contacts, opportunities and cases, after checking the org's storage.\n3. Clone with Forge: copy a real record and everything around it from another org.\n4. Open the Monitor to check the org's health, limits and jobs.\n5. Explore Sync, Compare, DataOps, Frozen Dataset and Automation when you need them.",
     "monitorContent": "The Monitor dashboard shows real-time org health:\n- Health Score gauge with contributing factors\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Alert notifications for critical thresholds\n\nTip: Enable auto-refresh for continuous monitoring.",
-    "seedContent": "The Seed wizard generates realistic test data:\n1. Select your target org\n2. Choose objects to seed\n3. Configure field rules (AI, Faker, static, sequence...)\n4. Set record counts — a lookup field is filled from the records the same run inserted earlier\n5. Review and execute\n\nTip: Use AI generation for the most realistic data.",
+    "seedContent": "In five steps:\n1. Select your target org\n2. Choose objects to seed\n3. Configure field rules (AI, Faker, static, sequence...)\n4. Set record counts — a lookup field is filled from the records the same run inserted earlier\n5. Review and execute\n\nTip: Use AI generation for the most realistic data.",
     "syncContent": "Sync data between two Salesforce orgs:\n- Full or delta: a full run reads every object whole; a delta run of a saved configuration reads each object from where its last good run left off, and can delete in the target what the source deleted. A configuration asking for incremental is refused\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- Real-Time tab: follows the change events (Change Data Capture) the source org publishes and writes each change to the target as it comes, matched on an external id, the record Id or a saved sync's mapping; deletions only when asked. To follow another object, select it in Setup → Change Data Capture on the source org. A change whose target record was edited after it is decided by the strategy, or held on the Conflicts tab\n- Remove what a run created: from the run's results or its history entry, a run's removal deletes the records it inserted, or upserted where the target held none, and the files it created; Production Guard refuses it on a production org. The records a run updated keep their new values, so take a DataOps backup of the target org first (it covers the objects the anonymization templates mask: Contact, Lead, Account and Opportunity for those that ship)",
     "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: pick what differs, validate it in the target first, then deploy the validation to a sandbox",
     "dataopsContent": "Data operations on the selected org:\n- Backup: a snapshot of the objects the anonymization templates mask, or of those the template picked masks, kept in extension storage\n- Restore: puts a backup back, whole, into the org it was taken from\n- Anonymize: masks fields in place with a built-in template such as GDPR, CCPA or HIPAA; it cannot be undone, so back up first\n- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written\n- Compliance: finds the fields of the objects you pick that hold personal data, confirmed on a sample of their last 200 records; then finds one person's records by email, name or phone, exports them to a file, and erases them in place or deletes them, after a review, a typed confirmation and Production Guard; a local log keeps counts of each request, never who it was about\n- Cleanup: counts the records nobody has modified in a number of days, those that leave empty a lookup the business relies on, and the extra copies of a repeated value; each can be exported, or deleted after a review, a typed confirmation and Production Guard, at most 1,000 at a time",
     "automationContent": "Visual pipeline builder:\n- The palette offers the step types a pipeline runs: Backup, Compare, Pre-Check, Delay and Notification; a Condition step comes with a Marketplace template. A pipeline holding a step that writes to an org, or a Script, Approval, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
-    "forgeContent": "Forge clones a real record, and the records around it, from one org into another:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it\n\nClone directly, under Discover Graph, runs the discovery and then the clone of what it found, without stopping on the graph or on Review: the run is sent as Review sends it when nothing was changed there, Production Guard judges it as it judges any run, and the metadata diff between the two orgs is not run.\n\nGraph or table: the discovery, Review and execution screens draw a graph of up to 25 objects and list a larger one in a table. The Graph View / Table View switch picks the other view on every screen until the panel is closed; the sandforge.forge.graphView setting (auto, graph or table) picks the view they open on.\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
+    "forgeContent": "In four steps:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it\n\nClone directly, under Discover Graph, runs the discovery and then the clone of what it found, without stopping on the graph or on Review: the run is sent as Review sends it when nothing was changed there, Production Guard judges it as it judges any run, and the metadata diff between the two orgs is not run.\n\nGraph or table: the discovery, Review and execution screens draw a graph of up to 25 objects and list a larger one in a table. The Graph View / Table View switch picks the other view on every screen until the panel is closed; the sandforge.forge.graphView setting (auto, graph or table) picks the view they open on.\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Pseudonymization is deterministic, keyed by a salt you keep out of the repository\n- A four-point check must pass before the dataset is written\n- Load: sandbox targets only, with an optional Pilot on one root folder before the full load, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
-    "aiContent": "AI Assistant, with your own Anthropic key:\n- Chat, and NL2SOQL, custom personas and AI field rules in Seed\n- Pipeline drafts in Automation\n- A built-in table of Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing\n- Nothing is sent for a fixed list of SandForge's own messages, such as a declined production confirmation, a duplicate run, or a CRUD, FLS or Production Guard refusal, nor for any failure while no SandForge view is open\n- While AI is on, any other failed Seed, Sync, DataOps or Automation run sends its error message, with its Salesforce Ids replaced by <id>, and the suggestion comes back as a VS Code notification\n- Turn that sending off with sandforge.ai.errorResolution: the rest of the assistant keeps working\n- Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key\n- Configure your API key in Settings > AI",
+    "aiContent": "AI Assistant, with your own Anthropic key:\n- Chat, NL2SOQL in Forge's AI tab, and custom personas and AI field rules in Seed\n- Pipeline drafts in Automation\n- A built-in table of Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing\n- Nothing is sent for a fixed list of SandForge's own messages, such as a declined production confirmation, a duplicate run, or a CRUD, FLS or Production Guard refusal, nor for any failure while no SandForge view is open\n- While AI is on, any other failed Seed, Sync, DataOps or Automation run sends its error message, with its Salesforce Ids replaced by <id>, and the suggestion comes back as a VS Code notification\n- Turn that sending off with sandforge.ai.errorResolution: the rest of the assistant keeps working\n- Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key\n- Configure your API key in Settings > AI",
     "shortcutsContent": "G + letter — Jump to a module (e.g. G then F for Forge, G then Y for Sync, G then L for Help)\nCtrl+K — Command palette\nEscape — Close modals and dialogs\nTab — Navigate between elements\nEnter/Space — Activate buttons and links",
-    "faqContent": "Q: Why is my Health Score low?\nA: Check API limit usage, failed jobs, and storage consumption. The score weighs multiple factors.\n\nQ: How to fix timeout errors?\nA: SandForge has no timeout setting for Salesforce calls. Lower the batch size (sandforge.seed.defaultBatchSize and sandforge.sync.defaultBatchSize in VS Code Settings) and split a large run into smaller ones. Grappe does not make a run faster: it reports progress per partition.\n\nQ: Can I undo a sync operation?\nA: In part. A run's removal, from its results or its history entry, deletes what it created: the records it inserted, or upserted where the target held none, and its files. The records it updated keep their new values. Before a risky run, take a DataOps backup of the target org: it covers the objects the anonymization templates mask, and restores only into that org.\n\nQ: How do I connect a production org safely?\nA: Production orgs are auto-detected and marked as Critical safety tier. All destructive operations require confirmation.",
+    "faqContent": "Q: Why is my Health Score low?\nA: Check API limit usage, failed jobs, and storage consumption. The score weighs multiple factors.\n\nQ: How to fix timeout errors?\nA: SandForge has no timeout setting for Salesforce calls. Lower the batch size (sandforge.seed.defaultBatchSize and sandforge.sync.defaultBatchSize in VS Code Settings) and split a large run into smaller ones. Grappe does not make a run faster: it reports progress per partition.\n\nQ: Can I undo a sync operation?\nA: In part. A run's removal, from its results or its history entry, deletes what it created: the records it inserted, or upserted where the target held none, and its files. The records it updated keep their new values. Before a risky run, take a DataOps backup of the target org: it covers the objects the anonymization templates mask, and restores only into that org.\n\nQ: How do I connect a production org safely?\nA: SandForge detects a production org and marks it with the Critical safety tier. Production Guard refuses a delete or a metadata deployment there outright, and asks you to confirm any other write before it runs (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
     "shortcuts": "Keyboard Shortcuts",
     "troubleshooting": "Troubleshooting",
@@ -2711,9 +2703,9 @@
     "sfStackExchangeDesc": "Community Q&A for Salesforce developers",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
     "startTour": "Start Guided Tour",
-    "autopilotContent": "Autopilot copies the objects you pick from a source org into a target org, in three steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Review the plan (waves, records, API calls, PII fields), then run it. Emails and phone numbers are neutralized unless you untick it — every address under .invalid, every number a fictional one — and Advanced picks a compliance framework that anonymizes more (GDPR, CCPA, HIPAA or PCI-DSS)",
+    "autopilotContent": "In three steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Review the plan (waves, records, API calls, PII fields), then run it. Emails and phone numbers are neutralized unless you untick it — every address under .invalid, every number a fictional one — and Advanced picks a compliance framework that anonymizes more (GDPR, CCPA, HIPAA or PCI-DSS)",
     "migrationContent": "Migration turns an existing migration definition into a Sync configuration:\n- Import an SFDMU export.json, or a .json or .csv file\n- Importing reads the file and changes nothing in any org\n- Running the converted configuration writes records to the target org",
-    "reportsContent": "Reports reads the run history Forge and Sync already keep:\n- Executions: each run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit trail and data lineage: coming soon, nothing records them yet"
+    "reportsContent": "Reports shows what SandForge's runs did:\n- Executions: each Forge and Sync run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit Trail: every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — with what it wrote to each object and what Production Guard decided\n- Data Lineage: where the records a run wrote came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many of each object"
   },
   "emptyState": {
     "connectViaSfdx": "Connect an org (sign in with your browser)",
@@ -2750,7 +2742,6 @@
     "opsLast7d": "Ops (7 days)",
     "limitWarnings": "Limit Warnings",
     "forgeASandbox": "Forge a Sandbox",
-    "forgeDescription": "Clone records with full dependency resolution",
     "recordIdPlaceholder": "Record ID (e.g. 001...)",
     "startForge": "Start Forge",
     "invalidRecordId": "Not a valid Salesforce record ID or URL",
@@ -2837,7 +2828,6 @@
       "declined": "Rehearsal cancelled at its confirmation. Nothing was sent to the target.",
       "error": "The rehearsal could not run: {{error}}"
     },
-    "subtitle": "Clone records with full dependency resolution",
     "recordTab": "Record",
     "soqlTab": "SOQL",
     "templateTab": "Template",
@@ -3112,7 +3102,6 @@
     "quickStartTemplateHint": "Skip discovery and use the starter template's known object set. Record counts will be queried during execution.",
     "emptyState": {
       "title": "Populate your sandbox from a real record",
-      "description": "Forge clones a root record and its whole relationship graph — Accounts, Contacts, Opportunities, Cases — into your sandbox, remapping IDs as it writes. A record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.",
       "step1Select": "Select a source org",
       "step2": "Paste a root record ID (e.g. an Account from UAT)",
       "step3": "Discover its relationship graph",
@@ -3480,189 +3469,6 @@
         "resultCancelled": "The sweep did not run to its end: what it did by then is listed.",
         "resultRefused": "The sweep was refused, and deleted nothing.",
         "sweptOn": "Swept on {{date}}:"
-      }
-    },
-    "error": {
-      "duplicateValue": {
-        "explanation": "A record with the same unique value already exists in the target org, often one cloned by an earlier run.",
-        "action": "Delete the records the earlier run created, or run the clone from the command line with --upsert, which updates by external ID where the object has one."
-      },
-      "invalidCrossReferenceKey": {
-        "explanation": "A lookup points to a record that does not exist in the target org, often a user such as the owner.",
-        "action": "Create or map the referenced record in the target org, or leave the lookup empty and set it after the clone."
-      },
-      "requiredFieldMissing": {
-        "explanation": "A required field has no value: {{detail}}.",
-        "action": "Turn on \"Auto-fetch parents\", or raise the depth so the required parent is part of the clone."
-      },
-      "invalidPicklist": {
-        "explanation": "A picklist value from the source is not one the target org takes: the field there does not hold it, or the record type the record goes in with does not take it — one never given values of a field takes none of them. When the refusal names a field the record gives a value to, the clone writes the record again without that field; a record listed here could not be written that way.",
-        "action": "Add the value to the picklist in the target org's Setup, and to the record's record type there, or change the value on the source record."
-      },
-      "fieldCustomValidation": {
-        "explanation": "A validation rule of the target org refused the record. When the rule names a field the record gives a value to, the clone writes the record again without that field; a record listed here could not be written that way.",
-        "action": "Change the value on the source record, or adjust the rule in the target org, then retry the failed objects."
-      },
-      "invalidFieldForInsert": {
-        "explanation": "A field cannot be set on create: it is calculated, hidden by field-level security, or missing from the target org.",
-        "action": "Check field-level security for your user in the target org, and compare the field between the two orgs."
-      },
-      "fieldIntegrity": {
-        "explanation": "Salesforce rejected the record on an integrity rule: {{detail}}.",
-        "action": "Read the detail: Salesforce usually names the field or the rule involved."
-      },
-      "cannotInsertEntity": {
-        "explanation": "Salesforce does not accept new records of this object (a history, audit or system object).",
-        "action": "Leave this object out of the clone."
-      },
-      "automationRefused": {
-        "explanation": "An automation of the target org — a trigger, a Flow or a process that runs as a record is saved — failed on this record, and the target refused it. The message usually names it, and what went wrong.",
-        "action": "Fix that automation in the target org, or turn it off while you clone, then retry the failed objects."
-      },
-      "insufficientAccess": {
-        "explanation": "Your user in the target org lacks the access this write needs.",
-        "action": "Ask an administrator for the missing permission, or connect the target org with a user that has it."
-      },
-      "storageLimit": {
-        "explanation": "The target org has no data storage left.",
-        "action": "Delete records you no longer need from the target org, then run again."
-      },
-      "invalidType": {
-        "explanation": "This object does not exist in the target org, or your user cannot see it.",
-        "action": "Compare the two orgs' schemas, or leave this object out of the clone."
-      },
-      "notFound": {
-        "explanation": "Salesforce could not find the requested record or resource.",
-        "action": "Check the record ID and that it belongs to the source org."
-      },
-      "stringTooLong": {
-        "explanation": "A value is longer than the field allows: {{detail}}.",
-        "action": "Shorten the source value, or give the field the same length in both orgs."
-      },
-      "lookupFilter": {
-        "explanation": "A lookup filter of the target org refused the record this one points at: there, that record does not meet the filter's criteria — a field the filter checks holds another value, or none — or the filter checks the user the clone writes as.",
-        "action": "In the target org's Setup, make the lookup filter optional or deactivate it while you clone, or give the record pointed at the values the filter asks for; then retry the failed objects."
-      },
-      "duplicateRule": {
-        "explanation": "A duplicate rule of the target org set to Block refused the record. The clone already saves past every rule set to Allow, and links a row to the record it duplicates when the rule names just one; this rule named none of this object, or several.",
-        "action": "In the target org's Setup, deactivate this duplicate rule while you clone, or set its action on create to Allow; then retry the failed objects."
-      },
-      "inactiveUser": {
-        "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the target org. The clone leaves each record it creates to the user it writes as, so that user comes from the target — an assignment rule, or a Flow that sets the owner or assigns a task — or from an owner mapping given on the command line.",
-        "action": "In the target org, point that rule or Flow at an active user or a queue, or reactivate the user; with --owner-map, map the owner to an active user. Then retry the failed objects."
-      },
-      "entityDeleted": {
-        "explanation": "The record, or a record it points at, has been deleted in the target org: one an earlier run wrote, deleted since and linked to by a retry of that run, or one deleted while the run went on, by hand or by the target's automation.",
-        "action": "Restore it from the target org's Recycle Bin, then retry the failed objects; or run the clone again from Review rather than as a retry, so it writes that record anew."
-      },
-      "rowLocked": {
-        "explanation": "The target org could not lock the record, or the record it hangs from, because another operation held it at that moment: a job, an integration, or the target's own automation still at work on records the clone had just written. It is usually transient.",
-        "action": "Retry the failed objects. If the lock comes back, wait until the jobs and integrations writing those records in the target org have finished, then retry."
-      },
-      "requestLimit": {
-        "explanation": "Salesforce refused the request: the org it went to has used the API requests it is allowed over 24 hours, or is running too many long requests at once. The clone writes up to 200 records a request, and its reads and describes take requests of their own.",
-        "action": "Wait until that org's count frees requests — the Monitor page shows its API usage — then retry; a lower depth or fewer records per object takes fewer requests."
-      },
-      "sessionExpired": {
-        "explanation": "Salesforce no longer accepts the session SandForge holds for this org: it expired, or was ended by a logout, a password change or an administrator.",
-        "action": "Authenticate the org again — Connect Org, or a login with the Salesforce CLI — then retry."
-      },
-      "crossReferenceAccess": {
-        "explanation": "The user the clone writes as lacks access to a record this one points at in the target org — read access or, to the master of a master-detail relationship, edit access: a record that user neither owns nor is shared, such as one the target already held, which the clone linked to rather than wrote.",
-        "action": "In the target org, share that record with the user, or give the user View All or Modify All on its object, or connect the target org with a user who has that access, such as an administrator; then retry the failed objects."
-      },
-      "numberOutOfRange": {
-        "explanation": "A number is larger than the field takes in the target org: the field there allows fewer digits before the decimal point than the source value has.",
-        "action": "Give the field the same length and decimal places in the target org as in the source, or change the value on the source record; then retry the failed objects."
-      },
-      "malformedId": {
-        "explanation": "A field that takes an ID in the target org was given something else: the field is a lookup there and of another type in the source — a text field, say — or a field mapping writes another field's value into it.",
-        "action": "Give the field the same type in both orgs. From the command line, leave it out with --exclude Object.Field, or correct the --map that fills it; then retry the failed objects."
-      },
-      "flowFailed": {
-        "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. A cause a sandbox often meets is a Send Email action: with the org's email deliverability set to No access, the action fails as soon as it uses an email template or logs the email. A new or refreshed sandbox is set to System email only.",
-        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation tab names the custom permissions that keep a Flow quiet for the user who holds them. Do not set the target's deliverability to All email to get a Send Email action through: the Flow could then email the people on the cloned records."
-      },
-      "guideLink": "{{code}} in the Forge guide",
-      "cycleFkUnresolved": {
-        "explanation": "Field '{{fieldName}}' points to a record this run did not write (source ID {{sourceRefId}}): the record failed, or its object failed, was skipped or cannot be written to the target org. The record went in without that link.",
-        "action": "Fix what kept that record out — its error, or its object's, is listed here — then retry the failed objects: the retry writes it and fills in this link. Otherwise set the field by hand afterwards."
-      },
-      "lookupOutsideClone": {
-        "explanation": "The record this lookup points at is not in the clone: none of the run's reads took it. The lookup may be left empty, so the record went in without it, and nothing failed.",
-        "action": "If the target org needs the link, bring the record it points at there — clone it on its own, or find the one already there — then set the lookup by hand."
-      },
-      "notInTarget": {
-        "explanation": "Asked about this object, the target org answered that it has none: the object is not there — a custom object or a feature that org lacks — or the user the clone writes as cannot see it. None of its records were read or written.",
-        "action": "Deploy the object to the target org, or give the user the clone writes as access to it there; until then, leave it out of the clone, as this run did."
-      },
-      "notCreateable": {
-        "explanation": "The target org describes this object but takes no insert of it for the user the clone writes as: a history or system object the platform writes itself, or one that user's profile may not create. Its records were left out.",
-        "action": "Give the user the clone writes as the right to create the object in the target org if its records are needed there; otherwise leave the object out of the clone."
-      },
-      "standardPriceMissing": {
-        "explanation": "Salesforce will not price a product in a custom price book until that product has a price in the standard one, and the standard entry is not in the target org.",
-        "action": "Add a standard price for these products in the target org, then run the clone again."
-      },
-      "recordTypeUnavailable": {
-        "explanation": "The record type exists in the target org and was matched correctly, but it is not available to the user the clone runs as.",
-        "action": "Assign the record type to that user's profile in the target org, or exclude the RecordTypeId field for this object."
-      },
-      "recordTypeHeldBack": {
-        "explanation": "The user the clone runs as cannot use this record type in the target org, so the object was held back before any of its records were written, and the objects that depend on it were skipped.",
-        "action": "In the target org, give that user access to the record type, or activate it if it is inactive — or exclude the RecordTypeId field for this object so its records take the user's default record type."
-      },
-      "outOfScope": {
-        "explanation": "None of the parent records this object hangs from are in the clone, and it is not the root object, so none of its records were cloned.",
-        "action": "Raise the depth if you need records of this object in the clone."
-      },
-      "guardBlocked": {
-        "explanation": "Production Guard refused this run before it read anything, for the reason the message gives. Nothing was written.",
-        "action": "Check that the target is the org you meant to write to, then run again from Review."
-      },
-      "guardDeclined": {
-        "explanation": "The run was cancelled at Production Guard's confirmation, before it read anything. Nothing was written.",
-        "action": "Go back to Review, run it again when you mean to write to this org, and confirm."
-      },
-      "notInitialized": {
-        "explanation": "A part of SandForge the run needs was not ready in this window: the Forge module, or Production Guard, without which nothing is written. Nothing was written.",
-        "action": "Reload the window (Developer: Reload Window), then run again."
-      },
-      "forgeRunning": {
-        "explanation": "Another Forge run is still under way in this window, and Forge runs one at a time. This one wrote nothing.",
-        "action": "Wait for that run to end — a run asked to stop ends once the step under way is done — then run again."
-      },
-      "duplicateRun": {
-        "explanation": "The same run was sent again while it was still under way, or within a minute of writing its records, and refused so that they are not written twice. This one wrote nothing.",
-        "action": "Look at the first run's results before running it again: a minute after it wrote, the same run is taken again."
-      },
-      "retryUnavailable": {
-        "explanation": "The retry could not start: what the run it retries wrote is not known here — that run is no longer in the history, kept no record of what it wrote or wrote to another org, or its records were removed. Nothing was written.",
-        "action": "Run the clone again from Review."
-      },
-      "resumeUnavailable": {
-        "explanation": "This run cannot be taken up where it stopped: it was taken up already or its run ended, it kept no journal, or its records were removed. Nothing was written.",
-        "action": "Retry it from its results, or run the clone again from Review."
-      },
-      "resumeTargetChanged": {
-        "explanation": "The org this run wrote to is no longer the one it was — refreshed, replaced, or no longer registered in SandForge — so what the run wrote is not there to go on from. Nothing was written.",
-        "action": "Run the clone again from Review into the org as it is now."
-      },
-      "resumeChanged": {
-        "explanation": "This run would now be set up otherwise than the part it resumes: the clone on the page, or the sandforge.forge.maxRecordsPerObject setting, changed since it stopped. Nothing was written.",
-        "action": "Put the setting back, or retry the run instead: a retry reads the clone again and links what this run wrote."
-      },
-      "filesNotAccepted": {
-        "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",
-        "action": "On Review, accept that the files are copied as they are, or turn the copy off, then run again."
-      },
-      "abortedBeforeStart": {
-        "explanation": "You stopped the run before it started. Nothing was written.",
-        "action": "Run it again from Review when you are ready."
-      },
-      "unknown": {
-        "explanation": "{{detail}}",
-        "action": "Look up this error code in the Salesforce documentation."
       }
     },
     "soqlObjectNameInvalid": "\"{{object}}\" is not an SObject API name, so the WHERE clause cannot be sent under it. It must start with a letter and hold at most 80 letters, digits or underscores.",
@@ -4117,7 +3923,6 @@
     },
     "emptyState": {
       "title": "Auto-Provision Your Sandbox",
-      "description": "Let Autopilot scan your org schema, generate an execution plan, and populate your sandbox with realistic data.",
       "cta": "Select an Org"
     }
   },
@@ -4197,7 +4002,8 @@
       "load": "Load"
     },
     "salt": {
-      "created": "This first extraction made the salt every pseudonym is drawn with, and keeps it in VS Code's secret storage: every later extraction pseudonymizes the same records the same way. A teammate who extracts this dataset needs the same salt: copy it with \"SandForge: Copy Frozen Dataset Salt\" and give it to them as you would a password; they set it with \"SandForge: Use a Frozen Dataset Salt\". Whoever holds it can tell which source value a pseudonym was drawn from."
+      "created": "This first extraction made the salt every pseudonym is drawn with, and keeps it in VS Code's secret storage: every later extraction pseudonymizes the same records the same way. A teammate who extracts this dataset needs the same salt: copy it with \"SandForge: Copy Frozen Dataset Salt\" and give it to them as you would a password; they set it with \"SandForge: Use a Frozen Dataset Salt\". Whoever holds it can tell which source value a pseudonym was drawn from.",
+      "createdTitle": "Frozen dataset salt"
     },
     "manifest": {
       "version": "Dataset v{{version}}"
@@ -4592,5 +4398,398 @@
     "runFinished": "{{name}} finished. Written: {{written}} of {{total}}.",
     "runStoppedWritten": "{{name}} stopped before its end. Written: {{written}} of {{total}}.",
     "runStopped": "{{name}} stopped at {{percent}}%."
+  },
+  "errors": {
+    "guideLink": "{{code}} in the Forge guide",
+    "searchLink": "Search Salesforce Help for {{code}}",
+    "standardPriceMissing": {
+      "explanation": "Salesforce prices a product in a custom price book only once the product has a price in the standard price book, and that standard price is not in the org.",
+      "action": "Give these products a standard price in the org first, then run again.",
+      "forge": {
+        "explanation": "Salesforce will not price a product in a custom price book until that product has a price in the standard one, and the standard entry is not in the target org.",
+        "action": "Add a standard price for these products in the target org, then run the clone again."
+      },
+      "seed": {
+        "action": "Give these products a standard price first."
+      }
+    },
+    "duplicateValue": {
+      "explanation": "A unique field got a value that a record of the org already holds, often one an earlier run wrote.",
+      "action": "Remove what the earlier run wrote — its results offer to — or change the value, then run again.",
+      "forge": {
+        "explanation": "A record with the same unique value already exists in the target org, often one cloned by an earlier run.",
+        "action": "Remove what the earlier run created — Remove the records this run created, on its results — then run again. From the command line, --upsert updates by external ID where the object has one."
+      },
+      "seed": {
+        "action": "Give the field a rule whose values do not repeat."
+      }
+    },
+    "invalidCrossReferenceKey": {
+      "explanation": "A lookup points to a record that does not exist in the org, often a user such as the owner.",
+      "action": "Bring the record it points to into the org first, or leave the lookup empty and set it afterwards.",
+      "forge": {
+        "explanation": "A lookup points to a record that does not exist in the target org, often a user such as the owner.",
+        "action": "Create or map the referenced record in the target org, or leave the lookup empty and set it after the clone."
+      }
+    },
+    "recordTypeUnavailable": {
+      "explanation": "The record type exists in the org, but the user the run writes as cannot use it.",
+      "action": "In the org's Setup, give that user's profile or a permission set the record type, then run again.",
+      "forge": {
+        "explanation": "The record type exists in the target org and was matched correctly, but it is not available to the user the clone runs as.",
+        "action": "Assign the record type to that user's profile in the target org, or leave RecordTypeId out of this object in Review → Controls."
+      }
+    },
+    "recordTypeHeldBack": {
+      "explanation": "The user the run writes as cannot use this record type in the target org, so the object was held back before any of its records were written.",
+      "action": "In the target org, give that user access to the record type, or activate it if it is inactive, then run again.",
+      "forge": {
+        "explanation": "The user the clone runs as cannot use this record type in the target org, so the object was held back before any of its records were written, and the objects that depend on it were skipped.",
+        "action": "In the target org, give that user access to the record type, or activate it if it is inactive. Or map the record type in Review → Gaps, or leave RecordTypeId out in Review → Controls, so its records take the user's default record type."
+      }
+    },
+    "requiredFieldMissing": {
+      "explanation": "A field the org requires has no value.",
+      "action": "Give the field a value, or bring the record it must point to into the org first, then run again.",
+      "forge": {
+        "explanation": "A required field has no value: {{detail}}.",
+        "action": "Turn on \"Auto-fetch parents\", or raise the depth so the required parent is part of the clone."
+      },
+      "seed": {
+        "action": "Seed from the wizard, and give the field a rule on its Configure step."
+      }
+    },
+    "invalidPicklist": {
+      "explanation": "A picklist value is not one the org takes: the field does not hold it, or the record's record type does not allow it.",
+      "action": "Add the value to the picklist and to the record type in the org's Setup, or change the value, then run again.",
+      "forge": {
+        "explanation": "A picklist value from the source is not one the target org takes: the field there does not hold it, or the record type the record goes in with does not take it — one never given values of a field takes none of them. When the refusal names a field the record gives a value to, the clone writes the record again without that field; a record listed here could not be written that way.",
+        "action": "Add the value to the picklist in the target org's Setup, and to the record's record type there, or change the value on the source record."
+      },
+      "seed": {
+        "action": "Give the field the values the org lists for it."
+      }
+    },
+    "fieldCustomValidation": {
+      "explanation": "A validation rule of the org refused the record.",
+      "action": "Change the values the rule checks, or deactivate the rule in the org's Setup while the run writes, then run again.",
+      "forge": {
+        "explanation": "A validation rule of the target org refused the record. When the rule names a field the record gives a value to, the clone writes the record again without that field; a record listed here could not be written that way.",
+        "action": "Change the value on the source record, or adjust the rule in the target org, then retry the failed objects."
+      },
+      "seed": {
+        "action": "Give the fields it checks rules whose values it accepts, or deactivate the rule while you seed."
+      }
+    },
+    "invalidFieldForInsert": {
+      "explanation": "A field cannot be set on create: it is calculated, hidden by field-level security, or missing from the org.",
+      "action": "Check your user's field-level security on the field in the org, and that the field exists there with the same type."
+    },
+    "fieldIntegrity": {
+      "explanation": "Salesforce rejected the record on an integrity rule: {{detail}}.",
+      "action": "Read the detail: Salesforce usually names the field or the rule involved."
+    },
+    "cannotInsertEntity": {
+      "explanation": "Salesforce does not accept new records of this object (a history, audit or system object).",
+      "action": "Leave this object out of the run.",
+      "forge": {
+        "explanation": "Salesforce does not accept new records of this object (a history, audit or system object).",
+        "action": "Leave this object out of the clone."
+      }
+    },
+    "automationRefused": {
+      "explanation": "An automation of the org — a trigger, a Flow or a process that runs as a record is saved — failed on this record, and the org refused it. The message usually names it.",
+      "action": "Fix that automation in the org, or turn it off while the run writes, then run again.",
+      "forge": {
+        "explanation": "An automation of the target org — a trigger, a Flow or a process that runs as a record is saved — failed on this record, and the target refused it. The message usually names it, and what went wrong.",
+        "action": "Fix that automation in the target org, or turn it off while you clone, then retry the failed objects."
+      }
+    },
+    "insufficientAccess": {
+      "explanation": "Your user in the org lacks the access this write needs.",
+      "action": "Ask an administrator for the missing permission, or connect the org with a user who has it."
+    },
+    "storageLimit": {
+      "explanation": "The org has no data storage left: a Developer Edition holds 5 MB.",
+      "action": "Delete records you no longer need — a run's results offer to remove what it wrote — then run again.",
+      "seed": {
+        "action": "Remove an earlier seed, or seed fewer records."
+      }
+    },
+    "invalidType": {
+      "explanation": "This object does not exist in the org, or your user cannot see it.",
+      "action": "Deploy the object to the org or give your user access to it, or leave the object out of the run.",
+      "forge": {
+        "explanation": "This object does not exist in the target org, or your user cannot see it.",
+        "action": "Compare the two orgs' schemas, or leave this object out of the clone."
+      }
+    },
+    "notFound": {
+      "explanation": "Salesforce could not find the requested record or resource.",
+      "action": "Check that the record still exists in the org and that your user can see it.",
+      "forge": {
+        "explanation": "Salesforce could not find the requested record or resource.",
+        "action": "Check the record ID and that it belongs to the source org."
+      }
+    },
+    "stringTooLong": {
+      "explanation": "A value is longer than the field allows.",
+      "action": "Shorten the value, or give the field in the org the length the value needs.",
+      "forge": {
+        "explanation": "A value is longer than the field allows: {{detail}}.",
+        "action": "Shorten the source value, or give the field the same length in both orgs."
+      }
+    },
+    "lookupFilter": {
+      "explanation": "A lookup filter of the org refused the record the lookup points to: that record does not meet the filter's criteria, or the filter checks the user the run writes as.",
+      "action": "In the org's Setup, make the lookup filter optional or deactivate it while the run writes, or give the record pointed to the values the filter asks for; then run again.",
+      "forge": {
+        "explanation": "A lookup filter of the target org refused the record this one points at: there, that record does not meet the filter's criteria — a field the filter checks holds another value, or none — or the filter checks the user the clone writes as.",
+        "action": "In the target org's Setup, make the lookup filter optional or deactivate it while you clone, or give the record pointed at the values the filter asks for; then retry the failed objects."
+      }
+    },
+    "duplicateRule": {
+      "explanation": "A duplicate rule of the org set to Block refused the record.",
+      "action": "In the org's Setup, deactivate the rule while the run writes, or set its action on create to Allow; then run again.",
+      "forge": {
+        "explanation": "A duplicate rule of the target org set to Block refused the record. The clone already saves past every rule set to Allow, and links a row to the record it duplicates when the rule names just one; this rule named none of this object, or several.",
+        "action": "In the target org's Setup, deactivate this duplicate rule while you clone, or set its action on create to Allow; then retry the failed objects."
+      },
+      "seed": {
+        "action": "Deactivate the rule while you seed, or set its action on create to Allow."
+      }
+    },
+    "inactiveUser": {
+      "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the org.",
+      "action": "Point the assignment rule or Flow that picks that user at an active user or a queue, or reactivate the user, then run again.",
+      "forge": {
+        "explanation": "Salesforce refused the record because it would be owned by, or assigned to, a user who is inactive in the target org. The clone leaves each record it creates to the user it writes as, so that user comes from the target — an assignment rule, or a Flow that sets the owner or assigns a task — or from an owner given in Review → Controls.",
+        "action": "In the target org, point that rule or Flow at an active user or a queue, or reactivate the user; or, in Review → Controls, give the records to an active user under Owners given to the target's users. Then retry the failed objects."
+      }
+    },
+    "entityDeleted": {
+      "explanation": "The record, or a record it points to, has been deleted in the org.",
+      "action": "Restore it from the org's Recycle Bin, or point the record at one that exists, then run again.",
+      "forge": {
+        "explanation": "The record, or a record it points at, has been deleted in the target org: one an earlier run wrote, deleted since and linked to by a retry of that run, or one deleted while the run went on, by hand or by the target's automation.",
+        "action": "Restore it from the target org's Recycle Bin, then retry the failed objects; or run the clone again from Review rather than as a retry, so it writes that record anew."
+      }
+    },
+    "rowLocked": {
+      "explanation": "The org could not lock the record, or the record it hangs from, because another operation held it at that moment. It is usually transient.",
+      "action": "Run again in a moment. If it comes back, wait until the jobs and integrations writing those records have finished.",
+      "forge": {
+        "explanation": "The target org could not lock the record, or the record it hangs from, because another operation held it at that moment: a job, an integration, or the target's own automation still at work on records the clone had just written. It is usually transient.",
+        "action": "Retry the failed objects. If the lock comes back, wait until the jobs and integrations writing those records in the target org have finished, then retry."
+      }
+    },
+    "requestLimit": {
+      "explanation": "Salesforce refused the request: the org has used the API requests it is allowed over 24 hours, or is running too many long requests at once.",
+      "action": "Wait until the org frees requests — the Monitor page shows its API usage — then run again, with fewer records if you can.",
+      "forge": {
+        "explanation": "Salesforce refused the request: the org it went to has used the API requests it is allowed over 24 hours, or is running too many long requests at once. The clone writes up to 200 records a request, and its reads and describes take requests of their own.",
+        "action": "Wait until that org's count frees requests — the Monitor page shows its API usage — then retry; a lower depth or fewer records per object takes fewer requests."
+      }
+    },
+    "sessionExpired": {
+      "explanation": "Salesforce no longer accepts the session SandForge holds for this org: it expired, or was ended by a logout, a password change or an administrator.",
+      "action": "Reconnect the org on the Organizations page (Try Reconnect on its card), then run again."
+    },
+    "crossReferenceAccess": {
+      "explanation": "The user the run writes as cannot read a record this one points to, or cannot edit the master of a master-detail relationship.",
+      "action": "Share that record with the user, give the user View All or Modify All on its object, or connect the org with a user who has that access; then run again.",
+      "forge": {
+        "explanation": "The user the clone writes as lacks access to a record this one points at in the target org — read access or, to the master of a master-detail relationship, edit access: a record that user neither owns nor is shared, such as one the target already held, which the clone linked to rather than wrote.",
+        "action": "In the target org, share that record with the user, or give the user View All or Modify All on its object, or connect the target org with a user who has that access, such as an administrator; then retry the failed objects."
+      }
+    },
+    "numberOutOfRange": {
+      "explanation": "A number has more digits before the decimal point than the field allows in the org.",
+      "action": "Give the field the length and decimal places the value needs, or change the value, then run again.",
+      "forge": {
+        "explanation": "A number is larger than the field takes in the target org: the field there allows fewer digits before the decimal point than the source value has.",
+        "action": "Give the field the same length and decimal places in the target org as in the source, or change the value on the source record; then retry the failed objects."
+      }
+    },
+    "malformedId": {
+      "explanation": "A field that takes an ID was given something else: the field is a lookup in this org and of another type where the value comes from, or a field mapping fills it with another field's value.",
+      "action": "Give the field the same type in both orgs, or correct the mapping that fills it, then run again.",
+      "forge": {
+        "explanation": "A field that takes an ID in the target org was given something else: the field is a lookup there and of another type in the source — a text field, say — or a field mapping writes another field's value into it.",
+        "action": "Give the field the same type in both orgs, or, in Review → Controls, leave the field out or fix the field rename that fills it; then retry the failed objects."
+      }
+    },
+    "flowFailed": {
+      "explanation": "A Flow of the org failed as the record was saved, and the org refused the record; the message names the Flow. A Send Email action fails this way when the org's email deliverability is set to No access.",
+      "action": "Fix the Flow, or deactivate it while the run writes, then run again. Do not set deliverability to All email to get past it: the Flow could then email the people on the records.",
+      "forge": {
+        "explanation": "A Flow of the target org — a record-triggered Flow, or a process, which runs as one — failed as the record was saved, and the target refused the record; the message names the Flow and what went wrong. A cause a sandbox often meets is a Send Email action: with the org's email deliverability set to No access, the action fails as soon as it uses an email template or logs the email. A new or refreshed sandbox is set to System email only.",
+        "action": "Deactivate that Flow in the target org while you clone, or fix it, then retry the failed objects; Review's Automation tab names the custom permissions that keep a Flow quiet for the user who holds them. Do not set the target's deliverability to All email to get a Send Email action through: the Flow could then email the people on the cloned records."
+      },
+      "seed": {
+        "action": "Fix the Flow, or deactivate it while you seed."
+      }
+    },
+    "deleteFailed": {
+      "explanation": "The record could not be deleted: other records still point to it, or a trigger or Flow of the org refused the deletion.",
+      "action": "Delete the records that point to it first — a run's removal takes children before parents — or fix the automation that refused it, then remove again."
+    },
+    "invalidEmail": {
+      "explanation": "An email field holds a value that is not a valid email address.",
+      "action": "Correct the value, or leave the field out of the run, then run again."
+    },
+    "serverUnavailable": {
+      "explanation": "Salesforce could not serve the request at that moment, usually during maintenance or a short service disruption.",
+      "action": "Wait a few minutes, then run again; Salesforce Trust (status.salesforce.com) shows maintenance and incidents."
+    },
+    "requestTooLong": {
+      "explanation": "Salesforce stopped a request that ran longer than it allows: a large batch, a broad query, or heavy automation on the object.",
+      "action": "Run again with fewer records, or with the org's automation on the object turned off while the run writes."
+    },
+    "allOrNoneRolledBack": {
+      "explanation": "One record of a batch written all or none failed, so Salesforce rolled back the whole batch.",
+      "action": "Fix the record that failed — its own error is listed with this one — then run again."
+    },
+    "invalidField": {
+      "explanation": "The request names a field the object does not have in the org, or one your user cannot see.",
+      "action": "Check that the field exists in the org under this API name and that your user can read it, or leave it out of the run."
+    },
+    "limitExceeded": {
+      "explanation": "A Salesforce limit was exceeded: a limit of the transaction, or one of the org.",
+      "action": "Run again with fewer records; if the message names a limit of the org, free some of it first."
+    },
+    "circularDependency": {
+      "explanation": "The records would point to each other in a loop, which a hierarchy field such as Parent does not allow.",
+      "action": "Break the loop in the data, or leave the hierarchy field out and set it afterwards."
+    },
+    "entityLocked": {
+      "explanation": "The record is locked, usually by an approval process, and only an administrator or the approver can edit it.",
+      "action": "Recall or finish the approval in the org, or connect the org with a user allowed to edit locked records, then run again."
+    },
+    "apiDisabledForOrg": {
+      "explanation": "This org does not allow API access: its edition has no API, such as Professional or Essentials without the API add-on.",
+      "action": "Connect an org whose edition includes the API — a Developer Edition, a sandbox, Enterprise or Unlimited — or ask Salesforce to enable the API for this org."
+    },
+    "apiDisabledForUser": {
+      "explanation": "The user SandForge connects as may not use the API: the API Enabled permission is off for that user.",
+      "action": "Ask an administrator to turn on API Enabled in the user's profile or a permission set, then reconnect the org on the Organizations page."
+    },
+    "convertedLead": {
+      "explanation": "This lead has been converted, and Salesforce does not let a converted lead be updated.",
+      "action": "Leave converted leads out of the run, with a filter on IsConverted = false, then run again."
+    },
+    "licenseLimit": {
+      "explanation": "The org has no license left for this: every user, feature or permission set license of the kind is assigned.",
+      "action": "Free a license in the org's Setup — deactivate a user who no longer needs one — or leave these records out of the run."
+    },
+    "duplicateUsername": {
+      "explanation": "A username is already taken: usernames are unique across every Salesforce org, sandboxes included.",
+      "action": "Give the users usernames of their own, such as the source username with a suffix, then run again."
+    },
+    "invalidOperation": {
+      "explanation": "Salesforce does not allow this operation on this object, or not in this context.",
+      "action": "Check that the object takes this operation and that your user has the permission it needs."
+    },
+    "transferRequiresRead": {
+      "explanation": "The new owner cannot read the record, or a record it depends on, so the ownership could not be transferred.",
+      "action": "Give the new owner read access to the object and its related records, or pick another owner."
+    },
+    "permissionDenied": {
+      "explanation": "Your user in the org lacks a permission this write needs, on the object or on fields it writes; the message names them.",
+      "action": "Ask an administrator to grant it in your profile or a permission set, or leave those fields out of the run."
+    },
+    "parentRefused": {
+      "explanation": "A record this one points to was refused in the same run, so this one was held back rather than written without it.",
+      "action": "Fix what refused that record — its reason is listed with its object — then run again."
+    },
+    "personAccountNotWritten": {
+      "explanation": "This contact's person account is not in the target org, and Salesforce writes a person account's contact with its account.",
+      "action": "Include the person accounts in the run, or fix what refused them, then run again."
+    },
+    "personContactNotLookedUp": {
+      "explanation": "The contact Salesforce wrote with its person account could not be looked up in the target org, so the records that point to it were held back.",
+      "action": "Run again: it is usually transient. If it comes back, check that your user can read Contact in the target org."
+    },
+    "orgAuthExpired": {
+      "explanation": "The session with this org has expired and could not be renewed.",
+      "action": "Reconnect it on the Organizations page (Try Reconnect on its card)."
+    },
+    "orgTemporarilyUnreachable": {
+      "explanation": "This org failed several times in a row, so SandForge waits a moment before calling it again.",
+      "action": "Try again in a minute."
+    },
+    "noCliOrgs": {
+      "explanation": "The Salesforce CLI holds no org yet.",
+      "action": "Sign in with OAuth (Web): it opens the Salesforce login in your browser."
+    },
+    "cycleFkUnresolved": {
+      "explanation": "Field '{{fieldName}}' points to a record this run did not write (source ID {{sourceRefId}}): the record failed, or its object failed, was skipped or cannot be written to the target org. The record went in without that link.",
+      "action": "Fix what kept that record out — its error, or its object's, is listed here — then retry the failed objects: the retry writes it and fills in this link. Otherwise set the field by hand afterwards."
+    },
+    "outOfScope": {
+      "explanation": "None of the parent records this object hangs from are in the clone, and it is not the root object, so none of its records were cloned.",
+      "action": "Raise the depth if you need records of this object in the clone."
+    },
+    "lookupOutsideClone": {
+      "explanation": "The record this lookup points at is not in the clone: none of the run's reads took it. The lookup may be left empty, so the record went in without it, and nothing failed.",
+      "action": "If the target org needs the link, bring the record it points at there — clone it on its own, or find the one already there — then set the lookup by hand."
+    },
+    "notInTarget": {
+      "explanation": "Asked about this object, the target org answered that it has none: the object is not there — a custom object or a feature that org lacks — or the user the clone writes as cannot see it. None of its records were read or written.",
+      "action": "Deploy the object to the target org, or give the user the clone writes as access to it there; until then, leave it out of the clone, as this run did."
+    },
+    "notCreateable": {
+      "explanation": "The target org describes this object but takes no insert of it for the user the clone writes as: a history or system object the platform writes itself, or one that user's profile may not create. Its records were left out.",
+      "action": "Give the user the clone writes as the right to create the object in the target org if its records are needed there; otherwise leave the object out of the clone."
+    },
+    "guardBlocked": {
+      "explanation": "Production Guard refused this run before it read anything, for the reason the message gives. Nothing was written.",
+      "action": "Check that the target is the org you meant to write to, then run again from Review."
+    },
+    "guardDeclined": {
+      "explanation": "The run was cancelled at Production Guard's confirmation, before it read anything. Nothing was written.",
+      "action": "Go back to Review, run it again when you mean to write to this org, and confirm."
+    },
+    "notInitialized": {
+      "explanation": "A part of SandForge the run needs was not ready in this window: the Forge module, or Production Guard, without which nothing is written. Nothing was written.",
+      "action": "Reload the window (Developer: Reload Window), then run again."
+    },
+    "forgeRunning": {
+      "explanation": "Another Forge run is still under way in this window, and Forge runs one at a time. This one wrote nothing.",
+      "action": "Wait for that run to end — a run asked to stop ends once the step under way is done — then run again."
+    },
+    "duplicateRun": {
+      "explanation": "The same run was sent again while it was still under way, or within a minute of writing its records, and refused so that they are not written twice. This one wrote nothing.",
+      "action": "Look at the first run's results before running it again: a minute after it wrote, the same run is taken again."
+    },
+    "retryUnavailable": {
+      "explanation": "The retry could not start: what the run it retries wrote is not known here — that run is no longer in the history, kept no record of what it wrote or wrote to another org, or its records were removed. Nothing was written.",
+      "action": "Run the clone again from Review."
+    },
+    "resumeUnavailable": {
+      "explanation": "This run cannot be taken up where it stopped: it was taken up already or its run ended, it kept no journal, or its records were removed. Nothing was written.",
+      "action": "Retry it from its results, or run the clone again from Review."
+    },
+    "resumeTargetChanged": {
+      "explanation": "The org this run wrote to is no longer the one it was — refreshed, replaced, or no longer registered in SandForge — so what the run wrote is not there to go on from. Nothing was written.",
+      "action": "Run the clone again from Review into the org as it is now."
+    },
+    "resumeChanged": {
+      "explanation": "This run would now be set up otherwise than the part it resumes: the clone on the page, or the sandforge.forge.maxRecordsPerObject setting, changed since it stopped. Nothing was written.",
+      "action": "Put the setting back, or retry the run instead: a retry reads the clone again and links what this run wrote."
+    },
+    "filesNotAccepted": {
+      "explanation": "This run anonymizes its records and copies their files, whose content cannot be anonymized: files are copied only once you accept that they are copied as they are. Nothing was read or written.",
+      "action": "On Review, accept that the files are copied as they are, or turn the copy off, then run again."
+    },
+    "abortedBeforeStart": {
+      "explanation": "You stopped the run before it started. Nothing was written.",
+      "action": "Run it again from Review when you are ready."
+    }
+  },
+  "moduleSummary": {
+    "forge": "Copy a real record and everything around it into another org",
+    "autopilot": "Copy whole objects from one org to another",
+    "seed": "Fill an org with realistic fake data"
   }
 }

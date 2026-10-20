@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -113,7 +113,9 @@ describe('an import that finds no org in the CLI', () => {
   it('opens the browser sign-in and says why, in place of a terminal command', () => {
     connectState = {
       ...idle(),
-      error: 'The Salesforce CLI holds no connected org yet. Sign in with OAuth (Web)…',
+      // As the request hook words the host's English by its code.
+      error:
+        'The Salesforce CLI holds no org yet. Sign in with OAuth (Web): it opens the Salesforce login in your browser.',
       errorCode: 'NO_CLI_ORGS',
     };
     render(<OrgManagerPage />);
@@ -123,6 +125,25 @@ describe('an import that finds no org in the CLI', () => {
       'The Salesforce CLI holds no org yet. Sign in with OAuth (Web)',
     );
     expect(screen.getByTestId('org-connect-error').textContent).not.toContain('sf org login');
+  });
+});
+
+describe('a connection the org refuses for its API', () => {
+  it('says the org’s edition has no API, and what to connect instead', () => {
+    // Professional and Essentials editions without the API add-on answer the
+    // first call with API_DISABLED_FOR_ORG: the banner said the code alone.
+    connectState = {
+      ...idle(),
+      error:
+        'Connection failed for "Dev": API_DISABLED_FOR_ORG: API is not enabled for this Organization or Partner',
+      errorCode: 'AUTH_FAILED',
+    };
+    render(<OrgManagerPage />);
+
+    const banner = screen.getByTestId('org-connect-error');
+    expect(within(banner).getByTestId('error-hint').textContent).toContain(
+      'Connect an org whose edition includes the API',
+    );
   });
 });
 

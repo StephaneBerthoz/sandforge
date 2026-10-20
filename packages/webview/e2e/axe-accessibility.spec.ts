@@ -2481,14 +2481,14 @@ for (const theme of SCANNED_THEMES) {
       const errors = page.getByTestId('forge-errors-panel');
       await expect(errors.getByTestId('forge-errors-row')).toHaveCount(2);
       await expect(notes.getByTestId('forge-notes-row')).toHaveCount(2);
-      await expect(notes.getByTestId('forge-error-translation')).toHaveCount(1);
+      await expect(notes.getByTestId('error-hint')).toHaveCount(1);
       // The object skipped whole opened, with the hint that says why.
       await errors
         .getByTestId('forge-errors-row')
         .filter({ hasText: 'Visit__c' })
         .getByRole('button')
         .click();
-      await expect(errors.getByTestId('forge-error-translation')).toHaveCount(1);
+      await expect(errors.getByTestId('error-hint')).toHaveCount(1);
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
@@ -2499,14 +2499,14 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(
           page,
           results,
-          '[data-testid="forge-notes-panel"] [data-testid="forge-error-translation"]',
+          '[data-testid="forge-notes-panel"] [data-testid="error-hint"]',
         ),
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(
           page,
           results,
-          '[data-testid="forge-errors-panel"] [data-testid="forge-error-translation"]',
+          '[data-testid="forge-errors-panel"] [data-testid="error-hint"]',
         ),
       ).toBeGreaterThan(0);
     });
@@ -2615,7 +2615,7 @@ for (const theme of SCANNED_THEMES) {
       );
       // The screen comes scrolled to where Review's Execute was, and the
       // alert above the fold is clipped: axe measures nothing it cannot see.
-      const runHint = alert.getByTestId('forge-error-translation');
+      const runHint = alert.getByTestId('error-hint');
       await runHint.scrollIntoViewIfNeeded();
       const stopped = await checkAccessibility(page);
       expectNoViolations(stopped);
@@ -2623,14 +2623,14 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(
           page,
           stopped,
-          '[data-testid="forge-execution-error"] [data-testid="forge-error-translation"]',
+          '[data-testid="forge-execution-error"] [data-testid="error-hint"]',
         ),
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(
           page,
           stopped,
-          '[data-testid="forge-execution-error"] [data-testid="forge-error-guide-link"]',
+          '[data-testid="forge-execution-error"] [data-testid="error-hint-link"]',
         ),
       ).toBeGreaterThan(0);
 
@@ -2638,7 +2638,7 @@ for (const theme of SCANNED_THEMES) {
       // the rows the refused call took down.
       await page.getByTestId('forge-execution-see-stopped').click();
       const banner = page.getByTestId('forge-results-stopped');
-      const bannerGuide = banner.getByTestId('forge-error-guide-link');
+      const bannerGuide = banner.getByTestId('error-hint-link');
       await bannerGuide.waitFor({ timeout: 10_000 });
       await bannerGuide.scrollIntoViewIfNeeded();
       const results = await checkAccessibility(page);
@@ -2647,20 +2647,20 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(
           page,
           results,
-          '[data-testid="forge-results-stopped"] [data-testid="forge-error-translation"]',
+          '[data-testid="forge-results-stopped"] [data-testid="error-hint"]',
         ),
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(
           page,
           results,
-          '[data-testid="forge-results-stopped"] [data-testid="forge-error-guide-link"]',
+          '[data-testid="forge-results-stopped"] [data-testid="error-hint-link"]',
         ),
       ).toBeGreaterThan(0);
 
       const errors = page.getByTestId('forge-errors-panel');
       await errors.getByTestId('forge-errors-row').getByRole('button').click();
-      const rowGuide = errors.getByTestId('forge-error-guide-link');
+      const rowGuide = errors.getByTestId('error-hint-link');
       await expect(rowGuide).toHaveCount(1);
       await rowGuide.scrollIntoViewIfNeeded();
       const opened = await checkAccessibility(page);
@@ -2669,7 +2669,7 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(
           page,
           opened,
-          '[data-testid="forge-errors-panel"] [data-testid="forge-error-guide-link"]',
+          '[data-testid="forge-errors-panel"] [data-testid="error-hint-link"]',
         ),
       ).toBeGreaterThan(0);
     });

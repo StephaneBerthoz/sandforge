@@ -163,8 +163,37 @@ describe('SyncHistoryDetail', () => {
   it('should render error messages for objects with errors', () => {
     useSyncHistoryStore.setState({ selectedEntry: makeMockEntry() });
     render(<SyncHistoryDetail />);
-    expect(screen.getByText('Row 55: duplicate value')).toBeDefined();
-    expect(screen.getByText('Row 72: required field missing')).toBeDefined();
+    expect(screen.getByText(/Row 55: duplicate value/)).toBeDefined();
+    expect(screen.getByText(/Row 72: required field missing/)).toBeDefined();
+  });
+
+  it('groups the refusals it kept by reason, with what each means and what to do, and says it kept the first ones', () => {
+    // A validation rule refusing every record printed one ten-pixel line per
+    // record, uncapped, into each of the five hundred entries kept.
+    const entry = makeMockEntry();
+    entry.result.objectResults[0] = {
+      ...entry.result.objectResults[0],
+      failed: 800,
+      errors: Array.from(
+        { length: 50 },
+        () => 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33. [Phone]',
+      ),
+      refusalsDropped: 750,
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const groups = screen.getByTestId('sync-history-errors-Account');
+    expect(groups.querySelectorAll('details')).toHaveLength(1);
+    expect(groups.querySelector('summary')?.textContent).toBe(
+      '50 × FIELD_CUSTOM_VALIDATION_EXCEPTION (Phone)',
+    );
+    expect(groups.querySelector('[data-testid="error-hint"]')?.textContent).toContain(
+      'A validation rule of the org refused the record.',
+    );
+    expect(screen.getByTestId('sync-history-errors-listed-Account').textContent).toBe(
+      'Grouped from the first 50 of the 800 records refused.',
+    );
   });
 
   it('says how a delta run read each object, and what it deleted', () => {

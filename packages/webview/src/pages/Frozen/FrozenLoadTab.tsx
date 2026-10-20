@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, Play, ShieldCheck, Square } from 'lucide-react';
 import type {
+  ErrorHint,
   ForgeFieldRefusal,
   FrozenLoadPlanInfo,
   FrozenLoadProgress,
@@ -9,6 +10,7 @@ import type {
   FrozenLoadResponse,
   FrozenVerifyVerdict,
 } from '@sandforge/shared';
+import { translateError } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { Button } from '../../components/ui/Button';
@@ -17,6 +19,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardBody } from '../../components/ui/Card';
 import { DataTable } from '../../components/ui/DataTable';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { ProgressBar } from '../../components/ui/ProgressBar';
@@ -73,6 +76,11 @@ function reasonRows(reasons: readonly FrozenFailureReason[]): Array<Record<strin
     statusCode: reason.statusCode,
     message: reason.message,
     count: reason.count,
+    // What the reason means and what to do, as the other modules say it: the
+    // table showed the platform's code and the org's words alone.
+    hint: translateError(
+      reason.statusCode ? `${reason.statusCode}: ${reason.message}` : reason.message,
+    ),
   }));
 }
 
@@ -303,7 +311,19 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       render: (row: Record<string, unknown>) =>
         row.statusCode ? <code className="font-mono">{String(row.statusCode)}</code> : '—',
     },
-    { key: 'message', header: t('frozen.report.reason') },
+    {
+      key: 'message',
+      header: t('frozen.report.reason'),
+      render: (row: Record<string, unknown>) => {
+        const hint = row.hint as ErrorHint | null;
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="wrap-break-word">{String(row.message)}</span>
+            {hint && <ErrorExplanation hint={hint} />}
+          </div>
+        );
+      },
+    },
     {
       key: 'count',
       header: t('frozen.report.affected'),
@@ -314,10 +334,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   return (
     <div className="flex flex-col gap-4" data-testid="frozen-load-tab">
       {lastError && (
-        <ErrorBanner
-          message={`${lastError.code}: ${lastError.message}`}
-          data-testid="frozen-error"
-        />
+        <ErrorBanner message={lastError.message} code={lastError.code} data-testid="frozen-error" />
       )}
 
       {/* ── Entry guards ──────────────────────────────────────────────── */}
@@ -445,8 +462,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               {t('frozen.load.stopping')}
             </p>
           )}
-          {loadMutation.error && <ErrorBanner message={loadMutation.error} />}
-          {verifyMutation.error && <ErrorBanner message={verifyMutation.error} />}
+          {loadMutation.error && (
+            <ErrorBanner message={loadMutation.error} code={loadMutation.errorCode} />
+          )}
+          {verifyMutation.error && (
+            <ErrorBanner message={verifyMutation.error} code={verifyMutation.errorCode} />
+          )}
         </CardBody>
       </Card>
 

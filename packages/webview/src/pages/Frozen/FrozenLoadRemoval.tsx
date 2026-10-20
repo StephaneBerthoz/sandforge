@@ -307,7 +307,11 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             </div>
           )}
           {removal.error && (
-            <ErrorBanner message={removal.error} data-testid="frozen-removal-error" />
+            <ErrorBanner
+              message={removal.error}
+              code={removal.errorCode}
+              data-testid="frozen-removal-error"
+            />
           )}
           {removal.data && (
             <ForgeRunRemovalResult

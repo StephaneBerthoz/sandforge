@@ -301,7 +301,9 @@ describe('HomePage', () => {
     render(<HomePage />);
     expect(screen.getByTestId('forge-hero-card')).toBeDefined();
     expect(screen.getByText('Forge a Sandbox')).toBeDefined();
-    expect(screen.getByText('Clone records with full dependency resolution')).toBeDefined();
+    expect(
+      screen.getByText('Copy a real record and everything around it into another org'),
+    ).toBeDefined();
   });
 
   it('should navigate to forge on Start Forge click', () => {

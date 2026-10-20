@@ -539,6 +539,7 @@ export const MigrationPage: React.FC = () => {
       {displayedError && (
         <ErrorBanner
           message={displayedError}
+          code={activeMutation.errorCode}
           onDismiss={() => activeMutation.reset()}
           data-testid="migration-error"
         />
@@ -664,6 +665,7 @@ export const MigrationPage: React.FC = () => {
                   {runMutation.error && (
                     <ErrorBanner
                       message={runMutation.error}
+                      code={runMutation.errorCode}
                       onDismiss={() => runMutation.reset()}
                       data-testid="migration-run-error"
                     />
@@ -744,6 +746,7 @@ export const MigrationPage: React.FC = () => {
                     {saveError && (
                       <ErrorBanner
                         message={saveError}
+                        code={saveSyncMutation.errorCode}
                         onDismiss={() => saveSyncMutation.reset()}
                         data-testid="migration-save-sync-error"
                       />

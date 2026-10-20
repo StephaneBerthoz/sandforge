@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupRecordErrors, parseRecordError } from './recordErrorGroups';
+import { groupRecordErrors, parseRecordError } from './record-error-groups.js';
 
 describe('parseRecordError', () => {
   it('reads the code, the message and the fields of a refusal as the REST path writes it', () => {

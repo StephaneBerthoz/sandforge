@@ -30,19 +30,25 @@ const MISMATCH_BANNER_THRESHOLD = 3;
  */
 const MAX_REMEMBERED_SENDERS = 1_000;
 
-/** A suggested fix for a failed operation, and where it came from. */
-export interface FixSuggestion {
-  /** `knowledge-base`: the table of known Salesforce error codes; `model`: the AI model. */
-  source: 'knowledge-base' | 'model';
-  /** The suggestion itself, as the table or the model wrote it. */
-  text: string;
-  /**
-   * The Salesforce error code the table answered, when it is the one that
-   * answered. The host keys its translation on it: the table is written in
-   * English, and `text` is the English line it holds.
-   */
-  code?: string;
-}
+/**
+ * A suggested fix for a failed operation, and where it came from: the error
+ * catalogue every panel reads (`@sandforge/shared`), by the i18n key of what
+ * it says to do, which the host words in the panels' language; or the AI
+ * model, in the words it wrote.
+ */
+export type FixSuggestion =
+  | {
+      source: 'catalogue';
+      /** The status code the catalogue answered. */
+      code: string;
+      /** The catalogue's key for what to do next. */
+      actionKey: string;
+    }
+  | {
+      source: 'model';
+      /** The suggestion, as the model wrote it in the UI language. */
+      text: string;
+    };
 
 /** Options for configuring the MessageBroker */
 export interface MessageBrokerOptions {

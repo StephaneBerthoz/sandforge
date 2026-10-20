@@ -102,14 +102,6 @@ export function createAIChatResponse(
   };
 }
 
-/** Mock AI NL2SOQL response payload. */
-export function createNL2SOQLResponse(
-  soql: string,
-  explanation: string,
-): { soql: string; explanation: string } {
-  return { soql, explanation };
-}
-
 /** Mock AI error resolver response payload. */
 export function createErrorResolverResponse(
   solutions: Array<{ title: string; description: string; code?: string }>,

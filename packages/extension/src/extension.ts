@@ -53,7 +53,8 @@ import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { readSfDefaultOrg } from './core/connection/sfDefaultOrg';
 import { countCliOrgs } from './core/connection/sfCliOrgs';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
-import { knownErrorTexts } from './core/common/errorKnowledgeBase.js';
+import { catalogueTextOf, uiLocaleOf } from './core/i18n/catalogueText.js';
+import type { SupportedLocaleCode } from './core/i18n/localeBundles.js';
 import { parseHttpsUrl } from './core/common/parseHttpsUrl.js';
 import { formatPinoLine } from './adapters/telemetry/formatPinoLine.js';
 
@@ -111,24 +112,27 @@ export function buildStatusBarLabel(
 }
 
 /**
- * The line a fix suggestion is shown with, in the UI language.
+ * The line a fix suggestion is shown with, in the language the panels speak.
  *
- * The table of known Salesforce error codes is written in English, and its
- * sentences reach here already rendered — so a French user read an English
- * paragraph in a French VS Code. The table is keyed on the error code, so the
- * code is what selects the sentence to translate, and `vscode.l10n.t` is keyed
- * on that sentence exactly as `bundle.l10n.json` holds it. A model answer is
+ * A suggestion of the error catalogue is said in the words the panel's hint
+ * says it, read from the webview's own locale: the host's former table gave
+ * other advice, in other words, under the same failure. A model answer is
  * already written in the UI language and is passed through untouched.
+ * Undefined when the catalogue's text cannot be read, and nothing is shown.
  *
  * Exported for unit tests.
  *
  * @param suggestion - The suggestion the broker decided on.
+ * @param localesDir - The packaged `webview-dist/locales` directory.
+ * @param locale - The language the panels speak.
  */
-export function localizedFixSuggestion(suggestion: FixSuggestion): string {
-  if (suggestion.source !== 'knowledge-base' || !suggestion.code) return suggestion.text;
-  const texts = knownErrorTexts(suggestion.code);
-  if (!texts) return suggestion.text;
-  return vscode.l10n.t(texts.suggestion ?? texts.explanation);
+export async function localizedFixSuggestion(
+  suggestion: FixSuggestion,
+  localesDir: string,
+  locale: SupportedLocaleCode,
+): Promise<string | undefined> {
+  if (suggestion.source === 'model') return suggestion.text;
+  return catalogueTextOf(localesDir, locale, suggestion.actionKey);
 }
 
 /**
@@ -201,17 +205,27 @@ export function activate(context: vscode.ExtensionContext): void {
   // 5. MessageBroker + MessageRouter + WebviewStateSync
   // Telemetry adapter is injected so envelope validation failures
   // emit bridge breadcrumbs + Pino warn entries for observability.
+  // Lazy i18n loading: packaged webview locale JSONs (copied from the webview
+  // build output), served by the I18nHandler and read by the notification
+  // of a failed operation.
+  const localesDir = vscode.Uri.joinPath(context.extensionUri, 'webview-dist', 'locales').fsPath;
   broker = new MessageBroker({
     telemetry: services.telemetry,
     // A fix suggestion for a failed operation is shown here, once: posted to
     // the webviews it was repeated in every open panel.
     showFixSuggestion: (suggestion) => {
-      const line = localizedFixSuggestion(suggestion);
-      void vscode.window.showInformationMessage(
-        suggestion.source === 'model'
-          ? vscode.l10n.t('SandForge: fix suggested by the AI model — {0}', line)
-          : vscode.l10n.t('SandForge: suggested fix for a known Salesforce error — {0}', line),
+      const locale = uiLocaleOf(
+        readConfiguredLanguage(configStore.getByCategory('settings')),
+        vscode.env.language,
       );
+      void localizedFixSuggestion(suggestion, localesDir, locale).then((line) => {
+        if (line === undefined) return;
+        void vscode.window.showInformationMessage(
+          suggestion.source === 'model'
+            ? vscode.l10n.t('SandForge: fix suggested by the AI model — {0}', line)
+            : vscode.l10n.t('SandForge: suggested fix for a known Salesforce error — {0}', line),
+        );
+      });
     },
   });
   router = new MessageRouter(broker);
@@ -234,9 +248,7 @@ export function activate(context: vscode.ExtensionContext): void {
     services,
     // The workbench:reload handler needs the commands API.
     executeCommand: (cmd, ...args) => vscode.commands.executeCommand(cmd, ...args),
-    // Lazy i18n loading: packaged webview locale JSONs (copied from the
-    // webview build output) served by the I18nHandler.
-    localesDir: vscode.Uri.joinPath(context.extensionUri, 'webview-dist', 'locales').fsPath,
+    localesDir,
   });
   // Backup record payloads go to files under the extension's own storage
   // directory instead of globalState, which VSCode re-serializes in full on

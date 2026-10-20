@@ -166,7 +166,12 @@ export const AutomationPage: React.FC = () => {
       />
 
       {error && (
-        <ErrorBanner message={error} onDismiss={clearError} data-testid="automation-error" />
+        <ErrorBanner
+          message={error}
+          code={null}
+          onDismiss={clearError}
+          data-testid="automation-error"
+        />
       )}
 
       {/* Outside the tabs, next to the Run button it disables: a pipeline

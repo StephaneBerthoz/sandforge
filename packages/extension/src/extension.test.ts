@@ -145,9 +145,12 @@ vi.mock('vscode', () => ({
     parse: vi.fn((value: string) => ({ toString: () => value })),
     joinPath: vi
       .fn()
-      .mockImplementation((base: { toString: () => string }, ...segments: string[]) => ({
-        toString: () => `${base.toString()}/${segments.join('/')}`,
-      })),
+      .mockImplementation(
+        (base: { toString: () => string; fsPath?: string }, ...segments: string[]) => ({
+          toString: () => `${base.toString()}/${segments.join('/')}`,
+          fsPath: base.fsPath === undefined ? undefined : [base.fsPath, ...segments].join('/'),
+        }),
+      ),
   },
   l10n: {
     // Indirection on purpose: the factory runs while the module body is still
@@ -164,7 +167,9 @@ vi.mock('vscode', () => ({
 }));
 
 import { activate, deactivate, buildStatusBarLabel, localizedFixSuggestion } from './extension';
-import { knownErrorTexts } from './core/common/errorKnowledgeBase';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { OrgManager } from './core/connection/OrgManager';
 import { OrgRegistry } from './core/connection/OrgRegistry';
 import { WebviewStateSync } from './bridge/WebviewStateSync';
@@ -736,65 +741,98 @@ describe('buildStatusBarLabel', () => {
   });
 });
 
+/** A packaged locales folder holding the error catalogue's rowLocked action in English and French. */
+function writeLocales(root: string): string {
+  const dir = join(root, 'webview-dist', 'locales');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'en.json'),
+    JSON.stringify({ errors: { rowLocked: { action: 'Run again in a moment.' } } }),
+  );
+  writeFileSync(
+    join(dir, 'fr.json'),
+    JSON.stringify({ errors: { rowLocked: { action: 'Relancez dans un instant.' } } }),
+  );
+  return dir;
+}
+
 describe('localizedFixSuggestion', () => {
+  let root: string;
+
   beforeEach(() => {
-    mockL10nT.mockClear();
+    root = mkdtempSync(join(tmpdir(), 'fix-suggestion-'));
   });
 
-  it('translates a curated answer through the entry its error code selects', () => {
-    // The table is written in English and reached the notification rendered:
-    // a French VS Code showed an English paragraph. The code is what picks the
-    // sentence `vscode.l10n.t` is keyed on.
-    const entry = knownErrorTexts('UNABLE_TO_LOCK_ROW');
-    mockL10nT.mockImplementationOnce((message: string) => `[fr] ${message}`);
-
-    const line = localizedFixSuggestion({
-      source: 'knowledge-base',
-      text: entry?.suggestion ?? '',
-      code: 'UNABLE_TO_LOCK_ROW',
-    });
-
-    expect(mockL10nT).toHaveBeenCalledWith(entry?.suggestion);
-    expect(line).toBe(`[fr] ${entry?.suggestion}`);
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
   });
 
-  it('leaves a model answer alone — it is already written in the UI language', () => {
-    const line = localizedFixSuggestion({ source: 'model', text: 'reduce the batch size' });
+  it('says what the catalogue says to do in the words the panel’s hint uses, in its language', async () => {
+    // The host's own table was in English, other advice than the panel's
+    // hint gave under the same failure.
+    const dir = writeLocales(root);
+
+    const line = await localizedFixSuggestion(
+      { source: 'catalogue', code: 'UNABLE_TO_LOCK_ROW', actionKey: 'errors.rowLocked.action' },
+      dir,
+      'fr',
+    );
+
+    expect(line).toBe('Relancez dans un instant.');
+  });
+
+  it('leaves a model answer alone — it is already written in the UI language', async () => {
+    const line = await localizedFixSuggestion(
+      { source: 'model', text: 'reduce the batch size' },
+      root,
+      'fr',
+    );
 
     expect(line).toBe('reduce the batch size');
-    expect(mockL10nT).not.toHaveBeenCalled();
   });
 
-  it('keeps the rendered line when the code is not one the table answers', () => {
-    const line = localizedFixSuggestion({
-      source: 'knowledge-base',
-      text: 'something the table no longer holds',
-      code: 'SOMETHING_WE_HAVE_NEVER_SEEN',
-    });
+  it('says nothing when the catalogue’s text cannot be read', async () => {
+    const line = await localizedFixSuggestion(
+      { source: 'catalogue', code: 'UNABLE_TO_LOCK_ROW', actionKey: 'errors.rowLocked.action' },
+      root,
+      'fr',
+    );
 
-    expect(line).toBe('something the table no longer holds');
-    expect(mockL10nT).not.toHaveBeenCalled();
+    expect(line).toBeUndefined();
   });
 });
 
 describe('the fix suggestion notification', () => {
+  let root: string;
+
   beforeEach(async () => {
     vi.clearAllMocks();
     await deactivate();
     brokerOptions.length = 0;
+    root = mkdtempSync(join(tmpdir(), 'fix-notification-'));
+    writeLocales(root);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     mockL10nT.mockImplementation(substituteL10n);
+    const vscode = await import('vscode');
+    (vscode.env as { language?: string }).language = undefined;
+    rmSync(root, { recursive: true, force: true });
   });
 
-  /** Activates, then has `vscode.l10n.t` answer in "French" from here on. */
+  /** Activates in a French editor whose extension folder holds the packaged locales. */
   async function activateInFrench() {
-    activate(createContext());
+    const vscode = await import('vscode');
+    (vscode.env as { language?: string }).language = 'fr';
+    const context = createContext();
+    (context as { extensionUri: unknown }).extensionUri = {
+      fsPath: root,
+      toString: () => `file://${root}`,
+    };
+    activate(context);
     mockL10nT.mockImplementation(
       (message: string, ...args: unknown[]) => `[fr] ${substituteL10n(message, ...args)}`,
     );
-    const vscode = await import('vscode');
     expect(brokerOptions.at(-1)?.showFixSuggestion).toBeTypeOf('function');
     return {
       notify: brokerOptions.at(-1)?.showFixSuggestion,
@@ -802,15 +840,19 @@ describe('the fix suggestion notification', () => {
     };
   }
 
-  it('shows a known error code the way the UI language writes it', async () => {
+  it('shows a code the catalogue explains in the panels’ language', async () => {
     const { notify, shown } = await activateInFrench();
-    const suggestion = knownErrorTexts('UNABLE_TO_LOCK_ROW')?.suggestion;
-    expect(suggestion).toBeDefined();
 
-    notify?.({ source: 'knowledge-base', text: suggestion ?? '', code: 'UNABLE_TO_LOCK_ROW' });
+    notify?.({
+      source: 'catalogue',
+      code: 'UNABLE_TO_LOCK_ROW',
+      actionKey: 'errors.rowLocked.action',
+    });
 
-    expect(shown).toHaveBeenCalledWith(
-      `[fr] SandForge: suggested fix for a known Salesforce error — [fr] ${suggestion}`,
+    await vi.waitFor(() =>
+      expect(shown).toHaveBeenCalledWith(
+        '[fr] SandForge: suggested fix for a known Salesforce error — Relancez dans un instant.',
+      ),
     );
   });
 
@@ -819,8 +861,10 @@ describe('the fix suggestion notification', () => {
 
     notify?.({ source: 'model', text: 'réduire la taille des lots' });
 
-    expect(shown).toHaveBeenCalledWith(
-      '[fr] SandForge: fix suggested by the AI model — réduire la taille des lots',
+    await vi.waitFor(() =>
+      expect(shown).toHaveBeenCalledWith(
+        '[fr] SandForge: fix suggested by the AI model — réduire la taille des lots',
+      ),
     );
   });
 });

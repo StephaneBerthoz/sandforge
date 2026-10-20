@@ -5,7 +5,7 @@ import type { ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
 import i18n from '../../i18n';
 import type { ForgeLogEntry, ForgeRunClock, ForgeRunError } from '../../stores/useForgeStore';
 import { ForgeExecution, STOP_ANSWER_WAIT_MS } from './ForgeExecution';
-import { FORGE_GUIDE_URL } from './forgeErrorTranslator';
+import { FORGE_GUIDE_URL } from '@sandforge/shared';
 import { FORGE_GRAPH_MAX_OBJECTS, useForgeViewStore } from '../../stores/useForgeViewStore';
 
 /* ---- Mocks ---- */
@@ -795,9 +795,9 @@ describe('ForgeExecution', () => {
       expect(within(alert).getByTestId('forge-execution-error-message').textContent).toBe(
         'The run stopped before its end: REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
       );
-      const hint = within(alert).getByTestId('forge-error-translation');
-      expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.explanation'));
-      expect(hint.textContent).toContain(i18n.t('forge.error.requestLimit.action'));
+      const hint = within(alert).getByTestId('error-hint');
+      expect(hint.textContent).toContain(i18n.t('errors.requestLimit.forge.explanation'));
+      expect(hint.textContent).toContain(i18n.t('errors.requestLimit.forge.action'));
       expect(
         within(hint)
           .getByRole('link', { name: 'REQUEST_LIMIT_EXCEEDED in the Forge guide' })
@@ -816,9 +816,9 @@ describe('ForgeExecution', () => {
       };
       render(<ForgeExecution />);
 
-      const hint = within(screen.getByRole('alert')).getByTestId('forge-error-translation');
-      expect(hint.textContent).toContain(i18n.t('forge.error.forgeRunning.explanation'));
-      expect(hint.textContent).toContain(i18n.t('forge.error.forgeRunning.action'));
+      const hint = within(screen.getByRole('alert')).getByTestId('error-hint');
+      expect(hint.textContent).toContain(i18n.t('errors.forgeRunning.explanation'));
+      expect(hint.textContent).toContain(i18n.t('errors.forgeRunning.action'));
       expect(within(hint).queryByRole('link')).toBeNull();
     });
 
@@ -833,7 +833,7 @@ describe('ForgeExecution', () => {
       expect(screen.getByRole('alert').textContent).toContain(
         'Forge execution was aborted before it started.',
       );
-      expect(screen.queryByTestId('forge-error-translation')).toBeNull();
+      expect(screen.queryByTestId('error-hint')).toBeNull();
     });
 
     it('goes back to the Review when its error says nothing of what it wrote', () => {
@@ -876,7 +876,7 @@ describe('ForgeExecution', () => {
         'You cancelled the run before its end.',
       );
       expect(notice.textContent).not.toContain('aborted by user request');
-      expect(screen.queryByTestId('forge-error-translation')).toBeNull();
+      expect(screen.queryByTestId('error-hint')).toBeNull();
       expect(screen.getByTestId('forge-execution-error-written').textContent).toBe(
         'Before it stopped, it had created 1 record in the target org.',
       );

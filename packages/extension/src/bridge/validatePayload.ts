@@ -1168,7 +1168,7 @@ export const quickSyncExecutePayloadSchema = z
   .loose();
 
 // ── ai:* payload schemas ──────────────────────────────────────────────────
-// Mirror what AIPage / useAIFeatures / BridgeProvider / useSeedNL2SOQL post.
+// Mirror what AIPage / useAIFeatures / BridgeProvider / Forge's AI tab post.
 
 /** Bounded free-text prompt sent to the AI provider. */
 const aiPromptSchema = z.string().min(1).max(50_000);
@@ -1196,10 +1196,6 @@ export const aiSchemaAdvicePayloadSchema = z.object({
   objectNames: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
 });
 
-export const aiNl2SoqlPayloadSchema = z.object({
-  query: z.string().min(1).max(2_000),
-  orgId: orgIdSchema,
-});
 /**
  * Forge's AI tab: a description to draft from, or a query the user edited to
  * check again — one or the other. The query bound is the one Forge's own
@@ -1218,7 +1214,7 @@ export const aiGeneratePipelinePayloadSchema = z.object({
   description: aiPromptSchema,
   orgIds: z.array(orgIdSchema).max(50).optional(),
 });
-/** `ai:tool:cancel` — the NL2SOQL, Forge plan or pipeline request to stop, by its id. */
+/** `ai:tool:cancel` — the Forge plan or pipeline request to stop, by its id. */
 export const aiToolCancelPayloadSchema = z.object({ requestId: opaqueIdSchema });
 
 // ── migration:* payload schemas ───────────────────────────────────────────

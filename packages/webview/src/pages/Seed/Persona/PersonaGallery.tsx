@@ -83,7 +83,14 @@ export const PersonaGallery: React.FC<PersonaGalleryProps> = ({ onPersonaSelecte
       </div>
 
       {/* Error state */}
-      {hook.error && <ErrorBanner message={hook.error} data-testid="persona-gallery-error" />}
+      {hook.error && (
+        <ErrorBanner
+          message={hook.error}
+          code={null}
+          module="seed"
+          data-testid="persona-gallery-error"
+        />
+      )}
 
       {/* Loading state: skeleton cards */}
       {hook.loading && (

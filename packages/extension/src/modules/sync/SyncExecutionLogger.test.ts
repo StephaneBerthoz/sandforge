@@ -1,7 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SyncExecutionLogger } from './SyncExecutionLogger';
+import {
+  MAX_HISTORY_REFUSALS_PER_OBJECT,
+  SyncExecutionLogger,
+  objectResultForHistory,
+} from './SyncExecutionLogger';
 import type { SyncHistoryStore } from './SyncHistoryStore';
-import type { SyncConfig, SyncExecutionResult, SyncHistoryEntry } from '@sandforge/shared';
+import type {
+  SyncConfig,
+  SyncExecutionResult,
+  SyncHistoryEntry,
+  SyncObjectResult,
+} from '@sandforge/shared';
 
 function createConfig(id: string = 'cfg-1'): SyncConfig {
   return {
@@ -140,5 +149,65 @@ describe('SyncExecutionLogger', () => {
       logger.exportHistory('json', ['id-1', 'id-2']);
       expect(mockStore.exportAsJson).toHaveBeenCalledWith(['id-1', 'id-2']);
     });
+  });
+});
+
+describe('objectResultForHistory', () => {
+  /** An object's result whose errors are the lines given. */
+  const objectResult = (errors: string[], refusalsDropped?: number): SyncObjectResult => ({
+    objectApiName: 'Contact',
+    operation: 'insert',
+    processed: errors.length,
+    success: 0,
+    failed: errors.length,
+    skipped: 0,
+    conflictCount: 0,
+    errors,
+    ...(refusalsDropped === undefined ? {} : { refusalsDropped }),
+  });
+  const refusal = 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33. [Phone]';
+
+  it('keeps the first refusals and every note of the run, and counts what it left out', () => {
+    const errors = [
+      ...Array.from({ length: 800 }, () => refusal),
+      'Linked 12 records to the ones the target already holds.',
+    ];
+
+    const kept = objectResultForHistory(objectResult(errors, 200));
+
+    expect(kept.errors).toHaveLength(MAX_HISTORY_REFUSALS_PER_OBJECT + 1);
+    expect(kept.errors.at(-1)).toBe('Linked 12 records to the ones the target already holds.');
+    expect(kept.refusalsDropped).toBe(200 + 800 - MAX_HISTORY_REFUSALS_PER_OBJECT);
+  });
+
+  it('keeps a refusal with no code once, past the first ones', () => {
+    const errors = Array.from({ length: 120 }, () => 'Insert failed after retries');
+
+    const kept = objectResultForHistory(objectResult(errors));
+
+    expect(kept.errors).toHaveLength(MAX_HISTORY_REFUSALS_PER_OBJECT);
+    expect(kept.refusalsDropped).toBe(120 - MAX_HISTORY_REFUSALS_PER_OBJECT);
+  });
+
+  it('leaves a result that fits as it is', () => {
+    const result = objectResult([refusal, refusal]);
+    expect(objectResultForHistory(result)).toBe(result);
+  });
+
+  it('is how a run is kept in the history, while the run itself is left whole', () => {
+    const store = createMockHistoryStore();
+    const run: SyncExecutionResult = {
+      ...createResult(),
+      objectResults: [objectResult(Array.from({ length: 300 }, () => refusal))],
+    };
+
+    const entry = new SyncExecutionLogger(store, () => 'id-1').logExecution(
+      createConfig(),
+      run,
+      'manual',
+    );
+
+    expect(entry.result.objectResults[0].errors).toHaveLength(MAX_HISTORY_REFUSALS_PER_OBJECT);
+    expect(run.objectResults[0].errors).toHaveLength(300);
   });
 });

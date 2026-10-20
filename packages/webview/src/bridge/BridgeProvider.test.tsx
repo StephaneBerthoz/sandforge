@@ -240,7 +240,8 @@ describe('BridgeProvider', () => {
       timestamp: Date.now(),
       payload: {
         level: 'info',
-        title: 'Frozen dataset salt',
+        // The host's title, English whatever the language.
+        title: 'Frozen dataset salt (host)',
         message: 'This first extraction made the salt (fingerprint 0123456789ab).',
         code: 'FROZEN_SALT_CREATED',
       },
@@ -249,6 +250,10 @@ describe('BridgeProvider', () => {
     const said = useNotificationStore.getState().notifications[0].message;
     expect(said).toContain('SandForge: Copy Frozen Dataset Salt');
     expect(said).toContain('SandForge: Use a Frozen Dataset Salt');
+    // Its title too, in the interface language rather than the host's English.
+    expect(useNotificationStore.getState().notifications[0].title).toBe(
+      i18n.t('frozen.salt.createdTitle'),
+    );
   });
 
   it('should surface a bridge:error as an error notification', () => {

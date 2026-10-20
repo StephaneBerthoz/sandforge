@@ -115,8 +115,8 @@ describe('ForgeResults — translated stage badges', () => {
       expect(within(notes).getByTestId('forge-notes-hint').textContent).toBe(
         'forge.notesPanel.hint',
       );
-      expect(within(notes).getByTestId('forge-error-translation').textContent).toContain(
-        'forge.error.lookupOutsideClone.explanation',
+      expect(within(notes).getByTestId('error-hint').textContent).toContain(
+        'errors.lookupOutsideClone.explanation',
       );
       expect(screen.getAllByTestId('forge-errors-row')).toHaveLength(STAGES.length);
       expect(typeof en.forge.notesPanel.title).toBe('string');

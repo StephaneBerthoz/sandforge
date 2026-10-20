@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // backgroundComposition imports vscode for ProductionGuard confirmations and
 // for l10n. `l10n.t` is stubbed with the host's semantics — look the source
@@ -38,6 +40,7 @@ import type {
   SafetyCheckResult,
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
+import { RELATED_RECORDS_ALSO_WRITTEN } from '../core/precheck/ProductionGuard';
 import { OfflineManager } from '../core/connection/OfflineManager';
 import { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import type { ConfigStore } from '../core/storage/ConfigStore';
@@ -263,6 +266,34 @@ describe('production confirmation modal (localized)', () => {
         'This operation writes data to a PRODUCTION org.',
     );
     expect(options.detail).not.toMatch(/SeedData|\[module:|org-prod-1/);
+  });
+
+  it('asks the question itself in the UI language, from the shipped bundle, not only the modal around it', async () => {
+    // The modal's title and its last line were translated; the question in
+    // it was English in every language.
+    l10nBundle.current = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+    ) as Record<string, string>;
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+      orgNameOf: () => 'Acme Prod',
+    });
+    const check = productionGuard.check({
+      orgId: 'org-prod-1',
+      orgTier: 'production',
+      operation: 'upsert',
+      objectName: 'Account, Case',
+      recordCount: { atMost: 60 },
+      alsoWrites: RELATED_RECORDS_ALSO_WRITTEN,
+      module: 'forge',
+    });
+
+    expect(check.question).toBe(
+      'Insérer ou mettre à jour au plus 60 enregistrements (Account, Case), ainsi que les ' +
+        "enregistrements liés que l'exécution ajoute, dans l'org de production « Acme Prod ».",
+    );
   });
 
   it('does not tell a confirmation another tier asks for that it writes to production', async () => {

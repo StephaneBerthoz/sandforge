@@ -17,6 +17,7 @@ import {
   SF_CLI_INSTALL_URL,
   SF_CLI_MISSING_MESSAGE,
   SF_DEVICE_CODE_LIFETIME_MS,
+  bannerHintOf,
 } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -35,6 +36,7 @@ import { OrgEditDialog } from './OrgEditDialog';
 import type { OrgEditPayload } from './OrgEditDialog';
 import { DeviceCodePanel } from './DeviceCodePanel';
 import { canFill, orgToFill } from '../../utils/orgToFill';
+import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 
 /** What the inline connect form submits for a new org. */
 interface ConnectOrgPayload {
@@ -357,6 +359,12 @@ export const OrgManagerPage: React.FC = () => {
 
   const isConnecting = connectMutation.loading || deviceMutation.loading;
   const connectError = connectMutation.error ?? deviceMutation.error;
+  const connectHint = connectError
+    ? bannerHintOf(
+        connectError,
+        connectMutation.error ? connectMutation.errorCode : deviceMutation.errorCode,
+      )
+    : null;
 
   const connectMutate = connectMutation.mutate;
   const connectReset = connectMutation.reset;
@@ -765,7 +773,7 @@ export const OrgManagerPage: React.FC = () => {
             className="border-t border-(--sf-border) bg-(--sf-bg-secondary) px-4 py-2 text-xs text-text-secondary"
             data-testid="org-cli-empty"
           >
-            {t('org.noCliOrgs')}
+            {t('errors.noCliOrgs.explanation')} {t('errors.noCliOrgs.action')}
           </div>
         )}
 
@@ -797,8 +805,7 @@ export const OrgManagerPage: React.FC = () => {
             role="alert"
             data-testid="org-connect-error"
           >
-            <span className="font-semibold">{t('org.status_error')}</span> —{' '}
-            {noCliOrgs ? t('org.noCliOrgs') : connectError}
+            <span className="font-semibold">{t('org.status_error')}</span> — {connectError}
             {/* The banner is the only place this failure survives once the
                 toast is gone, and the CLI is what two of the three working
                 auth methods run on. VS Code opens the link in the browser. */}
@@ -816,6 +823,10 @@ export const OrgManagerPage: React.FC = () => {
                 </a>
               </>
             )}
+            {/* An org whose edition has no API, or a user without API
+                Enabled, is refused as soon as SandForge calls it: said by
+                the error catalogue, with what to do. */}
+            {connectHint && <ErrorExplanation hint={connectHint} className="mt-1.5" />}
           </div>
         )}
 

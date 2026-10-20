@@ -36,7 +36,7 @@ vi.mock('./useBridgeMutation', () => ({
 }));
 
 import { useBridgeMutation } from './useBridgeMutation';
-import { useNL2SOQL, useSchemaAdvice, useAnomalyScan, usePipelineGenerator } from './useAIFeatures';
+import { useSchemaAdvice, useAnomalyScan, usePipelineGenerator } from './useAIFeatures';
 
 /** The messages the hooks posted, as the panel's bridge sends them. */
 function sent(): Array<{ type: string; payload?: unknown }> {
@@ -52,11 +52,6 @@ describe('useAIFeatures', () => {
     mutationState.loading = false;
     mutationState.requestId = null;
     mutationState.reset.mockClear();
-  });
-
-  it('useNL2SOQL calls useBridgeMutation with ai:nl2soql', () => {
-    renderHook(() => useNL2SOQL());
-    expect(useBridgeMutation).toHaveBeenCalledWith('ai:nl2soql');
   });
 
   it('useSchemaAdvice calls useBridgeMutation with ai:schema-advice', () => {
@@ -75,10 +70,7 @@ describe('useAIFeatures', () => {
   });
 
   describe('Stop', () => {
-    it.each([
-      ['NL2SOQL', useNL2SOQL],
-      ['the pipeline generator', usePipelineGenerator],
-    ])(
+    it.each([['the pipeline generator', usePipelineGenerator]])(
       'asks the extension to stop %s’s request by its id, and is back to idle at once',
       (_name, hook) => {
         mutationState.loading = true;
@@ -98,7 +90,7 @@ describe('useAIFeatures', () => {
 
     it('sends nothing while no draft is waiting', () => {
       mutationState.requestId = 'req-answered';
-      const { result } = renderHook(() => useNL2SOQL());
+      const { result } = renderHook(() => usePipelineGenerator());
 
       act(() => {
         result.current.stop();

@@ -4,18 +4,32 @@ import type { AIProvider } from './types.js';
 import { ErrorResolutionReplySchema, parseModelJson } from '@sandforge/shared';
 import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
 import { ERROR_RESOLVE_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
-import {
-  resolveKnownError,
-  type ErrorResolution,
-  type ErrorSuggestion,
-  type SalesforceError,
-} from '../../core/common/errorKnowledgeBase.js';
 
-export type {
-  ErrorResolution,
-  ErrorSuggestion,
-  SalesforceError,
-} from '../../core/common/errorKnowledgeBase.js';
+/** Represents a Salesforce API error. */
+export interface SalesforceError {
+  errorCode: string;
+  message: string;
+  fields?: string[];
+  objectName?: string;
+}
+
+/** A single suggestion for resolving an error. */
+export interface ErrorSuggestion {
+  title: string;
+  description: string;
+  probability: number;
+  action?: string;
+}
+
+/** Full resolution for a Salesforce error. */
+export interface ErrorResolution {
+  explanation: string;
+  suggestions: ErrorSuggestion[];
+  autoFixable: boolean;
+  autoFixAction?: string;
+  confidence: number;
+  relatedDocs: string[];
+}
 
 /**
  * What the caller knows about the operation that failed. Every field is
@@ -63,8 +77,9 @@ interface RememberedAnswer {
 }
 
 /**
- * Resolves Salesforce errors from the built-in table of known error codes,
- * and asks the model about the others.
+ * Asks the model about a Salesforce error the error catalogue does not
+ * explain: the catalogue (`@sandforge/shared`) answers every code it knows
+ * before a failure reaches here (`resolveFailedOperation`).
  *
  * A failing run tends to fail the same way many times in a row. The model is
  * asked once per distinct failure — same code, same message once Ids are
@@ -88,16 +103,12 @@ export class ErrorResolver {
   }
 
   /**
-   * Resolve a Salesforce error by looking up the knowledge base first,
-   * then falling back to AI analysis for unknown errors.
+   * Resolve a Salesforce error the catalogue does not explain, with the model.
    * @param error - The Salesforce error to resolve
    * @param context - What is known about the operation when the error occurred
    * @returns A resolution with explanation, suggestions, and auto-fix info
    */
   async resolveError(error: SalesforceError, context: OperationContext): Promise<ErrorResolution> {
-    const known = resolveKnownError(error, context);
-    if (known) return known;
-
     return this.resolveWithAI(error, context);
   }
 

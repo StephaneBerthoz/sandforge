@@ -1,11 +1,24 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Copy } from 'lucide-react';
+import { bannerHintOf, type ErrorHintModule } from '@sandforge/shared';
 import { cn } from '../../theme';
+import { ErrorExplanation } from './ErrorExplanation';
 
 /** ErrorBanner component props. */
 export interface ErrorBannerProps {
   message: string;
+  /**
+   * The code the host sent beside the message, when the banner shows a
+   * handler's error: given — even as null, for an error that came without
+   * one — the banner says under the message what it means and what to do,
+   * from the error catalogue, when the code or the message names an error
+   * it knows. Left out, the message is shown alone, as for a check of the
+   * page's own.
+   */
+  code?: string | null;
+  /** The module the banner is in, whose wording of a hint differs: Forge's or Seed's. */
+  module?: ErrorHintModule;
   onDismiss?: () => void;
   className?: string;
   'data-testid'?: string;
@@ -14,6 +27,8 @@ export interface ErrorBannerProps {
 /** Reusable inline error banner matching VSCode error styling. */
 export const ErrorBanner: React.FC<ErrorBannerProps> = ({
   message,
+  code,
+  module,
   onDismiss,
   className,
   'data-testid': testId = 'error-banner',
@@ -27,6 +42,14 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
       if (resetTimer.current) clearTimeout(resetTimer.current);
     },
     [],
+  );
+
+  /* Every module but Forge showed a failure as the platform's code and the
+     org's English, with nothing said under it: the same refusal Forge
+     explains in six languages. */
+  const hint = useMemo(
+    () => (code === undefined ? null : bannerHintOf(message, code, module)),
+    [message, code, module],
   );
 
   /* Salesforce errors are the payload of a bug report: retyping one by hand
@@ -51,46 +74,50 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
   const copyLabel = copied ? t('errorBoundary.copied', 'Copied!') : t('common.copy', 'Copy');
 
   return (
-    <div
-      className={cn(
-        'flex items-center justify-between gap-2',
-        'text-xs text-status-error',
-        'px-2 py-1.5 rounded-sm',
-        'bg-(--vscode-inputValidation-errorBackground,#5a1d1d)',
-        className,
-      )}
-      data-testid={testId}
-      role="alert"
-    >
-      {/* whitespace-pre-wrap keeps the line breaks of a multi-row Bulk API
-          failure; wrap-break-word keeps a long unbroken id or URL inside the
-          banner instead of spilling out of the sidebar. */}
-      <span className="flex-1 min-w-0 whitespace-pre-wrap wrap-break-word">{message}</span>
-      {/* flex-row-reverse: the dismiss cross keeps its far-right position while
-          staying the first button in the DOM, so callers that reach for the
-          banner's first button still find dismiss. */}
-      <div className="flex shrink-0 flex-row-reverse items-center gap-1">
-        {onDismiss && (
+    <div className={cn('flex flex-col gap-1', className)} data-testid={testId} role="alert">
+      <div
+        className={cn(
+          'flex items-center justify-between gap-2',
+          'text-xs text-status-error',
+          'px-2 py-1.5 rounded-sm',
+          'bg-(--vscode-inputValidation-errorBackground,#5a1d1d)',
+        )}
+      >
+        {/* whitespace-pre-wrap keeps the line breaks of a multi-row Bulk API
+            failure; wrap-break-word keeps a long unbroken id or URL inside the
+            banner instead of spilling out of the sidebar. */}
+        <span className="flex-1 min-w-0 whitespace-pre-wrap wrap-break-word">{message}</span>
+        {/* flex-row-reverse: the dismiss cross keeps its far-right position while
+            staying the first button in the DOM, so callers that reach for the
+            banner's first button still find dismiss. */}
+        <div className="flex shrink-0 flex-row-reverse items-center gap-1">
+          {onDismiss && (
+            <button
+              type="button"
+              className="shrink-0"
+              onClick={onDismiss}
+              aria-label={t('common.dismiss', 'Dismiss')}
+            >
+              {'✕'}
+            </button>
+          )}
           <button
             type="button"
             className="shrink-0"
-            onClick={onDismiss}
-            aria-label={t('common.dismiss', 'Dismiss')}
+            onClick={handleCopy}
+            aria-label={copyLabel}
+            title={copyLabel}
+            data-testid={`${testId}-copy`}
           >
-            {'\u2715'}
+            {copied ? (
+              <Check size={12} aria-hidden="true" />
+            ) : (
+              <Copy size={12} aria-hidden="true" />
+            )}
           </button>
-        )}
-        <button
-          type="button"
-          className="shrink-0"
-          onClick={handleCopy}
-          aria-label={copyLabel}
-          title={copyLabel}
-          data-testid={`${testId}-copy`}
-        >
-          {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
-        </button>
+        </div>
       </div>
+      {hint && <ErrorExplanation hint={hint} className="text-xs" />}
     </div>
   );
 };

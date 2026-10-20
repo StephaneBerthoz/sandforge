@@ -160,7 +160,9 @@ export const QualityPanel: React.FC<QualityPanelProps> = ({ orgId }) => {
 
       <p className="text-xs text-text-secondary">{t('dataops.qualityScan.method')}</p>
 
-      {scan.error && <ErrorBanner message={scan.error} data-testid="quality-scan-error" />}
+      {scan.error && (
+        <ErrorBanner message={scan.error} code={scan.errorCode} data-testid="quality-scan-error" />
+      )}
 
       {report && (
         <div className="flex flex-col gap-3" data-testid="quality-results">

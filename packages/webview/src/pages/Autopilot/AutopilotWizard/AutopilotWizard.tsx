@@ -387,7 +387,11 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
               </p>
             )}
             {listMutation.error && (
-              <ErrorBanner message={listMutation.error} data-testid="autopilot-scan-error" />
+              <ErrorBanner
+                message={listMutation.error}
+                code={listMutation.errorCode}
+                data-testid="autopilot-scan-error"
+              />
             )}
           </>
         )}
@@ -412,7 +416,11 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
               </p>
             )}
             {scanMutation.error && (
-              <ErrorBanner message={scanMutation.error} data-testid="autopilot-scan-error" />
+              <ErrorBanner
+                message={scanMutation.error}
+                code={scanMutation.errorCode}
+                data-testid="autopilot-scan-error"
+              />
             )}
             {planMutation.loading && (
               <p
@@ -424,7 +432,11 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
               </p>
             )}
             {planMutation.error && (
-              <ErrorBanner message={planMutation.error} data-testid="autopilot-plan-error" />
+              <ErrorBanner
+                message={planMutation.error}
+                code={planMutation.errorCode}
+                data-testid="autopilot-plan-error"
+              />
             )}
           </>
         )}
