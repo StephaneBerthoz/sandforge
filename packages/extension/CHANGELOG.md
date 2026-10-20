@@ -5,6 +5,43 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.61.0] - 2026-10-20
+
+The first five minutes: a new user goes from no org to seeded data, errors read in plain words, and SandForge starts lighter.
+
+### Added
+
+- **Launcher**: with no org, imports the orgs the Salesforce CLI already has or signs in with the browser; with one org, fills it with Seed.
+- **Walkthrough**: a step to fill an empty org with demo data.
+- **Seed**: lists the target's automation before writing, and refuses a run whose emails would exceed what the org has left today.
+- **Seed**: a choice of locale for generated names and addresses.
+- **Forge command line**: copies whole tables (`--object`, `--where`) on the panel's streamed path.
+- **Seed command line**: writes through Bulk API past 200 records, as the panel does.
+
+### Changed
+
+- **Errors**: every module explains a Salesforce error from one catalogue, in the panel's language, with a next step and a Help search for an unknown code.
+- **Sync results**: refusals are grouped by code and field.
+- **Home**: recommends filling a fresh Developer Edition, and opens from the launcher.
+- **Currencies**: a price entry goes in the currency of the opportunity, quote or order its lines are written in; quote lines follow their quote; dated rates are detected from the org's currency settings.
+- **Sync**: writes price entries on the target's standard price book, standard prices first.
+- **Forge and Autopilot**: a Developer Edition's email alerts count against its daily emails, and the clone command line refuses past them.
+- **Real-Time**: emails and phone numbers are neutralised by default, as in Sync.
+- **Startup**: SandForge does nothing until one of its views opens; the extension bundle is a third smaller and each panel page loads on its own.
+- **Help and Reports**: release their page while hidden.
+- **Seed data**: company names stay distinct past the built-in catalogue.
+- **Documentation**: the README and guides lead with filling an empty org, say how each run is taken back, and Autopilot has its guide.
+
+### Fixed
+
+- **Forge resume**: a run stopped during a write call no longer writes that call's rows twice; verify reports extra records in the run's window.
+- **Forge whole-table runs**: an owner the target lacks is left out instead of every row being refused.
+- **Autopilot**: a product priced in two currencies no longer collides on its standard price.
+- **Connection errors**: say what happened and offer Reconnect.
+- **Command lines**: Ctrl-C stops Frozen, Autopilot and DataOps cleanly, a DataOps restore included.
+- **Organizations page**: an org card no longer nests buttons.
+- **Sync results**: the standard price book note is no longer shown as an error.
+
 ## [1.60.0] - 2026-10-20
 
 An empty org fills in one click: Seed opens on templates sized for a new Developer Edition, which is no longer treated as production.
