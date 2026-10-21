@@ -530,11 +530,26 @@ export class MonitorOpsHandler implements DomainHandler {
     // again on a dashboard refresh, which asks the org: a Monitor opened
     // before a run started never listed it, and one opened during a run kept
     // it Running, with a Cancel, after it had ended.
-    tracker.onChange(() => this.pushLiveOperationsSoon());
+    tracker.onChange(this.onLiveOperationsChange);
   }
+
+  /** What the tracker calls on each change: a push, at most every so often. */
+  private readonly onLiveOperationsChange = (): void => this.pushLiveOperationsSoon();
 
   /** The push of the live operations that is due, if one is. */
   private livePush: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Stop pushing the live operations: the push still due is dropped and the
+   * tracker no longer calls back. Call from extension deactivate().
+   */
+  dispose(): void {
+    if (this.livePush !== undefined) {
+      clearTimeout(this.livePush);
+      this.livePush = undefined;
+    }
+    this.liveOperationTracker?.offChange(this.onLiveOperationsChange);
+  }
 
   /**
    * Push the live operations as they are when the wait ends, at most once

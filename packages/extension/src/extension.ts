@@ -640,6 +640,7 @@ export async function deactivate(): Promise<void> {
   await servicesRef?.telemetry.flush();
   servicesRef = undefined;
   handlersRef?.stopSyncScheduler();
+  handlersRef?.stopLiveOperationsPush();
   await handlersRef?.stopRealtime();
   handlersRef?.stopPipelineTriggers();
   handlersRef = undefined;

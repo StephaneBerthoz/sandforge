@@ -521,6 +521,11 @@ export class ExtensionHandlers {
     this.syncScheduleHandler.stopScheduler();
   }
 
+  /** Stop pushing the live operations to the Monitor. Call from extension deactivate(). */
+  stopLiveOperationsPush(): void {
+    this.monitorHandler.dispose();
+  }
+
   /**
    * Close a running real-time session and its CometD connection. Call from
    * extension deactivate(): the long poll would otherwise stay open.

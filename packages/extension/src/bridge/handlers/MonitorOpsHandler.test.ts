@@ -183,6 +183,21 @@ describe('MonitorOpsHandler', () => {
       tracker.dispose();
     });
 
+    it('pushes nothing once disposed: neither the push still due nor a later change', async () => {
+      vi.useFakeTimers();
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      tracker.register('op-1', 'seed', 'Seeding 3 object(s)', 300);
+      handler.dispose();
+      await vi.advanceTimersByTimeAsync(LIVE_OPERATIONS_PUSH_MS);
+      tracker.complete('op-1');
+      await vi.advanceTimersByTimeAsync(LIVE_OPERATIONS_PUSH_MS);
+
+      expect(pushes()).toEqual([]);
+      tracker.dispose();
+    });
+
     it('pushes at most once per wait, with the list as it is at its end', async () => {
       vi.useFakeTimers();
       const tracker = new LiveOperationTracker();
