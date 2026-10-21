@@ -36,6 +36,7 @@
 
 import { randomInt } from 'node:crypto';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
 import type {
   ForgeEmailLimit,
@@ -415,7 +416,7 @@ export function parseArgs(argv: string[]): CliArgs {
   if (args.includes('--list-templates')) {
     for (const template of PREBUILT_SEED_TEMPLATES) {
       process.stdout.write(
-        `${template.id.padEnd(34)}${template.objects.length} object(s)  ${template.name}\n`,
+        `${template.id.padEnd(34)}${template.objects.length} object(s)  ${templateDisplayName(template)}\n`,
       );
     }
     process.exit(0);
@@ -519,6 +520,61 @@ export function parseArgs(argv: string[]): CliArgs {
     ...(locale !== undefined ? { locale } : {}),
     recordTypes,
   };
+}
+
+/** The webview's English catalogue, where the prebuilt templates' names are written. */
+const ENGLISH_CATALOGUE = join(
+  __dirname,
+  '..',
+  '..',
+  'webview',
+  'src',
+  'i18n',
+  'locales',
+  'en.json',
+);
+
+let englishCatalogue: Record<string, unknown> | null | undefined;
+
+/** The English catalogue, read once; null when this checkout has none. */
+function readEnglishCatalogue(): Record<string, unknown> | null {
+  if (englishCatalogue === undefined) {
+    try {
+      englishCatalogue = JSON.parse(readFileSync(ENGLISH_CATALOGUE, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      englishCatalogue = null;
+    }
+  }
+  return englishCatalogue;
+}
+
+/**
+ * A template's name as the Seed page shows it in English.
+ *
+ * A prebuilt template is named by its catalogue key, which the page
+ * translates: `--list-templates` and the run's summary printed
+ * "seed.templates.minimalDemo.name" where the page reads "Minimal Demo". A
+ * template a user saved is named in plain words, and so is one whose key the
+ * catalogue does not hold. Synchronous, because `--list-templates` answers
+ * from inside the parse of the command line.
+ *
+ * @param template - The template, prebuilt or saved.
+ * @param catalogue - The English catalogue; read from the webview's by default.
+ */
+export function templateDisplayName(
+  template: Pick<SeedTemplate, 'name'>,
+  catalogue: Record<string, unknown> | null = readEnglishCatalogue(),
+): string {
+  if (!template.name.startsWith('seed.templates.') || !catalogue) return template.name;
+  let node: unknown = catalogue;
+  for (const part of template.name.split('.')) {
+    if (node === null || typeof node !== 'object') return template.name;
+    node = (node as Record<string, unknown>)[part];
+  }
+  return typeof node === 'string' && node.trim() !== '' ? node : template.name;
 }
 
 /** A built-in template by id, or `null` when the flags describe the objects. */
@@ -1017,7 +1073,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (!args.dryRun) throw new Error(automation.gate.refusal);
     log(`  a real run would be refused: ${automation.gate.refusal}`);
   }
-  log(`template: ${template.name} (${template.objects.length} object(s))`);
+  log(`template: ${templateDisplayName(template)} (${template.objects.length} object(s))`);
 
   // Ctrl-C stops the run as the panel's Cancel does: before the next call, or
   // the Bulk API job still open aborted; what was written is kept in the

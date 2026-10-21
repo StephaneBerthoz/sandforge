@@ -22,11 +22,11 @@ interface SweepAnswer {
 
 /** What a sweep's result says first, by how it ended. */
 const RESULT_TITLE_KEYS: Record<ForgeSweepResult['status'], string> = {
-  success: 'forge.history.sweep.resultSuccess',
-  partial: 'forge.history.sweep.resultPartial',
-  failure: 'forge.history.sweep.resultFailure',
-  cancelled: 'forge.history.sweep.resultCancelled',
-  refused: 'forge.history.sweep.resultRefused',
+  success: 'runRemoval.sweep.resultSuccess',
+  partial: 'runRemoval.sweep.resultPartial',
+  failure: 'runRemoval.sweep.resultFailure',
+  cancelled: 'runRemoval.sweep.resultCancelled',
+  refused: 'runRemoval.sweep.resultRefused',
 };
 
 /** The colour of that first line. */
@@ -67,17 +67,17 @@ const SweepNotes: React.FC<{
     <>
       {gaps?.error && (
         <p data-testid="forge-sweep-automation-error" className="text-status-warning">
-          {t('forge.history.sweep.automationError', { reason: gaps.error })}
+          {t('runRemoval.sweep.automationError', { reason: gaps.error })}
         </p>
       )}
       {(gaps?.flowsNotRead ?? 0) > 0 && (
         <p data-testid="forge-sweep-flows-not-read" className="text-status-warning">
-          {counted(t, 'forge.history.sweep.flowsNotRead', gaps?.flowsNotRead ?? 0)}
+          {counted(t, 'runRemoval.sweep.flowsNotRead', gaps?.flowsNotRead ?? 0)}
         </p>
       )}
       {(gaps?.triggers ?? 0) > 0 && (
         <p data-testid="forge-sweep-triggers" className="text-status-warning">
-          {counted(t, 'forge.history.sweep.triggers', gaps?.triggers ?? 0)}
+          {counted(t, 'runRemoval.sweep.triggers', gaps?.triggers ?? 0)}
         </p>
       )}
       {notes.unread.map((unread) => (
@@ -86,7 +86,7 @@ const SweepNotes: React.FC<{
           data-testid={`forge-sweep-unread-${unread.objectApiName}`}
           className="text-text-secondary wrap-break-word"
         >
-          {t('forge.history.sweep.unread', {
+          {t('runRemoval.sweep.unread', {
             object: unread.objectApiName,
             reason: unread.reason,
           })}
@@ -98,14 +98,14 @@ const SweepNotes: React.FC<{
           data-testid={`forge-sweep-hand-work-${count.objectApiName}`}
           className="text-status-warning"
         >
-          {counted(t, 'forge.history.sweep.handWork', count.count, {
+          {counted(t, 'runRemoval.sweep.handWork', count.count, {
             object: count.objectApiName,
           })}
         </p>
       ))}
       {notes.refusal !== undefined && (
         <p data-testid="forge-sweep-refusal" className="text-status-warning wrap-break-word">
-          {t('forge.history.sweep.refused', { reason: notes.refusal })}
+          {t('runRemoval.sweep.refused', { reason: notes.refusal })}
         </p>
       )}
     </>
@@ -129,7 +129,7 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({ li
     <>
       {listing.window && (
         <p data-testid="forge-sweep-window" className="text-text-secondary">
-          {t('forge.history.sweep.window', {
+          {t('runRemoval.sweep.window', {
             from: shownAt(t, listing.window.from),
             to: shownAt(t, listing.window.to),
             objects: listing.looked.join(', '),
@@ -142,17 +142,17 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({ li
             <li key={found.objectApiName} data-testid={`forge-sweep-found-${found.objectApiName}`}>
               <span className="font-mono">
                 {found.overBound
-                  ? counted(t, 'forge.history.sweep.overBound', found.count, {
+                  ? counted(t, 'runRemoval.sweep.overBound', found.count, {
                       object: found.objectApiName,
                     })
-                  : counted(t, 'forge.history.sweep.found', found.count, {
+                  : counted(t, 'runRemoval.sweep.found', found.count, {
                       object: found.objectApiName,
                     })}
               </span>
               {found.names.length > 0 && (
                 <details className="ml-3">
                   <summary className="cursor-pointer text-text-secondary">
-                    {t('forge.history.sweep.names')}
+                    {t('runRemoval.sweep.names')}
                   </summary>
                   <span className="wrap-break-word">
                     {found.names.join(', ')}
@@ -165,7 +165,7 @@ export const ForgeSweepListingView: React.FC<ForgeSweepListingViewProps> = ({ li
         </ul>
       ) : (
         listing.refusal === undefined && (
-          <p data-testid="forge-sweep-none">{t('forge.history.sweep.none')}</p>
+          <p data-testid="forge-sweep-none">{t('runRemoval.sweep.none')}</p>
         )
       )}
       <SweepNotes notes={listing} />
@@ -207,13 +207,13 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({ forgeId, o
   if (read.error) {
     body = (
       <p data-testid="forge-sweep-error" className="text-status-warning">
-        {t('forge.history.sweep.error', { org, reason: read.error })}
+        {t('runRemoval.sweep.error', { org, reason: read.error })}
       </p>
     );
   } else if (!read.data || read.data.forgeId !== forgeId) {
     body = (
       <p data-testid="forge-sweep-loading" className="text-text-secondary">
-        {t('forge.history.sweep.loading', { org })}
+        {t('runRemoval.sweep.loading', { org })}
       </p>
     );
   } else {
@@ -226,7 +226,7 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({ forgeId, o
       className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
     >
       <h4 id={headingId} className="text-[11px] font-semibold">
-        {t('forge.history.sweep.title', { org })}
+        {t('runRemoval.sweep.title', { org })}
       </h4>
       {body}
     </section>
@@ -236,10 +236,10 @@ export const ForgeRemovalSweep: React.FC<ForgeRemovalSweepProps> = ({ forgeId, o
 /** What became of one object's records in a sweep, the counts that are not zero. */
 function sweepParts(t: TFunction, object: ForgeSweepObjectResult): string[] {
   return [
-    object.deleted > 0 ? counted(t, 'forge.history.resultDeleted', object.deleted) : '',
-    object.alreadyGone > 0 ? counted(t, 'forge.history.resultGone', object.alreadyGone) : '',
-    object.keptChanged > 0 ? counted(t, 'forge.history.resultChanged', object.keptChanged) : '',
-    object.refused > 0 ? counted(t, 'forge.history.resultRefused', object.refused) : '',
+    object.deleted > 0 ? counted(t, 'runRemoval.resultDeleted', object.deleted) : '',
+    object.alreadyGone > 0 ? counted(t, 'runRemoval.resultGone', object.alreadyGone) : '',
+    object.keptChanged > 0 ? counted(t, 'runRemoval.resultChanged', object.keptChanged) : '',
+    object.refused > 0 ? counted(t, 'runRemoval.resultRefused', object.refused) : '',
   ].filter(Boolean);
 }
 
@@ -280,7 +280,7 @@ export const ForgeRunSweepResult: React.FC<ForgeRunSweepResultProps> = ({ result
           >
             <span className="font-mono text-text-primary">{object.objectApiName}</span>
             {': '}
-            {sweepParts(t, object).join(' · ') || t('forge.history.sweep.nothing')}
+            {sweepParts(t, object).join(' · ') || t('runRemoval.sweep.nothing')}
             {object.reasons.length > 0 && (
               <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
                 {object.reasons.map((reason) => (
@@ -305,13 +305,13 @@ export interface ForgeRunSweepMarkProps {
 export const ForgeRunSweepMark: React.FC<ForgeRunSweepMarkProps> = ({ mark }) => {
   const { t } = useTranslation();
   const parts = [
-    counted(t, 'forge.history.resultDeleted', mark.deleted),
-    mark.keptChanged > 0 ? counted(t, 'forge.history.resultChanged', mark.keptChanged) : '',
-    mark.refused > 0 ? counted(t, 'forge.history.resultRefused', mark.refused) : '',
+    counted(t, 'runRemoval.resultDeleted', mark.deleted),
+    mark.keptChanged > 0 ? counted(t, 'runRemoval.resultChanged', mark.keptChanged) : '',
+    mark.refused > 0 ? counted(t, 'runRemoval.resultRefused', mark.refused) : '',
   ].filter(Boolean);
   return (
     <p data-testid="forge-sweep-mark" className="text-[10px] text-text-secondary">
-      {t('forge.history.sweep.sweptOn', {
+      {t('runRemoval.sweep.sweptOn', {
         date: formatStoredDate(mark.sweptAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
       })}{' '}
       {parts.join(' · ')}

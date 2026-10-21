@@ -100,7 +100,7 @@ export const ConflictListPanel: React.FC = () => {
       },
       {
         key: 'timestamp',
-        header: t('reports.timestamp'),
+        header: t('sync.conflictResolution.timestamp'),
         sortable: true,
         // A time the extension sent that is not a date read "Invalid Date".
         render: (row: UIConflict) => (

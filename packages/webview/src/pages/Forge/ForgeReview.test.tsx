@@ -22,8 +22,6 @@ const mockSetPhase = vi.fn();
 const mockToggleNodeIncluded = vi.fn();
 const mockSendBridgeMessage = vi.fn();
 const mockSetExecutionRequestId = vi.fn();
-const mockSetPlan = vi.fn();
-const mockFillPersonalFields = vi.fn();
 const mockSetMetadataDiffs = vi.fn();
 const mockSetGaps = vi.fn();
 const mockMarkSimulation = vi.fn();
@@ -89,6 +87,8 @@ let mockGaps: Record<ForgeGapSource, ForgeGap[]> = { metadata: [], simulation: [
 /** The file choice Review holds. */
 const NO_FILES = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
 let mockFileCopy = { ...NO_FILES };
+/** Why the plan could not be made, as the store holds it. */
+let mockPlanError: string | null = null;
 const mockAnonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod> = {
   email: 'fake',
   phone: 'mask',
@@ -128,8 +128,9 @@ vi.mock('../../stores/useForgeStore', () => {
     markSimulation: () => mockMarkSimulation(),
     resetNodeStatuses: vi.fn(),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
-    setPlan: (...args: unknown[]) => mockSetPlan(...args),
-    fillPersonalFields: (...args: unknown[]) => mockFillPersonalFields(...args),
+    get planError() {
+      return mockPlanError;
+    },
     setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),
     setGaps: (...args: unknown[]) => mockSetGaps(...args),
     setAnonymizationRule: vi.fn(),
@@ -149,6 +150,11 @@ vi.mock('../../stores/useForgeStore', () => {
 // The tab reads fields and users through the bridge; its own test answers them.
 vi.mock('./ReviewControlsTab', () => ({
   ReviewControlsTab: () => <div data-testid="review-controls-tab" />,
+}));
+
+/* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
+vi.mock('../../components/graph/lazyGraph', async () => ({
+  LiveGraph: (await import('../../components/graph/LiveGraph')).LiveGraph,
 }));
 
 vi.mock('../../components/graph/LiveGraph', () => ({
@@ -182,8 +188,7 @@ describe('ForgeReview', () => {
     // Reset, not cleared: a test may give the requests an id to answer.
     mockSendBridgeMessage.mockReset();
     mockSetGaps.mockClear();
-    mockSetPlan.mockClear();
-    mockFillPersonalFields.mockClear();
+    mockPlanError = null;
     mockMarkSimulation.mockClear();
     mockSetMetadataDiffs.mockClear();
     mockSetAnonymizePII.mockClear();
@@ -484,35 +489,13 @@ describe('ForgeReview', () => {
     });
   });
 
-  describe('plan channel', () => {
-    it('should store the plan when forge:plan:response arrives', () => {
+  describe('plan', () => {
+    // The plan and why it could not be made are taken by the store, whatever
+    // screen is drawn (useForgeStore.test.ts): the input step asks for the
+    // plan before this screen's chunk has loaded.
+    it('says why the plan could not be made instead of loading forever', () => {
+      mockPlanError = 'Describe failed on Account';
       render(<ForgeReview />);
-      // useForgeForm sends forge:plan:request and the extension answers, but
-      // nothing consumed the reply — the Plan tab showed "Generating execution
-      // plan…" for the rest of the session.
-      const plan = { waves: [], cycleResolutions: [] };
-      sendFromExtension('forge:plan:response', { plan });
-
-      expect(mockSetPlan).toHaveBeenCalledWith(plan);
-      expect(mockFillPersonalFields).not.toHaveBeenCalled();
-    });
-
-    it('takes the personal fields a starter template’s graph comes back with', () => {
-      render(<ForgeReview />);
-      const plan = { waves: [], cycleResolutions: [] };
-      const graph = {
-        ...defaultGraph,
-        nodes: [makeNode({ objectApiName: 'Contact', piiFields: ['LastName'] })],
-      };
-      sendFromExtension('forge:plan:response', { plan, graph });
-
-      expect(mockSetPlan).toHaveBeenCalledWith(plan);
-      expect(mockFillPersonalFields).toHaveBeenCalledWith(graph);
-    });
-
-    it('should surface forge:plan:error instead of loading forever', () => {
-      render(<ForgeReview />);
-      sendFromExtension('forge:plan:error', { message: 'Describe failed on Account' });
 
       expect(screen.getByTestId('plan-error').textContent).toContain('Describe failed on Account');
       expect(screen.queryByTestId('plan-loading')).toBeNull();

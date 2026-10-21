@@ -21,9 +21,9 @@ export interface SyncWrittenLinesProps {
  * in Forge's words, which say the same of a clone's records.
  */
 const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
-  'validation-rule': 'forge.writtenWithoutFields.byValidationRule',
-  'restricted-picklist': 'forge.writtenWithoutFields.byRestrictedPicklist',
-  'lookup-filter': 'forge.writtenWithoutFields.byLookupFilter',
+  'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
+  'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
+  'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
 };
 
 /** Whether an object's write did anything {@link SyncWrittenLines} says. */

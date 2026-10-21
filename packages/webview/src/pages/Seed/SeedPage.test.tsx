@@ -590,7 +590,7 @@ describe('SeedPage', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
     fireEvent.click(screen.getByTestId('mode-card-generate'));
-    expect(screen.getByTestId('info-tooltip-help.seed.selectObjects')).toBeDefined();
+    expect(screen.getByTestId('info-tooltip-seed.stepHelp.selectObjects')).toBeDefined();
   });
 
   it('takes a persona chosen in the wizard, and says which, the choice folded away', () => {

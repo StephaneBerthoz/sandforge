@@ -110,7 +110,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
               ? 'border-status-warning/60 bg-status-warning/10 text-text-primary'
               : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
           )}
-          title={t('forge.keepContactPointsHint')}
+          title={t('runResults.contactPoints.keepHint')}
         >
           <input
             type="checkbox"
@@ -121,7 +121,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
             className="sr-only"
           />
           <PhoneOff size={14} />
-          {t('forge.keepContactPoints')}
+          {t('runResults.contactPoints.keep')}
         </label>
       </div>
       {/* Said beside the choice, not only on hover: the records then reach the
@@ -133,7 +133,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
           data-testid="forge-keep-contact-points-warning"
           className="rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
         >
-          {t('forge.keepContactPointsWarning')}
+          {t('runResults.contactPoints.keepWarning')}
         </p>
       )}
     </div>

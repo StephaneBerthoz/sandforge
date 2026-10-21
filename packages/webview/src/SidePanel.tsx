@@ -1126,7 +1126,7 @@ export const SidePanel: React.FC = () => {
               <StatusIcon status={lastOp.status} />
               <span className="text-xs truncate flex-1">{lastOp.label}</span>
               <span className="text-[10px] text-text-secondary shrink-0">
-                {formatRelativeTimeI18n(lastOp.timestamp, t, 'sidePanel.relativeTime')}
+                {formatRelativeTimeI18n(lastOp.timestamp, t, 'common.relativeTime')}
               </span>
             </div>
           </div>

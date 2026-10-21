@@ -44,16 +44,6 @@ export function isPiiField(fieldName: string): boolean {
  */
 export const SMART_SOQL_CAP = 100;
 
-/** Extract a Salesforce Record ID from a plain ID or Salesforce URL. */
-export function extractRecordId(input: string): string | null {
-  const trimmed = input.trim();
-  if (/^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/.test(trimmed)) {
-    return trimmed;
-  }
-  const match = trimmed.match(/\/([a-zA-Z0-9]{15,18})(?:\/|$|\?)/);
-  return match?.[1] ?? null;
-}
-
 /** Extract the hostname/pod from a Salesforce URL or instanceUrl. */
 export function extractSalesforceDomain(url: string): string | null {
   try {

@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { ForgeConfig } from '@sandforge/shared';
 import { AnimatePresence, m } from 'framer-motion';
 import { pageTransition } from '../../motion/presets';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -7,16 +8,34 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ForgeInput } from './ForgeInput';
-import { ForgeDiscovery } from './ForgeDiscovery';
-import { ForgeReview } from './ForgeReview';
-import { ForgeExecution } from './ForgeExecution';
-import { ForgeResults } from './ForgeResults';
+import { ForgeDiscovery, ForgeExecution, ForgeResults, ForgeReview } from './forgeSteps';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 
 /** Forge phase variants for AnimatePresence transitions. */
 const variants = pageTransition(1);
+
+/**
+ * The run a record handed over by Home starts: that record, read from the
+ * org Home had selected, at the depth and with the options a new run starts
+ * with.
+ *
+ * @param recordId - The record's id, as Home parsed it.
+ * @param sourceOrgId - The org Home had selected, or '' when none was.
+ */
+function handedOverRun(recordId: string, sourceOrgId: string): ForgeConfig {
+  return {
+    inputMode: 'record',
+    recordId,
+    depth: 'direct',
+    sourceOrgId,
+    targetOrgId: '',
+    anonymizePII: false,
+    skipEmpty: false,
+    batchSize: 'auto',
+  };
+}
 
 /**
  * Forge page orchestrator.
@@ -30,6 +49,27 @@ export const ForgePage: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const navigate = useAppStore((s) => s.navigate);
+
+  /*
+   * Home's hero hands over the record the user typed, read once on open. The
+   * run starts from it before the input step renders: the step takes the
+   * record from the config it finds as it mounts, as it took the one Home
+   * used to write into this store itself.
+   */
+  const navigationIntent = useAppStore((s) => s.navigationIntent);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  const [intent] = useState(() => {
+    if (navigationIntent?.route !== 'forge') return null;
+    if (navigationIntent.recordId) {
+      useForgeStore
+        .getState()
+        .setConfig(handedOverRun(navigationIntent.recordId, navigationIntent.sourceOrgId ?? ''));
+    }
+    return navigationIntent;
+  });
+  useEffect(() => {
+    if (intent) clearNavigationIntent();
+  }, [intent, clearNavigationIntent]);
 
   // Said once: coming back to the page must not repeat the stop.
   useEffect(() => () => setStoppedAt(null), [setStoppedAt]);
@@ -90,10 +130,14 @@ export const ForgePage: React.FC = () => {
         <AnimatePresence mode="wait">
           <m.div key={phase} variants={variants} initial="enter" animate="center" exit="exit">
             {phase === 'input' && <ForgeInput />}
-            {phase === 'discovery' && <ForgeDiscovery />}
-            {phase === 'review' && <ForgeReview />}
-            {phase === 'execution' && <ForgeExecution />}
-            {phase === 'results' && <ForgeResults />}
+            {/* A step past the input comes in a chunk of its own, read from
+                the extension's folder in a few milliseconds. */}
+            <Suspense fallback={<div aria-busy="true" data-testid="forge-step-loading" />}>
+              {phase === 'discovery' && <ForgeDiscovery />}
+              {phase === 'review' && <ForgeReview />}
+              {phase === 'execution' && <ForgeExecution />}
+              {phase === 'results' && <ForgeResults />}
+            </Suspense>
           </m.div>
         </AnimatePresence>
       </div>

@@ -7,6 +7,7 @@ import type {
   ForgeExecutionResult,
   ForgeTemplate,
   ForgePlan,
+  ForgePlanResponse,
   ForgeAnonymizationCategory,
 } from '@sandforge/shared';
 import type {
@@ -365,6 +366,7 @@ const INITIAL_STATE = {
   templates: [] as ForgeTemplate[],
   history: [] as ForgeExecutionResult[],
   plan: null as ForgePlan | null,
+  planError: null as string | null,
   complianceReport: null as ComplianceReport | null,
   metadataDiffs: [] as MetadataDiffEntry[],
   gaps: { ...NO_GAPS },
@@ -414,6 +416,8 @@ export interface ForgeState {
   history: ForgeExecutionResult[];
   /** Execution plan with waves. */
   plan: ForgePlan | null;
+  /** Why the extension could not make the plan of the run on screen, or null. */
+  planError: string | null;
   /** Compliance report from Review phase. */
   complianceReport: ComplianceReport | null;
   /** Metadata diffs between source and target. */
@@ -812,6 +816,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     set({
       config,
       plan: null,
+      planError: null,
       complianceReport: null,
       metadataDiffs: [],
       gaps: { ...NO_GAPS },
@@ -1438,6 +1443,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       statusesBeyondGraph: {},
       result: null,
       plan: null,
+      planError: null,
       complianceReport: null,
       metadataDiffs: [],
       gaps: { ...NO_GAPS },
@@ -1540,6 +1546,47 @@ function takeRunMessage(event: MessageEvent): void {
   }
 }
 
+/**
+ * The plan the extension made of the run under review, or why it could not:
+ * taken here rather than by the Review screen.
+ *
+ * The input step asks for the plan as it moves the page to Review, and the
+ * Review screen comes in a chunk of its own: a plan answered before that
+ * chunk had loaded found no listener, and Review read "Generating execution
+ * plan…" for good. Only while the run is under review, as the screen took it:
+ * every panel receives every panel's messages.
+ */
+function takePlanMessage(event: MessageEvent): void {
+  // SECURITY: Validate origin — only accept messages from the VSCode webview host.
+  if (event.origin && !event.origin.startsWith('vscode-webview://')) return;
+  const data = event.data as { type?: unknown; payload?: unknown } | null | undefined;
+  if (!data || typeof data !== 'object') return;
+  if (data.type !== 'forge:plan:response' && data.type !== 'forge:plan:error') return;
+  const store = useForgeStore.getState();
+  if (store.phase !== 'review') return;
+  if (data.type === 'forge:plan:error') {
+    const payload = (data.payload ?? {}) as { message?: unknown };
+    useForgeStore.setState({
+      planError: typeof payload.message === 'string' ? payload.message : '',
+    });
+    return;
+  }
+  const payload = (data.payload ?? {}) as Partial<ForgePlanResponse['payload']>;
+  if (!payload.plan) return;
+  // A starter template's graph comes back with the personal fields its
+  // objects hold: built without discovery, it named none, and the
+  // Anonymization tab counted zero with the toggle on.
+  store.setPlan(payload.plan);
+  if (payload.graph) store.fillPersonalFields(payload.graph);
+  useForgeStore.setState({ planError: null });
+}
+
+/** What the store takes of the extension's messages, whatever screen is shown. */
+function takeMessage(event: MessageEvent): void {
+  takeRunMessage(event);
+  takePlanMessage(event);
+}
+
 // HMR-safe listener registration, as the CDC stores do it: re-imported by a
 // hot replace, the module would otherwise stack a listener per reload and
 // take every message once per copy.
@@ -1547,10 +1594,10 @@ let runListenerRegistered = false;
 function registerRunListener(): void {
   if (runListenerRegistered || typeof window === 'undefined') return;
   runListenerRegistered = true;
-  window.addEventListener('message', takeRunMessage);
+  window.addEventListener('message', takeMessage);
   if (typeof import.meta !== 'undefined' && import.meta.hot) {
     import.meta.hot.dispose(() => {
-      window.removeEventListener('message', takeRunMessage);
+      window.removeEventListener('message', takeMessage);
       runListenerRegistered = false;
     });
   }

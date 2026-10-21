@@ -189,7 +189,7 @@ describe('ObjectSetEditor accessible names', () => {
     const whereInput = screen.getByLabelText('WHERE clause — Account') as HTMLInputElement;
     expect(whereInput.placeholder).toBe('WHERE clause');
     expect(whereInput.placeholder).not.toBe('undefined');
-    expect(whereInput.placeholder).not.toBe('automation.stepConfigWhere');
+    expect(whereInput.placeholder).not.toBe('common.whereClause');
   });
   it('offers no delete: one row set to it deleted the target records holding the source ids', () => {
     render(

@@ -254,7 +254,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               aria-describedby={keepContactPoints ? keepWarningId : keepHintId}
               data-testid="clone-keep-contact-points"
             />
-            <span>{t('forge.keepContactPoints')}</span>
+            <span>{t('runResults.contactPoints.keep')}</span>
           </label>
           {keepContactPoints ? (
             <p
@@ -263,11 +263,11 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               className="rounded-sm border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-(--sf-text-primary)"
               data-testid="clone-keep-contact-points-warning"
             >
-              {t('forge.keepContactPointsWarning')}
+              {t('runResults.contactPoints.keepWarning')}
             </p>
           ) : (
             <p id={keepHintId} className="text-xs text-(--sf-text-secondary)">
-              {t('forge.keepContactPointsHint')}
+              {t('runResults.contactPoints.keepHint')}
             </p>
           )}
         </div>

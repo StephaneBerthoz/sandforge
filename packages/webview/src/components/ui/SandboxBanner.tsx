@@ -40,7 +40,7 @@ export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
       role="status"
     >
       <Icon name="database" className="text-status-warning shrink-0" />
-      <span className="flex-1 text-sm text-text-primary">{t('onboarding.sandboxBanner')}</span>
+      <span className="flex-1 text-sm text-text-primary">{t('home.sandboxBanner')}</span>
       <div className="flex items-center gap-2 shrink-0">
         <Button
           variant="primary"
@@ -48,7 +48,7 @@ export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
           onClick={() => onNavigate('seed')}
           data-testid="sandbox-banner-seed-btn"
         >
-          {t('onboarding.openSeed')}
+          {t('home.openSeed')}
         </Button>
         <Button
           variant="secondary"
@@ -56,7 +56,7 @@ export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
           onClick={() => onNavigate('sync')}
           data-testid="sandbox-banner-sync-btn"
         >
-          {t('onboarding.openSync')}
+          {t('home.openSync')}
         </Button>
         <button
           className="text-status-warning hover:text-text-primary transition-colors p-1"

@@ -64,6 +64,12 @@ export interface NavigationIntent {
   orgAction?: OrgPageAction;
   /** Org whose Reconnect Organizations runs as it opens: one whose session expired mid-run. */
   reconnectOrgId?: string;
+  /**
+   * The record Forge starts a run from, typed in Home's hero field. Home
+   * handed it over through the Forge store, which put zod and the store's
+   * module on Home for one id.
+   */
+  recordId?: string;
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */

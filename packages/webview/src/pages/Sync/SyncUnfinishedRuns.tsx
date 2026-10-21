@@ -27,13 +27,13 @@ export const SyncUnfinishedRuns: React.FC = () => {
   return (
     <section className="flex flex-col gap-2" data-testid="sync-unfinished-runs">
       <h3 className="text-sm font-semibold text-text-primary">
-        {t('sync.removal.unfinishedTitle')}
+        {t('runRemoval.sync.unfinishedTitle')}
       </h3>
-      <p className="text-[11px] text-text-secondary">{t('sync.removal.unfinishedNote')}</p>
+      <p className="text-[11px] text-text-secondary">{t('runRemoval.sync.unfinishedNote')}</p>
       {runs.map((run) => (
         <div key={run.runId} className="flex flex-col gap-1">
           <p className="text-[11px] text-text-primary" data-testid={`sync-unfinished-${run.runId}`}>
-            {t('sync.removal.unfinishedRun', {
+            {t('runRemoval.sync.unfinishedRun', {
               config: run.configName,
               date: formatStoredDate(run.startedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
             })}
@@ -43,7 +43,7 @@ export const SyncUnfinishedRuns: React.FC = () => {
               className="text-[11px] text-status-warning"
               data-testid={`sync-unfinished-in-flight-${run.runId}`}
             >
-              {t('sync.removal.unfinishedInFlight', {
+              {t('runRemoval.sync.unfinishedInFlight', {
                 count: run.inFlight.rows,
                 formatted: formatNumber(run.inFlight.rows),
                 object: run.inFlight.objectApiName,

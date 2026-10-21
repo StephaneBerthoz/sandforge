@@ -416,7 +416,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                           {t('common.object', 'Object')}
                         </span>
                         <span role="columnheader" className="sr-only">
-                          {t('sync.history.records', 'Records')}
+                          {t('common.records', 'Records')}
                         </span>
                         <span role="columnheader" className="sr-only">
                           {t('monitor.errorLogs.user', 'User')}
@@ -554,7 +554,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                                 ? formatRelativeTimeI18n(
                                     created.getTime(),
                                     t,
-                                    'sidePanel.relativeTime',
+                                    'common.relativeTime',
                                   )
                                 : exactCreated}
                             </span>

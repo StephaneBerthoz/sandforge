@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import i18n from '../../../i18n';
+import fr from '../../../i18n/locales/fr.json';
 import { Step4Review } from './Step4_Review';
 
 const defaultProps = {
@@ -240,6 +241,23 @@ describe('Step4_Review', () => {
         missing: i18n.t('autopilot.step4.personal.email'),
       }),
     );
+  });
+
+  it('names a custom framework and no framework in the language the panel is set to', async () => {
+    // Both read "Custom" and "None" in all six languages.
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      const { rerender } = render(<Step4Review {...defaultProps} complianceFramework="custom" />);
+      expect(screen.getByTestId('stat-compliance').textContent).toContain('Personnalisé');
+      rerender(<Step4Review {...defaultProps} complianceFramework="none" />);
+      expect(screen.getByTestId('stat-compliance').textContent).toContain('Aucun');
+      expect(screen.getByTestId('stat-compliance').textContent).not.toMatch(/None|Custom/);
+      rerender(<Step4Review {...defaultProps} complianceFramework="pci_dss" />);
+      expect(screen.getByTestId('stat-compliance').textContent).toContain('PCI-DSS');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('shows neither note for a plan that says nothing of them', () => {

@@ -110,9 +110,9 @@ export const ID_REMAP_VIRTUALIZE_THRESHOLD = 200;
  * nothing, and was a validation rule's.
  */
 const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
-  'validation-rule': 'forge.writtenWithoutFields.byValidationRule',
-  'restricted-picklist': 'forge.writtenWithoutFields.byRestrictedPicklist',
-  'lookup-filter': 'forge.writtenWithoutFields.byLookupFilter',
+  'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
+  'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
+  'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
 };
 
 /** The same, as the copied report says it, in English as the rest of it. */
@@ -1303,8 +1303,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           role="status"
           data-testid="forge-results-written-without"
         >
-          <p className="font-medium text-text-primary">{t('forge.writtenWithoutFields.title')}</p>
-          <p className="mt-0.5">{t('forge.writtenWithoutFields.hint')}</p>
+          <p className="font-medium text-text-primary">
+            {t('runResults.writtenWithoutFields.title')}
+          </p>
+          <p className="mt-0.5">{t('runResults.writtenWithoutFields.hint')}</p>
           <ul className="mt-1 space-y-0.5">
             {writtenWithoutFields.flatMap(({ objectApiName, fields }) =>
               fields.map(({ field, refusedBy = 'validation-rule', reason, rows }) => (

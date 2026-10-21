@@ -556,7 +556,7 @@ describe('useMessageResponse', () => {
         `${i18n.t('errors.orgAuthExpired.explanation')} ${i18n.t('errors.orgAuthExpired.action')}`,
       );
       const [toast] = useNotificationStore.getState().notifications;
-      expect(toast.message).toBe(i18n.t('org.sessionExpired.message', { org: 'my-dev-org' }));
+      expect(toast.message).toBe(i18n.t('bridge.sessionExpired.message', { org: 'my-dev-org' }));
       act(() => toast.actions?.[0].onAction?.());
       expect(useAppStore.getState().currentRoute).toBe('orgs');
       expect(useAppStore.getState().navigationIntent).toEqual({

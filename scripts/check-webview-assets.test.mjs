@@ -19,13 +19,19 @@ import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+  PAGES_THAT_VALIDATE,
+  PAGE_FIRST_PAINT_BUDGET,
   bundleFiles,
   chunkImports,
   collectRequested,
+  englishLoaders,
   namespaceSentinels,
   namespacesHeld,
+  panelRoutes,
   panelShellNamespaces,
   requestedAssets,
+  routeFirstPaint,
+  shellEnglishOutsideBase,
   staticBundleFiles,
   zodJitlessVerdict,
 } from './check-webview-assets.mjs';
@@ -235,6 +241,98 @@ test('it reads the namespaces the panel catalogue starts with', () => {
     'utf8',
   );
   assert.ok(panelShellNamespaces(onDisk).includes('common'), 'the catalogue on disk is not read');
+});
+
+test('it reads the routes of the panel bundle as the minifier leaves them, a namespace object read too', () => {
+  const source =
+    'var Ao={home:L(()=>import(`./chunks/HomePage-a1.js`),`HomePage`,[`errors`,`status`]),' +
+    'seed:L(()=>import(`./chunks/SeedPage-b2.js`).then(e=>e.t),`SeedPage`,[`seed`]),' +
+    'ai:L(()=>import("./chunks/AIPage-c3.js"),"AIPage",["ai","errors"])};' +
+    'var Wo=(0,A.lazy)(Ht(()=>import(`./chunks/WelcomePage-d4.js`).then(e=>({default:e.WelcomePage})),[`onboarding`]));';
+  assert.deepEqual(panelRoutes(source), [
+    {
+      route: 'home',
+      chunk: './chunks/HomePage-a1.js',
+      page: 'HomePage',
+      english: ['errors', 'status'],
+    },
+    { route: 'seed', chunk: './chunks/SeedPage-b2.js', page: 'SeedPage', english: ['seed'] },
+    { route: 'ai', chunk: './chunks/AIPage-c3.js', page: 'AIPage', english: ['ai', 'errors'] },
+  ]);
+});
+
+test('it reads the loaders of the English namespaces, and no route for one', () => {
+  const source =
+    'zt={forge:()=>import(`./chunks/forge-a1.js`),"a11y":()=>import("./chunks/a11y-b2.js")},' +
+    'Ao={home:L(()=>import(`./chunks/HomePage-c3.js`),`HomePage`,[`errors`])};';
+  assert.deepEqual(
+    [...englishLoaders(source)],
+    [
+      ['forge', './chunks/forge-a1.js'],
+      ['a11y', './chunks/a11y-b2.js'],
+    ],
+  );
+});
+
+test('it weighs what a page parses before it paints: the base, its chunk, its English, once each', () => {
+  const built = new Map([
+    ['assets/index.js', 'import"./chunks/react.js";'],
+    ['assets/chunks/react.js', 'x'.repeat(100)],
+    ['assets/chunks/Page.js', 'import"./react.js";import"./chart.js";' + 'p'.repeat(20)],
+    ['assets/chunks/chart.js', 'c'.repeat(300)],
+    // A chunk the page loads on demand weighs nothing on its first paint.
+    ['assets/chunks/Lazy.js', 'l'.repeat(5000)],
+    ['assets/chunks/forge.js', 'export default{}'],
+  ]);
+  const read = (path) => built.get(path);
+  const loaders = new Map([['forge', './chunks/forge.js']]);
+  const paint = routeFirstPaint(
+    'assets/index.js',
+    { route: 'forge', chunk: './chunks/Page.js', page: 'Page', english: ['forge', 'nowhere'] },
+    loaders,
+    read,
+  );
+  assert.deepEqual(paint.files.sort(), [
+    'assets/chunks/Page.js',
+    'assets/chunks/chart.js',
+    'assets/chunks/forge.js',
+    'assets/chunks/react.js',
+    'assets/index.js',
+  ]);
+  const expected = paint.files.reduce((total, path) => total + Buffer.byteLength(read(path)), 0);
+  assert.equal(paint.bytes, expected);
+  assert.deepEqual(paint.unloaded, ['nowhere']);
+});
+
+test('it finds a namespace every panel starts with in a chunk outside the base, and only there', () => {
+  const sentinels = new Map([
+    ['common', 'Type the name of the org to confirm'],
+    ['forge', 'Copy a real record and everything around it'],
+  ]);
+  const built = new Map([
+    ['assets/index.js', 'x=`Type the name of the org to confirm`'],
+    ['assets/chunks/common-a1.js', 'export default{t:`Type the name of the org to confirm`}'],
+    [
+      'assets/chunks/forge-b2.js',
+      'export default{t:`Copy a real record and everything around it`}',
+    ],
+  ]);
+  assert.deepEqual(
+    shellEnglishOutsideBase(
+      ['assets/index.js', 'assets/chunks/common-a1.js', 'assets/chunks/forge-b2.js'],
+      ['assets/index.js'],
+      (path) => built.get(path),
+      sentinels,
+      ['common'],
+    ),
+    [{ namespace: 'common', path: 'assets/chunks/common-a1.js' }],
+  );
+});
+
+test('a page may parse no more than 900 kB before it paints, and only three pages may parse zod', () => {
+  assert.equal(PAGE_FIRST_PAINT_BUDGET, 900_000);
+  assert.deepEqual([...PAGES_THAT_VALIDATE.keys()].sort(), ['dataops', 'forge', 'migration']);
+  assert.ok(!PAGES_THAT_VALIDATE.has('home'), 'Home reads a record id, and validates nothing');
 });
 
 test('the English catalogue gives most of its namespaces a sentence to be found by', () => {

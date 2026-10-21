@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { cn } from '../../theme';
+import { useHeldFailure } from '../../hooks/useHeldFailure';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { Step7Execute } from './Step7_Execute';
@@ -78,6 +80,22 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   const locale = useSeedWizardStore((s) => s.locale);
   const setLocale = useSeedWizardStore((s) => s.setLocale);
 
+  /*
+   * Retry stays where it is while the fields are read again, saying so: it
+   * went as it was pressed, the failure it answered cleared, and the keyboard
+   * with it. The read it asked for ends with the fields, or with a new failure.
+   */
+  const [retry, setRetry] = useState<'asked' | 'reading' | null>(null);
+  const inFlight = !fieldsReady && fieldsError === null;
+  if (retry === 'asked' && inFlight) setRetry('reading');
+  if ((retry === 'reading' && !inFlight) || (retry === 'asked' && fieldsReady)) setRetry(null);
+  const fieldsReading = retry !== null && inFlight;
+  const fieldsFailure = useHeldFailure(fieldsError, fieldsReading);
+  const retryFields = (): void => {
+    setRetry('asked');
+    onRetryFields();
+  };
+
   let fieldsLine: string;
   if (!fieldsReady) {
     fieldsLine = fieldsError
@@ -92,7 +110,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   return (
     <div data-testid="seed-step-execute-content">
       <div className="flex items-center gap-1.5">
-        <InfoTooltip id="help.seed.execute" content={t('help.seed.execute')} />
+        <InfoTooltip id="seed.stepHelp.execute" content={t('seed.stepHelp.execute')} />
       </div>
 
       {/* Adaptive: what the run's rules are when configure was skipped, and
@@ -105,11 +123,17 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
           <span role="status" data-testid="seed-fields-status">
             {fieldsLine}
           </span>
-          {!fieldsReady && fieldsError && (
+          {!fieldsReady && fieldsFailure !== null && (
+            // Not dimmed while it reads: the status beside it says so, and a
+            // dimmed link falls under the contrast a word needs.
             <button
               type="button"
-              className="text-(--sf-text-link) hover:underline"
-              onClick={onRetryFields}
+              className={cn(
+                'text-(--sf-text-link)',
+                fieldsReading ? 'cursor-not-allowed' : 'hover:underline',
+              )}
+              aria-disabled={fieldsReading || undefined}
+              onClick={fieldsReading ? undefined : retryFields}
               data-testid="seed-fields-retry"
             >
               {t('common.retry')}

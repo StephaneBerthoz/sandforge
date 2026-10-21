@@ -159,7 +159,7 @@ export function formatCurrency(n: number, currency: string, locale: string = uiL
  * Expects the translation namespace to contain: `justNow`, `minutesAgo` (with `count`), `hoursAgo` (with `count`).
  * @param timestamp - Unix timestamp in milliseconds.
  * @param t - i18n translation function.
- * @param keyPrefix - Namespace prefix (e.g. 'home' or 'sidePanel.relativeTime').
+ * @param keyPrefix - Namespace prefix (e.g. 'home' or 'common.relativeTime').
  */
 export function formatRelativeTimeI18n(
   timestamp: number,

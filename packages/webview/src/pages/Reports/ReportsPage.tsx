@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
@@ -20,12 +20,12 @@ import { Select } from '../../components/ui/Select';
 import { Spinner } from '../../components/ui/Spinner';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { ExecutionReportView } from './ExecutionReportView';
-import { AnalyticsDashboard } from './AnalyticsDashboard';
 import type { AnalyticsSummary } from './AnalyticsDashboard';
 import { AuditTrailViewer } from './AuditTrailViewer';
 import type { AuditExportFormat, AuditFilter } from './AuditTrailViewer';
-import { LineageGraph } from './LineageGraph';
+import { AnalyticsDashboard, LineageGraph } from './reportsPanels';
 import { uiLocale } from '../../utils/formatters';
+import { useHeldFailure } from '../../hooks/useHeldFailure';
 
 /** ReportsPage component props. */
 export interface ReportsPageProps {
@@ -83,11 +83,13 @@ const Loading: React.FC<{ testId: string }> = ({ testId }) => {
  * What a tab says when the read it shows could not be made, with the way to
  * make it again when there is one.
  */
-const Unreadable: React.FC<{ testId: string; message: string; onRetry?: () => void }> = ({
-  testId,
-  message,
-  onRetry,
-}) => {
+const Unreadable: React.FC<{
+  testId: string;
+  message: string;
+  onRetry?: () => void;
+  /** The read is on its way again: Retry says so, and stays where the keyboard is. */
+  reading?: boolean;
+}> = ({ testId, message, onRetry, reading = false }) => {
   const { t } = useTranslation();
   return (
     <div data-testid={testId} className="flex flex-col gap-2">
@@ -97,6 +99,8 @@ const Unreadable: React.FC<{ testId: string; message: string; onRetry?: () => vo
           variant="secondary"
           size="sm"
           className="self-start"
+          loading={reading}
+          focusableWhenDisabled
           onClick={onRetry}
           data-testid={`${testId}-retry`}
         >
@@ -211,7 +215,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
    * failed: the executions tab said "No reports generated yet", and the
    * analytics tab was taken away.
    */
-  const reportsFailed = reportsError !== undefined;
+  // Held while Retry reads them again: the tab said "Loading" as Retry was
+  // pressed, and the keyboard went with the button.
+  const reportsFailure = useHeldFailure(reportsError ?? null, reportsLoading);
+  const reportsFailed = reportsFailure !== null;
   const tabs = [
     {
       id: 'executions',
@@ -334,8 +341,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                   (reportsFailed ? (
                     <Unreadable
                       testId="reports-executions-error"
-                      message={t('reports.reportsUnreadable', { error: reportsError })}
+                      message={t('reports.reportsUnreadable', { error: reportsFailure })}
                       onRetry={onRetryReports}
+                      reading={reportsLoading}
                     />
                   ) : hasReports ? (
                     <ExecutionReportView
@@ -353,13 +361,16 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       testId="reports-analytics-error"
                       message={t('reports.analyticsUnreadable')}
                       onRetry={onRetryReports}
+                      reading={reportsLoading}
                     />
                   ) : hasAnalytics ? (
-                    <AnalyticsDashboard
-                      summary={analyticsSummary}
-                      operationsOverTime={operationsOverTime}
-                      errorTimeSeries={errorTimeSeries}
-                    />
+                    <Suspense fallback={<Loading testId="reports-analytics-loading" />}>
+                      <AnalyticsDashboard
+                        summary={analyticsSummary}
+                        operationsOverTime={operationsOverTime}
+                        errorTimeSeries={errorTimeSeries}
+                      />
+                    </Suspense>
                   ) : (
                     <Loading testId="reports-analytics-loading" />
                   ))}
@@ -427,7 +438,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                           onChange={(e) => onSelectLineageRun(e.target.value)}
                         />
                       )}
-                      <LineageGraph lineage={lineageData} />
+                      <Suspense fallback={<Loading testId="reports-lineage-loading" />}>
+                        <LineageGraph lineage={lineageData} />
+                      </Suspense>
                     </div>
                   ))}
               </div>

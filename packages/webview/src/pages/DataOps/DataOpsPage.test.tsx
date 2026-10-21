@@ -849,6 +849,54 @@ describe('DataOpsPage', () => {
       expect(screen.getByTestId('anonymize-panel')).toBeDefined();
     });
 
+    it('keeps the Restore panel and the control the keyboard is on drawn while the backups are read again', () => {
+      // A deletion reads the list again, and the skeleton took the panel's
+      // place: the Delete button the confirmation hands focus back to went
+      // with it, and the keyboard was left on nothing.
+      mockBackupsQueryState = {
+        data: loadedBackups,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      const { rerender } = render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Restore'));
+      fireEvent.click(screen.getByTestId('restore-backup-op-1').querySelector('[role="button"]')!);
+      const deleteButton = screen.getByTestId('delete-backup-btn-op-1');
+      deleteButton.focus();
+
+      mockBackupsQueryState = { ...mockBackupsQueryState, loading: true };
+      rerender(<DataOpsPage />);
+
+      expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
+      expect(screen.getByTestId('restore-panel')).toBeDefined();
+      expect(screen.getByTestId('delete-backup-btn-op-1')).toBe(deleteButton);
+      expect(document.activeElement).toBe(deleteButton);
+      expect(screen.getByTestId('dataops-content').getAttribute('aria-busy')).toBe('true');
+
+      mockBackupsQueryState = { ...mockBackupsQueryState, loading: false };
+      rerender(<DataOpsPage />);
+      expect(screen.getByTestId('dataops-content').hasAttribute('aria-busy')).toBe(false);
+    });
+
+    it('keeps the Anonymize panel drawn while its templates are read again after a save', () => {
+      mockTemplatesQueryState = {
+        data: { templates: [] },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      const { rerender } = render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Anonymize'));
+      const panel = screen.getByTestId('anonymize-panel');
+
+      mockTemplatesQueryState = { ...mockTemplatesQueryState, loading: true };
+      rerender(<DataOpsPage />);
+
+      expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
+      expect(screen.getByTestId('anonymize-panel')).toBe(panel);
+    });
+
     it('should show the skeleton alone on the backup tab while its own query loads', () => {
       mockBackupsQueryState = loading();
       render(<DataOpsPage />);

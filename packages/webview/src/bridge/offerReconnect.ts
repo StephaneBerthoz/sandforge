@@ -24,11 +24,11 @@ export function offerReconnect(payload: Record<string, unknown> | undefined): vo
   const name = org ? org.alias || org.username : orgId;
   useNotificationStore.getState().addNotification({
     level: 'warning',
-    title: i18n.t('org.sessionExpired.title'),
-    message: i18n.t('org.sessionExpired.message', { org: name }),
+    title: i18n.t('bridge.sessionExpired.title'),
+    message: i18n.t('bridge.sessionExpired.message', { org: name }),
     actions: [
       {
-        label: i18n.t('org.sessionExpired.reconnect'),
+        label: i18n.t('bridge.sessionExpired.reconnect'),
         command: 'org-reconnect',
         onAction: () => useAppStore.getState().navigate('orgs', { reconnectOrgId: orgId }),
       },

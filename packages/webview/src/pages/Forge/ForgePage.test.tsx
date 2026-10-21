@@ -11,6 +11,16 @@ let mockStoppedAt: number | null = null;
 const mockSetStoppedAt = vi.fn();
 
 // Only the store stands in: the helpers the screens import with it are its own.
+/*
+ * The input step's other panels come in chunks of their own
+ * (forgeInputPanels.test.tsx); here they are drawn at once.
+ */
+vi.mock('./forgeInputPanels', async () => ({
+  ForgeHistoryPanel: (await import('./ForgeHistoryPanel')).ForgeHistoryPanel,
+  ForgeTemplatePanel: (await import('./ForgeTemplatePanel')).ForgeTemplatePanel,
+  ForgeAIPanel: (await import('./ForgeAIPanel')).ForgeAIPanel,
+}));
+
 vi.mock('../../stores/useForgeStore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../stores/useForgeStore')>();
   const defaultState = {
@@ -87,6 +97,22 @@ const mockNavigate = vi.fn();
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({ navigate: mockNavigate, currentRoute: 'forge' }),
+}));
+
+/* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
+vi.mock('../../components/graph/lazyGraph', async () => ({
+  LiveGraph: (await import('../../components/graph/LiveGraph')).LiveGraph,
+}));
+
+/*
+ * The steps past the input come in chunks of their own (forgeSteps.test.tsx);
+ * here they are drawn at once, as the page draws them once loaded.
+ */
+vi.mock('./forgeSteps', async () => ({
+  ForgeDiscovery: (await import('./ForgeDiscovery')).ForgeDiscovery,
+  ForgeReview: (await import('./ForgeReview')).ForgeReview,
+  ForgeExecution: (await import('./ForgeExecution')).ForgeExecution,
+  ForgeResults: (await import('./ForgeResults')).ForgeResults,
 }));
 
 vi.mock('../../components/graph/LiveGraph', () => ({
@@ -168,11 +194,12 @@ describe('ForgePage', () => {
     expect(screen.getByTestId('forge-input')).toBeDefined();
   });
 
-  it('should show discovery view when phase is discovery', () => {
+  it('should show discovery view when phase is discovery', async () => {
     mockPhase = 'discovery';
     render(<ForgePage />);
-    // The mock's discovery has yet to answer, so ForgeDiscovery renders the loading state
-    expect(screen.getByTestId('forge-discovery-loading')).toBeDefined();
+    // The mock's discovery has yet to answer, so ForgeDiscovery renders the
+    // loading state, once its chunk has come.
+    expect(await screen.findByTestId('forge-discovery-loading')).toBeDefined();
   });
 
   it('should show review view when phase is review', () => {
@@ -181,16 +208,16 @@ describe('ForgePage', () => {
     expect(screen.getByTestId('forge-review')).toBeDefined();
   });
 
-  it('should show execution view when phase is execution', () => {
+  it('should show execution view when phase is execution', async () => {
     mockPhase = 'execution';
     render(<ForgePage />);
-    expect(screen.getByTestId('forge-execution')).toBeDefined();
+    expect(await screen.findByTestId('forge-execution')).toBeDefined();
   });
 
-  it('should show results view when phase is results', () => {
+  it('should show results view when phase is results', async () => {
     mockPhase = 'results';
     render(<ForgePage />);
-    expect(screen.getByTestId('forge-results')).toBeDefined();
+    expect(await screen.findByTestId('forge-results')).toBeDefined();
   });
 
   describe('a stopped run, told to a screen reader', () => {

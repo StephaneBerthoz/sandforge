@@ -3,6 +3,8 @@ import {
   BYTES_PER_MB,
   FILE_COPY_CEILING_MB,
   FILE_COPY_DEFAULT_MAX_MB,
+  SYNC_FILES_DEFAULT_RUN_MB,
+  SYNC_FILES_MAX_RUN_MB,
   fileCopyRefusal,
   isFileContentField,
 } from './file-copy.js';
@@ -18,6 +20,14 @@ describe('the size a file is copied up to', () => {
     const encoded = Math.ceil((FILE_COPY_CEILING_MB * BYTES_PER_MB) / 3) * 4;
     expect(encoded).toBeLessThan(50 * 1_000_000);
     expect(encoded).toBeLessThan(50 * BYTES_PER_MB);
+  });
+});
+
+describe('what a Sync run copies of files', () => {
+  it('copies up to 100 MB in a run unless set to more, at most 2 000', () => {
+    expect(SYNC_FILES_DEFAULT_RUN_MB).toBe(100);
+    expect(SYNC_FILES_MAX_RUN_MB).toBe(2_000);
+    expect(SYNC_FILES_DEFAULT_RUN_MB).toBeLessThan(SYNC_FILES_MAX_RUN_MB);
   });
 });
 

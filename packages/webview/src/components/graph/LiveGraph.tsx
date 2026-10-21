@@ -304,7 +304,7 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
       {/* React Flow's own wrapper is the graph's one application, named here:
           a second one around it, named the same, was read twice. */}
       <ReactFlow
-        aria-label={t('seed.graph.title', 'Dependency Graph')}
+        aria-label={t('forge.graph.title', 'Dependency Graph')}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}

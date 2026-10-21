@@ -1090,6 +1090,31 @@ describe('MonitorPage', () => {
     expect(mockRefetch).toHaveBeenCalled();
   });
 
+  it('keeps the failure and its Retry, with the keyboard on it, while the dashboard is read again', () => {
+    // The banner went as Retry was pressed, and the keyboard with it.
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: 'Server error',
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    const { rerender } = render(<MonitorPage />);
+    const retry = screen.getByTestId('error-retry-btn');
+    retry.focus();
+
+    mockMonitorQueryState = { ...mockMonitorQueryState, error: null, loading: true };
+    rerender(<MonitorPage />);
+
+    expect(screen.getByTestId('error-retry-btn')).toBe(retry);
+    expect(document.activeElement).toBe(retry);
+    expect(retry.getAttribute('aria-busy')).toBe('true');
+
+    mockMonitorQueryState = { ...mockMonitorQueryState, loading: false };
+    rerender(<MonitorPage />);
+    expect(screen.queryByTestId('monitor-error')).toBeNull();
+  });
+
   it('should show stale data indicator when data exceeds 2 minutes', () => {
     const twoMinutesAgo = new Date(Date.now() - 130_000).toISOString();
     mockMonitorQueryState = {

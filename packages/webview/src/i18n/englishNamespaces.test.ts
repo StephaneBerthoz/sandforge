@@ -23,8 +23,21 @@ afterEach(() => {
 });
 
 describe('the English of a part of the panel, loaded with it', () => {
-  it('has a loader for every namespace of the catalogue, each its own module', () => {
-    expect(Object.keys(englishNamespaceLoaders).sort()).toEqual(Object.keys(en).sort());
+  it('has a loader for every namespace a panel does not start with, and none for those it does', () => {
+    // A panel holds its shell's namespaces from the start and never asks for
+    // them: a loader of one built a chunk nothing fetched.
+    const shell = Object.keys(panelCatalogue);
+    expect(shell).toContain('common');
+    expect(Object.keys(englishNamespaceLoaders).sort()).toEqual(
+      Object.keys(en)
+        .filter((namespace) => !shell.includes(namespace))
+        .sort(),
+    );
+  });
+
+  it('asks nothing for a namespace of the shell, which a panel starts with', async () => {
+    await expect(loadEnglishNamespaces(['common', 'nav'])).resolves.toBeUndefined();
+    expect(i18n.t('common.cancel')).toBe(en.common.cancel);
   });
 
   it('adds a namespace the panel does not hold yet, as the catalogue has it', async () => {
@@ -37,11 +50,12 @@ describe('the English of a part of the panel, loaded with it', () => {
   });
 
   it('asks nothing for a namespace held, and each namespace once', async () => {
-    const common = vi.spyOn(englishNamespaceLoaders, 'common');
+    const grappe = vi.spyOn(englishNamespaceLoaders, 'grappe');
     const ai = vi.spyOn(englishNamespaceLoaders, 'ai');
-    await loadEnglishNamespaces(['common', 'ai']);
+    await loadEnglishNamespaces(['grappe']);
+    await loadEnglishNamespaces(['grappe', 'ai']);
     await loadEnglishNamespaces(['ai']);
-    expect(common).not.toHaveBeenCalled();
+    expect(grappe).toHaveBeenCalledTimes(1);
     expect(ai).toHaveBeenCalledTimes(1);
   });
 

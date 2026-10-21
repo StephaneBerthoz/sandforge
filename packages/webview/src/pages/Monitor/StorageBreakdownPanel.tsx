@@ -1,7 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { Suspense, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PieChart, Pie, Sector, ResponsiveContainer, Tooltip } from 'recharts';
-import type { PieSectorShapeProps } from 'recharts';
 import { Database } from 'lucide-react';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -9,6 +7,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { formatNumber } from '../../utils/formatters';
 import { cn } from '../../theme';
 import type { StorageObjectEntry } from '@sandforge/shared';
+import { StorageDonut } from './monitorCharts';
 
 /**
  * One identity hue per donut slice, as the slice's fill and as the dot on its
@@ -28,16 +27,8 @@ const SLICE_HUES = [
   { fill: 'fill-hue-indigo', dot: 'bg-hue-indigo' },
 ];
 
-/**
- * A slice, drawn as Recharts draws one, with the class of its hue.
- *
- * Recharts 3 deprecates `Cell`, which carried the class before, for the
- * `shape` of the chart's items: it is handed each slice's geometry and its
- * index, which is the index of its row in the table.
- */
-function StorageSlice(props: PieSectorShapeProps): React.ReactElement {
-  return <Sector {...props} className={SLICE_HUES[props.index % SLICE_HUES.length].fill} />;
-}
+/** Each slice's fill class, by index (StorageDonut). */
+const SLICE_FILLS = SLICE_HUES.map((hue) => hue.fill);
 
 /** Response shape from monitor:storage. */
 interface StorageData {
@@ -54,8 +45,8 @@ interface StorageData {
  * table.
  *
  * Fetches data via useBridgeQuery('monitor:storage') and renders
- * the top 10 objects in a Recharts PieChart (donut variant) with
- * a detailed table below.
+ * the top 10 objects in a donut (StorageDonut, Recharts, loaded once the
+ * panel has painted) with a detailed table below.
  *
  * The counts are every object the org counts. On a real sandbox the list was
  * led by ObjectPermissions, FieldPermissions and LoginHistory under the title
@@ -139,30 +130,10 @@ export const StorageBreakdownPanel: React.FC = () => {
           tooltips (`accessibilityLayer`): inside this hidden block that stop
           was a control no reader could name, as axe said. */}
       <div className="h-48" data-testid="storage-donut-chart" aria-hidden="true">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart accessibilityLayer={false}>
-            <Pie
-              data={chartData}
-              cx="50%"
-              cy="50%"
-              innerRadius={50}
-              outerRadius={80}
-              dataKey="value"
-              paddingAngle={2}
-              rootTabIndex={-1}
-              shape={StorageSlice}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'var(--sf-bg-primary)',
-                border: '1px solid var(--sf-border)',
-                borderRadius: '6px',
-              }}
-              itemStyle={{ color: 'var(--sf-text-primary)' }}
-              formatter={(value) => (typeof value === 'number' ? formatNumber(value) : value)}
-            />
-          </PieChart>
-        </ResponsiveContainer>
+        {/* The box keeps its height while Recharts loads. */}
+        <Suspense fallback={null}>
+          <StorageDonut data={chartData} fills={SLICE_FILLS} />
+        </Suspense>
       </div>
 
       {/* Table */}

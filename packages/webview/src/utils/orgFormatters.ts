@@ -17,10 +17,10 @@ const ENV_TAGS = [
 
 /** The catalogue key of each kind of sandbox. */
 const SANDBOX_TYPE_KEYS: Readonly<Record<string, string>> = {
-  Developer: 'sidePanel.orgType.dev',
-  DeveloperPro: 'sidePanel.orgType.devPro',
-  Partial: 'sidePanel.orgType.partial',
-  Full: 'sidePanel.orgType.full',
+  Developer: 'common.orgType.dev',
+  DeveloperPro: 'common.orgType.devPro',
+  Partial: 'common.orgType.partial',
+  Full: 'common.orgType.full',
 };
 
 /**
@@ -38,14 +38,14 @@ const SANDBOX_TYPE_KEYS: Readonly<Record<string, string>> = {
  */
 export function orgTypeLabel(org: SalesforceOrg, t: TFunction): string {
   const orgType = registeredOrgType(org.orgType, org.metadata?.edition);
-  if (orgType === 'Production') return t('sidePanel.orgType.prod');
-  if (orgType === 'Scratch') return t('sidePanel.orgType.scratch');
+  if (orgType === 'Production') return t('common.orgType.prod');
+  if (orgType === 'Scratch') return t('common.orgType.scratch');
   const envTags = org.tags
     .map((tag) => tag.toUpperCase())
     .filter((tag): tag is string => (ENV_TAGS as readonly string[]).includes(tag));
   if (envTags.length > 0) return envTags[0];
-  if (org.sandboxType) return t(SANDBOX_TYPE_KEYS[org.sandboxType] ?? 'sidePanel.orgType.sandbox');
-  return t(orgType === 'Developer' ? 'sidePanel.orgType.developer' : 'sidePanel.orgType.sandbox');
+  if (org.sandboxType) return t(SANDBOX_TYPE_KEYS[org.sandboxType] ?? 'common.orgType.sandbox');
+  return t(orgType === 'Developer' ? 'common.orgType.developer' : 'common.orgType.sandbox');
 }
 
 /**

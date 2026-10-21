@@ -99,7 +99,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
             )}
           />
           <Badge variant={statusBadgeVariant[org.status] ?? 'default'}>
-            {t(`org.status_${org.status}`)}
+            {t(`common.orgStatus_${org.status}`)}
           </Badge>
         </div>
       </div>
@@ -136,7 +136,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
             }}
             data-testid={`org-reconnect-${org.id}`}
           >
-            {t('monitor.tryReconnect')}
+            {t('common.tryReconnect')}
           </button>
         )}
         {onOpenInBrowser && (

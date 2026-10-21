@@ -39,10 +39,10 @@ const SWEEP_READ_TIMEOUT_MS = 150_000;
  * Sync run's removal says it, since the reasons are the same.
  */
 const REFUSAL_KEYS: Record<SeedRemovalRefusalCode, string> = {
-  GUARD_BLOCKED: 'sync.removal.refusedGuard',
-  NO_GUARD: 'sync.removal.refusedNoGuard',
-  ORG_GONE: 'sync.removal.refusedOrgGone',
-  RUNNING: 'sync.removal.refusedRunning',
+  GUARD_BLOCKED: 'runRemoval.sync.refusedGuard',
+  NO_GUARD: 'runRemoval.sync.refusedNoGuard',
+  ORG_GONE: 'runRemoval.sync.refusedOrgGone',
+  RUNNING: 'runRemoval.sync.refusedRunning',
 };
 
 /** What `seed:remove` answers. */
@@ -82,13 +82,13 @@ const SeedRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
   if (read.error) {
     body = (
       <p data-testid="seed-sweep-error" className="text-status-warning">
-        {t('forge.history.sweep.error', { org, reason: read.error })}
+        {t('runRemoval.sweep.error', { org, reason: read.error })}
       </p>
     );
   } else if (!read.data || read.data.runId !== runId) {
     body = (
       <p data-testid="seed-sweep-loading" className="text-text-secondary">
-        {t('forge.history.sweep.loading', { org })}
+        {t('runRemoval.sweep.loading', { org })}
       </p>
     );
   } else {
@@ -101,7 +101,7 @@ const SeedRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
       className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
     >
       <h4 id={headingId} className="text-[11px] font-semibold">
-        {t('forge.history.sweep.title', { org })}
+        {t('runRemoval.sweep.title', { org })}
       </h4>
       {body}
     </section>
@@ -153,8 +153,8 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
   const { requested: cancelRequested, cancel: cancelRemoval } = useOperationCancel(
     removal.requestId,
     {
-      title: t('sync.removal.cancelRefused'),
-      message: t('sync.removal.cancelRefusedDetail'),
+      title: t('runRemoval.sync.cancelRefused'),
+      message: t('runRemoval.sync.cancelRefusedDetail'),
     },
   );
 
@@ -214,7 +214,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
         data-testid="seed-removal-remove"
         className="self-start text-[11px]"
       >
-        {kept.removed ? t('sync.removal.removeLeft') : t('sync.removal.remove')}
+        {kept.removed ? t('runRemoval.sync.removeLeft') : t('runRemoval.sync.remove')}
       </Button>
     );
   }
@@ -233,9 +233,9 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
     <section
       className="flex flex-col gap-2 rounded-sm border border-subtle bg-surface-1 p-2"
       data-testid="seed-removal"
-      aria-label={t('sync.removal.title')}
+      aria-label={t('runRemoval.sync.title')}
     >
-      <h5 className="text-xs font-semibold text-text-primary">{t('sync.removal.title')}</h5>
+      <h5 className="text-xs font-semibold text-text-primary">{t('runRemoval.sync.title')}</h5>
       <p className="text-[11px] text-text-secondary" data-testid="seed-removal-created">
         {t('seed.removal.created', {
           count: kept.created,
@@ -254,7 +254,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
             className="text-[11px] text-text-secondary"
             data-testid="seed-removal-removing"
           >
-            {cancelRequested ? t('sync.removal.stopping') : t('sync.removal.removing')}
+            {cancelRequested ? t('runRemoval.sync.stopping') : t('runRemoval.sync.removing')}
           </p>
           {removal.requestId && (
             <Button
@@ -267,7 +267,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
               data-testid="seed-removal-cancel"
               className="text-[11px]"
             >
-              {t('sync.removal.cancel')}
+              {t('runRemoval.sync.cancel')}
             </Button>
           )}
         </div>
@@ -285,7 +285,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
         open={confirming}
         onClose={() => setConfirming(false)}
         onConfirm={confirmRemoval}
-        title={t('sync.removal.removeTitle', { org })}
+        title={t('runRemoval.sync.removeTitle', { org })}
         description={t('seed.removal.removeDescription', { org })}
         confirmText={org}
       >
@@ -301,7 +301,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
             onChange={(e) => setIncludeChanged(e.target.checked)}
             data-testid="seed-removal-include-changed"
           />
-          {t('sync.removal.includeChanged')}
+          {t('runRemoval.sync.includeChanged')}
         </label>
         {/* Never ticked unasked: a sweep deletes records the run did not write. */}
         <label className="flex items-center gap-2 mt-1 cursor-pointer">
@@ -311,7 +311,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
             onChange={(e) => setSweep(e.target.checked)}
             data-testid="seed-removal-sweep-toggle"
           />
-          {t('forge.history.removeSweep')}
+          {t('runRemoval.removeSweep')}
         </label>
         {sweep && confirming && <SeedRemovalSweep runId={runId} org={org} />}
       </DangerConfirm>

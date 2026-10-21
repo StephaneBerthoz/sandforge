@@ -47,7 +47,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   const { t, i18n } = useTranslation();
   const dotClass = statusColors[status] ?? statusColors.error;
   // A status the catalogue has no word for is read as the host wrote it.
-  const statusKey = `org.status_${status}`;
+  const statusKey = `common.orgStatus_${status}`;
   const statusLabel = i18n.exists(statusKey) ? t(statusKey) : status;
   const typeInfo = orgTypeConfig[orgType] ?? {
     label: orgType.slice(0, 3).toUpperCase(),

@@ -26,8 +26,8 @@ import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
 import { useForgeAIPlan } from './useForgeAIPlan';
 import type { ForgeAIPlanState } from './useForgeAIPlan';
+import { extractRecordId } from '../../utils/recordId';
 import {
-  extractRecordId,
   extractSalesforceDomain,
   SMART_SOQL_CAP,
   soqlFilterRefused,

@@ -77,7 +77,40 @@
     "frozenSalt": {
       "created": "この最初の抽出で、すべての仮名を作るためのソルトを作成し、VS Code のシークレットストレージに保存しました。以後の抽出は、同じレコードに同じ仮名を付けます。このデータセットを抽出するチームメイトには同じソルトが必要です。「SandForge: 凍結データセットのソルトをコピー」でコピーし、パスワードと同じように渡してください。受け取った人は「SandForge: 凍結データセットのソルトを使用」で設定します。ソルトを持つ人は、仮名がどのソース値から作られたかを知ることができます。",
       "createdTitle": "凍結データセットのソルト"
-    }
+    },
+    "emailLimit": {
+      "single": "単一メール",
+      "workflow": "ワークフローメール"
+    },
+    "quoted": "「{{name}}」",
+    "orgType": {
+      "prod": "PROD",
+      "scratch": "SCRATCH",
+      "developer": "DEVELOPER",
+      "dev": "DEV",
+      "devPro": "DEV PRO",
+      "partial": "PARTIAL",
+      "full": "FULL",
+      "sandbox": "SANDBOX"
+    },
+    "relativeTime": {
+      "justNow": "たった今",
+      "minutesAgo": "{{count}}分前",
+      "hoursAgo": "{{count}}時間前"
+    },
+    "selectOrg": "組織を選択",
+    "orgStatus_connected": "接続済み",
+    "orgStatus_expired": "セッション期限切れ",
+    "orgStatus_error": "接続エラー",
+    "orgStatus_refreshing": "更新中...",
+    "tryReconnect": "再接続を試行",
+    "pauseRun": "一時停止",
+    "resumeRun": "再開",
+    "runPauseRefused": "実行を一時停止または再開できませんでした",
+    "runPauseRefusedDetail": "この実行はすでに終了しているか、このウィンドウから開始されていません。",
+    "records": "レコード",
+    "recordCountLabel": "レコード数",
+    "whereClause": "WHERE 句"
   },
   "status": {
     "apiUsage": "API 使用量",
@@ -109,10 +142,6 @@
     "disconnectConfirm": "{{alias}} を切断しますか？SandForge はこの組織を忘れます。エイリアス、タグ、色、安全レベルは削除され、再接続時は既定値から始まります。",
     "edit": "組織を編集",
     "noOrgs": "接続されている組織はありません",
-    "status_connected": "接続済み",
-    "status_expired": "セッション期限切れ",
-    "status_error": "接続エラー",
-    "status_refreshing": "更新中...",
     "alias": "エイリアス",
     "username": "ユーザー名",
     "instanceUrl": "インスタンス URL",
@@ -143,11 +172,6 @@
     "openRefusedUrl": "{{alias}} を開きませんでした。インスタンス URL が HTTPS のアドレスではありません。",
     "openNotFound": "{{alias}} は登録されていないため、開きませんでした。",
     "openFailed": "ブラウザで {{alias}} を開けませんでした: {{reason}}",
-    "sessionExpired": {
-      "title": "セッションの有効期限切れ",
-      "message": "{{org}} とのセッションの有効期限が切れました。続行するには再接続してください。",
-      "reconnect": "再接続"
-    },
     "moreMethods": "その他の方法",
     "cliMissing": "このマシンで Salesforce CLI（sf）が応答しません。「SF CLI からインポート」と「OAuth（Web）」は CLI を使います。",
     "aliasOptionalHint": "任意です。指定しない場合、組織はユーザー名で表示されます。",
@@ -172,7 +196,12 @@
       "recsPerSec": "レコード/秒",
       "cancelRefused": "操作をキャンセルできませんでした",
       "cancelRefusedDetail": "この実行はすでに終了しているか、ここからは停止できません。一覧を再読み込みしました。",
-      "activeCount_other": "{{count}}件実行中"
+      "activeCount_other": "{{count}}件実行中",
+      "module": {
+        "realtime": "リアルタイム同期",
+        "clone": "レコードクローン",
+        "csv": "CSV インポート"
+      }
     },
     "jobs": "ジョブ",
     "alerts": "アラート",
@@ -271,7 +300,6 @@
     "staleData": "データは{{minutes}}分前のものです",
     "refreshNow": "今すぐ更新",
     "connectionLost_other": "接続が失われました。自動更新が{{count}}回失敗しました。",
-    "tryReconnect": "再接続を試行",
     "alertHistory": "アラート履歴",
     "alertHistoryTimeline": "タイムライン",
     "noAlertHistory": "アラート履歴はまだありません",
@@ -610,7 +638,6 @@
       "regex": "正規表現パターン",
       "from_csv": "CSV から"
     },
-    "recordCount": "レコード数",
     "batchSize": "バッチサイズ",
     "totalRecords": "合計レコード",
     "saveAsTemplate": "テンプレートとして保存",
@@ -897,9 +924,6 @@
       "step3": "オブジェクトとレコード数を選択",
       "step4": "実行して結果を確認"
     },
-    "graph": {
-      "title": "依存関係グラフ"
-    },
     "results": {
       "aiFallback": "AI が値を返さなかったため、次の項目には生成された文が入りました: {{fields}}。AI がオフになっているか、呼び出しが拒否されました（理由は SandForge のログに記録されます）。",
       "aiFallbackShort": "AI の応答に値が欠けていたため、次の項目には生成された文が入りました: {{fields}}。",
@@ -956,7 +980,6 @@
         "workflowRule": "ワークフロールール"
       },
       "entry": "{{kind}}「{{name}}」",
-      "quoted": "「{{name}}」",
       "emailsPerRecord_other": "レコードごとにメール{{count}}通",
       "notifications": "カスタム通知を送信",
       "outbound": "アウトバウンドメッセージを送信",
@@ -970,16 +993,17 @@
       "bypassNoSet": "{{permission}}をあなたに割り当てると、それを指定しているものは実行されません。{{org}}にはそれを含む権限セットが見つかりませんでした。",
       "bypassHeld": "{{permissions}}を保有しているため、それを指定しているものはこのシードでは実行されません。",
       "alertsAsSingle": "{{org}}は、Developer Edition と同様に、メールアラートも単一メールの上限に数えます。",
-      "limit": {
-        "single": "単一メール",
-        "workflow": "ワークフローメール"
-      },
       "emailsFit": "これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。",
       "emailsUnread": "これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通。本日の残りを読み取れませんでした（{{reason}}）。シードは止まりません。",
       "refused": "このシードは書き込みの前に拒否されます。これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。上限を超えると、保存中に送信するフローはそのレコードを拒否し、組織自身のメールもその日の残りは止まります。",
       "waysOut": "シードするには、レコード数を減らすか、{{objects}}を0にするか、{{senders}}を無効にしてください。",
       "wayBypass": "または、権限セット{{set}}を自分に割り当ててください。その{{permission}}によって{{senders}}は実行されなくなります。",
       "wayBypassNoSet": "または、{{permission}}を含む権限セットを自分に割り当ててください。それによって{{senders}}は実行されなくなります。"
+    },
+    "stepHelp": {
+      "selectObjects": "データを投入する Salesforce オブジェクトを選択",
+      "configureFields": "各項目の生成方法をカスタマイズ — ルール、範囲、パターン",
+      "execute": "データ生成を確認して実行。完了すると結果がここに表示されます"
     }
   },
   "sync": {
@@ -1202,7 +1226,8 @@
         "editDelete": "編集 / 削除",
         "createEdit": "作成 / 編集"
       },
-      "autoResolved_other": "自動解決（{{count}}個の項目）"
+      "autoResolved_other": "自動解決（{{count}}個の項目）",
+      "timestamp": "タイムスタンプ"
     },
     "emptyState": {
       "title": "2つの組織を同期",
@@ -1268,7 +1293,6 @@
       "detailTitle": "実行の詳細",
       "dateTime": "日時",
       "objects": "オブジェクト",
-      "records": "レコード",
       "status": "ステータス",
       "status_success": "成功",
       "status_partial": "一部成功",
@@ -1347,16 +1371,12 @@
       "unread": "書き込むレコードを数えられませんでした ({{reason}})。数えられるまで実行は拒否されます。"
     },
     "runControls": {
-      "pause": "一時停止",
-      "resume": "再開",
       "cancelSimulation": "シミュレーションをキャンセル",
       "pausedNote": "一時停止中: 再開するまで何も書き込まれません。送信済みのバッチや実行中の Bulk API ジョブは先に完了します。",
       "stopping": "停止中: 実行は次のオブジェクトまたはバッチの前で終了し、書き込まれた内容はターゲット組織に残ります。",
       "cancelConfirm": "実行中の同期を停止しますか？次のオブジェクトまたはバッチの前で終了し、書き込み済みのレコードはターゲット組織に残ります。",
       "cancelRefused": "実行をキャンセルできませんでした",
-      "cancelRefusedDetail": "この実行はすでに終了しているか、このウィンドウから開始されていません。",
-      "pauseRefused": "実行を一時停止または再開できませんでした",
-      "pauseRefusedDetail": "この実行はすでに終了しているか、このウィンドウから開始されていません。"
+      "cancelRefusedDetail": "この実行はすでに終了しているか、このウィンドウから開始されていません。"
     },
     "strategyNotice": {
       "manualReplaced": "この下書きは手動での競合確認を指定していましたが、同期の実行にはその機能がありません。これまでの実行ではソースの値が書き込まれていました。現在は、2つの組織で値が異なる箇所ではすべてターゲット組織の値を保持します。ソースの値を書き込む場合は別の選択をしてください。"
@@ -1430,31 +1450,6 @@
       "toggleDetails": "チェックしない限りオフです。オブジェクトのレコードを書き込んだ後、そのいずれかにリンクされた各 Salesforce ファイルの最新バージョンと従来の添付ファイルをコピーし、ターゲット組織にあるレコードのコピーにリンクします。保存された設定は、どのファイルをどこにコピーしたかを記録します。再実行では、ソースに新しいバージョンがある場合にのみファイルをコピーし、それをコピーの新しいバージョンとして追加します。2 つ目のファイルは作りません。実行が何かを書き込む前にターゲット組織のファイルストレージを読み取り、ファイルが収まらない実行は拒否します。最大サイズを超えるファイルと、1 回の実行でコピーする上限を超えるファイルはスキップして件数を示し、後者は次の実行でコピーします。実行を削除すると、そのレコードとともに作成したファイルも削除します。以前のコピーに追加したバージョンは残ります。",
       "toggleHint": "書き込んだレコードの Salesforce ファイルと添付ファイルもコピーします。"
     },
-    "removal": {
-      "title": "この実行が作成したもの",
-      "created_other": "{{org}} に作成したレコードとファイル: {{formatted}} 件",
-      "remove": "この実行が作成したものを削除",
-      "removeLeft": "この実行が作成したもののうち残りを削除",
-      "removeTitle": "この実行が作成したものを {{org}} から削除",
-      "removeDescription": "この実行が作成したもの (挿入したレコード、{{org}} に該当がなく upsert で作成したレコード、作成したファイル) を {{org}} から削除します。ファイルを先に、次に子レコードを親より先に削除し、ごみ箱に移します。この実行が更新したレコードはもともと {{org}} にあったもので、新しい値のまま残ります。{{org}} に残るレコードが依存しているレコードは残します。実行後に変更されたレコード、または実行後に追加されたレコードが依存しているレコードも、下で含めない限り残します。",
-      "includeChanged": "実行後に変更されたレコードと、その後に追加されたものも削除する",
-      "removing": "この実行が作成したものを削除しています…",
-      "cancel": "削除を停止",
-      "stopping": "停止しています: 実行中の呼び出しに応答があった時点で削除は終わります。それまでに削除したものを一覧にし、残りは組織に残ります。後の削除で削除できます。",
-      "cancelRefused": "削除を停止できませんでした",
-      "cancelRefusedDetail": "削除はすでに終わっているか、このウィンドウから開始されたものではありません。",
-      "notKept": "この実行が作成したものの記録は、新しい実行のために破棄されたため保持されておらず、ここからは削除できません。",
-      "refusedGuard": "Production Guard は本番組織である {{org}} での削除を許可しません。この実行が作成したものはそこに残ります。組織で直接削除してください。",
-      "refusedNoGuard": "このウィンドウでは Production Guard が動作しておらず、それなしでは何も削除しません。",
-      "refusedOrgGone": "この実行が書き込んだ組織は接続されていません。実行が作成したものを削除するには、もう一度接続してください。",
-      "refusedRunning": "実行はまだ書き込み中です。作成したものは、実行が終わってから削除できます。",
-      "readWhole": "{{config}} の次の実行では {{objects}} をすべて読み取ります。基準点が前提としていたコピーがなくなったためです。",
-      "filesForgotten_other": "{{config}} は {{formatted}} 件のファイルをコピー済みとして扱わなくなりました。次の全件読み取りで再びコピーします。",
-      "unfinishedTitle": "終了しなかった実行",
-      "unfinishedNote": "これらの実行中にウィンドウが閉じられたか、履歴に表示されなくなりました。作成したものは、ターゲットへの各呼び出しが応答するたびに保持されており、削除できます。",
-      "unfinishedRun": "{{config}}、{{date}} に開始",
-      "unfinishedInFlight_other": "{{object}} の {{formatted}} 行を書き込んでいる途中で停止しました。ターゲットが受け付けた行は組織にありますが、ここには表示されず、削除の対象にもなりません。"
-    },
     "earlierCopies": {
       "leftAsIs": "この保存済み設定の実行は、以前の実行がコピーしたレコードをそのまま残し、それ以外を挿入します。",
       "quickSync": "{{date}} にこれらの組織間で行われた前回の同期が作成したレコードが、まだターゲットにあります: {{objects}}。クイック Sync はすべてのレコードを再び挿入します。2 つ目のコピーを残さないには、先に Sync の履歴からその実行を削除してください。",
@@ -1475,7 +1470,10 @@
       "setAfter_other": "{{objects}} のレコードの書き込み後に、{{count}} 件のレコードに {{fields}} を設定しました。互いに参照し合うため、最初は {{fields}} なしで書き込みました。",
       "withoutFields_other": "{{count}} 件のレコードを、ターゲット組織が拒否した項目なしで書き込み直しました:",
       "withoutField_other": "{{field}} ({{count}} 件で除外): {{refusedBy}}。"
-    }
+    },
+    "firstStepTitle": "Sync を始める",
+    "firstStepDesc": "クイック Sync で3クリックで Salesforce 組織間のデータを転送",
+    "startQuickSync": "クイック Sync を開始"
   },
   "migration": {
     "title": "移行",
@@ -1614,7 +1612,6 @@
       "constant": "定数",
       "preserve_format": "フォーマット保持"
     },
-    "hardDelete": "完全削除",
     "recordsProcessed": "処理レコード数",
     "errorRate": "エラー率",
     "anonymizedFields": "匿名化テンプレート",
@@ -2008,7 +2005,6 @@
       "failedJobs": "失敗した Apex ジョブ"
     },
     "stepConfigDelay": "遅延（秒）",
-    "stepConfigWhere": "WHERE 句",
     "stepConfigTemplate": "テンプレート ID",
     "noExecution": "アクティブな実行はありません",
     "subtitle": "複数ステップのパイプラインを作成・保存",
@@ -2116,7 +2112,9 @@
         "timedOut": "時間内に承認されませんでした: {{time}} までに回答がありませんでした",
         "cancelled": "回答の前に停止、{{time}}"
       }
-    }
+    },
+    "hardDelete": "完全削除",
+    "selectOrg": "組織を選択"
   },
   "ai": {
     "title": "AI アシスタント",
@@ -2216,7 +2214,6 @@
     "allActions": "すべてのアクション",
     "allModules": "すべてのモジュール",
     "noAuditEntries": "監査エントリはありません",
-    "timestamp": "タイムスタンプ",
     "action": "アクション",
     "details": "詳細",
     "nodes": "ノード",
@@ -2375,7 +2372,12 @@
       "unhandled": "このパネルが SandForge の処理しないリクエストを送信したため、破棄されました。パネルと拡張機能が同じバージョンで動作するよう、ウィンドウを再読み込みしてください。",
       "other": "SandForge はこのパネルからのリクエストを破棄しました。理由は SandForge の出力チャネルに表示されます。"
     },
-    "runOutlivedWait": "SandForge は {{hours}} 時間後に {{request}} の待機を終了しましたが、実行はまだ書き込み中の可能性があります。モニターのライブオペレーションで進行状況を確認できます。もう一度開始するとレコードが二重に書き込まれます。"
+    "runOutlivedWait": "SandForge は {{hours}} 時間後に {{request}} の待機を終了しましたが、実行はまだ書き込み中の可能性があります。モニターのライブオペレーションで進行状況を確認できます。もう一度開始するとレコードが二重に書き込まれます。",
+    "sessionExpired": {
+      "title": "セッションの有効期限切れ",
+      "message": "{{org}} とのセッションの有効期限が切れました。続行するには再接続してください。",
+      "reconnect": "再接続"
+    }
   },
   "onboarding": {
     "welcomeTitle": "SandForge へようこそ",
@@ -2394,18 +2396,8 @@
     "step4Title": "最初のステップ",
     "step4Desc": "組織タイプに基づいた推奨スタートポイントです",
     "suggestMonitor": "モニターからスタートして、本番組織の健全性を把握しましょう",
-    "openSeed": "Seed を開く",
-    "openMonitor": "モニターを開く",
-    "openSettings": "設定を開く",
     "gotIt": "了解しました！",
     "whatsNewTitle": "SandForge の新機能",
-    "openForge": "Forge を開く",
-    "openSync": "Sync を開く",
-    "sandboxBanner": "Sandbox は空です。Seed または Sync でデータを投入しましょう",
-    "populateSandbox": "Sandbox にデータを投入",
-    "syncFirstStepTitle": "Sync を始める",
-    "syncFirstStepDesc": "クイック Sync で3クリックで Salesforce 組織間のデータを転送",
-    "startQuickSync": "クイック Sync を開始",
     "suggestSeedAndSync": "Sandbox の準備ができました。Seed でテストデータを投入するか、Sync で別の組織からコピーしましょう。",
     "tryItNow": "今すぐ試す",
     "viewChangelog": "完全なチェンジログを表示",
@@ -2629,7 +2621,6 @@
     },
     "heroTitle": "実際のレコードから Sandbox を作成",
     "heroDesc": "SandForge を任意の組織のレコードに向けるだけ — 関連グラフ全体を Sandbox へクローンします。コピーするデータがない場合は、データセットを生成または再生できます。",
-    "openFrozen": "凍結データセットを開く",
     "paths": {
       "forgeTitle": "レコードからクローン",
       "forgeDesc": "レコード ID を貼り付け、関連グラフを検出し、Sandbox へ Forge",
@@ -2640,11 +2631,6 @@
     }
   },
   "help": {
-    "seed": {
-      "selectObjects": "データを投入する Salesforce オブジェクトを選択",
-      "configureFields": "各項目の生成方法をカスタマイズ — ルール、範囲、パターン",
-      "execute": "データ生成を確認して実行。完了すると結果がここに表示されます"
-    },
     "title": "ヘルプとリソース",
     "gettingStarted": "はじめに",
     "gettingStartedDesc": "SandForge の基本を学ぶ",
@@ -2743,9 +2729,18 @@
     "opStatus": {
       "success": "成功",
       "running": "実行中",
+      "paused": "一時停止中",
       "failed": "失敗",
       "cancelled": "キャンセル済み"
-    }
+    },
+    "sandboxBanner": "Sandbox は空です。Seed または Sync でデータを投入しましょう",
+    "openSeed": "Seed を開く",
+    "openSync": "Sync を開く",
+    "populateSandbox": "Sandbox にデータを投入",
+    "openForge": "Forge を開く",
+    "openFrozen": "凍結データセットを開く",
+    "openMonitor": "モニターを開く",
+    "openSettings": "設定を開く"
   },
   "commandPalette": {
     "placeholder": "コマンドを検索...",
@@ -3019,7 +3014,6 @@
     "templateDescription": "説明（オプション）",
     "templateDeleted": "テンプレートを削除しました",
     "templateUpdated": "テンプレートを更新しました",
-    "selectOrg": "組織を選択",
     "cancelEdit": "キャンセル",
     "recordLimit": "オブジェクトごとのレコード数",
     "recordLimitHint": "オブジェクトごとにクローンする行数を制限します。低いほど高速で、大規模な組織でも安全です。",
@@ -3066,9 +3060,6 @@
     },
     "expandOrphanParents": "親を自動取得",
     "expandOrphanParentsHint": "クローンが自動では読み込まない親レコードもコピーします。複数のオブジェクトを指せる参照の先、5 階層より上、または上限を超えた親です。レコード起点のクローンは、レコードの書き込みに必要な親レコードを既に ID で読み込みます。",
-    "keepContactPoints": "メールアドレスと電話番号をそのまま保持",
-    "keepContactPointsHint": "オフの場合、クローンはすべてのメールアドレスを .invalid の下に、すべての電話番号を架空の番号として書き込むため、ターゲット組織の自動化は誰にも届きません。",
-    "keepContactPointsWarning": "メールアドレスと電話番号はソースのまま書き込まれます。ターゲット組織のフロー、トリガー、メールアラートが実在の人物にメールや SMS を送信する可能性があります。",
     "reuseLastGraph": "前回のグラフを再利用（検出をスキップ）",
     "reuseLastGraphHint": "30秒以上かかる検出をスキップし、前回の実行のグラフを再利用します。",
     "quickStartTemplate": "クイックスタート（{{name}}）",
@@ -3191,6 +3182,7 @@
       "method": "手法",
       "anonymizationDesc_other": "{{count}} 件の PII 項目を検出しました。カテゴリごとに匿名化手法を設定してください。",
       "framework": "フレームワーク",
+      "frameworkNone": "なし",
       "noCompliance": "コンプライアンスフレームワークが選択されていません。レポートを生成するには 1 つ選択してください。",
       "complianceLoading": "コンプライアンスを分析しています...",
       "complianceError": "コンプライアンスレポートを作成できませんでした: {{error}}",
@@ -3209,8 +3201,6 @@
       "fieldsScanned_other": "合計 {{count}}個の項目をスキャン",
       "automation": {
         "loading": "この実行が書き込むレコードに対してターゲット組織が実行する処理を読み取っています…",
-        "readAgain": "もう一度読み取る",
-        "readingAgain": "もう一度読み取っています…",
         "intro": "この実行がレコードを書き込むと、ターゲット組織は次を実行します:",
         "none_other": "この実行が書き込む {{count}} 個のオブジェクトでは、ターゲット組織の自動化は何も実行されません: 有効なフロー、プロセス、ワークフロールール、Apex トリガー、割り当てルール、重複ルールはありません。",
         "nothingSeen": "読み取れた範囲では何も見つかりませんでした。",
@@ -3223,27 +3213,17 @@
         "removalTrigger": "{{object}}: Apex トリガー {{name}} は削除時に実行され、削除を拒否できます",
         "removalPackageTrigger": "{{object}}: 管理パッケージがインストールした Apex トリガー {{name}} は削除時に実行され、削除を拒否できます。組織内の誰も変更できません",
         "removalLock": "{{object}}: 有効化されたレコードは配下のレコードをロックします。削除はそのレコードと一緒に、またはドラフトに戻った後にのみ配下のレコードを削除できます",
-        "flow": "フロー: {{name}}",
-        "trigger": "Apex トリガー: {{name}}",
         "beforeSave": "保存前",
         "afterSave": "保存後",
         "beforeAndAfterSave": "保存前と保存後",
-        "beforeDelete": "削除前",
-        "afterDelete": "削除後",
-        "beforeAndAfterDelete": "削除前と削除後",
         "notFor_other": "カスタム権限 {{names}} のいずれかを持つユーザーでは起動しません",
         "named_other": "開始条件にカスタム権限 {{names}} が含まれています",
         "conditionNotRead": "開始条件は読み取られていません",
         "conditionUnreadable": "開始条件を読み取れませんでした",
-        "bypassHint_other": "ターゲット組織でこの実行が書き込みに使うユーザーにカスタム権限 {{names}} を割り当てると、開始条件でそれを除外しているフローは起動しなくなります。",
         "notRead_other": "{{count}} 件のフローの開始条件は読み取られていません: 読み取るのは最大 {{bound}} 件です。",
         "notReadOn": "読み取られずに残ったオブジェクト: {{objects}}。",
-        "unreadFlows": "ターゲット組織のフローを読み取れませんでした: {{reason}}",
-        "unreadTriggers": "ターゲット組織の Apex トリガーを読み取れませんでした: {{reason}}",
         "unreadConditions": "一部のフローの開始条件を読み取れませんでした: {{reason}}",
         "cost_other": "ターゲット組織への {{count}} 件のリクエストで読み取りました。",
-        "process": "プロセス: {{name}}",
-        "workflowRule": "ワークフロールール: {{name}}",
         "sendsMessages": "メッセージを送信",
         "messageEmail": "メール: {{name}}",
         "messageNotification": "カスタム通知: {{name}}",
@@ -3273,24 +3253,11 @@
         "duplicateNote": "この実行は、ルールが警告するだけのレコードを保存します。ブロックするルールは引き続きレコードを拒否します。",
         "bypassHeld_other": "ターゲット組織でこの実行が書き込みに使うユーザーはカスタム権限 {{names}} を持っています。それを除外しているものは、この実行では起動しません。",
         "notReadDefinitions_other": "{{count}} 件のプロセスまたはワークフロールールの定義は読み取られていません: 読み取るのは最大 {{bound}} 件です。",
-        "unreadProcesses": "ターゲット組織の Process Builder プロセスを読み取れませんでした: {{reason}}",
-        "unreadWorkflowRules": "ターゲット組織のワークフロールールを読み取れませんでした: {{reason}}",
         "unreadDefinitions": "一部のプロセスまたはワークフロールールの定義を読み取れませんでした: {{reason}}",
         "unreadAssignmentRules": "ターゲット組織の割り当てルールを読み取れませんでした: {{reason}}",
         "unreadDuplicateRules": "ターゲット組織の重複ルールを読み取れませんでした: {{reason}}",
         "unreadUserPermissions": "この実行が書き込みに使うユーザーのカスタム権限を読み取れませんでした: {{reason}}",
-        "rules": "割り当てルールと重複ルール",
-        "unreadPermissionSets": "この実行が書き込みに使うユーザーが持たないバイパスを含む権限セットを読み取れませんでした: {{reason}}",
-        "assistant": {
-          "smallest": "{{permissionSet}} は、ターゲット組織で {{permission}} を含む最小の権限セットです。この実行が書き込みに使うユーザーに割り当てると、{{permission}} が除外するものは起動しなくなります。",
-          "others_other": "{{names}} にも含まれています。",
-          "copy": "{{permissionSet}} を割り当てるコマンドをコピー",
-          "copied": "コマンドをコピーしました",
-          "none": "ターゲット組織には {{permission}} を含む権限セットがありません。管理者がそれを含む権限セットを作成し、この実行が書き込みに使うユーザーに割り当てます。",
-          "neverRun": "SandForge はこのコマンドを表示するだけで、実行することはありません。実行するかどうかはターゲット組織の管理者が決めます。",
-          "readAgain": "ターゲット組織をもう一度読み取る",
-          "readAgainHint": "コマンドの実行後にターゲット組織をもう一度読み取ると、権限が付与済みとして表示されます。"
-        }
+        "rules": "割り当てルールと重複ルール"
       },
       "gapsTab": "差異",
       "undecidedGaps_other": "{{count}} 件の差異が行を拒否します",
@@ -3336,71 +3303,7 @@
       "removeNotRecorded": "実行が作成内容を記録するようになる前に記録されたため、ここからレコードを削除できません。",
       "removeOrgGone": "この実行が書き込んだ組織は登録されていないため、ここからレコードを削除できません。",
       "journalGone": "この実行のレコードの Id はジャーナルに保存されていましたが、そのジャーナルはもうありません。ここから削除、検証、再試行、保存はできません。",
-      "removeTitle": "{{org}} からこの実行のレコードを削除",
-      "removeDescription": "この実行が {{org}} に作成したレコードを、子から親の順に削除します。削除したレコードはごみ箱に移ります。実行がリンクしただけの、{{org}} に既にあったレコードは残します。{{org}} に残るレコードが依存しているレコードも残します。実行終了後に変更されたレコードや、その後に追加されたレコードが依存しているレコードは、下で含めない限り残します。",
-      "removeObject_other": "{{object}}: {{formatted}} 件",
-      "removeFiles_other": "{{object}}: ファイル {{formatted}} 件",
-      "removeLinked_other": "リンクされたレコード {{formatted}} 件は残します。",
-      "removeIncludeChanged": "実行後に変更されたレコードと、その後に追加されたものも削除する",
-      "removeLeftBy": "{{date}} の削除で次のレコードが残りました:",
-      "removing": "この実行が作成したレコードを削除しています…",
-      "stopRemoval": "削除を停止",
-      "stopping": "停止しています: 実行中の呼び出しに応答があった時点で削除は終わります。それまでに削除したものを一覧にし、残りは組織に残ります。後の削除で削除できます。",
-      "stopRefused": "削除を停止できませんでした",
-      "stopRefusedDetail": "削除はすでに終わっているか、このウィンドウから開始されたものではありません。",
-      "removedOn": "{{date}} にレコードを削除しました:",
-      "resultSuccess": "この実行が作成したレコードは {{org}} に残っていません。",
-      "resultPartial": "この実行が作成したレコードの一部を {{org}} から削除しました。残りは一覧のとおり残っています。",
-      "resultFailure": "この実行が作成したレコードは {{org}} から 1 件も削除されませんでした。",
-      "resultCancelled": "途中で停止しました。それまでに行った内容を一覧に示します。残りは {{org}} にあります。",
-      "resultLeftBy": "{{date}} の削除で残ったレコードを対象に再開しました。",
-      "resultDeleted_other": "{{formatted}} 件削除",
-      "resultGone_other": "{{formatted}} 件は既に存在しません",
-      "resultChanged_other": "{{formatted}} 件は実行後に変更されたため残しました",
-      "resultHeld_other": "{{formatted}} 件は残る {{objects}} レコードが依存しているため残しました",
-      "resultHeldUnread_other": "{{formatted}} 件は依存するレコードを読み取れなかったため残しました",
-      "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、この実行が作成したものではないため {{org}} に残ります: {{names}}",
-      "resultUnchecked": "未確認: {{objects}} のレコードは依存先のレコードから読み取れないため、そのレコードと一緒に削除されます。",
-      "resultKept_other": "{{formatted}} 件を残しました",
-      "resultRefused_other": "{{formatted}} 件は拒否されました",
-      "resultNotReached_other": "{{formatted}} 件はキャンセルまでに処理されませんでした",
-      "resultNotVisible_other": "{{formatted}} 件はこのユーザーには表示されません(見つからず、ごみ箱にもありません)",
-      "resultMayHaveBeenWritten_other": "実行の呼び出しが応答を失う前に書き込んだ可能性のある{{formatted}}件のレコードが{{org}}にある可能性があります。その ID は不明で、削除では到達できません。",
-      "resultNotJournaled_other": "そのうち{{formatted}}件はアップサートで送信されました。実行のジャーナルはアップサートの呼び出しを記録しないため、{{org}}では検索していません。",
-      "resultCallsNotLookedFor_other": "この実行が停止したときに進行中だった{{formatted}}件の挿入呼び出しは{{org}}で検索していません。こうした呼び出しは実行の最初の削除の前にだけ検索され、書き込まれた可能性のあるものはそのまま残ります。",
-      "removalAutomation": {
-        "title": "これらのレコードを削除するときに {{org}} が実行するもの",
-        "loading": "これらのレコードを削除するときに {{org}} が実行するものを読み取っています…",
-        "intro": "これらのレコードを削除するとき、{{org}} は次を実行します:",
-        "drafted": "削除のためにドラフトに戻すとき",
-        "none": "これらのレコードを削除しても、{{org}} の自動化は何も実行されません。",
-        "error": "これらのレコードを削除するときに {{org}} が実行するものを読み取れませんでした: {{reason}}"
-      },
-      "removeSweep": "先に一掃する: 実行中にターゲットの自動化がその実行ユーザーとして作成したものも取り戻す — そうしたレコードは実行のレコードを残す理由になりません",
-      "sweepAction": "ターゲットの自動化が作成したものを取り戻す",
-      "sweep": {
-        "title": "一掃で {{org}} から取り戻すもの",
-        "loading": "実行中に {{org}} の自動化が作成したものを読み取っています…",
-        "error": "一掃で {{org}} から取り戻すものを読み取れませんでした: {{reason}}",
-        "window": "実行ユーザーが {{from}} から {{to}} までに作成し、実行の ID マップに含まれないレコード。対象: {{objects}}",
-        "found_other": "{{object}}: {{formatted}} 件のレコード",
-        "overBound_other": "{{object}}: {{formatted}} 件を超えるため、一掃しません",
-        "names": "いくつかの名前",
-        "none": "一掃するものは見つかりませんでした。",
-        "nothing": "なし",
-        "refused": "一掃は拒否され、何も削除しません: {{reason}}",
-        "handWork_other": "{{object}}: 実行も自動化も書き込まない場所で、実行ユーザーが期間内に作成した {{formatted}} 件のレコードは残します",
-        "unread": "確認していません。{{object}}: {{reason}}",
-        "flowsNotRead_other": "実行のオブジェクトのフロー {{formatted}} 件を読み取れませんでした: それらが作成するものは確認していません。",
-        "triggers_other": "実行のオブジェクトの Apex トリガー {{formatted}} 件: 何を作成するかを示すメタデータはありません。",
-        "automationError": "ターゲットの自動化をすべては読み取れなかったため、作成されたものを見落とす可能性があります: {{reason}}",
-        "resultSuccess": "一掃で見つかったものは {{org}} に残っていません。",
-        "resultPartial": "一掃で {{org}} からレコードを削除しました。残りは一覧のとおりです。",
-        "resultFailure": "一掃では {{org}} から何も削除しませんでした。",
-        "resultCancelled": "一掃は最後まで実行されませんでした。それまでに行った内容を一覧に示します。",
-        "resultRefused": "一掃は拒否され、何も削除しませんでした。",
-        "sweptOn": "{{date}} に一掃しました:"
-      }
+      "sweepAction": "ターゲットの自動化が作成したものを取り戻す"
     },
     "soqlObjectNameInvalid": "「{{object}}」は SObject の API 参照名ではないため、その名前で WHERE 句を送信できません。先頭は英字で、英数字とアンダースコアを合わせて 80 文字以内にしてください。",
     "hintSoqlObjectNameInvalid": "グラフを検出するには、FROM のあとのオブジェクト名を修正してください",
@@ -3419,50 +3322,6 @@
       "replacedDefault": "レコードタイプ {{recordType}} のデフォルト値 {{value}} に置き換えました",
       "replacedFirst": "レコードタイプ {{recordType}} が許可する最初の値 {{value}} に置き換えました（必須項目で、そこにはデフォルト値がありません）",
       "leftOut": "書き込みませんでした"
-    },
-    "currencies": {
-      "title": "別の通貨で書き込んだ行",
-      "hint": "ターゲット組織ではこれらの通貨が有効になっていないか、決定によって別の通貨に対応付けられました。行は別の通貨で書き込まれ、金額はその通貨に換算されました。",
-      "rows_other": "{{from}} の {{count}} 行",
-      "corporate": "ターゲット組織の会社の通貨である {{to}} で書き込みました",
-      "recordTypeDefault": "レコードタイプのデフォルトである {{to}} で書き込みました",
-      "decision": "決定どおり {{to}} で書き込みました",
-      "parent": "所属するレコードの通貨である {{to}} で書き込みました",
-      "lines": "明細が所属するレコードの通貨である {{to}} で書き込みました",
-      "converted": "金額はソース組織の換算レートで換算しました: {{fields}}",
-      "convertedAtTargetRate": "金額は {{from}} についてはソース組織の換算レート、{{to}} についてはターゲット組織の換算レートで換算しました: {{fields}}",
-      "notConverted": "金額は読み取ったとおりに書き込みました: {{from}} を {{to}} に換算するレートがありません",
-      "noAmount": "換算する金額はありません",
-      "dated": "換算レートは {{field}} の日付のものです",
-      "datedUnconfirmed": "換算レートは静的なものです: {{field}} の日付の換算レートを確認できませんでした"
-    },
-    "prices": {
-      "title": "別の通貨の価格",
-      "hint": "価格表は商品の価格を通貨ごとに 1 回定め、ターゲット組織はレコードと異なる通貨の価格を持つ明細を拒否します。これらの価格は、ターゲット組織で有効になっていない通貨で読み取られたか、明細のレコードが書き込まれた通貨で必要とされました。",
-      "prices_one": "{{from}} の価格 {{count}} 件",
-      "prices_other": "{{from}} の価格 {{count}} 件",
-      "replaced": "同じ商品と価格表のソース組織自身の {{to}} の価格に置き換え、そのコピーにリンクしました",
-      "converted": "換算した金額で {{to}} で書き込みました。ソース組織には同じ商品と価格表の {{to}} の価格がありません",
-      "none": "同じ商品と価格表の {{to}} の価格がなく、ほかの明細のために別の通貨で書き込まれます。ターゲット組織は {{to}} のレコードの明細を拒否します",
-      "forLines": "{{to}} は明細が所属するレコードの通貨です"
-    },
-    "contactPoints": {
-      "title": "メールアドレスと電話番号",
-      "numbersExhausted_other": "{{count}} 件の電話番号を空のままにしました。範囲内の架空番号 10,000 件はすべて、この実行の他の番号に割り当て済みです。",
-      "neutralized": "書き込み前に無効化しました: {{fields}}の{{values}}。すべてのメールアドレスは .invalid の下に、すべての電話番号は架空の番号として書き込まれたため、ターゲット組織の自動化は誰にも届いていません。",
-      "none": "書き込み前に無効化しました: 書き込まれたレコードにメールアドレスや電話番号はありませんでした。",
-      "kept": "指定どおり、ソースのまま書き込まれました。ターゲット組織の自動化が実在の人物にメールや SMS を送信した可能性があります。",
-      "neutralizedSimulated": "実際の実行では {{fields}}の{{values}}を無効化します: すべてのメールアドレスは .invalid の下に、すべての電話番号は架空の番号になります。",
-      "noneSimulated": "実際の実行で書き込まれるレコードには、メールアドレスも電話番号もありません。",
-      "keptSimulated": "実際の実行では、依頼どおりソースの値のまま書き込みます。ターゲットの組織の自動化が実在の人にメールや SMS を送る可能性があります。",
-      "values_other": "{{count}}件の値"
-    },
-    "writtenWithoutFields": {
-      "title": "ターゲット組織が拒否した項目なしで書き込み",
-      "hint": "ターゲット組織が、示した項目を理由にこれらのレコードを拒否しました。組織の入力規則、レコードのレコードタイプではその値を受け付けない制限付き選択リスト、または空のままにできる参照項目のルックアップ検索条件で、参照先のレコードを受け付けないものです。項目の値を一度も割り当てられていないレコードタイプはどの値も受け付けず、書き込み前に読み取る情報からはそれがわかりません。クローンは各レコードをそれらの項目なしで再度書き込みました。レコードはターゲット組織にありますが、ソースがそれらの項目に持つ値はありません。",
-      "byValidationRule": "入力規則が拒否",
-      "byRestrictedPicklist": "制限付き選択リストが値を拒否",
-      "byLookupFilter": "ルックアップ検索条件が参照先のレコードを拒否"
     },
     "existingRecords": {
       "title": "ターゲット組織に既に存在",
@@ -3693,6 +3552,9 @@
       "review": "確認",
       "execution": "実行",
       "results": "結果"
+    },
+    "graph": {
+      "title": "依存関係グラフ"
     }
   },
   "autopilot": {
@@ -3729,6 +3591,7 @@
       "hipaaDesc": "医療 — セーフハーバーによる非識別化",
       "pciDss": "PCI-DSS",
       "pciDssDesc": "決済カード — PAN をマスクし認証データを NULL 化",
+      "custom": "カスタム",
       "description": "PII 検出と匿名化のためのコンプライアンスフレームワークを選択してください。"
     },
     "step4": {
@@ -3886,21 +3749,6 @@
     "loadingOrgs": "組織を読み込み中…",
     "showMetrics": "メトリクスを表示",
     "hideMetrics": "メトリクスを非表示",
-    "orgType": {
-      "prod": "PROD",
-      "scratch": "SCRATCH",
-      "developer": "DEVELOPER",
-      "dev": "DEV",
-      "devPro": "DEV PRO",
-      "partial": "PARTIAL",
-      "full": "FULL",
-      "sandbox": "SANDBOX"
-    },
-    "relativeTime": {
-      "justNow": "たった今",
-      "minutesAgo": "{{count}}分前",
-      "hoursAgo": "{{count}}時間前"
-    },
     "fillOrg": "デモデータで満たす：{{alias}}",
     "fillOrgAction": "デモデータで満たす",
     "fillOrgDesc": "Seed テンプレートで、確認は一度だけ、AI キーは不要",
@@ -4139,12 +3987,7 @@
       "notRecorded": "ロードが作成内容を記録するようになる前にロードされたため、ここからレコードを削除できません。再ロードで削除されます（ロードがリンクした可能性のあるレコードを除く）。",
       "orgGone": "このロードが書き込んだ組織は登録されていないため、ここからレコードを削除できません。",
       "nothingCreated": "このロードはレコードを作成しなかったため、削除するものはありません。",
-      "keptByThePlatform": "どの削除でも {{org}} 組織に保持 — プラットフォームはロードが作成したこれらのレコードを削除しません: {{objects}}",
-      "resultSuccess": "このロードが作成したレコードは {{org}} に残っていません。",
-      "resultPartial": "このロードが作成したレコードの一部を {{org}} から削除しました。残りは一覧のとおり残っています。",
-      "resultFailure": "このロードが作成したレコードは {{org}} から 1 件も削除されませんでした。",
-      "resultChanged_other": "{{formatted}} 件はロード後に変更されたため残しました",
-      "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、このロードが作成したものではないため {{org}} に残ります: {{names}}"
+      "keptByThePlatform": "どの削除でも {{org}} 組織に保持 — プラットフォームはロードが作成したこれらのレコードを削除しません: {{objects}}"
     },
     "coverage": {
       "truncated": "検出は {{objects}} オブジェクト（上限 {{maxNodes}}）で停止しました。ルートから遠いオブジェクトは読み込まれていないため、このデータセットには欠けがある可能性があります。詳細設定で maxNodes を引き上げて、再実行してください。",
@@ -4169,6 +4012,180 @@
       "persist": "保存",
       "done": "完了",
       "verify": "検証"
+    }
+  },
+  "runRemoval": {
+    "sweep": {
+      "title": "一掃で {{org}} から取り戻すもの",
+      "loading": "実行中に {{org}} の自動化が作成したものを読み取っています…",
+      "error": "一掃で {{org}} から取り戻すものを読み取れませんでした: {{reason}}",
+      "window": "実行ユーザーが {{from}} から {{to}} までに作成し、実行の ID マップに含まれないレコード。対象: {{objects}}",
+      "found_other": "{{object}}: {{formatted}} 件のレコード",
+      "overBound_other": "{{object}}: {{formatted}} 件を超えるため、一掃しません",
+      "names": "いくつかの名前",
+      "none": "一掃するものは見つかりませんでした。",
+      "nothing": "なし",
+      "refused": "一掃は拒否され、何も削除しません: {{reason}}",
+      "handWork_other": "{{object}}: 実行も自動化も書き込まない場所で、実行ユーザーが期間内に作成した {{formatted}} 件のレコードは残します",
+      "unread": "確認していません。{{object}}: {{reason}}",
+      "flowsNotRead_other": "実行のオブジェクトのフロー {{formatted}} 件を読み取れませんでした: それらが作成するものは確認していません。",
+      "triggers_other": "実行のオブジェクトの Apex トリガー {{formatted}} 件: 何を作成するかを示すメタデータはありません。",
+      "automationError": "ターゲットの自動化をすべては読み取れなかったため、作成されたものを見落とす可能性があります: {{reason}}",
+      "resultSuccess": "一掃で見つかったものは {{org}} に残っていません。",
+      "resultPartial": "一掃で {{org}} からレコードを削除しました。残りは一覧のとおりです。",
+      "resultFailure": "一掃では {{org}} から何も削除しませんでした。",
+      "resultCancelled": "一掃は最後まで実行されませんでした。それまでに行った内容を一覧に示します。",
+      "resultRefused": "一掃は拒否され、何も削除しませんでした。",
+      "sweptOn": "{{date}} に一掃しました:"
+    },
+    "automation": {
+      "title": "これらのレコードを削除するときに {{org}} が実行するもの",
+      "loading": "これらのレコードを削除するときに {{org}} が実行するものを読み取っています…",
+      "intro": "これらのレコードを削除するとき、{{org}} は次を実行します:",
+      "drafted": "削除のためにドラフトに戻すとき",
+      "none": "これらのレコードを削除しても、{{org}} の自動化は何も実行されません。",
+      "error": "これらのレコードを削除するときに {{org}} が実行するものを読み取れませんでした: {{reason}}"
+    },
+    "sync": {
+      "title": "この実行が作成したもの",
+      "created_other": "{{org}} に作成したレコードとファイル: {{formatted}} 件",
+      "remove": "この実行が作成したものを削除",
+      "removeLeft": "この実行が作成したもののうち残りを削除",
+      "removeTitle": "この実行が作成したものを {{org}} から削除",
+      "removeDescription": "この実行が作成したもの (挿入したレコード、{{org}} に該当がなく upsert で作成したレコード、作成したファイル) を {{org}} から削除します。ファイルを先に、次に子レコードを親より先に削除し、ごみ箱に移します。この実行が更新したレコードはもともと {{org}} にあったもので、新しい値のまま残ります。{{org}} に残るレコードが依存しているレコードは残します。実行後に変更されたレコード、または実行後に追加されたレコードが依存しているレコードも、下で含めない限り残します。",
+      "includeChanged": "実行後に変更されたレコードと、その後に追加されたものも削除する",
+      "removing": "この実行が作成したものを削除しています…",
+      "cancel": "削除を停止",
+      "stopping": "停止しています: 実行中の呼び出しに応答があった時点で削除は終わります。それまでに削除したものを一覧にし、残りは組織に残ります。後の削除で削除できます。",
+      "cancelRefused": "削除を停止できませんでした",
+      "cancelRefusedDetail": "削除はすでに終わっているか、このウィンドウから開始されたものではありません。",
+      "notKept": "この実行が作成したものの記録は、新しい実行のために破棄されたため保持されておらず、ここからは削除できません。",
+      "refusedGuard": "Production Guard は本番組織である {{org}} での削除を許可しません。この実行が作成したものはそこに残ります。組織で直接削除してください。",
+      "refusedNoGuard": "このウィンドウでは Production Guard が動作しておらず、それなしでは何も削除しません。",
+      "refusedOrgGone": "この実行が書き込んだ組織は接続されていません。実行が作成したものを削除するには、もう一度接続してください。",
+      "refusedRunning": "実行はまだ書き込み中です。作成したものは、実行が終わってから削除できます。",
+      "readWhole": "{{config}} の次の実行では {{objects}} をすべて読み取ります。基準点が前提としていたコピーがなくなったためです。",
+      "filesForgotten_other": "{{config}} は {{formatted}} 件のファイルをコピー済みとして扱わなくなりました。次の全件読み取りで再びコピーします。",
+      "unfinishedTitle": "終了しなかった実行",
+      "unfinishedNote": "これらの実行中にウィンドウが閉じられたか、履歴に表示されなくなりました。作成したものは、ターゲットへの各呼び出しが応答するたびに保持されており、削除できます。",
+      "unfinishedRun": "{{config}}、{{date}} に開始",
+      "unfinishedInFlight_other": "{{object}} の {{formatted}} 行を書き込んでいる途中で停止しました。ターゲットが受け付けた行は組織にありますが、ここには表示されず、削除の対象にもなりません。"
+    },
+    "resultSuccess": "この実行が作成したレコードは {{org}} に残っていません。",
+    "resultPartial": "この実行が作成したレコードの一部を {{org}} から削除しました。残りは一覧のとおり残っています。",
+    "resultFailure": "この実行が作成したレコードは {{org}} から 1 件も削除されませんでした。",
+    "resultCancelled": "途中で停止しました。それまでに行った内容を一覧に示します。残りは {{org}} にあります。",
+    "resultChanged_other": "{{formatted}} 件は実行後に変更されたため残しました",
+    "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、この実行が作成したものではないため {{org}} に残ります: {{names}}",
+    "resultDeleted_other": "{{formatted}} 件削除",
+    "resultGone_other": "{{formatted}} 件は既に存在しません",
+    "resultNotVisible_other": "{{formatted}} 件はこのユーザーには表示されません(見つからず、ごみ箱にもありません)",
+    "resultHeld_other": "{{formatted}} 件は残る {{objects}} レコードが依存しているため残しました",
+    "resultHeldUnread_other": "{{formatted}} 件は依存するレコードを読み取れなかったため残しました",
+    "resultRefused_other": "{{formatted}} 件は拒否されました",
+    "resultLeftBy": "{{date}} の削除で残ったレコードを対象に再開しました。",
+    "resultUnchecked": "未確認: {{objects}} のレコードは依存先のレコードから読み取れないため、そのレコードと一緒に削除されます。",
+    "resultMayHaveBeenWritten_other": "実行の呼び出しが応答を失う前に書き込んだ可能性のある{{formatted}}件のレコードが{{org}}にある可能性があります。その ID は不明で、削除では到達できません。",
+    "resultNotJournaled_other": "そのうち{{formatted}}件はアップサートで送信されました。実行のジャーナルはアップサートの呼び出しを記録しないため、{{org}}では検索していません。",
+    "resultCallsNotLookedFor_other": "この実行が停止したときに進行中だった{{formatted}}件の挿入呼び出しは{{org}}で検索していません。こうした呼び出しは実行の最初の削除の前にだけ検索され、書き込まれた可能性のあるものはそのまま残ります。",
+    "resultKept_other": "{{formatted}} 件を残しました",
+    "resultNotReached_other": "{{formatted}} 件はキャンセルまでに処理されませんでした",
+    "removeLeftBy": "{{date}} の削除で次のレコードが残りました:",
+    "removeFiles_other": "{{object}}: ファイル {{formatted}} 件",
+    "removeObject_other": "{{object}}: {{formatted}} 件",
+    "removeLinked_other": "リンクされたレコード {{formatted}} 件は残します。",
+    "removeTitle": "{{org}} からこの実行のレコードを削除",
+    "removeDescription": "この実行が {{org}} に作成したレコードを、子から親の順に削除します。削除したレコードはごみ箱に移ります。実行がリンクしただけの、{{org}} に既にあったレコードは残します。{{org}} に残るレコードが依存しているレコードも残します。実行終了後に変更されたレコードや、その後に追加されたレコードが依存しているレコードは、下で含めない限り残します。",
+    "removeIncludeChanged": "実行後に変更されたレコードと、その後に追加されたものも削除する",
+    "removeSweep": "先に一掃する: 実行中にターゲットの自動化がその実行ユーザーとして作成したものも取り戻す — そうしたレコードは実行のレコードを残す理由になりません",
+    "stopRefused": "削除を停止できませんでした",
+    "stopRefusedDetail": "削除はすでに終わっているか、このウィンドウから開始されたものではありません。",
+    "stopping": "停止しています: 実行中の呼び出しに応答があった時点で削除は終わります。それまでに削除したものを一覧にし、残りは組織に残ります。後の削除で削除できます。",
+    "removing": "この実行が作成したレコードを削除しています…",
+    "stopRemoval": "削除を停止",
+    "removedOn": "{{date}} にレコードを削除しました:",
+    "load": {
+      "resultSuccess": "このロードが作成したレコードは {{org}} に残っていません。",
+      "resultPartial": "このロードが作成したレコードの一部を {{org}} から削除しました。残りは一覧のとおり残っています。",
+      "resultFailure": "このロードが作成したレコードは {{org}} から 1 件も削除されませんでした。",
+      "resultChanged_other": "{{formatted}} 件はロード後に変更されたため残しました",
+      "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、このロードが作成したものではないため {{org}} に残ります: {{names}}"
+    }
+  },
+  "orgAutomation": {
+    "assistant": {
+      "smallest": "{{permissionSet}} は、ターゲット組織で {{permission}} を含む最小の権限セットです。この実行が書き込みに使うユーザーに割り当てると、{{permission}} が除外するものは起動しなくなります。",
+      "others_other": "{{names}} にも含まれています。",
+      "copy": "{{permissionSet}} を割り当てるコマンドをコピー",
+      "copied": "コマンドをコピーしました",
+      "none": "ターゲット組織には {{permission}} を含む権限セットがありません。管理者がそれを含む権限セットを作成し、この実行が書き込みに使うユーザーに割り当てます。",
+      "neverRun": "SandForge はこのコマンドを表示するだけで、実行することはありません。実行するかどうかはターゲット組織の管理者が決めます。",
+      "readAgain": "ターゲット組織をもう一度読み取る",
+      "readAgainHint": "コマンドの実行後にターゲット組織をもう一度読み取ると、権限が付与済みとして表示されます。"
+    },
+    "flow": "フロー: {{name}}",
+    "trigger": "Apex トリガー: {{name}}",
+    "process": "プロセス: {{name}}",
+    "workflowRule": "ワークフロールール: {{name}}",
+    "beforeDelete": "削除前",
+    "afterDelete": "削除後",
+    "beforeAndAfterDelete": "削除前と削除後",
+    "unreadFlows": "ターゲット組織のフローを読み取れませんでした: {{reason}}",
+    "unreadTriggers": "ターゲット組織の Apex トリガーを読み取れませんでした: {{reason}}",
+    "unreadProcesses": "ターゲット組織の Process Builder プロセスを読み取れませんでした: {{reason}}",
+    "unreadWorkflowRules": "ターゲット組織のワークフロールールを読み取れませんでした: {{reason}}",
+    "unreadPermissionSets": "この実行が書き込みに使うユーザーが持たないバイパスを含む権限セットを読み取れませんでした: {{reason}}",
+    "readAgain": "もう一度読み取る",
+    "readingAgain": "もう一度読み取っています…",
+    "bypassHint_other": "ターゲット組織でこの実行が書き込みに使うユーザーにカスタム権限 {{names}} を割り当てると、開始条件でそれを除外しているフローは起動しなくなります。"
+  },
+  "runResults": {
+    "currencies": {
+      "title": "別の通貨で書き込んだ行",
+      "hint": "ターゲット組織ではこれらの通貨が有効になっていないか、決定によって別の通貨に対応付けられました。行は別の通貨で書き込まれ、金額はその通貨に換算されました。",
+      "rows_other": "{{from}} の {{count}} 行",
+      "corporate": "ターゲット組織の会社の通貨である {{to}} で書き込みました",
+      "recordTypeDefault": "レコードタイプのデフォルトである {{to}} で書き込みました",
+      "decision": "決定どおり {{to}} で書き込みました",
+      "parent": "所属するレコードの通貨である {{to}} で書き込みました",
+      "lines": "明細が所属するレコードの通貨である {{to}} で書き込みました",
+      "converted": "金額はソース組織の換算レートで換算しました: {{fields}}",
+      "convertedAtTargetRate": "金額は {{from}} についてはソース組織の換算レート、{{to}} についてはターゲット組織の換算レートで換算しました: {{fields}}",
+      "notConverted": "金額は読み取ったとおりに書き込みました: {{from}} を {{to}} に換算するレートがありません",
+      "noAmount": "換算する金額はありません",
+      "dated": "換算レートは {{field}} の日付のものです",
+      "datedUnconfirmed": "換算レートは静的なものです: {{field}} の日付の換算レートを確認できませんでした"
+    },
+    "prices": {
+      "title": "別の通貨の価格",
+      "hint": "価格表は商品の価格を通貨ごとに 1 回定め、ターゲット組織はレコードと異なる通貨の価格を持つ明細を拒否します。これらの価格は、ターゲット組織で有効になっていない通貨で読み取られたか、明細のレコードが書き込まれた通貨で必要とされました。",
+      "prices_one": "{{from}} の価格 {{count}} 件",
+      "prices_other": "{{from}} の価格 {{count}} 件",
+      "replaced": "同じ商品と価格表のソース組織自身の {{to}} の価格に置き換え、そのコピーにリンクしました",
+      "converted": "換算した金額で {{to}} で書き込みました。ソース組織には同じ商品と価格表の {{to}} の価格がありません",
+      "none": "同じ商品と価格表の {{to}} の価格がなく、ほかの明細のために別の通貨で書き込まれます。ターゲット組織は {{to}} のレコードの明細を拒否します",
+      "forLines": "{{to}} は明細が所属するレコードの通貨です"
+    },
+    "contactPoints": {
+      "title": "メールアドレスと電話番号",
+      "numbersExhausted_other": "{{count}} 件の電話番号を空のままにしました。範囲内の架空番号 10,000 件はすべて、この実行の他の番号に割り当て済みです。",
+      "neutralized": "書き込み前に無効化しました: {{fields}}の{{values}}。すべてのメールアドレスは .invalid の下に、すべての電話番号は架空の番号として書き込まれたため、ターゲット組織の自動化は誰にも届いていません。",
+      "none": "書き込み前に無効化しました: 書き込まれたレコードにメールアドレスや電話番号はありませんでした。",
+      "kept": "指定どおり、ソースのまま書き込まれました。ターゲット組織の自動化が実在の人物にメールや SMS を送信した可能性があります。",
+      "neutralizedSimulated": "実際の実行では {{fields}}の{{values}}を無効化します: すべてのメールアドレスは .invalid の下に、すべての電話番号は架空の番号になります。",
+      "noneSimulated": "実際の実行で書き込まれるレコードには、メールアドレスも電話番号もありません。",
+      "keptSimulated": "実際の実行では、依頼どおりソースの値のまま書き込みます。ターゲットの組織の自動化が実在の人にメールや SMS を送る可能性があります。",
+      "values_other": "{{count}}件の値",
+      "keep": "メールアドレスと電話番号をそのまま保持",
+      "keepWarning": "メールアドレスと電話番号はソースのまま書き込まれます。ターゲット組織のフロー、トリガー、メールアラートが実在の人物にメールや SMS を送信する可能性があります。",
+      "keepHint": "オフの場合、クローンはすべてのメールアドレスを .invalid の下に、すべての電話番号を架空の番号として書き込むため、ターゲット組織の自動化は誰にも届きません。"
+    },
+    "writtenWithoutFields": {
+      "title": "ターゲット組織が拒否した項目なしで書き込み",
+      "hint": "ターゲット組織が、示した項目を理由にこれらのレコードを拒否しました。組織の入力規則、レコードのレコードタイプではその値を受け付けない制限付き選択リスト、または空のままにできる参照項目のルックアップ検索条件で、参照先のレコードを受け付けないものです。項目の値を一度も割り当てられていないレコードタイプはどの値も受け付けず、書き込み前に読み取る情報からはそれがわかりません。クローンは各レコードをそれらの項目なしで再度書き込みました。レコードはターゲット組織にありますが、ソースがそれらの項目に持つ値はありません。",
+      "byValidationRule": "入力規則が拒否",
+      "byRestrictedPicklist": "制限付き選択リストが値を拒否",
+      "byLookupFilter": "ルックアップ検索条件が参照先のレコードを拒否"
     }
   },
   "grappe": {

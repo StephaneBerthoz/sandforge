@@ -41,6 +41,7 @@ const BULK_EXECUTOR = source('packages/extension/src/core/engine/BulkApiExecutor
 const BULK_CSV = source('packages/extension/src/core/engine/bulkCsv.ts');
 const ROBUSTNESS_SCHEMA = source('packages/shared/src/schemas/robustness-config.schema.ts');
 const SYNC_SCHEMA = source('packages/shared/src/schemas/sync-config.schema.ts');
+const SYNC_STRATEGIES = source('packages/shared/src/constants/sync-conflict-strategies.ts');
 const CONFLICT_RESOLVER = source('packages/extension/src/modules/sync/ConflictResolver.ts');
 const BULK_WRITER = source('packages/extension/src/modules/sync/BulkDataWriter.ts');
 const VALIDATE_PAYLOAD = source('packages/extension/src/bridge/validatePayload.ts');
@@ -87,7 +88,8 @@ describe('docs/modules/sync.md', () => {
   it('names the four strategies a run acts on, and refuses manual rather than resolving it', () => {
     // Positive control: the run's strategies are the four, and the resolver
     // has no answer for manual any more.
-    const strategies = /syncConflictStrategySchema = z\.enum\(\[([^\]]*)\]/.exec(SYNC_SCHEMA);
+    const strategies = /SYNC_CONFLICT_STRATEGIES = \[([^\]]*)\]/.exec(SYNC_STRATEGIES);
+    expect(SYNC_SCHEMA).toContain('syncConflictStrategySchema = z.enum(SYNC_CONFLICT_STRATEGIES)');
     expect(strategies?.[1]).toContain("'target_wins'");
     expect(strategies?.[1]).not.toContain("'manual'");
     expect(CONFLICT_RESOLVER).not.toContain("case 'manual':");

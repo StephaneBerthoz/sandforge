@@ -60,18 +60,14 @@ export const BypassAssistant: React.FC<BypassAssistantProps> = ({
           <AssignmentItem key={assignment.permission} assignment={assignment} target={target} />
         ))}
       </ul>
-      {commanded && (
-        <p className="text-text-secondary">{t('forge.review.automation.assistant.neverRun')}</p>
-      )}
+      {commanded && <p className="text-text-secondary">{t('orgAutomation.assistant.neverRun')}</p>}
       {/* The command runs outside the panel, which cannot tell when it has:
           the user, having run it, asks for the target to be read again. */}
       {commanded && onReadAgain && (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-text-secondary">
-            {t('forge.review.automation.assistant.readAgainHint')}
-          </p>
+          <p className="text-text-secondary">{t('orgAutomation.assistant.readAgainHint')}</p>
           <ReadAgainButton
-            label={t('forge.review.automation.assistant.readAgain')}
+            label={t('orgAutomation.assistant.readAgain')}
             onReadAgain={onReadAgain}
             reading={readingAgain}
             testId="bypass-assistant-read-again"
@@ -117,7 +113,7 @@ export const ReadAgainButton: React.FC<ReadAgainButtonProps> = ({
       data-testid={testId}
       {...(className ? { className } : {})}
     >
-      {reading ? t('forge.review.automation.readingAgain') : label}
+      {reading ? t('orgAutomation.readingAgain') : label}
     </Button>
   );
 };
@@ -132,7 +128,7 @@ const AssignmentItem: React.FC<{ assignment: ForgeGapAssignment; target?: Bypass
   if (!permissionSet) {
     return (
       <li data-testid={`bypass-assistant-${permission}`}>
-        {t('forge.review.automation.assistant.none', { permission })}
+        {t('orgAutomation.assistant.none', { permission })}
       </li>
     );
   }
@@ -141,13 +137,13 @@ const AssignmentItem: React.FC<{ assignment: ForgeGapAssignment; target?: Bypass
     : undefined;
   return (
     <li data-testid={`bypass-assistant-${permission}`}>
-      {t('forge.review.automation.assistant.smallest', {
+      {t('orgAutomation.assistant.smallest', {
         permissionSet: permissionSet.name,
         permission,
       })}
       {others.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.assistant.others', {
+          {t('orgAutomation.assistant.others', {
             count: others.length,
             names: others.map((other) => other.name).join(', '),
           })}
@@ -186,7 +182,7 @@ const CommandLine: React.FC<{ command: string; permissionSet: string }> = ({
       },
     );
   }, [command]);
-  const label = t('forge.review.automation.assistant.copy', { permissionSet });
+  const label = t('orgAutomation.assistant.copy', { permissionSet });
   return (
     <span className="mt-0.5 flex items-start gap-1">
       <code
@@ -206,7 +202,7 @@ const CommandLine: React.FC<{ command: string; permissionSet: string }> = ({
         {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
       </button>
       <span role="status" className="sr-only">
-        {copied ? t('forge.review.automation.assistant.copied') : ''}
+        {copied ? t('orgAutomation.assistant.copied') : ''}
       </span>
     </span>
   );

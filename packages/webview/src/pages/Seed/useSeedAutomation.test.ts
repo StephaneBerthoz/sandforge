@@ -112,6 +112,22 @@ describe('useSeedAutomation', () => {
     expect(result.current.preview).toBeNull();
   });
 
+  it('keeps what it read while the same org and objects are read again, until the new answer', () => {
+    // Blanked as the read went, the notice dropped what it said and its Read
+    // again button with it.
+    const { result } = renderHook(() => useSeedAutomation('org-1', ['Contact']));
+    answer('seed:automation:response', { orgId: 'org-1', objects: ['Contact'], preview: PREVIEW });
+
+    act(() => result.current.readAgain());
+    expect(result.current.loading).toBe(true);
+    expect(result.current.preview).toEqual(PREVIEW);
+
+    const held = { ...PREVIEW, bypassesHeld: ['Automation_Bypass'] };
+    answer('seed:automation:response', { orgId: 'org-1', objects: ['Contact'], preview: held });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.preview).toEqual(held);
+  });
+
   it('says why the read could not run, and reads again when asked', () => {
     const { result } = renderHook(() => useSeedAutomation('org-1', ['Contact']));
     answer('seed:automation:error', {

@@ -5,6 +5,7 @@ import {
   prebuiltTemplate,
   refusalLines,
   rulesFromDescribe,
+  templateDisplayName,
 } from './sandforge-seed.js';
 import { recordErrorText } from '../src/core/common/existingRecordMatch.js';
 
@@ -78,6 +79,50 @@ describe('parseArgs', () => {
 
   it('refuses an object name that is not one', () => {
     expect(refuse('--target', 'T', '--object', 'Account; DROP:1').code).toBe(2);
+  });
+
+  it('lists the prebuilt templates by the names the Seed page shows, not by their catalogue keys', () => {
+    // It printed "seed.templates.minimalDemo.name" for "Minimal Demo".
+    let code: number | undefined;
+    let printed = '';
+    vi.spyOn(process, 'exit').mockImplementation(((c?: number) => {
+      code = c;
+      throw new Error('exit');
+    }) as never);
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
+      printed += chunk;
+      return true;
+    }) as never);
+    try {
+      parseArgs(argv('--list-templates'));
+    } catch {
+      // `process.exit` is stubbed to throw so the parse stops where it would.
+    }
+    expect(code).toBe(0);
+    const minimal = printed.split('\n').find((line) => line.startsWith('prebuilt-minimal-demo'));
+    expect(minimal).toMatch(/object\(s\) {2}Minimal Demo$/);
+    expect(printed).not.toContain('seed.templates.');
+    expect(printed.trim().split('\n')).toHaveLength(5);
+  });
+});
+
+describe('templateDisplayName', () => {
+  it('reads a prebuilt name in the English catalogue, and keeps a name written in plain words', () => {
+    expect(templateDisplayName({ name: 'seed.templates.crmStarter.name' })).not.toContain(
+      'seed.templates.',
+    );
+    expect(templateDisplayName({ name: 'My quarter-end data' })).toBe('My quarter-end data');
+    // A key the catalogue does not hold, or no catalogue at all, keeps the name as given.
+    expect(templateDisplayName({ name: 'seed.templates.noSuchTemplate.name' })).toBe(
+      'seed.templates.noSuchTemplate.name',
+    );
+    expect(templateDisplayName({ name: 'seed.templates.minimalDemo.name' }, null)).toBe(
+      'seed.templates.minimalDemo.name',
+    );
+    const catalogue = { seed: { templates: { minimalDemo: { name: 'Minimal Demo' } } } };
+    expect(templateDisplayName({ name: 'seed.templates.minimalDemo.name' }, catalogue)).toBe(
+      'Minimal Demo',
+    );
   });
 });
 

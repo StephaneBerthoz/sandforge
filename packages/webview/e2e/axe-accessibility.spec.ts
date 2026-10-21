@@ -4749,6 +4749,15 @@ for (const theme of SCANNED_THEMES) {
         'The analytics could not be loaded',
       );
       expectNoViolations(await checkAccessibility(page));
+
+      // Read again: what failed stays said, with its Retry busy, until the answer.
+      await page.getByTestId('reports-analytics-error-retry').click();
+      await expect(page.getByTestId('reports-analytics-error-retry')).toHaveAttribute(
+        'aria-busy',
+        'true',
+      );
+      await expect(page.getByTestId('reports-analytics-error-message')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Settings page', async ({ page }) => {
@@ -5186,6 +5195,41 @@ for (const theme of SCANNED_THEMES) {
         page.getByTestId('anomaly-scan-results').getByTestId('anomaly-scan-sample'),
       ).toHaveText('Scanned 200 records; a scan reads at most 200.');
 
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Monitor whose refresh failed, read again with the failure kept and its Retry busy', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [{ name: 'DailyApiRequests', max: 100000, remaining: 45000, usedPercent: 55 }],
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+
+      const asked = (await bridge.getMessages('monitor:refresh')).length;
+      await page.getByTestId('refresh-btn').click();
+      await expect
+        .poll(async () => (await bridge.getMessages('monitor:refresh')).length)
+        .toBeGreaterThan(asked);
+      await answerAll(page, 'monitor:refresh', 'monitor:error', {
+        message: 'Server error',
+        code: 'UNKNOWN',
+        retryable: true,
+      });
+      await page.getByTestId('monitor-error').waitFor({ state: 'visible', timeout: 10_000 });
+
+      // Read again: the banner stays with its Retry, which says the read is on its way.
+      await page.getByTestId('error-retry-btn').click();
+      await expect(page.getByTestId('error-retry-btn')).toHaveAttribute('aria-busy', 'true');
+      await expect(page.getByTestId('monitor-error')).toBeVisible();
       expectNoViolations(await checkAccessibility(page));
     });
 
@@ -9342,6 +9386,50 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps Restore read again once a backup is deleted, its list kept and said busy', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      const backup = (operationId: string, day: number, objectApiName: string) => ({
+        operationId,
+        orgId: MOCK_ORGS[0].id,
+        timestamp: `2026-10-0${day}T10:00:00.000Z`,
+        totalRecords: 100,
+        totalSize: 0,
+        status: 'completed',
+        objectResults: [{ objectApiName, recordCount: 100, truncated: false }],
+      });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [backup('bk-1', 1, 'Contact'), backup('bk-2', 2, 'Lead')],
+      });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-restore').click();
+      await page.getByTestId('restore-backup-bk-2').getByRole('button').first().click();
+      await page.getByTestId('delete-backup-btn-bk-2').click();
+      await page.getByTestId('delete-backup-confirm').click();
+      const deletion = await bridge.waitForMessage('backup:delete', { timeout: 10_000 });
+      await sendExtensionMessage(page, {
+        type: 'backup:delete:result',
+        id: 'axe-backup-deleted',
+        correlationId: String(deletion.id),
+        payload: { orgId: MOCK_ORGS[0].id, deleted: ['bk-2'] },
+      });
+
+      // The list is read again: the panel stays, and says it is busy.
+      await expect(page.getByTestId('dataops-content')).toHaveAttribute('aria-busy', 'true');
+      await expect(page.getByTestId('dataops-skeleton')).toHaveCount(0);
+      await expect(page.getByTestId('restore-backup-bk-1')).toBeVisible();
+      await expectReadable(page, theme);
+    });
+
     test('DataOps Anonymize saying what a restore of the latest backup brings back', async ({
       page,
     }) => {
@@ -9586,6 +9674,46 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
     });
 
+    test('Seed execute step whose fields could not be read, then read again with its Retry held', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'seed', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('mode-card-generate').click();
+      await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
+      await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+        objects: [
+          { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
+          { apiName: 'Contact', label: 'Contact', recordCount: 0, dependencies: [] },
+        ],
+      });
+      await page.getByTestId('obj-Account').click();
+      await page.getByTestId('obj-Contact').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.waitForMessage('seed:describe-object', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-object', 'seed:error', {
+        message: 'INVALID_SESSION_ID',
+        code: 'UNKNOWN',
+        retryable: true,
+      });
+      const retry = page.getByTestId('seed-fields-retry');
+      await retry.waitFor({ state: 'visible', timeout: 10_000 });
+      await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
+
+      // Read again: Retry stays, held, while the status says the fields are read.
+      const asked = (await bridge.getMessages('seed:describe-object')).length;
+      await retry.click();
+      await expect
+        .poll(async () => (await bridge.getMessages('seed:describe-object')).length)
+        .toBeGreaterThan(asked);
+      await expect(retry).toHaveAttribute('aria-disabled', 'true');
+      await expect(page.getByTestId('seed-fields-status')).toHaveText(
+        'Reading the fields of the selected objects...',
+      );
+      await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
+    });
+
     test('Seed record types of the accounts, a person type and a business one refused together', async ({
       page,
     }) => {
@@ -9750,6 +9878,61 @@ for (const theme of STATE_THEMES) {
       await page
         .getByTestId('seed-automation-unread')
         .waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="quick-seed-confirm"]');
+    });
+
+    test('Seed Quick Seed confirmation reading the org automation again, what it read kept and Read again busy', async ({
+      page,
+    }) => {
+      await openQuickSeedConfirm(bridge, page, theme);
+      const asked = await bridge.waitForMessage('seed:automation', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'seed:automation',
+        'seed:automation:response',
+        contactAutomationAnswer(asked.payload as { orgId: string; objects: string[] }),
+      );
+      await page
+        .getByTestId('seed-automation-refused-SingleEmail')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+
+      // What was read stays drawn while the org is read again, and says so.
+      await page.getByTestId('seed-automation-read-again').click();
+      await page
+        .getByTestId('seed-automation-reading')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('seed-automation-read-again')).toHaveAttribute(
+        'aria-busy',
+        'true',
+      );
+      await expect(page.getByTestId('seed-automation-refused-SingleEmail')).toBeVisible();
+
+      await expectReadable(page, theme, '[data-testid="quick-seed-confirm"]');
+    });
+
+    test('Seed Quick Seed confirmation reading again an org automation that could not be read, Read again busy', async ({
+      page,
+    }) => {
+      await openQuickSeedConfirm(bridge, page, theme);
+      await bridge.waitForMessage('seed:automation', { timeout: 10_000 });
+      await answerAll(page, 'seed:automation', 'seed:automation:error', {
+        message: 'INVALID_SESSION_ID',
+        code: 'UNKNOWN',
+        retryable: true,
+      });
+      await page
+        .getByTestId('seed-automation-unread')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+
+      await page.getByTestId('seed-automation-read-again').click();
+      await page
+        .getByTestId('seed-automation-reading')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('seed-automation-read-again')).toHaveAttribute(
+        'aria-busy',
+        'true',
+      );
 
       await expectReadable(page, theme, '[data-testid="quick-seed-confirm"]');
     });

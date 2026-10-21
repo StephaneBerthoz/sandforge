@@ -12,9 +12,9 @@ vi.mock('react-i18next', () => ({
 describe('GuidedFirstStepCard', () => {
   const defaultProps = {
     icon: 'sync',
-    titleKey: 'onboarding.syncFirstStepTitle',
-    descKey: 'onboarding.syncFirstStepDesc',
-    actionKey: 'onboarding.startQuickSync',
+    titleKey: 'sync.firstStepTitle',
+    descKey: 'sync.firstStepDesc',
+    actionKey: 'sync.startQuickSync',
     onAction: vi.fn(),
     variant: 'sync' as const,
   };
@@ -22,9 +22,9 @@ describe('GuidedFirstStepCard', () => {
   it('should render with title, description, and action', () => {
     render(<GuidedFirstStepCard {...defaultProps} />);
     expect(screen.getByTestId('guided-first-step-card')).toBeDefined();
-    expect(screen.getByText('onboarding.syncFirstStepTitle')).toBeDefined();
-    expect(screen.getByText('onboarding.syncFirstStepDesc')).toBeDefined();
-    expect(screen.getByText('onboarding.startQuickSync')).toBeDefined();
+    expect(screen.getByText('sync.firstStepTitle')).toBeDefined();
+    expect(screen.getByText('sync.firstStepDesc')).toBeDefined();
+    expect(screen.getByText('sync.startQuickSync')).toBeDefined();
   });
 
   it('should call onAction when button is clicked', () => {

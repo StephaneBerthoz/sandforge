@@ -18,6 +18,16 @@ const stableApi = {
   getState: () => undefined,
   setState: () => undefined,
 };
+/*
+ * The input step's other panels come in chunks of their own
+ * (forgeInputPanels.test.tsx); here they are drawn at once.
+ */
+vi.mock('./forgeInputPanels', async () => ({
+  ForgeHistoryPanel: (await import('./ForgeHistoryPanel')).ForgeHistoryPanel,
+  ForgeTemplatePanel: (await import('./ForgeTemplatePanel')).ForgeTemplatePanel,
+  ForgeAIPanel: (await import('./ForgeAIPanel')).ForgeAIPanel,
+}));
+
 vi.mock('../../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => stableApi,
   getVscodeApi: () => stableApi,
@@ -31,6 +41,22 @@ vi.mock('../../stores/useOrgStore', () => ({
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({ navigate: vi.fn(), currentRoute: 'forge' }),
+}));
+
+/* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
+vi.mock('../../components/graph/lazyGraph', async () => ({
+  LiveGraph: (await import('../../components/graph/LiveGraph')).LiveGraph,
+}));
+
+/*
+ * The steps past the input come in chunks of their own (forgeSteps.test.tsx);
+ * here they are drawn at once, as the page draws them once loaded.
+ */
+vi.mock('./forgeSteps', async () => ({
+  ForgeDiscovery: (await import('./ForgeDiscovery')).ForgeDiscovery,
+  ForgeReview: (await import('./ForgeReview')).ForgeReview,
+  ForgeExecution: (await import('./ForgeExecution')).ForgeExecution,
+  ForgeResults: (await import('./ForgeResults')).ForgeResults,
 }));
 
 vi.mock('../../components/graph/LiveGraph', () => ({
@@ -155,7 +181,8 @@ describe('ForgePage — a run that stops on an error', () => {
 
     stopped(SESSION_EXPIRED, STOPPED_RUN);
 
-    expect(screen.getByTestId('forge-execution-status').textContent).toBe('STOPPED');
+    // The store took the run's messages while the execution screen's chunk came.
+    expect((await screen.findByTestId('forge-execution-status')).textContent).toBe('STOPPED');
     const error = screen.getByTestId('forge-execution-error');
     expect(error.getAttribute('role')).toBe('alert');
     expect(error.textContent).toContain(`The run stopped before its end: ${SESSION_EXPIRED}`);

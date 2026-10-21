@@ -49,6 +49,7 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useHeldFailure } from '../../hooks/useHeldFailure';
 import type {
   SalesforceOrg,
   LiveOperationSnapshot,
@@ -187,7 +188,13 @@ export const MonitorPage: React.FC = () => {
     openApexJobsError,
     orgHealthStatus,
   } = useMonitorPageData();
-  const errorHint = useMemo(() => (error ? bannerHintOf(error, null) : null), [error]);
+  // What failed stays said while Retry reads the dashboard again, and Retry
+  // with it: the banner went as it was pressed, and the keyboard with it.
+  const shownError = useHeldFailure(error, loading);
+  const errorHint = useMemo(
+    () => (shownError ? bannerHintOf(shownError, null) : null),
+    [shownError],
+  );
 
   /**
    * The insights the band shows, split by what they may do. Filtered here
@@ -266,8 +273,8 @@ export const MonitorPage: React.FC = () => {
       addNotification({
         level: 'warning',
         category: 'monitor',
-        title: t('sync.runControls.pauseRefused'),
-        message: t('sync.runControls.pauseRefusedDetail'),
+        title: t('common.runPauseRefused'),
+        message: t('common.runPauseRefusedDetail'),
       });
     }
     refetchLiveOps();
@@ -474,13 +481,13 @@ export const MonitorPage: React.FC = () => {
             })}
           </span>
           <Button size="sm" variant="secondary" onClick={handleRefresh}>
-            {t('monitor.tryReconnect', 'Try Reconnect')}
+            {t('common.tryReconnect', 'Try Reconnect')}
           </Button>
         </div>
       )}
 
       {/* ── Error retry banner ── */}
-      {error && !connectionLost && (
+      {shownError && !connectionLost && (
         <div
           className="flex items-center gap-2 p-3 bg-status-error/10 border border-status-error/20 rounded-md"
           data-testid="monitor-error"
@@ -489,7 +496,14 @@ export const MonitorPage: React.FC = () => {
           <span className="flex-1 text-sm text-status-error">
             {t('monitor.refreshFailed', 'Failed to refresh dashboard data')}
           </span>
-          <Button size="sm" variant="secondary" onClick={retryFailed} data-testid="error-retry-btn">
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={loading}
+            focusableWhenDisabled
+            onClick={retryFailed}
+            data-testid="error-retry-btn"
+          >
             {t('monitor.retry', 'Retry')}
           </Button>
           <Button
@@ -505,7 +519,7 @@ export const MonitorPage: React.FC = () => {
       {/* What stopped the refresh and what to do, when the catalogue knows it:
           an org whose edition has no API answered the first call with a code
           the banner above did not say. */}
-      {error && !connectionLost && errorHint && (
+      {shownError && !connectionLost && errorHint && (
         <ErrorExplanation hint={errorHint} className="text-xs" />
       )}
 

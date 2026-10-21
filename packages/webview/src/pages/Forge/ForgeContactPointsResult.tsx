@@ -28,7 +28,7 @@ export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> =
   const { t } = useTranslation();
   const headingId = useId();
   // Each count is a phrase of its own, in the form its language gives it.
-  const values = t('forge.contactPoints.values', { count: report.values });
+  const values = t('runResults.contactPoints.values', { count: report.values });
   const fields = t('common.fieldCount', { count: report.fields.length });
   return (
     <section
@@ -42,23 +42,27 @@ export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> =
       )}
     >
       <h3 id={headingId} className="font-medium text-text-primary">
-        {t('forge.contactPoints.title')}
+        {t('runResults.contactPoints.title')}
       </h3>
       {!report.neutralized ? (
         <p className="mt-0.5" data-testid="forge-results-contact-points-kept">
-          {t(simulation ? 'forge.contactPoints.keptSimulated' : 'forge.contactPoints.kept')}
+          {t(
+            simulation ? 'runResults.contactPoints.keptSimulated' : 'runResults.contactPoints.kept',
+          )}
         </p>
       ) : report.values === 0 ? (
         <p className="mt-0.5" data-testid="forge-results-contact-points-summary">
-          {t(simulation ? 'forge.contactPoints.noneSimulated' : 'forge.contactPoints.none')}
+          {t(
+            simulation ? 'runResults.contactPoints.noneSimulated' : 'runResults.contactPoints.none',
+          )}
         </p>
       ) : (
         <>
           <p className="mt-0.5" data-testid="forge-results-contact-points-summary">
             {t(
               simulation
-                ? 'forge.contactPoints.neutralizedSimulated'
-                : 'forge.contactPoints.neutralized',
+                ? 'runResults.contactPoints.neutralizedSimulated'
+                : 'runResults.contactPoints.neutralized',
               { values, fields },
             )}
           </p>
@@ -66,7 +70,7 @@ export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> =
             {report.fields.map(({ objectApiName, field, values }) => (
               <li key={`${objectApiName}.${field}`} data-testid="forge-results-contact-points-row">
                 <span className="font-mono text-text-primary">{`${objectApiName}.${field}`}</span>
-                {` — ${t('forge.contactPoints.values', { count: values })}`}
+                {` — ${t('runResults.contactPoints.values', { count: values })}`}
               </li>
             ))}
           </ul>
@@ -74,7 +78,7 @@ export const ForgeContactPointsResult: React.FC<ForgeContactPointsResultProps> =
             // Past the range's ten thousand, a number is left out rather
             // than given one another number of the run already holds.
             <p className="mt-1" data-testid="forge-results-contact-points-exhausted">
-              {t('forge.contactPoints.numbersExhausted', { count: report.numbersExhausted })}
+              {t('runResults.contactPoints.numbersExhausted', { count: report.numbersExhausted })}
             </p>
           )}
         </>

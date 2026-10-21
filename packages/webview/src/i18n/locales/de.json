@@ -84,7 +84,40 @@
     "frozenSalt": {
       "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team dieses Dataset extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des eingefrorenen Datasets kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde.",
       "createdTitle": "Salt des eingefrorenen Datasets"
-    }
+    },
+    "emailLimit": {
+      "single": "Einzel-E-Mails",
+      "workflow": "Workflow-E-Mails"
+    },
+    "quoted": "„{{name}}“",
+    "orgType": {
+      "prod": "PROD",
+      "scratch": "SCRATCH",
+      "developer": "DEVELOPER",
+      "dev": "DEV",
+      "devPro": "DEV PRO",
+      "partial": "PARTIAL",
+      "full": "FULL",
+      "sandbox": "SANDBOX"
+    },
+    "relativeTime": {
+      "justNow": "gerade eben",
+      "minutesAgo": "vor {{count}}m",
+      "hoursAgo": "vor {{count}}h"
+    },
+    "selectOrg": "Org auswählen",
+    "orgStatus_connected": "Verbunden",
+    "orgStatus_expired": "Sitzung abgelaufen",
+    "orgStatus_error": "Verbindungsfehler",
+    "orgStatus_refreshing": "Aktualisierung...",
+    "tryReconnect": "Erneut verbinden",
+    "pauseRun": "Pausieren",
+    "resumeRun": "Fortsetzen",
+    "runPauseRefused": "Lauf konnte nicht pausiert oder fortgesetzt werden",
+    "runPauseRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet.",
+    "records": "Datensätze",
+    "recordCountLabel": "Datensatzanzahl",
+    "whereClause": "WHERE-Klausel"
   },
   "status": {
     "apiUsage": "API-Nutzung",
@@ -116,10 +149,6 @@
     "disconnectConfirm": "{{alias}} trennen? SandForge vergisst diese Org: Alias, Tags, Farbe und Sicherheitsstufe werden gelöscht, und eine erneute Verbindung beginnt mit den Standardwerten.",
     "edit": "Org bearbeiten",
     "noOrgs": "Keine Organisationen verbunden",
-    "status_connected": "Verbunden",
-    "status_expired": "Sitzung abgelaufen",
-    "status_error": "Verbindungsfehler",
-    "status_refreshing": "Aktualisierung...",
     "alias": "Alias",
     "username": "Benutzername",
     "instanceUrl": "Instanz-URL",
@@ -150,11 +179,6 @@
     "openRefusedUrl": "{{alias}} wurde nicht geöffnet: Die Instanz-URL ist keine HTTPS-Adresse.",
     "openNotFound": "{{alias}} ist nicht mehr registriert und wurde daher nicht geöffnet.",
     "openFailed": "Der Browser hat {{alias}} nicht geöffnet: {{reason}}",
-    "sessionExpired": {
-      "title": "Sitzung abgelaufen",
-      "message": "Die Sitzung mit {{org}} ist abgelaufen. Verbinden Sie sie erneut, um fortzufahren.",
-      "reconnect": "Erneut verbinden"
-    },
     "moreMethods": "Weitere Methoden",
     "cliMissing": "Die Salesforce CLI (sf) antwortet auf diesem Rechner nicht. Aus SF CLI importieren und OAuth (Web) laufen über sie.",
     "aliasOptionalHint": "Optional: Ohne Alias wird die Org nach ihrem Benutzernamen benannt.",
@@ -182,7 +206,12 @@
       "cancelRefused": "Vorgang konnte nicht abgebrochen werden",
       "cancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder kann von hier aus nicht gestoppt werden. Die Liste wurde neu eingelesen.",
       "activeCount_one": "{{count}} aktiv",
-      "activeCount_other": "{{count}} aktiv"
+      "activeCount_other": "{{count}} aktiv",
+      "module": {
+        "realtime": "Echtzeit-Sync",
+        "clone": "Datensatz-Klon",
+        "csv": "CSV-Import"
+      }
     },
     "jobs": "Jobs",
     "alerts": "Warnungen",
@@ -289,7 +318,6 @@
     "refreshNow": "Jetzt aktualisieren",
     "connectionLost_one": "Verbindung verloren. Auto-Aktualisierung ist {{count}}-mal fehlgeschlagen.",
     "connectionLost_other": "Verbindung verloren. Auto-Aktualisierung ist {{count}}-mal fehlgeschlagen.",
-    "tryReconnect": "Erneut verbinden",
     "alertHistory": "Warnungsverlauf",
     "alertHistoryTimeline": "Zeitleiste",
     "noAlertHistory": "Noch kein Warnungsverlauf",
@@ -658,7 +686,6 @@
       "regex": "Regex-Muster",
       "from_csv": "Aus CSV"
     },
-    "recordCount": "Datensatzanzahl",
     "batchSize": "Stapelgröße",
     "totalRecords": "Datensätze gesamt",
     "saveAsTemplate": "Als Vorlage speichern",
@@ -958,9 +985,6 @@
       "step3": "Objekte und Datensatzmengen festlegen",
       "step4": "Ausführen und Ergebnisse prüfen"
     },
-    "graph": {
-      "title": "Abhängigkeitsgraph"
-    },
     "results": {
       "aiFallback": "Die KI hat keine Werte geliefert, daher erhielten diese Felder generierte Sätze: {{fields}}. Die KI ist ausgeschaltet, oder der Aufruf wurde abgelehnt (das SandForge-Protokoll nennt den Grund).",
       "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}.",
@@ -1021,7 +1045,6 @@
         "workflowRule": "Workflow-Regel"
       },
       "entry": "{{kind}} „{{name}}“",
-      "quoted": "„{{name}}“",
       "emailsPerRecord_one": "{{count}} E-Mail pro Datensatz",
       "emailsPerRecord_other": "{{count}} E-Mails pro Datensatz",
       "notifications": "sendet benutzerdefinierte Benachrichtigungen",
@@ -1036,16 +1059,17 @@
       "bypassNoSet": "Ihnen zugewiesen, hält {{permission}} still, was sie nennt: In {{org}} wurde kein Berechtigungssatz gefunden, der sie enthält.",
       "bypassHeld": "Sie haben {{permissions}}: Was sie nennt, bleibt für diesen Seed still.",
       "alertsAsSingle": "{{org}} zählt seine E-Mail-Benachrichtigungen auch gegen seine Einzel-E-Mails, wie eine Developer Edition.",
-      "limit": {
-        "single": "Einzel-E-Mails",
-        "workflow": "Workflow-E-Mails"
-      },
       "emailsFit": "{{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden.",
       "emailsUnread": "{{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}. Was heute noch übrig ist, konnte nicht gelesen werden ({{reason}}): Der Seed wird nicht aufgehalten.",
       "refused": "Der Seed würde abgelehnt, bevor er etwas schreibt. {{limit}}, die diese Datensätze {{org}} senden lassen: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Sind sie aufgebraucht, lehnt ein Flow, der beim Speichern sendet, seinen Datensatz ab, und die eigenen E-Mails der Org stehen für den Rest des Tages still.",
       "waysOut": "Um ihn auszuführen, verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0 oder schalten Sie {{senders}} ab.",
       "wayBypass": "Oder weisen Sie sich den Berechtigungssatz {{set}} zu: Seine {{permission}} hält {{senders}} still.",
       "wayBypassNoSet": "Oder weisen Sie sich einen Berechtigungssatz zu, der {{permission}} enthält und {{senders}} still hält."
+    },
+    "stepHelp": {
+      "selectObjects": "Wählen Sie, welche Salesforce-Objekte mit Daten gefüllt werden sollen",
+      "configureFields": "Passen Sie an, wie jedes Feld generiert wird — Regeln, Bereiche und Muster",
+      "execute": "Überprüfen Sie die Datengenerierung und führen Sie sie aus. Die Ergebnisse erscheinen hier nach Abschluss"
     }
   },
   "sync": {
@@ -1275,7 +1299,8 @@
         "createEdit": "Erstellung / Änderung"
       },
       "autoResolved_one": "Automatisch aufgelöst ({{count}} Feld)",
-      "autoResolved_other": "Automatisch aufgelöst ({{count}} Felder)"
+      "autoResolved_other": "Automatisch aufgelöst ({{count}} Felder)",
+      "timestamp": "Zeitstempel"
     },
     "emptyState": {
       "title": "Halten Sie zwei Orgs synchron",
@@ -1341,7 +1366,6 @@
       "detailTitle": "Ausführungsdetails",
       "dateTime": "Datum",
       "objects": "Objekte",
-      "records": "Datensätze",
       "status": "Status",
       "status_success": "Erfolgreich",
       "status_partial": "Teilweise",
@@ -1428,16 +1452,12 @@
       "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können."
     },
     "runControls": {
-      "pause": "Pausieren",
-      "resume": "Fortsetzen",
       "cancelSimulation": "Simulation abbrechen",
       "pausedNote": "Pausiert: Bis zur Fortsetzung wird nichts mehr geschrieben. Ein bereits gesendeter Stapel oder ein bereits laufender Bulk-API-Job wird zuerst beendet.",
       "stopping": "Wird gestoppt: Der Lauf endet vor seinem nächsten Objekt oder Stapel, und was er geschrieben hat, bleibt in der Ziel-Org.",
       "cancelConfirm": "Laufende Synchronisierung stoppen? Sie endet vor ihrem nächsten Objekt oder Stapel, und bereits geschriebene Datensätze bleiben in der Ziel-Org.",
       "cancelRefused": "Lauf konnte nicht abgebrochen werden",
-      "cancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet.",
-      "pauseRefused": "Lauf konnte nicht pausiert oder fortgesetzt werden",
-      "pauseRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet."
+      "cancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet."
     },
     "strategyNotice": {
       "manualReplaced": "Dieser Entwurf verlangte eine manuelle Konfliktprüfung, die ein Synchronisierungslauf nicht bietet: Jeder seiner Läufe schrieb die Werte der Quelle. Er behält jetzt die Werte der Ziel-Org überall dort, wo sich die beiden Orgs unterscheiden. Treffen Sie eine andere Wahl, wenn die Werte der Quelle geschrieben werden sollen."
@@ -1529,34 +1549,6 @@
       "toggleDetails": "Aus, sofern nicht angehakt. Sobald die Datensätze eines Objekts geschrieben sind, werden die neueste Version jeder Salesforce-Datei, die mit einem von ihnen verknüpft ist, und ihre klassischen Anhänge kopiert und mit den Kopien der Datensätze im Ziel verknüpft. Eine gespeicherte Konfiguration merkt sich, welche Datei sie wohin kopiert hat: Ein erneuter Lauf kopiert eine Datei nur, wenn die Quelle eine neuere Version hat, die als Version der Kopie hinzugefügt wird, nie als zweite Datei. Bevor der Lauf etwas schreibt, wird der Dateispeicher des Ziels gelesen, und ein Lauf, dessen Dateien nicht hineinpassen, wird abgelehnt. Eine Datei, die größer als die Höchstgröße ist, und die Dateien über der Höchstmenge eines Laufs werden übersprungen und gezählt; der nächste Lauf kopiert Letztere. Das Entfernen eines Laufs nimmt mit seinen Datensätzen die Dateien zurück, die er erstellt hat; eine einer früheren Kopie hinzugefügte Version bleibt.",
       "toggleHint": "Kopiert auch die Salesforce-Dateien und Anhänge der geschriebenen Datensätze."
     },
-    "removal": {
-      "title": "Was dieser Lauf erstellt hat",
-      "created_one": "{{formatted}} Datensatz oder Datei in {{org}} erstellt",
-      "created_other": "{{formatted}} Datensätze und Dateien in {{org}} erstellt",
-      "remove": "Entfernen, was dieser Lauf erstellt hat",
-      "removeLeft": "Den Rest dessen entfernen, was dieser Lauf erstellt hat",
-      "removeTitle": "Aus {{org}} entfernen, was dieser Lauf erstellt hat",
-      "removeDescription": "Löscht aus {{org}}, was dieser Lauf erstellt hat — die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo {{org}} keinen hatte, und die Dateien, die er erstellt hat — zuerst die Dateien, dann die untergeordneten Datensätze vor ihren übergeordneten; sie kommen in den Papierkorb. Die Datensätze, die er aktualisiert hat, waren schon in {{org}} und behalten ihre neuen Werte. Ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen, wird behalten, ebenso ein seit dem Lauf geänderter Datensatz oder einer, von dem seither hinzugefügte Datensätze abhängen, es sei denn, Sie schließen ihn unten ein.",
-      "includeChanged": "Auch die seit dem Lauf geänderten Datensätze entfernen, und was ihnen seither hinzugefügt wurde",
-      "removing": "Entferne, was dieser Lauf erstellt hat…",
-      "cancel": "Entfernen stoppen",
-      "stopping": "Wird gestoppt: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, wird aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",
-      "cancelRefused": "Entfernen konnte nicht gestoppt werden",
-      "cancelRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
-      "notKept": "Was dieser Lauf erstellt hat, wird nicht mehr aufbewahrt — es wurde für neuere Läufe verworfen — und kann von hier aus nicht entfernt werden.",
-      "refusedGuard": "Production Guard erlaubt in {{org}}, einer Produktions-Org, kein Löschen: Was dieser Lauf erstellt hat, bleibt dort. Entfernen Sie es in der Org selbst.",
-      "refusedNoGuard": "Production Guard läuft in diesem Fenster nicht, und ohne ihn wird nichts gelöscht.",
-      "refusedOrgGone": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr verbunden: Verbinden Sie sie erneut, um zu entfernen, was der Lauf erstellt hat.",
-      "refusedRunning": "Der Lauf schreibt noch: Was er erstellt hat, kann entfernt werden, sobald er beendet ist.",
-      "readWhole": "Der nächste Lauf von {{config}} liest {{objects}} vollständig: Die Kopien, auf die sein Wasserzeichen zählte, sind weg.",
-      "filesForgotten_one": "{{config}} zählt {{formatted}} Datei nicht mehr als kopiert: Das nächste vollständige Lesen kopiert sie erneut.",
-      "filesForgotten_other": "{{config}} zählt {{formatted}} Dateien nicht mehr als kopiert: Das nächste vollständige Lesen kopiert sie erneut.",
-      "unfinishedTitle": "Nie beendete Läufe",
-      "unfinishedNote": "Während dieser Läufe wurde ein Fenster geschlossen, oder der Verlauf führt sie nicht mehr. Was sie erstellt haben, wird aufbewahrt, sobald jeder Aufruf an das Ziel beantwortet war, und kann entfernt werden.",
-      "unfinishedRun": "{{config}}, gestartet am {{date}}",
-      "unfinishedInFlight_one": "Er hielt an, während er {{formatted}} {{object}}-Zeile schrieb: Hat das Ziel sie übernommen, ist sie in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht.",
-      "unfinishedInFlight_other": "Er hielt an, während er {{formatted}} {{object}}-Zeilen schrieb: Die vom Ziel übernommenen sind in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht."
-    },
     "earlierCopies": {
       "leftAsIs": "Ein Lauf dieser gespeicherten Konfiguration lässt die Datensätze, die ihre früheren Läufe kopiert haben, wie sie sind, und fügt die anderen ein.",
       "quickSync": "Die letzte Synchronisierung zwischen diesen Orgs am {{date}} hat Datensätze angelegt, die noch im Ziel sind: {{objects}}. Schnell-Sync fügt jeden Datensatz erneut ein: Entfernen Sie diesen Lauf zuerst aus dem Sync-Verlauf, damit keine zweite Kopie entsteht.",
@@ -1586,7 +1578,10 @@
       "withoutFields_other": "{{count}} Datensätze erneut ohne die Felder geschrieben, die die Ziel-Org abgelehnt hat:",
       "withoutField_one": "{{field}}, bei {{count}} Datensatz weggelassen: {{refusedBy}}.",
       "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}."
-    }
+    },
+    "firstStepTitle": "Erste Schritte mit Sync",
+    "firstStepDesc": "Übertragen Sie Daten zwischen Ihren Salesforce-Orgs in 3 Klicks mit Schnell-Sync",
+    "startQuickSync": "Schnell-Sync starten"
   },
   "migration": {
     "title": "Migration",
@@ -1727,7 +1722,6 @@
       "constant": "Konstante",
       "preserve_format": "Format beibehalten"
     },
-    "hardDelete": "Endgültige Löschung",
     "recordsProcessed": "Verarbeitete Datensätze",
     "errorRate": "Fehlerrate",
     "anonymizedFields": "Anonymisierte Vorlagen",
@@ -2153,7 +2147,6 @@
       "failedJobs": "Fehlgeschlagene Apex-Jobs"
     },
     "stepConfigDelay": "Verzögerung (Sekunden)",
-    "stepConfigWhere": "WHERE-Klausel",
     "stepConfigTemplate": "Vorlagen-ID",
     "noExecution": "Keine aktive Ausführung",
     "subtitle": "Mehrstufige Pipelines zusammenstellen und speichern",
@@ -2265,7 +2258,9 @@
         "timedOut": "Nicht rechtzeitig genehmigt: Bis {{time}} hat niemand geantwortet",
         "cancelled": "Angehalten, bevor jemand geantwortet hat, {{time}}"
       }
-    }
+    },
+    "hardDelete": "Endgültige Löschung",
+    "selectOrg": "Org auswählen"
   },
   "ai": {
     "title": "KI-Assistent",
@@ -2366,7 +2361,6 @@
     "allActions": "Alle Aktionen",
     "allModules": "Alle Module",
     "noAuditEntries": "Keine Audit-Einträge",
-    "timestamp": "Zeitstempel",
     "action": "Aktion",
     "details": "Details",
     "nodes": "Knoten",
@@ -2543,7 +2537,12 @@
       "unhandled": "Dieses Panel hat eine Anfrage gesendet, die SandForge nicht verarbeitet, und sie wurde verworfen. Laden Sie das Fenster neu, damit Panel und Erweiterung dieselbe Version ausführen.",
       "other": "SandForge hat eine Anfrage dieses Panels verworfen. Der SandForge-Ausgabekanal nennt den Grund."
     },
-    "runOutlivedWait": "SandForge hat nach {{hours}} h aufgehört, auf {{request}} zu warten, doch der Lauf schreibt möglicherweise noch. Die Live-Operationen im Monitor zeigen, wo er steht; ein erneuter Start würde seine Datensätze doppelt schreiben."
+    "runOutlivedWait": "SandForge hat nach {{hours}} h aufgehört, auf {{request}} zu warten, doch der Lauf schreibt möglicherweise noch. Die Live-Operationen im Monitor zeigen, wo er steht; ein erneuter Start würde seine Datensätze doppelt schreiben.",
+    "sessionExpired": {
+      "title": "Sitzung abgelaufen",
+      "message": "Die Sitzung mit {{org}} ist abgelaufen. Verbinden Sie sie erneut, um fortzufahren.",
+      "reconnect": "Erneut verbinden"
+    }
   },
   "onboarding": {
     "welcomeTitle": "Willkommen bei SandForge",
@@ -2562,18 +2561,8 @@
     "step4Title": "Erste Schritte",
     "step4Desc": "Basierend auf Ihrem Org-Typ, hier ein empfohlener Startpunkt",
     "suggestMonitor": "Beginnen Sie mit Monitor, um die Gesundheit Ihrer Produktions-Org im Blick zu behalten",
-    "openSeed": "Seed öffnen",
-    "openMonitor": "Monitor öffnen",
-    "openSettings": "Einstellungen öffnen",
     "gotIt": "Verstanden!",
     "whatsNewTitle": "Neuigkeiten in SandForge",
-    "openForge": "Forge öffnen",
-    "openSync": "Sync öffnen",
-    "sandboxBanner": "Ihre Sandbox ist leer — füllen Sie sie mit Seed oder Sync",
-    "populateSandbox": "Sandbox füllen",
-    "syncFirstStepTitle": "Erste Schritte mit Sync",
-    "syncFirstStepDesc": "Übertragen Sie Daten zwischen Ihren Salesforce-Orgs in 3 Klicks mit Schnell-Sync",
-    "startQuickSync": "Schnell-Sync starten",
     "suggestSeedAndSync": "Ihre Sandbox ist bereit. Füllen Sie sie mit Seed für Testdaten oder mit Sync, um Daten aus einer anderen Org zu kopieren.",
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
@@ -2797,7 +2786,6 @@
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
-    "openFrozen": "Eingefrorenes Dataset öffnen",
     "paths": {
       "forgeTitle": "Aus einem Datensatz klonen",
       "forgeDesc": "Datensatz-ID einfügen, Beziehungsgraph entdecken, in Ihre Sandbox klonen",
@@ -2808,11 +2796,6 @@
     }
   },
   "help": {
-    "seed": {
-      "selectObjects": "Wählen Sie, welche Salesforce-Objekte mit Daten gefüllt werden sollen",
-      "configureFields": "Passen Sie an, wie jedes Feld generiert wird — Regeln, Bereiche und Muster",
-      "execute": "Überprüfen Sie die Datengenerierung und führen Sie sie aus. Die Ergebnisse erscheinen hier nach Abschluss"
-    },
     "title": "Hilfe & Ressourcen",
     "gettingStarted": "Erste Schritte",
     "gettingStartedDesc": "Lernen Sie die Grundlagen von SandForge",
@@ -2911,9 +2894,18 @@
     "opStatus": {
       "success": "Erfolgreich",
       "running": "Läuft",
+      "paused": "Pausiert",
       "failed": "Fehlgeschlagen",
       "cancelled": "Abgebrochen"
-    }
+    },
+    "sandboxBanner": "Ihre Sandbox ist leer — füllen Sie sie mit Seed oder Sync",
+    "openSeed": "Seed öffnen",
+    "openSync": "Sync öffnen",
+    "populateSandbox": "Sandbox füllen",
+    "openForge": "Forge öffnen",
+    "openFrozen": "Eingefrorenes Dataset öffnen",
+    "openMonitor": "Monitor öffnen",
+    "openSettings": "Einstellungen öffnen"
   },
   "commandPalette": {
     "placeholder": "Befehle suchen...",
@@ -3191,7 +3183,6 @@
     "templateDescription": "Beschreibung (optional)",
     "templateDeleted": "Vorlage gelöscht",
     "templateUpdated": "Vorlage aktualisiert",
-    "selectOrg": "Org auswählen",
     "cancelEdit": "Abbrechen",
     "recordLimit": "Datensätze pro Objekt",
     "recordLimitHint": "Begrenzen Sie, wie viele Zeilen pro Objekt geklont werden. Niedriger = schneller und sicherer bei großen Orgs.",
@@ -3238,9 +3229,6 @@
     },
     "expandOrphanParents": "Übergeordnete automatisch abrufen",
     "expandOrphanParentsHint": "Kopiert auch die übergeordneten Datensätze, die der Klon nicht von selbst liest: hinter einer Referenz, die mehrere Objekte benennen kann, jenseits von fünf Ebenen oder über der Obergrenze. Ein Klon ab einem Datensatz liest die übergeordneten Datensätze, ohne die seine Datensätze nicht geschrieben werden können, bereits per ID.",
-    "keepContactPoints": "E-Mails und Telefonnummern unverändert lassen",
-    "keepContactPointsHint": "Aus: Der Klon schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht.",
-    "keepContactPointsWarning": "E-Mails und Telefonnummern werden so geschrieben, wie die Quelle sie enthält: Flows, Trigger und E-Mail-Benachrichtigungen der Ziel-Org können dann echten Personen E-Mails oder SMS senden.",
     "reuseLastGraph": "Letzten Graph wiederverwenden (Ermittlung überspringen)",
     "reuseLastGraphHint": "Überspringen Sie die über 30 Sekunden dauernde Ermittlung und verwenden Sie den Graph Ihrer letzten Ausführung erneut.",
     "quickStartTemplate": "Schnellstart ({{name}})",
@@ -3385,6 +3373,7 @@
       "anonymizationDesc_one": "{{count}} PII-Feld erkannt. Anonymisierungsmethode pro Kategorie konfigurieren.",
       "anonymizationDesc_other": "{{count}} PII-Felder erkannt. Anonymisierungsmethode pro Kategorie konfigurieren.",
       "framework": "Framework",
+      "frameworkNone": "Keines",
       "noCompliance": "Kein Compliance-Framework ausgewählt. Wählen Sie eines aus, um einen Bericht zu erzeugen.",
       "complianceLoading": "Compliance wird analysiert...",
       "complianceError": "Der Compliance-Bericht konnte nicht erstellt werden: {{error}}",
@@ -3406,8 +3395,6 @@
       "fieldsScanned_other": "{{count}} Felder insgesamt geprüft",
       "automation": {
         "loading": "Es wird gelesen, was die Ziel-Org für die Datensätze ausführt, die dieser Durchlauf schreibt…",
-        "readAgain": "Erneut lesen",
-        "readingAgain": "Wird erneut gelesen…",
         "intro": "Während der Durchlauf seine Datensätze schreibt, führt die Ziel-Org aus:",
         "none_one": "Nichts, was die Ziel-Org automatisiert, läuft für das Objekt, das dieser Durchlauf schreibt: kein aktiver Flow, kein Prozess, keine Workflow-Regel, kein Apex-Trigger, keine Zuweisungsregel und keine Duplikatsregel.",
         "none_other": "Nichts, was die Ziel-Org automatisiert, läuft für die {{count}} Objekte, die dieser Durchlauf schreibt: kein aktiver Flow, kein Prozess, keine Workflow-Regel, kein Apex-Trigger, keine Zuweisungsregel und keine Duplikatsregel.",
@@ -3421,32 +3408,21 @@
         "removalTrigger": "{{object}}: Apex-Trigger {{name}} läuft beim Löschen und kann es ablehnen",
         "removalPackageTrigger": "{{object}}: Apex-Trigger {{name}}, von einem verwalteten Paket installiert, läuft beim Löschen und kann es ablehnen; niemand in der Org kann ihn ändern",
         "removalLock": "{{object}}: einmal aktiviert, sperrt ein Datensatz die Datensätze darunter, die ein Entfernen dann nur mit ihm nimmt oder sobald er wieder im Status Entwurf ist",
-        "flow": "Flow: {{name}}",
-        "trigger": "Apex-Trigger: {{name}}",
         "beforeSave": "vor dem Speichern",
         "afterSave": "nach dem Speichern",
         "beforeAndAfterSave": "vor und nach dem Speichern",
-        "beforeDelete": "vor dem Löschen",
-        "afterDelete": "nach dem Löschen",
-        "beforeAndAfterDelete": "vor und nach dem Löschen",
         "notFor_one": "Startet nicht für einen Benutzer mit der benutzerdefinierten Berechtigung {{names}}",
         "notFor_other": "Startet nicht für einen Benutzer mit einer der benutzerdefinierten Berechtigungen {{names}}",
         "named_one": "Seine Startbedingung nennt die benutzerdefinierte Berechtigung {{names}}",
         "named_other": "Seine Startbedingung nennt die benutzerdefinierten Berechtigungen {{names}}",
         "conditionNotRead": "Startbedingung nicht gelesen",
         "conditionUnreadable": "Die Startbedingung konnte nicht gelesen werden",
-        "bypassHint_one": "Weisen Sie die benutzerdefinierte Berechtigung {{names}} dem Benutzer zu, als der der Durchlauf in die Ziel-Org schreibt: Die Flows, deren Startbedingung sie ausschließt, bleiben dann still.",
-        "bypassHint_other": "Weisen Sie die benutzerdefinierten Berechtigungen {{names}} dem Benutzer zu, als der der Durchlauf in die Ziel-Org schreibt: Die Flows, deren Startbedingung sie ausschließt, bleiben dann still.",
         "notRead_one": "Die Startbedingung von {{count}} Flow wurde nicht gelesen: Das Lesen nimmt höchstens {{bound}}.",
         "notRead_other": "Die Startbedingungen von {{count}} Flows wurden nicht gelesen: Das Lesen nimmt höchstens {{bound}}.",
         "notReadOn": "Ungelesen geblieben bei {{objects}}.",
-        "unreadFlows": "Die Flows der Ziel-Org konnten nicht gelesen werden: {{reason}}",
-        "unreadTriggers": "Die Apex-Trigger der Ziel-Org konnten nicht gelesen werden: {{reason}}",
         "unreadConditions": "Die Startbedingungen einiger Flows konnten nicht gelesen werden: {{reason}}",
         "cost_one": "Mit {{count}} Anfrage an die Ziel-Org gelesen.",
         "cost_other": "Mit {{count}} Anfragen an die Ziel-Org gelesen.",
-        "process": "Prozess: {{name}}",
-        "workflowRule": "Workflow-Regel: {{name}}",
         "sendsMessages": "Sendet Nachrichten",
         "messageEmail": "E-Mail: {{name}}",
         "messageNotification": "Benutzerdefinierte Benachrichtigung: {{name}}",
@@ -3483,25 +3459,11 @@
         "bypassHeld_other": "Der Benutzer, als der der Durchlauf in die Ziel-Org schreibt, hat die benutzerdefinierten Berechtigungen {{names}}: Was sie ausschließt, bleibt für diesen Durchlauf still.",
         "notReadDefinitions_one": "Die Definition von {{count}} Prozess oder Workflow-Regel wurde nicht gelesen: Das Lesen nimmt höchstens {{bound}}.",
         "notReadDefinitions_other": "Die Definitionen von {{count}} Prozessen oder Workflow-Regeln wurden nicht gelesen: Das Lesen nimmt höchstens {{bound}}.",
-        "unreadProcesses": "Die Process-Builder-Prozesse der Ziel-Org konnten nicht gelesen werden: {{reason}}",
-        "unreadWorkflowRules": "Die Workflow-Regeln der Ziel-Org konnten nicht gelesen werden: {{reason}}",
         "unreadDefinitions": "Die Definitionen einiger Prozesse oder Workflow-Regeln konnten nicht gelesen werden: {{reason}}",
         "unreadAssignmentRules": "Die Zuweisungsregeln der Ziel-Org konnten nicht gelesen werden: {{reason}}",
         "unreadDuplicateRules": "Die Duplikatsregeln der Ziel-Org konnten nicht gelesen werden: {{reason}}",
         "unreadUserPermissions": "Die benutzerdefinierten Berechtigungen des Benutzers, als der der Durchlauf schreibt, konnten nicht gelesen werden: {{reason}}",
-        "rules": "Zuweisungs- und Duplikatsregeln",
-        "unreadPermissionSets": "Die Berechtigungssätze, die eine Umgehung enthalten, die der Benutzer, als der der Durchlauf schreibt, nicht besitzt, konnten nicht gelesen werden: {{reason}}",
-        "assistant": {
-          "smallest": "{{permissionSet}} ist der kleinste Berechtigungssatz der Ziel-Org, der {{permission}} enthält. Dem Benutzer zugewiesen, als der der Durchlauf schreibt, hält er still, was {{permission}} ausschließt.",
-          "others_one": "{{names}} enthält sie ebenfalls.",
-          "others_other": "{{names}} enthalten sie ebenfalls.",
-          "copy": "Befehl kopieren, der {{permissionSet}} zuweist",
-          "copied": "Befehl kopiert",
-          "none": "Kein Berechtigungssatz der Ziel-Org enthält {{permission}}: Ein Administrator legt einen an, der sie enthält, und weist ihn dem Benutzer zu, als der der Durchlauf schreibt.",
-          "neverRun": "SandForge zeigt diesen Befehl an und führt ihn nie aus: Ob er ausgeführt wird, entscheidet ein Administrator der Ziel-Org.",
-          "readAgain": "Ziel-Org erneut lesen",
-          "readAgainHint": "Sobald der Befehl ausgeführt ist, lesen Sie die Ziel-Org erneut: Die Berechtigung erscheint dann als vorhanden."
-        }
+        "rules": "Zuweisungs- und Duplikatsregeln"
       },
       "gapsTab": "Abweichungen",
       "undecidedGaps_one": "{{count}} Abweichung wird Zeilen ablehnen",
@@ -3552,92 +3514,7 @@
       "removeNotRecorded": "Aufgezeichnet, bevor Durchläufe festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen.",
       "removeOrgGone": "Die Org, in die dieser Durchlauf geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
       "journalGone": "Die Ids der Datensätze dieses Durchlaufs lagen in seinem Journal, das nicht mehr existiert: Sie lassen sich hier nicht mehr entfernen, prüfen, erneut versuchen oder speichern.",
-      "removeTitle": "Datensätze dieses Durchlaufs aus {{org}} entfernen",
-      "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Durchlauf erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Datensätze, mit denen der Durchlauf verknüpft hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ende des Durchlaufs geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
-      "removeObject_one": "{{object}}: {{formatted}} Datensatz",
-      "removeObject_other": "{{object}}: {{formatted}} Datensätze",
-      "removeFiles_one": "{{object}}: {{formatted}} Datei",
-      "removeFiles_other": "{{object}}: {{formatted}} Dateien",
-      "removeLinked_one": "{{formatted}} verknüpfter Datensatz bleibt erhalten.",
-      "removeLinked_other": "{{formatted}} verknüpfte Datensätze bleiben erhalten.",
-      "removeIncludeChanged": "Auch die seit dem Durchlauf geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",
-      "removeLeftBy": "Die Entfernung vom {{date}} hat diese Datensätze übrig gelassen:",
-      "removing": "Die von diesem Durchlauf erstellten Datensätze werden entfernt…",
-      "stopRemoval": "Entfernen stoppen",
-      "stopping": "Wird gestoppt: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, wird aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",
-      "stopRefused": "Entfernen konnte nicht gestoppt werden",
-      "stopRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
-      "removedOn": "Datensätze entfernt am {{date}}:",
-      "resultSuccess": "Kein von diesem Durchlauf erstellter Datensatz ist mehr in {{org}}.",
-      "resultPartial": "Von diesem Durchlauf erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",
-      "resultFailure": "Kein von diesem Durchlauf erstellter Datensatz wurde aus {{org}} entfernt.",
-      "resultCancelled": "Vor dem Ende angehalten: Was bis dahin geschah, ist aufgeführt, der Rest ist noch in {{org}}.",
-      "resultLeftBy": "Macht dort weiter, wo die Entfernung vom {{date}} aufgehört hat.",
-      "resultDeleted_one": "{{formatted}} gelöscht",
-      "resultDeleted_other": "{{formatted}} gelöscht",
-      "resultGone_one": "{{formatted}} bereits weg",
-      "resultGone_other": "{{formatted}} bereits weg",
-      "resultChanged_one": "{{formatted}} behalten, seit dem Durchlauf geändert",
-      "resultChanged_other": "{{formatted}} behalten, seit dem Durchlauf geändert",
-      "resultHeld_one": "{{formatted}} behalten, verbleibende Datensätze von {{objects}} hängen davon ab",
-      "resultHeld_other": "{{formatted}} behalten, verbleibende Datensätze von {{objects}} hängen davon ab",
-      "resultHeldUnread_one": "{{formatted}} behalten: Was davon abhängt, konnte nicht gelesen werden",
-      "resultHeldUnread_other": "{{formatted}} behalten: Was davon abhängt, konnte nicht gelesen werden",
-      "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da der Durchlauf sie nicht erstellt hat: {{names}}",
-      "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Durchlauf sie nicht erstellt hat: {{names}}",
-      "resultUnchecked": "Nicht geprüft: Datensätze von {{objects}} lassen sich nicht über den Datensatz lesen, von dem sie abhängen, und werden mit ihm gelöscht.",
-      "resultKept_one": "{{formatted}} behalten",
-      "resultKept_other": "{{formatted}} behalten",
-      "resultRefused_one": "{{formatted}} abgelehnt",
-      "resultRefused_other": "{{formatted}} abgelehnt",
-      "resultNotReached_one": "{{formatted}} vor dem Abbruch nicht erreicht",
-      "resultNotReached_other": "{{formatted}} vor dem Abbruch nicht erreicht",
-      "resultNotVisible_one": "{{formatted}} für diesen Benutzer nicht sichtbar (weder gefunden noch im Papierkorb)",
-      "resultNotVisible_other": "{{formatted}} für diesen Benutzer nicht sichtbar (weder gefunden noch im Papierkorb)",
-      "resultMayHaveBeenWritten_one": "{{formatted}} Datensatz, den ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, kann sich in {{org}} befinden: Keine seiner IDs ist bekannt, und das Entfernen erreicht ihn nicht.",
-      "resultMayHaveBeenWritten_other": "{{formatted}} Datensätze, die ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, können sich in {{org}} befinden: Keine ihrer IDs ist bekannt, und das Entfernen erreicht sie nicht.",
-      "resultNotJournaled_one": "{{formatted}} davon ging in einem Upsert, dessen Aufrufe das Journal des Laufs nicht festhält: Er wurde in {{org}} nicht gesucht.",
-      "resultNotJournaled_other": "{{formatted}} davon gingen in einem Upsert, dessen Aufrufe das Journal des Laufs nicht festhält: Sie wurden in {{org}} nicht gesucht.",
-      "resultCallsNotLookedFor_one": "{{formatted}} Einfügeaufruf, der beim Anhalten dieses Laufs unterwegs war, wurde in {{org}} nicht gesucht: Solche Aufrufe werden nur vor dem ersten Entfernen eines Laufs gesucht, und was er geschrieben haben könnte, bleibt dort.",
-      "resultCallsNotLookedFor_other": "{{formatted}} Einfügeaufrufe, die beim Anhalten dieses Laufs unterwegs waren, wurden in {{org}} nicht gesucht: Solche Aufrufe werden nur vor dem ersten Entfernen eines Laufs gesucht, und was sie geschrieben haben könnten, bleibt dort.",
-      "removalAutomation": {
-        "title": "Was {{org}} ausführt, wenn diese Datensätze entfernt werden",
-        "loading": "Es wird gelesen, was {{org}} beim Löschen dieser Datensätze ausführt…",
-        "intro": "Beim Löschen dieser Datensätze führt {{org}} aus:",
-        "drafted": "wenn das Entfernen ihn zum Löschen auf Entwurf zurücksetzt",
-        "none": "Nichts, was {{org}} automatisiert, läuft beim Löschen dieser Datensätze.",
-        "error": "Was {{org}} beim Entfernen dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}"
-      },
-      "removeSweep": "Zuerst aufräumen: auch zurücknehmen, was die Automatisierung des Ziels während des Durchlaufs als dessen Benutzer erstellt hat — ein solcher Datensatz hält dann keinen Datensatz des Durchlaufs mehr zurück",
-      "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat",
-      "sweep": {
-        "title": "Was das Aufräumen aus {{org}} zurücknimmt",
-        "loading": "Es wird gelesen, was die Automatisierung von {{org}} während des Durchlaufs erstellt hat…",
-        "error": "Was das Aufräumen aus {{org}} zurücknähme, konnte nicht gelesen werden: {{reason}}",
-        "window": "Datensätze, die der Benutzer des Durchlaufs von {{from}} bis {{to}} erstellt hat und die die ID-Zuordnung des Durchlaufs nicht enthält, in: {{objects}}",
-        "found_one": "{{object}}: {{formatted}} Datensatz",
-        "found_other": "{{object}}: {{formatted}} Datensätze",
-        "overBound_one": "{{object}}: mehr als {{formatted}} Datensatz, keiner wird aufgeräumt",
-        "overBound_other": "{{object}}: mehr als {{formatted}} Datensätze, keiner wird aufgeräumt",
-        "names": "Einige davon mit Namen",
-        "none": "Nichts zum Aufräumen gefunden.",
-        "nothing": "nichts",
-        "refused": "Das Aufräumen wird abgelehnt und löscht nichts: {{reason}}",
-        "handWork_one": "{{object}}: {{formatted}} Datensatz, den der Benutzer des Durchlaufs im Zeitfenster erstellt hat, wo weder der Durchlauf noch die Automatisierung schreiben, bleibt",
-        "handWork_other": "{{object}}: {{formatted}} Datensätze, die der Benutzer des Durchlaufs im Zeitfenster erstellt hat, wo weder der Durchlauf noch die Automatisierung schreiben, bleiben",
-        "unread": "Nicht angesehen, {{object}}: {{reason}}",
-        "flowsNotRead_one": "{{formatted}} Flow auf den Objekten des Durchlaufs wurde nicht gelesen: Was er erstellt, wird nicht angesehen.",
-        "flowsNotRead_other": "{{formatted}} Flows auf den Objekten des Durchlaufs wurden nicht gelesen: Was sie erstellen, wird nicht angesehen.",
-        "triggers_one": "{{formatted}} Apex-Trigger auf den Objekten des Durchlaufs: Keine Metadaten sagen, was er erstellt.",
-        "triggers_other": "{{formatted}} Apex-Trigger auf den Objekten des Durchlaufs: Keine Metadaten sagen, was sie erstellen.",
-        "automationError": "Die Automatisierung des Ziels konnte nicht ganz gelesen werden, und was sie erstellt, kann übersehen werden: {{reason}}",
-        "resultSuccess": "Nichts, was das Aufräumen gefunden hat, ist noch in {{org}}.",
-        "resultPartial": "Das Aufräumen hat Datensätze aus {{org}} gelöscht; die anderen bleiben, wie aufgeführt.",
-        "resultFailure": "Das Aufräumen hat nichts aus {{org}} gelöscht.",
-        "resultCancelled": "Das Aufräumen lief nicht bis zum Ende: Was es bis dahin tat, ist aufgeführt.",
-        "resultRefused": "Das Aufräumen wurde abgelehnt und hat nichts gelöscht.",
-        "sweptOn": "Aufgeräumt am {{date}}:"
-      }
+      "sweepAction": "Zurücknehmen, was die Automatisierung des Ziels erstellt hat"
     },
     "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
     "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
@@ -3658,53 +3535,6 @@
       "replacedDefault": "ersetzt durch {{value}}, den Standardwert des Datensatztyps {{recordType}}",
       "replacedFirst": "ersetzt durch {{value}}, den ersten Wert, den der Datensatztyp {{recordType}} zulässt: Das Feld ist ein Pflichtfeld und hat dort keinen Standardwert",
       "leftOut": "weggelassen"
-    },
-    "currencies": {
-      "title": "In einer anderen Währung geschrieben",
-      "hint": "Die Ziel-Org hat diese Währungen nicht aktiv, oder eine Entscheidung hat sie einer anderen zugeordnet: Die Zeilen wurden in einer anderen Währung geschrieben und ihre Beträge in diese umgerechnet.",
-      "rows_one": "{{count}} Zeile in {{from}}",
-      "rows_other": "{{count}} Zeilen in {{from}}",
-      "corporate": "in {{to}} geschrieben, der Unternehmenswährung der Ziel-Org",
-      "recordTypeDefault": "in {{to}} geschrieben, dem Standardwert ihres Datensatztyps",
-      "decision": "in {{to}} geschrieben, wie entschieden",
-      "parent": "in {{to}} geschrieben, der Währung des Datensatzes, zu dem sie gehören",
-      "lines": "in {{to}} geschrieben, der Währung der Datensätze, zu denen ihre Positionen gehören",
-      "converted": "Beträge zu den Kursen der Quell-Org umgerechnet: {{fields}}",
-      "convertedAtTargetRate": "Beträge zum Kurs der Quell-Org für {{from}} und dem der Ziel-Org für {{to}} umgerechnet: {{fields}}",
-      "notConverted": "Beträge wie gelesen geschrieben: Kein Kurs rechnet {{from}} in {{to}} um",
-      "noAmount": "kein Betrag umzurechnen",
-      "dated": "zu den datierten Kursen von {{field}}",
-      "datedUnconfirmed": "zu den statischen Kursen: die datierten Kurse von {{field}} konnten nicht bestätigt werden"
-    },
-    "prices": {
-      "title": "Preise in einer anderen Währung",
-      "hint": "Ein Preisbuch bepreist ein Produkt einmal pro Währung, und die Ziel-Org lehnt eine Position ab, deren Preis in einer anderen Währung als ihr Datensatz ist. Diese Preise wurden in einer Währung gelesen, die die Ziel-Org nicht aktiv hat, oder wurden in der Währung gebraucht, in der die Datensätze ihrer Positionen geschrieben wurden.",
-      "prices_one": "{{count}} Preis in {{from}}",
-      "prices_other": "{{count}} Preise in {{from}}",
-      "replaced": "durch den eigenen Preis der Quell-Org in {{to}} für dasselbe Produkt und Preisbuch ersetzt und mit dessen Kopie verknüpft",
-      "converted": "in {{to}} zu ihrem umgerechneten Betrag geschrieben: Die Quell-Org hat darin keinen Preis für dasselbe Produkt und Preisbuch",
-      "none": "kein Preis in {{to}} für dasselbe Produkt und Preisbuch, und sie gehen für andere Positionen in eine andere Währung: Die Ziel-Org lehnt die Positionen eines Datensatzes in {{to}} ab",
-      "forLines": "{{to}} ist die Währung der Datensätze, zu denen ihre Positionen gehören"
-    },
-    "contactPoints": {
-      "title": "E-Mails und Telefonnummern",
-      "numbersExhausted_one": "{{count}} Telefonnummer leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
-      "numbersExhausted_other": "{{count}} Telefonnummern leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
-      "neutralized": "Vor dem Schreiben neutralisiert: {{values}} in {{fields}}. Jede E-Mail-Adresse wurde unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht hat.",
-      "none": "Vor dem Schreiben neutralisiert: Die geschriebenen Datensätze enthielten weder E-Mail-Adressen noch Telefonnummern.",
-      "kept": "So geschrieben, wie die Quelle sie enthält, wie für diesen Lauf gewünscht: Die Automatisierung der Ziel-Org kann echten Personen E-Mails oder SMS gesendet haben.",
-      "neutralizedSimulated": "Ein echter Lauf würde {{values}} in {{fields}} neutralisieren: jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer.",
-      "noneSimulated": "Die Datensätze, die ein echter Lauf schreiben würde, enthalten keine E-Mail-Adresse und keine Telefonnummer.",
-      "keptSimulated": "Ein echter Lauf würde sie wie in der Quelle schreiben, wie gewünscht: Die Automatisierung der Ziel-Org könnte dann echten Personen E-Mails oder SMS senden.",
-      "values_one": "{{count}} Wert",
-      "values_other": "{{count}} Werte"
-    },
-    "writtenWithoutFields": {
-      "title": "Ohne ein Feld geschrieben, das die Ziel-Org abgelehnt hat",
-      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",
-      "byValidationRule": "von einer Validierungsregel abgelehnt",
-      "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt",
-      "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt"
     },
     "existingRecords": {
       "title": "Bereits in der Ziel-Org",
@@ -3944,6 +3774,9 @@
       "review": "Überprüfung",
       "execution": "Ausführung",
       "results": "Ergebnisse"
+    },
+    "graph": {
+      "title": "Abhängigkeitsgraph"
     }
   },
   "autopilot": {
@@ -3980,6 +3813,7 @@
       "hipaaDesc": "Gesundheitswesen — Safe-Harbor-De-Identifizierung",
       "pciDss": "PCI-DSS",
       "pciDssDesc": "Zahlungskarten — PANs maskieren und Authentifizierungsdaten nullifizieren",
+      "custom": "Benutzerdefiniert",
       "description": "Wählen Sie ein Compliance-Framework für PII-Erkennung und Anonymisierung."
     },
     "step4": {
@@ -4142,21 +3976,6 @@
     "loadingOrgs": "Orgs werden geladen…",
     "showMetrics": "Metriken anzeigen",
     "hideMetrics": "Metriken ausblenden",
-    "orgType": {
-      "prod": "PROD",
-      "scratch": "SCRATCH",
-      "developer": "DEVELOPER",
-      "dev": "DEV",
-      "devPro": "DEV PRO",
-      "partial": "PARTIAL",
-      "full": "FULL",
-      "sandbox": "SANDBOX"
-    },
-    "relativeTime": {
-      "justNow": "gerade eben",
-      "minutesAgo": "vor {{count}}m",
-      "hoursAgo": "vor {{count}}h"
-    },
     "fillOrg": "Mit Demodaten füllen: {{alias}}",
     "fillOrgAction": "Mit Demodaten füllen",
     "fillOrgDesc": "Eine Seed-Vorlage, eine Bestätigung, kein KI-Schlüssel",
@@ -4407,14 +4226,7 @@
       "notRecorded": "Geladen, bevor Ladevorgänge festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein Neuladen bereinigt sie, außer denen, mit denen der Ladevorgang verknüpft haben kann.",
       "orgGone": "Die Org, in die dieser Ladevorgang geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
       "nothingCreated": "Dieser Ladevorgang hat keinen Datensatz erstellt: Es gibt nichts zu entfernen.",
-      "keptByThePlatform": "In {{org}} von jeder Entfernung behalten — die Plattform löscht diese vom Ladevorgang erstellten Datensätze nicht: {{objects}}",
-      "resultSuccess": "Kein von diesem Ladevorgang erstellter Datensatz ist mehr in {{org}}.",
-      "resultPartial": "Von diesem Ladevorgang erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",
-      "resultFailure": "Kein von diesem Ladevorgang erstellter Datensatz wurde aus {{org}} entfernt.",
-      "resultChanged_one": "{{formatted}} behalten, seit dem Ladevorgang geändert",
-      "resultChanged_other": "{{formatted}} behalten, seit dem Ladevorgang geändert",
-      "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}",
-      "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}"
+      "keptByThePlatform": "In {{org}} von jeder Entfernung behalten — die Plattform löscht diese vom Ladevorgang erstellten Datensätze nicht: {{objects}}"
     },
     "coverage": {
       "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieses Dataset kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
@@ -4439,6 +4251,211 @@
       "persist": "Speichern",
       "done": "Fertig",
       "verify": "Überprüfung"
+    }
+  },
+  "runRemoval": {
+    "sweep": {
+      "title": "Was das Aufräumen aus {{org}} zurücknimmt",
+      "loading": "Es wird gelesen, was die Automatisierung von {{org}} während des Durchlaufs erstellt hat…",
+      "error": "Was das Aufräumen aus {{org}} zurücknähme, konnte nicht gelesen werden: {{reason}}",
+      "window": "Datensätze, die der Benutzer des Durchlaufs von {{from}} bis {{to}} erstellt hat und die die ID-Zuordnung des Durchlaufs nicht enthält, in: {{objects}}",
+      "found_one": "{{object}}: {{formatted}} Datensatz",
+      "found_other": "{{object}}: {{formatted}} Datensätze",
+      "overBound_one": "{{object}}: mehr als {{formatted}} Datensatz, keiner wird aufgeräumt",
+      "overBound_other": "{{object}}: mehr als {{formatted}} Datensätze, keiner wird aufgeräumt",
+      "names": "Einige davon mit Namen",
+      "none": "Nichts zum Aufräumen gefunden.",
+      "nothing": "nichts",
+      "refused": "Das Aufräumen wird abgelehnt und löscht nichts: {{reason}}",
+      "handWork_one": "{{object}}: {{formatted}} Datensatz, den der Benutzer des Durchlaufs im Zeitfenster erstellt hat, wo weder der Durchlauf noch die Automatisierung schreiben, bleibt",
+      "handWork_other": "{{object}}: {{formatted}} Datensätze, die der Benutzer des Durchlaufs im Zeitfenster erstellt hat, wo weder der Durchlauf noch die Automatisierung schreiben, bleiben",
+      "unread": "Nicht angesehen, {{object}}: {{reason}}",
+      "flowsNotRead_one": "{{formatted}} Flow auf den Objekten des Durchlaufs wurde nicht gelesen: Was er erstellt, wird nicht angesehen.",
+      "flowsNotRead_other": "{{formatted}} Flows auf den Objekten des Durchlaufs wurden nicht gelesen: Was sie erstellen, wird nicht angesehen.",
+      "triggers_one": "{{formatted}} Apex-Trigger auf den Objekten des Durchlaufs: Keine Metadaten sagen, was er erstellt.",
+      "triggers_other": "{{formatted}} Apex-Trigger auf den Objekten des Durchlaufs: Keine Metadaten sagen, was sie erstellen.",
+      "automationError": "Die Automatisierung des Ziels konnte nicht ganz gelesen werden, und was sie erstellt, kann übersehen werden: {{reason}}",
+      "resultSuccess": "Nichts, was das Aufräumen gefunden hat, ist noch in {{org}}.",
+      "resultPartial": "Das Aufräumen hat Datensätze aus {{org}} gelöscht; die anderen bleiben, wie aufgeführt.",
+      "resultFailure": "Das Aufräumen hat nichts aus {{org}} gelöscht.",
+      "resultCancelled": "Das Aufräumen lief nicht bis zum Ende: Was es bis dahin tat, ist aufgeführt.",
+      "resultRefused": "Das Aufräumen wurde abgelehnt und hat nichts gelöscht.",
+      "sweptOn": "Aufgeräumt am {{date}}:"
+    },
+    "automation": {
+      "title": "Was {{org}} ausführt, wenn diese Datensätze entfernt werden",
+      "loading": "Es wird gelesen, was {{org}} beim Löschen dieser Datensätze ausführt…",
+      "intro": "Beim Löschen dieser Datensätze führt {{org}} aus:",
+      "drafted": "wenn das Entfernen ihn zum Löschen auf Entwurf zurücksetzt",
+      "none": "Nichts, was {{org}} automatisiert, läuft beim Löschen dieser Datensätze.",
+      "error": "Was {{org}} beim Entfernen dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}"
+    },
+    "sync": {
+      "title": "Was dieser Lauf erstellt hat",
+      "created_one": "{{formatted}} Datensatz oder Datei in {{org}} erstellt",
+      "created_other": "{{formatted}} Datensätze und Dateien in {{org}} erstellt",
+      "remove": "Entfernen, was dieser Lauf erstellt hat",
+      "removeLeft": "Den Rest dessen entfernen, was dieser Lauf erstellt hat",
+      "removeTitle": "Aus {{org}} entfernen, was dieser Lauf erstellt hat",
+      "removeDescription": "Löscht aus {{org}}, was dieser Lauf erstellt hat — die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo {{org}} keinen hatte, und die Dateien, die er erstellt hat — zuerst die Dateien, dann die untergeordneten Datensätze vor ihren übergeordneten; sie kommen in den Papierkorb. Die Datensätze, die er aktualisiert hat, waren schon in {{org}} und behalten ihre neuen Werte. Ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen, wird behalten, ebenso ein seit dem Lauf geänderter Datensatz oder einer, von dem seither hinzugefügte Datensätze abhängen, es sei denn, Sie schließen ihn unten ein.",
+      "includeChanged": "Auch die seit dem Lauf geänderten Datensätze entfernen, und was ihnen seither hinzugefügt wurde",
+      "removing": "Entferne, was dieser Lauf erstellt hat…",
+      "cancel": "Entfernen stoppen",
+      "stopping": "Wird gestoppt: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, wird aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",
+      "cancelRefused": "Entfernen konnte nicht gestoppt werden",
+      "cancelRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
+      "notKept": "Was dieser Lauf erstellt hat, wird nicht mehr aufbewahrt — es wurde für neuere Läufe verworfen — und kann von hier aus nicht entfernt werden.",
+      "refusedGuard": "Production Guard erlaubt in {{org}}, einer Produktions-Org, kein Löschen: Was dieser Lauf erstellt hat, bleibt dort. Entfernen Sie es in der Org selbst.",
+      "refusedNoGuard": "Production Guard läuft in diesem Fenster nicht, und ohne ihn wird nichts gelöscht.",
+      "refusedOrgGone": "Die Org, in die dieser Lauf geschrieben hat, ist nicht mehr verbunden: Verbinden Sie sie erneut, um zu entfernen, was der Lauf erstellt hat.",
+      "refusedRunning": "Der Lauf schreibt noch: Was er erstellt hat, kann entfernt werden, sobald er beendet ist.",
+      "readWhole": "Der nächste Lauf von {{config}} liest {{objects}} vollständig: Die Kopien, auf die sein Wasserzeichen zählte, sind weg.",
+      "filesForgotten_one": "{{config}} zählt {{formatted}} Datei nicht mehr als kopiert: Das nächste vollständige Lesen kopiert sie erneut.",
+      "filesForgotten_other": "{{config}} zählt {{formatted}} Dateien nicht mehr als kopiert: Das nächste vollständige Lesen kopiert sie erneut.",
+      "unfinishedTitle": "Nie beendete Läufe",
+      "unfinishedNote": "Während dieser Läufe wurde ein Fenster geschlossen, oder der Verlauf führt sie nicht mehr. Was sie erstellt haben, wird aufbewahrt, sobald jeder Aufruf an das Ziel beantwortet war, und kann entfernt werden.",
+      "unfinishedRun": "{{config}}, gestartet am {{date}}",
+      "unfinishedInFlight_one": "Er hielt an, während er {{formatted}} {{object}}-Zeile schrieb: Hat das Ziel sie übernommen, ist sie in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht.",
+      "unfinishedInFlight_other": "Er hielt an, während er {{formatted}} {{object}}-Zeilen schrieb: Die vom Ziel übernommenen sind in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht."
+    },
+    "resultSuccess": "Kein von diesem Durchlauf erstellter Datensatz ist mehr in {{org}}.",
+    "resultPartial": "Von diesem Durchlauf erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",
+    "resultFailure": "Kein von diesem Durchlauf erstellter Datensatz wurde aus {{org}} entfernt.",
+    "resultCancelled": "Vor dem Ende angehalten: Was bis dahin geschah, ist aufgeführt, der Rest ist noch in {{org}}.",
+    "resultChanged_one": "{{formatted}} behalten, seit dem Durchlauf geändert",
+    "resultChanged_other": "{{formatted}} behalten, seit dem Durchlauf geändert",
+    "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da der Durchlauf sie nicht erstellt hat: {{names}}",
+    "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Durchlauf sie nicht erstellt hat: {{names}}",
+    "resultDeleted_one": "{{formatted}} gelöscht",
+    "resultDeleted_other": "{{formatted}} gelöscht",
+    "resultGone_one": "{{formatted}} bereits weg",
+    "resultGone_other": "{{formatted}} bereits weg",
+    "resultNotVisible_one": "{{formatted}} für diesen Benutzer nicht sichtbar (weder gefunden noch im Papierkorb)",
+    "resultNotVisible_other": "{{formatted}} für diesen Benutzer nicht sichtbar (weder gefunden noch im Papierkorb)",
+    "resultHeld_one": "{{formatted}} behalten, verbleibende Datensätze von {{objects}} hängen davon ab",
+    "resultHeld_other": "{{formatted}} behalten, verbleibende Datensätze von {{objects}} hängen davon ab",
+    "resultHeldUnread_one": "{{formatted}} behalten: Was davon abhängt, konnte nicht gelesen werden",
+    "resultHeldUnread_other": "{{formatted}} behalten: Was davon abhängt, konnte nicht gelesen werden",
+    "resultRefused_one": "{{formatted}} abgelehnt",
+    "resultRefused_other": "{{formatted}} abgelehnt",
+    "resultLeftBy": "Macht dort weiter, wo die Entfernung vom {{date}} aufgehört hat.",
+    "resultUnchecked": "Nicht geprüft: Datensätze von {{objects}} lassen sich nicht über den Datensatz lesen, von dem sie abhängen, und werden mit ihm gelöscht.",
+    "resultMayHaveBeenWritten_one": "{{formatted}} Datensatz, den ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, kann sich in {{org}} befinden: Keine seiner IDs ist bekannt, und das Entfernen erreicht ihn nicht.",
+    "resultMayHaveBeenWritten_other": "{{formatted}} Datensätze, die ein Aufruf des Laufs vor dem Verlust seiner Antwort geschrieben haben könnte, können sich in {{org}} befinden: Keine ihrer IDs ist bekannt, und das Entfernen erreicht sie nicht.",
+    "resultNotJournaled_one": "{{formatted}} davon ging in einem Upsert, dessen Aufrufe das Journal des Laufs nicht festhält: Er wurde in {{org}} nicht gesucht.",
+    "resultNotJournaled_other": "{{formatted}} davon gingen in einem Upsert, dessen Aufrufe das Journal des Laufs nicht festhält: Sie wurden in {{org}} nicht gesucht.",
+    "resultCallsNotLookedFor_one": "{{formatted}} Einfügeaufruf, der beim Anhalten dieses Laufs unterwegs war, wurde in {{org}} nicht gesucht: Solche Aufrufe werden nur vor dem ersten Entfernen eines Laufs gesucht, und was er geschrieben haben könnte, bleibt dort.",
+    "resultCallsNotLookedFor_other": "{{formatted}} Einfügeaufrufe, die beim Anhalten dieses Laufs unterwegs waren, wurden in {{org}} nicht gesucht: Solche Aufrufe werden nur vor dem ersten Entfernen eines Laufs gesucht, und was sie geschrieben haben könnten, bleibt dort.",
+    "resultKept_one": "{{formatted}} behalten",
+    "resultKept_other": "{{formatted}} behalten",
+    "resultNotReached_one": "{{formatted}} vor dem Abbruch nicht erreicht",
+    "resultNotReached_other": "{{formatted}} vor dem Abbruch nicht erreicht",
+    "removeLeftBy": "Die Entfernung vom {{date}} hat diese Datensätze übrig gelassen:",
+    "removeFiles_one": "{{object}}: {{formatted}} Datei",
+    "removeFiles_other": "{{object}}: {{formatted}} Dateien",
+    "removeObject_one": "{{object}}: {{formatted}} Datensatz",
+    "removeObject_other": "{{object}}: {{formatted}} Datensätze",
+    "removeLinked_one": "{{formatted}} verknüpfter Datensatz bleibt erhalten.",
+    "removeLinked_other": "{{formatted}} verknüpfte Datensätze bleiben erhalten.",
+    "removeTitle": "Datensätze dieses Durchlaufs aus {{org}} entfernen",
+    "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Durchlauf erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Datensätze, mit denen der Durchlauf verknüpft hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ende des Durchlaufs geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
+    "removeIncludeChanged": "Auch die seit dem Durchlauf geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",
+    "removeSweep": "Zuerst aufräumen: auch zurücknehmen, was die Automatisierung des Ziels während des Durchlaufs als dessen Benutzer erstellt hat — ein solcher Datensatz hält dann keinen Datensatz des Durchlaufs mehr zurück",
+    "stopRefused": "Entfernen konnte nicht gestoppt werden",
+    "stopRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
+    "stopping": "Wird gestoppt: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, wird aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",
+    "removing": "Die von diesem Durchlauf erstellten Datensätze werden entfernt…",
+    "stopRemoval": "Entfernen stoppen",
+    "removedOn": "Datensätze entfernt am {{date}}:",
+    "load": {
+      "resultSuccess": "Kein von diesem Ladevorgang erstellter Datensatz ist mehr in {{org}}.",
+      "resultPartial": "Von diesem Ladevorgang erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",
+      "resultFailure": "Kein von diesem Ladevorgang erstellter Datensatz wurde aus {{org}} entfernt.",
+      "resultChanged_one": "{{formatted}} behalten, seit dem Ladevorgang geändert",
+      "resultChanged_other": "{{formatted}} behalten, seit dem Ladevorgang geändert",
+      "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}"
+    }
+  },
+  "orgAutomation": {
+    "assistant": {
+      "smallest": "{{permissionSet}} ist der kleinste Berechtigungssatz der Ziel-Org, der {{permission}} enthält. Dem Benutzer zugewiesen, als der der Durchlauf schreibt, hält er still, was {{permission}} ausschließt.",
+      "others_one": "{{names}} enthält sie ebenfalls.",
+      "others_other": "{{names}} enthalten sie ebenfalls.",
+      "copy": "Befehl kopieren, der {{permissionSet}} zuweist",
+      "copied": "Befehl kopiert",
+      "none": "Kein Berechtigungssatz der Ziel-Org enthält {{permission}}: Ein Administrator legt einen an, der sie enthält, und weist ihn dem Benutzer zu, als der der Durchlauf schreibt.",
+      "neverRun": "SandForge zeigt diesen Befehl an und führt ihn nie aus: Ob er ausgeführt wird, entscheidet ein Administrator der Ziel-Org.",
+      "readAgain": "Ziel-Org erneut lesen",
+      "readAgainHint": "Sobald der Befehl ausgeführt ist, lesen Sie die Ziel-Org erneut: Die Berechtigung erscheint dann als vorhanden."
+    },
+    "flow": "Flow: {{name}}",
+    "trigger": "Apex-Trigger: {{name}}",
+    "process": "Prozess: {{name}}",
+    "workflowRule": "Workflow-Regel: {{name}}",
+    "beforeDelete": "vor dem Löschen",
+    "afterDelete": "nach dem Löschen",
+    "beforeAndAfterDelete": "vor und nach dem Löschen",
+    "unreadFlows": "Die Flows der Ziel-Org konnten nicht gelesen werden: {{reason}}",
+    "unreadTriggers": "Die Apex-Trigger der Ziel-Org konnten nicht gelesen werden: {{reason}}",
+    "unreadProcesses": "Die Process-Builder-Prozesse der Ziel-Org konnten nicht gelesen werden: {{reason}}",
+    "unreadWorkflowRules": "Die Workflow-Regeln der Ziel-Org konnten nicht gelesen werden: {{reason}}",
+    "unreadPermissionSets": "Die Berechtigungssätze, die eine Umgehung enthalten, die der Benutzer, als der der Durchlauf schreibt, nicht besitzt, konnten nicht gelesen werden: {{reason}}",
+    "readAgain": "Erneut lesen",
+    "readingAgain": "Wird erneut gelesen…",
+    "bypassHint_one": "Weisen Sie die benutzerdefinierte Berechtigung {{names}} dem Benutzer zu, als der der Durchlauf in die Ziel-Org schreibt: Die Flows, deren Startbedingung sie ausschließt, bleiben dann still.",
+    "bypassHint_other": "Weisen Sie die benutzerdefinierten Berechtigungen {{names}} dem Benutzer zu, als der der Durchlauf in die Ziel-Org schreibt: Die Flows, deren Startbedingung sie ausschließt, bleiben dann still."
+  },
+  "runResults": {
+    "currencies": {
+      "title": "In einer anderen Währung geschrieben",
+      "hint": "Die Ziel-Org hat diese Währungen nicht aktiv, oder eine Entscheidung hat sie einer anderen zugeordnet: Die Zeilen wurden in einer anderen Währung geschrieben und ihre Beträge in diese umgerechnet.",
+      "rows_one": "{{count}} Zeile in {{from}}",
+      "rows_other": "{{count}} Zeilen in {{from}}",
+      "corporate": "in {{to}} geschrieben, der Unternehmenswährung der Ziel-Org",
+      "recordTypeDefault": "in {{to}} geschrieben, dem Standardwert ihres Datensatztyps",
+      "decision": "in {{to}} geschrieben, wie entschieden",
+      "parent": "in {{to}} geschrieben, der Währung des Datensatzes, zu dem sie gehören",
+      "lines": "in {{to}} geschrieben, der Währung der Datensätze, zu denen ihre Positionen gehören",
+      "converted": "Beträge zu den Kursen der Quell-Org umgerechnet: {{fields}}",
+      "convertedAtTargetRate": "Beträge zum Kurs der Quell-Org für {{from}} und dem der Ziel-Org für {{to}} umgerechnet: {{fields}}",
+      "notConverted": "Beträge wie gelesen geschrieben: Kein Kurs rechnet {{from}} in {{to}} um",
+      "noAmount": "kein Betrag umzurechnen",
+      "dated": "zu den datierten Kursen von {{field}}",
+      "datedUnconfirmed": "zu den statischen Kursen: die datierten Kurse von {{field}} konnten nicht bestätigt werden"
+    },
+    "prices": {
+      "title": "Preise in einer anderen Währung",
+      "hint": "Ein Preisbuch bepreist ein Produkt einmal pro Währung, und die Ziel-Org lehnt eine Position ab, deren Preis in einer anderen Währung als ihr Datensatz ist. Diese Preise wurden in einer Währung gelesen, die die Ziel-Org nicht aktiv hat, oder wurden in der Währung gebraucht, in der die Datensätze ihrer Positionen geschrieben wurden.",
+      "prices_one": "{{count}} Preis in {{from}}",
+      "prices_other": "{{count}} Preise in {{from}}",
+      "replaced": "durch den eigenen Preis der Quell-Org in {{to}} für dasselbe Produkt und Preisbuch ersetzt und mit dessen Kopie verknüpft",
+      "converted": "in {{to}} zu ihrem umgerechneten Betrag geschrieben: Die Quell-Org hat darin keinen Preis für dasselbe Produkt und Preisbuch",
+      "none": "kein Preis in {{to}} für dasselbe Produkt und Preisbuch, und sie gehen für andere Positionen in eine andere Währung: Die Ziel-Org lehnt die Positionen eines Datensatzes in {{to}} ab",
+      "forLines": "{{to}} ist die Währung der Datensätze, zu denen ihre Positionen gehören"
+    },
+    "contactPoints": {
+      "title": "E-Mails und Telefonnummern",
+      "numbersExhausted_one": "{{count}} Telefonnummer leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
+      "numbersExhausted_other": "{{count}} Telefonnummern leer gelassen: Die 10.000 fiktiven Nummern des Bereichs wurden alle an andere Nummern des Laufs vergeben.",
+      "neutralized": "Vor dem Schreiben neutralisiert: {{values}} in {{fields}}. Jede E-Mail-Adresse wurde unter .invalid geschrieben und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht hat.",
+      "none": "Vor dem Schreiben neutralisiert: Die geschriebenen Datensätze enthielten weder E-Mail-Adressen noch Telefonnummern.",
+      "kept": "So geschrieben, wie die Quelle sie enthält, wie für diesen Lauf gewünscht: Die Automatisierung der Ziel-Org kann echten Personen E-Mails oder SMS gesendet haben.",
+      "neutralizedSimulated": "Ein echter Lauf würde {{values}} in {{fields}} neutralisieren: jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer.",
+      "noneSimulated": "Die Datensätze, die ein echter Lauf schreiben würde, enthalten keine E-Mail-Adresse und keine Telefonnummer.",
+      "keptSimulated": "Ein echter Lauf würde sie wie in der Quelle schreiben, wie gewünscht: Die Automatisierung der Ziel-Org könnte dann echten Personen E-Mails oder SMS senden.",
+      "values_one": "{{count}} Wert",
+      "values_other": "{{count}} Werte",
+      "keep": "E-Mails und Telefonnummern unverändert lassen",
+      "keepWarning": "E-Mails und Telefonnummern werden so geschrieben, wie die Quelle sie enthält: Flows, Trigger und E-Mail-Benachrichtigungen der Ziel-Org können dann echten Personen E-Mails oder SMS senden.",
+      "keepHint": "Aus: Der Klon schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht."
+    },
+    "writtenWithoutFields": {
+      "title": "Ohne ein Feld geschrieben, das die Ziel-Org abgelehnt hat",
+      "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",
+      "byValidationRule": "von einer Validierungsregel abgelehnt",
+      "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt",
+      "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt"
     }
   },
   "grappe": {

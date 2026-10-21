@@ -20,6 +20,21 @@ export const FILE_COPY_DEFAULT_MAX_MB = 10;
 export const FILE_COPY_CEILING_MB = 35;
 
 /**
+ * The most a Sync run copies unless the configuration sets another amount, in
+ * MB: half the file storage of a Developer sandbox, so one run cannot fill it.
+ */
+export const SYNC_FILES_DEFAULT_RUN_MB = 100;
+
+/**
+ * The most a Sync run can be set to copy, in MB.
+ *
+ * Here rather than beside the schema that holds a configuration to it: the
+ * Sync page reads it for the bound of its field, and taking it from the
+ * schema's module made the page parse zod, 94 kB, before it painted.
+ */
+export const SYNC_FILES_MAX_RUN_MB = 2_000;
+
+/**
  * The type a describe gives a field that holds a file's content.
  *
  * Read through the data API, such a field comes back as the address of its

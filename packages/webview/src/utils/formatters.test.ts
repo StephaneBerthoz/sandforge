@@ -312,8 +312,8 @@ describe('formatRelativeTimeI18n', () => {
 
   it('should use the provided keyPrefix correctly', () => {
     const ts = Date.now() - 120_000; // 2 minutes ago
-    formatRelativeTimeI18n(ts, mockT, 'sidePanel.relativeTime');
-    expect(mockT).toHaveBeenCalledWith('sidePanel.relativeTime.minutesAgo', { count: 2 });
+    formatRelativeTimeI18n(ts, mockT, 'common.relativeTime');
+    expect(mockT).toHaveBeenCalledWith('common.relativeTime.minutesAgo', { count: 2 });
   });
 });
 

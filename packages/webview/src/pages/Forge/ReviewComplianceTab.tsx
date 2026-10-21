@@ -14,9 +14,11 @@ interface CompliancePayload {
 /** Supported compliance frameworks. */
 const FRAMEWORKS = ['none', 'gdpr', 'ccpa', 'hipaa', 'pci_dss'] as const;
 
-/** Human-readable labels per framework. */
-const FRAMEWORK_LABELS: Record<string, string> = {
-  none: 'None',
+/**
+ * The name of each framework. The regulations are named by their acronyms in
+ * every language; "none" is a word, and it was written in English in all six.
+ */
+const FRAMEWORK_LABELS: Record<Exclude<(typeof FRAMEWORKS)[number], 'none'>, string> = {
   gdpr: 'GDPR',
   ccpa: 'CCPA',
   hipaa: 'HIPAA',
@@ -97,7 +99,7 @@ export const ReviewComplianceTab: React.FC = () => {
         >
           {FRAMEWORKS.map((f) => (
             <option key={f} value={f}>
-              {FRAMEWORK_LABELS[f]}
+              {f === 'none' ? t('forge.review.frameworkNone') : FRAMEWORK_LABELS[f]}
             </option>
           ))}
         </select>

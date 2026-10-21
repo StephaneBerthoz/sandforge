@@ -83,7 +83,7 @@ export const SyncHistoryPanel: React.FC = () => {
       },
       {
         key: 'records',
-        header: t('sync.history.records'),
+        header: t('common.records'),
         width: '100px',
         align: 'right' as const,
         render: (row: HistoryRow) => String(row.result.totalProcessed),

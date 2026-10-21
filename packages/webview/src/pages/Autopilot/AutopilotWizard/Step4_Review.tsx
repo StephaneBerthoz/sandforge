@@ -105,15 +105,19 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   /** Format numbers with locale separators. */
   const fmt = (n: number): string => n.toLocaleString(uiLocale());
 
-  /** Map compliance framework to display label. */
+  /**
+   * The name of a compliance framework: the regulations by their acronyms,
+   * which no language translates, and "custom" and "none" in the interface
+   * language. Both were written in English in all six.
+   */
   const frameworkLabel = (fw: ComplianceFrameworkType): string => {
     const labels: Record<ComplianceFrameworkType, string> = {
       gdpr: 'GDPR',
       ccpa: 'CCPA',
       hipaa: 'HIPAA',
       pci_dss: 'PCI-DSS',
-      custom: 'Custom',
-      none: 'None',
+      custom: t('autopilot.step3.custom'),
+      none: t('autopilot.step3.none'),
     };
     return labels[fw];
   };

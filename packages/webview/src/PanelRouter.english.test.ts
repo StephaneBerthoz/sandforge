@@ -396,6 +396,51 @@ describe('the English a panel loads', () => {
     expect(offenders).toEqual([]);
   });
 
+  /*
+   * A key spelled outside its namespace brings the whole namespace: the hook
+   * every query goes through put Seed's 20 kB on ten pages for three words,
+   * Home parsed Onboarding's 34 kB for a banner, and the removal and currency
+   * views Forge shares put its 59 kB on Seed, Sync, Frozen and Autopilot. The
+   * words a part shares live in the shell's namespaces or in one of their own
+   * (runRemoval, runResults, orgAutomation), and no page loads these again.
+   */
+  it('loads no other page’s English for the words a shared part says', () => {
+    const notLoaded: Record<string, string[]> = {
+      'pages/Home/HomePage.tsx': ['forge', 'onboarding', 'org', 'seed', 'sidePanel'],
+      'pages/OrgManager/OrgManagerPage.tsx': ['monitor', 'seed', 'sidePanel'],
+      'pages/Forge/ForgePage.tsx': ['frozen', 'org', 'seed', 'sync'],
+      'pages/Frozen/FrozenPage.tsx': ['forge', 'org', 'seed'],
+      'pages/Monitor/MonitorPage.tsx': ['org', 'reports', 'seed', 'sidePanel', 'sync'],
+      'pages/Compare/ComparePage.tsx': ['org', 'seed', 'sidePanel'],
+      'pages/DataOps/DataOpsPage.tsx': ['org', 'seed'],
+      'pages/Automation/AutomationPage.tsx': ['dataops', 'org', 'seed', 'sidePanel'],
+      'pages/Migration/MigrationPage.tsx': ['automation', 'org', 'seed'],
+      'pages/Reports/ReportsContainer.tsx': ['org', 'seed'],
+      'pages/Settings/SettingsPage.tsx': ['org', 'seed'],
+      'pages/Seed/SeedPage.tsx': ['forge', 'frozen', 'help', 'org', 'sidePanel', 'sync'],
+      'pages/Sync/SyncPage.tsx': [
+        'automation',
+        'forge',
+        'frozen',
+        'onboarding',
+        'org',
+        'reports',
+        'seed',
+        'sidePanel',
+      ],
+      'pages/Autopilot/AutopilotPage.tsx': ['forge', 'org', 'seed'],
+    };
+    const offenders = Object.entries(notLoaded).flatMap(([page, namespaces]) => {
+      const part = parts.find((candidate) => label(candidate.file) === page);
+      if (!part) return [`${page} is not a part the panel loads`];
+      const renders = needed(part);
+      return namespaces
+        .filter((namespace) => renders.includes(namespace))
+        .map((namespace) => `${page} renders keys of "${namespace}"`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
   it('loads the namespaces of the keys the extension sends with the part that renders them', () => {
     for (const { key, renderedBy } of HOST_SENT_KEYS) {
       expect(namesAnEntry(key)).toBe(true);

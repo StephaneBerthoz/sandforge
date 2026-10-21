@@ -15,7 +15,7 @@ import {
   Flame,
 } from 'lucide-react';
 import { SplitView } from '../../components/ui/SplitView';
-import { LiveGraph } from '../../components/graph/LiveGraph';
+import { LiveGraph } from '../../components/graph/lazyGraph';
 import type { ForgeGraph as SharedForgeGraph } from '@sandforge/shared';
 import { LogStream } from '../../components/ui/LogStream';
 import type { LogFilter } from '../../components/ui/LogStream';

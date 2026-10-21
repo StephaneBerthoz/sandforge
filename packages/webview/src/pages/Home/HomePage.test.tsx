@@ -5,7 +5,6 @@ import fr from '../../i18n/locales/fr.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
-import { useForgeStore } from '../../stores/useForgeStore';
 import { HomePage } from './HomePage';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { ApiLimit, SalesforceOrg } from '@sandforge/shared';
@@ -127,7 +126,6 @@ describe('HomePage', () => {
     useAppStore.setState({ currentRoute: 'home', grappeEnabled: false, navigationIntent: null });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useRecentOpsStore.setState({ ops: [] });
-    useForgeStore.setState({ config: null });
     bridgeQueryCalls.length = 0;
     mockOrgListState = {
       data: null,
@@ -312,8 +310,8 @@ describe('HomePage', () => {
     expect(startBtn).toBeDefined();
     fireEvent.click(startBtn);
     expect(useAppStore.getState().currentRoute).toBe('forge');
-    // Empty field -- the button is a plain CTA, it must not seed a config.
-    expect(useForgeStore.getState().config).toBeNull();
+    // Empty field -- the button is a plain CTA, it must not hand over a record.
+    expect(useAppStore.getState().navigationIntent).toBeNull();
   });
 
   it('should render the health tile', () => {
@@ -340,7 +338,7 @@ describe('HomePage', () => {
   /* Hero record-id wiring                                             */
   /* ---------------------------------------------------------------- */
 
-  it('should seed the forge config with the typed record id before navigating', () => {
+  it('hands the typed record id and the selected org over to Forge with the navigation', () => {
     useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
     render(<HomePage />);
     fireEvent.change(screen.getByTestId('forge-record-input'), {
@@ -348,8 +346,8 @@ describe('HomePage', () => {
     });
     fireEvent.click(screen.getByTestId('start-forge-btn'));
 
-    expect(useForgeStore.getState().config).toMatchObject({
-      inputMode: 'record',
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'forge',
       recordId: '0015g00000ABCDEAA3',
       sourceOrgId: 'org-1',
     });
@@ -365,16 +363,16 @@ describe('HomePage', () => {
     });
     fireEvent.click(screen.getByTestId('start-forge-btn'));
 
-    expect(useForgeStore.getState().config?.recordId).toBe('0015g00000ABCDEAA3');
+    expect(useAppStore.getState().navigationIntent?.recordId).toBe('0015g00000ABCDEAA3');
   });
 
-  it('should seed the forge config when Enter is pressed in the record input', () => {
+  it('hands the record id over when Enter is pressed in the record input', () => {
     render(<HomePage />);
     const input = screen.getByTestId('forge-record-input');
     fireEvent.change(input, { target: { value: '0015g00000ABCDEAA3' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(useForgeStore.getState().config?.recordId).toBe('0015g00000ABCDEAA3');
+    expect(useAppStore.getState().navigationIntent?.recordId).toBe('0015g00000ABCDEAA3');
     expect(useAppStore.getState().currentRoute).toBe('forge');
   });
 
@@ -385,7 +383,7 @@ describe('HomePage', () => {
     fireEvent.click(screen.getByTestId('start-forge-btn'));
 
     expect(useAppStore.getState().currentRoute).toBe('home');
-    expect(useForgeStore.getState().config).toBeNull();
+    expect(useAppStore.getState().navigationIntent).toBeNull();
     expect(document.activeElement).toBe(input);
     expect(screen.getByTestId('forge-record-error')).toBeDefined();
   });

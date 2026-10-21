@@ -56,9 +56,9 @@ const PROGRESS_VARIANTS: Record<FrozenLoadProgress['status'], BadgeVariant> = {
 
 /** What refused a field records went in without, as the report names it. */
 const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
-  'validation-rule': 'forge.writtenWithoutFields.byValidationRule',
-  'restricted-picklist': 'forge.writtenWithoutFields.byRestrictedPicklist',
-  'lookup-filter': 'forge.writtenWithoutFields.byLookupFilter',
+  'validation-rule': 'runResults.writtenWithoutFields.byValidationRule',
+  'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
+  'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
 };
 
 /** Sum a numeric field across per-object load results. */

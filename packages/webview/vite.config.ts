@@ -12,8 +12,28 @@ const pkg = JSON.parse(
 /** The English catalogue, the one language the webview carries. */
 const ENGLISH_CATALOGUE = path.resolve(import.meta.dirname, 'src/i18n/locales/en.json');
 
+/** The English every panel starts with, the namespaces its shell renders. */
+const PANEL_CATALOGUE = path.resolve(import.meta.dirname, 'src/i18n/panelCatalogue.ts');
+
 /** The module of the loaders, one per namespace. */
 const ENGLISH_LOADERS_MODULE = 'virtual:english-catalogue';
+
+/**
+ * The namespaces a panel starts with: those `src/i18n/panelCatalogue.ts`
+ * exports, read from its `export default { … }`.
+ *
+ * @param source - The text of panelCatalogue.ts.
+ */
+function panelShellNamespaces(source: string): string[] {
+  const body = /export\s+default\s*\{([^}]*)\}/.exec(source);
+  return body
+    ? body[1]
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .sort()
+    : [];
+}
 
 /**
  * The English catalogue as one module per namespace, and a module of their
@@ -25,6 +45,11 @@ const ENGLISH_LOADERS_MODULE = 'virtual:english-catalogue';
  * whole into the chunk its importers share: named imports from several pages
  * would have put every namespace any of them reads back in the base. Each
  * namespace is a module of its own here, and the chunk of each holds it alone.
+ *
+ * The namespaces of the panel's shell have no loader. A panel holds them from
+ * the start (panelCatalogue.ts), and a namespace held is never asked for, so
+ * their chunks were built, shipped in the VSIX and never fetched: 9 kB the
+ * loaders' map alone referenced.
  */
 export function englishCatalogue(): Plugin {
   const prefix = `${ENGLISH_LOADERS_MODULE}/`;
@@ -40,10 +65,17 @@ export function englishCatalogue(): Plugin {
       this.addWatchFile(ENGLISH_CATALOGUE);
       const catalogue = read();
       if (id === `\0${ENGLISH_LOADERS_MODULE}`) {
-        const loaders = Object.keys(catalogue).map(
-          (namespace) =>
-            `  ${JSON.stringify(namespace)}: () => import(${JSON.stringify(prefix + namespace)}),`,
-        );
+        this.addWatchFile(PANEL_CATALOGUE);
+        const shell = panelShellNamespaces(readFileSync(PANEL_CATALOGUE, 'utf-8'));
+        if (shell.length === 0) {
+          this.error(`no namespace read from the default export of ${PANEL_CATALOGUE}`);
+        }
+        const loaders = Object.keys(catalogue)
+          .filter((namespace) => !shell.includes(namespace))
+          .map(
+            (namespace) =>
+              `  ${JSON.stringify(namespace)}: () => import(${JSON.stringify(prefix + namespace)}),`,
+          );
         return `export const englishNamespaceLoaders = {\n${loaders.join('\n')}\n};\n`;
       }
       const namespace = id.slice(prefix.length + 1);

@@ -176,6 +176,26 @@ describe('ReviewComplianceTab', () => {
     expect(screen.getByTestId('compliance-report').textContent).not.toMatch(/partial|PARTIAL/);
   });
 
+  it('offers "no framework" in the language the panel is set to, and the regulations by their acronyms', async () => {
+    // The first option read "None" in all six languages.
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<ReviewComplianceTab />);
+      const options = [...screen.getByTestId('framework-select').querySelectorAll('option')];
+      expect(options.map((option) => option.textContent)).toEqual([
+        fr.forge.review.frameworkNone,
+        'GDPR',
+        'CCPA',
+        'HIPAA',
+        'PCI-DSS',
+      ]);
+      expect(fr.forge.review.frameworkNone).toBe('Aucun');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
   it('says the status in the language the panel is set to', async () => {
     // The badge printed the code upper-cased, "PASS", in every language.
     i18n.addResourceBundle('fr', 'translation', fr, true, true);

@@ -40,18 +40,18 @@ const WHEN_KEYS: Readonly<
     beforeAndAfter: 'forge.review.automation.beforeAndAfterSave',
   },
   delete: {
-    before: 'forge.review.automation.beforeDelete',
-    after: 'forge.review.automation.afterDelete',
-    beforeAndAfter: 'forge.review.automation.beforeAndAfterDelete',
+    before: 'orgAutomation.beforeDelete',
+    after: 'orgAutomation.afterDelete',
+    beforeAndAfter: 'orgAutomation.beforeAndAfterDelete',
   },
 };
 
 /** What fires, by its kind. */
 const KIND_KEYS: Readonly<Record<ForgeAutomationFired['kind'], string>> = {
-  flow: 'forge.review.automation.flow',
-  trigger: 'forge.review.automation.trigger',
-  process: 'forge.review.automation.process',
-  workflowRule: 'forge.review.automation.workflowRule',
+  flow: 'orgAutomation.flow',
+  trigger: 'orgAutomation.trigger',
+  process: 'orgAutomation.process',
+  workflowRule: 'orgAutomation.workflowRule',
 };
 
 /** What a message action sends. */
@@ -64,16 +64,16 @@ const MESSAGE_KEYS: Readonly<Record<ForgeMessageAction['kind'], string>> = {
 
 /** What could not be read, part by part. */
 const UNREAD_KEYS: Readonly<Record<ForgeTargetAutomationUnread['part'], string>> = {
-  flows: 'forge.review.automation.unreadFlows',
-  triggers: 'forge.review.automation.unreadTriggers',
+  flows: 'orgAutomation.unreadFlows',
+  triggers: 'orgAutomation.unreadTriggers',
   conditions: 'forge.review.automation.unreadConditions',
-  processes: 'forge.review.automation.unreadProcesses',
-  workflowRules: 'forge.review.automation.unreadWorkflowRules',
+  processes: 'orgAutomation.unreadProcesses',
+  workflowRules: 'orgAutomation.unreadWorkflowRules',
   definitions: 'forge.review.automation.unreadDefinitions',
   assignmentRules: 'forge.review.automation.unreadAssignmentRules',
   duplicateRules: 'forge.review.automation.unreadDuplicateRules',
   userPermissions: 'forge.review.automation.unreadUserPermissions',
-  permissionSets: 'forge.review.automation.unreadPermissionSets',
+  permissionSets: 'orgAutomation.unreadPermissionSets',
 };
 
 /** The units a scheduled path's offset is set in, as `Intl` names them. */
@@ -138,7 +138,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
   const { t } = useTranslation();
   const readAgain = onReadAgain ? (
     <ReadAgainButton
-      label={t('forge.review.automation.readAgain')}
+      label={t('orgAutomation.readAgain')}
       onReadAgain={onReadAgain}
       reading={readingAgain}
       testId="automation-read-again"
@@ -196,7 +196,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
           className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
         >
           <p>
-            {t('forge.review.automation.bypassHint', {
+            {t('orgAutomation.bypassHint', {
               count: toAssign.length,
               names: toAssign.join(', '),
             })}

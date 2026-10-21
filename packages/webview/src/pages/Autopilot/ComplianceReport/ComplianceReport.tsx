@@ -6,6 +6,7 @@ import type {
   ComplianceReport as ComplianceReportData,
 } from '@sandforge/shared';
 import { useBridgeQuery } from '../../../hooks/useBridgeQuery';
+import { useHeldFailure } from '../../../hooks/useHeldFailure';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { Button } from '../../../components/ui/Button';
 import { ComplianceTimeline } from './ComplianceTimeline';
@@ -54,26 +55,42 @@ export const ComplianceReport: React.FC = () => {
     save(`compliance-report-${Date.now()}.json`, JSON.stringify(report, null, 2), ['json']);
   }, [report, save]);
 
-  if (loading) {
+  // What failed stays said while Retry reads it again, and Retry with it: it
+  // gave way to "Loading" as it was pressed, and took the keyboard along.
+  // An answer with no report is a failure too; no answer yet is a read.
+  const answered = data !== null || error !== null;
+  const failure = useHeldFailure(
+    loading ? null : (error ?? (answered && !report ? t('common.noData') : null)),
+    loading,
+  );
+
+  if (failure !== null) {
+    return (
+      <div className="flex flex-col gap-3 p-4" data-testid="compliance-report-error">
+        <ErrorBanner message={failure} />
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={loading}
+            focusableWhenDisabled
+            onClick={refetch}
+            data-testid="compliance-retry"
+          >
+            {t('common.retry')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || !report) {
     return (
       <div
         className="flex items-center justify-center py-12 text-sm text-text-secondary"
         data-testid="compliance-report-loading"
       >
         {t('common.loading')}
-      </div>
-    );
-  }
-
-  if (error || !report) {
-    return (
-      <div className="flex flex-col gap-3 p-4" data-testid="compliance-report-error">
-        <ErrorBanner message={error ?? t('common.noData')} />
-        <div>
-          <Button variant="secondary" size="sm" onClick={refetch} data-testid="compliance-retry">
-            {t('common.retry')}
-          </Button>
-        </div>
       </div>
     );
   }

@@ -75,14 +75,12 @@ function emailsRefusal(
   const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
   return t('seed.clone.error.CLONE_EMAILS_EXCEEDED', {
     org,
-    limit: t(
-      limit === 'SingleEmail' ? 'seed.automation.limit.single' : 'seed.automation.limit.workflow',
-    ),
+    limit: t(limit === 'SingleEmail' ? 'common.emailLimit.single' : 'common.emailLimit.workflow'),
     emails,
     remaining,
     max,
     objects: list(objectNames),
-    senders: list(senderNames.map((name) => t('seed.automation.quoted', { name }))),
+    senders: list(senderNames.map((name) => t('common.quoted', { name }))),
   });
 }
 

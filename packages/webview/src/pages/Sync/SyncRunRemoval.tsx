@@ -36,10 +36,10 @@ const SWEEP_READ_TIMEOUT_MS = 150_000;
 
 /** What the card says of a removal that cannot run, by why. */
 const REFUSAL_KEYS: Record<SyncRemovalRefusalCode, string> = {
-  GUARD_BLOCKED: 'sync.removal.refusedGuard',
-  NO_GUARD: 'sync.removal.refusedNoGuard',
-  ORG_GONE: 'sync.removal.refusedOrgGone',
-  RUNNING: 'sync.removal.refusedRunning',
+  GUARD_BLOCKED: 'runRemoval.sync.refusedGuard',
+  NO_GUARD: 'runRemoval.sync.refusedNoGuard',
+  ORG_GONE: 'runRemoval.sync.refusedOrgGone',
+  RUNNING: 'runRemoval.sync.refusedRunning',
 };
 
 /** What `sync:remove` answers. */
@@ -79,13 +79,13 @@ const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
   if (read.error) {
     body = (
       <p data-testid="sync-sweep-error" className="text-status-warning">
-        {t('forge.history.sweep.error', { org, reason: read.error })}
+        {t('runRemoval.sweep.error', { org, reason: read.error })}
       </p>
     );
   } else if (!read.data || read.data.runId !== runId) {
     body = (
       <p data-testid="sync-sweep-loading" className="text-text-secondary">
-        {t('forge.history.sweep.loading', { org })}
+        {t('runRemoval.sweep.loading', { org })}
       </p>
     );
   } else {
@@ -98,7 +98,7 @@ const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
       className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
     >
       <h4 id={headingId} className="text-[11px] font-semibold">
-        {t('forge.history.sweep.title', { org })}
+        {t('runRemoval.sweep.title', { org })}
       </h4>
       {body}
     </section>
@@ -149,8 +149,8 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
   const { requested: cancelRequested, cancel: cancelRemoval } = useOperationCancel(
     removal.requestId,
     {
-      title: t('sync.removal.cancelRefused'),
-      message: t('sync.removal.cancelRefusedDetail'),
+      title: t('runRemoval.sync.cancelRefused'),
+      message: t('runRemoval.sync.cancelRefusedDetail'),
     },
   );
 
@@ -166,7 +166,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
   if (info.data && !kept) {
     return (
       <p className="text-[11px] text-text-secondary" data-testid="sync-removal-not-kept">
-        {t('sync.removal.notKept')}
+        {t('runRemoval.sync.notKept')}
       </p>
     );
   }
@@ -203,7 +203,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
         data-testid="sync-removal-remove"
         className="self-start text-[11px]"
       >
-        {kept.removed ? t('sync.removal.removeLeft') : t('sync.removal.remove')}
+        {kept.removed ? t('runRemoval.sync.removeLeft') : t('runRemoval.sync.remove')}
       </Button>
     );
   }
@@ -222,11 +222,11 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
     <section
       className="flex flex-col gap-2 rounded-sm border border-subtle bg-surface-1 p-2"
       data-testid={testId ?? 'sync-removal'}
-      aria-label={t('sync.removal.title')}
+      aria-label={t('runRemoval.sync.title')}
     >
-      <h5 className="text-xs font-semibold text-text-primary">{t('sync.removal.title')}</h5>
+      <h5 className="text-xs font-semibold text-text-primary">{t('runRemoval.sync.title')}</h5>
       <p className="text-[11px] text-text-secondary" data-testid="sync-removal-created">
-        {t('sync.removal.created', {
+        {t('runRemoval.sync.created', {
           count: kept.created,
           formatted: formatNumber(kept.created),
           org,
@@ -243,7 +243,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
             className="text-[11px] text-text-secondary"
             data-testid="sync-removal-removing"
           >
-            {cancelRequested ? t('sync.removal.stopping') : t('sync.removal.removing')}
+            {cancelRequested ? t('runRemoval.sync.stopping') : t('runRemoval.sync.removing')}
           </p>
           {removal.requestId && (
             <Button
@@ -256,7 +256,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
               data-testid="sync-removal-cancel"
               className="text-[11px]"
             >
-              {t('sync.removal.cancel')}
+              {t('runRemoval.sync.cancel')}
             </Button>
           )}
         </div>
@@ -273,7 +273,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
           <ForgeRunRemovalResult result={result} org={org} />
           {result.readWhole && result.readWhole.length > 0 && (
             <p className="text-[11px] text-text-secondary" data-testid="sync-removal-read-whole">
-              {t('sync.removal.readWhole', {
+              {t('runRemoval.sync.readWhole', {
                 config: kept.configName,
                 objects: result.readWhole.join(', '),
               })}
@@ -284,7 +284,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
               className="text-[11px] text-text-secondary"
               data-testid="sync-removal-files-forgotten"
             >
-              {t('sync.removal.filesForgotten', {
+              {t('runRemoval.sync.filesForgotten', {
                 count: result.filesForgotten ?? 0,
                 formatted: formatNumber(result.filesForgotten ?? 0),
                 config: kept.configName,
@@ -297,8 +297,8 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
         open={confirming}
         onClose={() => setConfirming(false)}
         onConfirm={confirmRemoval}
-        title={t('sync.removal.removeTitle', { org })}
-        description={t('sync.removal.removeDescription', { org })}
+        title={t('runRemoval.sync.removeTitle', { org })}
+        description={t('runRemoval.sync.removeDescription', { org })}
         confirmText={org}
       >
         <ForgeRunRemovalPlan
@@ -313,7 +313,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
             onChange={(e) => setIncludeChanged(e.target.checked)}
             data-testid="sync-removal-include-changed"
           />
-          {t('sync.removal.includeChanged')}
+          {t('runRemoval.sync.includeChanged')}
         </label>
         {/* Never ticked unasked: a sweep deletes records the run did not write. */}
         <label className="flex items-center gap-2 mt-1 cursor-pointer">
@@ -323,7 +323,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
             onChange={(e) => setSweep(e.target.checked)}
             data-testid="sync-removal-sweep-toggle"
           />
-          {t('forge.history.removeSweep')}
+          {t('runRemoval.removeSweep')}
         </label>
         {sweep && confirming && <SyncRemovalSweep runId={runId} org={org} />}
       </DangerConfirm>

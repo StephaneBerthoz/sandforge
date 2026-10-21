@@ -158,7 +158,7 @@ describe('the org card of "Connect Your Org"', () => {
       JSON.parse(read('packages/webview/src/i18n/locales/en.json')) as {
         sidePanel: { orgType: Record<string, string> };
       }
-    ).sidePanel.orgType,
+    ).common.orgType,
   );
   /** The environment tags a badge shows as the user wrote them. */
   const TAGS = [

@@ -16,6 +16,16 @@ const stableApi = {
   getState: () => undefined,
   setState: () => undefined,
 };
+/*
+ * The input step's other panels come in chunks of their own
+ * (forgeInputPanels.test.tsx); here they are drawn at once.
+ */
+vi.mock('./forgeInputPanels', async () => ({
+  ForgeHistoryPanel: (await import('./ForgeHistoryPanel')).ForgeHistoryPanel,
+  ForgeTemplatePanel: (await import('./ForgeTemplatePanel')).ForgeTemplatePanel,
+  ForgeAIPanel: (await import('./ForgeAIPanel')).ForgeAIPanel,
+}));
+
 vi.mock('../../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => stableApi,
   getVscodeApi: () => stableApi,
@@ -29,6 +39,22 @@ vi.mock('../../stores/useOrgStore', () => ({
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({ navigate: vi.fn(), currentRoute: 'forge' }),
+}));
+
+/* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
+vi.mock('../../components/graph/lazyGraph', async () => ({
+  LiveGraph: (await import('../../components/graph/LiveGraph')).LiveGraph,
+}));
+
+/*
+ * The steps past the input come in chunks of their own (forgeSteps.test.tsx);
+ * here they are drawn at once, as the page draws them once loaded.
+ */
+vi.mock('./forgeSteps', async () => ({
+  ForgeDiscovery: (await import('./ForgeDiscovery')).ForgeDiscovery,
+  ForgeReview: (await import('./ForgeReview')).ForgeReview,
+  ForgeExecution: (await import('./ForgeExecution')).ForgeExecution,
+  ForgeResults: (await import('./ForgeResults')).ForgeResults,
 }));
 
 vi.mock('../../components/graph/LiveGraph', () => ({

@@ -548,10 +548,21 @@ export const DataOpsPage: React.FC = () => {
   // both queries at once let a slow templates response paint a skeleton on top
   // of an already-loaded backup list; Compliance, Cleanup and Quality read
   // neither query, and each says what it waits on itself.
-  const tabLoading =
+  //
+  // And only for its first answer. The list is read again after a backup
+  // ends, after a backup is deleted and after a template is saved or deleted,
+  // and the skeleton took the panel's place each time: the control the
+  // keyboard was on went with it — the Delete button a confirmation hands
+  // focus back to — and the panel's own state, a confirmation it was asking.
+  // Read again, the panel stays drawn and says it is busy.
+  const tabQuery =
     activeTab === 'anonymize'
-      ? templatesQuery.loading
-      : (activeTab === 'backup' || activeTab === 'restore') && backupsQuery.loading;
+      ? templatesQuery
+      : activeTab === 'backup' || activeTab === 'restore'
+        ? backupsQuery
+        : null;
+  const tabLoading = tabQuery !== null && tabQuery.loading && tabQuery.data === null;
+  const tabReading = tabQuery !== null && tabQuery.loading && tabQuery.data !== null;
 
   return (
     <m.div
@@ -634,7 +645,7 @@ export const DataOpsPage: React.FC = () => {
       <PageTabs tabs={DATAOPS_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
       <BentoTile className="p-0">
-        <div className="p-4" data-testid="dataops-content">
+        <div className="p-4" data-testid="dataops-content" aria-busy={tabReading || undefined}>
           {tabLoading && (
             <div className="flex flex-col gap-(--sf-space-3)" data-testid="dataops-skeleton">
               <Skeleton variant="text" width="30%" height="1em" />

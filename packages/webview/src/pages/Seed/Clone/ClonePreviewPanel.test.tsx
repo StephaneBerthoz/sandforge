@@ -241,9 +241,9 @@ describe('ClonePreviewPanel', () => {
         />,
       );
 
-      const box = screen.getByRole('checkbox', { name: en.forge.keepContactPoints });
+      const box = screen.getByRole('checkbox', { name: en.runResults.contactPoints.keep });
       expect((box as HTMLInputElement).checked).toBe(false);
-      expect(screen.getByText(en.forge.keepContactPointsHint)).toBeDefined();
+      expect(screen.getByText(en.runResults.contactPoints.keepHint)).toBeDefined();
       expect(screen.queryByTestId('clone-keep-contact-points-warning')).toBeNull();
 
       fireEvent.click(box);
@@ -263,10 +263,10 @@ describe('ClonePreviewPanel', () => {
 
       const warning = screen.getByTestId('clone-keep-contact-points-warning');
       expect(warning.getAttribute('role')).toBe('alert');
-      expect(warning.textContent).toBe(en.forge.keepContactPointsWarning);
+      expect(warning.textContent).toBe(en.runResults.contactPoints.keepWarning);
       expect(
         screen
-          .getByRole('checkbox', { name: en.forge.keepContactPoints })
+          .getByRole('checkbox', { name: en.runResults.contactPoints.keep })
           .getAttribute('aria-describedby'),
       ).toBe(warning.id);
     });

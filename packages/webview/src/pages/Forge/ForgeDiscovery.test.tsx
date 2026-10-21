@@ -124,6 +124,11 @@ vi.mock('../../hooks/useMessageBus', async () => {
 });
 
 // Mock LiveGraph to avoid ReactFlow complexity in unit tests
+/* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
+vi.mock('../../components/graph/lazyGraph', async () => ({
+  LiveGraph: (await import('../../components/graph/LiveGraph')).LiveGraph,
+}));
+
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ onNodeClick }: { onNodeClick?: (name: string) => void }) => (
     <div data-testid="live-graph">

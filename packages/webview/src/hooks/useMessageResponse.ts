@@ -133,13 +133,13 @@ function guardRefusal(
     return i18n.t('common.refusal.seedEmailsExceeded', {
       org,
       limit: i18n.t(
-        limit === 'SingleEmail' ? 'seed.automation.limit.single' : 'seed.automation.limit.workflow',
+        limit === 'SingleEmail' ? 'common.emailLimit.single' : 'common.emailLimit.workflow',
       ),
       emails,
       remaining,
       max,
       objects: list(objectNames),
-      senders: list(senderNames.map((name) => i18n.t('seed.automation.quoted', { name }))),
+      senders: list(senderNames.map((name) => i18n.t('common.quoted', { name }))),
     });
   }
   if (code === 'GUARD_BLOCKED') {

@@ -311,7 +311,7 @@ export const HelpPage: React.FC = () => {
           onClick={() => navigate('settings')}
           data-testid="help-open-settings"
         >
-          {t('onboarding.openSettings')}
+          {t('home.openSettings')}
         </Button>
         {/*
           The welcome wizard is an overlay owned by PanelApp, not a routed

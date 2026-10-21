@@ -5,7 +5,8 @@ import { useForgeForm } from './useForgeForm';
 import { useForgeStore } from '../../stores/useForgeStore';
 
 /**
- * The Home hero hands a record id to the Forge form through the store.
+ * The Home hero hands a record id to the Forge form through the store, where
+ * ForgePage puts it as it opens (ForgePage.handoff.test.tsx).
  *
  * That write existed and nothing read it. `useForgeForm` keeps every field in
  * local state and its only mount effect hydrated `sourceOrgId`, so a user who

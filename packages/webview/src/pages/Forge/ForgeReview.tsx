@@ -4,7 +4,6 @@ import type {
   BaseMessage,
   ForgeAutomationResponse,
   ForgeGraph,
-  ForgePlanResponse,
   ForgeTargetAutomation,
 } from '@sandforge/shared';
 import { firedOnInsert } from '@sandforge/shared';
@@ -14,7 +13,7 @@ import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import { useOrgStore } from '../../stores/useOrgStore';
-import { LiveGraph } from '../../components/graph/LiveGraph';
+import { LiveGraph } from '../../components/graph/lazyGraph';
 import { ForgeTableView } from './ForgeTableView';
 import { ForgeViewToggle } from './ForgeViewToggle';
 import { ReviewPlanTab } from './ReviewPlanTab';
@@ -112,33 +111,10 @@ export const ForgeReview: React.FC = () => {
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
   // A run that anonymizes waits for the files to be accepted as they are.
   const filesBlocked = useForgeStore(filesBlockExecute);
-  const setPlan = useForgeStore((s) => s.setPlan);
-  const fillPersonalFields = useForgeStore((s) => s.fillPersonalFields);
-  const [planError, setPlanError] = useState<string | null>(null);
-
-  // useForgeForm sends forge:plan:request and ForgeHandler answers it, but
-  // nothing consumed the reply: `plan` stayed null and the Plan tab showed
-  // "Generating execution plan…" for the rest of the session. Its own comment
-  // claimed "the wizard's Review tab listens for forge:plan:response" — this is
-  // that listener. A starter template's graph comes back with the personal
-  // fields its objects hold: built without discovery, it named none, and the
-  // Anonymization tab counted zero with the toggle on.
-  useMessageListener<ForgePlanResponse>(
-    'forge:plan:response',
-    useCallback(
-      (msg) => {
-        setPlan(msg.payload.plan);
-        if (msg.payload.graph) fillPersonalFields(msg.payload.graph);
-        setPlanError(null);
-      },
-      [setPlan, fillPersonalFields],
-    ),
-  );
-
-  useMessageListener<BaseMessage & { payload: { message: string } }>(
-    'forge:plan:error',
-    useCallback((msg) => setPlanError(msg.payload.message), []),
-  );
+  // The plan, and why it could not be made, are the store's: the input step
+  // asks for it as it moves the page here, before this screen's chunk has
+  // loaded (useForgeStore's plan listener).
+  const planError = useForgeStore((s) => s.planError);
 
   const setMetadataDiffs = useForgeStore((s) => s.setMetadataDiffs);
   const [metadataPending, setMetadataPending] = useState(false);

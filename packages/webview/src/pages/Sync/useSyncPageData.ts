@@ -24,8 +24,8 @@ import type {
 import type { PIIScanResponse } from '@sandforge/shared';
 import {
   FILE_COPY_CEILING_MB,
+  FILE_COPY_DEFAULT_MAX_MB,
   SYNC_CONFLICT_STRATEGIES,
-  SYNC_FILES_DEFAULT_MAX_FILE_MB,
   SYNC_FILES_DEFAULT_RUN_MB,
   SYNC_FILES_MAX_RUN_MB,
 } from '@sandforge/shared';
@@ -322,7 +322,8 @@ export function fileCapsOf(saved: Partial<SyncFileCopyOption> | undefined): Sync
   return {
     maxFileSizeMB: boundedCap(
       'maxFileSizeMB',
-      saved?.maxFileSizeMB ?? SYNC_FILES_DEFAULT_MAX_FILE_MB,
+      // The largest file a configuration copies unless it sets another: a Forge run's.
+      saved?.maxFileSizeMB ?? FILE_COPY_DEFAULT_MAX_MB,
     ),
     maxRunMB: boundedCap('maxRunMB', saved?.maxRunMB ?? SYNC_FILES_DEFAULT_RUN_MB),
   };

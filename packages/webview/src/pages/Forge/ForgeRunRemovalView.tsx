@@ -33,30 +33,30 @@ export type RemovalSubject = 'run' | 'load';
 /** What a removal's result says first, by what it took back and how it ended. */
 const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>> = {
   run: {
-    success: 'forge.history.resultSuccess',
-    partial: 'forge.history.resultPartial',
-    failure: 'forge.history.resultFailure',
-    cancelled: 'forge.history.resultCancelled',
+    success: 'runRemoval.resultSuccess',
+    partial: 'runRemoval.resultPartial',
+    failure: 'runRemoval.resultFailure',
+    cancelled: 'runRemoval.resultCancelled',
   },
   load: {
-    success: 'frozen.removal.resultSuccess',
-    partial: 'frozen.removal.resultPartial',
-    failure: 'frozen.removal.resultFailure',
+    success: 'runRemoval.load.resultSuccess',
+    partial: 'runRemoval.load.resultPartial',
+    failure: 'runRemoval.load.resultFailure',
     // Says nothing of what was taken back.
-    cancelled: 'forge.history.resultCancelled',
+    cancelled: 'runRemoval.resultCancelled',
   },
 };
 
 /** What a record kept for a change since is said to have changed since. */
 const CHANGED_KEYS: Record<RemovalSubject, string> = {
-  run: 'forge.history.resultChanged',
-  load: 'frozen.removal.resultChanged',
+  run: 'runRemoval.resultChanged',
+  load: 'runRemoval.load.resultChanged',
 };
 
 /** What the files a removal leaves in the org are said not to have come with. */
 const FILES_LEFT_KEYS: Record<RemovalSubject, string> = {
-  run: 'forge.history.resultFilesLeft',
-  load: 'frozen.removal.resultFilesLeft',
+  run: 'runRemoval.resultFilesLeft',
+  load: 'runRemoval.load.resultFilesLeft',
 };
 
 /**
@@ -95,13 +95,13 @@ function outcomeParts(
   subject: RemovalSubject,
 ): string[] {
   const parts: string[] = [];
-  if (object.deleted > 0) parts.push(counted(t, 'forge.history.resultDeleted', object.deleted));
+  if (object.deleted > 0) parts.push(counted(t, 'runRemoval.resultDeleted', object.deleted));
   if (object.alreadyGone > 0) {
-    parts.push(counted(t, 'forge.history.resultGone', object.alreadyGone));
+    parts.push(counted(t, 'runRemoval.resultGone', object.alreadyGone));
   }
   // Not found, and not in the recycle bin: never said gone.
   if ((object.notVisible ?? 0) > 0) {
-    parts.push(counted(t, 'forge.history.resultNotVisible', object.notVisible ?? 0));
+    parts.push(counted(t, 'runRemoval.resultNotVisible', object.notVisible ?? 0));
   }
   if (object.keptChanged > 0) {
     parts.push(counted(t, CHANGED_KEYS[subject], object.keptChanged));
@@ -109,13 +109,13 @@ function outcomeParts(
   if (object.keptDependents > 0) {
     parts.push(
       object.heldBy.length > 0
-        ? counted(t, 'forge.history.resultHeld', object.keptDependents, {
+        ? counted(t, 'runRemoval.resultHeld', object.keptDependents, {
             objects: object.heldBy.join(', '),
           })
-        : counted(t, 'forge.history.resultHeldUnread', object.keptDependents),
+        : counted(t, 'runRemoval.resultHeldUnread', object.keptDependents),
     );
   }
-  if (object.refused > 0) parts.push(counted(t, 'forge.history.resultRefused', object.refused));
+  if (object.refused > 0) parts.push(counted(t, 'runRemoval.resultRefused', object.refused));
   return parts;
 }
 
@@ -146,9 +146,7 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
   return (
     <div className="flex flex-col gap-1.5" data-testid="forge-removal-plan">
       {leftBy !== undefined && (
-        <p data-testid="forge-removal-left-by">
-          {t('forge.history.removeLeftBy', { date: leftBy })}
-        </p>
+        <p data-testid="forge-removal-left-by">{t('runRemoval.removeLeftBy', { date: leftBy })}</p>
       )}
       <ul className="flex flex-col gap-0.5">
         {plan.map((object) => (
@@ -160,8 +158,8 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
             {counted(
               t,
               FILE_OBJECTS.has(object.objectApiName)
-                ? 'forge.history.removeFiles'
-                : 'forge.history.removeObject',
+                ? 'runRemoval.removeFiles'
+                : 'runRemoval.removeObject',
               object.count,
               { object: object.objectApiName },
             )}
@@ -169,7 +167,7 @@ export const ForgeRunRemovalPlan: React.FC<ForgeRunRemovalPlanProps> = ({
         ))}
       </ul>
       {linked > 0 && (
-        <p data-testid="forge-removal-linked">{counted(t, 'forge.history.removeLinked', linked)}</p>
+        <p data-testid="forge-removal-linked">{counted(t, 'runRemoval.removeLinked', linked)}</p>
       )}
     </div>
   );
@@ -267,8 +265,8 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
       open={run !== null}
       onClose={onClose}
       onConfirm={onConfirm}
-      title={t('forge.history.removeTitle', { org })}
-      description={t('forge.history.removeDescription', { org })}
+      title={t('runRemoval.removeTitle', { org })}
+      description={t('runRemoval.removeDescription', { org })}
       confirmText={org}
     >
       <ForgeRunRemovalPlan
@@ -289,7 +287,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
           onChange={(e) => onIncludeChangedChange(e.target.checked)}
           data-testid="forge-removal-include-changed"
         />
-        {t('forge.history.removeIncludeChanged')}
+        {t('runRemoval.removeIncludeChanged')}
       </label>
       {sweepOffered && (
         <>
@@ -300,7 +298,7 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
               onChange={(e) => onSweepChange?.(e.target.checked)}
               data-testid="forge-removal-sweep-toggle"
             />
-            {t('forge.history.removeSweep')}
+            {t('runRemoval.removeSweep')}
           </label>
           {sweep && <ForgeRemovalSweep forgeId={run?.forgeId} org={org} />}
         </>
@@ -331,13 +329,13 @@ export const ForgeRunRemovalRunning: React.FC<ForgeRunRemovalRunningProps> = ({
 }) => {
   const { t } = useTranslation();
   const { requested, cancel } = useOperationCancel(requestId, {
-    title: t('forge.history.stopRefused'),
-    message: t('forge.history.stopRefusedDetail'),
+    title: t('runRemoval.stopRefused'),
+    message: t('runRemoval.stopRefusedDetail'),
   });
   return (
     <div className="flex flex-wrap items-center gap-2">
       <p role="status" data-testid={testId} className="text-xs text-text-secondary">
-        {requested ? t('forge.history.stopping') : t('forge.history.removing')}
+        {requested ? t('runRemoval.stopping') : t('runRemoval.removing')}
       </p>
       {requestId && (
         <Button
@@ -350,7 +348,7 @@ export const ForgeRunRemovalRunning: React.FC<ForgeRunRemovalRunningProps> = ({
           data-testid={`${testId}-stop`}
           className="text-[11px]"
         >
-          {t('forge.history.stopRemoval')}
+          {t('runRemoval.stopRemoval')}
         </Button>
       )}
     </div>
@@ -406,7 +404,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
       </h4>
       {result.leftBy !== undefined && (
         <p data-testid="forge-removal-result-left-by" className="text-text-secondary">
-          {t('forge.history.resultLeftBy', {
+          {t('runRemoval.resultLeftBy', {
             date: formatStoredDate(result.leftBy, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
           })}
         </p>
@@ -446,7 +444,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
       </ul>
       {unchecked.length > 0 && (
         <p data-testid="forge-removal-unchecked" className="text-text-secondary">
-          {t('forge.history.resultUnchecked', { objects: unchecked.join(', ') })}
+          {t('runRemoval.resultUnchecked', { objects: unchecked.join(', ') })}
         </p>
       )}
       {/* A call of the run whose answer was lost may have written its rows:
@@ -454,7 +452,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
           one that took everything. */}
       {(result.mayHaveBeenWritten ?? 0) > 0 && (
         <p data-testid="forge-removal-unreachable" className="text-status-warning">
-          {counted(t, 'forge.history.resultMayHaveBeenWritten', result.mayHaveBeenWritten ?? 0, {
+          {counted(t, 'runRemoval.resultMayHaveBeenWritten', result.mayHaveBeenWritten ?? 0, {
             org,
           })}
         </p>
@@ -463,7 +461,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
           rest, they read as rows the target was searched for. */}
       {(result.notLookedFor?.notJournaled ?? 0) > 0 && (
         <p data-testid="forge-removal-not-journaled" className="text-text-secondary">
-          {counted(t, 'forge.history.resultNotJournaled', result.notLookedFor?.notJournaled ?? 0, {
+          {counted(t, 'runRemoval.resultNotJournaled', result.notLookedFor?.notJournaled ?? 0, {
             org,
           })}
         </p>
@@ -472,7 +470,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
         <p data-testid="forge-removal-calls-not-looked-for" className="text-status-warning">
           {counted(
             t,
-            'forge.history.resultCallsNotLookedFor',
+            'runRemoval.resultCallsNotLookedFor',
             result.notLookedFor?.callsAfterRemoval ?? 0,
             { org },
           )}
@@ -501,16 +499,16 @@ export const ForgeRunRemovalMark: React.FC<ForgeRunRemovalMarkProps> = ({ mark, 
   const notReached = mark.notReached ?? 0;
   const notVisible = mark.notVisible ?? 0;
   const parts = [
-    mark.deleted > 0 ? counted(t, 'forge.history.resultDeleted', mark.deleted) : undefined,
-    mark.alreadyGone > 0 ? counted(t, 'forge.history.resultGone', mark.alreadyGone) : undefined,
-    mark.kept > 0 ? counted(t, 'forge.history.resultKept', mark.kept) : undefined,
-    mark.refused > 0 ? counted(t, 'forge.history.resultRefused', mark.refused) : undefined,
-    notReached > 0 ? counted(t, 'forge.history.resultNotReached', notReached) : undefined,
-    notVisible > 0 ? counted(t, 'forge.history.resultNotVisible', notVisible) : undefined,
+    mark.deleted > 0 ? counted(t, 'runRemoval.resultDeleted', mark.deleted) : undefined,
+    mark.alreadyGone > 0 ? counted(t, 'runRemoval.resultGone', mark.alreadyGone) : undefined,
+    mark.kept > 0 ? counted(t, 'runRemoval.resultKept', mark.kept) : undefined,
+    mark.refused > 0 ? counted(t, 'runRemoval.resultRefused', mark.refused) : undefined,
+    notReached > 0 ? counted(t, 'runRemoval.resultNotReached', notReached) : undefined,
+    notVisible > 0 ? counted(t, 'runRemoval.resultNotVisible', notVisible) : undefined,
   ].filter((part): part is string => part !== undefined);
   return (
     <p data-testid="forge-removal-mark" className="text-[10px] text-text-secondary">
-      {t('forge.history.removedOn', { date })} {parts.join(' · ')}
+      {t('runRemoval.removedOn', { date })} {parts.join(' · ')}
     </p>
   );
 };

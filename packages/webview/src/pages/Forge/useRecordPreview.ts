@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type { BaseMessage } from '@sandforge/shared';
 import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
-import { extractRecordId } from './forgeUtils';
+import { extractRecordId } from '../../utils/recordId';
 import type { RecordPreview } from './forgeUtils';
 
 /** Return type for the useRecordPreview hook. */

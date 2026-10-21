@@ -27,21 +27,21 @@ const USE_CASE_PATHS: UseCasePath[] = [
     icon: '\uD83D\uDD25',
     titleKey: 'onboarding.paths.forgeTitle',
     descKey: 'onboarding.paths.forgeDesc',
-    ctaKey: 'onboarding.openForge',
+    ctaKey: 'home.openForge',
   },
   {
     id: 'seed',
     icon: '\uD83C\uDF31',
     titleKey: 'onboarding.paths.seedTitle',
     descKey: 'onboarding.paths.seedDesc',
-    ctaKey: 'onboarding.openSeed',
+    ctaKey: 'home.openSeed',
   },
   {
     id: 'frozen',
     icon: '\u2744\uFE0F',
     titleKey: 'onboarding.paths.frozenTitle',
     descKey: 'onboarding.paths.frozenDesc',
-    ctaKey: 'onboarding.openFrozen',
+    ctaKey: 'home.openFrozen',
   },
 ];
 
@@ -386,12 +386,12 @@ function WelcomePageView(
             <div className="flex gap-3 justify-center mb-4">
               {orgType === 'production' ? (
                 <Button variant="primary" onClick={handleFinish}>
-                  {t('onboarding.openMonitor')}
+                  {t('home.openMonitor')}
                 </Button>
               ) : (
                 <>
                   <Button variant="primary" onClick={openSeed} data-testid="welcome-open-seed-btn">
-                    {t('onboarding.openSeed')}
+                    {t('home.openSeed')}
                   </Button>
                   <Button
                     variant="secondary"
@@ -401,12 +401,12 @@ function WelcomePageView(
                     }}
                     data-testid="welcome-open-sync-btn"
                   >
-                    {t('onboarding.openSync')}
+                    {t('home.openSync')}
                   </Button>
                 </>
               )}
               <Button variant="secondary" onClick={handleOpenSettings}>
-                {t('onboarding.openSettings')}
+                {t('home.openSettings')}
               </Button>
             </div>
           </div>

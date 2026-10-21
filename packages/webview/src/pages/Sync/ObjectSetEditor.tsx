@@ -111,11 +111,11 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
               aria-label={rowLabel(t('sync.batchSize'), entry.objectApiName)}
             />
             <Input
-              placeholder={t('automation.stepConfigWhere')}
+              placeholder={t('common.whereClause')}
               value={entry.where}
               onChange={(e) => onChange(i, 'where', e.target.value)}
               className="flex-1"
-              aria-label={rowLabel(t('automation.stepConfigWhere'), entry.objectApiName)}
+              aria-label={rowLabel(t('common.whereClause'), entry.objectApiName)}
             />
             <button
               className="text-status-error hover:underline px-1"

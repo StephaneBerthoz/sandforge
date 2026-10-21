@@ -34,9 +34,7 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
   const { t } = useTranslation();
   if (!check && unread === undefined && !order) return null;
   const limitWords = (limit: 'SingleEmail' | 'DailyWorkflowEmails'): string =>
-    limit === 'SingleEmail'
-      ? t('seed.automation.limit.single')
-      : t('seed.automation.limit.workflow');
+    limit === 'SingleEmail' ? t('common.emailLimit.single') : t('common.emailLimit.workflow');
 
   const storageLine = (storage: WriteCheck['storage']): string => {
     const estimate = megabytes(storage.estimateMB);

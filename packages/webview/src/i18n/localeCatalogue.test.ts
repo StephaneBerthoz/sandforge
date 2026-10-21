@@ -650,7 +650,7 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
     expect(offenders).toEqual([]);
     for (const module of ['Forge', 'Frozen', 'Monitor', 'Seed', 'Settings', 'Sync']) {
       const label = text(catalogue, `nav.${module.toLowerCase()}`);
-      expect({ module, named: names(text(catalogue, `onboarding.open${module}`), label) }).toEqual({
+      expect({ module, named: names(text(catalogue, `home.open${module}`), label) }).toEqual({
         module,
         named: true,
       });
@@ -1052,6 +1052,20 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
    * Spanish named a DataOps backup "respaldo" on its tab and in twenty-nine
    * strings, and "copia de seguridad" in twenty others, the settings among them.
    */
+  /*
+   * The What's New entry on pipeline steps called the Pre-Check step
+   * "Comprobación previa", where the step's own label and every other
+   * sentence call it "Pre-verificación".
+   */
+  it('Spanish names the Pre-Check step with its own label, on every surface', () => {
+    const es = [...everySurface('es')];
+    const otherWord = /comprobaci[oó]n previa/iu;
+    expect(text(load('es'), 'automation.stepTypes.precheck')).toBe('Pre-verificación');
+    expect(es.filter(([, value]) => otherWord.test(value)).map(([key]) => key)).toEqual([]);
+    // Positive control: the walk reads the values that name the step.
+    expect(es.filter(([, value]) => value.includes('Pre-verificación')).length).toBeGreaterThan(4);
+  });
+
   it('Spanish names a backup with its DataOps tab’s word, on every surface', () => {
     const es = [...everySurface('es')];
     const backupWord = /(?<!\p{L})respaldos?(?!\p{L})/iu;

@@ -190,8 +190,8 @@ function removability() {
   return {
     forge: label('forge.history.remove'),
     seed: label('seed.removal.historyTitle'),
-    seedResults: label('sync.removal.title'),
-    sync: label('sync.removal.remove'),
+    seedResults: label('runRemoval.sync.title'),
+    sync: label('runRemoval.sync.remove'),
     frozen: label('frozen.removal.remove'),
   };
 }

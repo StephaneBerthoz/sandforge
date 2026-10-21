@@ -51,7 +51,7 @@ export const SyncRunControls: React.FC<SyncRunControlsProps> = ({ operationId, k
               focusableWhenDisabled
               data-testid="sync-resume"
             >
-              {t('sync.runControls.resume')}
+              {t('common.resumeRun')}
             </Button>
           ) : (
             <Button
@@ -62,7 +62,7 @@ export const SyncRunControls: React.FC<SyncRunControlsProps> = ({ operationId, k
               focusableWhenDisabled
               data-testid="sync-pause"
             >
-              {t('sync.runControls.pause')}
+              {t('common.pauseRun')}
             </Button>
           ))}
         <Button

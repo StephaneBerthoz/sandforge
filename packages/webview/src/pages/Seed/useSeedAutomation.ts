@@ -19,7 +19,10 @@ interface SeedAutomationAnswer {
 
 /** What the confirmation knows of what the org runs as the seed's records are created. */
 export interface SeedAutomationState {
-  /** What was read for the org and the objects asked about; null before, or while another is read. */
+  /**
+   * What was read for the org and the objects asked about; null before. Kept
+   * while the same org and objects are read again, until the new answer.
+   */
   preview: SeedAutomationPreview | null;
   /** Whether the read is on its way. */
   loading: boolean;
@@ -64,7 +67,7 @@ export function useSeedAutomation(orgId: string, objects: readonly string[]): Se
   const current = data && data.orgId === orgId && data.objects.join(',') === key ? data : null;
   return useMemo(
     () => ({
-      preview: loading ? null : (current?.preview ?? null),
+      preview: current?.preview ?? null,
       loading,
       error: loading ? null : error,
       readAgain: refetch,

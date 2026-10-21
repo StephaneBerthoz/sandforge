@@ -28,7 +28,7 @@
  *    never a bare string. `sync.history.status_${status}` resolved to the
  *    *string* `sync.history.status` ("Status"), and `sync.schedules.result_…`
  *    to nothing at all: a finished run showed "sync.history.status_failure" in
- *    its own history table. Flat families (`org.status_`, `…triggered`) are
+ *    its own history table. Flat families (`common.orgStatus_`, `…triggered`) are
  *    read as sibling keys sharing the stem, which is how they are written.
  *
  * What neither rule can do is notice a family that is missing ONE member —
@@ -74,7 +74,7 @@ const NOT_CATALOGUE_KEYS = new Map([
 const TAIL_FIRST = {
   builder: 'packages/webview/src/utils/formatters.ts',
   fn: 'formatRelativeTimeI18n',
-  prefixes: ['home', 'sidePanel.relativeTime'],
+  prefixes: ['home', 'common.relativeTime'],
 };
 
 const read = (...parts) => readFileSync(join(repoRoot, ...parts), 'utf8');
@@ -106,8 +106,8 @@ export function resolvesToText(catalogue, path) {
  * The members a family prefix has in `catalogue`.
  *
  * `sync.operations.` is a nested object, and its members are its keys.
- * `org.status_` and `sync.history.triggered` are flat: the head's last segment
- * is the stem of sibling keys (`status_connected`, `triggeredManual`), and the
+ * `common.orgStatus_` and `sync.history.triggered` are flat: the head's last segment
+ * is the stem of sibling keys (`orgStatus_connected`, `triggeredManual`), and the
  * stem itself, where it exists as a key of its own, is not a member.
  */
 export function familyMembers(catalogue, head) {

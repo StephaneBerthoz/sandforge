@@ -48,7 +48,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-select-content">
       <div className="flex items-center gap-1.5">
-        <InfoTooltip id="help.seed.selectObjects" content={t('help.seed.selectObjects')} />
+        <InfoTooltip id="seed.stepHelp.selectObjects" content={t('seed.stepHelp.selectObjects')} />
       </div>
       {/* Org selector */}
       <Select
@@ -83,7 +83,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
             {selectedObjects.length > 0 && (
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-text-primary">
-                  {t('seed.recordCount')}
+                  {t('common.recordCountLabel')}
                 </span>
                 {selectedObjects.map((obj) => (
                   <div key={obj} className="flex items-center gap-2 text-xs">

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SyncConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
 import { FILE_COPY_CEILING_MB, SYNC_FILES_MAX_RUN_MB } from '@sandforge/shared';
@@ -7,6 +7,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { SkeletonTable } from '../../components/ui/SkeletonTable';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
 import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
@@ -33,7 +34,7 @@ import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
 import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { useSyncHistoryMessages } from './useSyncHistoryMessages';
-import { SyncSchedulePanel } from './SyncSchedulePanel';
+import { SyncSchedulePanel } from './syncPanels';
 import { RealTimeSyncPanel } from './RealTimeSyncPanel';
 import { ConflictListPanel } from './ConflictListPanel';
 import { ConflictResolutionPanel } from './ConflictResolutionPanel';
@@ -440,14 +441,16 @@ export const SyncPage: React.FC = () => {
           which runs from the execute step of the Sync tab, as the wizard's
           own run does. */}
         {activeTab === 'schedules' && (
-          <SyncSchedulePanel
-            onRunConfig={(configId, label) => {
-              setQuickSyncActive(false);
-              setActiveTab('sync');
-              handleRunSavedConfig(configId, label);
-            }}
-            runDisabled={busy}
-          />
+          <Suspense fallback={<SkeletonTable rows={3} columns={5} />}>
+            <SyncSchedulePanel
+              onRunConfig={(configId, label) => {
+                setQuickSyncActive(false);
+                setActiveTab('sync');
+                handleRunSavedConfig(configId, label);
+              }}
+              runDisabled={busy}
+            />
+          </Suspense>
         )}
 
         {/* Conflicts tab */}
@@ -463,9 +466,9 @@ export const SyncPage: React.FC = () => {
           <GuidedFirstStepCard
             variant="sync"
             icon="sync"
-            titleKey="onboarding.syncFirstStepTitle"
-            descKey="onboarding.syncFirstStepDesc"
-            actionKey="onboarding.startQuickSync"
+            titleKey="sync.firstStepTitle"
+            descKey="sync.firstStepDesc"
+            actionKey="sync.startQuickSync"
             onAction={() => setQuickSyncActive(true)}
           />
         )}

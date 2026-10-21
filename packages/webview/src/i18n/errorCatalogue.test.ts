@@ -259,7 +259,7 @@ describe('what the hints say, in English', () => {
   it('sends an expired session to the Reconnect button the org card carries, not to a terminal', () => {
     expect(errors.sessionExpired.explanation).toContain('expired');
     expect(errors.sessionExpired.action).toContain(en.nav.orgs);
-    expect(errors.sessionExpired.action).toContain(en.monitor.tryReconnect);
+    expect(errors.sessionExpired.action).toContain(en.common.tryReconnect);
     expect(errors.sessionExpired.action).not.toMatch(/\bsf\b|CLI/);
   });
 

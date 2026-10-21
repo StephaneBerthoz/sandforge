@@ -14,6 +14,16 @@ const stableApi = {
   getState: () => undefined,
   setState: () => undefined,
 };
+/*
+ * The input step's other panels come in chunks of their own
+ * (forgeInputPanels.test.tsx); here they are drawn at once.
+ */
+vi.mock('./forgeInputPanels', async () => ({
+  ForgeHistoryPanel: (await import('./ForgeHistoryPanel')).ForgeHistoryPanel,
+  ForgeTemplatePanel: (await import('./ForgeTemplatePanel')).ForgeTemplatePanel,
+  ForgeAIPanel: (await import('./ForgeAIPanel')).ForgeAIPanel,
+}));
+
 vi.mock('../../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => stableApi,
   getVscodeApi: () => stableApi,
@@ -516,7 +526,7 @@ describe('ForgeInput', () => {
 
     fireEvent.click(screen.getByTestId('forge-keep-contact-points-toggle'));
     expect(screen.getByTestId('forge-keep-contact-points-warning').textContent).toBe(
-      i18n.t('forge.keepContactPointsWarning'),
+      i18n.t('runResults.contactPoints.keepWarning'),
     );
     fireEvent.click(screen.getByTestId('forge-discover-btn'));
     expect(mockSetConfig.mock.calls[1][0].keepContactPoints).toBe(true);

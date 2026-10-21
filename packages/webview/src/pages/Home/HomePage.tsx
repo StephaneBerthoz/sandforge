@@ -4,7 +4,6 @@ import { AnimatePresence, m } from 'framer-motion';
 import { Flame } from 'lucide-react';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
-import { useForgeStore } from '../../stores/useForgeStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
 import type { RecentOp } from '../../stores/useRecentOpsStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -24,7 +23,7 @@ import { SandboxBanner } from '../../components/ui/SandboxBanner';
 import { useSandboxDetection } from '../../hooks/useSandboxDetection';
 import { cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
-import { extractRecordId } from '../Forge/forgeUtils';
+import { extractRecordId } from '../../utils/recordId';
 import { useSmartAction } from './useSmartAction';
 import { orgToFill } from '../../utils/orgToFill';
 import { useOrgHealthSummary } from './useOrgHealthSummary';
@@ -110,7 +109,9 @@ export const HomePage: React.FC = () => {
    * Carry the hero field's record id into the Forge module instead of
    * dropping it. An id the parser rejects keeps focus in the field rather
    * than navigating away with the typed value silently discarded; an empty
-   * field leaves the button as a plain call to action.
+   * field leaves the button as a plain call to action. The id goes with the
+   * navigation, and Forge starts its run from it as it opens: written into
+   * the Forge store here, it put the store and zod on Home.
    */
   const handleStartForge = useCallback(() => {
     const raw = heroRecordId.trim();
@@ -121,16 +122,9 @@ export const HomePage: React.FC = () => {
         heroInputRef.current?.focus();
         return;
       }
-      useForgeStore.getState().setConfig({
-        inputMode: 'record',
-        recordId: parsed,
-        depth: 'direct',
-        sourceOrgId: selectedOrgId ?? '',
-        targetOrgId: '',
-        anonymizePII: false,
-        skipEmpty: false,
-        batchSize: 'auto',
-      });
+      setHeroIdInvalid(false);
+      navigate('forge', { recordId: parsed, sourceOrgId: selectedOrgId ?? '' });
+      return;
     }
     setHeroIdInvalid(false);
     navigate('forge');
@@ -415,7 +409,7 @@ export const HomePage: React.FC = () => {
                   }
                   data-testid="populate-sandbox-btn"
                 >
-                  {t('onboarding.populateSandbox')}
+                  {t('home.populateSandbox')}
                 </Button>
               )}
             </div>

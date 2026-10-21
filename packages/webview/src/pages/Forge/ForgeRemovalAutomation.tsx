@@ -27,17 +27,17 @@ interface RemovalAutomationAnswer {
 
 /** What fires, by its kind, as the Automation tab names it. */
 const KIND_KEYS: Readonly<Record<ForgeFiredOnWrite['kind'], string>> = {
-  flow: 'forge.review.automation.flow',
-  trigger: 'forge.review.automation.trigger',
-  process: 'forge.review.automation.process',
-  workflowRule: 'forge.review.automation.workflowRule',
+  flow: 'orgAutomation.flow',
+  trigger: 'orgAutomation.trigger',
+  process: 'orgAutomation.process',
+  workflowRule: 'orgAutomation.workflowRule',
 };
 
 /** When what fires on a delete runs. */
 const DELETE_WHEN_KEYS: Readonly<Record<ForgeFiredOnWrite['when'], string>> = {
-  before: 'forge.review.automation.beforeDelete',
-  after: 'forge.review.automation.afterDelete',
-  beforeAndAfter: 'forge.review.automation.beforeAndAfterDelete',
+  before: 'orgAutomation.beforeDelete',
+  after: 'orgAutomation.afterDelete',
+  beforeAndAfter: 'orgAutomation.beforeAndAfterDelete',
 };
 
 /**
@@ -46,11 +46,11 @@ const DELETE_WHEN_KEYS: Readonly<Record<ForgeFiredOnWrite['when'], string>> = {
  * says each.
  */
 const UNREAD_KEYS: Partial<Record<ForgeTargetAutomationUnread['part'], string>> = {
-  flows: 'forge.review.automation.unreadFlows',
-  triggers: 'forge.review.automation.unreadTriggers',
-  processes: 'forge.review.automation.unreadProcesses',
-  workflowRules: 'forge.review.automation.unreadWorkflowRules',
-  permissionSets: 'forge.review.automation.unreadPermissionSets',
+  flows: 'orgAutomation.unreadFlows',
+  triggers: 'orgAutomation.unreadTriggers',
+  processes: 'orgAutomation.unreadProcesses',
+  workflowRules: 'orgAutomation.unreadWorkflowRules',
+  permissionSets: 'orgAutomation.unreadPermissionSets',
 };
 
 /** Props for {@link ForgeRemovalAutomation}. */
@@ -117,10 +117,10 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
     body = (
       <div className="flex flex-col items-start gap-1">
         <p data-testid="forge-removal-automation-error" className="text-status-warning">
-          {t('forge.history.removalAutomation.error', { org, reason: read.error })}
+          {t('runRemoval.automation.error', { org, reason: read.error })}
         </p>
         <ReadAgainButton
-          label={t('forge.review.automation.readAgain')}
+          label={t('orgAutomation.readAgain')}
           onReadAgain={readAgain}
           reading={read.loading}
           testId="forge-removal-automation-read-again"
@@ -130,7 +130,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
   } else if (!answer || answer.forgeId !== forgeId) {
     body = (
       <p data-testid="forge-removal-automation-loading" className="text-text-secondary">
-        {t('forge.history.removalAutomation.loading', { org })}
+        {t('runRemoval.automation.loading', { org })}
       </p>
     );
   } else {
@@ -143,7 +143,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
       <>
         {fired.length > 0 ? (
           <>
-            <p>{t('forge.history.removalAutomation.intro', { org })}</p>
+            <p>{t('runRemoval.automation.intro', { org })}</p>
             <ul className="ml-3 flex list-disc flex-col gap-0.5">
               {fired.map((entry) => (
                 <li
@@ -157,7 +157,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
                     {' · '}
                     {entry.write === 'delete'
                       ? t(DELETE_WHEN_KEYS[entry.when])
-                      : t('forge.history.removalAutomation.drafted')}
+                      : t('runRemoval.automation.drafted')}
                   </span>
                 </li>
               ))}
@@ -166,7 +166,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
         ) : (
           unread.length === 0 && (
             <p data-testid="forge-removal-automation-none">
-              {t('forge.history.removalAutomation.none', { org })}
+              {t('runRemoval.automation.none', { org })}
             </p>
           )
         )}
@@ -182,7 +182,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
         {toAssign.length > 0 && (
           <div data-testid="forge-removal-automation-bypass">
             <p>
-              {t('forge.review.automation.bypassHint', {
+              {t('orgAutomation.bypassHint', {
                 count: toAssign.length,
                 names: toAssign.join(', '),
               })}
@@ -207,7 +207,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
       className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
     >
       <h4 id={headingId} className="text-[11px] font-semibold">
-        {t('forge.history.removalAutomation.title', { org })}
+        {t('runRemoval.automation.title', { org })}
       </h4>
       {body}
     </section>

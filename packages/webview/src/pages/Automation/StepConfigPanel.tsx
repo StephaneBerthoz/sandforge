@@ -66,7 +66,7 @@ interface ConfigField {
 const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, ConfigField[]>> = {
   seed: [
     { key: 'objectName', labelKey: 'common.object', type: 'text' },
-    { key: 'recordCount', labelKey: 'seed.recordCount', type: 'number' },
+    { key: 'recordCount', labelKey: 'common.recordCountLabel', type: 'number' },
   ],
   // Who answers is whoever is at the VS Code window: the step asks for what
   // it says with its question, and how long it waits.
@@ -103,8 +103,8 @@ const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, ConfigField[]>> = {
   delay: [{ key: 'seconds', labelKey: 'automation.stepConfigDelay', type: 'number' }],
   delete: [
     { key: 'objectName', labelKey: 'common.object', type: 'text' },
-    { key: 'query', labelKey: 'automation.stepConfigWhere', type: 'text' },
-    { key: 'hardDelete', labelKey: 'dataops.hardDelete', type: 'boolean' },
+    { key: 'query', labelKey: 'common.whereClause', type: 'text' },
+    { key: 'hardDelete', labelKey: 'automation.hardDelete', type: 'boolean' },
   ],
   anonymize: [{ key: 'templateId', labelKey: 'automation.stepConfigTemplate', type: 'text' }],
 };
@@ -371,7 +371,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
           <OrgField
             key={field.key}
             label={t(field.labelKey)}
-            placeholder={t('dataops.selectOrg')}
+            placeholder={t('automation.selectOrg')}
             testId={`config-${field.key}`}
             orgs={orgs}
             value={config[field.key]}

@@ -950,7 +950,7 @@ const BASELINE_CENSUS = { recorded: '2026-09-10', count: 0 } as const;
  * Add a prefix here only when a call site passes it as a literal. The tails
  * themselves stay inferred, so a new one in `formatters.ts` needs no edit.
  */
-const DYNAMIC_TAIL_PREFIXES: readonly string[] = ['home', 'sidePanel.relativeTime'];
+const DYNAMIC_TAIL_PREFIXES: readonly string[] = ['home', 'common.relativeTime'];
 
 /**
  * `a.b.` — the literal head of a key whose rest is only known at runtime.

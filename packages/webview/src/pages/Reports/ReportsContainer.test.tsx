@@ -210,6 +210,29 @@ describe('ReportsContainer', () => {
     expect(refetches['reports:list']).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps what failed and its Retry, with the keyboard on it, while the reports are read again', () => {
+    // The tab said "Loading" as Retry was pressed, and the keyboard went with
+    // the button.
+    queries['reports:list'] = { data: null, loading: false, error: 'timed out' };
+    const { rerender } = render(<ReportsContainer />);
+    const retry = screen.getByTestId('reports-executions-error-retry');
+    retry.focus();
+
+    queries['reports:list'] = { data: null, loading: true, error: null };
+    rerender(<ReportsContainer />);
+
+    expect(screen.getByTestId('reports-executions-error-retry')).toBe(retry);
+    expect(document.activeElement).toBe(retry);
+    expect(retry.getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByTestId('reports-executions-error-message').textContent).toContain(
+      'timed out',
+    );
+    expect(screen.queryByTestId('reports-executions-loading')).toBeNull();
+    // A second press while the read is on its way asks nothing more.
+    fireEvent.click(retry);
+    expect(refetches['reports:list']).not.toHaveBeenCalled();
+  });
+
   it('asks for the newest page of the audit trail and for the latest lineage', () => {
     render(<ReportsContainer />);
 
@@ -377,7 +400,7 @@ describe('ReportsContainer', () => {
     );
   });
 
-  it('draws the latest run’s lineage, and asks for another run when one is picked', () => {
+  it('draws the latest run’s lineage, and asks for another run when one is picked', async () => {
     answer('reports:lineage', {
       lineage: graph('op-2'),
       runs: [
@@ -389,7 +412,7 @@ describe('ReportsContainer', () => {
     render(<ReportsContainer />);
     fireEvent.click(screen.getByText('Data Lineage'));
 
-    expect(screen.getByTestId('lineage-graph')).toBeDefined();
+    expect(await screen.findByTestId('lineage-graph')).toBeDefined();
     fireEvent.change(screen.getByTestId('lineage-run'), { target: { value: 'op-1' } });
     expect(lastPayload('reports:lineage')).toEqual({ operationId: 'op-1' });
   });

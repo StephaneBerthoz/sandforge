@@ -118,6 +118,54 @@ describe('SeedExecuteStep', () => {
     expect(props.onRetryFields).toHaveBeenCalledOnce();
   });
 
+  it('keeps Retry where it is, and the keyboard on it, while the fields are read again', () => {
+    // Retry went as it was pressed, the failure it answered cleared, and the
+    // keyboard with it.
+    const base = {
+      isRunning: false,
+      objectProgress: [],
+      overallPercent: 0,
+      elapsedMs: 0,
+      configSkipped: true,
+      onCustomize: vi.fn(),
+      onRetryFields: vi.fn(),
+      fieldConfigs: [ACCOUNT, CONTACT],
+      volumes: {},
+    } satisfies Partial<SeedExecuteStepProps>;
+    const { rerender } = render(
+      <SeedExecuteStep {...base} fieldsReady={false} fieldsError="INVALID_SESSION_ID" />,
+    );
+    const retry = screen.getByTestId('seed-fields-retry');
+    retry.focus();
+    fireEvent.click(retry);
+    expect(base.onRetryFields).toHaveBeenCalledOnce();
+
+    rerender(<SeedExecuteStep {...base} fieldsReady={false} fieldsError={null} />);
+
+    expect(screen.getByTestId('seed-fields-retry')).toBe(retry);
+    expect(document.activeElement).toBe(retry);
+    expect(retry.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByTestId('seed-fields-status').textContent).toBe(
+      'Reading the fields of the selected objects...',
+    );
+    fireEvent.click(retry);
+    expect(base.onRetryFields).toHaveBeenCalledOnce();
+
+    // Failed again: Retry asks again.
+    rerender(
+      <SeedExecuteStep {...base} fieldsReady={false} fieldsError="REQUEST_LIMIT_EXCEEDED" />,
+    );
+    expect(retry.hasAttribute('aria-disabled')).toBe(false);
+    expect(screen.getByTestId('seed-fields-status').textContent).toContain(
+      'REQUEST_LIMIT_EXCEEDED',
+    );
+
+    // Read: nothing to retry. A later read of other objects offers none either.
+    rerender(<SeedExecuteStep {...base} fieldsReady fieldsError={null} />);
+    rerender(<SeedExecuteStep {...base} fieldsReady={false} fieldsError={null} />);
+    expect(screen.queryByTestId('seed-fields-retry')).toBeNull();
+  });
+
   it('says the run waits for the fields after the configure step too, without offering to customize', () => {
     renderStep({ configSkipped: false, fieldsReady: false });
 

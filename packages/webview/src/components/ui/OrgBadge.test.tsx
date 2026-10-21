@@ -38,7 +38,7 @@ describe('OrgBadge', () => {
 
   it('names the status dot as an image, the role that lets its label be read', () => {
     render(<OrgBadge {...defaultProps} status="connected" />);
-    const name = i18n.t('a11y.orgStatus', { status: i18n.t('org.status_connected') });
+    const name = i18n.t('a11y.orgStatus', { status: i18n.t('common.orgStatus_connected') });
     expect(screen.getByRole('img', { name })).toBe(screen.getByTestId('org-badge-status-dot'));
   });
 
@@ -116,7 +116,7 @@ describe('OrgBadge', () => {
       await i18n.changeLanguage('fr');
       render(<OrgBadge {...defaultProps} status="connected" />);
       expect(screen.getByTestId('org-badge-status-dot').getAttribute('aria-label')).toBe(
-        fr.a11y.orgStatus.replace('{{status}}', fr.org.status_connected),
+        fr.a11y.orgStatus.replace('{{status}}', fr.common.orgStatus_connected),
       );
     });
   });

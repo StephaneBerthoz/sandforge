@@ -42,8 +42,10 @@ export interface LiveOperationsPanelProps {
 
 /**
  * The name a run's module is read by, where the product has one: the
- * navigation's for a module, the audit trail's for a Seed mode. Anything else
- * shows as the extension sent it.
+ * navigation's for a module, and for a Seed mode or real-time sync the words
+ * the audit trail and the Sync page use, held in Monitor's own namespace: the
+ * page loaded the whole English of Reports and Sync for these three. Anything
+ * else shows as the extension sent it.
  */
 const MODULE_LABEL_KEYS: Readonly<Record<string, string>> = {
   seed: 'nav.seed',
@@ -53,9 +55,9 @@ const MODULE_LABEL_KEYS: Readonly<Record<string, string>> = {
   dataops: 'nav.dataops',
   autopilot: 'nav.autopilot',
   automation: 'nav.automation',
-  realtime: 'sync.realtime.title',
-  clone: 'reports.auditActions.seed_clone',
-  csv: 'reports.auditActions.seed_csv_import',
+  realtime: 'monitor.liveOps.module.realtime',
+  clone: 'monitor.liveOps.module.clone',
+  csv: 'monitor.liveOps.module.csv',
 };
 
 /**
@@ -64,7 +66,7 @@ const MODULE_LABEL_KEYS: Readonly<Record<string, string>> = {
  */
 const STATUS_NAME_KEYS: Record<LiveOperationSnapshot['status'], string> = {
   running: 'home.opStatus.running',
-  paused: 'sync.realtime.status.paused',
+  paused: 'home.opStatus.paused',
   completed: 'home.opStatus.success',
   failed: 'home.opStatus.failed',
   cancelled: 'home.opStatus.cancelled',
@@ -222,7 +224,7 @@ const OperationRow: React.FC<{
               data-testid={`pause-${operation.operationId}`}
             >
               <Pause className="w-3 h-3 mr-1" />
-              {t('sync.runControls.pause')}
+              {t('common.pauseRun')}
             </Button>
           )}
           {operation.pausable && operation.status === 'paused' && onResume && (
@@ -233,7 +235,7 @@ const OperationRow: React.FC<{
               data-testid={`resume-${operation.operationId}`}
             >
               <Play className="w-3 h-3 mr-1" />
-              {t('sync.runControls.resume')}
+              {t('common.resumeRun')}
             </Button>
           )}
           {onCancel && (

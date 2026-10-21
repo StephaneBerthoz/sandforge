@@ -134,10 +134,11 @@ describe('ReportsPage', () => {
     expect(screen.getByTestId('execution-report-view')).toBeDefined();
   });
 
-  it('should switch to analytics tab', () => {
+  it('should switch to analytics tab', async () => {
     render(<ReportsPage analyticsSummary={summary} />);
     fireEvent.click(screen.getByText('Analytics'));
-    expect(screen.getByTestId('analytics-dashboard')).toBeDefined();
+    // The charts come in a chunk of their own, the first time the tab opens.
+    expect(await screen.findByTestId('analytics-dashboard')).toBeDefined();
   });
 
   it('should switch to audit tab', () => {
@@ -146,10 +147,10 @@ describe('ReportsPage', () => {
     expect(screen.getByTestId('audit-trail-viewer')).toBeDefined();
   });
 
-  it('should switch to lineage tab', () => {
+  it('should switch to lineage tab', async () => {
     render(<ReportsPage lineageData={lineageData} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Data Lineage' }));
-    expect(screen.getByTestId('lineage-graph')).toBeDefined();
+    expect(await screen.findByTestId('lineage-graph')).toBeDefined();
   });
 
   it('should call onSelectReport', () => {
@@ -279,7 +280,7 @@ describe('ReportsPage', () => {
       expect(screen.getByText('No audit entries')).toBeDefined();
     });
 
-    it('opens the lineage tab on the run an audit entry records, when its graph is kept', () => {
+    it('opens the lineage tab on the run an audit entry records, when its graph is kept', async () => {
       const onSelectLineageRun = vi.fn();
       const traced: AuditLogEntry = { ...auditEntries[0], id: 'aud-op-0', operationId: 'op-0' };
       render(
@@ -301,7 +302,7 @@ describe('ReportsPage', () => {
       expect(screen.getByRole('tab', { name: 'Data Lineage' }).getAttribute('aria-selected')).toBe(
         'true',
       );
-      expect(screen.getByTestId('mock-reactflow')).toBeDefined();
+      expect(await screen.findByTestId('mock-reactflow')).toBeDefined();
     });
 
     it('offers a pick of runs only when more than one is traced', () => {

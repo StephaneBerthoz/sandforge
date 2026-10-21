@@ -178,6 +178,7 @@ export const ReportsContainer: React.FC = () => {
     <ReportsPage
       reports={data?.reports}
       reportsLoading={loading || !data}
+      onRetryReports={readReportsAgain}
       analyticsSummary={data?.summary}
       onExportReport={handleExportReport}
       {...auditProps}

@@ -1,17 +1,6 @@
 import * as z from 'zod';
-import { FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '../constants/file-copy.js';
-
-/** The largest file a Sync configuration copies unless it sets another size, in MB. */
-export const SYNC_FILES_DEFAULT_MAX_FILE_MB = FILE_COPY_DEFAULT_MAX_MB;
-
-/**
- * The most a Sync run copies unless the configuration sets another amount, in
- * MB: half the file storage of a Developer sandbox, so one run cannot fill it.
- */
-export const SYNC_FILES_DEFAULT_RUN_MB = 100;
-
-/** The most a Sync run can be set to copy, in MB. */
-export const SYNC_FILES_MAX_RUN_MB = 2_000;
+import { FILE_COPY_CEILING_MB, SYNC_FILES_MAX_RUN_MB } from '../constants/file-copy.js';
+import { SYNC_CONFLICT_STRATEGIES } from '../constants/sync-conflict-strategies.js';
 
 /**
  * A configuration's choice to copy the files of the records it writes: two
@@ -91,18 +80,10 @@ export const syncObjectConfigSchema = z.object({
 
 /**
  * The strategies a bidirectional sync run settles a conflict with, in the
- * order the page offers them. `manual` is left out on purpose: see
- * `SyncConflictStrategy`.
+ * order the page offers them (`SYNC_CONFLICT_STRATEGIES`). `manual` is left
+ * out on purpose: see `SyncConflictStrategy`.
  */
-export const syncConflictStrategySchema = z.enum([
-  'source_wins',
-  'target_wins',
-  'newest_wins',
-  'merge',
-]);
-
-/** {@link syncConflictStrategySchema}'s values. */
-export const SYNC_CONFLICT_STRATEGIES = syncConflictStrategySchema.options;
+export const syncConflictStrategySchema = z.enum(SYNC_CONFLICT_STRATEGIES);
 
 /** Top-level sync configuration schema */
 export const syncConfigSchema = z.object({

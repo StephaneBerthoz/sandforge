@@ -1979,3 +1979,73 @@ describe('counts the run discovers', () => {
     });
   });
 });
+
+describe('the plan of the run under review, taken by the store', () => {
+  /*
+   * The input step asks for the plan as it moves the page to Review, and the
+   * Review screen comes in a chunk of its own: the plan used to be taken by
+   * that screen, and one answered before its chunk had loaded was lost.
+   */
+  beforeEach(() => {
+    getState().reset();
+  });
+
+  function post(type: string, payload: Record<string, unknown>, origin = ''): void {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin,
+        data: {
+          id: `host-${type}`,
+          type,
+          timestamp: Date.now(),
+          correlationId: 'wv-plan-1',
+          payload,
+        },
+      }),
+    );
+  }
+
+  it('takes the plan while the run is under review, whatever screen is drawn', () => {
+    getState().setPhase('review');
+    post('forge:plan:error', { message: 'Describe failed on Account' });
+    expect(getState().planError).toBe('Describe failed on Account');
+
+    const plan = createMockPlan();
+    post('forge:plan:response', { plan });
+
+    expect(getState().plan).toEqual(plan);
+    expect(getState().planError).toBeNull();
+  });
+
+  it('takes the personal fields a starter template’s graph comes back with', () => {
+    getState().setGraph(createMockGraph([createMockNode({ objectApiName: 'Contact' })]));
+    getState().setPhase('review');
+
+    post('forge:plan:response', {
+      plan: createMockPlan(),
+      graph: createMockGraph([
+        createMockNode({ objectApiName: 'Contact', piiFields: ['LastName'] }),
+      ]),
+    });
+
+    expect(getState().graph?.nodes[0].piiFields).toEqual(['LastName']);
+  });
+
+  it('takes no plan while no run is under review, nor one from outside the webview host', () => {
+    post('forge:plan:response', { plan: createMockPlan() });
+    post('forge:plan:error', { message: 'Describe failed on Account' });
+    expect(getState().plan).toBeNull();
+    expect(getState().planError).toBeNull();
+
+    getState().setPhase('review');
+    post('forge:plan:response', { plan: createMockPlan() }, 'https://example.com');
+    expect(getState().plan).toBeNull();
+  });
+
+  it('forgets why the last plan failed when a new run starts', () => {
+    getState().setPhase('review');
+    post('forge:plan:error', { message: 'Describe failed on Account' });
+    getState().setConfig(createMockConfig());
+    expect(getState().planError).toBeNull();
+  });
+});

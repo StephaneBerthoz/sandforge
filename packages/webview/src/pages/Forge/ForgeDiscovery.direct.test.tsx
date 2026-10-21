@@ -21,6 +21,11 @@ vi.mock('../../hooks/useVSCodeApi', () => {
   return { getVscodeApi: () => api, useVSCodeApi: () => api };
 });
 
+/* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
+vi.mock('../../components/graph/lazyGraph', async () => ({
+  LiveGraph: (await import('../../components/graph/LiveGraph')).LiveGraph,
+}));
+
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: () => <div data-testid="live-graph" />,
 }));

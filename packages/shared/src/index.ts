@@ -114,9 +114,12 @@ export {
   BYTES_PER_MB,
   FILE_COPY_DEFAULT_MAX_MB,
   FILE_COPY_CEILING_MB,
+  SYNC_FILES_DEFAULT_RUN_MB,
+  SYNC_FILES_MAX_RUN_MB,
   fileCopyRefusal,
   isFileContentField,
 } from './constants/file-copy.js';
+export { SYNC_CONFLICT_STRATEGIES } from './constants/sync-conflict-strategies.js';
 export {
   PLATFORM_REQUIRED_FIELDS,
   isPlatformRequiredField,

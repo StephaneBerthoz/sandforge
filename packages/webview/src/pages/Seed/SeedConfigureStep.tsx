@@ -44,7 +44,10 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-configure-content">
       <div className="flex items-center gap-1.5">
-        <InfoTooltip id="help.seed.configureFields" content={t('help.seed.configureFields')} />
+        <InfoTooltip
+          id="seed.stepHelp.configureFields"
+          content={t('seed.stepHelp.configureFields')}
+        />
       </div>
       {/* The record types the records take: outside the advanced settings,
           as a person account type changes what the accounts are. */}

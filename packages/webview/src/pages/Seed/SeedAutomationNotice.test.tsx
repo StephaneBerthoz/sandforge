@@ -110,10 +110,67 @@ describe('SeedAutomationNotice', () => {
         records={CRM}
       />,
     );
-    expect(screen.getByRole('status').textContent).toBe(
+    expect(screen.getByTestId('seed-automation-reading').textContent).toBe(
       'Reading what my-dev-org runs as these records are created…',
     );
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps Read again where it is, and the keyboard on it, while the org is read again', () => {
+    // Pressed after a failed read, the button gave way to a line saying the
+    // org was being read, and the keyboard was left on nothing.
+    const failed = read(null, { error: 'INVALID_SESSION_ID' });
+    const { rerender } = render(
+      <SeedAutomationNotice automation={failed} orgName="my-dev-org" records={CRM} />,
+    );
+    const button = screen.getByTestId('seed-automation-read-again');
+    button.focus();
+
+    rerender(
+      <SeedAutomationNotice
+        automation={{ ...failed, error: null, loading: true }}
+        orgName="my-dev-org"
+        records={CRM}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-automation-read-again')).toBe(button);
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByTestId('seed-automation-reading')).toBeDefined();
+    // A second press while the read is on its way asks nothing more.
+    fireEvent.click(button);
+    expect(failed.readAgain).not.toHaveBeenCalled();
+
+    rerender(
+      <SeedAutomationNotice
+        automation={{ ...failed, error: null, preview: trapPreview() }}
+        orgName="my-dev-org"
+        records={CRM}
+      />,
+    );
+    expect(screen.getByTestId('seed-automation-read-again')).toBe(button);
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('keeps what it read drawn while the same org is read again, and says the read is on its way', () => {
+    const automation = read(trapPreview());
+    const { rerender } = render(
+      <SeedAutomationNotice automation={automation} orgName="my-dev-org" records={CRM} />,
+    );
+    const flow = screen.getByTestId('seed-automation-entry-Contact-Welcome Email');
+
+    rerender(
+      <SeedAutomationNotice
+        automation={{ ...automation, loading: true }}
+        orgName="my-dev-org"
+        records={CRM}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-automation-entry-Contact-Welcome Email')).toBe(flow);
+    expect(flow.closest('[aria-busy="true"]')).not.toBeNull();
+    expect(screen.getByTestId('seed-automation-reading')).toBeDefined();
   });
 
   it('says a read that failed, and reads again when asked', () => {

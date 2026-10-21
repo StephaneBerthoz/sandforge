@@ -83,8 +83,8 @@ export function useSyncRunControls(operationId: string | null): SyncRunControls 
     addNotification({
       level: 'warning',
       category: 'sync',
-      title: t('sync.runControls.pauseRefused'),
-      message: t('sync.runControls.pauseRefusedDetail'),
+      title: t('common.runPauseRefused'),
+      message: t('common.runPauseRefusedDetail'),
     });
   }, [controlReply, controlError, operationId, addNotification, t]);
 

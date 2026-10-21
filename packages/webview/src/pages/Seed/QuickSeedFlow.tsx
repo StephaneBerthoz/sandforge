@@ -135,7 +135,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1" data-testid="quick-seed-counts">
                 <span className="text-xs font-medium text-(--sf-text-primary)">
-                  {t('seed.recordCount')}
+                  {t('common.recordCountLabel')}
                 </span>
                 {template.objects.map((obj) => (
                   <div key={obj.objectApiName} className="flex items-center gap-3 text-xs">

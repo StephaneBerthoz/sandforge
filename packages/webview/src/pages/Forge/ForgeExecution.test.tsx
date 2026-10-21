@@ -210,6 +210,11 @@ function logLine(id: string, level: ForgeLogEntry['level'], message: string): Fo
   return { id, timestamp: Date.now(), level, message };
 }
 
+/* The graph comes in a chunk of its own (lazyGraph.test.tsx); here it is drawn at once. */
+vi.mock('../../components/graph/lazyGraph', async () => ({
+  LiveGraph: (await import('../../components/graph/LiveGraph')).LiveGraph,
+}));
+
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ className }: { className?: string }) => (
     <div data-testid="live-graph" className={className}>

@@ -7,10 +7,10 @@
     "automation.errorCount_one",
     "automation.timeout",
     "common.itemCount_one",
+    "common.orgType.devPro",
     "common.recordErrors.group",
     "dataops.frameworks.pci_dss",
     "forge.node.errors_one",
-    "forge.review.automation.flow",
     "forge.soqlPlaceholder",
     "frozen.manifest.version",
     "grappe.partitionCount_one",
@@ -26,12 +26,12 @@
     "monitor.jobErrorCount_one",
     "monitor.liveOps.activeCount_one",
     "org.tagsPlaceholder",
+    "orgAutomation.flow",
     "reports.context.decisionCount",
     "seed.automation.entry",
     "seed.csv.mapper.incompatible",
     "seed.templates.salesCloudStarter.name",
     "seed.templates.serviceCloudStarter.name",
-    "sidePanel.orgType.devPro",
     "sync.conflictResolution.conflictTypes.editEdit"
   ]
 }

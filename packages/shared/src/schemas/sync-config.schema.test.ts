@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
+import { FILE_COPY_DEFAULT_MAX_MB, SYNC_FILES_DEFAULT_RUN_MB } from '../constants/file-copy.js';
+import { SYNC_CONFLICT_STRATEGIES } from '../constants/sync-conflict-strategies.js';
 import {
-  SYNC_CONFLICT_STRATEGIES,
-  SYNC_FILES_DEFAULT_MAX_FILE_MB,
-  SYNC_FILES_DEFAULT_RUN_MB,
   syncConfigSchema,
   syncFileCopyOptionSchema,
   syncObjectConfigSchema,
@@ -328,11 +327,11 @@ describe('syncFileCopyOptionSchema', () => {
   it('takes the defaults, sensible for a sandbox', () => {
     expect(
       syncFileCopyOptionSchema.safeParse({
-        maxFileSizeMB: SYNC_FILES_DEFAULT_MAX_FILE_MB,
+        maxFileSizeMB: FILE_COPY_DEFAULT_MAX_MB,
         maxRunMB: SYNC_FILES_DEFAULT_RUN_MB,
       }).success,
     ).toBe(true);
-    expect([SYNC_FILES_DEFAULT_MAX_FILE_MB, SYNC_FILES_DEFAULT_RUN_MB]).toEqual([10, 100]);
+    expect([FILE_COPY_DEFAULT_MAX_MB, SYNC_FILES_DEFAULT_RUN_MB]).toEqual([10, 100]);
   });
 
   it.each([

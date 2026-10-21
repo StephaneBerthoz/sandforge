@@ -99,7 +99,7 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
                   {org.alias || org.username}
                 </span>
                 <span className="sr-only">
-                  {t('a11y.orgStatus', { status: t(`org.status_${org.status}`) })}
+                  {t('a11y.orgStatus', { status: t(`common.orgStatus_${org.status}`) })}
                 </span>
                 <span className="text-xs text-text-primary truncate">{org.instanceUrl}</span>
               </div>

@@ -84,7 +84,40 @@
     "frozenSalt": {
       "created": "Cette première extraction a créé le sel avec lequel chaque pseudonyme est tiré, et le garde dans le stockage secret de VS Code : chaque extraction suivante pseudonymise les mêmes enregistrements de la même façon. Un collègue qui extrait ce jeu de données a besoin du même sel : copiez-le avec « SandForge : Copier le sel du Jeu de données figé » et transmettez-le-lui comme un mot de passe ; il le définit avec « SandForge : Utiliser un sel pour le Jeu de données figé ». Qui le détient peut savoir de quelle valeur source un pseudonyme a été tiré.",
       "createdTitle": "Sel du jeu de données figé"
-    }
+    },
+    "emailLimit": {
+      "single": "E-mails individuels",
+      "workflow": "E-mails de workflow"
+    },
+    "quoted": "« {{name}} »",
+    "orgType": {
+      "prod": "PROD",
+      "scratch": "SCRATCH",
+      "developer": "DEVELOPER",
+      "dev": "DEV",
+      "devPro": "DEV PRO",
+      "partial": "PARTIEL",
+      "full": "COMPLET",
+      "sandbox": "SANDBOX"
+    },
+    "relativeTime": {
+      "justNow": "à l'instant",
+      "minutesAgo": "il y a {{count}}min",
+      "hoursAgo": "il y a {{count}}h"
+    },
+    "selectOrg": "Sélectionnez une org",
+    "orgStatus_connected": "Connectée",
+    "orgStatus_expired": "Session expirée",
+    "orgStatus_error": "Erreur de connexion",
+    "orgStatus_refreshing": "Actualisation...",
+    "tryReconnect": "Reconnecter",
+    "pauseRun": "Mettre en pause",
+    "resumeRun": "Reprendre",
+    "runPauseRefused": "Impossible de mettre en pause ou de reprendre l'exécution",
+    "runPauseRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
+    "records": "Enregistrements",
+    "recordCountLabel": "Nombre d'enregistrements",
+    "whereClause": "Clause WHERE"
   },
   "status": {
     "apiUsage": "Utilisation API",
@@ -116,10 +149,6 @@
     "disconnectConfirm": "Déconnecter {{alias}} ? SandForge oublie cette org : son alias, ses tags, sa couleur et son niveau de sûreté sont supprimés, et une reconnexion repart des valeurs par défaut.",
     "edit": "Modifier Org",
     "noOrgs": "Aucune organisation connectée",
-    "status_connected": "Connectée",
-    "status_expired": "Session expirée",
-    "status_error": "Erreur de connexion",
-    "status_refreshing": "Actualisation...",
     "alias": "Alias",
     "username": "Nom d'utilisateur",
     "instanceUrl": "URL de l'instance",
@@ -150,11 +179,6 @@
     "openRefusedUrl": "{{alias}} n'a pas été ouverte : son URL d'instance n'est pas une adresse HTTPS.",
     "openNotFound": "{{alias}} n'est plus enregistrée, elle n'a donc pas été ouverte.",
     "openFailed": "Le navigateur n'a pas ouvert {{alias}} : {{reason}}",
-    "sessionExpired": {
-      "title": "Session expirée",
-      "message": "La session avec {{org}} a expiré. Reconnectez-la pour continuer.",
-      "reconnect": "Reconnecter"
-    },
     "moreMethods": "Plus de méthodes",
     "cliMissing": "La Salesforce CLI (sf) ne répond pas sur cette machine. Importer depuis SF CLI et OAuth (Web) passent par elle.",
     "aliasOptionalHint": "Facultatif : sans alias, l'org est nommée d'après son nom d'utilisateur.",
@@ -182,7 +206,12 @@
       "cancelRefused": "Impossible d'annuler l'opération",
       "cancelRefusedDetail": "L'exécution n'est plus en cours, ou elle ne peut pas être arrêtée d'ici. La liste a été relue.",
       "activeCount_one": "{{count}} active",
-      "activeCount_other": "{{count}} actives"
+      "activeCount_other": "{{count}} actives",
+      "module": {
+        "realtime": "Sync temps réel",
+        "clone": "Clonage d'enregistrements",
+        "csv": "Import CSV"
+      }
     },
     "jobs": "Jobs",
     "alerts": "Alertes",
@@ -289,7 +318,6 @@
     "refreshNow": "Actualiser maintenant",
     "connectionLost_one": "Connexion perdue. L'actualisation automatique a échoué {{count}} fois.",
     "connectionLost_other": "Connexion perdue. L'actualisation automatique a échoué {{count}} fois.",
-    "tryReconnect": "Reconnecter",
     "alertHistory": "Historique des alertes",
     "alertHistoryTimeline": "Chronologie",
     "noAlertHistory": "Aucun historique d'alerte pour l'instant",
@@ -658,7 +686,6 @@
       "regex": "Pattern Regex",
       "from_csv": "Depuis CSV"
     },
-    "recordCount": "Nombre d'enregistrements",
     "batchSize": "Taille de lot",
     "totalRecords": "Total enregistrements",
     "saveAsTemplate": "Enregistrer comme modèle",
@@ -958,9 +985,6 @@
       "step3": "Choisissez les objets et les volumes d'enregistrements",
       "step4": "Exécutez puis consultez les résultats"
     },
-    "graph": {
-      "title": "Graphe de dépendances"
-    },
     "results": {
       "aiFallback": "L'IA n'a renvoyé aucune valeur, ces champs ont donc reçu des phrases générées : {{fields}}. L'IA est désactivée, ou l'appel a été refusé (le journal SandForge en donne la raison).",
       "aiFallbackShort": "La réponse de l'IA omettait des valeurs, ces champs ont donc reçu des phrases générées : {{fields}}.",
@@ -1021,7 +1045,6 @@
         "workflowRule": "Règle de workflow"
       },
       "entry": "{{kind}} « {{name}} »",
-      "quoted": "« {{name}} »",
       "emailsPerRecord_one": "{{count}} e-mail par enregistrement",
       "emailsPerRecord_other": "{{count}} e-mails par enregistrement",
       "notifications": "envoie des notifications personnalisées",
@@ -1036,16 +1059,17 @@
       "bypassNoSet": "Attribuée à vous, {{permission}} fait taire ce qui la nomme : aucun ensemble d'autorisations de {{org}} qui la contient n'a été trouvé.",
       "bypassHeld": "Vous avez {{permissions}} : ce qui la nomme reste silencieux pour ce seed.",
       "alertsAsSingle": "{{org}} compte aussi ses alertes e-mail dans ses e-mails individuels, comme une Developer Edition.",
-      "limit": {
-        "single": "E-mails individuels",
-        "workflow": "E-mails de workflow"
-      },
       "emailsFit": "{{limit}} que ces enregistrements font envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui.",
       "emailsUnread": "{{limit}} que ces enregistrements font envoyer à {{org}} : environ {{emails}}. Ce qu'il lui reste aujourd'hui n'a pas pu être lu ({{reason}}) : le seed n'est pas bloqué.",
       "refused": "Le seed serait refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements font envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Au-delà, un Flow qui envoie pendant l'enregistrement refuse son enregistrement, et les propres e-mails de l'org s'arrêtent pour le reste de la journée.",
       "waysOut": "Pour le lancer, réduisez le nombre d'enregistrements, mettez {{objects}} à 0, ou désactivez {{senders}}.",
       "wayBypass": "Ou attribuez-vous l'ensemble d'autorisations {{set}} : sa permission {{permission}} fait taire {{senders}}.",
       "wayBypassNoSet": "Ou attribuez-vous un ensemble d'autorisations qui contient {{permission}}, qui fait taire {{senders}}."
+    },
+    "stepHelp": {
+      "selectObjects": "Choisissez les objets Salesforce à remplir avec des données",
+      "configureFields": "Personnalisez la génération de chaque champ — règles, plages et patterns",
+      "execute": "Vérifiez et lancez la génération. Les résultats apparaissent ici"
     }
   },
   "sync": {
@@ -1275,7 +1299,8 @@
         "createEdit": "Création / Edit"
       },
       "autoResolved_one": "Résolu automatiquement ({{count}} champ)",
-      "autoResolved_other": "Résolu automatiquement ({{count}} champs)"
+      "autoResolved_other": "Résolu automatiquement ({{count}} champs)",
+      "timestamp": "Horodatage"
     },
     "emptyState": {
       "title": "Gardez deux orgs synchronisées",
@@ -1341,7 +1366,6 @@
       "detailTitle": "Détail de l’exécution",
       "dateTime": "Date",
       "objects": "Objets",
-      "records": "Enregistrements",
       "status": "Statut",
       "status_success": "Réussi",
       "status_partial": "Partiel",
@@ -1428,16 +1452,12 @@
       "unread": "Les enregistrements à écrire n'ont pas pu être comptés ({{reason}}) : une exécution est refusée tant qu'ils ne peuvent pas l'être."
     },
     "runControls": {
-      "pause": "Mettre en pause",
-      "resume": "Reprendre",
       "cancelSimulation": "Annuler la simulation",
       "pausedNote": "En pause : plus rien n'est écrit jusqu'à la reprise. Un lot déjà envoyé, ou un job Bulk API déjà en cours, se termine d'abord.",
       "stopping": "Arrêt en cours : l'exécution s'arrête avant son prochain objet ou lot, et ce qu'elle a écrit reste dans l'org cible.",
       "cancelConfirm": "Arrêter la synchronisation en cours ? Elle s'arrête avant son prochain objet ou lot, et les enregistrements déjà écrits restent dans l'org cible.",
       "cancelRefused": "Impossible d'annuler l'exécution",
-      "cancelRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
-      "pauseRefused": "Impossible de mettre en pause ou de reprendre l'exécution",
-      "pauseRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre."
+      "cancelRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre."
     },
     "strategyNotice": {
       "manualReplaced": "Ce brouillon demandait une revue manuelle des conflits, qu'une synchronisation n'offre pas : chacune de ses exécutions a écrit les valeurs de la source. Il garde désormais les valeurs de l'org cible partout où les deux orgs diffèrent. Faites un autre choix si les valeurs de la source doivent être écrites."
@@ -1529,34 +1549,6 @@
       "toggleDetails": "Désactivé sauf si coché. Une fois les enregistrements d'un objet écrits, la dernière version de chaque fichier Salesforce lié à l'un d'eux, et leurs pièces jointes classiques, sont copiées et liées aux copies des enregistrements dans la cible. Une configuration enregistrée retient quel fichier elle a copié où : l'exécuter de nouveau ne copie un fichier que si la source en a une version plus récente, ajoutée comme version de la copie, jamais comme second fichier. Avant que l'exécution n'écrive quoi que ce soit, le stockage de fichiers de la cible est lu et une exécution dont les fichiers ne tiendraient pas est refusée. Un fichier plus gros que la taille maximale, et les fichiers au-delà de ce qu'une exécution copie au plus, sont ignorés et comptés ; l'exécution suivante copie ces derniers. Retirer une exécution reprend, avec ses enregistrements, les fichiers qu'elle a créés ; une version ajoutée à une copie antérieure reste.",
       "toggleHint": "Copie aussi les fichiers Salesforce et les pièces jointes des enregistrements écrits."
     },
-    "removal": {
-      "title": "Ce que cette exécution a créé",
-      "created_one": "{{formatted}} enregistrement ou fichier créé dans {{org}}",
-      "created_other": "{{formatted}} enregistrements et fichiers créés dans {{org}}",
-      "remove": "Retirer ce que cette exécution a créé",
-      "removeLeft": "Retirer ce qui reste de ce que cette exécution a créé",
-      "removeTitle": "Retirer de {{org}} ce que cette exécution a créé",
-      "removeDescription": "Supprime de {{org}} ce que cette exécution a créé — les enregistrements qu'elle a insérés, ou écrits par upsert là où {{org}} n'en avait aucun, et les fichiers qu'elle a créés — les fichiers d'abord, puis les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements qu'elle a mis à jour étaient déjà dans {{org}} et gardent leurs nouvelles valeurs. Un enregistrement dont dépendent des enregistrements qui restent dans {{org}} est conservé, de même qu'un enregistrement modifié depuis l'exécution, ou dont dépendent des enregistrements ajoutés depuis, sauf si vous l'incluez ci-dessous.",
-      "includeChanged": "Retirer aussi les enregistrements modifiés depuis l'exécution, et ce qui leur a été ajouté depuis",
-      "removing": "Retrait de ce que cette exécution a créé…",
-      "cancel": "Arrêter le retrait",
-      "stopping": "Arrêt en cours : le retrait s'arrête dès que l'appel en cours a répondu. Ce qu'il a retiré jusque-là est listé ; le reste demeure dans l'org, et un retrait le prendra plus tard.",
-      "cancelRefused": "Impossible d'arrêter le retrait",
-      "cancelRefusedDetail": "Le retrait n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre.",
-      "notKept": "Ce que cette exécution a créé n'est plus conservé — il a été écarté pour faire place à des exécutions plus récentes — et ne peut pas être retiré d'ici.",
-      "refusedGuard": "Production Guard n'autorise aucune suppression dans {{org}}, une org de production : ce que cette exécution a créé y reste. Retirez-le depuis l'org elle-même.",
-      "refusedNoGuard": "Production Guard ne tourne pas dans cette fenêtre, et rien n'est supprimé sans lui.",
-      "refusedOrgGone": "L'org dans laquelle cette exécution a écrit n'est plus connectée : reconnectez-la pour retirer ce que l'exécution a créé.",
-      "refusedRunning": "L'exécution écrit encore : ce qu'elle a créé pourra être retiré une fois qu'elle sera terminée.",
-      "readWhole": "La prochaine exécution de {{config}} relit {{objects}} en entier : les copies sur lesquelles comptait son repère ont disparu.",
-      "filesForgotten_one": "{{config}} ne compte plus {{formatted}} fichier comme copié : sa prochaine lecture complète le copie à nouveau.",
-      "filesForgotten_other": "{{config}} ne compte plus {{formatted}} fichiers comme copiés : sa prochaine lecture complète les copie à nouveau.",
-      "unfinishedTitle": "Exécutions jamais terminées",
-      "unfinishedNote": "Une fenêtre s'est fermée pendant ces exécutions, ou l'historique ne les liste plus. Ce qu'elles ont créé est conservé à mesure que chaque appel à la cible répondait, et peut être retiré.",
-      "unfinishedRun": "{{config}}, lancée le {{date}}",
-      "unfinishedInFlight_one": "Elle s'est arrêtée pendant l'écriture de {{formatted}} ligne {{object}} : si la cible l'a prise, elle est dans l'org sans être listée ici, et son retrait ne la prend pas.",
-      "unfinishedInFlight_other": "Elle s'est arrêtée pendant l'écriture de {{formatted}} lignes {{object}} : celles que la cible a prises sont dans l'org sans être listées ici, et son retrait ne les prend pas."
-    },
     "earlierCopies": {
       "leftAsIs": "Une exécution de cette configuration enregistrée laisse tels quels les enregistrements que ses exécutions précédentes ont copiés, et insère les autres.",
       "quickSync": "La dernière synchronisation entre ces orgs, le {{date}}, a créé des enregistrements toujours dans la cible : {{objects}}. Sync rapide insère de nouveau chaque enregistrement : retirez d'abord cette exécution depuis l'historique de Sync pour ne laisser aucune seconde copie.",
@@ -1586,7 +1578,10 @@
       "withoutFields_other": "{{count}} enregistrements réécrits sans les champs que l'org cible a refusés :",
       "withoutField_one": "{{field}}, retiré de {{count}} enregistrement : {{refusedBy}}.",
       "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}."
-    }
+    },
+    "firstStepTitle": "Démarrer avec Sync",
+    "firstStepDesc": "Transférez des données entre vos orgs Salesforce en 3 clics avec Sync rapide",
+    "startQuickSync": "Lancer Sync rapide"
   },
   "migration": {
     "title": "Migration",
@@ -1727,7 +1722,6 @@
       "constant": "Constante",
       "preserve_format": "Conserver le format"
     },
-    "hardDelete": "Suppression définitive",
     "recordsProcessed": "Enregistrements traités",
     "errorRate": "Taux d'erreur",
     "anonymizedFields": "Modèles d'anonymisation",
@@ -2153,7 +2147,6 @@
       "failedJobs": "Jobs Apex en échec"
     },
     "stepConfigDelay": "Délai (secondes)",
-    "stepConfigWhere": "Clause WHERE",
     "stepConfigTemplate": "ID de modèle",
     "noExecution": "Aucune exécution active",
     "subtitle": "Composez et enregistrez des pipelines en plusieurs étapes",
@@ -2265,7 +2258,9 @@
         "timedOut": "Pas approuvé à temps : personne n'a répondu avant {{time}}",
         "cancelled": "Arrêté avant que quiconque réponde, {{time}}"
       }
-    }
+    },
+    "hardDelete": "Suppression définitive",
+    "selectOrg": "Sélectionner l'org"
   },
   "ai": {
     "title": "Assistant IA",
@@ -2366,7 +2361,6 @@
     "allActions": "Toutes les actions",
     "allModules": "Tous les modules",
     "noAuditEntries": "Aucune entrée d'audit",
-    "timestamp": "Horodatage",
     "action": "Action",
     "details": "Details",
     "nodes": "Nœuds",
@@ -2543,7 +2537,12 @@
       "unhandled": "Ce panneau a envoyé une requête que SandForge ne traite pas, et elle a été abandonnée. Rechargez la fenêtre pour que le panneau et l'extension exécutent la même version.",
       "other": "SandForge a abandonné une requête de ce panneau. Le canal de sortie SandForge en donne la raison."
     },
-    "runOutlivedWait": "SandForge a cessé d'attendre {{request}} au bout de {{hours}} h, mais l'exécution écrit peut-être encore. Les Opérations en cours du Moniteur montrent où elle en est ; la relancer écrirait ses enregistrements deux fois."
+    "runOutlivedWait": "SandForge a cessé d'attendre {{request}} au bout de {{hours}} h, mais l'exécution écrit peut-être encore. Les Opérations en cours du Moniteur montrent où elle en est ; la relancer écrirait ses enregistrements deux fois.",
+    "sessionExpired": {
+      "title": "Session expirée",
+      "message": "La session avec {{org}} a expiré. Reconnectez-la pour continuer.",
+      "reconnect": "Reconnecter"
+    }
   },
   "onboarding": {
     "welcomeTitle": "Bienvenue sur SandForge",
@@ -2562,18 +2561,8 @@
     "step4Title": "Premiers pas",
     "step4Desc": "Selon votre type d'org, voici un point de départ recommandé",
     "suggestMonitor": "Commencez par le Moniteur pour surveiller la santé de votre org de production",
-    "openSeed": "Ouvrir Seed",
-    "openMonitor": "Ouvrir le Moniteur",
-    "openSettings": "Ouvrir les Paramètres",
     "gotIt": "Compris !",
     "whatsNewTitle": "Nouveautés de SandForge",
-    "openForge": "Ouvrir Forge",
-    "openSync": "Ouvrir Sync",
-    "sandboxBanner": "Votre sandbox est vide — alimentez-la avec Seed ou Sync",
-    "populateSandbox": "Alimenter la Sandbox",
-    "syncFirstStepTitle": "Démarrer avec Sync",
-    "syncFirstStepDesc": "Transférez des données entre vos orgs Salesforce en 3 clics avec Sync rapide",
-    "startQuickSync": "Lancer Sync rapide",
     "suggestSeedAndSync": "Votre sandbox est prête. Alimentez-la avec Seed pour des données de test, ou Sync pour copier depuis une autre org.",
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
@@ -2797,7 +2786,6 @@
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",
-    "openFrozen": "Ouvrir le Jeu de données figé",
     "paths": {
       "forgeTitle": "Cloner depuis un enregistrement",
       "forgeDesc": "Collez un ID d'enregistrement, découvrez son graphe de relations, forgez-le dans votre sandbox",
@@ -2808,11 +2796,6 @@
     }
   },
   "help": {
-    "seed": {
-      "selectObjects": "Choisissez les objets Salesforce à remplir avec des données",
-      "configureFields": "Personnalisez la génération de chaque champ — règles, plages et patterns",
-      "execute": "Vérifiez et lancez la génération. Les résultats apparaissent ici"
-    },
     "title": "Aide & Ressources",
     "gettingStarted": "Premiers pas",
     "gettingStartedDesc": "Apprenez les bases de SandForge",
@@ -2911,9 +2894,18 @@
     "opStatus": {
       "success": "Réussie",
       "running": "En cours",
+      "paused": "En pause",
       "failed": "Échouée",
       "cancelled": "Annulée"
-    }
+    },
+    "sandboxBanner": "Votre sandbox est vide — alimentez-la avec Seed ou Sync",
+    "openSeed": "Ouvrir Seed",
+    "openSync": "Ouvrir Sync",
+    "populateSandbox": "Alimenter la Sandbox",
+    "openForge": "Ouvrir Forge",
+    "openFrozen": "Ouvrir le Jeu de données figé",
+    "openMonitor": "Ouvrir le Moniteur",
+    "openSettings": "Ouvrir les Paramètres"
   },
   "commandPalette": {
     "placeholder": "Rechercher des commandes...",
@@ -3191,7 +3183,6 @@
     "templateDescription": "Description (optionnel)",
     "templateDeleted": "Modèle supprimé",
     "templateUpdated": "Modèle mis à jour",
-    "selectOrg": "Sélectionnez une org",
     "cancelEdit": "Annuler",
     "recordLimit": "Enregistrements / objet",
     "recordLimitHint": "Limite le nombre de lignes clonées par objet. Plus bas = plus rapide, plus sûr sur les grosses orgs.",
@@ -3238,9 +3229,6 @@
     },
     "expandOrphanParents": "Récupérer les parents automatiquement",
     "expandOrphanParentsHint": "Copie aussi les parents que le clone ne lit pas de lui-même : derrière une référence pouvant désigner plusieurs objets, au-delà de cinq niveaux ou du plafond. Un clone à partir d'un enregistrement lit déjà par id les parents sans lesquels ses enregistrements ne peuvent pas être écrits.",
-    "keepContactPoints": "Conserver les e-mails et les numéros de téléphone tels quels",
-    "keepContactPointsHint": "Désactivé, le clone écrit chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne.",
-    "keepContactPointsWarning": "Les e-mails et les numéros de téléphone seront écrits tels que la source les contient : les Flows, les triggers et les alertes e-mail de l'org cible pourront alors écrire ou envoyer des SMS à de vraies personnes.",
     "reuseLastGraph": "Réutiliser le dernier graphe (skip discovery)",
     "reuseLastGraphHint": "Saute la découverte (30s+) et réutilise le graphe de la dernière exécution.",
     "quickStartTemplate": "Démarrage rapide ({{name}})",
@@ -3385,6 +3373,7 @@
       "anonymizationDesc_one": "{{count}} champ PII détecté. Configurez la méthode d'anonymisation par catégorie.",
       "anonymizationDesc_other": "{{count}} champs PII détectés. Configurez la méthode d'anonymisation par catégorie.",
       "framework": "Référentiel",
+      "frameworkNone": "Aucun",
       "noCompliance": "Aucun référentiel de conformité sélectionné. Choisissez-en un pour générer un rapport.",
       "complianceLoading": "Analyse de la conformité...",
       "complianceError": "Le rapport de conformité n'a pas pu être établi : {{error}}",
@@ -3406,8 +3395,6 @@
       "fieldsScanned_other": "{{count}} champs analysés au total",
       "automation": {
         "loading": "Lecture de ce que l'org cible exécute sur les enregistrements que cette exécution écrit…",
-        "readAgain": "Relire",
-        "readingAgain": "Nouvelle lecture…",
         "intro": "À mesure que l'exécution écrit ses enregistrements, l'org cible exécute :",
         "none_one": "Rien de ce que l'org cible automatise ne s'exécute sur l'objet que cette exécution écrit : ni Flow actif, ni processus, ni règle de workflow, ni déclencheur Apex, ni règle d'attribution, ni règle de doublons.",
         "none_other": "Rien de ce que l'org cible automatise ne s'exécute sur les {{count}} objets que cette exécution écrit : ni Flow actif, ni processus, ni règle de workflow, ni déclencheur Apex, ni règle d'attribution, ni règle de doublons.",
@@ -3421,32 +3408,21 @@
         "removalTrigger": "{{object}} : le déclencheur Apex {{name}} s'exécute à la suppression, et peut la refuser",
         "removalPackageTrigger": "{{object}} : le déclencheur Apex {{name}}, installé par un package géré, s'exécute à la suppression et peut la refuser ; personne dans l'organisation ne peut le modifier",
         "removalLock": "{{object}} : une fois activé, un enregistrement verrouille ceux qui en dépendent, qu'une suppression ne prend alors qu'avec lui, ou une fois qu'il est revenu à l'état Brouillon",
-        "flow": "Flow : {{name}}",
-        "trigger": "Déclencheur Apex : {{name}}",
         "beforeSave": "avant l'enregistrement",
         "afterSave": "après l'enregistrement",
         "beforeAndAfterSave": "avant et après l'enregistrement",
-        "beforeDelete": "avant la suppression",
-        "afterDelete": "après la suppression",
-        "beforeAndAfterDelete": "avant et après la suppression",
         "notFor_one": "Ne démarre pas pour un utilisateur qui a l'autorisation personnalisée {{names}}",
         "notFor_other": "Ne démarre pas pour un utilisateur qui a l'une des autorisations personnalisées {{names}}",
         "named_one": "Sa condition de démarrage nomme l'autorisation personnalisée {{names}}",
         "named_other": "Sa condition de démarrage nomme les autorisations personnalisées {{names}}",
         "conditionNotRead": "Condition de démarrage non lue",
         "conditionUnreadable": "La condition de démarrage n'a pas pu être lue",
-        "bypassHint_one": "Attribuez l'autorisation personnalisée {{names}} à l'utilisateur sous lequel l'exécution écrit dans l'org cible : les Flows dont la condition de démarrage l'exclut restent muets.",
-        "bypassHint_other": "Attribuez les autorisations personnalisées {{names}} à l'utilisateur sous lequel l'exécution écrit dans l'org cible : les Flows dont la condition de démarrage les exclut restent muets.",
         "notRead_one": "La condition de démarrage de {{count}} Flow n'a pas été lue : la lecture en prend {{bound}} au plus.",
         "notRead_other": "Les conditions de démarrage de {{count}} Flows n'ont pas été lues : la lecture en prend {{bound}} au plus.",
         "notReadOn": "Laissées non lues sur {{objects}}.",
-        "unreadFlows": "Les Flows de l'org cible n'ont pas pu être lus : {{reason}}",
-        "unreadTriggers": "Les déclencheurs Apex de l'org cible n'ont pas pu être lus : {{reason}}",
         "unreadConditions": "Les conditions de démarrage de certains Flows n'ont pas pu être lues : {{reason}}",
         "cost_one": "Lu en {{count}} requête vers l'org cible.",
         "cost_other": "Lu en {{count}} requêtes vers l'org cible.",
-        "process": "Processus : {{name}}",
-        "workflowRule": "Règle de workflow : {{name}}",
         "sendsMessages": "Envoie des messages",
         "messageEmail": "E-mail : {{name}}",
         "messageNotification": "Notification personnalisée : {{name}}",
@@ -3483,25 +3459,11 @@
         "bypassHeld_other": "L'utilisateur sous lequel l'exécution écrit dans l'org cible a les autorisations personnalisées {{names}} : ce qui les exclut reste muet pour cette exécution.",
         "notReadDefinitions_one": "La définition de {{count}} processus ou règle de workflow n'a pas été lue : la lecture en prend {{bound}} au plus.",
         "notReadDefinitions_other": "Les définitions de {{count}} processus ou règles de workflow n'ont pas été lues : la lecture en prend {{bound}} au plus.",
-        "unreadProcesses": "Les processus Process Builder de l'org cible n'ont pas pu être lus : {{reason}}",
-        "unreadWorkflowRules": "Les règles de workflow de l'org cible n'ont pas pu être lues : {{reason}}",
         "unreadDefinitions": "Les définitions de certains processus ou règles de workflow n'ont pas pu être lues : {{reason}}",
         "unreadAssignmentRules": "Les règles d'attribution de l'org cible n'ont pas pu être lues : {{reason}}",
         "unreadDuplicateRules": "Les règles de doublons de l'org cible n'ont pas pu être lues : {{reason}}",
         "unreadUserPermissions": "Les autorisations personnalisées de l'utilisateur sous lequel l'exécution écrit n'ont pas pu être lues : {{reason}}",
-        "rules": "Règles d'attribution et de doublons",
-        "unreadPermissionSets": "Les ensembles d'autorisations qui détiennent un contournement que l'utilisateur sous lequel l'exécution écrit ne détient pas n'ont pas pu être lus : {{reason}}",
-        "assistant": {
-          "smallest": "{{permissionSet}} est le plus petit ensemble d'autorisations de l'org cible qui détient {{permission}}. Attribué à l'utilisateur sous lequel l'exécution écrit, il rend muet ce que {{permission}} exclut.",
-          "others_one": "{{names}} le détient aussi.",
-          "others_other": "{{names}} le détiennent aussi.",
-          "copy": "Copier la commande qui attribue {{permissionSet}}",
-          "copied": "Commande copiée",
-          "none": "Aucun ensemble d'autorisations de l'org cible ne détient {{permission}} : un administrateur en crée un qui l'inclut, et l'attribue à l'utilisateur sous lequel l'exécution écrit.",
-          "neverRun": "SandForge affiche cette commande et ne l'exécute jamais : c'est à un administrateur de l'org cible d'en décider.",
-          "readAgain": "Relire l'org cible",
-          "readAgainHint": "Une fois la commande exécutée, relisez l'org cible : l'autorisation apparaît alors comme détenue."
-        }
+        "rules": "Règles d'attribution et de doublons"
       },
       "gapsTab": "Écarts",
       "undecidedGaps_one": "{{count}} écart refusera des lignes",
@@ -3552,92 +3514,7 @@
       "removeNotRecorded": "Enregistrée avant que les exécutions gardent ce qu'elles créent : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "removeOrgGone": "L'org où cette exécution a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "journalGone": "Les Ids des enregistrements de cette exécution étaient gardés dans son journal, qui n'existe plus : ils ne peuvent plus être supprimés, vérifiés, repris ni enregistrés d'ici.",
-      "removeTitle": "Supprimer de {{org}} les enregistrements de cette exécution",
-      "removeDescription": "Supprime de {{org}} les enregistrements créés par cette exécution, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels l'exécution s'est liée, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis la fin de l'exécution, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
-      "removeObject_one": "{{object}} : {{formatted}} enregistrement",
-      "removeObject_other": "{{object}} : {{formatted}} enregistrements",
-      "removeFiles_one": "{{object}} : {{formatted}} fichier",
-      "removeFiles_other": "{{object}} : {{formatted}} fichiers",
-      "removeLinked_one": "{{formatted}} enregistrement lié est conservé.",
-      "removeLinked_other": "{{formatted}} enregistrements liés sont conservés.",
-      "removeIncludeChanged": "Supprimer aussi les enregistrements modifiés depuis l'exécution, et ce qui leur a été ajouté depuis",
-      "removeLeftBy": "La suppression du {{date}} a laissé ces enregistrements :",
-      "removing": "Suppression des enregistrements créés par cette exécution…",
-      "stopRemoval": "Arrêter la suppression",
-      "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a répondu. Ce qu'elle a supprimé jusque-là est listé ; le reste demeure dans l'org, et une suppression le prendra plus tard.",
-      "stopRefused": "Impossible d'arrêter la suppression",
-      "stopRefusedDetail": "La suppression n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
-      "removedOn": "Enregistrements supprimés le {{date}} :",
-      "resultSuccess": "Aucun enregistrement créé par cette exécution ne reste dans {{org}}.",
-      "resultPartial": "Des enregistrements créés par cette exécution ont été supprimés de {{org}} ; les autres restent, comme indiqué.",
-      "resultFailure": "Aucun enregistrement créé par cette exécution n'a été supprimé de {{org}}.",
-      "resultCancelled": "Arrêtée avant la fin : ce qui a été fait jusque-là est listé, et le reste est toujours dans {{org}}.",
-      "resultLeftBy": "Reprend là où la suppression du {{date}} s'était arrêtée.",
-      "resultDeleted_one": "{{formatted}} supprimé",
-      "resultDeleted_other": "{{formatted}} supprimés",
-      "resultGone_one": "{{formatted}} déjà disparu",
-      "resultGone_other": "{{formatted}} déjà disparus",
-      "resultChanged_one": "{{formatted}} conservé, modifié depuis l'exécution",
-      "resultChanged_other": "{{formatted}} conservés, modifiés depuis l'exécution",
-      "resultHeld_one": "{{formatted}} conservé, des enregistrements {{objects}} qui restent en dépendent",
-      "resultHeld_other": "{{formatted}} conservés, des enregistrements {{objects}} qui restent en dépendent",
-      "resultHeldUnread_one": "{{formatted}} conservé : ce qui en dépend n'a pas pu être lu",
-      "resultHeldUnread_other": "{{formatted}} conservés : ce qui en dépend n'a pas pu être lu",
-      "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, l'exécution ne l'ayant pas créé : {{names}}",
-      "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, l'exécution ne les ayant pas créés : {{names}}",
-      "resultUnchecked": "Non vérifié : les enregistrements {{objects}} ne peuvent pas être lus à partir de l'enregistrement dont ils dépendent, et sont supprimés avec lui.",
-      "resultKept_one": "{{formatted}} conservé",
-      "resultKept_other": "{{formatted}} conservés",
-      "resultRefused_one": "{{formatted}} refusé",
-      "resultRefused_other": "{{formatted}} refusés",
-      "resultNotReached_one": "{{formatted}} non atteint avant l'annulation",
-      "resultNotReached_other": "{{formatted}} non atteints avant l'annulation",
-      "resultNotVisible_one": "{{formatted}} non visible par cet utilisateur (ni trouvé ni dans la corbeille)",
-      "resultNotVisible_other": "{{formatted}} non visibles par cet utilisateur (ni trouvés ni dans la corbeille)",
-      "resultMayHaveBeenWritten_one": "{{formatted}} enregistrement qu'un appel du clonage a peut-être écrit avant que sa réponse ne se perde peut se trouver dans {{org}} : aucun identifiant n'en est connu, et la suppression ne peut pas l'atteindre.",
-      "resultMayHaveBeenWritten_other": "{{formatted}} enregistrements qu'un appel du clonage a peut-être écrits avant que sa réponse ne se perde peuvent se trouver dans {{org}} : aucun de leurs identifiants n'est connu, et la suppression ne peut pas les atteindre.",
-      "resultNotJournaled_one": "{{formatted}} d'entre eux est parti dans un upsert, dont le journal du clonage ne garde pas les appels : il n'a pas été cherché dans {{org}}.",
-      "resultNotJournaled_other": "{{formatted}} d'entre eux sont partis dans un upsert, dont le journal du clonage ne garde pas les appels : ils n'ont pas été cherchés dans {{org}}.",
-      "resultCallsNotLookedFor_one": "{{formatted}} appel d'insertion en cours quand ce clonage s'est arrêté n'a pas été cherché dans {{org}} : ces appels ne sont cherchés qu'avant la première suppression d'un clonage, et ce qu'il a peut-être écrit y reste.",
-      "resultCallsNotLookedFor_other": "{{formatted}} appels d'insertion en cours quand ce clonage s'est arrêté n'ont pas été cherchés dans {{org}} : ces appels ne sont cherchés qu'avant la première suppression d'un clonage, et ce qu'ils ont peut-être écrit y reste.",
-      "removalAutomation": {
-        "title": "Ce que {{org}} exécute quand ces enregistrements partent",
-        "loading": "Lecture de ce que {{org}} exécute quand ces enregistrements sont supprimés…",
-        "intro": "Quand ces enregistrements sont supprimés, {{org}} exécute :",
-        "drafted": "quand la suppression le remet en Brouillon pour le supprimer",
-        "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés.",
-        "error": "Ce que {{org}} exécute quand ces enregistrements partent n'a pas pu être lu : {{reason}}"
-      },
-      "removeSweep": "Balayer d'abord : reprendre aussi ce que l'automatisation de la cible a créé pendant l'exécution, au nom de son utilisateur — un tel enregistrement ne retient alors plus aucun enregistrement de l'exécution",
-      "sweepAction": "Reprendre ce que l'automatisation de la cible a créé",
-      "sweep": {
-        "title": "Ce que le balayage reprend dans {{org}}",
-        "loading": "Lecture de ce que l'automatisation de {{org}} a créé pendant l'exécution…",
-        "error": "Ce que le balayage reprendrait dans {{org}} n'a pas pu être lu : {{reason}}",
-        "window": "Enregistrements créés par l'utilisateur de l'exécution du {{from}} au {{to}} que la table d'Id de l'exécution ne contient pas, dans : {{objects}}",
-        "found_one": "{{object}} : {{formatted}} enregistrement",
-        "found_other": "{{object}} : {{formatted}} enregistrements",
-        "overBound_one": "{{object}} : plus de {{formatted}} enregistrement, aucun n'est balayé",
-        "overBound_other": "{{object}} : plus de {{formatted}} enregistrements, aucun n'est balayé",
-        "names": "Quelques-uns par leur nom",
-        "none": "Rien à balayer.",
-        "nothing": "rien",
-        "refused": "Le balayage est refusé et ne supprime rien : {{reason}}",
-        "handWork_one": "{{object}} : {{formatted}} enregistrement créé par l'utilisateur de l'exécution dans la fenêtre, là où ni l'exécution ni l'automatisation n'écrivent, est laissé",
-        "handWork_other": "{{object}} : {{formatted}} enregistrements créés par l'utilisateur de l'exécution dans la fenêtre, là où ni l'exécution ni l'automatisation n'écrivent, sont laissés",
-        "unread": "Non examiné, {{object}} : {{reason}}",
-        "flowsNotRead_one": "{{formatted}} Flow des objets de l'exécution n'a pas été lu : ce qu'il crée n'est pas examiné.",
-        "flowsNotRead_other": "{{formatted}} Flows des objets de l'exécution n'ont pas été lus : ce qu'ils créent n'est pas examiné.",
-        "triggers_one": "{{formatted}} déclencheur Apex sur les objets de l'exécution : aucune métadonnée ne dit ce qu'il crée.",
-        "triggers_other": "{{formatted}} déclencheurs Apex sur les objets de l'exécution : aucune métadonnée ne dit ce qu'ils créent.",
-        "automationError": "L'automatisation de la cible n'a pas pu être lue en entier, et ce qu'elle crée peut échapper au balayage : {{reason}}",
-        "resultSuccess": "Rien de ce que le balayage a trouvé ne reste dans {{org}}.",
-        "resultPartial": "Le balayage a supprimé des enregistrements de {{org}} ; les autres restent, comme listé.",
-        "resultFailure": "Le balayage n'a rien supprimé de {{org}}.",
-        "resultCancelled": "Le balayage n'est pas allé jusqu'au bout : ce qu'il avait fait est listé.",
-        "resultRefused": "Le balayage a été refusé et n'a rien supprimé.",
-        "sweptOn": "Balayé le {{date}} :"
-      }
+      "sweepAction": "Reprendre ce que l'automatisation de la cible a créé"
     },
     "soqlObjectNameInvalid": "« {{object}} » n'est pas un nom d'API d'objet : la clause WHERE ne peut pas être envoyée sous ce nom. Il doit commencer par une lettre et compter au plus 80 lettres, chiffres ou tirets bas.",
     "hintSoqlObjectNameInvalid": "Corrigez le nom de l'objet après FROM pour découvrir le graphe",
@@ -3658,53 +3535,6 @@
       "replacedDefault": "remplacée par {{value}}, la valeur par défaut du type d'enregistrement {{recordType}}",
       "replacedFirst": "remplacée par {{value}}, la première valeur qu'autorise le type d'enregistrement {{recordType}} : le champ est obligatoire et ce type d'enregistrement ne lui donne pas de valeur par défaut",
       "leftOut": "laissée de côté"
-    },
-    "currencies": {
-      "title": "Écrites dans une autre devise",
-      "hint": "L'org cible n'a pas ces devises actives, ou une décision les a remplacées par une autre : les lignes sont entrées dans une autre devise, et leurs montants y ont été convertis.",
-      "rows_one": "{{count}} ligne en {{from}}",
-      "rows_other": "{{count}} lignes en {{from}}",
-      "corporate": "écrites en {{to}}, la devise de société de l'org cible",
-      "recordTypeDefault": "écrites en {{to}}, la valeur par défaut de leur type d'enregistrement",
-      "decision": "écrites en {{to}}, comme décidé",
-      "parent": "écrites en {{to}}, la devise de l'enregistrement auquel elles appartiennent",
-      "lines": "écrites en {{to}}, la devise des enregistrements auxquels leurs lignes appartiennent",
-      "converted": "montants convertis aux taux de l'org source : {{fields}}",
-      "convertedAtTargetRate": "montants convertis au taux de l'org source pour {{from}} et à celui de l'org cible pour {{to}} : {{fields}}",
-      "notConverted": "montants écrits tels que lus : aucun taux ne convertit {{from}} en {{to}}",
-      "noAmount": "aucun montant à convertir",
-      "dated": "aux taux datés de {{field}}",
-      "datedUnconfirmed": "aux taux statiques : les taux datés de {{field}} n'ont pas pu être confirmés"
-    },
-    "prices": {
-      "title": "Prix dans une autre devise",
-      "hint": "Un catalogue de prix fixe le prix d'un produit une fois par devise, et l'org cible refuse une ligne dont le prix est dans une autre devise que son enregistrement. Ces prix ont été lus dans une devise que l'org cible n'a pas active, ou étaient voulus dans la devise des enregistrements de leurs lignes.",
-      "prices_one": "{{count}} prix en {{from}}",
-      "prices_other": "{{count}} prix en {{from}}",
-      "replaced": "remplacés par le prix de l'org source en {{to}} pour le même produit et le même catalogue de prix, et reliés à sa copie",
-      "converted": "écrits en {{to}} à leur montant converti : l'org source n'a aucun prix dans cette devise pour le même produit et le même catalogue de prix",
-      "none": "aucun prix en {{to}} pour le même produit et le même catalogue de prix, et ils vont dans une autre devise pour d'autres lignes : l'org cible refuse les lignes d'un enregistrement en {{to}}",
-      "forLines": "{{to}} étant la devise des enregistrements auxquels leurs lignes appartiennent"
-    },
-    "contactPoints": {
-      "title": "E-mails et numéros de téléphone",
-      "numbersExhausted_one": "{{count}} numéro de téléphone laissé vide : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
-      "numbersExhausted_other": "{{count}} numéros de téléphone laissés vides : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
-      "neutralized": "Neutralisés avant l'écriture : {{values}} dans {{fields}}. Chaque adresse e-mail a été écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible n'a joint personne.",
-      "none": "Neutralisés avant l'écriture : les enregistrements écrits ne contenaient ni adresse e-mail ni numéro de téléphone.",
-      "kept": "Écrits tels que la source les contient, comme demandé : l'automatisation de l'org cible a pu écrire ou envoyer des SMS à de vraies personnes.",
-      "neutralizedSimulated": "Un vrai run neutraliserait {{values}} dans {{fields}} : chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif.",
-      "noneSimulated": "Les enregistrements qu'un vrai run écrirait ne contiennent ni adresse e-mail ni numéro de téléphone.",
-      "keptSimulated": "Un vrai run les écrirait tels que la source les contient, comme demandé : l'automatisation de l'org cible pourrait alors écrire ou envoyer un SMS à de vraies personnes.",
-      "values_one": "{{count}} valeur",
-      "values_other": "{{count}} valeurs"
-    },
-    "writtenWithoutFields": {
-      "title": "Écrits sans un champ refusé par l'org cible",
-      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",
-      "byValidationRule": "refusé par une règle de validation",
-      "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte",
-      "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche"
     },
     "existingRecords": {
       "title": "Déjà dans l'org cible",
@@ -3944,6 +3774,9 @@
       "review": "Revue",
       "execution": "Exécution",
       "results": "Résultats"
+    },
+    "graph": {
+      "title": "Graphe de dépendances"
     }
   },
   "autopilot": {
@@ -3980,6 +3813,7 @@
       "hipaaDesc": "Santé — de-identification Safe Harbor",
       "pciDss": "PCI-DSS",
       "pciDssDesc": "Carte de paiement — masquer les PAN et nullifier les données d'authentification",
+      "custom": "Personnalisé",
       "description": "Choisissez un cadre de conformité pour la détection et l'anonymisation PII."
     },
     "step4": {
@@ -4142,21 +3976,6 @@
     "loadingOrgs": "Chargement des orgs…",
     "showMetrics": "Afficher les métriques",
     "hideMetrics": "Masquer les métriques",
-    "orgType": {
-      "prod": "PROD",
-      "scratch": "SCRATCH",
-      "developer": "DEVELOPER",
-      "dev": "DEV",
-      "devPro": "DEV PRO",
-      "partial": "PARTIEL",
-      "full": "COMPLET",
-      "sandbox": "SANDBOX"
-    },
-    "relativeTime": {
-      "justNow": "à l'instant",
-      "minutesAgo": "il y a {{count}}min",
-      "hoursAgo": "il y a {{count}}h"
-    },
     "fillOrg": "Remplir {{alias}} de données de démonstration",
     "fillOrgAction": "Remplir de données de démonstration",
     "fillOrgDesc": "Un modèle Seed, une confirmation, sans clé d'IA",
@@ -4407,14 +4226,7 @@
       "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un rechargement les purge, sauf ceux auxquels le chargement a pu se lier.",
       "orgGone": "L'org où ce chargement a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "nothingCreated": "Ce chargement n'a créé aucun enregistrement : il n'y a rien à supprimer.",
-      "keptByThePlatform": "Conservés dans {{org}} par toute suppression — la plateforme ne supprime pas ces enregistrements créés par le chargement : {{objects}}",
-      "resultSuccess": "Aucun enregistrement créé par ce chargement ne reste dans {{org}}.",
-      "resultPartial": "Des enregistrements créés par ce chargement ont été supprimés de {{org}} ; les autres restent, comme indiqué.",
-      "resultFailure": "Aucun enregistrement créé par ce chargement n'a été supprimé de {{org}}.",
-      "resultChanged_one": "{{formatted}} conservé, modifié depuis le chargement",
-      "resultChanged_other": "{{formatted}} conservés, modifiés depuis le chargement",
-      "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, le chargement ne l'ayant pas créé : {{names}}",
-      "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le chargement ne les ayant pas créés : {{names}}"
+      "keptByThePlatform": "Conservés dans {{org}} par toute suppression — la plateforme ne supprime pas ces enregistrements créés par le chargement : {{objects}}"
     },
     "coverage": {
       "truncated": "La découverte s'est arrêtée à {{objects}} objets (plafond {{maxNodes}}) : les objets plus éloignés de la racine n'ont pas été lus, ce jeu de données peut donc en manquer. Augmentez maxNodes dans la configuration avancée, puis relancez.",
@@ -4439,6 +4251,211 @@
       "persist": "Enregistrement",
       "done": "Terminé",
       "verify": "Vérification"
+    }
+  },
+  "runRemoval": {
+    "sweep": {
+      "title": "Ce que le balayage reprend dans {{org}}",
+      "loading": "Lecture de ce que l'automatisation de {{org}} a créé pendant l'exécution…",
+      "error": "Ce que le balayage reprendrait dans {{org}} n'a pas pu être lu : {{reason}}",
+      "window": "Enregistrements créés par l'utilisateur de l'exécution du {{from}} au {{to}} que la table d'Id de l'exécution ne contient pas, dans : {{objects}}",
+      "found_one": "{{object}} : {{formatted}} enregistrement",
+      "found_other": "{{object}} : {{formatted}} enregistrements",
+      "overBound_one": "{{object}} : plus de {{formatted}} enregistrement, aucun n'est balayé",
+      "overBound_other": "{{object}} : plus de {{formatted}} enregistrements, aucun n'est balayé",
+      "names": "Quelques-uns par leur nom",
+      "none": "Rien à balayer.",
+      "nothing": "rien",
+      "refused": "Le balayage est refusé et ne supprime rien : {{reason}}",
+      "handWork_one": "{{object}} : {{formatted}} enregistrement créé par l'utilisateur de l'exécution dans la fenêtre, là où ni l'exécution ni l'automatisation n'écrivent, est laissé",
+      "handWork_other": "{{object}} : {{formatted}} enregistrements créés par l'utilisateur de l'exécution dans la fenêtre, là où ni l'exécution ni l'automatisation n'écrivent, sont laissés",
+      "unread": "Non examiné, {{object}} : {{reason}}",
+      "flowsNotRead_one": "{{formatted}} Flow des objets de l'exécution n'a pas été lu : ce qu'il crée n'est pas examiné.",
+      "flowsNotRead_other": "{{formatted}} Flows des objets de l'exécution n'ont pas été lus : ce qu'ils créent n'est pas examiné.",
+      "triggers_one": "{{formatted}} déclencheur Apex sur les objets de l'exécution : aucune métadonnée ne dit ce qu'il crée.",
+      "triggers_other": "{{formatted}} déclencheurs Apex sur les objets de l'exécution : aucune métadonnée ne dit ce qu'ils créent.",
+      "automationError": "L'automatisation de la cible n'a pas pu être lue en entier, et ce qu'elle crée peut échapper au balayage : {{reason}}",
+      "resultSuccess": "Rien de ce que le balayage a trouvé ne reste dans {{org}}.",
+      "resultPartial": "Le balayage a supprimé des enregistrements de {{org}} ; les autres restent, comme listé.",
+      "resultFailure": "Le balayage n'a rien supprimé de {{org}}.",
+      "resultCancelled": "Le balayage n'est pas allé jusqu'au bout : ce qu'il avait fait est listé.",
+      "resultRefused": "Le balayage a été refusé et n'a rien supprimé.",
+      "sweptOn": "Balayé le {{date}} :"
+    },
+    "automation": {
+      "title": "Ce que {{org}} exécute quand ces enregistrements partent",
+      "loading": "Lecture de ce que {{org}} exécute quand ces enregistrements sont supprimés…",
+      "intro": "Quand ces enregistrements sont supprimés, {{org}} exécute :",
+      "drafted": "quand la suppression le remet en Brouillon pour le supprimer",
+      "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés.",
+      "error": "Ce que {{org}} exécute quand ces enregistrements partent n'a pas pu être lu : {{reason}}"
+    },
+    "sync": {
+      "title": "Ce que cette exécution a créé",
+      "created_one": "{{formatted}} enregistrement ou fichier créé dans {{org}}",
+      "created_other": "{{formatted}} enregistrements et fichiers créés dans {{org}}",
+      "remove": "Retirer ce que cette exécution a créé",
+      "removeLeft": "Retirer ce qui reste de ce que cette exécution a créé",
+      "removeTitle": "Retirer de {{org}} ce que cette exécution a créé",
+      "removeDescription": "Supprime de {{org}} ce que cette exécution a créé — les enregistrements qu'elle a insérés, ou écrits par upsert là où {{org}} n'en avait aucun, et les fichiers qu'elle a créés — les fichiers d'abord, puis les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements qu'elle a mis à jour étaient déjà dans {{org}} et gardent leurs nouvelles valeurs. Un enregistrement dont dépendent des enregistrements qui restent dans {{org}} est conservé, de même qu'un enregistrement modifié depuis l'exécution, ou dont dépendent des enregistrements ajoutés depuis, sauf si vous l'incluez ci-dessous.",
+      "includeChanged": "Retirer aussi les enregistrements modifiés depuis l'exécution, et ce qui leur a été ajouté depuis",
+      "removing": "Retrait de ce que cette exécution a créé…",
+      "cancel": "Arrêter le retrait",
+      "stopping": "Arrêt en cours : le retrait s'arrête dès que l'appel en cours a répondu. Ce qu'il a retiré jusque-là est listé ; le reste demeure dans l'org, et un retrait le prendra plus tard.",
+      "cancelRefused": "Impossible d'arrêter le retrait",
+      "cancelRefusedDetail": "Le retrait n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre.",
+      "notKept": "Ce que cette exécution a créé n'est plus conservé — il a été écarté pour faire place à des exécutions plus récentes — et ne peut pas être retiré d'ici.",
+      "refusedGuard": "Production Guard n'autorise aucune suppression dans {{org}}, une org de production : ce que cette exécution a créé y reste. Retirez-le depuis l'org elle-même.",
+      "refusedNoGuard": "Production Guard ne tourne pas dans cette fenêtre, et rien n'est supprimé sans lui.",
+      "refusedOrgGone": "L'org dans laquelle cette exécution a écrit n'est plus connectée : reconnectez-la pour retirer ce que l'exécution a créé.",
+      "refusedRunning": "L'exécution écrit encore : ce qu'elle a créé pourra être retiré une fois qu'elle sera terminée.",
+      "readWhole": "La prochaine exécution de {{config}} relit {{objects}} en entier : les copies sur lesquelles comptait son repère ont disparu.",
+      "filesForgotten_one": "{{config}} ne compte plus {{formatted}} fichier comme copié : sa prochaine lecture complète le copie à nouveau.",
+      "filesForgotten_other": "{{config}} ne compte plus {{formatted}} fichiers comme copiés : sa prochaine lecture complète les copie à nouveau.",
+      "unfinishedTitle": "Exécutions jamais terminées",
+      "unfinishedNote": "Une fenêtre s'est fermée pendant ces exécutions, ou l'historique ne les liste plus. Ce qu'elles ont créé est conservé à mesure que chaque appel à la cible répondait, et peut être retiré.",
+      "unfinishedRun": "{{config}}, lancée le {{date}}",
+      "unfinishedInFlight_one": "Elle s'est arrêtée pendant l'écriture de {{formatted}} ligne {{object}} : si la cible l'a prise, elle est dans l'org sans être listée ici, et son retrait ne la prend pas.",
+      "unfinishedInFlight_other": "Elle s'est arrêtée pendant l'écriture de {{formatted}} lignes {{object}} : celles que la cible a prises sont dans l'org sans être listées ici, et son retrait ne les prend pas."
+    },
+    "resultSuccess": "Aucun enregistrement créé par cette exécution ne reste dans {{org}}.",
+    "resultPartial": "Des enregistrements créés par cette exécution ont été supprimés de {{org}} ; les autres restent, comme indiqué.",
+    "resultFailure": "Aucun enregistrement créé par cette exécution n'a été supprimé de {{org}}.",
+    "resultCancelled": "Arrêtée avant la fin : ce qui a été fait jusque-là est listé, et le reste est toujours dans {{org}}.",
+    "resultChanged_one": "{{formatted}} conservé, modifié depuis l'exécution",
+    "resultChanged_other": "{{formatted}} conservés, modifiés depuis l'exécution",
+    "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, l'exécution ne l'ayant pas créé : {{names}}",
+    "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, l'exécution ne les ayant pas créés : {{names}}",
+    "resultDeleted_one": "{{formatted}} supprimé",
+    "resultDeleted_other": "{{formatted}} supprimés",
+    "resultGone_one": "{{formatted}} déjà disparu",
+    "resultGone_other": "{{formatted}} déjà disparus",
+    "resultNotVisible_one": "{{formatted}} non visible par cet utilisateur (ni trouvé ni dans la corbeille)",
+    "resultNotVisible_other": "{{formatted}} non visibles par cet utilisateur (ni trouvés ni dans la corbeille)",
+    "resultHeld_one": "{{formatted}} conservé, des enregistrements {{objects}} qui restent en dépendent",
+    "resultHeld_other": "{{formatted}} conservés, des enregistrements {{objects}} qui restent en dépendent",
+    "resultHeldUnread_one": "{{formatted}} conservé : ce qui en dépend n'a pas pu être lu",
+    "resultHeldUnread_other": "{{formatted}} conservés : ce qui en dépend n'a pas pu être lu",
+    "resultRefused_one": "{{formatted}} refusé",
+    "resultRefused_other": "{{formatted}} refusés",
+    "resultLeftBy": "Reprend là où la suppression du {{date}} s'était arrêtée.",
+    "resultUnchecked": "Non vérifié : les enregistrements {{objects}} ne peuvent pas être lus à partir de l'enregistrement dont ils dépendent, et sont supprimés avec lui.",
+    "resultMayHaveBeenWritten_one": "{{formatted}} enregistrement qu'un appel du clonage a peut-être écrit avant que sa réponse ne se perde peut se trouver dans {{org}} : aucun identifiant n'en est connu, et la suppression ne peut pas l'atteindre.",
+    "resultMayHaveBeenWritten_other": "{{formatted}} enregistrements qu'un appel du clonage a peut-être écrits avant que sa réponse ne se perde peuvent se trouver dans {{org}} : aucun de leurs identifiants n'est connu, et la suppression ne peut pas les atteindre.",
+    "resultNotJournaled_one": "{{formatted}} d'entre eux est parti dans un upsert, dont le journal du clonage ne garde pas les appels : il n'a pas été cherché dans {{org}}.",
+    "resultNotJournaled_other": "{{formatted}} d'entre eux sont partis dans un upsert, dont le journal du clonage ne garde pas les appels : ils n'ont pas été cherchés dans {{org}}.",
+    "resultCallsNotLookedFor_one": "{{formatted}} appel d'insertion en cours quand ce clonage s'est arrêté n'a pas été cherché dans {{org}} : ces appels ne sont cherchés qu'avant la première suppression d'un clonage, et ce qu'il a peut-être écrit y reste.",
+    "resultCallsNotLookedFor_other": "{{formatted}} appels d'insertion en cours quand ce clonage s'est arrêté n'ont pas été cherchés dans {{org}} : ces appels ne sont cherchés qu'avant la première suppression d'un clonage, et ce qu'ils ont peut-être écrit y reste.",
+    "resultKept_one": "{{formatted}} conservé",
+    "resultKept_other": "{{formatted}} conservés",
+    "resultNotReached_one": "{{formatted}} non atteint avant l'annulation",
+    "resultNotReached_other": "{{formatted}} non atteints avant l'annulation",
+    "removeLeftBy": "La suppression du {{date}} a laissé ces enregistrements :",
+    "removeFiles_one": "{{object}} : {{formatted}} fichier",
+    "removeFiles_other": "{{object}} : {{formatted}} fichiers",
+    "removeObject_one": "{{object}} : {{formatted}} enregistrement",
+    "removeObject_other": "{{object}} : {{formatted}} enregistrements",
+    "removeLinked_one": "{{formatted}} enregistrement lié est conservé.",
+    "removeLinked_other": "{{formatted}} enregistrements liés sont conservés.",
+    "removeTitle": "Supprimer de {{org}} les enregistrements de cette exécution",
+    "removeDescription": "Supprime de {{org}} les enregistrements créés par cette exécution, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels l'exécution s'est liée, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis la fin de l'exécution, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
+    "removeIncludeChanged": "Supprimer aussi les enregistrements modifiés depuis l'exécution, et ce qui leur a été ajouté depuis",
+    "removeSweep": "Balayer d'abord : reprendre aussi ce que l'automatisation de la cible a créé pendant l'exécution, au nom de son utilisateur — un tel enregistrement ne retient alors plus aucun enregistrement de l'exécution",
+    "stopRefused": "Impossible d'arrêter la suppression",
+    "stopRefusedDetail": "La suppression n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
+    "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a répondu. Ce qu'elle a supprimé jusque-là est listé ; le reste demeure dans l'org, et une suppression le prendra plus tard.",
+    "removing": "Suppression des enregistrements créés par cette exécution…",
+    "stopRemoval": "Arrêter la suppression",
+    "removedOn": "Enregistrements supprimés le {{date}} :",
+    "load": {
+      "resultSuccess": "Aucun enregistrement créé par ce chargement ne reste dans {{org}}.",
+      "resultPartial": "Des enregistrements créés par ce chargement ont été supprimés de {{org}} ; les autres restent, comme indiqué.",
+      "resultFailure": "Aucun enregistrement créé par ce chargement n'a été supprimé de {{org}}.",
+      "resultChanged_one": "{{formatted}} conservé, modifié depuis le chargement",
+      "resultChanged_other": "{{formatted}} conservés, modifiés depuis le chargement",
+      "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, le chargement ne l'ayant pas créé : {{names}}",
+      "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le chargement ne les ayant pas créés : {{names}}"
+    }
+  },
+  "orgAutomation": {
+    "assistant": {
+      "smallest": "{{permissionSet}} est le plus petit ensemble d'autorisations de l'org cible qui détient {{permission}}. Attribué à l'utilisateur sous lequel l'exécution écrit, il rend muet ce que {{permission}} exclut.",
+      "others_one": "{{names}} le détient aussi.",
+      "others_other": "{{names}} le détiennent aussi.",
+      "copy": "Copier la commande qui attribue {{permissionSet}}",
+      "copied": "Commande copiée",
+      "none": "Aucun ensemble d'autorisations de l'org cible ne détient {{permission}} : un administrateur en crée un qui l'inclut, et l'attribue à l'utilisateur sous lequel l'exécution écrit.",
+      "neverRun": "SandForge affiche cette commande et ne l'exécute jamais : c'est à un administrateur de l'org cible d'en décider.",
+      "readAgain": "Relire l'org cible",
+      "readAgainHint": "Une fois la commande exécutée, relisez l'org cible : l'autorisation apparaît alors comme détenue."
+    },
+    "flow": "Flow : {{name}}",
+    "trigger": "Déclencheur Apex : {{name}}",
+    "process": "Processus : {{name}}",
+    "workflowRule": "Règle de workflow : {{name}}",
+    "beforeDelete": "avant la suppression",
+    "afterDelete": "après la suppression",
+    "beforeAndAfterDelete": "avant et après la suppression",
+    "unreadFlows": "Les Flows de l'org cible n'ont pas pu être lus : {{reason}}",
+    "unreadTriggers": "Les déclencheurs Apex de l'org cible n'ont pas pu être lus : {{reason}}",
+    "unreadProcesses": "Les processus Process Builder de l'org cible n'ont pas pu être lus : {{reason}}",
+    "unreadWorkflowRules": "Les règles de workflow de l'org cible n'ont pas pu être lues : {{reason}}",
+    "unreadPermissionSets": "Les ensembles d'autorisations qui détiennent un contournement que l'utilisateur sous lequel l'exécution écrit ne détient pas n'ont pas pu être lus : {{reason}}",
+    "readAgain": "Relire",
+    "readingAgain": "Nouvelle lecture…",
+    "bypassHint_one": "Attribuez l'autorisation personnalisée {{names}} à l'utilisateur sous lequel l'exécution écrit dans l'org cible : les Flows dont la condition de démarrage l'exclut restent muets.",
+    "bypassHint_other": "Attribuez les autorisations personnalisées {{names}} à l'utilisateur sous lequel l'exécution écrit dans l'org cible : les Flows dont la condition de démarrage les exclut restent muets."
+  },
+  "runResults": {
+    "currencies": {
+      "title": "Écrites dans une autre devise",
+      "hint": "L'org cible n'a pas ces devises actives, ou une décision les a remplacées par une autre : les lignes sont entrées dans une autre devise, et leurs montants y ont été convertis.",
+      "rows_one": "{{count}} ligne en {{from}}",
+      "rows_other": "{{count}} lignes en {{from}}",
+      "corporate": "écrites en {{to}}, la devise de société de l'org cible",
+      "recordTypeDefault": "écrites en {{to}}, la valeur par défaut de leur type d'enregistrement",
+      "decision": "écrites en {{to}}, comme décidé",
+      "parent": "écrites en {{to}}, la devise de l'enregistrement auquel elles appartiennent",
+      "lines": "écrites en {{to}}, la devise des enregistrements auxquels leurs lignes appartiennent",
+      "converted": "montants convertis aux taux de l'org source : {{fields}}",
+      "convertedAtTargetRate": "montants convertis au taux de l'org source pour {{from}} et à celui de l'org cible pour {{to}} : {{fields}}",
+      "notConverted": "montants écrits tels que lus : aucun taux ne convertit {{from}} en {{to}}",
+      "noAmount": "aucun montant à convertir",
+      "dated": "aux taux datés de {{field}}",
+      "datedUnconfirmed": "aux taux statiques : les taux datés de {{field}} n'ont pas pu être confirmés"
+    },
+    "prices": {
+      "title": "Prix dans une autre devise",
+      "hint": "Un catalogue de prix fixe le prix d'un produit une fois par devise, et l'org cible refuse une ligne dont le prix est dans une autre devise que son enregistrement. Ces prix ont été lus dans une devise que l'org cible n'a pas active, ou étaient voulus dans la devise des enregistrements de leurs lignes.",
+      "prices_one": "{{count}} prix en {{from}}",
+      "prices_other": "{{count}} prix en {{from}}",
+      "replaced": "remplacés par le prix de l'org source en {{to}} pour le même produit et le même catalogue de prix, et reliés à sa copie",
+      "converted": "écrits en {{to}} à leur montant converti : l'org source n'a aucun prix dans cette devise pour le même produit et le même catalogue de prix",
+      "none": "aucun prix en {{to}} pour le même produit et le même catalogue de prix, et ils vont dans une autre devise pour d'autres lignes : l'org cible refuse les lignes d'un enregistrement en {{to}}",
+      "forLines": "{{to}} étant la devise des enregistrements auxquels leurs lignes appartiennent"
+    },
+    "contactPoints": {
+      "title": "E-mails et numéros de téléphone",
+      "numbersExhausted_one": "{{count}} numéro de téléphone laissé vide : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
+      "numbersExhausted_other": "{{count}} numéros de téléphone laissés vides : les 10 000 numéros fictifs de la plage ont tous été donnés à d'autres numéros du run.",
+      "neutralized": "Neutralisés avant l'écriture : {{values}} dans {{fields}}. Chaque adresse e-mail a été écrite sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible n'a joint personne.",
+      "none": "Neutralisés avant l'écriture : les enregistrements écrits ne contenaient ni adresse e-mail ni numéro de téléphone.",
+      "kept": "Écrits tels que la source les contient, comme demandé : l'automatisation de l'org cible a pu écrire ou envoyer des SMS à de vraies personnes.",
+      "neutralizedSimulated": "Un vrai run neutraliserait {{values}} dans {{fields}} : chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif.",
+      "noneSimulated": "Les enregistrements qu'un vrai run écrirait ne contiennent ni adresse e-mail ni numéro de téléphone.",
+      "keptSimulated": "Un vrai run les écrirait tels que la source les contient, comme demandé : l'automatisation de l'org cible pourrait alors écrire ou envoyer un SMS à de vraies personnes.",
+      "values_one": "{{count}} valeur",
+      "values_other": "{{count}} valeurs",
+      "keep": "Conserver les e-mails et les numéros de téléphone tels quels",
+      "keepWarning": "Les e-mails et les numéros de téléphone seront écrits tels que la source les contient : les Flows, les triggers et les alertes e-mail de l'org cible pourront alors écrire ou envoyer des SMS à de vraies personnes.",
+      "keepHint": "Désactivé, le clone écrit chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne."
+    },
+    "writtenWithoutFields": {
+      "title": "Écrits sans un champ refusé par l'org cible",
+      "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",
+      "byValidationRule": "refusé par une règle de validation",
+      "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte",
+      "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche"
     }
   },
   "grappe": {

@@ -4,11 +4,11 @@ import type { CurrencyChosenBy, CurrencyReplaced } from '@sandforge/shared';
 
 /** How the currency the rows went in was chosen, in the user's words. */
 const CHOSEN_KEYS: Record<CurrencyChosenBy, string> = {
-  corporate: 'forge.currencies.corporate',
-  'record-type-default': 'forge.currencies.recordTypeDefault',
-  decision: 'forge.currencies.decision',
-  parent: 'forge.currencies.parent',
-  lines: 'forge.currencies.lines',
+  corporate: 'runResults.currencies.corporate',
+  'record-type-default': 'runResults.currencies.recordTypeDefault',
+  decision: 'runResults.currencies.decision',
+  parent: 'runResults.currencies.parent',
+  lines: 'runResults.currencies.lines',
 };
 
 /** Props for {@link ForgeCurrenciesResult}. */
@@ -39,28 +39,28 @@ export const ForgeCurrenciesResult: React.FC<ForgeCurrenciesResultProps> = ({ en
       className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
     >
       <h3 id={headingId} className="font-medium text-text-primary">
-        {t('forge.currencies.title')}
+        {t('runResults.currencies.title')}
       </h3>
-      <p className="mt-0.5">{t('forge.currencies.hint')}</p>
+      <p className="mt-0.5">{t('runResults.currencies.hint')}</p>
       <ul className="mt-1 space-y-0.5">
         {entries.map((entry) => {
           const values = { from: entry.from, to: entry.to, fields: entry.fields.join(', ') };
           const amounts = entry.notConverted
-            ? t('forge.currencies.notConverted', values)
+            ? t('runResults.currencies.notConverted', values)
             : entry.fields.length === 0
-              ? t('forge.currencies.noAmount')
+              ? t('runResults.currencies.noAmount')
               : t(
                   entry.atTargetRate
-                    ? 'forge.currencies.convertedAtTargetRate'
-                    : 'forge.currencies.converted',
+                    ? 'runResults.currencies.convertedAtTargetRate'
+                    : 'runResults.currencies.converted',
                   values,
                 );
           const converted = !entry.notConverted && entry.fields.length > 0;
           const dated =
             converted && entry.datedBy !== undefined
-              ? ` — ${t('forge.currencies.dated', { field: entry.datedBy })}`
+              ? ` — ${t('runResults.currencies.dated', { field: entry.datedBy })}`
               : converted && entry.datedUnconfirmed !== undefined
-                ? ` — ${t('forge.currencies.datedUnconfirmed', { field: entry.datedUnconfirmed })}`
+                ? ` — ${t('runResults.currencies.datedUnconfirmed', { field: entry.datedUnconfirmed })}`
                 : '';
           return (
             <li
@@ -76,7 +76,7 @@ export const ForgeCurrenciesResult: React.FC<ForgeCurrenciesResultProps> = ({ en
               data-testid="forge-results-currencies-row"
             >
               <span className="font-mono text-text-primary">{entry.objectApiName}</span>
-              {` — ${t('forge.currencies.rows', { count: entry.rows, from: entry.from })}, `}
+              {` — ${t('runResults.currencies.rows', { count: entry.rows, from: entry.from })}, `}
               {`${t(CHOSEN_KEYS[entry.chosenBy], values)} — ${amounts}${dated}`}
             </li>
           );

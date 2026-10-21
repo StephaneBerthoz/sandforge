@@ -19,7 +19,7 @@ describe('ForgeContactPointsResult', () => {
 
     expect(screen.getByRole('heading', { name: 'Emails and phone numbers' })).toBeDefined();
     expect(screen.getByTestId('forge-results-contact-points-summary').textContent).toBe(
-      i18n.t('forge.contactPoints.neutralized', { values: '4 values', fields: '2 fields' }),
+      i18n.t('runResults.contactPoints.neutralized', { values: '4 values', fields: '2 fields' }),
     );
     expect(
       screen.getAllByTestId('forge-results-contact-points-row').map((row) => row.textContent),
@@ -46,7 +46,7 @@ describe('ForgeContactPointsResult', () => {
     render(<ForgeContactPointsResult report={NEUTRALIZED} simulation />);
 
     expect(screen.getByTestId('forge-results-contact-points-summary').textContent).toBe(
-      i18n.t('forge.contactPoints.neutralizedSimulated', {
+      i18n.t('runResults.contactPoints.neutralizedSimulated', {
         values: '4 values',
         fields: '2 fields',
       }),
@@ -62,7 +62,7 @@ describe('ForgeContactPointsResult', () => {
     );
 
     expect(screen.getByTestId('forge-results-contact-points-kept').textContent).toBe(
-      i18n.t('forge.contactPoints.keptSimulated'),
+      i18n.t('runResults.contactPoints.keptSimulated'),
     );
   });
 
@@ -70,7 +70,7 @@ describe('ForgeContactPointsResult', () => {
     render(<ForgeContactPointsResult report={{ neutralized: true, fields: [], values: 0 }} />);
 
     expect(screen.getByTestId('forge-results-contact-points-summary').textContent).toBe(
-      i18n.t('forge.contactPoints.none'),
+      i18n.t('runResults.contactPoints.none'),
     );
     expect(screen.queryAllByTestId('forge-results-contact-points-row')).toEqual([]);
   });

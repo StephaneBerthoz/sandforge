@@ -197,8 +197,8 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     expect(screen.getByText('onboarding.suggestSeedAndSync')).toBeDefined();
-    expect(screen.getByText('onboarding.openSeed')).toBeDefined();
-    expect(screen.getByText('onboarding.openSync')).toBeDefined();
+    expect(screen.getByText('home.openSeed')).toBeDefined();
+    expect(screen.getByText('home.openSync')).toBeDefined();
   });
 
   it('should suggest Monitor for production org type', () => {
@@ -209,7 +209,7 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     expect(screen.getByText('onboarding.suggestMonitor')).toBeDefined();
-    expect(screen.getByText('onboarding.openMonitor')).toBeDefined();
+    expect(screen.getByText('home.openMonitor')).toBeDefined();
   });
 
   it('should call onComplete when Skip is clicked', () => {
@@ -265,7 +265,7 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('onboarding.openSeed'));
+    fireEvent.click(screen.getByText('home.openSeed'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('seed', {
       seedMode: 'quick-seed',
@@ -296,7 +296,7 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('onboarding.openSync'));
+    fireEvent.click(screen.getByText('home.openSync'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('sync');
   });
@@ -308,7 +308,7 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('onboarding.openMonitor'));
+    fireEvent.click(screen.getByText('home.openMonitor'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('monitor');
   });
@@ -320,7 +320,7 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('onboarding.openSettings'));
+    fireEvent.click(screen.getByText('home.openSettings'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('settings');
   });

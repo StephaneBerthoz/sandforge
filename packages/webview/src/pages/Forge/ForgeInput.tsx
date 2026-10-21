@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
@@ -20,15 +20,14 @@ import type { ForgeInputMode } from '../../stores/useForgeStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useForgeForm } from './useForgeForm';
 import { useForgeTemplates } from './useForgeTemplates';
-import { ForgeTemplatePanel } from './ForgeTemplatePanel';
-import { ForgeAIPanel } from './ForgeAIPanel';
 import { ForgeSoqlNotices } from './ForgeSoqlNotices';
-import { ForgeHistoryPanel } from './ForgeHistoryPanel';
+import { ForgeAIPanel, ForgeHistoryPanel, ForgeTemplatePanel } from './forgeInputPanels';
 import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import { extractRecordId, soqlRootFilter } from './forgeUtils';
+import { soqlRootFilter } from './forgeUtils';
+import { extractRecordId } from '../../utils/recordId';
 
 /** Tab configuration for the Forge input modes. */
 interface TabConfig {
@@ -319,13 +318,15 @@ export const ForgeInput: React.FC = () => {
                   forceMount
                   className={form.inputMode !== 'template' ? 'hidden' : ''}
                 >
-                  <ForgeTemplatePanel
-                    manager={templates}
-                    selectedTemplate={form.selectedTemplate}
-                    onSelectTemplate={form.setSelectedTemplate}
-                    onApplyTemplate={form.applyTemplate}
-                    orgs={form.orgs}
-                  />
+                  <Suspense fallback={null}>
+                    <ForgeTemplatePanel
+                      manager={templates}
+                      selectedTemplate={form.selectedTemplate}
+                      onSelectTemplate={form.setSelectedTemplate}
+                      onApplyTemplate={form.applyTemplate}
+                      orgs={form.orgs}
+                    />
+                  </Suspense>
                   {/* The root record a built-in template clones from. A saved
                       template carries its own input, so it asks for nothing. */}
                   {templateNeedsRoot && (
@@ -381,12 +382,14 @@ export const ForgeInput: React.FC = () => {
 
                 {/* AI tab */}
                 <Tabs.Content value="ai">
-                  <ForgeAIPanel
-                    ai={form.ai}
-                    aiAvailable={aiAvailable}
-                    sourceOrgId={form.sourceOrgId}
-                    onOpenSettings={() => navigate('settings')}
-                  />
+                  <Suspense fallback={null}>
+                    <ForgeAIPanel
+                      ai={form.ai}
+                      aiAvailable={aiAvailable}
+                      sourceOrgId={form.sourceOrgId}
+                      onOpenSettings={() => navigate('settings')}
+                    />
+                  </Suspense>
                   {/* The draft is run as a SOQL query, so it carries the SOQL
                       tab's verdicts too. */}
                   <ForgeSoqlNotices
@@ -632,13 +635,15 @@ export const ForgeInput: React.FC = () => {
           )}
 
           {/* Past runs — refill the form from a run the extension kept */}
-          <ForgeHistoryPanel
-            entries={form.runHistory}
-            olderRuns={form.olderRuns}
-            error={form.historyError}
-            onReuseConfig={form.applyHistoryConfig}
-            onHistoryChanged={form.refreshHistory}
-          />
+          <Suspense fallback={null}>
+            <ForgeHistoryPanel
+              entries={form.runHistory}
+              olderRuns={form.olderRuns}
+              error={form.historyError}
+              onReuseConfig={form.applyHistoryConfig}
+              onHistoryChanged={form.refreshHistory}
+            />
+          </Suspense>
         </div>
 
         {/* ---- RIGHT: Live Preview panel ---- */}

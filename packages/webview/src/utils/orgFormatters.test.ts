@@ -45,15 +45,11 @@ describe('orgTypeLabel', () => {
   it('takes the label of every org type from the catalogue', () => {
     // A Developer Edition org fell through to its raw type, upper-cased:
     // "DEVELOPER" in every language.
-    expect(orgTypeLabel(org({ orgType: 'Production' }), keyOf)).toBe('«sidePanel.orgType.prod»');
-    expect(orgTypeLabel(org({ orgType: 'Scratch' }), keyOf)).toBe('«sidePanel.orgType.scratch»');
-    expect(orgTypeLabel(org({ orgType: 'Developer' }), keyOf)).toBe(
-      '«sidePanel.orgType.developer»',
-    );
-    expect(orgTypeLabel(org({ orgType: 'Sandbox' }), keyOf)).toBe('«sidePanel.orgType.sandbox»');
-    expect(orgTypeLabel(org({ sandboxType: 'Partial' }), keyOf)).toBe(
-      '«sidePanel.orgType.partial»',
-    );
+    expect(orgTypeLabel(org({ orgType: 'Production' }), keyOf)).toBe('«common.orgType.prod»');
+    expect(orgTypeLabel(org({ orgType: 'Scratch' }), keyOf)).toBe('«common.orgType.scratch»');
+    expect(orgTypeLabel(org({ orgType: 'Developer' }), keyOf)).toBe('«common.orgType.developer»');
+    expect(orgTypeLabel(org({ orgType: 'Sandbox' }), keyOf)).toBe('«common.orgType.sandbox»');
+    expect(orgTypeLabel(org({ sandboxType: 'Partial' }), keyOf)).toBe('«common.orgType.partial»');
   });
 
   it('names a Developer Edition org an earlier build registered as production by its edition, never PROD', () => {
@@ -61,9 +57,9 @@ describe('orgTypeLabel', () => {
       orgType: 'Production',
       metadata: { apiVersion: '62.0', edition: 'Developer Edition', features: [] },
     });
-    expect(orgTypeLabel(playground, keyOf)).toBe('«sidePanel.orgType.developer»');
+    expect(orgTypeLabel(playground, keyOf)).toBe('«common.orgType.developer»');
     // A production org of another edition keeps its PROD badge.
-    expect(orgTypeLabel(org({ orgType: 'Production' }), keyOf)).toBe('«sidePanel.orgType.prod»');
+    expect(orgTypeLabel(org({ orgType: 'Production' }), keyOf)).toBe('«common.orgType.prod»');
   });
 
   it('shows an environment tag as the user wrote it', () => {

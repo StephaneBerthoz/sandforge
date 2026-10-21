@@ -112,4 +112,31 @@ describe('ComplianceReport', () => {
     fireEvent.click(screen.getByTestId('compliance-retry'));
     expect(queryState.refetch).toHaveBeenCalled();
   });
+
+  it('keeps what failed and its Retry, with the keyboard on it, while the report is read again', () => {
+    // Retry gave way to "Loading" as it was pressed, and took the keyboard along.
+    queryState = { ...queryState, data: null, error: 'report boom' };
+    const { rerender } = render(<ComplianceReport />);
+    const retry = screen.getByTestId('compliance-retry');
+    retry.focus();
+
+    queryState = { ...queryState, error: null, loading: true };
+    rerender(<ComplianceReport />);
+
+    expect(screen.getByTestId('compliance-retry')).toBe(retry);
+    expect(document.activeElement).toBe(retry);
+    expect(retry.getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByTestId('compliance-report-error').textContent).toContain('report boom');
+    expect(screen.queryByTestId('compliance-report-loading')).toBeNull();
+
+    queryState = { ...queryState, data: { report: REPORT }, loading: false };
+    rerender(<ComplianceReport />);
+    expect(screen.getByTestId('compliance-report')).toBeDefined();
+  });
+
+  it('says it is loading, not that there is nothing, before its first read is sent', () => {
+    queryState = { ...queryState, data: null, loading: false, error: null };
+    render(<ComplianceReport />);
+    expect(screen.getByTestId('compliance-report-loading')).toBeDefined();
+  });
 });

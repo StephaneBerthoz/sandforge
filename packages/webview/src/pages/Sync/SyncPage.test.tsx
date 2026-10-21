@@ -161,6 +161,14 @@ const savedConfigList = vi.hoisted(() => ({
 /** What `sync:write-order` answers: the order a run writes the objects in. */
 const writeOrderAnswer = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
 
+/*
+ * The Schedules tab comes in a chunk of its own (syncPanels.test.tsx); here it
+ * is drawn at once, as the page draws it once loaded.
+ */
+vi.mock('./syncPanels', async () => ({
+  SyncSchedulePanel: (await import('./SyncSchedulePanel')).SyncSchedulePanel,
+}));
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'sync:describe-global') {

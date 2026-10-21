@@ -237,6 +237,107 @@ test.describe('Keyboard and screen reader — the one-click Seed', () => {
       .toBe(1);
     await expect(card).toBeFocused();
   });
+
+  test('Read again keeps the focus while the org is read again, and says the read is on its way', async ({
+    page,
+  }) => {
+    // It gave way to a line saying the org was being read: the focus fell to
+    // <body> as it was pressed, and the next Tab started over at the skip link.
+    const bridge = await openSeedGallery(page);
+    await page
+      .getByTestId('template-card-prebuilt-minimal-demo')
+      .getByTestId('btn-use-template')
+      .focus();
+    await page.keyboard.press('Enter');
+    await bridge.waitForMessage('seed:automation', { timeout: 10_000 });
+    await answerAll(page, 'seed:automation', 'seed:automation:error', {
+      message: 'INVALID_SESSION_ID',
+      code: 'UNKNOWN',
+      retryable: true,
+    });
+    const readAgain = page.getByTestId('seed-automation-read-again');
+    await expect(page.getByTestId('seed-automation-unread')).toContainText('INVALID_SESSION_ID');
+    const reads = (await bridge.getMessages('seed:automation')).length;
+
+    await pressWithKeyboard(page, 'seed-automation-read-again');
+    await expect
+      .poll(async () => (await bridge.getMessages('seed:automation')).length)
+      .toBeGreaterThan(reads);
+    await expect(page.getByTestId('seed-automation-reading')).toBeVisible();
+    await expect(readAgain).toBeFocused();
+    await expect(readAgain).toHaveAttribute('aria-disabled', 'true');
+
+    await answerAll(page, 'seed:automation', 'seed:automation:error', {
+      message: 'REQUEST_LIMIT_EXCEEDED',
+      code: 'UNKNOWN',
+      retryable: true,
+    });
+    await expect(page.getByTestId('seed-automation-unread')).toContainText(
+      'REQUEST_LIMIT_EXCEEDED',
+    );
+    await expect(readAgain).toBeFocused();
+    await expect(readAgain).not.toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+test.describe('Keyboard and screen reader — DataOps backups', () => {
+  /** Two backups of the panel's org, as `backup:list:result` carries them. */
+  const BACKUPS = ['op-backup-1', 'op-backup-2'].map((operationId, index) => ({
+    operationId,
+    orgId: 'org-src-1',
+    timestamp: `2026-03-1${index}T10:00:00Z`,
+    totalRecords: 100,
+    totalSize: 200_000,
+    status: 'completed',
+    objectResults: [{ objectApiName: 'Account', recordCount: 100 }],
+  }));
+
+  test('a backup deleted leaves the list on screen, and the focus where it was, while the list is read again', async ({
+    page,
+  }) => {
+    // Each deletion reads the list again, and a skeleton took the panel's
+    // place meanwhile: the control the keyboard was on went with it.
+    const bridge = await openModule(page, 'dataops');
+    await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+    await answerAll(page, 'backup:list', 'backup:list:result', { backups: BACKUPS });
+    await answerAll(
+      page,
+      'dataops:anonymization-templates',
+      'dataops:anonymization-templates:response',
+      { templates: [] },
+    );
+    const restoreTab = page.getByTestId('page-tabs').getByRole('tab', { name: 'Restore' });
+    await restoreTab.focus();
+    await page.keyboard.press('Enter');
+    const card = (id: string) =>
+      page.getByTestId(`restore-backup-${id}`).locator('[role="button"]');
+    await card('op-backup-2').focus();
+    await page.keyboard.press('Enter');
+    await pressWithKeyboard(page, 'delete-backup-btn-op-backup-2');
+    await pressWithKeyboard(page, 'delete-backup-confirm');
+    const deletion = await bridge.waitForMessage('backup:delete', { timeout: 10_000 });
+    const listReads = (await bridge.getMessages('backup:list')).length;
+
+    // The keyboard is on the other backup as the deletion is answered.
+    await card('op-backup-1').focus();
+    await sendExtensionMessage(page, {
+      type: 'backup:delete:result',
+      id: 'delete-done',
+      correlationId: String(deletion.id),
+      payload: { orgId: 'org-src-1', deleted: ['op-backup-2'] },
+    });
+    await expect
+      .poll(async () => (await bridge.getMessages('backup:list')).length)
+      .toBeGreaterThan(listReads);
+    await expect(page.getByTestId('dataops-skeleton')).toHaveCount(0);
+    await expect(card('op-backup-1')).toBeFocused();
+    await expect(page.getByTestId('dataops-content')).toHaveAttribute('aria-busy', 'true');
+
+    await answerAll(page, 'backup:list', 'backup:list:result', { backups: BACKUPS.slice(0, 1) });
+    await expect(page.getByTestId('dataops-content')).not.toHaveAttribute('aria-busy', 'true');
+    await expect(page.getByTestId('restore-backup-op-backup-2')).toHaveCount(0);
+    await expect(card('op-backup-1')).toBeFocused();
+  });
 });
 
 test.describe('Keyboard and screen reader — the org pickers', () => {

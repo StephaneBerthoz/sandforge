@@ -23,8 +23,8 @@ const KIND_KEYS: Readonly<Record<SeedAutomationEntry['kind'], string>> = {
 
 /** How each daily email limit is named. */
 const LIMIT_KEYS: Readonly<Record<SeedEmailEstimate['limit'], string>> = {
-  SingleEmail: 'seed.automation.limit.single',
-  DailyWorkflowEmails: 'seed.automation.limit.workflow',
+  SingleEmail: 'common.emailLimit.single',
+  DailyWorkflowEmails: 'common.emailLimit.workflow',
 };
 
 /** What else than an email an entry sends. */
@@ -86,35 +86,43 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
   const headingId = useId();
   const locale = uiLocale();
   const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
-  const quoted = (name: string): string => t('seed.automation.quoted', { name });
+  const quoted = (name: string): string => t('common.quoted', { name });
   const org = orgName;
 
+  /*
+   * Read again stays where it is whatever the notice shows, and says the read
+   * is on its way while it is: it gave way to a line saying so, which left
+   * the keyboard on nothing as soon as it was pressed, and what was read
+   * before went with it. The notice keeps what it read until the new answer.
+   */
   const readAgain = (
-    <Button
-      variant="secondary"
-      size="sm"
-      onClick={automation.readAgain}
-      data-testid="seed-automation-read-again"
-    >
-      {t('seed.automation.readAgain')}
-    </Button>
+    <div className="flex flex-col items-start gap-2">
+      {automation.loading && (
+        <p role="status" className="text-text-secondary" data-testid="seed-automation-reading">
+          {t('seed.automation.reading', { org })}
+        </p>
+      )}
+      <Button
+        variant="secondary"
+        size="sm"
+        loading={automation.loading}
+        focusableWhenDisabled
+        onClick={automation.readAgain}
+        data-testid="seed-automation-read-again"
+      >
+        {t('seed.automation.readAgain')}
+      </Button>
+    </div>
   );
 
   let body: React.ReactNode;
-  if (automation.loading) {
-    body = (
-      <p role="status" className="text-text-secondary" data-testid="seed-automation-reading">
-        {t('seed.automation.reading', { org })}
-      </p>
-    );
+  if (automation.loading && !automation.preview) {
+    body = null;
   } else if (automation.error) {
     body = (
-      <div className="flex flex-col items-start gap-2">
-        <p role="status" data-testid="seed-automation-unread">
-          {t('seed.automation.readFailed', { org, error: automation.error })}
-        </p>
-        {readAgain}
-      </div>
+      <p role="status" data-testid="seed-automation-unread">
+        {t('seed.automation.readFailed', { org, error: automation.error })}
+      </p>
     );
   } else if (automation.preview) {
     const preview = automation.preview;
@@ -297,10 +305,9 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
             {t('seed.automation.conditionsNotRead', { org })}
           </p>
         )}
-        <div>{readAgain}</div>
       </div>
     );
-  } else {
+  } else if (!automation.loading) {
     return null;
   }
 
@@ -314,7 +321,8 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
         <Workflow size={14} aria-hidden="true" className="text-text-secondary" />
         {t('seed.automation.title', { org })}
       </h3>
-      {body}
+      {body && <div aria-busy={automation.loading || undefined}>{body}</div>}
+      {readAgain}
     </section>
   );
 };

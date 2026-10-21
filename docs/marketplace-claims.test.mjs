@@ -638,7 +638,7 @@ test('the Forge step of the walkthrough copies from another org into the one you
 
 test('the connect step names only the badges an org card shows, in six languages', () => {
   const badges = Object.values(
-    readJson('packages', 'webview', 'src', 'i18n', 'locales', 'en.json').sidePanel.orgType,
+    readJson('packages', 'webview', 'src', 'i18n', 'locales', 'en.json').common.orgType,
   );
   assert.ok(badges.includes('DEVELOPER'), 'the badge labels are not read — re-point this gate');
   const offenders = [];

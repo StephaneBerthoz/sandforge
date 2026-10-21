@@ -4,9 +4,9 @@ import type { PriceCurrencySettled } from '@sandforge/shared';
 
 /** How the prices went, in the user's words. */
 const HOW_KEYS: Record<PriceCurrencySettled['how'], string> = {
-  replaced: 'forge.prices.replaced',
-  converted: 'forge.prices.converted',
-  none: 'forge.prices.none',
+  replaced: 'runResults.prices.replaced',
+  converted: 'runResults.prices.converted',
+  none: 'runResults.prices.none',
 };
 
 /** Props for {@link PriceCurrenciesResult}. */
@@ -36,18 +36,18 @@ export const PriceCurrenciesResult: React.FC<PriceCurrenciesResultProps> = ({ en
       className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
     >
       <h3 id={headingId} className="font-medium text-text-primary">
-        {t('forge.prices.title')}
+        {t('runResults.prices.title')}
       </h3>
-      <p className="mt-0.5">{t('forge.prices.hint')}</p>
+      <p className="mt-0.5">{t('runResults.prices.hint')}</p>
       <ul className="mt-1 space-y-0.5">
         {entries.map((entry) => (
           <li
             key={[entry.from, entry.to, entry.how, entry.forLines ? 'lines' : ''].join('|')}
             data-testid="results-price-currencies-row"
           >
-            {`${t('forge.prices.prices', { count: entry.prices, from: entry.from })}, `}
+            {`${t('runResults.prices.prices', { count: entry.prices, from: entry.from })}, `}
             {t(HOW_KEYS[entry.how], { to: entry.to })}
-            {entry.forLines ? ` — ${t('forge.prices.forLines', { to: entry.to })}` : ''}
+            {entry.forLines ? ` — ${t('runResults.prices.forLines', { to: entry.to })}` : ''}
           </li>
         ))}
       </ul>

@@ -190,7 +190,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
             ? t('a11y.orgDropdownValue', {
                 label: ariaLabel,
                 org: selectedOrg.alias || selectedOrg.username,
-                status: t(`org.status_${selectedOrg.status}`),
+                status: t(`common.orgStatus_${selectedOrg.status}`),
               })
             : ariaLabel
         }
@@ -205,7 +205,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
       >
         {selectedOrg && <StatusDot status={selectedOrg.status} testId={`${testId}-status`} />}
         <span className="truncate flex-1 text-left">
-          {selectedOrg ? selectedOrg.alias || selectedOrg.username : t('forge.selectOrg')}
+          {selectedOrg ? selectedOrg.alias || selectedOrg.username : t('common.selectOrg')}
         </span>
         <ChevronDown
           size={14}
@@ -232,7 +232,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
             onClick={() => handleSelect('')}
             className="w-full text-left px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-2 transition-colors"
           >
-            {t('forge.selectOrg')}
+            {t('common.selectOrg')}
           </button>
           {sortedOrgs.map((org) => (
             <button
@@ -251,7 +251,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
             >
               <StatusDot status={org.status} />
               <span className="truncate">{org.alias || org.username}</span>
-              <span className="sr-only">{t(`org.status_${org.status}`)}</span>
+              <span className="sr-only">{t(`common.orgStatus_${org.status}`)}</span>
               {org.alias && (
                 <span
                   className={cn(

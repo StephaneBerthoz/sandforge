@@ -82,7 +82,7 @@ const TAILS_DECL = /const DYNAMIC_TAIL_PREFIXES: readonly string\[\] = \[[\s\S]*
 /**
  * The real gate, with section 6's baseline, census and declared tail families
  * swapped for the case's. `DYNAMIC_TAIL_PREFIXES` is staged for the same reason
- * the baseline is: the shipped value names `home` and `sidePanel.relativeTime`,
+ * the baseline is: the shipped value names `home` and `common.relativeTime`,
  * which a throwaway catalogue neither calls nor defines — and
  * `auditDynamicTailPrefixes` fails, correctly, on a declared prefix no call
  * passes or that builds no key. Empty by default, so a fixture that says

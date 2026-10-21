@@ -816,7 +816,7 @@ export const OrgManagerPage: React.FC = () => {
             role="alert"
             data-testid="org-connect-error"
           >
-            <span className="font-semibold">{t('org.status_error')}</span> — {connectError}
+            <span className="font-semibold">{t('common.orgStatus_error')}</span> — {connectError}
             {/* The banner is the only place this failure survives once the
                 toast is gone, and the CLI is what two of the three working
                 auth methods run on. VS Code opens the link in the browser. */}

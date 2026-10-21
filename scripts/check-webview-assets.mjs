@@ -39,6 +39,14 @@
  *    names; every namespace is in some file the panel loads. Each namespace
  *    is found by its longest plain sentence. The base held both, 380 kB of
  *    the 874 every panel parsed, and every source-level test passed;
+ *  - the namespaces every panel starts with have no loader and are in no
+ *    chunk outside that base: their chunks were built and shipped, and never
+ *    fetched;
+ *  - what each page parses before it paints — that base, the page's chunk
+ *    and what it imports up front, the English its route names — stays within
+ *    PAGE_FIRST_PAINT_BUDGET, and holds zod only on a page that checks
+ *    something against a schema before it paints (PAGES_THAT_VALIDATE). Forge
+ *    parsed 1.4 MB before its first step, Home zod for a record id;
  *  - with `--vsix`, every one of those paths is in `sandforge.vsix` too. The
  *    VSIX is what a user installs, and `.vscodeignore` can drop a file the
  *    build produced. It is a flag rather than "check it if it is there"
@@ -232,6 +240,113 @@ export function panelShellNamespaces(source) {
     : [];
 }
 
+/**
+ * The most a page may parse before it paints, in bytes: the panel bundle and
+ * the chunks it imports up front, the page's chunk and the chunks that one
+ * imports, and the English its route names (PanelRouter's `page` calls).
+ *
+ * Forge parsed 1.4 MB before its input step painted, Reports 1.2 MB before
+ * its Executions tab, Monitor and Sync more than 1.1 MB: libraries their
+ * first screen does not draw (Recharts, React Flow), zod for a constant, and
+ * whole namespaces of English for a few words. 900 kB is what every page
+ * reached once those came on demand, Sync the heaviest at 882 kB.
+ */
+export const PAGE_FIRST_PAINT_BUDGET = 900_000;
+
+/**
+ * The pages that check something against a schema before they paint, and
+ * may parse zod with it, each with what it checks. Any other page parses no
+ * zod before it paints: Home parsed it, 94 kB, to read a record id.
+ */
+export const PAGES_THAT_VALIDATE = new Map([
+  ['forge', 'a SOQL filter typed in, against the rule the extension holds every filter to'],
+  ['dataops', 'a masking template the user saves or imports, against the template schema'],
+  ['migration', 'the configuration the user edits, against the Sync configuration schema'],
+]);
+
+/**
+ * The routes of the panel, read from the panel bundle: each `page()` call of
+ * src/PanelRouter.tsx as the minifier leaves it, with the chunk the route
+ * loads, the page's export and the namespaces of English its loader names.
+ * The bundler may read the export off the chunk's namespace object
+ * (`.then(e=>e.t)`) when another chunk imports the page too.
+ *
+ * @param source - The panel bundle's source.
+ */
+export function panelRoutes(source) {
+  const call =
+    /([A-Za-z_$][\w$]*)\s*:\s*[\w$]+\(\s*\(\)\s*=>\s*import\(\s*(['"`])(\.{1,2}\/[^'"`]+)\2\s*\)(?:\s*\.then\(\s*[\w$]+\s*=>\s*[\w$]+\.[\w$]+\s*\))?\s*,\s*(['"`])(\w+)\4\s*,\s*\[([^\]]*)\]/g;
+  return [...source.matchAll(call)].map((match) => ({
+    route: match[1],
+    chunk: match[3],
+    page: match[5],
+    english: [...match[6].matchAll(/['"`](\w+)['"`]/g)].map((name) => name[1]),
+  }));
+}
+
+/**
+ * The loaders of the English catalogue's namespaces, read from the panel
+ * bundle (vite.config.ts `englishCatalogue`): each namespace with the chunk
+ * that holds it.
+ *
+ * @param source - The panel bundle's source.
+ */
+export function englishLoaders(source) {
+  const loader =
+    /[{,]\s*(['"`]?)([A-Za-z][A-Za-z0-9]*)\1\s*:\s*\(\)\s*=>\s*import\(\s*(['"`])(\.{1,2}\/[^'"`]+)\3\s*\)/g;
+  return new Map([...source.matchAll(loader)].map((match) => [match[2], match[4]]));
+}
+
+/**
+ * What a panel parses before a route's page paints: what every panel parses
+ * up front, the page's chunk and the chunks it imports up front, and the
+ * chunks of the English the route names, as posix paths relative to
+ * `webview-dist`, with their size in bytes. A namespace no loader holds is
+ * listed, for the caller to report.
+ *
+ * @param entry - The panel bundle, e.g. `assets/index.js`.
+ * @param route - From {@link panelRoutes}.
+ * @param loaders - From {@link englishLoaders}.
+ * @param read - Reads a path relative to `webview-dist`; undefined when absent.
+ */
+export function routeFirstPaint(entry, route, loaders, read) {
+  const at = (specifier) => posix.normalize(posix.join(posix.dirname(entry), specifier));
+  const files = new Set(staticBundleFiles(entry, read));
+  for (const file of staticBundleFiles(at(route.chunk), read)) files.add(file);
+  const unloaded = [];
+  for (const namespace of route.english) {
+    const chunk = loaders.get(namespace);
+    if (!chunk) {
+      unloaded.push(namespace);
+      continue;
+    }
+    for (const file of staticBundleFiles(at(chunk), read)) files.add(file);
+  }
+  const sizes = new Map([...files].map((file) => [file, Buffer.byteLength(read(file) ?? '')]));
+  const bytes = [...sizes.values()].reduce((total, size) => total + size, 0);
+  return { files: [...files], sizes, bytes, unloaded };
+}
+
+/**
+ * The chunks outside what every panel parses up front that hold the English
+ * of a namespace every panel starts with: built, shipped, and never fetched,
+ * since a panel holds those namespaces from the start.
+ *
+ * @param paths - The chunks the panel bundle loads.
+ * @param base - What it imports up front, from {@link staticBundleFiles}.
+ * @param read - Reads a path relative to `webview-dist`.
+ * @param sentinels - From {@link namespaceSentinels}.
+ * @param shell - The namespaces a panel starts with ({@link panelShellNamespaces}).
+ */
+export function shellEnglishOutsideBase(paths, base, read, sentinels, shell) {
+  const shellSentinels = new Map([...sentinels].filter(([namespace]) => shell.includes(namespace)));
+  return paths
+    .filter((path) => !base.includes(path))
+    .flatMap((path) =>
+      namespacesHeld([read(path) ?? ''], shellSentinels).map((namespace) => ({ namespace, path })),
+    );
+}
+
 /** Paths the extension asks for, each with the files that ask for it. */
 export function collectRequested(sources) {
   const byPath = new Map();
@@ -244,10 +359,17 @@ export function collectRequested(sources) {
   return byPath;
 }
 
+/** A size in bytes, as kB to one decimal. */
+function kiloBytes(bytes) {
+  return `${(bytes / 1000).toFixed(1)} kB`;
+}
+
 /** Judges the build on disk, and the VSIX with `--vsix`; exits 1 on a gap. */
 function main() {
   const fail = [];
   const note = (message) => fail.push(message);
+  /** The page that parses the most before it paints, for the summary. */
+  let heaviestPage;
 
   const requested = collectRequested(providerSources());
 
@@ -373,9 +495,84 @@ function main() {
     for (const namespace of [...sentinels.keys()].filter((n) => !shipped.includes(n))) {
       note(`the English of "${namespace}" is in no file the panel loads`);
     }
+
+    // The namespaces every panel starts with have no chunk of their own: a
+    // panel holds them from the start and asks for none of them.
+    const loaders = englishLoaders(readBuilt(panelBundle));
+    for (const namespace of shell.filter((n) => loaders.has(n))) {
+      note(
+        `${panelBundle} has a loader for the English of "${namespace}", which every panel ` +
+          'starts with: its chunk is built, shipped and never fetched',
+      );
+    }
+    const panelChunks = bundleFiles(panelBundle, readBuilt).files.filter(
+      (path) => path !== panelBundle && readBuilt(path) !== undefined,
+    );
+    for (const { namespace, path } of shellEnglishOutsideBase(
+      panelChunks,
+      base,
+      readBuilt,
+      sentinels,
+      shell,
+    )) {
+      note(
+        `${BUILT_DIR}/${path} holds the English of "${namespace}", which every panel starts ` +
+          'with: a chunk built and shipped that no panel fetches',
+      );
+    }
+
+    // 5. What each page parses before it paints stays within the budget,
+    // and holds zod only where the page checks something against a schema.
+    const routes = panelRoutes(readBuilt(panelBundle));
+    const declared = (
+      readFileSync(join(repoRoot, 'packages', 'webview', 'src', 'PanelRouter.tsx'), 'utf8').match(
+        /\bpage\(\s*\(\)\s*=>\s*import\(/g,
+      ) ?? []
+    ).length;
+    if (routes.length === 0 || routes.length !== declared) {
+      note(
+        `${panelBundle} reads as ${routes.length} route(s), where src/PanelRouter.tsx declares ` +
+          `${declared}: the weight of a page this does not read is checked by nothing`,
+      );
+    }
+    for (const route of routes) {
+      const paint = routeFirstPaint(panelBundle, route, loaders, readBuilt);
+      for (const namespace of paint.unloaded) {
+        note(
+          `the "${route.route}" page names the English of "${namespace}", which no loader holds`,
+        );
+      }
+      if (paint.bytes > PAGE_FIRST_PAINT_BUDGET) {
+        const heaviest = [...paint.sizes]
+          .filter(([path]) => !base.includes(path))
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([path, size]) => `${posix.basename(path)} ${kiloBytes(size)}`)
+          .join(', ');
+        note(
+          `the "${route.route}" page parses ${kiloBytes(paint.bytes)} before it paints, past the ` +
+            `${kiloBytes(PAGE_FIRST_PAINT_BUDGET)} a page may; heaviest past the base: ${heaviest}`,
+        );
+      }
+      const zodFile = paint.files.find((path) => /["'`]\$ZodType["'`]/.test(readBuilt(path) ?? ''));
+      if (zodFile && !PAGES_THAT_VALIDATE.has(route.route)) {
+        note(
+          `the "${route.route}" page parses zod (${zodFile}) before it paints, and checks ` +
+            'nothing against a schema there (PAGES_THAT_VALIDATE)',
+        );
+      }
+      if (!heaviestPage || paint.bytes > heaviestPage.bytes) {
+        heaviestPage = { route: route.route, bytes: paint.bytes };
+      }
+    }
+    for (const route of PAGES_THAT_VALIDATE.keys()) {
+      if (!routes.some((candidate) => candidate.route === route)) {
+        note(`PAGES_THAT_VALIDATE names "${route}", which is no route of the panel`);
+      }
+    }
   }
 
-  // 5. The VSIX carries them too, for a caller that just packaged one.
+  // 6. The VSIX carries them too, for a caller that just packaged one.
   const checkVsix = process.argv.includes('--vsix');
   if (checkVsix) {
     if (!existsSync(join(repoRoot, VSIX))) {
@@ -404,7 +601,11 @@ function main() {
     `PASS: webview assets — ${requested.size} path(s) linked by the providers and ` +
       `${loaded.size} chunk(s) they import, all built` +
       (checkVsix ? ' and present in the VSIX' : '') +
-      `: ${[...requested.keys()].sort().join(', ')}`,
+      `: ${[...requested.keys()].sort().join(', ')}` +
+      (heaviestPage
+        ? `; heaviest first paint: ${heaviestPage.route} ${kiloBytes(heaviestPage.bytes)} of ` +
+          `${kiloBytes(PAGE_FIRST_PAINT_BUDGET)}`
+        : ''),
   );
 }
 

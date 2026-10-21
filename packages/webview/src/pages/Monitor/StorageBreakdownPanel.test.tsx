@@ -1,7 +1,7 @@
 import { cloneElement } from 'react';
 import type { ReactElement } from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { StorageBreakdownPanel } from './StorageBreakdownPanel';
@@ -135,7 +135,7 @@ describe('StorageBreakdownPanel', () => {
     expect(screen.getByText('Contact')).toBeDefined();
   });
 
-  it('draws each slice of the donut in the hue of the dot on its row', () => {
+  it('draws each slice of the donut in the hue of the dot on its row', async () => {
     // Each slice took the class of its hue from a Recharts `Cell`, which
     // Recharts 3 deprecates: the classes follow the theme, as the dots do.
     const objects = [
@@ -150,6 +150,12 @@ describe('StorageBreakdownPanel', () => {
 
     const hueOf = (element: Element | null, prefix: string): string | undefined =>
       [...(element?.classList ?? [])].find((name) => name.startsWith(prefix))?.slice(prefix.length);
+    // The donut comes in a chunk of its own, once the panel has painted.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('storage-donut-chart').querySelectorAll('path.recharts-sector'),
+      ).toHaveLength(objects.length),
+    );
     const slices = [
       ...screen.getByTestId('storage-donut-chart').querySelectorAll('path.recharts-sector'),
     ];
