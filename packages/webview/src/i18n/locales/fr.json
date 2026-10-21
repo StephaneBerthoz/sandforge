@@ -1069,24 +1069,18 @@
     "execute": "Exécuter",
     "executeDesc": "Lancer l'opération de synchronisation",
     "results": "Résultats",
-    "direction": "Direction",
-    "directions": {
-      "source_to_target": "Source vers cible",
-      "target_to_source": "Cible vers source",
-      "bidirectional": "Bidirectionnel"
-    },
     "modes": {
       "full": "Complet",
       "incremental": "Incrémental",
       "delta": "Delta",
       "cdc": "CDC"
     },
-    "conflictStrategy": "Stratégie de conflit",
+    "conflictStrategy": "Quand l'org cible détient déjà l'enregistrement",
     "conflicts": {
-      "source_wins": "Source prioritaire",
-      "target_wins": "Cible prioritaire",
-      "newest_wins": "Plus récent prioritaire",
-      "merge": "Fusionner"
+      "source_wins": "L'écraser avec les valeurs de la source",
+      "target_wins": "Garder les valeurs de l'org cible",
+      "newest_wins": "Garder celui des deux modifié en dernier",
+      "merge": "Prendre les valeurs de la source, en gardant celles de l'org cible là où la source n'en a pas"
     },
     "operations": {
       "insert": "Insertion",
@@ -1385,8 +1379,8 @@
       "conflicts": "En conflit",
       "read_one": "{{count}} enregistrement lu",
       "read_other": "{{count}} enregistrements lus",
-      "settledBy_one": "{{count}} enregistrement diffère de la cible sur un champ que l'exécution écrit : {{strategy}} décide de la valeur écrite.",
-      "settledBy_other": "{{count}} enregistrements diffèrent de la cible sur un champ que l'exécution écrit : {{strategy}} décide de la valeur écrite.",
+      "settledBy_one": "{{count}} enregistrement diffère de la cible sur un champ que l'exécution écrit : « {{strategy}} » décide de la valeur écrite.",
+      "settledBy_other": "{{count}} enregistrements diffèrent de la cible sur un champ que l'exécution écrit : « {{strategy}} » décide de la valeur écrite.",
       "conflictFields": "Champs qui diffèrent : {{fields}}.",
       "nothingWritten": "Rien n'a été écrit. Les chiffres comparent ce que l'exécution enverrait avec ce que la cible contient maintenant.",
       "notChecked": "Une simulation prévoit ce que dit la description de la cible — un champ obligatoire laissé vide, une valeur trop longue, une valeur unique qu'elle détient déjà — mais n'exécute ni ses règles de validation, ni ses règles de doublons, ni ses déclencheurs ou ses Flows, et ne vérifie pas son partage : un enregistrement que l'un d'eux refuserait est compté tel que l'exécution l'enverrait.",
@@ -1439,7 +1433,7 @@
       "pauseRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre."
     },
     "strategyNotice": {
-      "manualReplaced": "Ce brouillon demandait une revue manuelle des conflits, qu'une synchronisation n'offre pas : chacune de ses exécutions a écrit les valeurs de la source. Il utilise désormais « Cible prioritaire », qui garde toutes les valeurs de la cible là où les deux orgs diffèrent. Choisissez une autre stratégie si la source doit l'emporter."
+      "manualReplaced": "Ce brouillon demandait une revue manuelle des conflits, qu'une synchronisation n'offre pas : chacune de ses exécutions a écrit les valeurs de la source. Il garde désormais les valeurs de l'org cible partout où les deux orgs diffèrent. Faites un autre choix si les valeurs de la source doivent être écrites."
     },
     "savedConfigs": {
       "title": "Configurations enregistrées",
@@ -1560,7 +1554,18 @@
       "runAgain": "La dernière synchronisation entre ces orgs, le {{date}}, a créé des enregistrements toujours dans la cible : {{objects}}. Relancer insère de nouveau chaque enregistrement : retirez d'abord cette exécution pour ne laisser aucune seconde copie.",
       "unread": "Compté d'après ce que cette exécution a conservé : l'org cible n'a pas pu être interrogée ({{reason}})."
     },
-    "noCustomMapping": "Aucune correspondance personnalisée : les champs de même nom d'API sont copiés."
+    "noCustomMapping": "Aucune correspondance personnalisée : les champs de même nom d'API sont copiés.",
+    "conflictStrategyHint": "Demandé pour les objets écrits par upsert ou par mise à jour, qui trouvent l'enregistrement que l'org cible détient. Une exécution n'écrit jamais que dans l'org cible : pour copier dans l'autre sens, intervertissez les deux orgs.",
+    "heldRecordsChosen": "Quand l'org cible détient déjà l'enregistrement : {{choice}}.",
+    "written": {
+      "linked_one": "{{count}} enregistrement lié à un enregistrement que l'org cible détient déjà, non écrit : la cible l'a refusé comme doublon de cet enregistrement, et ce que l'exécution écrit sous lui pointe vers celui-ci.",
+      "linked_other": "{{count}} enregistrements liés à des enregistrements que l'org cible détient déjà, non écrits : la cible les a refusés comme doublons de ces enregistrements, et ce que l'exécution écrit sous eux pointe vers ceux-ci.",
+      "refusal": "Les mots de la cible :",
+      "notInTarget_one": "{{count}} enregistrement écrit sans {{fields}} : il désignait un enregistrement que l'org cible n'a pas.",
+      "notInTarget_other": "{{count}} enregistrements écrits sans {{fields}} : ils désignaient des enregistrements que l'org cible n'a pas.",
+      "ownerRefusedEarlier_one": "{{count}} enregistrement écrit sans {{fields}} dès le départ : l'org cible a refusé le même propriétaire plus tôt dans cette exécution, un utilisateur qu'elle n'a pas.",
+      "ownerRefusedEarlier_other": "{{count}} enregistrements écrits sans {{fields}} dès le départ : l'org cible a refusé le même propriétaire plus tôt dans cette exécution, un utilisateur qu'elle n'a pas."
+    }
   },
   "migration": {
     "title": "Migration",
@@ -4492,7 +4497,9 @@
     "searchObjects": "Rechercher des objets...",
     "noObjectsSelected": "Aucun objet sélectionné",
     "orgs": "Orgs",
-    "objects": "Objets"
+    "objects": "Objets",
+    "openHistory": "Voir cette exécution dans l'historique",
+    "againInserts": "Relancé, un Sync Rapide insère ces enregistrements une seconde fois : retirez d'abord ce que cette exécution a créé, ou faites un upsert sur un ID externe dans l'assistant complet."
   },
   "pagination": {
     "navigation": "Pagination",

@@ -1,3 +1,4 @@
+import type { SyncLookupsLeftOut } from '@sandforge/shared';
 import type { OperationOutcome } from './DataSync.js';
 
 /**
@@ -16,7 +17,8 @@ import type { OperationOutcome } from './DataSync.js';
  * `notes` are what the write says of the records it wrote, as a result's
  * notes are (`DataSync.write`): a record type set aside, a lookup dropped.
  * When a cancel carried the outcomes alone, the records it let into the org
- * went without a word of what they were written without.
+ * went without a word of what they were written without. `lookupsLeftOut`
+ * says the records it wrote without lookups they held, as a result does.
  *
  * It lives in a module of its own, importing nothing at run time, for the
  * reason `SyncRunFailure` does: the writer that throws it and the
@@ -27,6 +29,7 @@ export class WriteCancelledError extends Error {
     readonly objectApiName: string,
     readonly written: OperationOutcome[] = [],
     readonly notes: string[] = [],
+    readonly lookupsLeftOut: SyncLookupsLeftOut[] = [],
   ) {
     super(
       written.length === 0

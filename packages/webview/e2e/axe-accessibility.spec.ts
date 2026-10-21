@@ -7967,6 +7967,228 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync first step asking what to do when the target already holds the record, once an object finds one', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme, { currentStep: 0 }, 'sync-held-records');
+      await expect(page.getByLabel('Direction')).toHaveCount(0);
+      await expect(page.getByLabel('When the target already holds the record')).toHaveValue(
+        'target_wins',
+      );
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync results saying the emails and phone numbers neutralized, and the rows linked or written without their owner, apart from the refusals', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            operation: 'upsert',
+            processed: 13,
+            success: 12,
+            failed: 0,
+            skipped: 1,
+            conflictCount: 0,
+            errors: [],
+            linkedToExisting: {
+              records: 1,
+              refusal: 'DUPLICATE_VALUE: duplicate value found: Legacy_Key__c',
+            },
+            lookupsLeftOut: [{ records: 12, fields: ['OwnerId'], reason: 'ownerRefusedEarlier' }],
+          },
+        ],
+        totalProcessed: 13,
+        totalSuccess: 12,
+        totalFailed: 0,
+        totalSkipped: 1,
+        duration: 900,
+        timestamp: '2026-10-21T10:00:00.000Z',
+        contactPoints: {
+          neutralized: true,
+          fields: [
+            { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 12 },
+            { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 9 },
+          ],
+          values: 21,
+        },
+      });
+      await page.getByTestId('sync-result-written-Contact').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-contact-points-row')).toHaveCount(2);
+      await expect(page.getByTestId('sync-result-written-Contact-ownerRefusedEarlier')).toHaveText(
+        '12 records written without OwnerId from the start: the target org refused the same ' +
+          'owner earlier in this run, a user it does not have.',
+      );
+      await expect(page.getByTestId('sync-result-errors-Contact')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Quick Sync results offering to remove what the run created and the way to its history entry, then that entry', async ({
+      page,
+    }) => {
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.addInitScript(
+        (args: { source: string; target: string }) => {
+          const host = window as unknown as {
+            acquireVsCodeApi: () => { setState: (state: unknown) => void };
+            __SANDFORGE_MODULE__?: string;
+          };
+          host.acquireVsCodeApi().setState({
+            quickSyncDraft: {
+              sourceOrgId: args.source,
+              targetOrgId: args.target,
+              selectedObjects: ['Contact'],
+              parentObjects: [],
+            },
+            quickSyncStep: 'preview',
+            quickSyncPreview: {
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  recordCount: 13,
+                  estimatedApiCalls: 1,
+                  isParentDependency: false,
+                },
+              ],
+              totalRecords: 13,
+              totalApiCalls: 1,
+              estimatedDurationSec: 1,
+            },
+          });
+          host.__SANDFORGE_MODULE__ = 'sync';
+        },
+        { source: DEV_SANDBOX.id, target: QA_SANDBOX.id },
+      );
+      await page.goto('/');
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('quick-sync-start-btn').click();
+      await page.getByTestId('quick-sync-go-btn').click();
+      await bridge.respondToNext('quicksync:execute', 'quicksync:execute:response', {
+        syncConfig: { id: 'cfg-quick-axe' },
+        objectCount: 1,
+      });
+      const result = {
+        configId: 'cfg-quick-axe',
+        operationId: 'run-quick-axe',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            operation: 'insert',
+            processed: 13,
+            success: 12,
+            failed: 0,
+            skipped: 1,
+            conflictCount: 0,
+            errors: [],
+            linkedToExisting: { records: 1 },
+            lookupsLeftOut: [{ records: 12, fields: ['OwnerId'], reason: 'notInTarget' }],
+          },
+        ],
+        totalProcessed: 13,
+        totalSuccess: 12,
+        totalFailed: 0,
+        totalSkipped: 1,
+        duration: 900,
+        timestamp: '2026-10-21T10:00:00.000Z',
+        created: {
+          runId: 'run-quick-axe',
+          objects: [{ objectApiName: 'Contact', count: 12 }],
+          files: 0,
+        },
+        contactPoints: {
+          neutralized: true,
+          fields: [{ objectApiName: 'Contact', field: 'Email', kind: 'email', values: 12 }],
+          values: 12,
+        },
+      };
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', result);
+      const removalInfo = {
+        info: {
+          runId: 'run-quick-axe',
+          configId: 'cfg-quick-axe',
+          configName: 'Quick Sync',
+          sourceOrgId: DEV_SANDBOX.id,
+          targetOrgId: QA_SANDBOX.id,
+          startedAt: '2026-10-21T09:59:59.000Z',
+          endedAt: '2026-10-21T10:00:00.000Z',
+          created: 12,
+          left: [{ objectApiName: 'Contact', count: 12 }],
+        },
+      };
+      // Every request answered: a development build mounts the card twice.
+      await bridge.waitForMessage('sync:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'sync:removal:info', 'sync:removal:info:response', removalInfo);
+      const removal = page.getByTestId('quick-sync-result-removal');
+      await removal.getByTestId('sync-removal-remove').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('quick-sync-again-inserts')).toBeVisible();
+      await expect(page.getByTestId('quick-sync-result-written-Contact')).toBeVisible();
+      await expect(page.getByTestId('quick-sync-result-errors-Contact')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+
+      // The run's entry on the History tab, opened from the results.
+      const askedBefore = (await bridge.getMessages('sync:removal:info')).length;
+      await page.getByTestId('quick-sync-open-history').click();
+      await bridge.respondToNext('sync:history:list', 'sync:history:list:response', {
+        entries: [
+          {
+            id: 'h-quick-axe',
+            configSnapshot: {
+              id: 'cfg-quick-axe',
+              name: 'Quick Sync',
+              description: 'Auto-generated by Quick Sync',
+              sourceOrgId: DEV_SANDBOX.id,
+              targetOrgId: QA_SANDBOX.id,
+              direction: 'source_to_target',
+              mode: 'full',
+              conflictStrategy: 'source_wins',
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  operation: 'insert',
+                  fieldMappings: [],
+                  transformRules: [],
+                  excludedFields: [],
+                  addOnFields: [],
+                  batchSize: 200,
+                  insertOrder: 1,
+                },
+              ],
+              enableRollback: false,
+              createdAt: '2026-10-21T09:59:59.000Z',
+              updatedAt: '2026-10-21T09:59:59.000Z',
+            },
+            result,
+            startTime: '2026-10-21T09:59:59.000Z',
+            endTime: '2026-10-21T10:00:00.000Z',
+            triggeredBy: 'manual',
+          },
+        ],
+      });
+      await page.getByTestId('sync-history-detail').waitFor({ timeout: 10_000 });
+      await expect
+        .poll(async () => (await bridge.getMessages('sync:removal:info')).length)
+        .toBeGreaterThan(askedBefore);
+      await answerAll(page, 'sync:removal:info', 'sync:removal:info:response', removalInfo);
+      await page
+        .getByTestId('history-removal')
+        .getByTestId('sync-removal-remove')
+        .waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('history-written-Contact')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Sync history detail of a run whose price books matched the standard one, apart from the refusals', async ({
       page,
     }) => {

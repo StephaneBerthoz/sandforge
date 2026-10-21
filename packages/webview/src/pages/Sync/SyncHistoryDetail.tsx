@@ -15,6 +15,9 @@ import { SyncEarlierCopiesNotice } from './SyncEarlierCopies';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
+import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
+import { SyncWrittenLines } from './SyncWrittenLines';
+import { heldRecordChoiceOf } from './heldRecordChoice';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -34,6 +37,7 @@ export const SyncHistoryDetail: React.FC = () => {
   if (!selectedEntry) return null;
 
   const { result, configSnapshot, startTime, endTime, triggeredBy } = selectedEntry;
+  const heldChoice = heldRecordChoiceOf(configSnapshot);
 
   return (
     <div
@@ -146,6 +150,9 @@ export const SyncHistoryDetail: React.FC = () => {
         />
       )}
 
+      {/* The emails and phone numbers the run wrote, said once for it. */}
+      {result.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
+
       {/* Per-object results */}
       <div className="flex flex-col gap-(--sf-space-2)">
         <h5 className="text-xs font-semibold text-text-primary">
@@ -197,6 +204,12 @@ export const SyncHistoryDetail: React.FC = () => {
                   <SyncFilesLine files={obj.files} testId={`history-files-${obj.objectApiName}`} />
                 </div>
               )}
+              {/* Linked rather than written, or written without a lookup: no refusal. */}
+              {(obj.linkedToExisting || (obj.lookupsLeftOut?.length ?? 0) > 0) && (
+                <div className="mt-1">
+                  <SyncWrittenLines result={obj} testId={`history-written-${obj.objectApiName}`} />
+                </div>
+              )}
               {obj.errors.length > 0 && (
                 <div className="mt-1">
                   <RecordErrorGroups
@@ -238,8 +251,14 @@ export const SyncHistoryDetail: React.FC = () => {
           {t('sync.history.configSnapshot')}
         </h5>
         <div className="flex gap-(--sf-space-2) text-[10px] text-text-secondary flex-wrap">
-          <Badge variant="default">{t(`sync.directions.${configSnapshot.direction}`)}</Badge>
           <Badge variant="default">{t(`sync.modes.${configSnapshot.mode}`)}</Badge>
+          {/* What its runs did with a record the target held, as the first
+              step asks it: "Bidirectional" said a direction no run took. */}
+          {heldChoice !== null && (
+            <span data-testid="history-held-records">
+              {t('sync.heldRecordsChosen', { choice: t(`sync.conflicts.${heldChoice}`) })}
+            </span>
+          )}
           <span>{t('common.objectCount', { count: configSnapshot.objects.length })}</span>
           <span>
             {t('sync.fieldMappingCount', {

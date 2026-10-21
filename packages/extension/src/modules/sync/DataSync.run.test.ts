@@ -99,11 +99,9 @@ describe('DataSync — the run a write is part of', () => {
     expect(links.targetOf(SOURCE_ACCOUNT)).toBe('001000000000800AAA');
     expect(links.refusedObjectOf(SOURCE_ACCOUNT)).toBeUndefined();
     expect(result).toMatchObject({ processed: 1, success: 0, failed: 0, skipped: 1 });
-    expect(result.errors).toEqual([
-      `LINKED_TO_EXISTING: 1 Account record linked to an existing record, not written: the ` +
-        `target refused it as a duplicate of a record it holds and named it (${duplicate}); ` +
-        'what the run writes under it points at that record.',
-    ]);
+    // Said apart from the refusals: among them, the results listed it in red.
+    expect(result.linkedToExisting).toEqual({ records: 1, refusal: duplicate });
+    expect(result.errors).toEqual([]);
   });
 
   it('links no record an update was refused for: the record the target names is another', async () => {
@@ -187,10 +185,10 @@ describe('DataSync — the run a write is part of', () => {
     ]);
     expect(insert.mock.calls[1][1]).toEqual([{ LastName: 'Roe', AccountId: TARGET_ACCOUNT }]);
     expect(result.success).toBe(1);
-    expect(result.errors).toEqual([
-      '1 record(s) written without OwnerId: the lookup held an id from the source org that the ' +
-        'target does not have.',
+    expect(result.lookupsLeftOut).toEqual([
+      { records: 1, fields: ['OwnerId'], reason: 'notInTarget' },
     ]);
+    expect(result.errors).toEqual([]);
   });
 
   it('leaves a contact refused rather than write it without the account the run wrote', async () => {
@@ -281,9 +279,10 @@ describe('DataSync — the run a write is part of', () => {
     expect(insert).toHaveBeenCalledTimes(3);
     expect(insert.mock.calls[2][1]).toEqual([{ LastName: 'Roe', AccountId: TARGET_ACCOUNT }]);
     expect(result).toMatchObject({ success: 1, failed: 0 });
+    expect(result.lookupsLeftOut).toEqual([
+      { records: 1, fields: ['OwnerId'], reason: 'notInTarget' },
+    ]);
     expect(result.errors).toEqual([
-      '1 record(s) written without OwnerId: the lookup held an id from the source org that the ' +
-        'target does not have.',
       '1 record(s) written again without the fields the target refused them on, 1 written ' +
         'without Phone: a validation rule of the target refused it, ' +
         'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must read +33 X XX XX XX XX.',
@@ -527,18 +526,19 @@ describe('DataSync — an owner the target refused earlier in the run', () => {
     const { first, second } = await caseThenContacts(insert, contacts);
 
     // The case: refused, then written again without its owner.
-    expect(first.errors).toEqual([
-      '1 record(s) written without OwnerId: the lookup held an id from the source org that the ' +
-        'target does not have.',
+    expect(first.lookupsLeftOut).toEqual([
+      { records: 1, fields: ['OwnerId'], reason: 'notInTarget' },
     ]);
+    expect(first.errors).toEqual([]);
     // The contacts: one request, without the owner the case showed the target refuses.
     expect(insert).toHaveBeenCalledTimes(3);
     expect(insert.mock.calls[2][1]).toEqual([{ LastName: 'One' }, { LastName: 'Two' }]);
     expect(second).toMatchObject({ processed: 2, success: 2, failed: 0 });
-    expect(second.errors).toEqual([
-      '2 record(s) written without OwnerId, left out from the start: the target refused the ' +
-        'same owner earlier in this run, an id from the source org that the target does not have.',
+    // Written, so said apart from the refusals.
+    expect(second.lookupsLeftOut).toEqual([
+      { records: 2, fields: ['OwnerId'], reason: 'ownerRefusedEarlier' },
     ]);
+    expect(second.errors).toEqual([]);
   });
 
   it('keeps the owner of every row in a run that never saw it refused', async () => {
@@ -550,6 +550,7 @@ describe('DataSync — an owner the target refused earlier in the run', () => {
     expect(insert).toHaveBeenCalledTimes(2);
     expect(insert.mock.calls[1][1]).toEqual([{ LastName: 'One', OwnerId: OWNER }]);
     expect(second.errors).toEqual([]);
+    expect(second.lookupsLeftOut).toBeUndefined();
   });
 
   it('keeps another owner, which the target never refused', async () => {
@@ -565,9 +566,8 @@ describe('DataSync — an owner the target refused earlier in the run', () => {
       { LastName: 'One' },
       { LastName: 'Two', OwnerId: OTHER_OWNER },
     ]);
-    expect(second.errors).toEqual([
-      '1 record(s) written without OwnerId, left out from the start: the target refused the ' +
-        'same owner earlier in this run, an id from the source org that the target does not have.',
+    expect(second.lookupsLeftOut).toEqual([
+      { records: 1, fields: ['OwnerId'], reason: 'ownerRefusedEarlier' },
     ]);
   });
 

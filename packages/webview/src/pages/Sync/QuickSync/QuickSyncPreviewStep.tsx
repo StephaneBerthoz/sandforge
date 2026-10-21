@@ -12,6 +12,9 @@ import { SyncPricebookLine } from '../SyncPricebookLine';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
+import { SyncRunRemoval } from '../SyncRunRemoval';
+import { SyncWrittenLines } from '../SyncWrittenLines';
+import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -32,6 +35,8 @@ export interface QuickSyncPreviewStepProps {
   /** The orgs the sync goes between: what the last run between them left in the target is said. */
   sourceOrgId?: string;
   targetOrgId?: string;
+  /** Open the history entry of the run of this operation id; absent, the results offer no way there. */
+  onOpenHistory?: (operationId: string) => void;
 }
 
 const statusVariant: Record<string, BadgeVariant> = {
@@ -58,6 +63,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   onBack,
   sourceOrgId = '',
   targetOrgId = '',
+  onOpenHistory,
 }) => {
   const { t } = useTranslation();
 
@@ -106,6 +112,15 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             </span>
           )}
         </div>
+        {/* What the run created, and its removal, as the Sync tab offers it:
+            Quick Sync inserts every record, so a wrong pick or a run started
+            twice was taken back only from the History tab, which nothing here
+            named. */}
+        {result.created && (
+          <SyncRunRemoval runId={result.created.runId} testId="quick-sync-result-removal" />
+        )}
+        {/* The emails and phone numbers it wrote, said once for the run. */}
+        {result.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
         {result.objectResults.map((obj) => (
           <Card key={obj.objectApiName}>
             <CardHeader
@@ -114,6 +129,8 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             />
             {(obj.errors.length > 0 ||
               obj.standardPricebookMatched ||
+              obj.linkedToExisting ||
+              (obj.lookupsLeftOut?.length ?? 0) > 0 ||
               (obj.currenciesReplaced?.length ?? 0) > 0 ||
               (obj.pricesSettled?.length ?? 0) > 0) && (
               <CardBody>
@@ -121,6 +138,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                 {obj.standardPricebookMatched && (
                   <SyncPricebookLine testId={`quick-sync-result-pricebook-${obj.objectApiName}`} />
                 )}
+                <SyncWrittenLines
+                  result={obj}
+                  testId={`quick-sync-result-written-${obj.objectApiName}`}
+                />
                 <RecordErrorGroups
                   objectApiName={obj.objectApiName}
                   errors={obj.errors}
@@ -146,7 +167,23 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             )}
           </Card>
         ))}
-        <div className="flex justify-center mt-2">
+        {/* What comes next: a second Quick Sync inserts the same records
+            again, and the run's history entry holds what it wrote. */}
+        {result.created && (
+          <p className="text-xs text-text-secondary" data-testid="quick-sync-again-inserts">
+            {t('quickSync.againInserts')}
+          </p>
+        )}
+        <div className="flex justify-center gap-(--sf-space-2) mt-2">
+          {onOpenHistory && (
+            <Button
+              variant="secondary"
+              onClick={() => onOpenHistory(result.operationId)}
+              data-testid="quick-sync-open-history"
+            >
+              {t('quickSync.openHistory')}
+            </Button>
+          )}
           <Button variant="primary" onClick={onReset} data-testid="quick-sync-new-btn">
             {t('quickSync.newQuickSync')}
           </Button>

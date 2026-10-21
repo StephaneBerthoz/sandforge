@@ -10,7 +10,7 @@
  * sandbox. A configuration that sets `keepContactPoints` copies them as read.
  */
 
-import type { SyncConfig } from '@sandforge/shared';
+import type { ForgeContactPointsReport, SyncConfig } from '@sandforge/shared';
 import { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import type { FieldInfo } from '../forge/ForgeExecutor.js';
 
@@ -26,8 +26,34 @@ export function contactPointsOfRun(
 }
 
 /**
+ * What a run's result says of the emails and phone numbers it wrote, as a
+ * Forge run's says it (`SyncExecutionResult.contactPoints`): what its
+ * neutralizer changed, field by field, or that it kept them as read, as its
+ * configuration asked, once it wrote a record. Nothing when it neutralized
+ * none, or kept them and wrote nothing.
+ *
+ * @param neutralizer - The run's neutralizer; none when it keeps them.
+ * @param wrote - Whether the run wrote a record.
+ */
+export function contactPointsOfResult(
+  neutralizer: ContactPointNeutralizer | undefined,
+  wrote: boolean,
+): ForgeContactPointsReport | undefined {
+  if (!neutralizer) return wrote ? { neutralized: false, fields: [], values: 0 } : undefined;
+  const report = neutralizer.report();
+  return report.values > 0 ? report : undefined;
+}
+
+/**
  * Neutralize the contact points of the rows about to be written to an object,
- * in place, and say what was done.
+ * in place. The neutralizer counts each value it changes, field by field: its
+ * `report()` is what the run's result says of them, once for the run, as a
+ * Forge run's says it.
+ *
+ * Each object's result said it in a sentence among its errors, in English
+ * whatever the panel's language: every Sync of contacts, which neutralizes by
+ * default, showed "1 × 12 email address(es) and phone number(s) of Contact
+ * neutralized" in red under a run that had succeeded.
  *
  * The fields are the target's: the rows hold its names once mapped, and what
  * the target makes an email or a phone field is what its automation reads.
@@ -40,7 +66,6 @@ export function contactPointsOfRun(
  * @param fields - The target's describe of it.
  * @param rows - The payloads the write sends, changed in place.
  * @param matchField - The field the write matches on, when it is not `Id`.
- * @returns The note the object's result says it with; nothing when no value changed.
  */
 export function neutralizeSyncRows(
   neutralizer: ContactPointNeutralizer,
@@ -48,23 +73,9 @@ export function neutralizeSyncRows(
   fields: readonly FieldInfo[],
   rows: Record<string, unknown>[],
   matchField?: string,
-): string | undefined {
+): void {
   const written = matchField ? fields.filter((field) => field.name !== matchField) : fields;
   const neutralize = neutralizer.forObject(objectApiName, written);
-  if (!neutralize) return undefined;
-  const changed = new Map<string, number>();
-  for (const row of rows) {
-    const before = { ...row };
-    neutralize(row);
-    for (const field of Object.keys(before)) {
-      if (before[field] !== row[field]) changed.set(field, (changed.get(field) ?? 0) + 1);
-    }
-  }
-  if (changed.size === 0) return undefined;
-  const values = [...changed.values()].reduce((sum, count) => sum + count, 0);
-  return (
-    `${values} email address(es) and phone number(s) of ${objectApiName} neutralized ` +
-    `(${[...changed.keys()].join(', ')}): addresses under .invalid, numbers fictional, so the ` +
-    "target's automation reaches no one. A configuration that keeps contact points copies them as read."
-  );
+  if (!neutralize) return;
+  for (const row of rows) neutralize(row);
 }

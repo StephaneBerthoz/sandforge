@@ -72,6 +72,7 @@ describe('useSyncHistoryStore', () => {
       selectedEntry: null,
       loading: false,
       error: null,
+      pendingRun: null,
     });
     mockPostMessage.mockClear();
   });
@@ -103,6 +104,45 @@ describe('useSyncHistoryStore', () => {
     expect(state.entries[0].id).toBe('h-1');
     expect(state.loading).toBe(false);
     expect(state.error).toBeNull();
+  });
+
+  it('opens the entry of the run a results page names, once the list holds it', () => {
+    // Quick Sync's results named no way to the run's entry: it had to be
+    // found by its time in the list.
+    const theRun = makeMockEntry('h-2');
+    theRun.result = { ...theRun.result, operationId: 'op-quick' };
+
+    useSyncHistoryStore.getState().openRun('op-quick');
+    const posted = mockPostMessage.mock.calls.map(
+      (call) => (call[0] as PostedEnvelope).payload.type,
+    );
+    expect(posted).toEqual(['sync:history:list']);
+
+    useSyncHistoryStore.getState().handleMessage({
+      type: 'sync:history:list:response',
+      payload: { entries: [makeMockEntry('h-1'), theRun] },
+    });
+    expect(useSyncHistoryStore.getState().selectedEntry?.id).toBe('h-2');
+    expect(useSyncHistoryStore.getState().pendingRun).toBeNull();
+
+    // Asked once: the next list leaves the selection as the reader left it.
+    useSyncHistoryStore.getState().clearSelection();
+    useSyncHistoryStore.getState().handleMessage({
+      type: 'sync:history:list:response',
+      payload: { entries: [makeMockEntry('h-1'), theRun] },
+    });
+    expect(useSyncHistoryStore.getState().selectedEntry).toBeNull();
+  });
+
+  it('leaves the list on screen when the history holds no entry of the run', () => {
+    useSyncHistoryStore.getState().openRun('op-missing');
+    useSyncHistoryStore.getState().handleMessage({
+      type: 'sync:history:list:response',
+      payload: { entries: [makeMockEntry('h-1')] },
+    });
+
+    expect(useSyncHistoryStore.getState().selectedEntry).toBeNull();
+    expect(useSyncHistoryStore.getState().pendingRun).toBeNull();
   });
 
   it('handleMessage with detail response updates selectedEntry', () => {

@@ -207,6 +207,70 @@ describe('SyncHistoryDetail', () => {
     expect(screen.queryByTestId('sync-history-errors-Pricebook2')).toBeNull();
   });
 
+  it('says the emails and phone numbers the run neutralized, and the rows linked or written without a lookup, not among the refusals', () => {
+    const entry = makeMockEntry();
+    entry.result.objectResults[1] = {
+      ...entry.result.objectResults[1],
+      errors: [],
+      linkedToExisting: { records: 2, refusal: 'DUPLICATE_VALUE: duplicate value found' },
+      lookupsLeftOut: [{ records: 5, fields: ['OwnerId'], reason: 'notInTarget' }],
+    };
+    entry.result.contactPoints = {
+      neutralized: true,
+      fields: [{ objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 50 }],
+      values: 50,
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('forge-results-contact-points-row').textContent).toBe(
+      'Contact.Phone — 50 values',
+    );
+    const written = screen.getByTestId('history-written-Contact');
+    expect(written.textContent).toContain(
+      '2 records linked to records the target org already holds',
+    );
+    expect(written.textContent).toContain('5 records written without OwnerId');
+    expect(written.closest('.text-status-error')).toBeNull();
+    expect(screen.queryByTestId('sync-history-errors-Contact')).toBeNull();
+  });
+
+  it('says what its runs did with a record the target held, not a direction no run took', () => {
+    // "Bidirectional" read as a run writing both ways: every run writes to
+    // the target, and on any other direction the strategy was never read.
+    const entry = makeMockEntry();
+    entry.configSnapshot = {
+      ...entry.configSnapshot,
+      direction: 'bidirectional',
+      conflictStrategy: 'merge',
+      objects: entry.configSnapshot.objects.map((o) => ({
+        ...o,
+        operation: 'upsert',
+        externalIdField: 'Ext__c',
+      })),
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    const { unmount } = render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('history-held-records').textContent).toBe(
+      "When the target already holds the record: Take the source's values, keeping the " +
+        "target's where the source has none.",
+    );
+    expect(screen.getByTestId('sync-history-detail').textContent).not.toContain('Bidirectional');
+    unmount();
+
+    // A configuration that only inserts finds no record to settle.
+    const inserting = makeMockEntry();
+    inserting.configSnapshot = {
+      ...inserting.configSnapshot,
+      direction: 'bidirectional',
+      objects: inserting.configSnapshot.objects.map((o) => ({ ...o, operation: 'insert' })),
+    };
+    useSyncHistoryStore.setState({ selectedEntry: inserting });
+    render(<SyncHistoryDetail />);
+    expect(screen.queryByTestId('history-held-records')).toBeNull();
+  });
+
   it('calls a run a cancel stopped cancelled, not partial, and says before what', () => {
     const entry = makeMockEntry();
     entry.result = {

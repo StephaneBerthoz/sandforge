@@ -343,12 +343,12 @@ describe('SyncOrchestrator — the records a run writes and refuses, object afte
     // it, and the contact under it follows it there.
     const underTaken = written.find((r) => r.LastName === 'Under Taken');
     expect(target.held.get(underTaken?.AccountId as string)?.Name).toBe('Theirs');
-    expect(result.objectResults[0].errors).toContain(
-      'LINKED_TO_EXISTING: 1 Account record linked to an existing record, not written: the ' +
-        'target refused it as a duplicate of a record it holds and named it (DUPLICATE_VALUE: ' +
-        'duplicate value found: Code__c duplicates value on record with id: 001000000000800); ' +
-        'what the run writes under it points at that record.',
-    );
+    expect(result.objectResults[0].linkedToExisting).toEqual({
+      records: 1,
+      refusal:
+        'DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: ' +
+        '001000000000800',
+    });
     // Linked, it is not one the run created, and no removal of the run takes it.
     expect(result.status).toBe('partial');
     const contacts = result.objectResults[1].errors.join(' ');

@@ -174,7 +174,8 @@ describe('SyncSimulationResults', () => {
     expect(screen.getByTestId('sync-simulation-summary').textContent).toContain('In conflict: 2');
     const account = screen.getByTestId('sync-simulation-object-Account');
     expect(account.textContent).toContain(
-      '2 records differ from the target on a field the run writes: Target Wins decides which value is written.',
+      // In the words the first step asks it in.
+      "2 records differ from the target on a field the run writes: “Keep the target's values” decides which value is written.",
     );
     expect(account.textContent).toContain('Fields that differ: Phone, Name.');
   });

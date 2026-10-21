@@ -23,6 +23,13 @@ export interface SyncHistoryState {
   fetchHistory: () => void;
   /** Fetch details for a single history entry. */
   fetchDetail: (entryId: string) => void;
+  /** The run whose entry opens once the list holds it, by its operation id; null when none. */
+  pendingRun: string | null;
+  /**
+   * Fetch the list and open the entry of the run of `operationId` in it: the
+   * way from a run's results to its history entry.
+   */
+  openRun: (operationId: string) => void;
   /** Clear the currently selected entry. */
   clearSelection: () => void;
   /** Re-run a sync from a history entry's config snapshot. */
@@ -101,6 +108,12 @@ export const useSyncHistoryStore = create<SyncHistoryState>((set, get) => ({
   loading: false,
   error: null,
   pendingSaveId: null,
+  pendingRun: null,
+
+  openRun(operationId: string): void {
+    set({ pendingRun: operationId });
+    get().fetchHistory();
+  },
 
   fetchHistory(): void {
     set({ loading: true, error: null });
@@ -132,7 +145,20 @@ export const useSyncHistoryStore = create<SyncHistoryState>((set, get) => ({
     switch (message.type) {
       case 'sync:history:list:response': {
         const entries = (payload?.entries ?? []) as SyncHistoryEntry[];
-        set({ entries, loading: false, error: null });
+        // The run a results page asked to open: its entry, once listed. One
+        // the history does not hold leaves the list on screen.
+        const pendingRun = get().pendingRun;
+        const opened =
+          pendingRun === null
+            ? undefined
+            : entries.find((entry) => entry.result.operationId === pendingRun);
+        set({
+          entries,
+          loading: false,
+          error: null,
+          ...(pendingRun !== null ? { pendingRun: null } : {}),
+          ...(opened ? { selectedEntry: opened } : {}),
+        });
         break;
       }
       case 'sync:history:detail:response': {

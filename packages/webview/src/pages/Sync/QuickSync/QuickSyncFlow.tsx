@@ -10,6 +10,8 @@ import { Badge } from '../../../components/ui/Badge';
 export interface QuickSyncFlowProps {
   /** Callback to return to the full wizard. */
   onBack: () => void;
+  /** Open the history entry of a run the flow made, by its operation id. */
+  onOpenHistory?: (operationId: string) => void;
 }
 
 /**
@@ -18,7 +20,7 @@ export interface QuickSyncFlowProps {
  * Renders a step indicator and conditionally renders the appropriate
  * step component based on the current flow state.
  */
-export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
+export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHistory }) => {
   const { t } = useTranslation();
   const flow = useQuickSyncFlow();
   const { state } = flow;
@@ -99,6 +101,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
           onBack={() => flow.goToObjects()}
           sourceOrgId={state.sourceOrgId}
           targetOrgId={state.targetOrgId}
+          {...(onOpenHistory ? { onOpenHistory } : {})}
         />
       )}
 

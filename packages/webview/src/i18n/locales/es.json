@@ -1069,24 +1069,18 @@
     "execute": "Ejecutar",
     "executeDesc": "Ejecutar la operación de sincronización",
     "results": "Resultados",
-    "direction": "Dirección",
-    "directions": {
-      "source_to_target": "Origen a destino",
-      "target_to_source": "Destino a origen",
-      "bidirectional": "Bidireccional"
-    },
     "modes": {
       "full": "Completo",
       "incremental": "Incremental",
       "delta": "Delta",
       "cdc": "CDC"
     },
-    "conflictStrategy": "Estrategia de conflictos",
+    "conflictStrategy": "Cuando la org de destino ya tiene el registro",
     "conflicts": {
-      "source_wins": "Origen prevalece",
-      "target_wins": "Destino prevalece",
-      "newest_wins": "Más reciente prevalece",
-      "merge": "Fusionar"
+      "source_wins": "Sobrescribirlo con los valores del origen",
+      "target_wins": "Conservar los valores de la org de destino",
+      "newest_wins": "Conservar el de los dos modificado por última vez",
+      "merge": "Tomar los valores del origen, conservando los de la org de destino donde el origen no tiene ninguno"
     },
     "operations": {
       "insert": "Insertar",
@@ -1385,8 +1379,8 @@
       "conflicts": "En conflicto",
       "read_one": "{{count}} registro leído",
       "read_other": "{{count}} registros leídos",
-      "settledBy_one": "{{count}} registro difiere del destino en un campo que la ejecución escribe: {{strategy}} decide qué valor se escribe.",
-      "settledBy_other": "{{count}} registros difieren del destino en un campo que la ejecución escribe: {{strategy}} decide qué valor se escribe.",
+      "settledBy_one": "{{count}} registro difiere del destino en un campo que la ejecución escribe: «{{strategy}}» decide qué valor se escribe.",
+      "settledBy_other": "{{count}} registros difieren del destino en un campo que la ejecución escribe: «{{strategy}}» decide qué valor se escribe.",
       "conflictFields": "Campos que difieren: {{fields}}.",
       "nothingWritten": "No se escribió nada. Las cifras comparan lo que la ejecución enviaría con lo que el destino contiene ahora.",
       "notChecked": "Una simulación predice lo que dice la descripción del destino — un campo obligatorio vacío, un valor demasiado largo, un valor único que ya tiene — pero no ejecuta sus reglas de validación, reglas de duplicados, desencadenadores ni flujos, ni comprueba su uso compartido: un registro que alguno de ellos rechazaría se cuenta tal como la ejecución lo enviaría.",
@@ -1439,7 +1433,7 @@
       "pauseRefusedDetail": "La ejecución ya no está en curso o no se inició desde esta ventana."
     },
     "strategyNotice": {
-      "manualReplaced": "Este borrador pedía una revisión manual de conflictos, que una sincronización no ofrece: cada una de sus ejecuciones escribió los valores del origen. Ahora usa «Destino prevalece», que conserva todos los valores del destino donde las dos orgs difieren. Elija otra estrategia si el origen debe prevalecer."
+      "manualReplaced": "Este borrador pedía una revisión manual de conflictos, que una sincronización no ofrece: cada una de sus ejecuciones escribió los valores del origen. Ahora conserva los valores de la org de destino dondequiera que las dos orgs difieran. Elija otra opción si se deben escribir los valores del origen."
     },
     "savedConfigs": {
       "title": "Configuraciones guardadas",
@@ -1560,7 +1554,18 @@
       "runAgain": "La última sincronización entre estas orgs, el {{date}}, creó registros que siguen en el destino: {{objects}}. Ejecutar de nuevo vuelve a insertar cada registro: quite antes esa ejecución para no dejar una segunda copia.",
       "unread": "Contado según lo que conservó esa ejecución: no se pudo consultar la org de destino ({{reason}})."
     },
-    "noCustomMapping": "Sin asignación personalizada: se copian los campos con el mismo nombre de API."
+    "noCustomMapping": "Sin asignación personalizada: se copian los campos con el mismo nombre de API.",
+    "conflictStrategyHint": "Se pregunta para los objetos escritos por upsert o actualización, que encuentran el registro que tiene la org de destino. Una ejecución solo escribe en la org de destino: para copiar en el otro sentido, intercambie las dos orgs.",
+    "heldRecordsChosen": "Cuando la org de destino ya tiene el registro: {{choice}}.",
+    "written": {
+      "linked_one": "{{count}} registro vinculado a un registro que la org de destino ya tiene, no escrito: el destino lo rechazó como duplicado de ese registro, y lo que la ejecución escribe debajo apunta allí.",
+      "linked_other": "{{count}} registros vinculados a registros que la org de destino ya tiene, no escritos: el destino los rechazó como duplicados de esos registros, y lo que la ejecución escribe debajo apunta allí.",
+      "refusal": "Las palabras del destino:",
+      "notInTarget_one": "{{count}} registro escrito sin {{fields}}: indicaba un registro que la org de destino no tiene.",
+      "notInTarget_other": "{{count}} registros escritos sin {{fields}}: indicaban registros que la org de destino no tiene.",
+      "ownerRefusedEarlier_one": "{{count}} registro escrito sin {{fields}} desde el principio: la org de destino rechazó el mismo propietario antes en esta ejecución, un usuario que no tiene.",
+      "ownerRefusedEarlier_other": "{{count}} registros escritos sin {{fields}} desde el principio: la org de destino rechazó el mismo propietario antes en esta ejecución, un usuario que no tiene."
+    }
   },
   "migration": {
     "title": "Migración",
@@ -4492,7 +4497,9 @@
     "searchObjects": "Buscar objetos...",
     "noObjectsSelected": "Aún no hay objetos seleccionados",
     "orgs": "Orgs",
-    "objects": "Objetos"
+    "objects": "Objetos",
+    "openHistory": "Ver esta ejecución en el historial",
+    "againInserts": "Si se vuelve a ejecutar, un Sync rápido inserta estos registros una segunda vez: elimine primero lo que creó esta ejecución, o haga un upsert sobre un ID externo en el asistente completo."
   },
   "pagination": {
     "navigation": "Paginación",

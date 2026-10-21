@@ -5,7 +5,12 @@ import type {
   CurrencyReplaced,
   PriceCurrencySettled,
 } from './common.types.js';
-import type { ForgeUndoMark, ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
+import type {
+  ForgeContactPointsReport,
+  ForgeUndoMark,
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
+} from './forge.types.js';
 
 /** Sync direction */
 export type SyncDirection = 'source_to_target' | 'target_to_source' | 'bidirectional';
@@ -294,6 +299,13 @@ export interface SyncExecutionResult {
    * recorded before runs kept what they created.
    */
   created?: SyncRunCreated;
+  /**
+   * What the run did with the email addresses and phone numbers it wrote, as
+   * a Forge run reports it: neutralized, field by field — absent when it
+   * neutralized none — or kept as the source holds them, as its
+   * configuration asked (`keepContactPoints`).
+   */
+  contactPoints?: ForgeContactPointsReport;
 }
 
 /**
@@ -487,6 +499,44 @@ export interface SyncObjectResult {
    * not inserted a second time, and counted among `skipped`. Absent when none.
    */
   alreadyCopied?: number;
+  /**
+   * The records the target refused as a duplicate of one it holds, naming
+   * it, and that the run linked to that record rather than writing: counted
+   * among `skipped`, neither written nor failed. Said apart from `errors`,
+   * as `pricesSettled` is: the sentence saying so was listed among the
+   * refusals, in red under a run that had succeeded. Absent when none.
+   */
+  linkedToExisting?: SyncLinkedToExisting;
+  /**
+   * The records written without lookups they held from the source, and why.
+   * Written, so said apart from `errors` too. Absent when none.
+   */
+  lookupsLeftOut?: SyncLookupsLeftOut[];
+}
+
+/** See {@link SyncObjectResult.linkedToExisting}. */
+export interface SyncLinkedToExisting {
+  /** The records linked. */
+  records: number;
+  /** The target's refusal of the first of them, in its words: which value or rule matched. */
+  refusal?: string;
+}
+
+/**
+ * Records of one object written without some of the lookups they held, for
+ * one reason:
+ * - `notInTarget`: the target refused them for an id it does not have — the
+ *   owner, a record no object of the run wrote — and took them sent again
+ *   without those lookups;
+ * - `ownerRefusedEarlier`: the target refused the same owner earlier in the
+ *   run, so they were sent without it from the start.
+ */
+export interface SyncLookupsLeftOut {
+  /** The records written so. */
+  records: number;
+  /** The lookups they went without, by API name, sorted. */
+  fields: string[];
+  reason: 'notInTarget' | 'ownerRefusedEarlier';
 }
 
 /**

@@ -1069,24 +1069,18 @@
     "execute": "Ausführen",
     "executeDesc": "Synchronisierungsoperation starten",
     "results": "Ergebnisse",
-    "direction": "Richtung",
-    "directions": {
-      "source_to_target": "Quelle zu Ziel",
-      "target_to_source": "Ziel zu Quelle",
-      "bidirectional": "Bidirektional"
-    },
     "modes": {
       "full": "Vollständig",
       "incremental": "Inkrementell",
       "delta": "Delta",
       "cdc": "CDC"
     },
-    "conflictStrategy": "Konfliktstrategie",
+    "conflictStrategy": "Wenn die Ziel-Org den Datensatz bereits enthält",
     "conflicts": {
-      "source_wins": "Quelle hat Vorrang",
-      "target_wins": "Ziel hat Vorrang",
-      "newest_wins": "Neuestes hat Vorrang",
-      "merge": "Zusammenführen"
+      "source_wins": "Mit den Werten der Quelle überschreiben",
+      "target_wins": "Die Werte der Ziel-Org behalten",
+      "newest_wins": "Den zuletzt geänderten der beiden behalten",
+      "merge": "Die Werte der Quelle übernehmen und die der Ziel-Org behalten, wo die Quelle keine hat"
     },
     "operations": {
       "insert": "Einfügen",
@@ -1385,8 +1379,8 @@
       "conflicts": "Im Konflikt",
       "read_one": "{{count}} Datensatz gelesen",
       "read_other": "{{count}} Datensätze gelesen",
-      "settledBy_one": "{{count}} Datensatz weicht in einem Feld, das der Lauf schreibt, vom Ziel ab: {{strategy}} entscheidet, welcher Wert geschrieben wird.",
-      "settledBy_other": "{{count}} Datensätze weichen in einem Feld, das der Lauf schreibt, vom Ziel ab: {{strategy}} entscheidet, welcher Wert geschrieben wird.",
+      "settledBy_one": "{{count}} Datensatz weicht in einem Feld, das der Lauf schreibt, vom Ziel ab: „{{strategy}}“ entscheidet, welcher Wert geschrieben wird.",
+      "settledBy_other": "{{count}} Datensätze weichen in einem Feld, das der Lauf schreibt, vom Ziel ab: „{{strategy}}“ entscheidet, welcher Wert geschrieben wird.",
       "conflictFields": "Abweichende Felder: {{fields}}.",
       "nothingWritten": "Es wurde nichts geschrieben. Die Zahlen vergleichen, was der Lauf senden würde, mit dem, was das Ziel jetzt enthält.",
       "notChecked": "Eine Simulation sagt voraus, was die Beschreibung des Ziels verrät — ein leer gelassenes Pflichtfeld, ein zu langer Wert, ein eindeutiger Wert, den es bereits enthält —, führt aber weder seine Validierungsregeln noch seine Duplikatregeln, Trigger oder Flows aus und prüft nicht seine Freigaben: Ein Datensatz, den eine davon ablehnen würde, wird so gezählt, wie der Lauf ihn senden würde.",
@@ -1439,7 +1433,7 @@
       "pauseRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet."
     },
     "strategyNotice": {
-      "manualReplaced": "Dieser Entwurf verlangte eine manuelle Konfliktprüfung, die ein Synchronisierungslauf nicht bietet: Jeder seiner Läufe schrieb die Werte der Quelle. Er verwendet jetzt „Ziel hat Vorrang“, das jeden Wert des Ziels behält, wo sich die beiden Orgs unterscheiden. Wählen Sie eine andere Strategie, wenn die Quelle Vorrang haben soll."
+      "manualReplaced": "Dieser Entwurf verlangte eine manuelle Konfliktprüfung, die ein Synchronisierungslauf nicht bietet: Jeder seiner Läufe schrieb die Werte der Quelle. Er behält jetzt die Werte der Ziel-Org überall dort, wo sich die beiden Orgs unterscheiden. Treffen Sie eine andere Wahl, wenn die Werte der Quelle geschrieben werden sollen."
     },
     "savedConfigs": {
       "title": "Gespeicherte Konfigurationen",
@@ -1560,7 +1554,18 @@
       "runAgain": "Die letzte Synchronisierung zwischen diesen Orgs am {{date}} hat Datensätze angelegt, die noch im Ziel sind: {{objects}}. Erneut ausführen fügt jeden Datensatz erneut ein: Entfernen Sie diesen Lauf zuerst, damit keine zweite Kopie entsteht.",
       "unread": "Gezählt nach dem, was dieser Lauf aufbewahrt hat: Die Ziel-Org konnte nicht gefragt werden ({{reason}})."
     },
-    "noCustomMapping": "Keine eigene Zuordnung: Felder mit demselben API-Namen werden kopiert."
+    "noCustomMapping": "Keine eigene Zuordnung: Felder mit demselben API-Namen werden kopiert.",
+    "conflictStrategyHint": "Gefragt für die per Upsert oder Aktualisierung geschriebenen Objekte, die den Datensatz der Ziel-Org finden. Ein Lauf schreibt immer nur in die Ziel-Org: Um in die andere Richtung zu kopieren, tauschen Sie die beiden Orgs.",
+    "heldRecordsChosen": "Wenn die Ziel-Org den Datensatz bereits enthält: {{choice}}.",
+    "written": {
+      "linked_one": "{{count}} Datensatz mit einem Datensatz verknüpft, den die Ziel-Org bereits enthält, nicht geschrieben: Das Ziel hat ihn als Duplikat dieses Datensatzes abgelehnt, und was der Lauf darunter schreibt, verweist dorthin.",
+      "linked_other": "{{count}} Datensätze mit Datensätzen verknüpft, die die Ziel-Org bereits enthält, nicht geschrieben: Das Ziel hat sie als Duplikate dieser Datensätze abgelehnt, und was der Lauf darunter schreibt, verweist dorthin.",
+      "refusal": "Die Worte des Ziels:",
+      "notInTarget_one": "{{count}} Datensatz ohne {{fields}} geschrieben: Er verwies auf einen Datensatz, den die Ziel-Org nicht hat.",
+      "notInTarget_other": "{{count}} Datensätze ohne {{fields}} geschrieben: Sie verwiesen auf Datensätze, die die Ziel-Org nicht hat.",
+      "ownerRefusedEarlier_one": "{{count}} Datensatz von Anfang an ohne {{fields}} geschrieben: Die Ziel-Org hat denselben Inhaber früher in diesem Lauf abgelehnt, einen Benutzer, den sie nicht hat.",
+      "ownerRefusedEarlier_other": "{{count}} Datensätze von Anfang an ohne {{fields}} geschrieben: Die Ziel-Org hat denselben Inhaber früher in diesem Lauf abgelehnt, einen Benutzer, den sie nicht hat."
+    }
   },
   "migration": {
     "title": "Migration",
@@ -4492,7 +4497,9 @@
     "searchObjects": "Objekte suchen...",
     "noObjectsSelected": "Noch keine Objekte ausgewählt",
     "orgs": "Orgs",
-    "objects": "Objekte"
+    "objects": "Objekte",
+    "openHistory": "Diesen Lauf im Verlauf ansehen",
+    "againInserts": "Erneut gestartet, fügt ein Schnell-Sync diese Datensätze ein zweites Mal ein: Entfernen Sie zuerst, was dieser Lauf erstellt hat, oder führen Sie im vollständigen Assistenten einen Upsert über eine externe ID aus."
   },
   "pagination": {
     "navigation": "Seitennavigation",

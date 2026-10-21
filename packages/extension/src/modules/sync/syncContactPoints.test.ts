@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SyncObjectConfig } from '@sandforge/shared';
 import { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
-import { contactPointsOfRun, neutralizeSyncRows } from './syncContactPoints.js';
+import {
+  contactPointsOfResult,
+  contactPointsOfRun,
+  neutralizeSyncRows,
+} from './syncContactPoints.js';
 import { DataSync, type DataSyncDeps } from './DataSync.js';
 import { SyncRunLinks } from './syncRowPreparation.js';
 import { targetWriteFieldsOf } from './targetWriteFields.js';
@@ -28,25 +32,53 @@ describe('contactPointsOfRun', () => {
   });
 });
 
+describe('contactPointsOfResult', () => {
+  it('says what the run neutralized, field by field, as a Forge run says it', () => {
+    const neutralizer = new ContactPointNeutralizer('k');
+    neutralizeSyncRows(neutralizer, 'Contact', FIELDS, [
+      { LastName: 'Doe', Email: 'jane@acme.com', Phone: '+1 415 555 0100' },
+    ]);
+
+    expect(contactPointsOfResult(neutralizer, true)).toEqual({
+      neutralized: true,
+      fields: [
+        { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 1 },
+        { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 1 },
+      ],
+      values: 2,
+    });
+  });
+
+  it('says nothing of a run that neutralized no value', () => {
+    expect(contactPointsOfResult(new ContactPointNeutralizer('k'), true)).toBeUndefined();
+  });
+
+  it('says a run that keeps them wrote them as read, once it wrote a record', () => {
+    expect(contactPointsOfResult(undefined, true)).toEqual({
+      neutralized: false,
+      fields: [],
+      values: 0,
+    });
+    expect(contactPointsOfResult(undefined, false)).toBeUndefined();
+  });
+});
+
 describe('neutralizeSyncRows', () => {
-  it('puts every address under .invalid and every number in the fictional range, and says it', () => {
+  it('puts every address under .invalid and every number in the fictional range, and counts each', () => {
     const rows: Record<string, unknown>[] = [
       { LastName: 'Doe', Email: 'jane@acme.com', Phone: '+1 415 555 0100' },
       { LastName: 'Roe', Email: 'john@acme.com' },
     ];
+    const neutralizer = new ContactPointNeutralizer('k');
 
-    const note = neutralizeSyncRows(new ContactPointNeutralizer('k'), 'Contact', FIELDS, rows);
+    neutralizeSyncRows(neutralizer, 'Contact', FIELDS, rows);
 
     expect(rows[0].Email).toBe('jane@acme.com.invalid');
     expect(rows[1].Email).toBe('john@acme.com.invalid');
     // In the layout of the number it replaces.
     expect(String(rows[0].Phone)).toMatch(/^\+3 363 998 \d{4}$/);
     expect(rows[0].LastName).toBe('Doe');
-    expect(note).toBe(
-      '3 email address(es) and phone number(s) of Contact neutralized (Email, Phone): addresses ' +
-        "under .invalid, numbers fictional, so the target's automation reaches no one. A " +
-        'configuration that keeps contact points copies them as read.',
-    );
+    expect(neutralizer.report().values).toBe(3);
   });
 
   it('leaves the field the write matches on as read, so an upsert finds the copy an earlier run wrote', () => {
@@ -62,19 +94,19 @@ describe('neutralizeSyncRows', () => {
     });
   });
 
-  it('says nothing of an object with no contact point, or of values already unreachable', () => {
+  it('counts nothing of an object with no contact point, or of values already unreachable', () => {
+    const neutralizer = new ContactPointNeutralizer('k');
     const rows: Record<string, unknown>[] = [{ LastName: 'Doe', Email: 'jane@acme.com.invalid' }];
-    expect(neutralizeSyncRows(new ContactPointNeutralizer('k'), 'Contact', FIELDS, rows)).toBe(
-      undefined,
+    neutralizeSyncRows(neutralizer, 'Contact', FIELDS, rows);
+    neutralizeSyncRows(
+      neutralizer,
+      'Account',
+      [{ name: 'Name', type: 'string', queryable: true, createable: true, isReference: false }],
+      [{ Name: 'Acme' }],
     );
-    expect(
-      neutralizeSyncRows(
-        new ContactPointNeutralizer('k'),
-        'Account',
-        [{ name: 'Name', type: 'string', queryable: true, createable: true, isReference: false }],
-        [{ Name: 'Acme' }],
-      ),
-    ).toBeUndefined();
+
+    expect(rows[0].Email).toBe('jane@acme.com.invalid');
+    expect(neutralizer.report().values).toBe(0);
   });
 });
 
@@ -105,23 +137,27 @@ describe('a Sync write', () => {
     };
   }
 
-  it('sends neutralized emails and phone numbers when the run neutralizes, and says so in its notes', async () => {
+  it('sends neutralized emails and phone numbers when the run neutralizes, counted by the run, not among its errors', async () => {
     const insert = vi
       .fn()
       .mockResolvedValue([{ id: '003000000000901AAA', success: true, errors: [] }]);
     const rows = [{ Id: '003000000000001AAA', LastName: 'Doe', Email: 'jane@acme.com' }];
+    const contactPoints = new ContactPointNeutralizer('k');
 
-    const { notes } = await new DataSync(deps(insert)).write(objectConfig(), rows, {
+    const result = await new DataSync(deps(insert)).sync(objectConfig(), rows, {
       links: new SyncRunLinks(),
       sources: rows,
-      contactPoints: new ContactPointNeutralizer('k'),
+      contactPoints,
     });
 
     const sent = insert.mock.calls[0][1] as Array<Record<string, unknown>>;
     expect(sent[0].Email).toBe('jane@acme.com.invalid');
-    expect(notes.some((note) => note.startsWith('1 email address(es) and phone number(s)'))).toBe(
-      true,
-    );
+    // The run's result says it once: among the object's errors, every Sync of
+    // contacts showed it in red, in English.
+    expect(contactPoints.report().fields).toEqual([
+      { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 1 },
+    ]);
+    expect(result.errors).toEqual([]);
   });
 
   it('sends them as read for a run that keeps them', async () => {

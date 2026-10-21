@@ -12,6 +12,8 @@ import { FieldMappingService } from './FieldMapping';
 import { TransformPipeline } from './TransformPipeline';
 import { ConflictResolver } from './ConflictResolver';
 import { PauseGate } from './PauseGate';
+import { neutralizeSyncRows } from './syncContactPoints';
+import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer';
 import type { SyncGrappeEvent, SyncOrchestratorDeps } from './SyncOrchestrator';
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import type { SyncConfig, SyncObjectConfig, SyncObjectResult } from '@sandforge/shared';
@@ -143,6 +145,33 @@ describe('SyncOrchestrator', () => {
       expect(keeping?.contactPoints).toBeUndefined();
     });
 
+    it('says once for the run what its writes neutralized, or that it kept them as read', async () => {
+      // Each object's result said it in English among its errors, which the
+      // results list in red as refusals.
+      vi.mocked(deps.dataSync.sync).mockImplementation(async (objectConfig, _rows, run) => {
+        neutralizeSyncRows(
+          run?.contactPoints as ContactPointNeutralizer,
+          objectConfig.objectApiName,
+          [{ name: 'Email', type: 'email', queryable: true, createable: true, isReference: false }],
+          [{ Email: 'jane@acme.com' }],
+        );
+        return createSuccessResult();
+      });
+
+      const neutralized = await orchestrator.execute(createConfig());
+
+      expect(neutralized.contactPoints).toEqual({
+        neutralized: true,
+        fields: [{ objectApiName: 'Account', field: 'Email', kind: 'email', values: 1 }],
+        values: 1,
+      });
+      expect(neutralized.objectResults[0].errors).toEqual([]);
+
+      vi.mocked(deps.dataSync.sync).mockResolvedValue(createSuccessResult());
+      const kept = await orchestrator.execute(createConfig({ keepContactPoints: true }));
+      expect(kept.contactPoints).toEqual({ neutralized: false, fields: [], values: 0 });
+    });
+
     it('should ignore script fields left in an old config', async () => {
       const config = {
         ...createConfig(),
@@ -213,6 +242,32 @@ describe('SyncOrchestrator', () => {
       await orchestrator.execute(config);
 
       expect(deps.queryTarget).toHaveBeenCalled();
+      expect(deps.conflictResolver.detectConflicts).toHaveBeenCalled();
+    });
+
+    it('settles no conflict for an insert: it creates a record whatever the target holds', async () => {
+      // Between two sandboxes of one production the ids match: settled, the
+      // inserted copy went in carrying the target's values.
+      const config = createConfig({
+        direction: 'bidirectional',
+        conflictStrategy: 'target_wins',
+        objects: [createObjectConfig({ operation: 'insert' })],
+      });
+
+      await orchestrator.execute(config);
+
+      expect(deps.queryTarget).not.toHaveBeenCalled();
+      expect(deps.conflictResolver.detectConflicts).not.toHaveBeenCalled();
+    });
+
+    it('settles the conflicts of an update, which writes over the record the target holds', async () => {
+      const config = createConfig({
+        direction: 'bidirectional',
+        objects: [createObjectConfig({ operation: 'update' })],
+      });
+
+      await orchestrator.execute(config);
+
       expect(deps.conflictResolver.detectConflicts).toHaveBeenCalled();
     });
 

@@ -5,10 +5,12 @@ import {
   buildConfig,
   buildQueryFn,
   cliFileDeps,
+  contactPointLines,
   deltaLine,
   objectCurrencyLines,
   objectErrorLines,
   objectPriceLines,
+  objectWrittenLines,
   readSavedConfig,
   simulationLines,
   writeCheckLines,
@@ -22,15 +24,59 @@ describe('what a run prints of an object', () => {
       'AccountId names was refused in this run, and written without it they would stand ' +
       'without their Account.';
     const without =
-      '2 record(s) written without OwnerId: the lookup held an id from the source org that ' +
-      'the target does not have.';
-    const linked =
-      'LINKED_TO_EXISTING: 2 Account records linked to an existing record, not written: the ' +
-      'target refused them as a duplicate of a record it holds and named it.';
+      '2 record(s) written again without the fields the target refused them on, 2 written ' +
+      'without Phone: a validation rule of the target refused it, Phone must be French.';
 
+    expect(objectErrorLines([refusal, refusal, refusal, refusal, refusal, held, without])).toEqual([
+      refusal,
+      refusal,
+      refusal,
+      held,
+      without,
+    ]);
+  });
+
+  it('prints the records linked to one the target holds, and those written without a lookup, apart from its refusals', () => {
     expect(
-      objectErrorLines([refusal, refusal, refusal, refusal, refusal, held, without, linked]),
-    ).toEqual([refusal, refusal, refusal, held, without, linked]);
+      objectWrittenLines({
+        linkedToExisting: {
+          records: 2,
+          refusal: 'DUPLICATE_VALUE: duplicate value found: Code__c',
+        },
+        lookupsLeftOut: [
+          { records: 3, fields: ['OwnerId'], reason: 'notInTarget' },
+          { records: 4, fields: ['OwnerId'], reason: 'ownerRefusedEarlier' },
+        ],
+      }),
+    ).toEqual([
+      '2 record(s) linked to a record the target holds, not written: the target refused them ' +
+        'as a duplicate of it (DUPLICATE_VALUE: duplicate value found: Code__c); what the run ' +
+        'writes under them points at that record.',
+      '3 record(s) written without OwnerId: the lookup held an id from the source org that the ' +
+        'target does not have.',
+      '4 record(s) written without OwnerId, left out from the start: the target refused the ' +
+        'same owner earlier in this run, an id from the source org that the target does not have.',
+    ]);
+    expect(objectWrittenLines({})).toEqual([]);
+  });
+
+  it('prints once for the run what it did with the emails and phone numbers it wrote', () => {
+    expect(
+      contactPointLines({
+        neutralized: true,
+        fields: [{ objectApiName: 'Contact', field: 'Email', kind: 'email', values: 12 }],
+        values: 12,
+      }),
+    ).toEqual([
+      'emails and phone numbers: 12 value(s) in 1 field(s) neutralized, addresses under ' +
+        ".invalid and numbers fictional, so the target's automation reaches no one",
+      '  Contact.Email  12',
+    ]);
+    expect(contactPointLines({ neutralized: false, fields: [], values: 0 })).toEqual([
+      "emails and phone numbers: written as read (--keep-contact-points): the target's " +
+        'automation may have emailed or texted the people the records name',
+    ]);
+    expect(contactPointLines(undefined)).toEqual([]);
   });
 
   it('prints every row it sent in another currency, apart from its refusals', () => {

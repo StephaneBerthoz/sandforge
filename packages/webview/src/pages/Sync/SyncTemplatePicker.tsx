@@ -35,9 +35,9 @@ export const SyncTemplatePicker: React.FC<SyncTemplatePickerProps> = ({ onApply,
               <Badge variant="info">
                 {t('sync.templates.objectCount', { count: template.objects.length })}
               </Badge>
-              <Badge variant="default">{t(`sync.directions.${template.direction}`)}</Badge>
+              {/* No direction and no strategy: every run writes to the target,
+                  and a template that inserts finds no record to settle. */}
               <Badge variant="default">{t(`sync.modes.${template.mode}`)}</Badge>
-              <Badge variant="default">{t(`sync.conflicts.${template.conflictStrategy}`)}</Badge>
             </div>
             <p className="text-[10px] text-text-secondary">
               {template.objects.map((o) => o.objectApiName).join(', ')}

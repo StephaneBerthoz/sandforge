@@ -241,11 +241,43 @@ test.describe('Sync panel — simulate, then run', () => {
       conflictStrategy: 'manual',
     });
 
-    await expect(page.getByTestId('sync-strategy-notice')).toContainText('It now uses Target Wins');
-    await expect(page.getByLabel('Conflict Strategy')).toHaveValue('target_wins');
+    await expect(page.getByTestId('sync-strategy-notice')).toContainText(
+      "It now keeps the target's values",
+    );
+    await expect(page.getByLabel('When the target already holds the record')).toHaveValue(
+      'target_wins',
+    );
 
     const results = await checkAccessibility(page);
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
+
+  test('asks no direction, and sends what to do with a record the target holds as the run reads it', async ({
+    page,
+  }) => {
+    // A Direction and a Conflict Strategy were asked side by side: Target
+    // Wins on Source to Target, the default, was never read.
+    const bridge = await openSyncOnDraft(page, {
+      ...READY_DRAFT,
+      currentStep: 0,
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+    });
+
+    await expect(page.getByLabel('Direction')).toHaveCount(0);
+    const choice = page.getByLabel('When the target already holds the record');
+    await expect(choice).toHaveValue('source_wins');
+    await choice.selectOption('target_wins');
+    for (let step = 0; step < 4; step++) await page.getByTestId('sync-wizard-next').click();
+    await page.getByTestId('sync-run').click();
+
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    const sent = (run.payload as { config: { direction: string; conflictStrategy: string } })
+      .config;
+    expect({ direction: sent.direction, conflictStrategy: sent.conflictStrategy }).toEqual({
+      direction: 'bidirectional',
+      conflictStrategy: 'target_wins',
+    });
   });
 });
 

@@ -40,10 +40,12 @@ import { useElapsedSince } from '../../hooks/useElapsedSince';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { FieldInfo } from './FieldMappingCanvas';
 import type { ObjectSetEntry } from './ObjectSetEditor';
+import { runSettingsOf, writesOverHeld } from './heldRecordChoice';
 
 /** Draft state safe to persist (no credentials, no execution results). */
 interface SyncDraftState {
   currentStep: number;
+  /** The direction the run would be sent, kept for older builds: never read back (see `runSettingsOf`). */
   direction: SyncDirection;
   mode: SyncMode;
   /**
@@ -117,10 +119,12 @@ export interface SyncPageData {
   sourceOrgId: string;
   /** Selected target org ID. */
   targetOrgId: string;
-  /** Sync direction setting. */
-  direction: SyncDirection;
-  /** Set sync direction. */
-  setDirection: (d: SyncDirection) => void;
+  /**
+   * Whether an object of the run finds a record the target already holds —
+   * one written by upsert or update — which is what the choice of
+   * `conflictStrategy` is asked for.
+   */
+  findsHeldRecords: boolean;
   /** Sync mode setting: full, or delta. */
   mode: SyncMode;
   /** Set sync mode. Leaving delta turns deletions off with it. */
@@ -151,9 +155,13 @@ export interface SyncPageData {
    * on while delta is on and one is listed.
    */
   deltaBlockers: string[];
-  /** Conflict resolution strategy. */
+  /**
+   * What a run does when the target already holds the record, as picked:
+   * overwrite it with the source's values, keep the target's, keep the newest,
+   * or merge. Sent as the direction and strategy of `runSettingsOf`.
+   */
   conflictStrategy: SyncConflictStrategy;
-  /** Set conflict strategy. */
+  /** Pick what a run does when the target already holds the record. */
   setConflictStrategy: (cs: SyncConflictStrategy) => void;
   /** Whether the draft asked for manual review and reopened on target wins, to be said. */
   strategyNotice: boolean;
@@ -270,19 +278,17 @@ export function draftConflictStrategy(saved: string): {
 }
 
 /**
- * The directions and modes a run accepts, and what a draft holding anything
- * else reopens on.
+ * The modes a run accepts, and what a draft holding anything else reopens on.
  *
- * `target_to_source` wrote into the org you meant to read from and is refused
- * by the bridge; `incremental` and `cdc` only ever replayed a full sync and are
- * refused too. Both options are gone from the page, so a draft saved while
- * they were offered reopened on a value with no option to change it, and every
- * run from that draft was refused with no way out but clearing the draft.
- * `conflictStrategy` was already sanitised this way; direction and mode were
- * not. A delta run reads each object from its last good run: see the delta
- * switch on the first step.
+ * `incremental` and `cdc` only ever replayed a full sync and are refused by
+ * the bridge. The options are gone from the page, so a draft saved while they
+ * were offered reopened on a value with no option to change it, and every run
+ * from that draft was refused with no way out but clearing the draft. A delta
+ * run reads each object from its last good run: see the delta switch on the
+ * first step. A draft's direction is not read back at all: the run's is
+ * `runSettingsOf` the choice on screen, so a `target_to_source` saved while it
+ * was offered goes nowhere.
  */
-export const OFFERED_DIRECTIONS: readonly SyncDirection[] = ['source_to_target', 'bidirectional'];
 export const OFFERED_MODES: readonly SyncMode[] = ['full', 'delta'];
 
 /**
@@ -358,7 +364,7 @@ function isTextTransformConfigKey(key: string): key is TextTransformConfigKey {
  * - Bridge query for object describe-global
  * - Bridge mutations for field describe, sync execution, preview, and PII scan
  * - Wizard step state and navigation logic
- * - All form state (orgs, direction, mode, conflict strategy, objects, mappings, transforms)
+ * - All form state (orgs, mode, what to do with a record the target holds, objects, mappings, transforms)
  * - Error notification effects
  * - Auto-navigation to results step on completion
  * - PII scan trigger on review step
@@ -403,9 +409,6 @@ export function useSyncPageData(): SyncPageData {
   const [currentStep, setCurrentStep] = useState(Math.min(initialDraft.current.currentStep, 4));
   const [sourceOrgId, setSourceOrgId] = useState(initialDraft.current.sourceOrgId);
   const [targetOrgId, setTargetOrgId] = useState(initialDraft.current.targetOrgId);
-  const [direction, setDirection] = useState<SyncDirection>(
-    offeredOr(OFFERED_DIRECTIONS, initialDraft.current.direction, 'source_to_target'),
-  );
   const [mode, setModeValue] = useState<SyncMode>(
     offeredOr(OFFERED_MODES, initialDraft.current.mode, 'full'),
   );
@@ -449,6 +452,14 @@ export function useSyncPageData(): SyncPageData {
   }, []);
   const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(
     initialDraft.current.objectEntries,
+  );
+  // What the run is sent for the choice: the read of the target's records
+  // only where a write finds one and the source's values are not simply
+  // written over it. See `runSettingsOf`.
+  const findsHeldRecords = objectEntries.some((entry) => writesOverHeld(entry.operation));
+  const { direction, conflictStrategy: sentStrategy } = runSettingsOf(
+    conflictStrategy,
+    findsHeldRecords,
   );
   /*
    * The object the mapping step is showing. Step 1 describes one object at a
@@ -574,7 +585,7 @@ export function useSyncPageData(): SyncPageData {
     propagateDeletes,
     files,
     keepContactPoints,
-    conflictStrategy,
+    conflictStrategy: sentStrategy,
     objectEntries,
     mappings,
     transforms,
@@ -615,7 +626,7 @@ export function useSyncPageData(): SyncPageData {
     propagateDeletes,
     files,
     keepContactPoints,
-    conflictStrategy,
+    conflictStrategy: sentStrategy,
     objectEntries,
     mappingsByObject,
     transforms,
@@ -793,9 +804,12 @@ export function useSyncPageData(): SyncPageData {
 
   const handleApplyTemplate = useCallback(
     (template: SyncTemplateConfig) => {
-      setDirection(template.direction);
       setMode(template.mode);
-      setConflictStrategy(template.conflictStrategy);
+      // What its runs would do with a record the target holds: the strategy
+      // is read on a bidirectional run alone.
+      setConflictStrategy(
+        template.direction === 'bidirectional' ? template.conflictStrategy : 'source_wins',
+      );
       setObjectEntries(
         template.objects.map((o) => ({
           objectApiName: o.objectApiName,
@@ -842,7 +856,7 @@ export function useSyncPageData(): SyncPageData {
       addOnFields: [],
       insertOrder: index,
     })),
-    conflictStrategy,
+    conflictStrategy: sentStrategy,
     enableRollback: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1034,8 +1048,7 @@ export function useSyncPageData(): SyncPageData {
     setCurrentStep,
     sourceOrgId,
     targetOrgId,
-    direction,
-    setDirection,
+    findsHeldRecords,
     mode,
     setMode,
     propagateDeletes,

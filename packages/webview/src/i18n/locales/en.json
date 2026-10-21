@@ -1069,24 +1069,18 @@
     "execute": "Execute",
     "executeDesc": "Run the sync operation",
     "results": "Results",
-    "direction": "Direction",
-    "directions": {
-      "source_to_target": "Source to Target",
-      "target_to_source": "Target to Source",
-      "bidirectional": "Bidirectional"
-    },
     "modes": {
       "full": "Full",
       "incremental": "Incremental",
       "delta": "Delta",
       "cdc": "CDC"
     },
-    "conflictStrategy": "Conflict Strategy",
+    "conflictStrategy": "When the target already holds the record",
     "conflicts": {
-      "source_wins": "Source Wins",
-      "target_wins": "Target Wins",
-      "newest_wins": "Newest Wins",
-      "merge": "Merge"
+      "source_wins": "Overwrite it with the source's values",
+      "target_wins": "Keep the target's values",
+      "newest_wins": "Keep whichever of the two was changed last",
+      "merge": "Take the source's values, keeping the target's where the source has none"
     },
     "operations": {
       "insert": "Insert",
@@ -1385,8 +1379,8 @@
       "conflicts": "In conflict",
       "read_one": "{{count}} record read",
       "read_other": "{{count}} records read",
-      "settledBy_one": "{{count}} record differs from the target on a field the run writes: {{strategy}} decides which value is written.",
-      "settledBy_other": "{{count}} records differ from the target on a field the run writes: {{strategy}} decides which value is written.",
+      "settledBy_one": "{{count}} record differs from the target on a field the run writes: “{{strategy}}” decides which value is written.",
+      "settledBy_other": "{{count}} records differ from the target on a field the run writes: “{{strategy}}” decides which value is written.",
       "conflictFields": "Fields that differ: {{fields}}.",
       "nothingWritten": "Nothing was written. The counts compare what the run would send with what the target holds now.",
       "notChecked": "A simulation predicts what the target's describe tells — a required field left empty, a value too long, a unique value it holds already — but does not run its validation rules, duplicate rules, triggers or flows, nor check its sharing: a record one of them would refuse is counted as the run would send it.",
@@ -1439,7 +1433,7 @@
       "pauseRefusedDetail": "The run is no longer in progress, or it was not started from this window."
     },
     "strategyNotice": {
-      "manualReplaced": "This draft asked for manual conflict review, which a sync run does not offer: every run of it wrote the source values. It now uses Target Wins, which keeps every value the target holds where the two orgs differ. Pick another strategy if the source should win."
+      "manualReplaced": "This draft asked for manual conflict review, which a sync run does not offer: every run of it wrote the source values. It now keeps the target's values wherever the two orgs differ. Pick another choice if the source's values should be written."
     },
     "savedConfigs": {
       "title": "Saved configurations",
@@ -1560,7 +1554,18 @@
       "runAgain": "The last sync between these orgs, on {{date}}, created records still in the target: {{objects}}. Run again inserts every record again: remove that run first to leave no second copy.",
       "unread": "Counted from what that run kept: the target org could not be asked ({{reason}})."
     },
-    "noCustomMapping": "No custom mapping: fields with the same API name are copied."
+    "noCustomMapping": "No custom mapping: fields with the same API name are copied.",
+    "conflictStrategyHint": "Asked for the objects written by upsert or update, which find the record the target org holds. A run only ever writes to the target org: to copy the other way, swap the two orgs.",
+    "heldRecordsChosen": "When the target already holds the record: {{choice}}.",
+    "written": {
+      "linked_one": "{{count}} record linked to a record the target org already holds, not written: the target refused it as a duplicate of that record, and what the run writes under it points there.",
+      "linked_other": "{{count}} records linked to records the target org already holds, not written: the target refused them as duplicates of those records, and what the run writes under them points there.",
+      "refusal": "The target's words:",
+      "notInTarget_one": "{{count}} record written without {{fields}}: it named a record the target org does not have.",
+      "notInTarget_other": "{{count}} records written without {{fields}}: they named records the target org does not have.",
+      "ownerRefusedEarlier_one": "{{count}} record written without {{fields}} from the start: the target org refused the same owner earlier in this run, a user it does not have.",
+      "ownerRefusedEarlier_other": "{{count}} records written without {{fields}} from the start: the target org refused the same owner earlier in this run, a user it does not have."
+    }
   },
   "migration": {
     "title": "Migration",
@@ -4492,7 +4497,9 @@
     "searchObjects": "Search objects...",
     "noObjectsSelected": "No objects selected yet",
     "orgs": "Orgs",
-    "objects": "Objects"
+    "objects": "Objects",
+    "openHistory": "See this run in History",
+    "againInserts": "Run again, a Quick Sync inserts these records a second time: remove what this run created first, or upsert them on an External ID in the full wizard."
   },
   "pagination": {
     "navigation": "Pagination",

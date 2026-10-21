@@ -456,6 +456,70 @@ describe('useSyncPageData', () => {
     });
   });
 
+  describe('what a run does with a record the target already holds', () => {
+    const upserting = {
+      currentStep: 4,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'target_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Ext__c',
+          batchSize: 200,
+        },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+
+    /** The direction and strategy of the configuration the run was sent. */
+    function sent(): { direction: string; conflictStrategy: string } {
+      const call = execution.mutate.mock.calls.at(-1)?.[0] as {
+        config: { direction: string; conflictStrategy: string };
+      };
+      return {
+        direction: call.config.direction,
+        conflictStrategy: call.config.conflictStrategy,
+      };
+    }
+
+    it('is asked once an object finds one, and sent as the read of the target with the choice', () => {
+      // The page asked for a Direction and a Conflict Strategy: Target Wins on
+      // Source to Target, the default, was never read, and the run wrote the
+      // source's values over the target's.
+      draft.value = upserting;
+      const { result } = renderHook(() => useSyncPageData());
+
+      expect(result.current.findsHeldRecords).toBe(true);
+      expect(result.current.conflictStrategy).toBe('target_wins');
+      act(() => result.current.handleExecute());
+
+      expect(sent()).toEqual({ direction: 'bidirectional', conflictStrategy: 'target_wins' });
+    });
+
+    it('sends the plain write to overwrite it, and for objects that only insert', () => {
+      draft.value = { ...upserting, conflictStrategy: 'source_wins' };
+      const overwriting = renderHook(() => useSyncPageData()).result;
+      act(() => overwriting.current.handleExecute());
+      expect(sent()).toEqual({ direction: 'source_to_target', conflictStrategy: 'source_wins' });
+
+      draft.value = {
+        ...upserting,
+        objectEntries: [
+          { objectApiName: 'Account', operation: 'insert', externalIdField: '', batchSize: 200 },
+        ],
+      };
+      const inserting = renderHook(() => useSyncPageData()).result;
+      expect(inserting.current.findsHeldRecords).toBe(false);
+      act(() => inserting.current.handleExecute());
+      expect(sent()).toEqual({ direction: 'source_to_target', conflictStrategy: 'source_wins' });
+    });
+  });
+
   it('reopens a draft on a strategy no run knows on the default, with nothing to say', () => {
     draft.value = {
       currentStep: 0,
@@ -546,7 +610,17 @@ describe('useSyncPageData', () => {
     it('is no longer shown once the configuration it was run on changes', () => {
       // Its "run the sync now" would have run another configuration than the
       // one it had simulated.
-      draft.value = ready;
+      draft.value = {
+        ...ready,
+        objectEntries: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            externalIdField: 'Ext__c',
+            batchSize: 200,
+          },
+        ],
+      };
       const { result, rerender } = renderHook(() => useSyncPageData());
       act(() => result.current.handleSimulate());
       simulation.data = found;
@@ -607,14 +681,14 @@ describe('useSyncPageData', () => {
     expect(result.current.isFinished).toBe(false);
   });
 
-  it('handleApplyTemplate should populate direction, mode, conflictStrategy and objectEntries', () => {
+  it('handleApplyTemplate should populate mode, conflictStrategy and objectEntries', () => {
     const { result } = renderHook(() => useSyncPageData());
 
     act(() => {
       result.current.handleApplyTemplate(SYNC_ACCOUNT_HIERARCHY);
     });
 
-    expect(result.current.direction).toBe('source_to_target');
+    expect(result.current.findsHeldRecords).toBe(false);
     expect(result.current.mode).toBe('full');
     expect(result.current.conflictStrategy).toBe('source_wins');
     expect(result.current.objectEntries).toHaveLength(5);

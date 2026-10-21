@@ -359,7 +359,7 @@ describe('DataSync — a lookup the target does not have', () => {
     expect(result.failed).toBe(0);
   });
 
-  it('says which field it dropped', async () => {
+  it('says which field it dropped, apart from the refusals: the record was written', async () => {
     const insert = vi
       .fn()
       .mockResolvedValueOnce([crossRef])
@@ -371,7 +371,11 @@ describe('DataSync — a lookup the target does not have', () => {
       [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }],
     );
 
-    expect(result.errors.join(' ')).toContain('Key_Contact__c');
+    expect(result.lookupsLeftOut).toEqual([
+      { records: 1, fields: ['Key_Contact__c'], reason: 'notInTarget' },
+    ]);
+    // Among the errors, the results listed it in red as a refused record.
+    expect(result.errors).toEqual([]);
   });
 
   it.each([
@@ -543,9 +547,9 @@ describe('DataSync — a lookup the target does not have', () => {
       );
 
     expect(stopped).toBeInstanceOf(WriteCancelledError);
-    expect((stopped as WriteCancelledError).notes).toEqual([
-      '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
-        'that the target does not have.',
+    expect((stopped as WriteCancelledError).notes).toEqual([]);
+    expect((stopped as WriteCancelledError).lookupsLeftOut).toEqual([
+      { records: 1, fields: ['Key_Contact__c'], reason: 'notInTarget' },
     ]);
   });
 });
@@ -727,8 +731,9 @@ describe('DataSync — a record type the running user cannot use', () => {
     expect(insert.mock.calls[1][1]).toEqual([{ Name: 'Globex', RecordTypeId: CUSTOMER }]);
     expect((stopped as WriteCancelledError).notes).toEqual([
       expect.stringMatching(/^RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Partner/),
-      '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
-        'that the target does not have.',
+    ]);
+    expect((stopped as WriteCancelledError).lookupsLeftOut).toEqual([
+      { records: 1, fields: ['Key_Contact__c'], reason: 'notInTarget' },
     ]);
   });
 

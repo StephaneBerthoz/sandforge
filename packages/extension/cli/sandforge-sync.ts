@@ -46,11 +46,13 @@ import { z } from 'zod';
 import type {
   CurrencyReplaced,
   PriceCurrencySettled,
+  ForgeContactPointsReport,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   SyncConfig,
   SyncDeltaOutcome,
   SyncObjectConfig,
+  SyncObjectResult,
   SyncRemovalResult,
   SyncSimulationResult,
   SyncWriteCheck,
@@ -825,7 +827,7 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
 
 /** A line of an object's result on what its write held back or sent without a field. */
 const SAID_ONCE =
-  /^(PARENT_REFUSED|RECORD_TYPE_UNAVAILABLE|RECORD_TYPE_UNMAPPED|LINKED_TO_EXISTING):|^\d+ record\(s\) written (again )?without /;
+  /^(PARENT_REFUSED|RECORD_TYPE_UNAVAILABLE|RECORD_TYPE_UNMAPPED):|^\d+ record\(s\) written again without /;
 
 /**
  * The lines the command prints of an object's errors: its first three, and
@@ -836,6 +838,66 @@ export function objectErrorLines(errors: readonly string[]): string[] {
   const lines = errors.slice(0, 3);
   for (const error of errors.slice(3)) if (SAID_ONCE.test(error)) lines.push(error);
   return lines;
+}
+
+/**
+ * The lines the command prints of what an object's write did that no refusal
+ * says: the records linked to one the target holds rather than written, and
+ * those written without lookups they held, with why. Every one, however many
+ * refusals the object had.
+ */
+export function objectWrittenLines(
+  result: Pick<SyncObjectResult, 'linkedToExisting' | 'lookupsLeftOut'>,
+): string[] {
+  const lines: string[] = [];
+  const linked = result.linkedToExisting;
+  if (linked) {
+    lines.push(
+      `${linked.records} record(s) linked to a record the target holds, not written: the ` +
+        `target refused them as a duplicate of it${linked.refusal ? ` (${linked.refusal})` : ''}; ` +
+        'what the run writes under them points at that record.',
+    );
+  }
+  for (const { records, fields, reason } of result.lookupsLeftOut ?? []) {
+    lines.push(
+      reason === 'ownerRefusedEarlier'
+        ? `${records} record(s) written without ${fields.join(', ')}, left out from the start: ` +
+            'the target refused the same owner earlier in this run, an id from the source org ' +
+            'that the target does not have.'
+        : `${records} record(s) written without ${fields.join(', ')}: the lookup held an id ` +
+            'from the source org that the target does not have.',
+    );
+  }
+  return lines;
+}
+
+/**
+ * The lines the command prints of what the run did with the emails and phone
+ * numbers it wrote: how many it neutralized, field by field, or that it kept
+ * them as read. Nothing when it neutralized none.
+ */
+export function contactPointLines(report: ForgeContactPointsReport | undefined): string[] {
+  if (!report) return [];
+  if (!report.neutralized) {
+    return [
+      "emails and phone numbers: written as read (--keep-contact-points): the target's " +
+        'automation may have emailed or texted the people the records name',
+    ];
+  }
+  return [
+    `emails and phone numbers: ${report.values} value(s) in ${report.fields.length} field(s) ` +
+      "neutralized, addresses under .invalid and numbers fictional, so the target's automation " +
+      'reaches no one',
+    ...report.fields.map(
+      ({ objectApiName, field, values }) => `  ${objectApiName}.${field}  ${values}`,
+    ),
+    ...(report.numbersExhausted
+      ? [
+          `  ${report.numbersExhausted} phone number(s) left out, their field empty: the 10 000 ` +
+            'fictional numbers were all given to other numbers of the run',
+        ]
+      : []),
+  ];
 }
 
 /**
@@ -1279,6 +1341,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     for (const line of objectErrorLines((entry.errors as string[] | undefined) ?? [])) {
       log(`      ${line}`);
     }
+    // The records linked to one the target holds, and those written without
+    // a lookup: none of them a refusal, said after the refusals.
+    for (const line of objectWrittenLines(entry as Partial<SyncObjectResult>)) {
+      log(`      ${line}`);
+    }
     // The rows written in another currency, and what became of their amounts.
     for (const line of objectCurrencyLines(
       entry.currenciesReplaced as CurrencyReplaced[] | undefined,
@@ -1303,6 +1370,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     const delta = entry.delta as SyncDeltaOutcome | undefined;
     if (delta) log(`      ${deltaLine(delta)}`);
+  }
+  // Said once for the run, as Forge's command line says it.
+  for (const line of contactPointLines(
+    (result as { contactPoints?: ForgeContactPointsReport }).contactPoints,
+  )) {
+    log(`  ${line}`);
   }
   const count = created.reduce((sum, object) => sum + object.ids.length, 0);
   if (count > 0) {

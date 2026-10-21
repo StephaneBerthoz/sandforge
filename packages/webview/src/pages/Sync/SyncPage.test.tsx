@@ -390,11 +390,44 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('sync-wizard-next').getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('should show direction and conflict selectors', () => {
+  it('asks no direction, and what to do with a record the target holds only once an object finds one', () => {
+    // A Direction and a Conflict Strategy were asked side by side on the
+    // first screen: Bidirectional wrote to the target alone, and on the
+    // default direction the strategy was never read.
     useOrgStore.setState({ orgs: mockOrgs });
+    const { unmount } = render(<SyncPage />);
+    expect(screen.queryByText('Direction')).toBeNull();
+    expect(screen.queryByTestId('sync-held-records')).toBeNull();
+    unmount();
+
+    draft.value = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Ext__c',
+          batchSize: 200,
+          where: '',
+        },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
     render(<SyncPage />);
-    expect(screen.getByText('Direction')).toBeDefined();
-    expect(screen.getByText('Conflict Strategy')).toBeDefined();
+    const choice = screen.getByLabelText(
+      'When the target already holds the record',
+    ) as HTMLSelectElement;
+    expect(choice.value).toBe('source_wins');
+    expect(choice.selectedOptions[0].textContent).toBe("Overwrite it with the source's values");
+    // Said beside it: where it is read, and that a run writes to the target alone.
+    const hint = document.getElementById(choice.getAttribute('aria-describedby') ?? '');
+    expect(hint?.textContent).toContain('A run only ever writes to the target org');
   });
 
   it('offers full or delta, never the modes no run performs', () => {
@@ -1057,6 +1090,67 @@ describe('SyncPage', () => {
       expect(line.closest('.text-status-error')).toBeNull();
       expect(screen.queryByTestId('sync-result-errors-Pricebook2')).toBeNull();
     });
+
+    it('says on the results the emails and phone numbers neutralized, and the rows linked or written without their owner, in the panel’s words and not among the refusals', () => {
+      // Every default Sync of contacts showed "1 × 12 email address(es) and
+      // phone number(s) of Contact neutralized" in red, in English, under a
+      // badge saying the sync was complete.
+      draft.value = {
+        currentStep: 5,
+        direction: 'source_to_target',
+        mode: 'full',
+        conflictStrategy: 'source_wins',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        objectEntries: [upsertEntry],
+        mappingsByObject: {},
+        transforms: [],
+      };
+      mockExecuteMutationState.data = {
+        configId: 'cfg',
+        operationId: 'op',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            operation: 'insert',
+            processed: 13,
+            success: 12,
+            failed: 0,
+            skipped: 1,
+            conflictCount: 0,
+            errors: [],
+            linkedToExisting: { records: 1 },
+            lookupsLeftOut: [{ records: 12, fields: ['OwnerId'], reason: 'ownerRefusedEarlier' }],
+          },
+        ],
+        totalProcessed: 13,
+        totalSuccess: 12,
+        totalFailed: 0,
+        totalSkipped: 1,
+        duration: 1,
+        timestamp: '2026-10-21T10:00:01.000Z',
+        contactPoints: {
+          neutralized: true,
+          fields: [{ objectApiName: 'Contact', field: 'Email', kind: 'email', values: 12 }],
+          values: 12,
+        },
+      };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('forge-results-contact-points-row').textContent).toBe(
+        'Contact.Email — 12 values',
+      );
+      const written = screen.getByTestId('sync-result-written-Contact');
+      expect(screen.getByTestId('sync-result-written-Contact-linked').textContent).toBe(
+        '1 record linked to a record the target org already holds, not written: the target ' +
+          'refused it as a duplicate of that record, and what the run writes under it points there.',
+      );
+      expect(written.textContent).toContain('12 records written without OwnerId from the start');
+      expect(written.closest('.text-status-error')).toBeNull();
+      expect(screen.queryByTestId('sync-result-errors-Contact')).toBeNull();
+    });
   });
 
   it('says on the results what an object left as an earlier run of the configuration copied it', () => {
@@ -1274,10 +1368,25 @@ describe('SyncPage', () => {
   it('offers only the conflict strategies the resolver acts on, never manual', () => {
     // 'manual' resolved to the source values and wrote them, exactly like
     // source wins: the option named a review the page never showed.
+    draft.value = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        { objectApiName: 'Account', operation: 'update', externalIdField: '', batchSize: 200 },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
-    const strategy = screen.getByLabelText('Conflict Strategy') as HTMLSelectElement;
+    const strategy = screen.getByLabelText(
+      'When the target already holds the record',
+    ) as HTMLSelectElement;
     expect(Array.from(strategy.options).map((o) => o.value)).toEqual([
       'source_wins',
       'target_wins',
@@ -1455,32 +1564,27 @@ describe('SyncPage', () => {
 
     // Back to the first step, another strategy, forward to the review again.
     for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('sync-wizard-back'));
-    fireEvent.change(screen.getByLabelText('Conflict Strategy'), {
+    fireEvent.change(screen.getByLabelText('When the target already holds the record'), {
       target: { value: 'target_wins' },
     });
     for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('sync-wizard-next'));
     expect(screen.getByTestId('sync-save-config')).toBeDefined();
     expect(screen.queryByTestId('sync-config-saved')).toBeNull();
 
+    // Said on Review as the first step asks it.
+    expect(screen.getByTestId('sync-review-held-records').textContent).toBe(
+      "When the target already holds the record: Keep the target's values.",
+    );
     fireEvent.click(screen.getByTestId('sync-save-config'));
     const changed = (
-      mockSaveConfigMutate.mock.calls[2][0] as { config: { id: string; conflictStrategy: string } }
+      mockSaveConfigMutate.mock.calls[2][0] as {
+        config: { id: string; conflictStrategy: string; direction: string };
+      }
     ).config;
+    // Kept by the read of the target's records a bidirectional run makes first.
     expect(changed.conflictStrategy).toBe('target_wins');
+    expect(changed.direction).toBe('bidirectional');
     expect(changed.id).not.toBe(first.id);
-  });
-
-  it('offers the two directions a sync performs, never target to source', () => {
-    // The orchestrator branches on `bidirectional` only; `target_to_source`
-    // wrote source to target, the opposite of what the option said.
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SyncPage />);
-
-    const direction = screen.getByLabelText('Direction') as HTMLSelectElement;
-    expect(Array.from(direction.options).map((o) => o.value)).toEqual([
-      'source_to_target',
-      'bidirectional',
-    ]);
   });
 });
 
@@ -1730,16 +1834,29 @@ describe('SyncPage simulation, pause and cancel', () => {
   });
 
   it('says a draft that asked for manual review now keeps the target values', () => {
-    draft.value = { ...onExecuteStep(), currentStep: 0, conflictStrategy: 'manual' };
+    draft.value = {
+      ...onExecuteStep(),
+      currentStep: 0,
+      conflictStrategy: 'manual',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Ext__c',
+          batchSize: 200,
+        },
+      ],
+    };
 
     render(<SyncPage />);
 
     const notice = screen.getByTestId('sync-strategy-notice');
     expect(notice.getAttribute('role')).toBe('status');
-    expect(notice.textContent).toContain('It now uses Target Wins');
-    expect((screen.getByLabelText('Conflict Strategy') as HTMLSelectElement).value).toBe(
-      'target_wins',
-    );
+    expect(notice.textContent).toContain("It now keeps the target's values");
+    expect(
+      (screen.getByLabelText('When the target already holds the record') as HTMLSelectElement)
+        .value,
+    ).toBe('target_wins');
 
     fireEvent.click(screen.getByTestId('sync-strategy-notice-dismiss'));
     expect(screen.queryByTestId('sync-strategy-notice')).toBeNull();

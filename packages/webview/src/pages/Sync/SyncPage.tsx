@@ -1,11 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type {
-  SyncDirection,
-  SyncConflictStrategy,
-  MappingType,
-  FieldMapping,
-} from '@sandforge/shared';
+import type { SyncConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
 import { FILE_COPY_CEILING_MB, SYNC_FILES_MAX_RUN_MB } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -43,6 +38,7 @@ import { RealTimeSyncPanel } from './RealTimeSyncPanel';
 import { ConflictListPanel } from './ConflictListPanel';
 import { ConflictResolutionPanel } from './ConflictResolutionPanel';
 import { useConflictStore } from '../../stores/useConflictStore';
+import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { SplitView } from '../../components/ui/SplitView';
 import { Button } from '../../components/ui/Button';
 import { SyncRunControls } from './SyncRunControls';
@@ -56,6 +52,8 @@ import { SyncRunRemoval } from './SyncRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
+import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
+import { SyncWrittenLines } from './SyncWrittenLines';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -223,6 +221,7 @@ export const SyncPage: React.FC = () => {
   const deletesHintId = React.useId();
   const filesHintId = React.useId();
   const contactPointsHintId = React.useId();
+  const heldRecordsHintId = React.useId();
   const filesNeedSaveId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
@@ -248,8 +247,7 @@ export const SyncPage: React.FC = () => {
     setCurrentStep,
     sourceOrgId,
     targetOrgId,
-    direction,
-    setDirection,
+    findsHeldRecords,
     mode,
     setMode,
     propagateDeletes,
@@ -336,13 +334,6 @@ export const SyncPage: React.FC = () => {
     value: org.id,
     label: orgOptionLabel(org, t),
   }));
-  // No "target to source": the orchestrator branches on `bidirectional` alone,
-  // so that option wrote source to target, and the extension now refuses it.
-  // Swapping the two orgs is how a sync copies the other way.
-  const directionOptions: { value: SyncDirection; label: string }[] = [
-    { value: 'source_to_target', label: t('sync.directions.source_to_target') },
-    { value: 'bidirectional', label: t('sync.directions.bidirectional') },
-  ];
   // The saved configuration is named after the pair it runs between, which is
   // what the schedule picker shows; it is data, not a label to translate.
   const configName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${
@@ -463,7 +454,14 @@ export const SyncPage: React.FC = () => {
       )}
 
       {activeTab === 'sync' && quickSyncActive && (
-        <QuickSyncFlow onBack={() => setQuickSyncActive(false)} />
+        <QuickSyncFlow
+          onBack={() => setQuickSyncActive(false)}
+          // The run's entry on the History tab: what it wrote, and its removal.
+          onOpenHistory={(operationId) => {
+            useSyncHistoryStore.getState().openRun(operationId);
+            setActiveTab('history');
+          }}
+        />
       )}
 
       {activeTab === 'sync' && !quickSyncActive && (
@@ -495,21 +493,6 @@ export const SyncPage: React.FC = () => {
                   placeholder={t('sync.target')}
                 />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Select
-                  label={t('sync.direction')}
-                  options={directionOptions}
-                  value={direction}
-                  onChange={(e) => setDirection(e.target.value as SyncDirection)}
-                />
-                <Select
-                  label={t('sync.conflictStrategy')}
-                  options={conflictOptions}
-                  value={conflictStrategy}
-                  onChange={(e) => setConflictStrategy(e.target.value as SyncConflictStrategy)}
-                />
-              </div>
-
               {/* Full or delta. The Mode dropdown offered "incremental",
                   "delta" and "cdc" while every run was a full sync; a delta
                   run now reads each object from its last good run, so it is
@@ -648,27 +631,6 @@ export const SyncPage: React.FC = () => {
                 )}
               </div>
 
-              {/* A draft saved when manual review was offered: it reopens on
-                  target wins, and says so, rather than going on writing the
-                  source values under a name that promised a decision. */}
-              {strategyNotice && (
-                <div
-                  className="flex items-start justify-between gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2) text-xs text-text-primary"
-                  role="status"
-                  data-testid="sync-strategy-notice"
-                >
-                  <p>{t('sync.strategyNotice.manualReplaced')}</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={dismissStrategyNotice}
-                    data-testid="sync-strategy-notice-dismiss"
-                  >
-                    {t('common.dismiss')}
-                  </Button>
-                </div>
-              )}
-
               {/* Template picker — only show when both orgs are selected */}
               {sourceOrgId && targetOrgId && (
                 <details className="mt-2" data-testid="sync-template-section">
@@ -701,6 +663,52 @@ export const SyncPage: React.FC = () => {
                     onChange={handleObjectChange}
                   />
                 ))}
+
+              {/* What a run does with a record the target already holds,
+                  asked once an object finds one: an upsert by its key, an
+                  update by its id. The page asked for a Direction and a
+                  Conflict Strategy side by side: Bidirectional wrote to the
+                  target alone, as every run does, and on the default
+                  direction the strategy was never read. */}
+              {findsHeldRecords && (
+                <div
+                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-(--sf-border) p-(--sf-space-2)"
+                  data-testid="sync-held-records"
+                >
+                  <Select
+                    label={t('sync.conflictStrategy')}
+                    options={conflictOptions}
+                    value={conflictStrategy}
+                    onChange={(e) => setConflictStrategy(e.target.value as SyncConflictStrategy)}
+                    aria-describedby={heldRecordsHintId}
+                    data-testid="sync-held-records-choice"
+                  />
+                  <p id={heldRecordsHintId} className="text-xs text-text-secondary">
+                    {t('sync.conflictStrategyHint')}
+                  </p>
+                  {/* A draft saved when manual review was offered: it reopens
+                      on keeping the target's values, and says so, rather than
+                      going on writing the source values under a name that
+                      promised a decision. */}
+                  {strategyNotice && (
+                    <div
+                      className="flex items-start justify-between gap-(--sf-space-2) text-xs text-text-primary"
+                      role="status"
+                      data-testid="sync-strategy-notice"
+                    >
+                      <p>{t('sync.strategyNotice.manualReplaced')}</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={dismissStrategyNotice}
+                        data-testid="sync-strategy-notice-dismiss"
+                      >
+                        {t('common.dismiss')}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -803,8 +811,6 @@ export const SyncPage: React.FC = () => {
                 </Card>
               )}
               <div className="flex gap-3 text-xs flex-wrap">
-                <Badge variant="default">{t(`sync.directions.${direction}`)}</Badge>
-                <Badge variant="default">{t(`sync.conflicts.${conflictStrategy}`)}</Badge>
                 {mode === 'delta' && (
                   <Badge variant="info" data-testid="sync-review-delta">
                     {propagateDeletes ? t('sync.delta.withDeletes') : t('sync.modes.delta')}
@@ -825,6 +831,13 @@ export const SyncPage: React.FC = () => {
                   {t('sync.transformCount', { count: transforms.length })}
                 </span>
               </div>
+              {findsHeldRecords && (
+                <p className="text-xs text-text-primary" data-testid="sync-review-held-records">
+                  {t('sync.heldRecordsChosen', {
+                    choice: t(`sync.conflicts.${conflictStrategy}`),
+                  })}
+                </p>
+              )}
               <SyncReviewObjects
                 entries={objectEntries}
                 order={writeOrder}
@@ -1012,6 +1025,11 @@ export const SyncPage: React.FC = () => {
                   {result.created && (
                     <SyncRunRemoval runId={result.created.runId} testId="sync-result-removal" />
                   )}
+                  {/* The emails and phone numbers it wrote, said once for the
+                      run as a Forge run says them: no refusal of any object. */}
+                  {result.contactPoints && (
+                    <ForgeContactPointsResult report={result.contactPoints} />
+                  )}
                   {result.objectResults.map((obj) => (
                     <Card key={obj.objectApiName}>
                       <CardHeader
@@ -1023,6 +1041,8 @@ export const SyncPage: React.FC = () => {
                         obj.files ||
                         (obj.alreadyCopied ?? 0) > 0 ||
                         obj.standardPricebookMatched ||
+                        obj.linkedToExisting ||
+                        (obj.lookupsLeftOut?.length ?? 0) > 0 ||
                         (obj.currenciesReplaced?.length ?? 0) > 0 ||
                         (obj.pricesSettled?.length ?? 0) > 0) && (
                         <CardBody>
@@ -1051,6 +1071,12 @@ export const SyncPage: React.FC = () => {
                               testId={`sync-result-files-${obj.objectApiName}`}
                             />
                           )}
+                          {/* Linked rather than written, or written without a
+                              lookup: no refusal either. */}
+                          <SyncWrittenLines
+                            result={obj}
+                            testId={`sync-result-written-${obj.objectApiName}`}
+                          />
                           <RecordErrorGroups
                             objectApiName={obj.objectApiName}
                             errors={obj.errors}

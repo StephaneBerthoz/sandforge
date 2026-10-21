@@ -938,15 +938,15 @@ export class SeedCloneHandler implements DomainHandler {
         // as it goes, whatever else held it back or linked it before: the
         // fields are the target's, whose automation reads them. The field an
         // upsert matches on is left as read, or it would find no earlier copy.
+        // The clone's result says what was neutralized, field by field.
         if (contactPoints) {
-          const note = neutralizeSyncRows(
+          neutralizeSyncRows(
             contactPoints,
             objectApiName,
             targetFields.get(objectApiName) ?? [],
             writeRecords,
             upserts ? parsed.externalIdField : undefined,
           );
-          if (note) this.deps.log(`[INFO] seed:clone ${note}`);
         }
         try {
           const outcomes =

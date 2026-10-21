@@ -1069,24 +1069,18 @@
     "execute": "Executar",
     "executeDesc": "Executar a operação de sincronização",
     "results": "Resultados",
-    "direction": "Direção",
-    "directions": {
-      "source_to_target": "Origem para destino",
-      "target_to_source": "Destino para origem",
-      "bidirectional": "Bidirecional"
-    },
     "modes": {
       "full": "Completo",
       "incremental": "Incremental",
       "delta": "Delta",
       "cdc": "CDC"
     },
-    "conflictStrategy": "Estratégia de conflitos",
+    "conflictStrategy": "Quando a org de destino já tem o registro",
     "conflicts": {
-      "source_wins": "Origem prevalece",
-      "target_wins": "Destino prevalece",
-      "newest_wins": "Mais recente prevalece",
-      "merge": "Mesclar"
+      "source_wins": "Sobrescrevê-lo com os valores da origem",
+      "target_wins": "Manter os valores da org de destino",
+      "newest_wins": "Manter o dos dois alterado por último",
+      "merge": "Usar os valores da origem, mantendo os da org de destino onde a origem não tem nenhum"
     },
     "operations": {
       "insert": "Inserir",
@@ -1385,8 +1379,8 @@
       "conflicts": "Em conflito",
       "read_one": "{{count}} registro lido",
       "read_other": "{{count}} registros lidos",
-      "settledBy_one": "{{count}} registro difere do destino em um campo que a execução grava: {{strategy}} decide qual valor é gravado.",
-      "settledBy_other": "{{count}} registros diferem do destino em um campo que a execução grava: {{strategy}} decide qual valor é gravado.",
+      "settledBy_one": "{{count}} registro difere do destino em um campo que a execução grava: “{{strategy}}” decide qual valor é gravado.",
+      "settledBy_other": "{{count}} registros diferem do destino em um campo que a execução grava: “{{strategy}}” decide qual valor é gravado.",
       "conflictFields": "Campos que diferem: {{fields}}.",
       "nothingWritten": "Nada foi gravado. Os números comparam o que a execução enviaria com o que o destino contém agora.",
       "notChecked": "Uma simulação prevê o que a descrição do destino informa — um campo obrigatório deixado vazio, um valor longo demais, um valor único que ele já tem — mas não executa suas regras de validação, regras de duplicidade, gatilhos nem fluxos, nem verifica seu compartilhamento: um registro que um deles recusaria é contado como a execução o enviaria.",
@@ -1439,7 +1433,7 @@
       "pauseRefusedDetail": "A execução não está mais em andamento ou não foi iniciada nesta janela."
     },
     "strategyNotice": {
-      "manualReplaced": "Este rascunho pedia uma revisão manual de conflitos, que uma sincronização não oferece: cada execução dele gravou os valores da origem. Agora ele usa “Destino prevalece”, que mantém todos os valores do destino onde as duas orgs diferem. Escolha outra estratégia se a origem deve prevalecer."
+      "manualReplaced": "Este rascunho pedia uma revisão manual de conflitos, que uma sincronização não oferece: cada execução dele gravou os valores da origem. Agora ele mantém os valores da org de destino onde quer que as duas orgs difiram. Faça outra escolha se os valores da origem devem ser gravados."
     },
     "savedConfigs": {
       "title": "Configurações salvas",
@@ -1560,7 +1554,18 @@
       "runAgain": "A última sincronização entre estas orgs, em {{date}}, criou registros que ainda estão no destino: {{objects}}. Executar novamente insere cada registro de novo: remova antes essa execução para não deixar uma segunda cópia.",
       "unread": "Contado pelo que essa execução guardou: não foi possível consultar a org de destino ({{reason}})."
     },
-    "noCustomMapping": "Sem mapeamento personalizado: os campos com o mesmo nome de API são copiados."
+    "noCustomMapping": "Sem mapeamento personalizado: os campos com o mesmo nome de API são copiados.",
+    "conflictStrategyHint": "Perguntado para os objetos gravados por upsert ou atualização, que encontram o registro que a org de destino tem. Uma execução só grava na org de destino: para copiar no outro sentido, troque as duas orgs.",
+    "heldRecordsChosen": "Quando a org de destino já tem o registro: {{choice}}.",
+    "written": {
+      "linked_one": "{{count}} registro vinculado a um registro que a org de destino já tem, não gravado: o destino o recusou como duplicata desse registro, e o que a execução grava sob ele aponta para lá.",
+      "linked_other": "{{count}} registros vinculados a registros que a org de destino já tem, não gravados: o destino os recusou como duplicatas desses registros, e o que a execução grava sob eles aponta para lá.",
+      "refusal": "As palavras do destino:",
+      "notInTarget_one": "{{count}} registro gravado sem {{fields}}: ele indicava um registro que a org de destino não tem.",
+      "notInTarget_other": "{{count}} registros gravados sem {{fields}}: eles indicavam registros que a org de destino não tem.",
+      "ownerRefusedEarlier_one": "{{count}} registro gravado sem {{fields}} desde o início: a org de destino recusou o mesmo proprietário antes nesta execução, um usuário que ela não tem.",
+      "ownerRefusedEarlier_other": "{{count}} registros gravados sem {{fields}} desde o início: a org de destino recusou o mesmo proprietário antes nesta execução, um usuário que ela não tem."
+    }
   },
   "migration": {
     "title": "Migração",
@@ -4492,7 +4497,9 @@
     "searchObjects": "Buscar objetos...",
     "noObjectsSelected": "Nenhum objeto selecionado ainda",
     "orgs": "Orgs",
-    "objects": "Objetos"
+    "objects": "Objetos",
+    "openHistory": "Ver esta execução no histórico",
+    "againInserts": "Executado de novo, um Sync rápido insere estes registros uma segunda vez: remova primeiro o que esta execução criou, ou faça um upsert sobre um ID externo no assistente completo."
   },
   "pagination": {
     "navigation": "Paginação",

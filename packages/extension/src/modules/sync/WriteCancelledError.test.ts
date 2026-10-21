@@ -29,18 +29,20 @@ describe('WriteCancelledError', () => {
     );
   });
 
-  it('carries what the write said of the records it wrote', () => {
-    const note =
-      '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
-      'that the target does not have.';
+  it('carries what the write said of the records it wrote, and the lookups they went without', () => {
+    const note = 'RECORD_TYPE_UNMAPPED: 1 Account record held back, not sent.';
+    const leftOut = { records: 1, fields: ['Key_Contact__c'], reason: 'notInTarget' as const };
 
     const error = new WriteCancelledError(
       'Account',
       [{ id: '001000000000001AAA', success: true, errors: [] }],
       [note],
+      [leftOut],
     );
 
     expect(error.notes).toEqual([note]);
+    expect(error.lookupsLeftOut).toEqual([leftOut]);
+    expect(new WriteCancelledError('Account').lookupsLeftOut).toEqual([]);
   });
 
   it('is told apart from any other error a write can throw', () => {

@@ -51,7 +51,7 @@ import {
   type StandardPricebooks,
 } from './syncPrices.js';
 import { describeSettledPrices } from '../forge/stages/PriceCurrencies.js';
-import { contactPointsOfRun } from './syncContactPoints.js';
+import { contactPointsOfResult, contactPointsOfRun } from './syncContactPoints.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import {
@@ -729,11 +729,20 @@ export class SyncOrchestrator {
     };
 
     /**
-     * A result of this run, with what its files took of the target's storage
-     * and what it created, counted.
+     * A result of this run, with what its files took of the target's storage,
+     * what it did with the emails and phone numbers it wrote, and what it
+     * created, counted.
      */
     const finish = (result: SyncExecutionResult): SyncExecutionResult => {
-      const withFiles = filePlan ? { ...result, files: filePlan.storage } : result;
+      const said = contactPointsOfResult(
+        contactPoints,
+        result.objectResults.some((object) => object.success > 0),
+      );
+      const withFiles = {
+        ...result,
+        ...(filePlan ? { files: filePlan.storage } : {}),
+        ...(said ? { contactPoints: said } : {}),
+      };
       if (!recorder || (createdByObject.size === 0 && filesCreated === 0)) return withFiles;
       return {
         ...withFiles,
@@ -852,6 +861,7 @@ export class SyncOrchestrator {
               objectConfig.operation,
               err.written,
               err.notes,
+              err.lookupsLeftOut,
             ),
             leftOut,
           );
@@ -1832,7 +1842,7 @@ export class SyncOrchestrator {
         onWritten?.(outcomes, sourceIds);
       };
       try {
-        const { outcomes, notes, currencies } = await this.deps.dataSync.write(
+        const { outcomes, notes, currencies, lookupsLeftOut } = await this.deps.dataSync.write(
           { ...objectConfig, fieldMappings: [], addOnFields: [] },
           records,
           writeRun,
@@ -1848,6 +1858,7 @@ export class SyncOrchestrator {
                   objectConfig.operation,
                   outcomes,
                   notes,
+                  lookupsLeftOut,
                 ),
                 currencies,
               ),
@@ -1873,8 +1884,9 @@ export class SyncOrchestrator {
   /**
    * Read one object and make its records what the write is handed: the rows
    * left to the platform set aside, mapped, transformed, with their add-ons,
-   * and on a bidirectional run every conflict with the target settled by the
-   * strategy. {@link execute} writes them; {@link simulate} only looks.
+   * and on a bidirectional run of an upsert or an update every conflict with
+   * the target settled by the strategy. {@link execute} writes them;
+   * {@link simulate} only looks.
    *
    * @param leftOut - Receives the rows the read leaves to the platform.
    * @param asked - On a delta configuration: how the source is read, filled in
@@ -1952,7 +1964,14 @@ export class SyncOrchestrator {
     let finalRecords = recordsWithAddOns;
     let conflicts: ConflictRecord[] = [];
 
-    if (config.direction === 'bidirectional') {
+    // The strategy settles what a write puts over a record the target holds,
+    // which an upsert finds by its key and an update by its id. An insert
+    // creates a record whatever the target holds: settled, a copy between two
+    // sandboxes of one production, whose ids match, went in as a second
+    // record carrying the target's values. A delete writes no value.
+    const writesOverHeld =
+      objectConfig.operation === 'upsert' || objectConfig.operation === 'update';
+    if (config.direction === 'bidirectional' && writesOverHeld) {
       const targetRecords = await this.deps.queryTarget(config.targetOrgId, objectConfig);
 
       conflicts = this.deps.conflictResolver.detectConflicts(
