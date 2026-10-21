@@ -5,6 +5,44 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.62.0] - 2026-10-21
+
+Copies between two orgs check before they write, never duplicate, keep personal data private, and every run can be seen, stopped and taken back.
+
+### Added
+
+- **Live Operations**: lists every run that writes, DataOps, cleanups, erasures, pipelines and Real-Time included, updated as it goes, each with a Stop.
+- **DataOps backups**: can be deleted, one or all of an org's; new backups expire after `sandforge.backup.maxAgeDays` (30), older ones stay until you delete them.
+- **Forge results**: open the cloned record in the org.
+- **Quick Sync results**: remove what the run created, or open it in History.
+- **Seed's Clone from Org, CSV Upload**: a Stop while they write.
+- **Settings**: say what each AI feature sends to Anthropic; remove the key and its conversations.
+
+### Changed
+
+- **Sync**: writes parents first whatever the order objects were added in; a saved configuration run again leaves out what an earlier run copied.
+- **Sync**: checks volume, data storage and the target's daily emails before writing, as Forge does.
+- **Sync**: one question, asked only when the target may hold the record, replaces Direction and Conflict Strategy; results show what was written in plain lines, not as refusals.
+- **Forge**: a clone from one record takes the whole graph unless you set Records per object, and says where a cap cut an object.
+- **Forge Review**: warns before Execute leaves gaps undecided; the Anonymization tab is always reachable.
+- **Clone from Org**: neutralises emails and phone numbers by default and refuses a clone past the target's daily emails.
+- **Neutralised phone numbers**: keep the original's layout, so the target's format rules accept them.
+- **DataOps masking**: keeps the values first, so Restore can put them back.
+- **Autopilot**: waits as long as the run takes and refuses a second run on the same target.
+- **Saving an AI key**: no longer turns on sending failed runs to Anthropic.
+- **Keyboard and screen readers**: focus follows each page and step, runs announce how they ended, graphs and org pickers work from the keyboard.
+- **Walkthrough**: the Connect step completes once an org is registered.
+- **Translations**: each language names modules and Salesforce terms as Salesforce's own interface does, consistently.
+
+### Fixed
+
+- **Seed's Clone from Org**: writes between two orgs that do not share their users.
+- **Forge removal**: from the panel, also deletes the rows of a write call the run was stopped during; can be stopped.
+- **Sync**: an insert between two sandboxes of one production no longer takes the target's values.
+- **Earlier seeds**: a seed still writing can no longer be removed.
+- **Reports**: a stopped Seed, Clone or CSV import reads cancelled.
+- **Command-line snapshots**: kept in your own folder, readable by you only.
+
 ## [1.61.0] - 2026-10-20
 
 The first five minutes: a new user goes from no org to seeded data, errors read in plain words, and SandForge starts lighter.
