@@ -1061,7 +1061,7 @@
       "update": "Mise à jour par Id : l'enregistrement de la cible qui porte l'Id de l'enregistrement source est écrasé.",
       "delete": "Suppression par Id : l'enregistrement de la cible qui porte l'Id de l'enregistrement source est supprimé.",
       "after": "Écrit après {{parent}}, que désigne son champ {{field}}.",
-      "cycle": "{{objects}} se désignent l'un l'autre : ils sont écrits dans cet ordre, et le champ de référence vers celui écrit en dernier reste vide.",
+      "cycle": "{{objects}} se désignent l'un l'autre : ils sont écrits dans cet ordre, d'abord sans le champ de référence vers celui écrit en dernier, renseigné une fois celui-ci écrit.",
       "orderLoading": "Lecture des champs de référence de chaque objet dans l'org cible…",
       "orderUnread": "L'ordre n'a pas pu être lu dans l'org cible : l'exécution le calcule de nouveau avant d'écrire.",
       "insertsSaved": "Enregistrée : chaque exécution de cette configuration laisse tels quels les enregistrements qu'une exécution précédente a copiés, et insère les autres.",
@@ -1232,7 +1232,8 @@
         "evtPerSec": "évt/s"
       },
       "eventCount_one": "{{count}} événement",
-      "eventCount_other": "{{count}} événements"
+      "eventCount_other": "{{count}} événements",
+      "contactPointsHint": "Chaque adresse e-mail qu'un changement écrit passe sous .invalid et chaque numéro de téléphone devient fictif, pour que l'automatisation de l'org cible n'atteigne personne. Un objet trouvé par le mapping d'une sync enregistrée suit le choix de cette configuration."
     },
     "tabs": {
       "sync": "Sync",
@@ -1566,7 +1567,19 @@
       "notInTarget_one": "{{count}} enregistrement écrit sans {{fields}} : il désignait un enregistrement que l'org cible n'a pas.",
       "notInTarget_other": "{{count}} enregistrements écrits sans {{fields}} : ils désignaient des enregistrements que l'org cible n'a pas.",
       "ownerRefusedEarlier_one": "{{count}} enregistrement écrit sans {{fields}} dès le départ : l'org cible a refusé le même propriétaire plus tôt dans cette exécution, un utilisateur qu'elle n'a pas.",
-      "ownerRefusedEarlier_other": "{{count}} enregistrements écrits sans {{fields}} dès le départ : l'org cible a refusé le même propriétaire plus tôt dans cette exécution, un utilisateur qu'elle n'a pas."
+      "ownerRefusedEarlier_other": "{{count}} enregistrements écrits sans {{fields}} dès le départ : l'org cible a refusé le même propriétaire plus tôt dans cette exécution, un utilisateur qu'elle n'a pas.",
+      "parentRefused_one": "{{count}} enregistrement écrit sans {{fields}} : l'enregistrement qu'il désigne, écrit après lui, a été refusé dans cette exécution.",
+      "parentRefused_other": "{{count}} enregistrements écrits sans {{fields}} : les enregistrements qu'ils désignent, écrits après eux, ont été refusés dans cette exécution.",
+      "notSet_one": "{{count}} enregistrement écrit sans {{fields}} : l'org cible a refusé de le renseigner une fois l'enregistrement désigné écrit.",
+      "notSet_other": "{{count}} enregistrements écrits sans {{fields}} : l'org cible a refusé de le renseigner une fois les enregistrements désignés écrits.",
+      "notReached_one": "{{count}} enregistrement écrit sans {{fields}} : l'exécution a été arrêtée avant de le renseigner.",
+      "notReached_other": "{{count}} enregistrements écrits sans {{fields}} : l'exécution a été arrêtée avant de le renseigner.",
+      "setAfter_one": "{{count}} enregistrement a reçu {{fields}} une fois les enregistrements {{objects}} écrits : ils se désignent l'un l'autre, il a donc d'abord été écrit sans.",
+      "setAfter_other": "{{count}} enregistrements ont reçu {{fields}} une fois les enregistrements {{objects}} écrits : ils se désignent l'un l'autre, ils ont donc d'abord été écrits sans.",
+      "withoutFields_one": "{{count}} enregistrement réécrit sans les champs que l'org cible a refusés :",
+      "withoutFields_other": "{{count}} enregistrements réécrits sans les champs que l'org cible a refusés :",
+      "withoutField_one": "{{field}}, retiré de {{count}} enregistrement : {{refusedBy}}.",
+      "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}."
     }
   },
   "migration": {

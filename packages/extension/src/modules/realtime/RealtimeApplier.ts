@@ -36,8 +36,9 @@ export interface ApplyPlan {
   /**
    * Write the email addresses and phone numbers of the changes as the source
    * holds them: the saved Sync configuration's choice
-   * (`SyncConfig.keepContactPoints`). Absent or false, they are neutralized
-   * first, as a Sync run's are.
+   * (`SyncConfig.keepContactPoints`), or the session's for an object found by
+   * its Id or an external id. Absent or false, they are neutralized first, as
+   * a Sync run's are.
    */
   keepContactPoints?: boolean;
 }

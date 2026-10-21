@@ -93,7 +93,14 @@ describe('parseRemoveArgs', () => {
       parseRemoveArgs(
         argv('--remove', 'run.json', '--target', 'TGT', '--include-changed', '--json'),
       ),
-    ).toEqual({ summaryPath: 'run.json', target: 'TGT', includeChanged: true, json: true });
+    ).toEqual({
+      summaryPath: 'run.json',
+      target: 'TGT',
+      includeChanged: true,
+      json: true,
+      sweep: false,
+      sweepList: false,
+    });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--store', 'state')),
     ).toEqual({
@@ -102,7 +109,23 @@ describe('parseRemoveArgs', () => {
       includeChanged: false,
       json: false,
       store: 'state',
+      sweep: false,
+      sweepList: false,
     });
+    expect(
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--sweep')),
+    ).toMatchObject({ sweep: true, sweepList: false });
+    expect(
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--sweep-list')),
+    ).toMatchObject({ sweep: false, sweepList: true });
+  });
+
+  it('refuses a sweep and its listing asked together', () => {
+    const exit = stubExit();
+    expect(() =>
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--sweep', '--sweep-list')),
+    ).toThrow('exit 2');
+    expect(exit.stderr()).toContain('give one of them');
   });
 
   it('refuses a flag a removal does not read, and a line without its target', () => {
@@ -224,6 +247,22 @@ describe('what the command takes back, and from where', () => {
       { objectApiName: 'Contact', ids: [C1] },
     ]);
     expect(kept.lastWrittenAt()).toEqual(expect.any(String));
+  });
+
+  it('dates its last write by the records it wrote again, adding nothing it created', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-14T08:00:05.000Z'));
+      const kept = memoryCreations('run-1');
+      kept.note('Account', [A1]);
+      vi.setSystemTime(new Date('2026-10-14T08:00:40.000Z'));
+      kept.touched?.('Account', 1);
+
+      expect(kept.lastWrittenAt()).toBe('2026-10-14T08:00:40.000Z');
+      expect(kept.created()).toEqual([{ objectApiName: 'Account', ids: [A1] }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

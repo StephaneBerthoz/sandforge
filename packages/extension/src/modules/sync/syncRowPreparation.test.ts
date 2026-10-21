@@ -717,3 +717,91 @@ describe('SyncRunLinks', () => {
     expect(links.refusedObjectOf(SOURCE_ACCOUNT_1)).toBe('Account');
   });
 });
+
+describe('prepareSyncRows — lookups at an object written later in a cycle', () => {
+  /** The target's Account, with a lookup at its primary contact. */
+  const accountTarget = (required = false) =>
+    targetWriteFieldsOf({
+      name: 'Account',
+      fields: [
+        { name: 'Name', createable: true, type: 'string' },
+        {
+          name: 'Primary_Contact__c',
+          createable: true,
+          type: 'reference',
+          referenceTo: ['Contact'],
+          nillable: !required,
+        },
+        { name: 'ParentId', createable: true, type: 'reference', referenceTo: ['Account'] },
+      ],
+    });
+  const rows = [
+    { Id: SOURCE_ACCOUNT_1, Name: 'Acme', Primary_Contact__c: SOURCE_CONTACT_1, ParentId: null },
+  ];
+
+  it('leaves the lookup out of the row it creates, for the run to set once the contacts are written', () => {
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: accountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, later: new Set(['Contact']) },
+    });
+
+    expect(prepared.payloads).toEqual([{ Name: 'Acme', ParentId: null }]);
+    expect(prepared.deferredAcross).toEqual([
+      { index: 0, field: 'Primary_Contact__c', parent: SOURCE_CONTACT_1 },
+    ]);
+    expect(prepared.deferred).toEqual([]);
+  });
+
+  it('sends the lookup as before with no object of the cycle written after it', () => {
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: accountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows },
+    });
+
+    expect(prepared.payloads[0].Primary_Contact__c).toBe(SOURCE_CONTACT_1);
+    expect(prepared.deferredAcross).toEqual([]);
+  });
+
+  it('keeps a lookup the target requires, which the row could not go without', () => {
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: accountTarget(true),
+      run: { links: new SyncRunLinks(), sources: rows, later: new Set(['Contact']) },
+    });
+
+    expect(prepared.payloads[0].Primary_Contact__c).toBe(SOURCE_CONTACT_1);
+    expect(prepared.deferredAcross).toEqual([]);
+  });
+
+  it('names the copy an earlier run wrote rather than wait for one', () => {
+    const TARGET_CONTACT = '003000000000901AAA';
+    const links = new SyncRunLinks(new Map([[SOURCE_CONTACT_1.slice(0, 15), TARGET_CONTACT]]));
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: accountTarget(),
+      run: { links, sources: rows, later: new Set(['Contact']) },
+    });
+
+    expect(prepared.payloads[0].Primary_Contact__c).toBe(TARGET_CONTACT);
+    expect(prepared.deferredAcross).toEqual([]);
+  });
+
+  it('waits for nothing in an update, which finds its record by the id both orgs share', () => {
+    const prepared = prepareSyncRows({
+      config: objectConfig({ operation: 'update' }),
+      records: rows,
+      target: accountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, later: new Set(['Contact']) },
+    });
+
+    expect(prepared.payloads[0].Primary_Contact__c).toBe(SOURCE_CONTACT_1);
+    expect(prepared.deferredAcross).toEqual([]);
+  });
+});

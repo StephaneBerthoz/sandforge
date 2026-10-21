@@ -1061,7 +1061,7 @@
       "update": "Update by Id: the target record holding the source record's Id is overwritten.",
       "delete": "Delete by Id: the target record holding the source record's Id is deleted.",
       "after": "Written after {{parent}}, which its {{field}} names.",
-      "cycle": "{{objects}} name each other: they are written in this order, and the lookup at the one written later is left empty.",
+      "cycle": "{{objects}} name each other: they are written in this order, first without the lookups at the one written later, which are set once it is written.",
       "orderLoading": "Reading the lookups of each object in the target org…",
       "orderUnread": "The order could not be read from the target org: the run computes it again before it writes.",
       "insertsSaved": "Saved: each run of this configuration leaves as they are the records an earlier run copied, and inserts the others.",
@@ -1232,7 +1232,8 @@
         "evtPerSec": "evt/s"
       },
       "eventCount_one": "{{count}} event",
-      "eventCount_other": "{{count}} events"
+      "eventCount_other": "{{count}} events",
+      "contactPointsHint": "Every email address a change writes goes in under .invalid and every phone number as a fictional one, so the target org's automation reaches no one. An object found by the mapping of a saved Sync configuration follows that configuration's choice."
     },
     "tabs": {
       "sync": "Sync",
@@ -1566,7 +1567,19 @@
       "notInTarget_one": "{{count}} record written without {{fields}}: it named a record the target org does not have.",
       "notInTarget_other": "{{count}} records written without {{fields}}: they named records the target org does not have.",
       "ownerRefusedEarlier_one": "{{count}} record written without {{fields}} from the start: the target org refused the same owner earlier in this run, a user it does not have.",
-      "ownerRefusedEarlier_other": "{{count}} records written without {{fields}} from the start: the target org refused the same owner earlier in this run, a user it does not have."
+      "ownerRefusedEarlier_other": "{{count}} records written without {{fields}} from the start: the target org refused the same owner earlier in this run, a user it does not have.",
+      "parentRefused_one": "{{count}} record written without {{fields}}: the record it names, written after it, was refused in this run.",
+      "parentRefused_other": "{{count}} records written without {{fields}}: the records they name, written after them, were refused in this run.",
+      "notSet_one": "{{count}} record written without {{fields}}: the target org refused setting it once the record it names was written.",
+      "notSet_other": "{{count}} records written without {{fields}}: the target org refused setting it once the records they name were written.",
+      "notReached_one": "{{count}} record written without {{fields}}: the run was stopped before setting it.",
+      "notReached_other": "{{count}} records written without {{fields}}: the run was stopped before setting it.",
+      "setAfter_one": "{{count}} record given {{fields}} once the {{objects}} records were written: they name each other, so it went in first without it.",
+      "setAfter_other": "{{count}} records given {{fields}} once the {{objects}} records were written: they name each other, so they went in first without it.",
+      "withoutFields_one": "{{count}} record written again without the fields the target org refused it on:",
+      "withoutFields_other": "{{count}} records written again without the fields the target org refused them on:",
+      "withoutField_one": "{{field}}, left out of {{count}} record: {{refusedBy}}.",
+      "withoutField_other": "{{field}}, left out of {{count}} records: {{refusedBy}}."
     }
   },
   "migration": {

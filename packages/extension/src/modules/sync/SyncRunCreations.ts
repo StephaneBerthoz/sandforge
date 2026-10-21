@@ -180,6 +180,21 @@ const sendingSchema = z.object({
   }),
 });
 
+/**
+ * A line after the run wrote again records of an object it created — the
+ * lookups it left out of them, set once the records they name were written —
+ * and when: nothing created, but the latest is when the run last wrote, which
+ * its removal reads the org's dates against. Without it, a record given its
+ * lookup after the run's last creation read as changed since the run.
+ */
+const touchedSchema = z.object({
+  touched: z.object({
+    object: objectSchema,
+    rows: z.number().int().positive(),
+    at: dateSchema,
+  }),
+});
+
 /** The last line: how the run ended, on this machine's clock. */
 const endSchema = z.object({
   end: z.object({
@@ -315,6 +330,14 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
       };
       continue;
     }
+    const touched = touchedSchema.safeParse(value);
+    if (touched.success) {
+      const { at } = touched.data.touched;
+      if (lastWrittenAt === undefined || Date.parse(at) > Date.parse(lastWrittenAt)) {
+        lastWrittenAt = at;
+      }
+      continue;
+    }
     const created = createdSchema.safeParse(value);
     if (created.success) {
       if (inFlight?.objectApiName === created.data.object) inFlight = undefined;
@@ -414,6 +437,12 @@ export interface SyncCreationRecorder {
    * included, written at once.
    */
   answered?(objectApiName: string, ids: readonly string[]): void;
+  /**
+   * The run has just written again `rows` records of `objectApiName` it
+   * created — the lookups it left out of them, set once the records they name
+   * were written: written at once, dated now, as when it last wrote.
+   */
+  touched?(objectApiName: string, rows: number): void;
   /**
    * Waits for what was noted to be written, and says why some of it could
    * not be, once: undefined when all of it was.
@@ -520,6 +549,10 @@ export class SyncRunCreations {
         if (!objectSchema.safeParse(objectApiName).success) return;
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
         append({ object: objectApiName, created: valid, at: new Date().toISOString() });
+      },
+      touched: (objectApiName, rows) => {
+        if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
+        append({ touched: { object: objectApiName, rows, at: new Date().toISOString() } });
       },
       flush: async () => {
         await writes;

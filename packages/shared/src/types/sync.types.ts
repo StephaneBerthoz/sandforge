@@ -7,6 +7,8 @@ import type {
 } from './common.types.js';
 import type {
   ForgeContactPointsReport,
+  ForgeRefusedField,
+  ForgeSweepResult,
   ForgeUndoMark,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
@@ -386,6 +388,12 @@ export interface SyncRemovalResult {
   readWhole?: string[];
   /** Files dropped from the configuration's record of the files it copied. Absent when none. */
   filesForgotten?: number;
+  /**
+   * What the sweep asked with the removal took, before the run's records
+   * went: what the target's automation created during the run, as its user,
+   * that the run did not write (Forge's sweep). Absent when none was asked.
+   */
+  sweep?: ForgeSweepResult;
 }
 
 /** A snapshot of a sync execution for history tracking and re-run support. */
@@ -512,6 +520,39 @@ export interface SyncObjectResult {
    * Written, so said apart from `errors` too. Absent when none.
    */
   lookupsLeftOut?: SyncLookupsLeftOut[];
+  /**
+   * The records the target refused on fields it named — a validation rule,
+   * a restricted picklist refusing their value, a lookup filter — and that
+   * went in once written again without those fields, as Forge's
+   * `writtenWithoutFields` says it. Written, so said apart from `errors`:
+   * the sentence saying so was listed among the refusals, in red under a run
+   * that had succeeded. Absent when none.
+   */
+  writtenWithoutFields?: SyncWrittenWithoutFields;
+  /**
+   * The records written first without the lookups at an object written after
+   * them — a cycle of lookups no order breaks — and given them by an update
+   * once that object's records had their copies. Absent when none.
+   */
+  lookupsSetAfter?: SyncLookupsSetAfter;
+}
+
+/** See {@link SyncObjectResult.writtenWithoutFields}. */
+export interface SyncWrittenWithoutFields {
+  /** The records written so. */
+  rows: number;
+  /** Each field left out of them, what refused it, in its words, and of how many. */
+  fields: ForgeRefusedField[];
+}
+
+/** See {@link SyncObjectResult.lookupsSetAfter}. */
+export interface SyncLookupsSetAfter {
+  /** The records given their lookups. */
+  records: number;
+  /** The lookups set, by API name, sorted. */
+  fields: string[];
+  /** The objects of the cycle written after it, whose records the lookups waited for. */
+  after: ApiName[];
 }
 
 /** See {@link SyncObjectResult.linkedToExisting}. */
@@ -529,14 +570,23 @@ export interface SyncLinkedToExisting {
  *   owner, a record no object of the run wrote — and took them sent again
  *   without those lookups;
  * - `ownerRefusedEarlier`: the target refused the same owner earlier in the
- *   run, so they were sent without it from the start.
+ *   run, so they were sent without it from the start;
+ * - `parentRefused`: the lookup names a record written after them — of the
+ *   same object, or of one their lookups and its own tie in a cycle — that
+ *   the run set out to create and could not: they stay without it;
+ * - `notSet`: written first without that lookup, the target refused the
+ *   update that set it once the record it names was written (`refusal`);
+ * - `notReached`: written first without that lookup, the run was cancelled,
+ *   or stopped, before it was set.
  */
 export interface SyncLookupsLeftOut {
   /** The records written so. */
   records: number;
   /** The lookups they went without, by API name, sorted. */
   fields: string[];
-  reason: 'notInTarget' | 'ownerRefusedEarlier';
+  reason: 'notInTarget' | 'ownerRefusedEarlier' | 'parentRefused' | 'notSet' | 'notReached';
+  /** For `notSet`: the target's words on the first update it refused, or why the update failed. */
+  refusal?: string;
 }
 
 /**
@@ -564,8 +614,9 @@ export interface SyncWriteOrder {
   moved: SyncWriteOrderMove[];
   /**
    * Objects whose lookups name each other, which no order puts each after
-   * the other: written in the configuration's order, the lookup at the one
-   * written later is left empty. Empty when there are none.
+   * the other: written in the configuration's order, the lookups at the ones
+   * written later are left out of the write and set by an update once their
+   * records are written. Empty when there are none.
    */
   cycles: ApiName[][];
 }

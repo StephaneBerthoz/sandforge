@@ -16,9 +16,12 @@ import { PRICEBOOK_ENTRY_OBJECT, sanitizeSoqlObjectName } from '@sandforge/share
 import {
   buildObjectResult,
   linkedRecordOf,
+  notReachedOf,
   withCurrencies,
   type DataSync,
+  type LookupsSet,
   type OperationOutcome,
+  type PendingLookup,
 } from './DataSync.js';
 import type { SyncIdMapStore, SyncLinkPair } from './SyncIdMap.js';
 import type { ConflictResolver } from './ConflictResolver';
@@ -304,6 +307,11 @@ interface RunContext {
   contactPoints?: ContactPointNeutralizer;
   /** Both orgs' standard price books, read the first time an object's records name a price book. */
   standardPricebooks?: () => Promise<StandardPricebooks | undefined>;
+  /**
+   * Per object, the objects written after it that a cycle of lookups ties to
+   * it (`laterInCycles`): what its rows' lookups at them wait for.
+   */
+  later?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** An active validation rule of the target as the simulation reads it. */
@@ -356,24 +364,67 @@ function carriesACurrency(record: Record<string, unknown> | undefined): boolean 
 /**
  * What the write of one object is handed beside its records: the run's
  * links, the rows as the source read them, both orgs' record types when a
- * record carries one, and both orgs' currencies when a row was read with one.
+ * record carries one, both orgs' currencies when a row was read with one, and
+ * the objects written after it that a cycle of lookups ties to it.
  */
 async function writeRunOf(
   run: RunContext,
   records: readonly Record<string, unknown>[],
   sources: Record<string, unknown>[],
+  objectApiName: string,
 ): Promise<SyncWriteRun> {
   const recordTypes = records.some(carriesARecordType) ? await run.recordTypes() : undefined;
   const currencies =
     sources.some(carriesACurrency) || records.some(carriesACurrency)
       ? await run.currencies()
       : undefined;
+  const later = run.later?.get(objectApiName);
   return {
     links: run.links,
     sources,
     ...(recordTypes ? { recordTypes } : {}),
     ...(currencies ? { currencies, currencyChangesById: run.currencyChangesById } : {}),
     ...(run.contactPoints ? { contactPoints: run.contactPoints } : {}),
+    ...(later && later.size > 0 ? { later } : {}),
+  };
+}
+
+/**
+ * Per object of a cycle of lookups, the objects of the cycle the run writes
+ * after it (`SyncWriteOrder.cycles`, each in the order written): what its
+ * rows' lookups at them wait for. An object in no cycle, or written last in
+ * its own, is not there.
+ */
+export function laterInCycles(
+  order: Pick<SyncWriteOrder, 'cycles'> | undefined,
+): Map<string, ReadonlySet<string>> {
+  const later = new Map<string, ReadonlySet<string>>();
+  for (const cycle of order?.cycles ?? []) {
+    cycle.forEach((name, at) => {
+      if (at < cycle.length - 1) later.set(name, new Set(cycle.slice(at + 1)));
+    });
+  }
+  return later;
+}
+
+/**
+ * An object's result with what setting the lookups its records waited for
+ * came to: those set, said apart, and those left without, beside the lookups
+ * it wrote them without already.
+ *
+ * @param after - The objects written after it whose records the lookups name.
+ */
+function withLookupsSet(
+  result: SyncObjectResult,
+  outcome: Pick<LookupsSet, 'set' | 'leftOut'>,
+  after: readonly string[],
+): SyncObjectResult {
+  return {
+    ...result,
+    ...(outcome.set ? { lookupsSetAfter: { ...outcome.set, after: [...after] } } : {}),
+    ...(outcome.leftOut.length > 0
+      ? { lookupsLeftOut: [...(result.lookupsLeftOut ?? []), ...outcome.leftOut] }
+      : {}),
   };
 }
 
@@ -539,7 +590,9 @@ export class SyncOrchestrator {
     const operationId = `sync-${Date.now()}`;
     const objectResults: SyncObjectResult[] = [];
 
-    const { ordered: sortedObjects } = await this.writeOrderOf(config.objects);
+    const { ordered: sortedObjects, order } = await this.writeOrderOf(config.objects);
+    // Of each object a cycle of lookups ties to others, those written after it.
+    const later = laterInCycles(order);
     const deltaLoad = this.deltaLoadOf(config);
     /** The run refused before its first write, with nothing written. */
     const refuse = (message: string, code: string): SyncRunRefused =>
@@ -728,6 +781,46 @@ export class SyncOrchestrator {
       objectResults.push(await kept(result));
     };
 
+    // The lookups the records of an object left out at an object written
+    // after it, in a cycle (`later`), set once the cycle's last object is
+    // written: an account's primary contact once the contacts are in.
+    const pendingLookups = new Map<
+      string,
+      { objectConfig: SyncObjectConfig; pending: PendingLookup[] }
+    >();
+    const lastInCycle = new Set((order?.cycles ?? []).map((cycle) => cycle[cycle.length - 1]));
+    /** An object's result, pushed already, with what setting its lookups came to. */
+    const amend = (objectApiName: string, outcome: Pick<LookupsSet, 'set' | 'leftOut'>): void => {
+      for (let at = objectResults.length - 1; at >= 0; at--) {
+        if (objectResults[at].objectApiName !== objectApiName) continue;
+        objectResults[at] = withLookupsSet(objectResults[at], outcome, [
+          ...(later.get(objectApiName) ?? []),
+        ]);
+        return;
+      }
+    };
+    /** Set every lookup waiting, now that the records they name are written. */
+    const settleCycle = async (): Promise<void> => {
+      for (const [name, waiting] of [...pendingLookups]) {
+        pendingLookups.delete(name);
+        await this.deps.pauseGate?.whilePaused(this.deps.signal);
+        const outcome = this.deps.signal?.aborted
+          ? { leftOut: notReachedOf(waiting.pending) }
+          : await this.deps.dataSync.setLookups(waiting.objectConfig, waiting.pending, links, true);
+        // Written again after the run's last creation, they are no change
+        // since the run to its removal.
+        if ('set' in outcome && outcome.set) recorder?.touched?.(name, outcome.set.records);
+        amend(name, outcome);
+      }
+    };
+    /** Said of the lookups still waiting when a cancel or a failure ends the run. */
+    const leaveUnset = (): void => {
+      for (const [name, waiting] of [...pendingLookups]) {
+        pendingLookups.delete(name);
+        amend(name, { leftOut: notReachedOf(waiting.pending) });
+      }
+    };
+
     /**
      * A result of this run, with what its files took of the target's storage,
      * what it did with the emails and phone numbers it wrote, and what it
@@ -792,6 +885,7 @@ export class SyncOrchestrator {
       notReached: readonly SyncObjectConfig[],
       reason?: string,
     ): Promise<SyncExecutionResult> => {
+      leaveUnset();
       endGrappe();
       await recorder?.flush();
       await linksKept;
@@ -837,6 +931,7 @@ export class SyncOrchestrator {
             currencyChangesById,
             standardPricebooks,
             ...(contactPoints ? { contactPoints } : {}),
+            later,
           },
           plan ? read : undefined,
           written,
@@ -847,6 +942,13 @@ export class SyncOrchestrator {
               }
             : undefined,
           copied.get(objectConfig.objectApiName),
+          (later.get(objectConfig.objectApiName)?.size ?? 0) > 0
+            ? (pending) => {
+                const waiting = pendingLookups.get(objectConfig.objectApiName);
+                if (waiting) waiting.pending.push(...pending);
+                else pendingLookups.set(objectConfig.objectApiName, { objectConfig, pending });
+              }
+            : undefined,
         );
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
@@ -862,6 +964,7 @@ export class SyncOrchestrator {
               err.written,
               err.notes,
               err.lookupsLeftOut,
+              err.writtenWithoutFields,
             ),
             leftOut,
           );
@@ -889,6 +992,7 @@ export class SyncOrchestrator {
             ),
           ),
         );
+        leaveUnset();
         throw new SyncRunFailure(
           err instanceof Error ? err.message : String(err),
           finish(buildResult(config.id, operationId, objectResults, startTime, 'failure')),
@@ -1004,6 +1108,9 @@ export class SyncOrchestrator {
         result = { ...result, delta: deltaOutcomeOf(plan, read.rows, deletions, recorded) };
       }
       await push(result);
+      // The last object of a cycle is in: the lookups the objects before it
+      // left out at its records, and theirs, are set.
+      if (lastInCycle.has(objectConfig.objectApiName)) await settleCycle();
 
       if (grappeActive) {
         partitionIndex++;
@@ -1483,6 +1590,7 @@ export class SyncOrchestrator {
       currencies: this.currenciesOnce(),
       currencyChangesById: new Map<string, CurrencyChange>(),
       standardPricebooks: this.standardPricebooksOnce(),
+      later: laterInCycles(writeOrder),
     };
     for (const [index, objectConfig] of ordered.entries()) {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
@@ -1608,7 +1716,7 @@ export class SyncOrchestrator {
       config: { ...objectConfig, fieldMappings: [], addOnFields: [] },
       records: prepared.records,
       target,
-      run: await writeRunOf(run, prepared.records, prepared.sources),
+      run: await writeRunOf(run, prepared.records, prepared.sources, objectConfig.objectApiName),
     });
     const sentRecords = rows.sentAt.map((at) => prepared.records[at]);
 
@@ -1778,6 +1886,8 @@ export class SyncOrchestrator {
    *   the source id of each record.
    * @param copied - The source records an earlier run copied, left as they
    *   are, by the first fifteen characters of their id.
+   * @param onLookupsToSet - Told the lookups the records written left out at
+   *   an object written after this one, which a cycle ties to it.
    */
   private async syncObject(
     config: SyncConfig,
@@ -1791,6 +1901,7 @@ export class SyncOrchestrator {
       sourceIds: ReadonlyArray<string | undefined>,
     ) => void,
     copied?: ReadonlySet<string>,
+    onLookupsToSet?: (pending: PendingLookup[]) => void,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
     const prepared = await this.prepare(config, objectConfig, leftOut, read, copied);
     const asCopied = (result: SyncObjectResult): SyncObjectResult =>
@@ -1806,7 +1917,7 @@ export class SyncOrchestrator {
       );
     }
     const writeRun: SyncWriteRun = {
-      ...(await writeRunOf(run, records, sources)),
+      ...(await writeRunOf(run, records, sources, objectConfig.objectApiName)),
       ...(settled.standardFirst > 0 ? { standardFirst: settled.standardFirst } : {}),
     };
     // A price left out for the source's own in the currency written is linked
@@ -1828,7 +1939,7 @@ export class SyncOrchestrator {
     // object's own mappings, it mapped every record a second time, by source
     // field name, on records that hold target names: a rename, a constant or a
     // formula found nothing there and wrote its field empty.
-    if (written || onWritten) {
+    if (written || onWritten || onLookupsToSet) {
       // A run that copies files needs each record the write took, and its id
       // in the target: the files of a record go to its copy there. A run that
       // keeps what it creates needs each record the write created.
@@ -1842,13 +1953,15 @@ export class SyncOrchestrator {
         onWritten?.(outcomes, sourceIds);
       };
       try {
-        const { outcomes, notes, currencies, lookupsLeftOut } = await this.deps.dataSync.write(
-          { ...objectConfig, fieldMappings: [], addOnFields: [] },
-          records,
-          writeRun,
-        );
+        const { outcomes, notes, currencies, lookupsLeftOut, writtenWithoutFields, lookupsToSet } =
+          await this.deps.dataSync.write(
+            { ...objectConfig, fieldMappings: [], addOnFields: [] },
+            records,
+            writeRun,
+          );
         note(outcomes);
         linkWhatStoodIn();
+        if (lookupsToSet) onLookupsToSet?.(lookupsToSet);
         return asCopied(
           withRowsLeftOut(
             withPricesSettled(
@@ -1859,6 +1972,7 @@ export class SyncOrchestrator {
                   outcomes,
                   notes,
                   lookupsLeftOut,
+                  writtenWithoutFields,
                 ),
                 currencies,
               ),

@@ -7,9 +7,16 @@ const VERBATIM_TYPES = new Set(['direct', 'rename']);
 /**
  * How the changes of an applied object are written, from what the user picked.
  *
+ * The emails and phone numbers of an object found by its Id or an external id
+ * follow the session's choice (`session.keepContactPoints`), and those of one
+ * found by the mapping of a saved configuration that configuration's, which
+ * its own runs follow. An object found by Id had no way to keep them: every
+ * session neutralized it, whatever the user wanted of the copy.
+ *
  * @param apply - The object, how its target record is found, and whether deletes apply.
  * @param loadConfig - Reads a saved Sync configuration by id.
  * @param orgs - The pair the session runs between.
+ * @param session - What the session was asked beside its objects.
  * @throws {Error} When the saved configuration picked is gone, runs between
  *   other orgs, or does not carry the object.
  */
@@ -17,6 +24,7 @@ export function applyPlanFor(
   apply: RealTimeApplyObject,
   loadConfig: (configId: string) => SyncConfig | undefined,
   orgs: { sourceOrgId: string; targetOrgId: string },
+  session: { keepContactPoints?: boolean } = {},
 ): ApplyPlan {
   const base = {
     objectApiName: apply.objectApiName,
@@ -25,11 +33,12 @@ export function applyPlanFor(
     transformRules: [],
     applyDeletes: apply.applyDeletes,
   };
+  const kept = session.keepContactPoints === true ? { keepContactPoints: true } : {};
   switch (apply.match.kind) {
     case 'id':
-      return { ...base, keyField: 'Id', keySource: 'Id' };
+      return { ...base, keyField: 'Id', keySource: 'Id', ...kept };
     case 'externalId':
-      return { ...base, keyField: apply.match.field, keySource: apply.match.field };
+      return { ...base, keyField: apply.match.field, keySource: apply.match.field, ...kept };
     case 'syncConfig': {
       const config = loadConfig(apply.match.configId);
       if (!config) {

@@ -100,6 +100,13 @@ export interface CDCLiveState {
   error: string | null;
   /** Id of the `realtime:start` awaiting its answer; an error naming it ends the wait. */
   pendingStartId: string | null;
+  /**
+   * Write the emails and phone numbers of the objects found by Id or an
+   * external id as the source holds them; off, the session neutralizes them,
+   * as a Sync run does. An object found by a saved configuration follows its
+   * configuration's choice.
+   */
+  keepContactPoints: boolean;
 
   /** Update connection status. */
   setStatus: (status: CDCConnectionStatus) => void;
@@ -113,6 +120,8 @@ export interface CDCLiveState {
   setMatch: (objectName: string, match: RealTimeMatch) => void;
   /** Set whether a deletion of an object in the source deletes it in the target. */
   setApplyDeletes: (objectName: string, applyDeletes: boolean) => void;
+  /** Set whether the session writes emails and phone numbers as the source holds them. */
+  setKeepContactPoints: (keep: boolean) => void;
   /** Push a batch of events into the ring buffer. */
   pushEvents: (batch: CDCFeedEvent[]) => void;
   /** Clear all events from the ring buffer. */
@@ -217,6 +226,7 @@ const initialState = {
   notes: [] as string[],
   error: null as string | null,
   pendingStartId: null as string | null,
+  keepContactPoints: false,
 };
 
 /** Zustand store for managing CDC live event feed and subscription state. */
@@ -267,6 +277,10 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
     if (existing) {
       set({ autoSyncObjects: { ...current, [objectName]: { ...existing, applyDeletes } } });
     }
+  },
+
+  setKeepContactPoints(keep: boolean): void {
+    set({ keepContactPoints: keep });
   },
 
   setConflictStrategy(objectName: string, strategy: ConflictStrategy): void {
@@ -322,6 +336,9 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
       conflictStrategy: sessionConflictStrategy(state.watchedObjects, state.autoSyncObjects),
       flushIntervalMs: 150,
       maxBatchSize: 100,
+      // Neutralized unless unticked: the opt-out is the session's, for the
+      // objects found by Id or an external id.
+      ...(state.keepContactPoints ? { keepContactPoints: true } : {}),
     });
     set({ pendingStartId: id });
   },

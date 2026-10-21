@@ -1061,7 +1061,7 @@
       "update": "Actualización por Id: se sobrescribe el registro del destino que lleva el Id del registro de origen.",
       "delete": "Eliminación por Id: se elimina el registro del destino que lleva el Id del registro de origen.",
       "after": "Escrito después de {{parent}}, al que apunta su campo {{field}}.",
-      "cycle": "{{objects}} se apuntan entre sí: se escriben en este orden, y el campo de búsqueda hacia el que se escribe después queda vacío.",
+      "cycle": "{{objects}} se apuntan entre sí: se escriben en este orden, primero sin el campo de búsqueda hacia el que se escribe después, que se rellena una vez escrito este.",
       "orderLoading": "Leyendo los campos de búsqueda de cada objeto en la org de destino…",
       "orderUnread": "No se pudo leer el orden en la org de destino: la ejecución lo vuelve a calcular antes de escribir.",
       "insertsSaved": "Guardada: cada ejecución de esta configuración deja como están los registros que copió una ejecución anterior e inserta los demás.",
@@ -1232,7 +1232,8 @@
         "evtPerSec": "ev/s"
       },
       "eventCount_one": "{{count}} evento",
-      "eventCount_other": "{{count}} eventos"
+      "eventCount_other": "{{count}} eventos",
+      "contactPointsHint": "Cada dirección de correo que escribe un cambio pasa a .invalid y cada número de teléfono a uno ficticio, para que la automatización de la org de destino no llegue a nadie. Un objeto encontrado por la asignación de una sync guardada sigue la elección de esa configuración."
     },
     "tabs": {
       "sync": "Sync",
@@ -1566,7 +1567,19 @@
       "notInTarget_one": "{{count}} registro escrito sin {{fields}}: indicaba un registro que la org de destino no tiene.",
       "notInTarget_other": "{{count}} registros escritos sin {{fields}}: indicaban registros que la org de destino no tiene.",
       "ownerRefusedEarlier_one": "{{count}} registro escrito sin {{fields}} desde el principio: la org de destino rechazó el mismo propietario antes en esta ejecución, un usuario que no tiene.",
-      "ownerRefusedEarlier_other": "{{count}} registros escritos sin {{fields}} desde el principio: la org de destino rechazó el mismo propietario antes en esta ejecución, un usuario que no tiene."
+      "ownerRefusedEarlier_other": "{{count}} registros escritos sin {{fields}} desde el principio: la org de destino rechazó el mismo propietario antes en esta ejecución, un usuario que no tiene.",
+      "parentRefused_one": "{{count}} registro escrito sin {{fields}}: el registro que indica, escrito después, fue rechazado en esta ejecución.",
+      "parentRefused_other": "{{count}} registros escritos sin {{fields}}: los registros que indican, escritos después, fueron rechazados en esta ejecución.",
+      "notSet_one": "{{count}} registro escrito sin {{fields}}: la org de destino rechazó rellenarlo una vez escrito el registro que indica.",
+      "notSet_other": "{{count}} registros escritos sin {{fields}}: la org de destino rechazó rellenarlo una vez escritos los registros que indican.",
+      "notReached_one": "{{count}} registro escrito sin {{fields}}: la ejecución se detuvo antes de rellenarlo.",
+      "notReached_other": "{{count}} registros escritos sin {{fields}}: la ejecución se detuvo antes de rellenarlo.",
+      "setAfter_one": "{{count}} registro recibió {{fields}} una vez escritos los registros de {{objects}}: se apuntan entre sí, así que primero se escribió sin él.",
+      "setAfter_other": "{{count}} registros recibieron {{fields}} una vez escritos los registros de {{objects}}: se apuntan entre sí, así que primero se escribieron sin él.",
+      "withoutFields_one": "{{count}} registro escrito de nuevo sin los campos que la org de destino rechazó:",
+      "withoutFields_other": "{{count}} registros escritos de nuevo sin los campos que la org de destino rechazó:",
+      "withoutField_one": "{{field}}, omitido en {{count}} registro: {{refusedBy}}.",
+      "withoutField_other": "{{field}}, omitido en {{count}} registros: {{refusedBy}}."
     }
   },
   "migration": {

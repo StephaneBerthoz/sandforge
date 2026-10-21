@@ -17,22 +17,59 @@ import {
 } from './sandforge-sync.js';
 
 describe('what a run prints of an object', () => {
-  it('prints the first refusals, and every line on what it held back or wrote without a field', () => {
+  it('prints the first refusals, and every line on what it held back', () => {
     const refusal = 'REQUIRED_FIELD_MISSING: Required fields are missing: [Region__c]';
     const held =
       'PARENT_REFUSED: 4 Contact records held back, not sent: the Account record their ' +
       'AccountId names was refused in this run, and written without it they would stand ' +
       'without their Account.';
-    const without =
-      '2 record(s) written again without the fields the target refused them on, 2 written ' +
-      'without Phone: a validation rule of the target refused it, Phone must be French.';
 
-    expect(objectErrorLines([refusal, refusal, refusal, refusal, refusal, held, without])).toEqual([
+    expect(objectErrorLines([refusal, refusal, refusal, refusal, refusal, held])).toEqual([
       refusal,
       refusal,
       refusal,
       held,
-      without,
+    ]);
+  });
+
+  it('prints the records written again without a field, given a lookup later or left without one, apart from its refusals', () => {
+    expect(
+      objectWrittenLines({
+        writtenWithoutFields: {
+          rows: 2,
+          fields: [
+            {
+              field: 'Phone',
+              refusedBy: 'validation-rule',
+              reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be French.',
+              rows: 2,
+            },
+          ],
+        },
+        lookupsSetAfter: { records: 3, fields: ['Primary_Contact__c'], after: ['Contact'] },
+        lookupsLeftOut: [
+          { records: 1, fields: ['Primary_Contact__c'], reason: 'parentRefused' },
+          {
+            records: 1,
+            fields: ['ParentId'],
+            reason: 'notSet',
+            refusal: 'FIELD_INTEGRITY_EXCEPTION: parent loop',
+          },
+          { records: 2, fields: ['ParentId'], reason: 'notReached' },
+        ],
+      }),
+    ).toEqual([
+      '1 record(s) written without Primary_Contact__c: the record it names, written after ' +
+        'them, was refused in this run.',
+      '1 record(s) written without ParentId: the target refused setting it once the record it ' +
+        'names was written (FIELD_INTEGRITY_EXCEPTION: parent loop).',
+      '2 record(s) written without ParentId: the run was stopped before it was set, once the ' +
+        'record it names was written.',
+      '3 record(s) given Primary_Contact__c by a second write once Contact was written: the ' +
+        'objects name each other, and no order writes both first.',
+      '2 record(s) written again without the fields the target refused them on:',
+      '  2 without Phone: a validation rule of the target refused it, ' +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be French.',
     ]);
   });
 

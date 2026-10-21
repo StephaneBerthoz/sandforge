@@ -68,6 +68,13 @@ export interface RealTimeStartRequest extends BaseMessage {
     conflictStrategy: string;
     flushIntervalMs: number;
     maxBatchSize: number;
+    /**
+     * Write the emails and phone numbers of the changes of the objects found
+     * by their Id or an external id as the source holds them; absent, they
+     * are neutralized, as a Sync run's are. An object found by the mapping of
+     * a saved Sync configuration follows that configuration's choice.
+     */
+    keepContactPoints?: boolean;
   };
 }
 

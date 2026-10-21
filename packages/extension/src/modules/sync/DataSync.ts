@@ -1,15 +1,16 @@
 import type {
   CurrencyReplaced,
   SyncLookupsLeftOut,
+  SyncLookupsSetAfter,
   SyncObjectConfig,
   SyncObjectResult,
   SyncOperation,
+  SyncWrittenWithoutFields,
 } from '@sandforge/shared';
 import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGuard.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import {
   addWrittenWithoutFields,
-  fieldsLeftOutNote,
   refusedFields,
   type FieldToLeaveOut,
   type WrittenWithoutFields,
@@ -18,6 +19,7 @@ import {
   addressedBy,
   prepareSyncRows,
   type DeferredLookup,
+  type SyncRunLinks,
   type SyncWriteRun,
 } from './syncRowPreparation.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
@@ -87,6 +89,51 @@ export interface OperationOutcome {
    * per kind, with how many records it held, rather than once per record.
    */
   heldBack?: true;
+}
+
+/**
+ * A lookup of a record already written, left out of its write and set by an
+ * update once the record it names has its copy: one at another row of the
+ * same write (`DeferredLookup`), or one at a record of an object the run
+ * writes after it, which a cycle of lookups ties to it.
+ */
+export interface PendingLookup {
+  /** The record written, by its id in the target. */
+  id: string;
+  /** The lookup. */
+  field: string;
+  /** The source id of the record it names. */
+  parent: string;
+}
+
+/** What setting lookups left out of a write came to (`DataSync.setLookups`). */
+export interface LookupsSet {
+  /** The records given every lookup sent them, and which; none when none was. */
+  set?: Omit<SyncLookupsSetAfter, 'after'>;
+  /** The records left without some of them, by why. */
+  leftOut: SyncLookupsLeftOut[];
+  /** Whether the run's cancel stopped the updates before they were all sent. */
+  cancelled: boolean;
+}
+
+/** What {@link DataSync.write} answers. */
+export interface WriteAnswer {
+  /** One outcome per record handed over, in their order. */
+  outcomes: OperationOutcome[];
+  /** What the write held back and why, and what it could not send again. */
+  notes: string[];
+  /** The rows sent in another currency than they were read in. */
+  currencies: CurrencyReplaced[];
+  /** The rows written without lookups they held, and why. */
+  lookupsLeftOut: SyncLookupsLeftOut[];
+  /** The rows written again without the fields the target refused them on; absent when none. */
+  writtenWithoutFields?: SyncWrittenWithoutFields;
+  /**
+   * The lookups at records of an object the run writes after this one, left
+   * out of the rows written (`SyncWriteRun.later`): the run sets them once
+   * that object is written. Absent when none.
+   */
+  lookupsToSet?: PendingLookup[];
 }
 
 /** Dependencies required by DataSync */
@@ -159,13 +206,20 @@ export class DataSync {
     sourceRecords: Record<string, unknown>[],
     run?: SyncWriteRun,
   ): Promise<SyncObjectResult> {
-    const { outcomes, notes, currencies, lookupsLeftOut } = await this.write(
+    const { outcomes, notes, currencies, lookupsLeftOut, writtenWithoutFields } = await this.write(
       config,
       sourceRecords,
       run,
     );
     return withCurrencies(
-      buildObjectResult(config.objectApiName, config.operation, outcomes, notes, lookupsLeftOut),
+      buildObjectResult(
+        config.objectApiName,
+        config.operation,
+        outcomes,
+        notes,
+        lookupsLeftOut,
+        writtenWithoutFields,
+      ),
       currencies,
     );
   }
@@ -185,18 +239,14 @@ export class DataSync {
    *
    * `lookupsLeftOut` says the rows written without lookups they held, apart
    * from the notes: they were written, and a note listed among the refusals
-   * read as one.
+   * read as one. So does `writtenWithoutFields` of the rows written again
+   * without the fields the target refused them on.
    */
   async write(
     config: SyncObjectConfig,
     sourceRecords: Record<string, unknown>[],
     run?: SyncWriteRun,
-  ): Promise<{
-    outcomes: OperationOutcome[];
-    notes: string[];
-    currencies: CurrencyReplaced[];
-    lookupsLeftOut: SyncLookupsLeftOut[];
-  }> {
+  ): Promise<WriteAnswer> {
     // What the target will take. A failure to describe is not a reason to
     // stop: the run then behaves as it did before this existed.
     let target: TargetWriteFields | null = null;
@@ -279,13 +329,20 @@ export class DataSync {
     } catch (err: unknown) {
       if (!(err instanceof WriteCancelledError)) throw err;
       // The cancel stopped the write before one of its batches: the records
-      // sent before it are written, and what was held back is said with them.
+      // sent before it are written, and what was held back is said with them,
+      // and the lookups they were to be given once written.
       const owners = ownersLeftOutOf(ownerLeftOut, err.written);
+      const sent = aligned(err.written);
       throw new WriteCancelledError(
         config.objectApiName,
-        aligned(err.written),
+        sent,
         [...prepared.notes, ...err.notes],
-        [...(owners ? [owners] : []), ...err.lookupsLeftOut],
+        [
+          ...(owners ? [owners] : []),
+          ...err.lookupsLeftOut,
+          ...notReachedOf(pendingOf([...prepared.deferred, ...prepared.deferredAcross], sent)),
+        ],
+        err.writtenWithoutFields,
       );
     }
 
@@ -302,99 +359,141 @@ export class DataSync {
     const owners = ownersLeftOutOf(ownerLeftOut, retried.outcomes);
     const notes = [...prepared.notes, ...retried.notes];
     const lookupsLeftOut = [...(owners ? [owners] : []), ...retried.lookupsLeftOut];
+    const { writtenWithoutFields } = retried;
+    /** The lookups at an object written after this one, of the rows written. */
+    const across = pendingOf(prepared.deferredAcross, all);
     // Every record has been sent once, and keeps its refusal unless it was
     // tried again before the cancel: the run is told all of it, what was
     // dropped to write it, and that it was cancelled.
     if (retried.cancelled) {
-      throw new WriteCancelledError(config.objectApiName, all, notes, lookupsLeftOut);
+      throw new WriteCancelledError(
+        config.objectApiName,
+        all,
+        notes,
+        [...lookupsLeftOut, ...notReachedOf([...pendingOf(prepared.deferred, all), ...across])],
+        writtenWithoutFields,
+      );
     }
     if (run) {
       noteInRun(config, all, run);
       // The lookups at rows of this write, now that those rows have copies.
-      const within = await this.linkWithinWrite(config, prepared.deferred, all, run.links);
-      notes.push(...within.notes);
+      const within = await this.setLookups(
+        config,
+        pendingOf(prepared.deferred, all),
+        run.links,
+        false,
+      );
+      lookupsLeftOut.push(...within.leftOut);
       if (within.cancelled) {
-        throw new WriteCancelledError(config.objectApiName, all, notes, lookupsLeftOut);
+        throw new WriteCancelledError(
+          config.objectApiName,
+          all,
+          notes,
+          [...lookupsLeftOut, ...notReachedOf(across)],
+          writtenWithoutFields,
+        );
       }
     }
-    return { outcomes: all, notes, currencies: prepared.currencies, lookupsLeftOut };
+    return {
+      outcomes: all,
+      notes,
+      currencies: prepared.currencies,
+      lookupsLeftOut,
+      ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
+      ...(across.length > 0 ? { lookupsToSet: across } : {}),
+    };
   }
 
   /**
-   * The second write of an object whose rows name each other: each row the
-   * first write took is given, by an update, the copy of the row its lookup
-   * names (`deferred`, see `prepareSyncRows`). A row whose record there was
-   * refused stays without the lookup, and the result says how many; so does
-   * one whose update the target refused, with its reason, and the rows a
-   * cancel kept the update from. The rows stay written whatever this write
-   * answers, and a failure of it is said, never thrown.
+   * Set, by an update, the lookups left out of records already written, once
+   * the records they name have their copies: the second write of an object
+   * whose rows name each other (`deferred`, see `prepareSyncRows`), and the
+   * pass a run makes once the objects a cycle of lookups ties together are
+   * all written (`SyncWriteRun.later`).
+   *
+   * A lookup goes as the copy of the record it names. One whose record the
+   * run set out to create and could not stays empty, said `parentRefused`.
+   * One whose record the run wrote no copy of, nor refused — a record of an
+   * object written after, outside what the run read of it — goes as the
+   * source holds it when `asRead` is set, as the first write would have sent
+   * it: between two sandboxes of one production the target holds that record
+   * under the same id. The target refusing it for an id it does not have says
+   * `notInTarget`; any other refusal of an update, or a call that fails,
+   * `notSet` with its words; the updates a cancel kept from being sent,
+   * `notReached`. The records stay written whatever this answers, and a
+   * failure is said, never thrown.
+   *
+   * @param asRead - Whether a lookup at a record the run has no copy of goes
+   *   as read: for records of another object, never those of the same write.
    */
-  private async linkWithinWrite(
-    config: SyncObjectConfig,
-    deferred: readonly DeferredLookup[],
-    outcomes: readonly OperationOutcome[],
-    links: SyncWriteRun['links'],
-  ): Promise<{ notes: string[]; cancelled: boolean }> {
+  async setLookups(
+    config: Pick<SyncObjectConfig, 'objectApiName' | 'batchSize'>,
+    pending: readonly PendingLookup[],
+    links: SyncRunLinks,
+    asRead: boolean,
+  ): Promise<LookupsSet> {
     const name = config.objectApiName;
-    const updates = new Map<string, Record<string, unknown>>();
-    /** Per lookup, the rows written that stay without it because their record was refused. */
-    const refusedParent = new Map<string, number>();
-    for (const { index, field, parent } of deferred) {
-      const row = outcomes[index];
-      if (!row?.success || typeof row.id !== 'string' || row.id === '') continue;
+    /** The updates naming copies, and those naming records as read, by record. */
+    const copies = new Map<string, Record<string, unknown>>();
+    const read = new Map<string, Record<string, unknown>>();
+    const parentRefused = new Tally();
+    for (const { id, field, parent } of pending) {
       const copy = links.targetOf(parent);
-      if (copy === undefined) {
-        refusedParent.set(field, (refusedParent.get(field) ?? 0) + 1);
+      const into =
+        copy !== undefined
+          ? copies
+          : asRead && links.refusedObjectOf(parent) === undefined
+            ? read
+            : undefined;
+      if (!into) {
+        parentRefused.add(id, field);
         continue;
       }
-      const update = updates.get(row.id) ?? { Id: row.id };
-      update[field] = copy;
-      updates.set(row.id, update);
+      const update = into.get(id) ?? { Id: id };
+      update[field] = copy ?? parent;
+      into.set(id, update);
     }
-    const notes = [...refusedParent].map(
-      ([field, count]) =>
-        `${count} ${name} record(s) written without ${field}: the ${name} record it names was ` +
-        'refused in this run.',
-    );
-    if (updates.size === 0) return { notes, cancelled: false };
-
-    const sent = [...updates.values()];
-    const fieldsOf = (rows: readonly Record<string, unknown>[]): string =>
-      [...new Set(rows.flatMap((row) => Object.keys(row).filter((f) => f !== 'Id')))]
-        .sort()
-        .join(', ');
-    let answered: OperationOutcome[];
+    const set = new Tally();
+    const notInTarget = new Tally();
+    const notSet = new Tally();
+    const notReached = new Tally();
     let cancelled = false;
-    try {
-      answered = await this.executeOperation(name, 'update', sent, config.batchSize);
-    } catch (err: unknown) {
-      if (!(err instanceof WriteCancelledError)) {
-        const reason = err instanceof Error ? err.message : String(err);
-        notes.push(
-          `${sent.length} ${name} record(s) written without ${fieldsOf(sent)}: setting it once ` +
-            `the record it names was written failed: ${reason}`,
-        );
-        return { notes, cancelled: false };
+    for (const sent of [[...copies.values()], [...read.values()]]) {
+      if (sent.length === 0) continue;
+      if (cancelled) {
+        for (const row of sent) notReached.addRow(row);
+        continue;
       }
-      answered = err.written;
-      cancelled = true;
+      let answered: OperationOutcome[];
+      try {
+        answered = await this.executeOperation(name, 'update', sent, config.batchSize);
+      } catch (err: unknown) {
+        if (!(err instanceof WriteCancelledError)) {
+          const reason = err instanceof Error ? err.message : String(err);
+          for (const row of sent) notSet.addRow(row, reason);
+          continue;
+        }
+        answered = err.written;
+        cancelled = true;
+      }
+      sent.forEach((row, at) => {
+        const outcome = answered[at];
+        if (outcome === undefined) notReached.addRow(row);
+        else if (outcome.success) set.addRow(row);
+        else if (outcome.errors.some((m) => isCrossReferenceFailure(m))) notInTarget.addRow(row);
+        else notSet.addRow(row, outcome.errors[0]);
+      });
     }
-    const refused = sent.filter((_, at) => answered[at] !== undefined && !answered[at].success);
-    if (refused.length > 0) {
-      const first = answered.find((outcome) => !outcome.success)?.errors[0];
-      notes.push(
-        `${refused.length} ${name} record(s) written without ${fieldsOf(refused)}: the target ` +
-          `refused setting it once the record it names was written${first ? ` (${first})` : ''}.`,
-      );
-    }
-    const notReached = sent.slice(answered.length);
-    if (notReached.length > 0) {
-      notes.push(
-        `${notReached.length} ${name} record(s) written without ${fieldsOf(notReached)}: the ` +
-          'run was cancelled before it was set.',
-      );
-    }
-    return { notes, cancelled };
+    return {
+      ...(set.records > 0 ? { set: { records: set.records, fields: set.fields() } } : {}),
+      leftOut: [
+        parentRefused.leftOut('parentRefused'),
+        notInTarget.leftOut('notInTarget'),
+        notSet.leftOut('notSet'),
+        notReached.leftOut('notReached'),
+      ].flatMap((entry) => (entry ? [entry] : [])),
+      cancelled,
+    };
   }
 
   /**
@@ -452,6 +551,7 @@ export class DataSync {
   ): Promise<{
     outcomes: OperationOutcome[];
     notes: string[];
+    writtenWithoutFields?: SyncWrittenWithoutFields;
     cancelled: boolean;
     ownersRefused: string[];
     lookupsLeftOut: SyncLookupsLeftOut[];
@@ -591,11 +691,8 @@ export class DataSync {
     });
     return {
       outcomes: merged,
-      notes: [
-        ...(withoutFields ? [fieldsLeftOutNote(withoutFields)] : []),
-        ...notes,
-        ...(cancelledAt?.notes ?? []),
-      ],
+      notes: [...notes, ...(cancelledAt?.notes ?? [])],
+      ...(withoutFields ? { writtenWithoutFields: withoutFields } : {}),
       cancelled: cancelledAt !== undefined,
       ownersRefused: [...ownersRefused],
       lookupsLeftOut: [
@@ -770,6 +867,73 @@ function couldNotSendAgain(
 }
 
 /**
+ * Records counted once each, with the lookups they were sent or went without
+ * and the first words a refusal said of them: what one reason of
+ * {@link DataSync.setLookups} comes to.
+ */
+class Tally {
+  private readonly ids = new Set<string>();
+  private readonly named = new Set<string>();
+  private said: string | undefined;
+
+  /** One lookup of a record. */
+  add(id: string, field: string): void {
+    this.ids.add(id);
+    this.named.add(field);
+  }
+
+  /** The lookups an update of a record carries, and what refused it. */
+  addRow(row: Record<string, unknown>, refusal?: string): void {
+    const id = String(row.Id);
+    for (const field of Object.keys(row)) if (field !== 'Id') this.add(id, field);
+    if (refusal !== undefined && refusal !== '') this.said ??= refusal;
+  }
+
+  get records(): number {
+    return this.ids.size;
+  }
+
+  fields(): string[] {
+    return [...this.named].sort();
+  }
+
+  /** The records counted, as a result says them for `reason`; nothing when none. */
+  leftOut(reason: SyncLookupsLeftOut['reason']): SyncLookupsLeftOut | undefined {
+    if (this.ids.size === 0) return undefined;
+    return {
+      records: this.ids.size,
+      fields: this.fields(),
+      reason,
+      ...(this.said !== undefined ? { refusal: this.said } : {}),
+    };
+  }
+}
+
+/** The lookups left out of the rows a write took, by the record each row became. */
+function pendingOf(
+  deferred: readonly DeferredLookup[],
+  outcomes: readonly OperationOutcome[],
+): PendingLookup[] {
+  return deferred.flatMap(({ index, field, parent }) => {
+    const row = outcomes[index];
+    return row?.success && typeof row.id === 'string' && row.id !== ''
+      ? [{ id: row.id, field, parent }]
+      : [];
+  });
+}
+
+/**
+ * What is said of the records a cancel left without the lookups they were
+ * to be given once written: none when there are none.
+ */
+export function notReachedOf(pending: readonly PendingLookup[]): SyncLookupsLeftOut[] {
+  const tally = new Tally();
+  for (const { id, field } of pending) tally.add(id, field);
+  const entry = tally.leftOut('notReached');
+  return entry ? [entry] : [];
+}
+
+/**
  * The record of the target a refused row is linked to: the one the target
  * named when it refused the row as a duplicate (`existingId`, which the writer
  * reads off the refusal), for a row the run set out to create — an insert, or
@@ -820,6 +984,7 @@ async function sendInTurn(
       [...before, ...err.written],
       err.notes,
       err.lookupsLeftOut,
+      err.writtenWithoutFields,
     );
   }
 }
@@ -864,9 +1029,10 @@ export const MAX_RESULT_REFUSALS_PER_OBJECT = 1_000;
  * A row linked to a record the target holds (`linkedRecordOf`) is neither
  * written nor failed: counted skipped, as Forge counts it apart from its
  * failures, and said once with how many (`linkedToExisting`), apart from the
- * refusals, as are the rows written without lookups (`lookupsLeftOut`). Both
- * were sentences among the errors, which the results list as refusals, in
- * red and in English.
+ * refusals, as are the rows written without lookups (`lookupsLeftOut`) and
+ * those written again without the fields the target refused them on
+ * (`writtenWithoutFields`). All were sentences among the errors, which the
+ * results list as refusals, in red and in English.
  */
 export function buildObjectResult(
   objectApiName: string,
@@ -874,6 +1040,7 @@ export function buildObjectResult(
   outcomes: OperationOutcome[],
   notes: string[] = [],
   lookupsLeftOut: readonly SyncLookupsLeftOut[] = [],
+  writtenWithoutFields?: SyncWrittenWithoutFields,
 ): SyncObjectResult {
   let success = 0;
   let failed = 0;
@@ -918,6 +1085,7 @@ export function buildObjectResult(
       ? { linkedToExisting: { records: linked, ...(linkedBy ? { refusal: linkedBy } : {}) } }
       : {}),
     ...(lookupsLeftOut.length > 0 ? { lookupsLeftOut: [...lookupsLeftOut] } : {}),
+    ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
     ...(refusalsDropped > 0 ? { refusalsDropped } : {}),
     // What each upserted record became, as the org said: the audit trail
     // counts them as created or updated rather than as "upserted".

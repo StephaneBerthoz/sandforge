@@ -231,11 +231,19 @@ describe('DataSync — the run a write is part of', () => {
 
     expect(insert.mock.calls[1][1]).toEqual([{ LastName: 'Roe' }]);
     expect(result.success).toBe(1);
-    expect(result.errors).toEqual([
-      '1 record(s) written again without the fields the target refused them on, 1 written ' +
-        'without Phone: a validation rule of the target refused it, ' +
-        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must read +33 X XX XX XX XX.',
-    ]);
+    // Written, so said apart from the refusals, as Forge says it.
+    expect(result.errors).toEqual([]);
+    expect(result.writtenWithoutFields).toEqual({
+      rows: 1,
+      fields: [
+        {
+          field: 'Phone',
+          refusedBy: 'validation-rule',
+          reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must read +33 X XX XX XX XX.',
+          rows: 1,
+        },
+      ],
+    });
   });
 
   it('sends a row again for each kind of refusal the target names one after the other', async () => {
@@ -282,10 +290,9 @@ describe('DataSync — the run a write is part of', () => {
     expect(result.lookupsLeftOut).toEqual([
       { records: 1, fields: ['OwnerId'], reason: 'notInTarget' },
     ]);
-    expect(result.errors).toEqual([
-      '1 record(s) written again without the fields the target refused them on, 1 written ' +
-        'without Phone: a validation rule of the target refused it, ' +
-        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must read +33 X XX XX XX XX.',
+    expect(result.errors).toEqual([]);
+    expect(result.writtenWithoutFields?.fields.map((f) => [f.field, f.rows])).toEqual([
+      ['Phone', 1],
     ]);
   });
 
@@ -438,11 +445,16 @@ describe('DataSync — rows of one write that name each other', () => {
 
     expect(update.mock.calls[0][1]).toEqual([{ Id: copyOf(3), ParentId: copyOf(2) }]);
     expect(result.success).toBe(3);
-    expect(result.errors).toEqual([
-      'REQUIRED_FIELD_MISSING: Region__c',
-      '1 Account record(s) written without ParentId: the Account record it names was refused in this run.',
-      '1 Account record(s) written without ParentId: the target refused setting it once the ' +
-        'record it names was written (FIELD_INTEGRITY_EXCEPTION: parent loop).',
+    // The refusal alone among the errors: the records written are said apart.
+    expect(result.errors).toEqual(['REQUIRED_FIELD_MISSING: Region__c']);
+    expect(result.lookupsLeftOut).toEqual([
+      { records: 1, fields: ['ParentId'], reason: 'parentRefused' },
+      {
+        records: 1,
+        fields: ['ParentId'],
+        reason: 'notSet',
+        refusal: 'FIELD_INTEGRITY_EXCEPTION: parent loop',
+      },
     ]);
   });
 
@@ -460,8 +472,9 @@ describe('DataSync — rows of one write that name each other', () => {
     expect(failure).toBeInstanceOf(WriteCancelledError);
     const cancelled = failure as WriteCancelledError;
     expect(cancelled.written.map((o) => o.id)).toEqual([copyOf(1), copyOf(2)]);
-    expect(cancelled.notes).toEqual([
-      '1 Account record(s) written without ParentId: the run was cancelled before it was set.',
+    expect(cancelled.notes).toEqual([]);
+    expect(cancelled.lookupsLeftOut).toEqual([
+      { records: 1, fields: ['ParentId'], reason: 'notReached' },
     ]);
   });
 });

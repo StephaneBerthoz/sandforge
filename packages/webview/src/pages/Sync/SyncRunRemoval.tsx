@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Trash2 } from 'lucide-react';
 import type {
+  ForgeSweepListing,
   SyncRemovalRefusalCode,
   SyncRemovalResult,
   SyncRunRemovalInfo,
@@ -18,6 +19,7 @@ import {
   ForgeRunRemovalPlan,
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
+import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 
 /**
@@ -28,6 +30,9 @@ const REMOVAL_TIMEOUT_MS = 1_800_000;
 
 /** Where every answer about a removal that is not one comes. */
 const ERROR_CHANNEL = 'sync:remove:error';
+
+/** How long the read of what a sweep would take may take: the target's automation, then one read per object. */
+const SWEEP_READ_TIMEOUT_MS = 150_000;
 
 /** What the card says of a removal that cannot run, by why. */
 const REFUSAL_KEYS: Record<SyncRemovalRefusalCode, string> = {
@@ -42,6 +47,63 @@ interface RemoveAnswer {
   result: SyncRemovalResult;
   operationId: string;
 }
+
+/** What `sync:remove:sweep` answers. */
+interface SweepAnswer {
+  runId: string;
+  listing: ForgeSweepListing;
+}
+
+/**
+ * What a sweep asked with the removal would take, read as the confirmation's
+ * sweep is ticked and listed before the user types the org's name: what the
+ * target's automation created during the run, as its user, that the run did
+ * not write — Forge's sweep, listed as Forge lists it, in its words. Read
+ * only; the sweep runs before the run's records go, and finds again what is
+ * there.
+ */
+const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const read = useBridgeMutation<SweepAnswer>('sync:remove:sweep', {
+    responseType: 'sync:remove:sweep:response',
+    errorType: 'sync:remove:sweep:error',
+    timeoutMs: SWEEP_READ_TIMEOUT_MS,
+  });
+  const { mutate } = read;
+  useEffect(() => {
+    mutate({ runId });
+  }, [runId, mutate]);
+
+  let body: React.ReactNode;
+  if (read.error) {
+    body = (
+      <p data-testid="sync-sweep-error" className="text-status-warning">
+        {t('forge.history.sweep.error', { org, reason: read.error })}
+      </p>
+    );
+  } else if (!read.data || read.data.runId !== runId) {
+    body = (
+      <p data-testid="sync-sweep-loading" className="text-text-secondary">
+        {t('forge.history.sweep.loading', { org })}
+      </p>
+    );
+  } else {
+    body = <ForgeSweepListingView listing={read.data.listing} />;
+  }
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="sync-removal-sweep"
+      className="mt-2 flex flex-col gap-1 text-[11px] text-text-primary"
+    >
+      <h4 id={headingId} className="text-[11px] font-semibold">
+        {t('forge.history.sweep.title', { org })}
+      </h4>
+      {body}
+    </section>
+  );
+};
 
 /** Props for {@link SyncRunRemoval}. */
 export interface SyncRunRemovalProps {
@@ -58,9 +120,11 @@ export interface SyncRunRemovalProps {
  * What the run created is read from what it kept — nothing is asked of the
  * org until a removal is confirmed. The removal takes what the run created
  * and nothing else: the records it inserted, or upserted where the target
- * held none, and the files it created, never a record it updated. The
- * confirmation names the org, typed, and the records per object; a record
- * changed since the run stays unless included. Where Production Guard allows
+ * held none, and the files it created, never a record it updated — and,
+ * when asked, sweeps first what the target's automation created during the
+ * run, as its user: a flow that opens a task on each contact left those tasks
+ * behind. The confirmation names the org, typed, and the records per object;
+ * a record changed since the run stays unless included. Where Production Guard allows
  * no delete — a production org, as a Forge run's removal reads it — nothing
  * is offered, and the card says why. A removal under way can be stopped from the
  * card, as from Live Operations, between two calls to the org; what it left
@@ -71,6 +135,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
   const orgs = useOrgStore((s) => s.orgs);
   const [confirming, setConfirming] = useState(false);
   const [includeChanged, setIncludeChanged] = useState(false);
+  const [sweep, setSweep] = useState(false);
   const info = useBridgeQuery<{ info: SyncRunRemovalInfo | null }>(
     'sync:removal:info',
     { runId },
@@ -132,6 +197,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
         disabled={removal.loading}
         onClick={() => {
           setIncludeChanged(false);
+          setSweep(false);
           setConfirming(true);
         }}
         data-testid="sync-removal-remove"
@@ -143,7 +209,11 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
   }
 
   const confirmRemoval = (): void => {
-    removal.mutate({ runId, ...(includeChanged ? { includeChanged: true } : {}) });
+    removal.mutate({
+      runId,
+      ...(includeChanged ? { includeChanged: true } : {}),
+      ...(sweep ? { sweep: true } : {}),
+    });
     setConfirming(false);
   };
   const result = removal.data?.result;
@@ -245,6 +315,17 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
           />
           {t('sync.removal.includeChanged')}
         </label>
+        {/* Never ticked unasked: a sweep deletes records the run did not write. */}
+        <label className="flex items-center gap-2 mt-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={sweep}
+            onChange={(e) => setSweep(e.target.checked)}
+            data-testid="sync-removal-sweep-toggle"
+          />
+          {t('forge.history.removeSweep')}
+        </label>
+        {sweep && confirming && <SyncRemovalSweep runId={runId} org={org} />}
       </DangerConfirm>
     </section>
   );

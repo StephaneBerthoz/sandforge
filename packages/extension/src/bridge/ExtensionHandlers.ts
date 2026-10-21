@@ -698,7 +698,13 @@ export class ExtensionHandlers {
 
     // What a Sync run created, and its removal
     route(
-      ['sync:removal:info', 'sync:removal:list', 'sync:remove', 'sync:earlier-copies'],
+      [
+        'sync:removal:info',
+        'sync:removal:list',
+        'sync:remove',
+        'sync:remove:sweep',
+        'sync:earlier-copies',
+      ],
       this.syncRemovalHandler,
     );
     route(

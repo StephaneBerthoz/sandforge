@@ -167,6 +167,67 @@ describe('SyncRunRemoval', () => {
     expect(sentAll('sync:remove').pop()?.payload).toEqual({ runId: 'run-1', includeChanged: true });
   });
 
+  it('lists what a sweep would take once asked, sends the removal with it, and says what it swept', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+
+    fireEvent.click(screen.getByTestId('sync-removal-remove'));
+    // Nothing is read of the org until the sweep is ticked.
+    expect(sentAll('sync:remove:sweep')).toEqual([]);
+    fireEvent.click(screen.getByTestId('sync-removal-sweep-toggle'));
+    expect(sentAll('sync:remove:sweep').pop()?.payload).toEqual({ runId: 'run-1' });
+    expect(screen.getByTestId('sync-sweep-loading')).toBeTruthy();
+    answer('sync:remove:sweep', 'sync:remove:sweep:response', {
+      runId: 'run-1',
+      listing: {
+        looked: ['Account', 'Task'],
+        found: [{ objectApiName: 'Task', count: 2, names: ['Follow up'] }],
+        unread: [],
+        handWork: [],
+        window: { from: '2026-10-14T07:59:59Z', to: '2026-10-14T08:02:00Z' },
+      },
+    });
+    expect(screen.getByTestId('sync-removal-sweep').textContent).toContain('Follow up');
+
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sentAll('sync:remove').pop()?.payload).toEqual({ runId: 'run-1', sweep: true });
+
+    answer('sync:remove', 'sync:remove:response', {
+      result: {
+        ...DONE,
+        sweep: {
+          status: 'success',
+          objects: [
+            {
+              objectApiName: 'Task',
+              found: 2,
+              deleted: 2,
+              alreadyGone: 0,
+              keptChanged: 0,
+              refused: 0,
+              reasons: [],
+            },
+          ],
+          unread: [],
+          handWork: [],
+        },
+      },
+      operationId: 'req-1',
+    });
+    expect(screen.getByTestId('forge-sweep-result')).toBeTruthy();
+  });
+
+  it('sends no sweep unless it is ticked, and reads nothing of the org for one', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+
+    confirmRemoval();
+
+    expect(sentAll('sync:remove:sweep')).toEqual([]);
+    expect(sentAll('sync:remove').pop()?.payload).toEqual({ runId: 'run-1' });
+  });
+
   it('shows what the removal did, what the configuration forgets, and reads the run again', () => {
     render(<SyncRunRemoval runId="run-1" />);
     answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });

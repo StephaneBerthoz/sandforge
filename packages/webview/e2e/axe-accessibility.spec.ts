@@ -7737,6 +7737,9 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('cdc-object-checkbox-Case').check();
       await page.getByTestId('cdc-object-checkbox-ListEmailSentResult').check();
       await page.getByTestId('cdc-autosync-toggle-Lead').check();
+      // Neutralized unless unticked, as on a Sync run, with what it covers.
+      await expect(page.getByTestId('cdc-contact-points-toggle')).toBeChecked();
+      await expect(page.getByTestId('cdc-contact-points-hint')).toBeVisible();
       await page.getByTestId('cdc-start-btn').click();
       await sendExtensionMessage(page, {
         type: 'realtime:started',
@@ -8161,6 +8164,148 @@ for (const theme of STATE_THEMES) {
           'owner earlier in this run, a user it does not have.',
       );
       await expect(page.getByTestId('sync-result-errors-Contact')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync results saying the records written again without a field the target refused, and the lookups a cycle set later or left, apart from the refusals', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe-cycle',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'insert',
+            processed: 4,
+            success: 4,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            lookupsSetAfter: { records: 2, fields: ['Primary_Contact__c'], after: ['Contact'] },
+            lookupsLeftOut: [
+              { records: 1, fields: ['Primary_Contact__c'], reason: 'parentRefused' },
+              {
+                records: 1,
+                fields: ['ParentId'],
+                reason: 'notSet',
+                refusal: 'FIELD_INTEGRITY_EXCEPTION: parent loop',
+              },
+            ],
+          },
+          {
+            objectApiName: 'Contact',
+            operation: 'insert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            writtenWithoutFields: {
+              rows: 2,
+              fields: [
+                {
+                  field: 'Phone',
+                  refusedBy: 'validation-rule',
+                  reason:
+                    'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33 X XX XX XX XX.',
+                  rows: 2,
+                },
+              ],
+            },
+          },
+        ],
+        totalProcessed: 7,
+        totalSuccess: 7,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-21T10:00:00.000Z',
+      });
+      await page.getByTestId('sync-result-written-Account').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-result-written-Account-setAfter')).toBeVisible();
+      await expect(page.getByTestId('sync-result-written-Account-notSet')).toContainText(
+        'FIELD_INTEGRITY_EXCEPTION: parent loop',
+      );
+      await expect(
+        page.getByTestId('sync-result-written-Contact-withoutFields-Phone'),
+      ).toContainText('a validation rule refused it');
+      await expect(page.getByTestId('sync-result-errors-Account')).toHaveCount(0);
+      await expect(page.getByTestId('sync-result-errors-Contact')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync run removal confirmation with the sweep ticked, listing what the target’s automation created', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe-sweep',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            operation: 'insert',
+            processed: 2,
+            success: 2,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+          },
+        ],
+        totalProcessed: 2,
+        totalSuccess: 2,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-21T10:00:00.000Z',
+        created: {
+          runId: 'run-axe-sweep',
+          objects: [{ objectApiName: 'Contact', count: 2 }],
+          files: 0,
+        },
+      });
+      // Every request answered: a development build mounts the card twice.
+      await bridge.waitForMessage('sync:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'sync:removal:info', 'sync:removal:info:response', {
+        info: {
+          runId: 'run-axe-sweep',
+          configId: 'cfg-axe',
+          configName: 'Contacts',
+          sourceOrgId: DEV_SANDBOX.id,
+          targetOrgId: QA_SANDBOX.id,
+          startedAt: '2026-10-21T09:59:59.000Z',
+          endedAt: '2026-10-21T10:00:00.000Z',
+          created: 2,
+          left: [{ objectApiName: 'Contact', count: 2 }],
+        },
+      });
+      const removal = page.getByTestId('sync-result-removal');
+      await removal.getByTestId('sync-removal-remove').click();
+      await page.getByTestId('sync-removal-sweep-toggle').check();
+      await bridge.waitForMessage('sync:remove:sweep', { timeout: 10_000 });
+      await answerAll(page, 'sync:remove:sweep', 'sync:remove:sweep:response', {
+        runId: 'run-axe-sweep',
+        listing: {
+          window: { from: '2026-10-21T09:59:58Z', to: '2026-10-21T10:01:00Z' },
+          looked: ['Contact', 'Task', 'FeedItem'],
+          found: [{ objectApiName: 'Task', count: 2, names: ['Follow up'], overBound: false }],
+          unread: [],
+          handWork: [],
+        },
+      });
+      await page.getByTestId('forge-sweep-found-Task').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-removal-sweep')).toContainText('Follow up');
 
       await expectReadable(page, theme);
     });

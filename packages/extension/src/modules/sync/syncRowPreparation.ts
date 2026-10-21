@@ -203,6 +203,13 @@ export interface SyncWriteRun {
    * the same call as the standard one it needs (`settleSyncPrices`).
    */
   standardFirst?: number;
+  /**
+   * The objects the run writes after this one that a cycle of lookups ties
+   * to it (`SyncWriteOrder.cycles`): a lookup of a row it creates at one of
+   * them waits for that record's copy (`deferredAcross`), which the run sets
+   * once they are written.
+   */
+  later?: ReadonlySet<string>;
 }
 
 /** A row held back before the write. */
@@ -214,9 +221,11 @@ export interface HeldRow {
 }
 
 /**
- * A lookup of a row at another row of the same write — an account's parent
- * account — left out of the write that creates the row and set by a second
- * one, once the record it names has its copy: see `DataSync.write`.
+ * A lookup of a row left out of the write that creates the row and set by an
+ * update once the record it names has its copy: one at another row of the
+ * same write — an account's parent account — set by a second write, or one
+ * at a record of an object the run writes after it, set by the run once that
+ * object is written. See `DataSync.write`.
  */
 export interface DeferredLookup {
   /** The row's place among the records handed over. */
@@ -242,6 +251,12 @@ export interface PreparedSyncRows {
   held: HeldRow[];
   /** The lookups at rows of the same write, set by a second write. */
   deferred: DeferredLookup[];
+  /**
+   * The lookups at records of an object written after this one, which a
+   * cycle ties to it (`SyncWriteRun.later`): left out of the write, and set
+   * by the run once that object is written.
+   */
+  deferredAcross: DeferredLookup[];
   /** What was held back, one line per reason, counted. */
   notes: string[];
   /**
@@ -420,6 +435,14 @@ function parentRefused(
  * are written alike, each then given the other's copy. A row whose record
  * there is held back is held back with it, and so are the rows under it in
  * turn: written, it would stand without its parent.
+ *
+ * So does a lookup at a record of an object the run writes after this one,
+ * which a cycle of lookups ties to it (`run.later`): an account's primary
+ * contact, when the contacts name their accounts. The order that writes the
+ * accounts first cannot name a contact's copy; the lookup went with the
+ * source's id, was refused, and the account was written again without it,
+ * which nothing set afterwards (`deferredAcross`). A lookup the target
+ * requires goes as before: left out, the row would be refused for it.
  */
 export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
   const { config, records, target, run } = input;
@@ -433,6 +456,7 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
     settled: [],
     held: [],
     deferred: [],
+    deferredAcross: [],
     notes: [],
     currencies: [],
   };
@@ -456,6 +480,20 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       if (typeof id === 'string' && RECORD_ID.test(id)) inThisWrite.set(idKey(id), index);
     });
   }
+  // The lookups at an object the run writes after this one, in a cycle: a
+  // row it creates leaves them out, unless the target requires one.
+  const later = run && creates ? (run.later ?? new Set<string>()) : new Set<string>();
+  const waitsForLater = new Set(
+    later.size === 0
+      ? []
+      : (target?.fields ?? []).flatMap((field) =>
+          field.isReference &&
+          (field.referenceTo ?? []).some((object) => later.has(object)) &&
+          !(field.nillable === false && field.defaultedOnCreate !== true)
+            ? [field.name]
+            : [],
+        ),
+  );
 
   records.forEach((record, index) => {
     const payload = applyMappingsAndAddOns(
@@ -491,7 +529,13 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
           continue;
         }
         const parent = run.links.refusedObjectOf(value);
-        if (parent === undefined) continue;
+        if (parent === undefined) {
+          if (waitsForLater.has(field)) {
+            delete payload[field];
+            prepared.deferredAcross.push({ index, field, parent: value });
+          }
+          continue;
+        }
         const refused = parentRefused(objectApiName, field, parent);
         hold(index, refused.group, refused.reason, refused.say);
         return;
@@ -578,6 +622,7 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
     }
   }
   prepared.deferred = prepared.deferred.filter(({ index }) => staged.has(index));
+  prepared.deferredAcross = prepared.deferredAcross.filter(({ index }) => staged.has(index));
   prepared.held.sort((a, b) => a.index - b.index);
 
   // A row in a currency the target does not hold active was refused for it,

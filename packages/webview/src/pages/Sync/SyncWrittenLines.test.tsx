@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
-import { SyncWrittenLines } from './SyncWrittenLines';
+import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
 
 describe('SyncWrittenLines', () => {
   afterEach(async () => {
@@ -50,6 +50,71 @@ describe('SyncWrittenLines', () => {
     render(<SyncWrittenLines result={{}} testId="lines" />);
 
     expect(screen.queryByTestId('lines')).toBeNull();
+    expect(hasWrittenLines({})).toBe(false);
+  });
+
+  it('says the records written again without the fields the target refused, each with what refused it and its words', () => {
+    const result = {
+      writtenWithoutFields: {
+        rows: 2,
+        fields: [
+          {
+            field: 'Phone',
+            refusedBy: 'validation-rule' as const,
+            reason: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33 X XX XX XX XX.',
+            rows: 2,
+          },
+        ],
+      },
+    };
+    render(<SyncWrittenLines result={result} testId="lines" />);
+
+    expect(hasWrittenLines(result)).toBe(true);
+    expect(screen.getByTestId('lines-withoutFields').firstChild?.textContent).toBe(
+      '2 records written again without the fields the target org refused them on:',
+    );
+    expect(screen.getByTestId('lines-withoutFields-Phone').textContent).toBe(
+      "Phone, left out of 2 records: a validation rule refused it. The target's words: " +
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION: Phone must be written +33 X XX XX XX XX.',
+    );
+  });
+
+  it('says the lookups set once the object they name was written, and those a cycle left without, with why', () => {
+    render(
+      <SyncWrittenLines
+        result={{
+          lookupsSetAfter: { records: 3, fields: ['Primary_Contact__c'], after: ['Contact'] },
+          lookupsLeftOut: [
+            { records: 1, fields: ['Primary_Contact__c'], reason: 'parentRefused' },
+            {
+              records: 2,
+              fields: ['ParentId'],
+              reason: 'notSet',
+              refusal: 'FIELD_INTEGRITY_EXCEPTION: parent loop',
+            },
+            { records: 1, fields: ['ParentId'], reason: 'notReached' },
+          ],
+        }}
+        testId="lines"
+      />,
+    );
+
+    expect(screen.getByTestId('lines-setAfter').textContent).toBe(
+      '3 records given Primary_Contact__c once the Contact records were written: they name ' +
+        'each other, so they went in first without it.',
+    );
+    expect(screen.getByTestId('lines-parentRefused').textContent).toBe(
+      '1 record written without Primary_Contact__c: the record it names, written after it, ' +
+        'was refused in this run.',
+    );
+    expect(screen.getByTestId('lines-notSet').textContent).toBe(
+      '2 records written without ParentId: the target org refused setting it once the records ' +
+        "they name were written. The target's words: FIELD_INTEGRITY_EXCEPTION: parent loop",
+    );
+    expect(screen.getByTestId('lines-notReached').textContent).toBe(
+      '1 record written without ParentId: the run was stopped before setting it.',
+    );
+    expect(screen.getByTestId('lines').className).not.toContain('status-error');
   });
 
   it('says it in the language of the panel', async () => {

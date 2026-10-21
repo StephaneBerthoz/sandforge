@@ -1061,7 +1061,7 @@
       "update": "Aktualisieren per Id: Der Datensatz des Ziels mit der Id des Quelldatensatzes wird überschrieben.",
       "delete": "Löschen per Id: Der Datensatz des Ziels mit der Id des Quelldatensatzes wird gelöscht.",
       "after": "Nach {{parent}} geschrieben, worauf sein Feld {{field}} verweist.",
-      "cycle": "{{objects}} verweisen aufeinander: Sie werden in dieser Reihenfolge geschrieben, und das Lookup-Feld auf das später geschriebene bleibt leer.",
+      "cycle": "{{objects}} verweisen aufeinander: Sie werden in dieser Reihenfolge geschrieben, zunächst ohne das Lookup-Feld auf das später geschriebene, das gesetzt wird, sobald dieses geschrieben ist.",
       "orderLoading": "Die Lookup-Felder jedes Objekts werden in der Ziel-Org gelesen…",
       "orderUnread": "Die Reihenfolge konnte nicht aus der Ziel-Org gelesen werden: Der Lauf berechnet sie vor dem Schreiben erneut.",
       "insertsSaved": "Gespeichert: Jeder Lauf dieser Konfiguration lässt die Datensätze, die ein früherer Lauf kopiert hat, wie sie sind, und fügt die anderen ein.",
@@ -1232,7 +1232,8 @@
         "evtPerSec": "Ereign./s"
       },
       "eventCount_one": "{{count}} Ereignis",
-      "eventCount_other": "{{count}} Ereignisse"
+      "eventCount_other": "{{count}} Ereignisse",
+      "contactPointsHint": "Jede E-Mail-Adresse, die eine Änderung schreibt, kommt unter .invalid und jede Telefonnummer als fiktive Nummer an, sodass die Automatisierung der Ziel-Org niemanden erreicht. Ein Objekt, das über die Zuordnung einer gespeicherten Sync gefunden wird, folgt der Wahl dieser Konfiguration."
     },
     "tabs": {
       "sync": "Sync",
@@ -1566,7 +1567,19 @@
       "notInTarget_one": "{{count}} Datensatz ohne {{fields}} geschrieben: Er verwies auf einen Datensatz, den die Ziel-Org nicht hat.",
       "notInTarget_other": "{{count}} Datensätze ohne {{fields}} geschrieben: Sie verwiesen auf Datensätze, die die Ziel-Org nicht hat.",
       "ownerRefusedEarlier_one": "{{count}} Datensatz von Anfang an ohne {{fields}} geschrieben: Die Ziel-Org hat denselben Inhaber früher in diesem Lauf abgelehnt, einen Benutzer, den sie nicht hat.",
-      "ownerRefusedEarlier_other": "{{count}} Datensätze von Anfang an ohne {{fields}} geschrieben: Die Ziel-Org hat denselben Inhaber früher in diesem Lauf abgelehnt, einen Benutzer, den sie nicht hat."
+      "ownerRefusedEarlier_other": "{{count}} Datensätze von Anfang an ohne {{fields}} geschrieben: Die Ziel-Org hat denselben Inhaber früher in diesem Lauf abgelehnt, einen Benutzer, den sie nicht hat.",
+      "parentRefused_one": "{{count}} Datensatz ohne {{fields}} geschrieben: Der Datensatz, auf den er verweist und der nach ihm geschrieben wurde, wurde in diesem Lauf abgelehnt.",
+      "parentRefused_other": "{{count}} Datensätze ohne {{fields}} geschrieben: Die Datensätze, auf die sie verweisen und die nach ihnen geschrieben wurden, wurden in diesem Lauf abgelehnt.",
+      "notSet_one": "{{count}} Datensatz ohne {{fields}} geschrieben: Die Ziel-Org hat das Setzen abgelehnt, nachdem der genannte Datensatz geschrieben war.",
+      "notSet_other": "{{count}} Datensätze ohne {{fields}} geschrieben: Die Ziel-Org hat das Setzen abgelehnt, nachdem die genannten Datensätze geschrieben waren.",
+      "notReached_one": "{{count}} Datensatz ohne {{fields}} geschrieben: Der Lauf wurde angehalten, bevor es gesetzt wurde.",
+      "notReached_other": "{{count}} Datensätze ohne {{fields}} geschrieben: Der Lauf wurde angehalten, bevor es gesetzt wurde.",
+      "setAfter_one": "{{count}} Datensatz hat {{fields}} erhalten, sobald die {{objects}}-Datensätze geschrieben waren: Sie verweisen aufeinander, daher wurde er zunächst ohne geschrieben.",
+      "setAfter_other": "{{count}} Datensätze haben {{fields}} erhalten, sobald die {{objects}}-Datensätze geschrieben waren: Sie verweisen aufeinander, daher wurden sie zunächst ohne geschrieben.",
+      "withoutFields_one": "{{count}} Datensatz erneut ohne die Felder geschrieben, die die Ziel-Org abgelehnt hat:",
+      "withoutFields_other": "{{count}} Datensätze erneut ohne die Felder geschrieben, die die Ziel-Org abgelehnt hat:",
+      "withoutField_one": "{{field}}, bei {{count}} Datensatz weggelassen: {{refusedBy}}.",
+      "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}."
     }
   },
   "migration": {

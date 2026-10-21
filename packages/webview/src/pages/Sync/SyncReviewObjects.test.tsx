@@ -109,7 +109,8 @@ describe('SyncReviewObjects', () => {
       />,
     );
     expect(screen.getByTestId('sync-review-cycle').textContent).toBe(
-      'Contact and Account name each other: they are written in this order, and the lookup at the one written later is left empty.',
+      'Contact and Account name each other: they are written in this order, first without the ' +
+        'lookups at the one written later, which are set once it is written.',
     );
 
     rerender(

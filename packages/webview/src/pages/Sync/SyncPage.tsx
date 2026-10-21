@@ -54,7 +54,7 @@ import { handleTabListKeyDown } from '../../components/ui/tabListKeys';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
-import { SyncWrittenLines } from './SyncWrittenLines';
+import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -1069,8 +1069,7 @@ export const SyncPage: React.FC = () => {
                           obj.files ||
                           (obj.alreadyCopied ?? 0) > 0 ||
                           obj.standardPricebookMatched ||
-                          obj.linkedToExisting ||
-                          (obj.lookupsLeftOut?.length ?? 0) > 0 ||
+                          hasWrittenLines(obj) ||
                           (obj.currenciesReplaced?.length ?? 0) > 0 ||
                           (obj.pricesSettled?.length ?? 0) > 0) && (
                           <CardBody>

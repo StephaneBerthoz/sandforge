@@ -14,9 +14,12 @@
  *
  * Objects whose lookups name each other (an account's contact, a contact's
  * account) form a cycle no order breaks: they keep the configuration's order
- * among themselves, and the lookup at the one written later goes as before,
- * left out once the target refuses the source's id. A lookup of an object at
- * itself is set by the write's own second pass (`prepareSyncRows`).
+ * among themselves, the lookups at the ones written later are left out of the
+ * first write, and the run sets them once the cycle's last object is written
+ * (`SyncWriteRun.later`). Sent with the source's id, such a lookup was
+ * refused, and the record written again without it, which nothing set. A
+ * lookup of an object at itself is set by the write's own second pass
+ * (`prepareSyncRows`).
  */
 
 import type { SyncObjectConfig, SyncWriteOrder, SyncWriteOrderMove } from '@sandforge/shared';

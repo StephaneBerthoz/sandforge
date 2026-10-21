@@ -1061,7 +1061,7 @@
       "update": "Atualização por Id: o registro do destino que tem o Id do registro de origem é sobrescrito.",
       "delete": "Exclusão por Id: o registro do destino que tem o Id do registro de origem é excluído.",
       "after": "Gravado depois de {{parent}}, para o qual aponta seu campo {{field}}.",
-      "cycle": "{{objects}} apontam um para o outro: são gravados nesta ordem, e o campo de pesquisa para o gravado depois fica vazio.",
+      "cycle": "{{objects}} apontam um para o outro: são gravados nesta ordem, primeiro sem o campo de pesquisa para o gravado depois, que é preenchido assim que ele é gravado.",
       "orderLoading": "Lendo os campos de pesquisa de cada objeto na org de destino…",
       "orderUnread": "Não foi possível ler a ordem na org de destino: a execução a calcula de novo antes de gravar.",
       "insertsSaved": "Salva: cada execução desta configuração deixa como estão os registros que uma execução anterior copiou e insere os outros.",
@@ -1232,7 +1232,8 @@
         "evtPerSec": "evt/s"
       },
       "eventCount_one": "{{count}} evento",
-      "eventCount_other": "{{count}} eventos"
+      "eventCount_other": "{{count}} eventos",
+      "contactPointsHint": "Cada endereço de e-mail que uma alteração grava vai sob .invalid e cada número de telefone como um fictício, para que a automação da org de destino não alcance ninguém. Um objeto encontrado pelo mapeamento de uma configuração salva segue a escolha dessa configuração."
     },
     "tabs": {
       "sync": "Sync",
@@ -1566,7 +1567,19 @@
       "notInTarget_one": "{{count}} registro gravado sem {{fields}}: ele indicava um registro que a org de destino não tem.",
       "notInTarget_other": "{{count}} registros gravados sem {{fields}}: eles indicavam registros que a org de destino não tem.",
       "ownerRefusedEarlier_one": "{{count}} registro gravado sem {{fields}} desde o início: a org de destino recusou o mesmo proprietário antes nesta execução, um usuário que ela não tem.",
-      "ownerRefusedEarlier_other": "{{count}} registros gravados sem {{fields}} desde o início: a org de destino recusou o mesmo proprietário antes nesta execução, um usuário que ela não tem."
+      "ownerRefusedEarlier_other": "{{count}} registros gravados sem {{fields}} desde o início: a org de destino recusou o mesmo proprietário antes nesta execução, um usuário que ela não tem.",
+      "parentRefused_one": "{{count}} registro gravado sem {{fields}}: o registro que ele indica, gravado depois, foi recusado nesta execução.",
+      "parentRefused_other": "{{count}} registros gravados sem {{fields}}: os registros que eles indicam, gravados depois, foram recusados nesta execução.",
+      "notSet_one": "{{count}} registro gravado sem {{fields}}: a org de destino recusou preenchê-lo depois que o registro que ele indica foi gravado.",
+      "notSet_other": "{{count}} registros gravados sem {{fields}}: a org de destino recusou preenchê-lo depois que os registros que eles indicam foram gravados.",
+      "notReached_one": "{{count}} registro gravado sem {{fields}}: a execução foi interrompida antes de preenchê-lo.",
+      "notReached_other": "{{count}} registros gravados sem {{fields}}: a execução foi interrompida antes de preenchê-lo.",
+      "setAfter_one": "{{count}} registro recebeu {{fields}} depois que os registros de {{objects}} foram gravados: eles apontam um para o outro, então ele foi gravado primeiro sem esse campo.",
+      "setAfter_other": "{{count}} registros receberam {{fields}} depois que os registros de {{objects}} foram gravados: eles apontam um para o outro, então foram gravados primeiro sem esse campo.",
+      "withoutFields_one": "{{count}} registro gravado novamente sem os campos que a org de destino recusou:",
+      "withoutFields_other": "{{count}} registros gravados novamente sem os campos que a org de destino recusou:",
+      "withoutField_one": "{{field}}, omitido em {{count}} registro: {{refusedBy}}.",
+      "withoutField_other": "{{field}}, omitido em {{count}} registros: {{refusedBy}}."
     }
   },
   "migration": {

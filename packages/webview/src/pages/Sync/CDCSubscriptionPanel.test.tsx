@@ -178,6 +178,26 @@ describe('CDCSubscriptionPanel', () => {
     });
   });
 
+  it('neutralizes emails and phone numbers unless unticked, and starts a session that keeps them once it is', () => {
+    useCDCLiveStore.getState().setOrgs('org-src', 'org-tgt');
+    useCDCLiveStore.getState().setWatchedObjects(['Contact']);
+    render(<CDCSubscriptionPanel objects={OBJECTS} />);
+    const toggle = screen.getByTestId('cdc-contact-points-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(screen.getByTestId('cdc-contact-points-hint').textContent).toContain(
+      'follows that configuration',
+    );
+
+    fireEvent.click(screen.getByTestId('cdc-start-btn'));
+    expect(lastSent().payload.keepContactPoints).toBeUndefined();
+
+    useCDCLiveStore.getState().setStatus('disconnected');
+    fireEvent.click(toggle);
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(screen.getByTestId('cdc-start-btn'));
+    expect(lastSent().payload.keepContactPoints).toBe(true);
+  });
+
   it('stops the session it runs', () => {
     useCDCLiveStore.getState().setStatus('syncing');
     render(<CDCSubscriptionPanel objects={OBJECTS} />);

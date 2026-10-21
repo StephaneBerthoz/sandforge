@@ -81,6 +81,8 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ obje
   const setConflictStrategy = useCDCLiveStore((s) => s.setConflictStrategy);
   const setMatch = useCDCLiveStore((s) => s.setMatch);
   const setApplyDeletes = useCDCLiveStore((s) => s.setApplyDeletes);
+  const keepContactPoints = useCDCLiveStore((s) => s.keepContactPoints);
+  const setKeepContactPoints = useCDCLiveStore((s) => s.setKeepContactPoints);
   const startStream = useCDCLiveStore((s) => s.startStream);
   const stopStream = useCDCLiveStore((s) => s.stopStream);
 
@@ -189,6 +191,21 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ obje
           <CardHeader title={t('sync.realtime.autoSync')} />
           <CardBody>
             <p className="mb-2 text-xs text-text-secondary">{t('sync.realtime.autoSyncHint')}</p>
+            {/* Ticked unless unticked, as on a Sync run: the target's flows
+                email and text the people its records name. */}
+            <label className="mb-1 flex items-center gap-1 text-xs text-text-primary">
+              <input
+                type="checkbox"
+                checked={!keepContactPoints}
+                disabled={isStreaming}
+                onChange={(e) => setKeepContactPoints(!e.target.checked)}
+                data-testid="cdc-contact-points-toggle"
+              />
+              {t('sync.contactPoints.toggle')}
+            </label>
+            <p className="mb-2 text-xs text-text-secondary" data-testid="cdc-contact-points-hint">
+              {t('sync.realtime.contactPointsHint')}
+            </p>
             <div className="flex flex-col gap-(--sf-space-3)">
               {watchedObjects.map((objectName) => {
                 const config = autoSyncObjects[objectName];

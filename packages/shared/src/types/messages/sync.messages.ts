@@ -11,6 +11,7 @@ import type {
   SyncWriteOrder,
 } from '../sync.types.js';
 import type { ExportFormat } from '../reporting.types.js';
+import type { ForgeSweepListing } from '../forge.types.js';
 
 /** Sync messages */
 export interface SyncExecuteRequest extends BaseMessage {
@@ -295,7 +296,33 @@ export interface SyncRemoveRequest extends BaseMessage {
     runId: string;
     /** Remove the records modified since the run too, and what was added to them since. */
     includeChanged?: boolean;
+    /**
+     * Sweep first what the target's automation created during the run, as
+     * its user, that the run did not write.
+     */
+    sweep?: boolean;
   };
+}
+
+/**
+ * `sync:remove:sweep`. WebView -> Extension. What a sweep asked with the
+ * removal of a run would take, read only, for the confirmation to list.
+ */
+export interface SyncRemoveSweepRequest extends BaseMessage {
+  type: 'sync:remove:sweep';
+  payload: { runId: string };
+}
+
+/** `sync:remove:sweep:response`. Extension -> WebView. */
+export interface SyncRemoveSweepResponse extends BaseMessage {
+  type: 'sync:remove:sweep:response';
+  payload: { runId: string; listing: ForgeSweepListing };
+}
+
+/** `sync:remove:sweep:error`. Extension -> WebView. The read of what a sweep would take failed. */
+export interface SyncRemoveSweepErrorResponse extends BaseMessage {
+  type: 'sync:remove:sweep:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** `sync:remove:response`. Extension -> WebView. Also when the removal was cancelled part way. */

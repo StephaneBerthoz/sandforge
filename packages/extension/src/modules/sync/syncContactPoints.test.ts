@@ -81,6 +81,31 @@ describe('neutralizeSyncRows', () => {
     expect(neutralizer.report().values).toBe(3);
   });
 
+  it('writes each number as a Forge run writes it: in its own layout, and one already fictional as read', () => {
+    // Run against a target whose rule wants +33 X XX XX XX XX, the numbers
+    // the rule refused were those the source held in another layout: written
+    // as read, the same rows were refused for the same field. What a source
+    // number meets of a format rule, its neutralized one meets.
+    const phones = [
+      '+33 6 39 98 77 01',
+      '06 39 98 77 02',
+      '+33639987703',
+      '+33 1 99 00 77 04',
+      '01 99 00 77 05',
+    ];
+    const rows: Record<string, unknown>[] = phones.map((Phone) => ({ Phone }));
+    const asForge: Record<string, unknown>[] = phones.map((Phone) => ({ Phone }));
+
+    neutralizeSyncRows(new ContactPointNeutralizer('k'), 'Contact', FIELDS, rows);
+    const forge = new ContactPointNeutralizer('k').forObject('Contact', FIELDS);
+    for (const row of asForge) forge?.(row);
+
+    expect(rows).toEqual(asForge);
+    expect(rows.slice(0, 3).map((row) => row.Phone)).toEqual(phones.slice(0, 3));
+    expect(String(rows[3].Phone)).toMatch(/^\+33 6 39 98 \d{2} \d{2}$/);
+    expect(String(rows[4].Phone)).toMatch(/^06 39 98 \d{2} \d{2}$/);
+  });
+
   it('leaves the field the write matches on as read, so an upsert finds the copy an earlier run wrote', () => {
     const rows: Record<string, unknown>[] = [
       { Login_Email__c: 'jane@acme.com', Email: 'jane@acme.com' },

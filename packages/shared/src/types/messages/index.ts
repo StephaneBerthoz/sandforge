@@ -162,6 +162,9 @@ import type {
   SyncRemoveRequest,
   SyncRemoveResponse,
   SyncRemoveErrorResponse,
+  SyncRemoveSweepRequest,
+  SyncRemoveSweepResponse,
+  SyncRemoveSweepErrorResponse,
   SyncScheduleListRequest,
   SyncScheduleUpsertRequest,
   SyncScheduleToggleRequest,
@@ -591,6 +594,7 @@ export type WebViewToExtensionMessage =
   | SyncRemovalInfoRequest
   | SyncRemovalListRequest
   | SyncRemoveRequest
+  | SyncRemoveSweepRequest
   | SyncHistoryExportRequest
   | SyncScheduleListRequest
   | SyncScheduleUpsertRequest
@@ -819,6 +823,8 @@ export type ExtensionToWebViewMessage =
   | SyncRemovalListResponse
   | SyncRemoveResponse
   | SyncRemoveErrorResponse
+  | SyncRemoveSweepResponse
+  | SyncRemoveSweepErrorResponse
   | SyncScheduleListResponse
   | SyncScheduleUpsertResponse
   | SyncScheduleToggleResponse

@@ -13,7 +13,7 @@ import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
 import { SyncRunRemoval } from '../SyncRunRemoval';
-import { SyncWrittenLines } from '../SyncWrittenLines';
+import { SyncWrittenLines, hasWrittenLines } from '../SyncWrittenLines';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 
 /** Props for the QuickSyncPreviewStep component. */
@@ -125,8 +125,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             />
             {(obj.errors.length > 0 ||
               obj.standardPricebookMatched ||
-              obj.linkedToExisting ||
-              (obj.lookupsLeftOut?.length ?? 0) > 0 ||
+              hasWrittenLines(obj) ||
               (obj.currenciesReplaced?.length ?? 0) > 0 ||
               (obj.pricesSettled?.length ?? 0) > 0) && (
               <CardBody>

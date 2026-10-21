@@ -31,7 +31,8 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --config-file <config.json> --store <dir> --source SRC --target TGT
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
- *     --remove <summary.json> --target TGT [--include-changed] [--store <dir>] [--json]
+ *     --remove <summary.json> --target TGT [--include-changed] [--store <dir>]
+ *     [--sweep | --sweep-list] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -47,10 +48,14 @@ import type {
   CurrencyReplaced,
   PriceCurrencySettled,
   ForgeContactPointsReport,
+  ForgeFieldRefusal,
+  ForgeSweepResult,
+  ForgeTargetAutomation,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
   SyncConfig,
   SyncDeltaOutcome,
+  SyncLookupsLeftOut,
   SyncObjectConfig,
   SyncObjectResult,
   SyncRemovalResult,
@@ -74,8 +79,11 @@ import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
+import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
+import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
 import {
   readRemovalState,
+  SYNC_FILE_OBJECTS,
   syncRemovalPlan,
   type SyncCreationRecorder,
   type SyncRunKept,
@@ -130,7 +138,7 @@ import {
   type SyncWriteMeasures,
 } from '../src/modules/sync/SyncRunGate.js';
 import { SyncRunRefused } from '../src/modules/sync/SyncRunFailure.js';
-import { targetAutomationReader } from './sandforge-clone.js';
+import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -196,7 +204,8 @@ Run a saved configuration:
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
-    --remove <summary.json> --target <alias> [--include-changed] [--store <dir>] [--json]
+    --remove <summary.json> --target <alias> [--include-changed] [--store <dir>]
+    [--sweep | --sweep-list] [--json]
 
   --remove <file>        the summary a run printed with --json, saved to a
                          file. Deletes from the target what the run created:
@@ -211,6 +220,20 @@ Remove what a run created:
                          the removal tells what it took, so that the next
                          delta run reads those objects whole and copies the
                          files it deleted again
+  --sweep                before the run's records go, delete too what the
+                         target's automation created during the run, as the
+                         run's user, that the run did not write: in the objects
+                         whose records it created, tasks, events, feed, email
+                         messages, notes, case comments, and the objects the
+                         target's flows create. The window is the records the
+                         run created, read back from the org, from a second
+                         before the first to a minute after the last. Refused
+                         when that user created records in the window on
+                         objects neither the run nor the automation reaches
+                         (hand work, likely). Records someone changed since
+                         stay, unless --include-changed     (default: off)
+  --sweep-list           list what --sweep would delete, per object with a few
+                         names, and delete nothing, the run's records included
   --json                 print the removal as JSON
 
   What the removal left on the run's records is kept beside the summary, in
@@ -825,14 +848,13 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
   return lines;
 }
 
-/** A line of an object's result on what its write held back or sent without a field. */
-const SAID_ONCE =
-  /^(PARENT_REFUSED|RECORD_TYPE_UNAVAILABLE|RECORD_TYPE_UNMAPPED):|^\d+ record\(s\) written again without /;
+/** A line of an object's result on what its write held back. */
+const SAID_ONCE = /^(PARENT_REFUSED|RECORD_TYPE_UNAVAILABLE|RECORD_TYPE_UNMAPPED):/;
 
 /**
  * The lines the command prints of an object's errors: its first three, and
- * each line on what the write held back or wrote without a field — said once
- * for every record it is about, after the refusals of each record.
+ * each line on what the write held back — said once for every record it is
+ * about, after the refusals of each record.
  */
 export function objectErrorLines(errors: readonly string[]): string[] {
   const lines = errors.slice(0, 3);
@@ -840,14 +862,36 @@ export function objectErrorLines(errors: readonly string[]): string[] {
   return lines;
 }
 
+/** Why records went without lookups they held, as a line says it after their count and fields. */
+const LEFT_OUT_BECAUSE: Readonly<Record<SyncLookupsLeftOut['reason'], string>> = {
+  notInTarget: ': the lookup held an id from the source org that the target does not have.',
+  ownerRefusedEarlier:
+    ', left out from the start: the target refused the same owner earlier in this run, an ' +
+    'id from the source org that the target does not have.',
+  parentRefused: ': the record it names, written after them, was refused in this run.',
+  notSet: ': the target refused setting it once the record it names was written',
+  notReached: ': the run was stopped before it was set, once the record it names was written.',
+};
+
+/** What refused a field records were written again without, as a line says it. */
+const REFUSED_FIELD_BY: Readonly<Record<ForgeFieldRefusal, string>> = {
+  'validation-rule': 'a validation rule of the target refused it',
+  'restricted-picklist': 'a restricted picklist of the target refused its value',
+  'lookup-filter': 'a lookup filter of the target refused the record it names',
+};
+
 /**
  * The lines the command prints of what an object's write did that no refusal
- * says: the records linked to one the target holds rather than written, and
- * those written without lookups they held, with why. Every one, however many
- * refusals the object had.
+ * says: the records linked to one the target holds rather than written, those
+ * written without lookups they held, with why, those given lookups at an
+ * object written after them, and those written again without the fields the
+ * target refused them on. Every one, however many refusals the object had.
  */
 export function objectWrittenLines(
-  result: Pick<SyncObjectResult, 'linkedToExisting' | 'lookupsLeftOut'>,
+  result: Pick<
+    SyncObjectResult,
+    'linkedToExisting' | 'lookupsLeftOut' | 'lookupsSetAfter' | 'writtenWithoutFields'
+  >,
 ): string[] {
   const lines: string[] = [];
   const linked = result.linkedToExisting;
@@ -858,14 +902,28 @@ export function objectWrittenLines(
         'what the run writes under them points at that record.',
     );
   }
-  for (const { records, fields, reason } of result.lookupsLeftOut ?? []) {
+  for (const { records, fields, reason, refusal } of result.lookupsLeftOut ?? []) {
+    const said = reason === 'notSet' ? `${refusal ? ` (${refusal})` : ''}.` : '';
     lines.push(
-      reason === 'ownerRefusedEarlier'
-        ? `${records} record(s) written without ${fields.join(', ')}, left out from the start: ` +
-            'the target refused the same owner earlier in this run, an id from the source org ' +
-            'that the target does not have.'
-        : `${records} record(s) written without ${fields.join(', ')}: the lookup held an id ` +
-            'from the source org that the target does not have.',
+      `${records} record(s) written without ${fields.join(', ')}${LEFT_OUT_BECAUSE[reason]}${said}`,
+    );
+  }
+  const setAfter = result.lookupsSetAfter;
+  if (setAfter) {
+    lines.push(
+      `${setAfter.records} record(s) given ${setAfter.fields.join(', ')} by a second write once ` +
+        `${setAfter.after.join(', ')} ${setAfter.after.length === 1 ? 'was' : 'were'} written: ` +
+        'the objects name each other, and no order writes both first.',
+    );
+  }
+  const without = result.writtenWithoutFields;
+  if (without) {
+    lines.push(
+      `${without.rows} record(s) written again without the fields the target refused them on:`,
+      ...without.fields.map(
+        ({ field, rows, refusedBy = 'validation-rule', reason }) =>
+          `  ${rows} without ${field}: ${REFUSED_FIELD_BY[refusedBy]}, ${reason}`,
+      ),
     );
   }
   return lines;
@@ -957,6 +1015,11 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
       if (ids.length === 0) return;
       byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), ...ids]);
       last = new Date().toISOString();
+    },
+    // Records it created, written again once the records their lookups name
+    // were: when it last wrote, which its removal reads the org's dates against.
+    touched: (_objectApiName, rows) => {
+      if (rows > 0) last = new Date().toISOString();
     },
     flush: async () => undefined,
     created: () => [...byObject].map(([objectApiName, ids]) => ({ objectApiName, ids: [...ids] })),
@@ -1401,6 +1464,10 @@ export interface RemoveArgs {
   json: boolean;
   /** The store of the saved configuration the run was of, which the removal tells. */
   store?: string;
+  /** Sweep first what the target's automation created during the run. */
+  sweep: boolean;
+  /** List what a sweep would delete, and delete nothing. */
+  sweepList: boolean;
 }
 
 /** The flags a removal reads. */
@@ -1409,6 +1476,8 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--target',
   '--include-changed',
   '--store',
+  '--sweep',
+  '--sweep-list',
   '--json',
 ]);
 const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target', '--store']);
@@ -1424,8 +1493,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --store and --json, not "${arg}". ` +
-          'Run with --help.\n',
+        `--remove takes --target, --include-changed, --store, --sweep, --sweep-list and ` +
+          `--json, not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -1448,12 +1517,20 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     );
     process.exit(2);
   }
+  if (args.includes('--sweep') && args.includes('--sweep-list')) {
+    process.stderr.write(
+      '--sweep deletes and --sweep-list only lists: give one of them. Run with --help.\n',
+    );
+    process.exit(2);
+  }
   return {
     summaryPath,
     target,
     includeChanged: args.includes('--include-changed'),
     json: args.includes('--json'),
     ...(store !== undefined ? { store } : {}),
+    sweep: args.includes('--sweep'),
+    sweepList: args.includes('--sweep-list'),
   };
 }
 
@@ -1768,6 +1845,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     objects: ForgeUndoObjectResult[],
     planned: number,
     told: ConfigurationTold = {},
+    sweep?: ForgeSweepResult,
   ) => {
     if (args.json) {
       process.stdout.write(
@@ -1778,7 +1856,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             summary: args.summaryPath,
             target: args.target,
             includeChanged: args.includeChanged,
-            result: { status, planned, objects, ...told },
+            result: { status, planned, objects, ...told, ...(sweep ? { sweep } : {}) },
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -1787,13 +1865,16 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
       return;
     }
+    // The sweep ran first, before the run's records went.
+    for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
     for (const line of configurationToldLines(summary.configId, told)) say(line);
     say(`\ndone in ${Date.now() - t0}ms`);
   };
 
   const plan = syncRemovalPlan(run);
-  if (plan.length === 0) {
+  // A sweep, or its listing, still has the run's window to look in.
+  if (plan.length === 0 && !args.sweep && !args.sweepList) {
     say(
       earlier?.undo
         ? `what the run created was removed already, on ${earlier.undo.removedAt}`
@@ -1805,7 +1886,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 
   const conn = makeConn(await loadOrg(args.target));
   const org = await typeTarget(conn);
-  const refusal = removalRefusal(args.target, org);
+  // A listing deletes nothing; a removal and a sweep delete, and are refused
+  // before either reads anything outside a sandbox or a Developer Edition.
+  const refusal = args.sweepList ? undefined : removalRefusal(args.target, org);
   if (refusal) {
     process.stderr.write(`${refusal}\n`);
     process.exit(1);
@@ -1820,8 +1903,69 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
     process.exit(1);
   }
+  /**
+   * What a sweep is told: the records the run created read back for its
+   * window, as the panel's sweep reads them, and what the target's flows
+   * create on their objects.
+   */
+  const sweepInput = async (signal?: AbortSignal) => {
+    let automation: ForgeTargetAutomation | { error: string };
+    try {
+      automation = await targetAutomationReader(conn).read(
+        args.target,
+        run.created
+          .map((object) => object.objectApiName)
+          .filter((name) => !SYNC_FILE_OBJECTS.includes(name)),
+      );
+    } catch (err: unknown) {
+      automation = { error: err instanceof Error ? err.message : String(err) };
+    }
+    return seedSweepInput(
+      removalOrg(conn, 'sandforge-sync --sweep'),
+      run.created,
+      automation,
+      signal,
+    );
+  };
+
+  if (args.sweepList) {
+    // What a sweep would delete, read and said; nothing is deleted, the
+    // run's own records included.
+    const listing = await listSweep(
+      removalOrg(conn, 'sandforge-sync --sweep-list'),
+      await sweepInput(),
+    );
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            tool: 'sandforge-sync',
+            action: 'sweep-list',
+            summary: args.summaryPath,
+            target: args.target,
+            listing,
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      for (const line of sweepListingLines(listing, args.target)) say(line);
+      say(`\ndone in ${Date.now() - t0}ms`);
+    }
+    return;
+  }
+
   say(`sandforge-sync --remove  ${args.summaryPath}  from ${args.target}`);
   for (const { objectApiName, ids } of plan) say(`  ${objectApiName}: ${ids.length} to remove`);
+  if (plan.length === 0) say('nothing left of the run to remove');
+  if (args.sweep) {
+    say(
+      "before them, a sweep deletes what the target's automation created during the run, as " +
+        "the run's user — run with --sweep-list to see what",
+    );
+  }
 
   // Ctrl-C stops the removal before its next call to the org, as Cancel does
   // in the panel.
@@ -1829,12 +1973,38 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const interrupt = (): void => stop.abort();
   process.once('SIGINT', interrupt);
   let state: SyncRunRemovalState = earlier ?? {};
+  // The sweep comes before the run's records go, as the panel's does: a task
+  // the target's automation opened on one of them would otherwise stay. The
+  // removal makes it once it has read the run's records.
+  const sweepMade: { result?: ForgeSweepResult } = {};
+  const sweepFirst = args.sweep
+    ? async (): Promise<boolean> => {
+        sweepMade.result = await sweepRunRecords(
+          removalOrg(conn, 'sandforge-sync --sweep'),
+          await sweepInput(stop.signal),
+          {
+            includeChanged: args.includeChanged,
+            // What the earlier removals of the run changed while they ran is no
+            // change since the run.
+            removalSpans: state.removalSpans ?? [],
+            // What it found, said before the first delete: --sweep asked for it.
+            approve: async (listing) => {
+              say('');
+              for (const line of sweepListingLines(listing, args.target)) say(line);
+              return undefined;
+            },
+          },
+        );
+        return sweepMade.result.objects.some((object) => object.deleted > 0);
+      }
+    : undefined;
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
   try {
     outcome = await removeSyncRun({
       run,
       org: removalOrg(conn, 'sandforge-sync --remove'),
       includeChanged: args.includeChanged,
+      ...(sweepFirst ? { sweep: sweepFirst } : {}),
       signal: stop.signal,
       // The configuration's store, told what the removal took: its
       // watermarks and copied files, and which records its runs wrote.
@@ -1867,12 +2037,21 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
   }
   const { readWhole, filesForgotten } = outcome.result;
-  output(outcome.result.status, outcome.result.objects, outcome.planned, {
-    ...(readWhole ? { readWhole } : {}),
-    ...(filesForgotten !== undefined ? { filesForgotten } : {}),
-    ...(outcome.linksForgotten !== undefined ? { linksForgotten: outcome.linksForgotten } : {}),
-  });
-  if (outcome.result.status !== 'success') process.exit(RECORDS_LEFT_EXIT);
+  const sweep = sweepMade.result;
+  output(
+    outcome.result.status,
+    outcome.result.objects,
+    outcome.planned,
+    {
+      ...(readWhole ? { readWhole } : {}),
+      ...(filesForgotten !== undefined ? { filesForgotten } : {}),
+      ...(outcome.linksForgotten !== undefined ? { linksForgotten: outcome.linksForgotten } : {}),
+    },
+    sweep,
+  );
+  if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
+    process.exit(RECORDS_LEFT_EXIT);
+  }
 }
 
 // `tsx` runs this file directly; the import check keeps it silent under test.

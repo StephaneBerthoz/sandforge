@@ -16,7 +16,7 @@ import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
-import { SyncWrittenLines } from './SyncWrittenLines';
+import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
 import { heldRecordChoiceOf } from './heldRecordChoice';
 
 /** Map sync status to badge variant. */
@@ -204,8 +204,8 @@ export const SyncHistoryDetail: React.FC = () => {
                   <SyncFilesLine files={obj.files} testId={`history-files-${obj.objectApiName}`} />
                 </div>
               )}
-              {/* Linked rather than written, or written without a lookup: no refusal. */}
-              {(obj.linkedToExisting || (obj.lookupsLeftOut?.length ?? 0) > 0) && (
+              {/* Linked rather than written, written without a lookup or a field: no refusal. */}
+              {hasWrittenLines(obj) && (
                 <div className="mt-1">
                   <SyncWrittenLines result={obj} testId={`history-written-${obj.objectApiName}`} />
                 </div>

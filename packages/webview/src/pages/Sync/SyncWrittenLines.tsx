@@ -1,48 +1,108 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncObjectResult } from '@sandforge/shared';
+import type { ForgeFieldRefusal, SyncObjectResult } from '@sandforge/shared';
+
+/** What an object's result says its write did beside its refusals. */
+type WrittenResult = Pick<
+  SyncObjectResult,
+  'linkedToExisting' | 'lookupsLeftOut' | 'lookupsSetAfter' | 'writtenWithoutFields'
+>;
 
 /** Props for {@link SyncWrittenLines}. */
 export interface SyncWrittenLinesProps {
   /** The object's result. */
-  result: Pick<SyncObjectResult, 'linkedToExisting' | 'lookupsLeftOut'>;
+  result: WrittenResult;
   /** Test id of the list. */
   testId: string;
 }
 
 /**
+ * What refused a field records went in again without, as the line says it:
+ * in Forge's words, which say the same of a clone's records.
+ */
+const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
+  'validation-rule': 'forge.writtenWithoutFields.byValidationRule',
+  'restricted-picklist': 'forge.writtenWithoutFields.byRestrictedPicklist',
+  'lookup-filter': 'forge.writtenWithoutFields.byLookupFilter',
+};
+
+/** Whether an object's write did anything {@link SyncWrittenLines} says. */
+export function hasWrittenLines(result: WrittenResult): boolean {
+  return (
+    result.linkedToExisting !== undefined ||
+    (result.lookupsLeftOut?.length ?? 0) > 0 ||
+    result.lookupsSetAfter !== undefined ||
+    result.writtenWithoutFields !== undefined
+  );
+}
+
+/**
  * What an object's write did that no refusal says, beside its other lines on
  * the results step, the Quick Sync results and the history detail: the
- * records linked to one the target already holds rather than written, and
- * those written without lookups they held, with why, in the panel's language.
+ * records linked to one the target already holds rather than written, those
+ * written without lookups they held, with why, those given lookups at an
+ * object written after them, and those written again without the fields the
+ * target refused them on, in the panel's language.
  *
- * Both were sentences among the object's errors, which the pages list as
- * refusals: "1 × LINKED_TO_EXISTING" and "1 × 12 record(s) written without
- * OwnerId" in red, in English, under a run that had succeeded.
+ * Each was a sentence among the object's errors, which the pages list as
+ * refusals: "1 × LINKED_TO_EXISTING", "1 × 12 record(s) written without
+ * OwnerId" and "1 × 2 record(s) written again without the fields the target
+ * refused them on" in red, in English, under a run that had succeeded.
  */
 export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, testId }) => {
   const { t } = useTranslation();
+  if (!hasWrittenLines(result)) return null;
   const linked = result.linkedToExisting;
-  const leftOut = result.lookupsLeftOut ?? [];
-  if (!linked && leftOut.length === 0) return null;
+  const setAfter = result.lookupsSetAfter;
+  const without = result.writtenWithoutFields;
+  /** The target's words, after a line that names them. */
+  const words = (refusal: string | undefined): React.ReactNode =>
+    refusal === undefined ? null : (
+      <>
+        {` ${t('sync.written.refusal')} `}
+        <span className="font-mono wrap-break-word">{refusal}</span>
+      </>
+    );
   return (
     <ul className="flex flex-col gap-0.5 text-xs text-text-secondary" data-testid={testId}>
       {linked && (
         <li data-testid={`${testId}-linked`}>
           {t('sync.written.linked', { count: linked.records })}
-          {linked.refusal !== undefined && (
-            <>
-              {` ${t('sync.written.refusal')} `}
-              <span className="font-mono wrap-break-word">{linked.refusal}</span>
-            </>
-          )}
+          {words(linked.refusal)}
         </li>
       )}
-      {leftOut.map(({ records, fields, reason }) => (
-        <li key={`${reason}:${fields.join(',')}`} data-testid={`${testId}-${reason}`}>
+      {(result.lookupsLeftOut ?? []).map(({ records, fields, reason, refusal }, at) => (
+        <li key={`${reason}:${fields.join(',')}:${at}`} data-testid={`${testId}-${reason}`}>
           {t(`sync.written.${reason}`, { count: records, fields: fields.join(', ') })}
+          {words(refusal)}
         </li>
       ))}
+      {setAfter && (
+        <li data-testid={`${testId}-setAfter`}>
+          {t('sync.written.setAfter', {
+            count: setAfter.records,
+            fields: setAfter.fields.join(', '),
+            objects: setAfter.after.join(', '),
+          })}
+        </li>
+      )}
+      {without && (
+        <li data-testid={`${testId}-withoutFields`}>
+          {t('sync.written.withoutFields', { count: without.rows })}
+          <ul className="mt-0.5 flex flex-col gap-0.5 pl-3">
+            {without.fields.map(({ field, rows, refusedBy = 'validation-rule', reason }) => (
+              <li key={`${field}:${reason}`} data-testid={`${testId}-withoutFields-${field}`}>
+                {t('sync.written.withoutField', {
+                  count: rows,
+                  field,
+                  refusedBy: t(REFUSED_BY_KEYS[refusedBy]),
+                })}
+                {words(reason)}
+              </li>
+            ))}
+          </ul>
+        </li>
+      )}
     </ul>
   );
 };

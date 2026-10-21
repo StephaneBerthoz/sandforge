@@ -92,6 +92,42 @@ describe('applyPlanFor', () => {
     expect(plan.fieldMappings).toHaveLength(2);
   });
 
+  it('keeps the emails and phone numbers of an object found by Id or an external id when the session asks', () => {
+    const byId = { objectApiName: 'Lead', match: { kind: 'id' as const }, applyDeletes: false };
+    const byKey = {
+      objectApiName: 'Lead',
+      match: { kind: 'externalId' as const, field: 'Ext__c' },
+      applyDeletes: false,
+    };
+
+    expect(
+      applyPlanFor(byId, () => undefined, orgs, { keepContactPoints: true }).keepContactPoints,
+    ).toBe(true);
+    expect(
+      applyPlanFor(byKey, () => undefined, orgs, { keepContactPoints: true }).keepContactPoints,
+    ).toBe(true);
+    // Neutralized unless asked.
+    expect(applyPlanFor(byId, () => undefined, orgs).keepContactPoints).toBeUndefined();
+    expect(
+      applyPlanFor(byKey, () => undefined, orgs, { keepContactPoints: false }).keepContactPoints,
+    ).toBeUndefined();
+  });
+
+  it("follows a saved configuration's choice of the emails and phone numbers, whatever the session's", () => {
+    const bySaved = {
+      objectApiName: 'Lead',
+      match: { kind: 'syncConfig' as const, configId: 'cfg-1' },
+      applyDeletes: false,
+    };
+
+    expect(
+      applyPlanFor(bySaved, () => saved(), orgs, { keepContactPoints: true }).keepContactPoints,
+    ).toBeUndefined();
+    expect(
+      applyPlanFor(bySaved, () => saved({ keepContactPoints: true }), orgs).keepContactPoints,
+    ).toBe(true);
+  });
+
   it('matches on Id when the saved configuration names no external id', () => {
     const plan = applyPlanFor(
       {

@@ -574,6 +574,19 @@ describe('RealtimeHandler', () => {
     expect(neutralizers).toEqual([undefined]);
   });
 
+  it('writes them as read for an object found by its external id when the session keeps them', async () => {
+    // An object matched by Id or an external id had no way to keep them: only
+    // a saved configuration's choice reached a session.
+    const { handler, transport, writes, neutralizers } = setup();
+
+    await handler.handle(start({ keepContactPoints: true }));
+    transport.send('/data/LeadChangeEvent', leadUpdate(10, 'Buyer'));
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(writes).toHaveLength(1);
+    expect(neutralizers).toEqual([undefined]);
+  });
+
   it('holds a change that collides with a newer target edit, and applies the decision', async () => {
     const { handler, transport, writes, ofType } = setup({
       targetRows: [

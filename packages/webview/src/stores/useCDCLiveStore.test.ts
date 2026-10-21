@@ -152,6 +152,23 @@ describe('useCDCLiveStore', () => {
     ]);
   });
 
+  it('asks the host to neutralize emails and phone numbers unless the session keeps them', () => {
+    const store = useCDCLiveStore.getState();
+    store.setWatchedObjects(['Contact']);
+    store.toggleAutoSync('Contact', { kind: 'id' });
+
+    store.startStream();
+    expect(
+      (mockPostMessage.mock.calls[0][0] as PostedEnvelope).payload.payload?.keepContactPoints,
+    ).toBeUndefined();
+
+    store.setKeepContactPoints(true);
+    useCDCLiveStore.getState().startStream();
+    expect(
+      (mockPostMessage.mock.calls[1][0] as PostedEnvelope).payload.payload?.keepContactPoints,
+    ).toBe(true);
+  });
+
   it('changes the match of an applied object, and of no other', () => {
     const store = useCDCLiveStore.getState();
     store.toggleAutoSync('Account', { kind: 'id' });

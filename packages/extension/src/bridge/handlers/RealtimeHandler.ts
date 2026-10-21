@@ -443,7 +443,9 @@ export class RealtimeHandler implements DomainHandler {
 
     try {
       const plans = parsed.apply.map((apply) =>
-        applyPlanFor(apply, (configId) => this.syncConfigs.load(configId), parsed),
+        applyPlanFor(apply, (configId) => this.syncConfigs.load(configId), parsed, {
+          keepContactPoints: parsed.keepContactPoints === true,
+        }),
       );
 
       const decision =
@@ -463,9 +465,10 @@ export class RealtimeHandler implements DomainHandler {
       const target = this.access.reader(parsed.targetOrgId);
       const write = this.access.writer(parsed.targetOrgId);
       // The emails and phone numbers of every change written neutralized, as
-      // a Sync run's are, unless the saved configuration an object is written
-      // by keeps them: one neutralizer for the session, so a number gives the
-      // same fictional one throughout it.
+      // a Sync run's are, unless the session keeps them for the objects found
+      // by Id or an external id, or the saved configuration an object is
+      // written by keeps them: one neutralizer for the session, so a number
+      // gives the same fictional one throughout it.
       const contactPoints = new ContactPointNeutralizer();
       const appliers = new Map(
         plans.map((plan) => [

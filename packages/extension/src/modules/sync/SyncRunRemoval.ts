@@ -80,7 +80,7 @@ export interface SyncRunRemovalInput {
    * The sweep of what the target's automation created during the run, made
    * once the removal has read the run's records and before its first delete
    * (`RunRemovalOptions.sweep`); it resolves to whether it deleted anything.
-   * A Seed run's removal offers it.
+   * A Seed run's removal offers it, and a Sync run's.
    */
   sweep?: () => Promise<boolean>;
   /** Stops the removal before its next call to the org. */

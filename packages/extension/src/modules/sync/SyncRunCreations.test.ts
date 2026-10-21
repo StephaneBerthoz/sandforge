@@ -155,6 +155,53 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     expect(other?.lastWrittenAt).toBeUndefined();
   });
 
+  it('dates its last write by the records it wrote again after its last creation, creating nothing more', () => {
+    // The accounts of a cycle are given their contacts' copies once the
+    // contacts are in: dated by the creation alone, the removal read them as
+    // changed since the run, and kept them.
+    const text = [
+      JSON.stringify({ run: start('run-cycle') }),
+      JSON.stringify({
+        object: 'Account',
+        created: [fakeId('001', 1)],
+        at: '2026-10-14T08:00:05.000Z',
+      }),
+      JSON.stringify({
+        object: 'Contact',
+        created: [fakeId('003', 1)],
+        at: '2026-10-14T08:00:09.000Z',
+      }),
+      JSON.stringify({ touched: { object: 'Account', rows: 1, at: '2026-10-14T08:00:40.000Z' } }),
+      // Cut short by a closed window: left out.
+      '{"touched": {"object": "Acc',
+    ].join('\n');
+
+    const run = readRunFile(text);
+
+    expect(run?.lastWrittenAt).toBe('2026-10-14T08:00:40.000Z');
+    expect(run?.created).toEqual([
+      { objectApiName: 'Account', ids: [fakeId('001', 1)] },
+      { objectApiName: 'Contact', ids: [fakeId('003', 1)] },
+    ]);
+  });
+
+  it('writes a line for the records a run wrote again, which a later read dates its last write by', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-touched'));
+    recorder.note('Account', [fakeId('001', 1)], '2026-10-14T08:00:05.000Z');
+    recorder.touched?.('Account', 1);
+    recorder.touched?.('Account', 0);
+    await recorder.flush();
+
+    const run = await store.get('run-touched');
+
+    expect(Date.parse(run?.lastWrittenAt ?? '')).toBeGreaterThan(
+      Date.parse('2026-10-14T08:00:05.000Z'),
+    );
+    expect(createdCount(run ?? { created: [] })).toBe(1);
+  });
+
   it('names no call under way for a run that ended', async () => {
     const { deps } = memoryDisk();
     const store = new SyncRunCreations(deps);

@@ -408,6 +408,9 @@ export const realtimeStartPayloadSchema = z
     conflictStrategy: conflictStrategyPayloadSchema,
     flushIntervalMs: z.number().int().min(50).max(60_000),
     maxBatchSize: z.number().int().min(1).max(200),
+    // Write the emails and phone numbers of the objects found by Id or an
+    // external id as the source holds them; absent, they are neutralized.
+    keepContactPoints: z.boolean().optional(),
   })
   .refine((p) => p.apply.every((a) => p.watchedObjects.includes(a.objectApiName)), {
     message: 'Every applied object must be watched.',
@@ -448,7 +451,11 @@ export const syncEarlierCopiesPayloadSchema = z.object({
 export const syncRemovePayloadSchema = z.object({
   runId: opaqueIdSchema,
   includeChanged: z.boolean().optional(),
+  // Sweep too what the target's automation created during the run, as its user.
+  sweep: z.boolean().optional(),
 });
+// What a sweep asked with a Sync run's removal would take: the run, named as for its removal.
+export const syncRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
 // ── seed:removal:info / seed:remove payload schemas ─────────────────────────
 // The run is named, never its records: what is removed is what the run kept.
 export const seedRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });
