@@ -1649,6 +1649,33 @@ describe('SeedCloneHandler', () => {
         });
       });
 
+      it('is recorded cancelled once it wrote, and stopped under the code of a cancel when it had not', async () => {
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        deps.configStore = store;
+        writer.insert.mockImplementationOnce(async () => {
+          registry.abort(OPERATION_ID);
+          return [{ id: '001TGT', success: true, errors: [] }];
+        });
+        await handler.handle(buildMsg('seed:clone:execute', accountsAndContacts()));
+
+        registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        writer.insert.mockImplementationOnce(async () => {
+          registry.abort(OPERATION_ID);
+          throw new WriteCancelledError('Account');
+        });
+        await handler.handle(buildMsg('seed:clone:execute', accountsAndContacts()));
+
+        // The newest first.
+        expect(
+          new AuditTrailStore(store).list().entries.map((e) => [e.outcome, e.details?.code]),
+        ).toEqual([
+          ['stopped', 'RUN_CANCELLED'],
+          ['cancelled', undefined],
+        ]);
+      });
+
       it('still fails when a write fails while the cancel is pending', async () => {
         writer.insert.mockImplementation(async () => {
           registry.abort(OPERATION_ID);

@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import type { SeedRunRemovalInfo } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
@@ -43,6 +44,7 @@ function removalState(t: TFunction, run: SeedRunRemovalInfo): string {
 export const SeedRunHistory: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const navigate = useAppStore((s) => s.navigate);
   const [open, setOpen] = useState<string | null>(null);
   const list = useBridgeQuery<{ runs: SeedRunRemovalInfo[] }>(
     'seed:removal:list',
@@ -95,24 +97,50 @@ export const SeedRunHistory: React.FC = () => {
                         {t('seed.removal.historyUnfinished')}
                       </span>
                     )}
-                    <span
-                      className="text-text-secondary"
-                      data-testid={`seed-run-history-state-${run.runId}`}
-                    >
-                      {removalState(t, run)}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-expanded={shown}
-                      onClick={() => setOpen(shown ? null : run.runId)}
-                      data-testid={`seed-run-history-toggle-${run.runId}`}
-                      className="text-[11px]"
-                    >
-                      {shown ? t('seed.removal.historyHide') : t('seed.removal.historyShow')}
-                    </Button>
+                    {/* Still writing in this window: it has no end because it
+                        has not ended. Read as stopped, it was offered a
+                        removal that deleted accounts while contacts were
+                        still being inserted under them. */}
+                    {run.running ? (
+                      <>
+                        <span
+                          className="text-text-secondary"
+                          data-testid={`seed-run-history-running-${run.runId}`}
+                        >
+                          {t('seed.removal.historyRunning')}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => navigate('monitor')}
+                          data-testid={`seed-run-history-live-${run.runId}`}
+                          className="text-[11px]"
+                        >
+                          {t('seed.removal.historyOpenLiveOps')}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span
+                          className="text-text-secondary"
+                          data-testid={`seed-run-history-state-${run.runId}`}
+                        >
+                          {removalState(t, run)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-expanded={shown}
+                          onClick={() => setOpen(shown ? null : run.runId)}
+                          data-testid={`seed-run-history-toggle-${run.runId}`}
+                          className="text-[11px]"
+                        >
+                          {shown ? t('seed.removal.historyHide') : t('seed.removal.historyShow')}
+                        </Button>
+                      </>
+                    )}
                   </div>
-                  {shown && (
+                  {shown && !run.running && (
                     <Suspense fallback={<div aria-busy="true" />}>
                       <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />
                     </Suspense>

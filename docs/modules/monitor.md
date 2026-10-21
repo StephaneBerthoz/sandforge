@@ -41,8 +41,10 @@ A compact panel below the KPIs showing:
 
 When a run that writes to an org is in progress — Seed, Sync, a Forge clone
 or the removal of the records one created, a record clone, a CSV import, a
-Frozen Dataset load, an Autopilot run — a Live Operations panel lists it,
-showing (a Sync simulation and a Forge rehearsal are listed too):
+Frozen Dataset load, an Autopilot run, a DataOps backup, restore, masking run,
+cleanup delete or erasure, a pipeline run, a real-time session — a Live
+Operations panel lists it, showing (a Sync simulation and a Forge rehearsal
+are listed too):
 
 - Each run's module, progress bar and current step, and its records and
   records per second where it counts them: a Frozen load goes by phases and
@@ -55,10 +57,14 @@ showing (a Sync simulation and a Forge rehearsal are listed too):
 A Sync run, started from its page or by a schedule, also offers Pause and
 Resume here, the ones of its Sync page: Pause holds it before its next object
 or batch, and it is listed as paused until it is resumed, from either place;
-its Cancel still stops it. No other run can be paused, and neither can a Sync
-simulation, which offers Cancel alone.
-The list is read when the dashboard opens, again on each dashboard refresh and
-after a Cancel, a Pause or a Resume. Between readings it shows each run as it last was, not live.
+its Cancel still stops it. No other run can be paused here, and neither can a
+Sync simulation, which offers Cancel alone; a Forge clone or an Autopilot run
+paused from its own page is listed as paused until it is resumed there.
+The list follows the runs as they go: the extension sends it again whenever it
+changes — a run that starts, its progress, its end — at most twice a second,
+without asking the org anything, so a run started after the Monitor opened is
+listed, and one that ended no longer offers a Cancel. It is read again too on a
+dashboard refresh and after a Cancel, a Pause or a Resume.
 
 Background operations do not survive a reload. The extension keeps the list in
 memory only, so after a window reload or an extension host restart the panel

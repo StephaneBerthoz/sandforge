@@ -1,4 +1,5 @@
 import type {
+  AuditOutcome,
   GuardDecision,
   SeedTemplate,
   PersonaMsg,
@@ -70,6 +71,7 @@ import {
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import { seedLocaleOf } from '../../modules/seed/seedLocale.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { isUncopyableObject } from '@sandforge/shared';
 
 /** The code a seed refused for the data storage it takes is answered with. */
@@ -248,6 +250,18 @@ export class SeedOpsHandler implements DomainHandler {
    */
   setRunCreations(store: SeedRunCreations): void {
     this.runCreations = store;
+  }
+
+  /**
+   * The runs this window is writing now, by the id their creations are kept
+   * under: kept as they write, they have no end until they end, and the list
+   * of earlier seeds read one as a run whose window had closed.
+   */
+  private readonly runningRuns = new Set<string>();
+
+  /** Whether the run kept under `runId` is still writing, in this window. */
+  isRunning(runId: string): boolean {
+    return this.runningRuns.has(runId);
   }
 
   /** Another reader of what the org runs as a seed's records are created than the handler's own. */
@@ -1057,6 +1071,9 @@ export class SeedOpsHandler implements DomainHandler {
         label: `seed:execute ${operationId}`,
         log: (line) => this.deps.log(line),
         onProgress: reportInsertProgress,
+        // Kept call by call, as each answers: the insert notes them all
+        // again once it returns, which the recorder keeps once.
+        onCreated: (objectApiName, ids) => kept?.note(objectApiName, ids),
       });
       const insertFn = async (
         orgId: string,
@@ -1164,6 +1181,8 @@ export class SeedOpsHandler implements DomainHandler {
         'Validating template and building plan',
       );
       let result: Awaited<ReturnType<typeof orchestrator.execute>>;
+      // Running until its end is kept: a removal of it is refused until then.
+      this.runningRuns.add(runId);
       try {
         result = await orchestrator.execute(template, payload.orgId, runId);
       } catch (err: unknown) {
@@ -1171,6 +1190,7 @@ export class SeedOpsHandler implements DomainHandler {
         await kept
           ?.end({ status: 'failure', finishedAt: new Date().toISOString(), objectResults: [] })
           .catch(keptFailed);
+        this.runningRuns.delete(runId);
         throw err;
       }
       // Kept whole before the lists are cut for the page, a stopped run's too:
@@ -1185,6 +1205,7 @@ export class SeedOpsHandler implements DomainHandler {
           objectResults: result.objectResults,
         })
         .catch(keptFailed);
+      this.runningRuns.delete(runId);
       if (!result.cancelled) {
         sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
       }
@@ -1216,12 +1237,23 @@ export class SeedOpsHandler implements DomainHandler {
           this.liveTracker?.complete(operationId);
         }
       }
+      // Stopped by the user: cancelled once it wrote a record or had one
+      // refused, stopped under the code of a run cancelled before it wrote
+      // otherwise, as a Sync run is recorded. A stopped seed's status is
+      // partial whether or not it wrote, and the trail read it as a seed the
+      // org had refused records of.
+      const touched = result.objectResults.some(
+        (object) => object.recordsCreated + object.recordsFailed > 0,
+      );
+      const outcome: AuditOutcome =
+        result.cancelled === true ? (touched ? 'cancelled' : 'stopped') : result.status;
       recordWriteRun(this.deps, {
         action: 'seed_execute',
         module: 'seed',
         operationId,
         orgId: payload.orgId,
-        outcome: result.status,
+        outcome,
+        ...(outcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
         guard: guardDecision,
         objects: result.objectResults.map((object) => ({
           ...emptyCounts(object.objectApiName),

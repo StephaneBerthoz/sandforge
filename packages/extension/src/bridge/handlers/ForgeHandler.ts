@@ -2709,11 +2709,15 @@ export class ForgeHandler implements DomainHandler {
 
   private handlePause(_msg: BaseMessage): void {
     this.orchestrator?.pause();
+    // Live Operations lists the run paused, as a paused Sync run: it read
+    // Running while it waited on the user.
+    if (this.executeOperationId) this.liveTracker?.pause(this.executeOperationId);
     logger.info('Forge paused');
   }
 
   private handleResume(_msg: BaseMessage): void {
     this.orchestrator?.resume();
+    if (this.executeOperationId) this.liveTracker?.resume(this.executeOperationId);
     logger.info('Forge resumed');
   }
 

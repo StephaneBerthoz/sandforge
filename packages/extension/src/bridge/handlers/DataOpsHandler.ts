@@ -102,6 +102,10 @@ import type {
 } from '../../modules/dataops/MaskingCheckpointStore.js';
 import { whatTheWriteLeft } from '../../core/common/thrownWrite.js';
 import { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { ABORTED_BEFORE_START } from '../../modules/audit/auditTrail.js';
+import { listLive } from './liveRun.js';
+import type { LiveRun } from './liveRun.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -884,6 +888,14 @@ export class DataOpsHandler implements DomainHandler {
   private backupRecords?: BackupRecordStore;
 
   /**
+   * The Monitor's Live Operations, which list a backup, a restore and a
+   * masking run while each goes, with the Cancel that reaches its registry
+   * entry. They were registered in the registry alone: the docs and the
+   * Monitor offered a Cancel the list never showed.
+   */
+  private liveTracker?: LiveOperationTracker;
+
+  /**
    * The snapshots this window is writing, whose files have no metadata until
    * they end: the sweep of files left without metadata never takes them.
    */
@@ -1003,6 +1015,11 @@ export class DataOpsHandler implements DomainHandler {
    * Inject the file-backed record store so backups stop inflating globalState.
    * Called from composition, which owns the extension's storage path.
    */
+  /** Inject the tracker the Monitor's Live Operations lists runs from. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
+  }
+
   setBackupRecordStore(store: BackupRecordStore): void {
     this.backupRecords = store;
     // What a window that stopped in the middle of a backup left behind goes
@@ -1409,6 +1426,13 @@ export class DataOpsHandler implements DomainHandler {
     let reading: BackupObjectRead | undefined;
     /** The org's connection, once opened: a snapshot kept after a failure asks which org it is. */
     let connection: Connection | undefined;
+    /** Its entry in Live Operations, once it is registered. */
+    let live: LiveRun | undefined;
+    /** How far the snapshot is, on the page's channel and in Live Operations. */
+    const report = (percentage: number, done: number, total: number, step: string): void => {
+      sendOperationProgress(this.deps, operationId, percentage, done, total, step);
+      live?.progress(percentage, done, total, step);
+    };
 
     try {
       if (this.dmlTracker.isDuplicate(operationId)) {
@@ -1456,6 +1480,13 @@ export class DataOpsHandler implements DomainHandler {
         }),
         stop,
       );
+      live = listLive(
+        this.liveTracker,
+        operationId,
+        'dataops',
+        description,
+        payload.objects.length,
+      );
 
       for (const objectApiName of payload.objects) {
         if (stop.signal.aborted) {
@@ -1480,9 +1511,7 @@ export class DataOpsHandler implements DomainHandler {
           () => {
             // Between two pages of a large object: how far into it the read is.
             const target = Math.max(1, Math.min(read.orgCount ?? cap, cap));
-            sendOperationProgress(
-              this.deps,
-              operationId,
+            report(
               Math.round(
                 ((taken.length + read.recordCount / target) / payload.objects.length) * 100,
               ),
@@ -1507,9 +1536,7 @@ export class DataOpsHandler implements DomainHandler {
           );
         }
 
-        sendOperationProgress(
-          this.deps,
-          operationId,
+        report(
           Math.round((taken.length / payload.objects.length) * 100),
           taken.length,
           payload.objects.length,
@@ -1554,6 +1581,7 @@ export class DataOpsHandler implements DomainHandler {
         totalRecords: backupMeta.totalRecords,
       });
       this.dmlTracker.markCompleted(operationId);
+      live?.complete();
 
       return {
         operationId,
@@ -1600,6 +1628,8 @@ export class DataOpsHandler implements DomainHandler {
       // snapshot is still listed as running there, and the error it settles
       // with below would list it as failed.
       if (cancelled) this.deps.infraServices?.backgroundRegistry?.abort(operationId);
+      if (cancelled) live?.cancel();
+      else live?.fail(extractErrorMessage(reported));
       return { error: reported, retryable: true, context: failure, cancelled };
     } finally {
       signal?.removeEventListener('abort', onAbort);
@@ -2269,6 +2299,7 @@ export class DataOpsHandler implements DomainHandler {
     );
     sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
       context: failure,
+      authored: true,
     });
   }
 
@@ -2287,7 +2318,10 @@ export class DataOpsHandler implements DomainHandler {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
       sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
-      sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
+      sendOperationFailed(this.deps, rollbackOpId, message, false, {
+        context: failure,
+        authored: true,
+      });
       return;
     }
     this.activeOrgOperations.add(lockKey);
@@ -2310,6 +2344,8 @@ export class DataOpsHandler implements DomainHandler {
     const stop = new AbortController();
     /** Settles the restore's entry in the registry, once it is listed. */
     let settleRestore: (error?: unknown) => void = () => {};
+    /** Its entry in Live Operations, once it is listed. */
+    let live: LiveRun | undefined;
 
     try {
       if (this.dmlTracker.isDuplicate(rollbackOpId)) {
@@ -2326,7 +2362,7 @@ export class DataOpsHandler implements DomainHandler {
           rollbackOpId,
           `Duplicate operation: ${rollbackOpId}`,
           false,
-          { context: failure },
+          { context: failure, authored: true },
         );
         return;
       }
@@ -2408,7 +2444,10 @@ export class DataOpsHandler implements DomainHandler {
         sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message), {
           code: GUARD_REFUSAL.declined,
         });
-        sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
+        sendOperationFailed(this.deps, rollbackOpId, message, false, {
+          context: failure,
+          authored: true,
+        });
         return;
       }
 
@@ -2450,7 +2489,10 @@ export class DataOpsHandler implements DomainHandler {
                 code: ORG_REPLACED_SINCE_BACKUP,
               },
             );
-            sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
+            sendOperationFailed(this.deps, rollbackOpId, message, false, {
+              context: failure,
+              authored: true,
+            });
             return;
           }
         }
@@ -2474,6 +2516,13 @@ export class DataOpsHandler implements DomainHandler {
           };
         }),
         stop,
+      );
+      live = listLive(
+        this.liveTracker,
+        rollbackOpId,
+        'dataops',
+        `Rollback ${backupMeta.objects.length} object(s)`,
+        backupMeta.objects.length,
       );
       /** Whether a cancel stopped the restore before every batch was written. */
       let cancelled = false;
@@ -2524,7 +2573,9 @@ export class DataOpsHandler implements DomainHandler {
           );
           sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false, {
             context: failure,
+            authored: true,
           });
+          live.fail(crudCheck.reason);
           return;
         }
 
@@ -2546,7 +2597,11 @@ export class DataOpsHandler implements DomainHandler {
           sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(reason), {
             code: CRUD_FLS_DENIED,
           });
-          sendOperationFailed(this.deps, rollbackOpId, reason, false, { context: failure });
+          sendOperationFailed(this.deps, rollbackOpId, reason, false, {
+            context: failure,
+            authored: true,
+          });
+          live.fail(reason);
           return;
         }
         // `Id` is the upsert match key, not a field being written.
@@ -2660,15 +2715,19 @@ export class DataOpsHandler implements DomainHandler {
         restored.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
         if (cancelled) break;
 
+        const step =
+          `Restored ${safeObj} (${successCount}/${read}` +
+          `${unchangedCount > 0 ? `, ${unchangedCount} unchanged` : ''})`;
+        const percentage = Math.round(((i + 1) / backupMeta.objects.length) * 100);
         sendOperationProgress(
           this.deps,
           rollbackOpId,
-          Math.round(((i + 1) / backupMeta.objects.length) * 100),
+          percentage,
           i + 1,
           backupMeta.objects.length,
-          `Restored ${safeObj} (${successCount}/${read}` +
-            `${unchangedCount > 0 ? `, ${unchangedCount} unchanged` : ''})`,
+          step,
         );
+        live.progress(percentage, i + 1, backupMeta.objects.length, step);
       }
 
       const status =
@@ -2704,6 +2763,9 @@ export class DataOpsHandler implements DomainHandler {
         });
       }
       this.dmlTracker.markCompleted(rollbackOpId);
+      if (cancelled) live.cancel();
+      else if (status === 'failure') live.fail(`The org refused the ${totalFailed} record(s)`);
+      else live.complete();
 
       // A backup that holds only part of an object — stopped at the cap, a
       // read that failed part-way, a file no longer all there — restores
@@ -2760,6 +2822,7 @@ export class DataOpsHandler implements DomainHandler {
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true, {
         context: failure,
       });
+      live?.fail(extractErrorMessage(err));
     } finally {
       this.activeOrgOperations.delete(lockKey);
       settleRestore();
@@ -2857,7 +2920,10 @@ export class DataOpsHandler implements DomainHandler {
     const parsed = validatePayload(dataOpsAnonymizePayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
-    const operationId = crypto.randomUUID();
+    // The id of the request, as a backup and a restore run under theirs: the
+    // page's Stop names the run by it. A fresh id per run left the page, and
+    // its Stop, nothing to name it with.
+    const operationId = msg.id;
     // Follows the object in progress (see handleBackup).
     const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
 
@@ -2919,6 +2985,32 @@ export class DataOpsHandler implements DomainHandler {
     let settleRun: (error?: unknown) => void = () => {};
     /** What the run failed on, read by `settleRun` in `finally`. */
     let runError: unknown;
+    /** Its entry in Live Operations, once it is listed. */
+    let live: LiveRun | undefined;
+    // Held under its id from the request on: the page's Stop can come while
+    // the run counts its rows, waits on Production Guard's question or takes
+    // its snapshot, before it is registered, and a stop then is taken: the
+    // run writes nothing.
+    const pending = this.deps.infraServices?.backgroundRegistry?.holdUntilStart(operationId);
+    pending?.signal.addEventListener('abort', () => stop.abort(), { once: true });
+    /**
+     * Stop a run the user stopped before its first write, as every write path
+     * records such a stop and tells the page: under the code that says so.
+     */
+    const stoppedBeforeStart = (): void => {
+      recordWriteRun(this.deps, {
+        ...run,
+        outcome: 'stopped',
+        source: undefined,
+        code: ABORTED_BEFORE_START,
+      });
+      const message = 'The masking run was cancelled before it wrote anything.';
+      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(message), {
+        code: ABORTED_BEFORE_START,
+        ...(snapshot ? { extraPayload: { snapshot } } : {}),
+      });
+      sendOperationCompleted(this.deps, operationId, { aborted: true });
+    };
 
     /**
      * End the run on what it failed on, on both channels the page listens on.
@@ -2954,6 +3046,7 @@ export class DataOpsHandler implements DomainHandler {
         context: failure,
         extraPayload,
       });
+      live?.fail(reason);
     };
 
     /**
@@ -3193,13 +3286,20 @@ export class DataOpsHandler implements DomainHandler {
         sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(message), {
           code: GUARD_REFUSAL.declined,
         });
-        sendOperationFailed(this.deps, operationId, message, false, { context: failure });
+        sendOperationFailed(this.deps, operationId, message, false, {
+          context: failure,
+          authored: true,
+        });
         return;
       }
       // A tier that asks nothing still says what it saw: a run past 50 000
       // rows on a sandbox.
       for (const warning of check.warnings) {
         this.deps.log(`[WARN] dataops:anonymize ${operationId}: ${warning}`);
+      }
+      if (stop.signal.aborted) {
+        stoppedBeforeStart();
+        return;
       }
       counted = true;
 
@@ -3223,6 +3323,12 @@ export class DataOpsHandler implements DomainHandler {
           origin: msg.type,
           stop: stop.signal,
         });
+        // Stopped while the snapshot was read: the snapshot is not kept, and
+        // nothing was masked.
+        if ('refused' in kept && stop.signal.aborted) {
+          stoppedBeforeStart();
+          return;
+        }
         if ('refused' in kept) {
           recordWriteRun(this.deps, {
             ...run,
@@ -3240,10 +3346,15 @@ export class DataOpsHandler implements DomainHandler {
           );
           sendOperationFailed(this.deps, operationId, kept.refused, kept.retryable, {
             context: failure,
+            authored: true,
           });
           return;
         }
         snapshot = kept.taken;
+        if (stop.signal.aborted) {
+          stoppedBeforeStart();
+          return;
+        }
       }
 
       const description = `Anonymizing with ${template.name}`;
@@ -3262,6 +3373,7 @@ export class DataOpsHandler implements DomainHandler {
         }),
         stop,
       );
+      live = listLive(this.liveTracker, operationId, 'dataops', description, grandTotal);
 
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
       // The window's key, not a fresh random one: see `maskingKey`.
@@ -3293,14 +3405,10 @@ export class DataOpsHandler implements DomainHandler {
         const handled = tallies.reduce((sum, t) => sum + doneWith(t), 0);
         // A row created while the run goes can be read past the count.
         const total = Math.max(grandTotal, handled);
-        sendOperationProgress(
-          this.deps,
-          operationId,
-          Math.round((handled / total) * 100),
-          handled,
-          total,
-          `Anonymized ${objectName} (${doneWith(tally)}/${Math.max(tally.total, doneWith(tally))})`,
-        );
+        const percentage = Math.round((handled / total) * 100);
+        const step = `Anonymized ${objectName} (${doneWith(tally)}/${Math.max(tally.total, doneWith(tally))})`;
+        sendOperationProgress(this.deps, operationId, percentage, handled, total, step);
+        live?.progress(percentage, handled, total, step);
       };
 
       for (const {
@@ -3639,6 +3747,7 @@ export class DataOpsHandler implements DomainHandler {
           totalFailed: recordsFailed,
           totalNotMasked: recordsNotMasked,
         });
+        live?.cancel();
       } else {
         sendOperationCompleted(this.deps, operationId, {
           status,
@@ -3646,6 +3755,8 @@ export class DataOpsHandler implements DomainHandler {
           totalFailed: recordsFailed,
           totalNotMasked: recordsNotMasked,
         });
+        if (status === 'failure') live?.fail(`The org refused the ${recordsFailed} record(s)`);
+        else live?.complete();
       }
 
       const stillHeld = `${recordsNotMasked} still hold their original values (${left})`;
@@ -3717,6 +3828,7 @@ export class DataOpsHandler implements DomainHandler {
       // And where it got is kept for a resume, as for a run that ended on its own.
       if (begun && !checkpointSettled) settleCheckpoint();
       settleRun(runError);
+      pending?.release();
     }
   }
 

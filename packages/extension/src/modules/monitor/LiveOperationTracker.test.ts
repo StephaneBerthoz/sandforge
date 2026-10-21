@@ -86,6 +86,17 @@ describe('LiveOperationTracker', () => {
     expect(tracker.get('op-1')?.status).toBe('running');
   });
 
+  it('leaves a run that ended as it ended when it is paused or resumed after its end', () => {
+    tracker.register('op-1', 'forge', 'Executing forge operation');
+    tracker.complete('op-1');
+    tracker.pause('op-1');
+    expect(tracker.get('op-1')?.status).toBe('completed');
+    tracker.register('op-2', 'autopilot', 'Autopilot run');
+    tracker.cancel('op-2');
+    tracker.resume('op-2');
+    expect(tracker.get('op-2')?.status).toBe('cancelled');
+  });
+
   it('cancels an operation', () => {
     tracker.register('op-1', 'sync', 'Syncing', 100);
     tracker.cancel('op-1');

@@ -62,7 +62,8 @@
       "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
       "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
-      "backupBusy": "A backup or a restore of this org is running: delete its backups once it has ended."
+      "backupBusy": "A backup or a restore of this org is running: delete its backups once it has ended.",
+      "autopilotRunning": "An Autopilot run is still writing to this target org, and nothing more was started: Monitor's Live Operations shows where it is. Start another once it has ended."
     },
     "list": {
       "separator": ", ",
@@ -73,7 +74,11 @@
       "listed": "Grouped from the first {{listed}} of the {{failed}} records refused."
     },
     "details": "Details",
-    "optional": "Optional"
+    "optional": "Optional",
+    "runStopping": "Stopping: the run ends before its next call to the org.",
+    "noWayBack": "SandForge cannot remove what this run writes: try it on a scratch org or a sandbox you can refresh.",
+    "runCancelRefused": "Could not cancel the run",
+    "runCancelRefusedDetail": "The run is no longer in progress, or it was not started from this window."
   },
   "status": {
     "apiUsage": "API usage",
@@ -766,7 +771,9 @@
         "inserted_one": "{{count}} record inserted",
         "inserted_other": "{{count}} records inserted",
         "failed_one": "{{count}} record failed",
-        "failed_other": "{{count}} records failed"
+        "failed_other": "{{count}} records failed",
+        "cancelled_one": "Cancelled: {{count}} record imported before the stop stays in the org",
+        "cancelled_other": "Cancelled: {{count}} records imported before the stop stay in the org"
       }
     },
     "modeSelect": {
@@ -775,7 +782,8 @@
       "csv": "CSV Upload",
       "csvDesc": "Import data from a CSV file",
       "clone": "Clone from Org",
-      "cloneDesc": "Clone records from another org"
+      "cloneDesc": "Clone records from another org",
+      "notRemovable": "What it writes cannot be removed from Earlier seeds."
     },
     "persona": {
       "title": "AI Personas",
@@ -976,9 +984,11 @@
       "historyPartlyRemoved": "partly removed on {{date}}: what is left can be removed",
       "historyNothingLeft": "nothing left to remove",
       "historyRefused": "cannot be removed from here",
-      "historyUnfinished": "partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what it wrote until then",
+      "historyUnfinished": "partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what the org had confirmed by then: records of a call still under way may be in the org unlisted",
       "historyShow": "Show",
-      "historyHide": "Hide"
+      "historyHide": "Hide",
+      "historyRunning": "running: the seed is still writing in this window. Stop it with the wizard's Cancel or from Monitor's Live Operations, and remove it once it has ended",
+      "historyOpenLiveOps": "Open Live Operations"
     },
     "start": {
       "subtitle": "Fill an org with realistic data",
@@ -1539,8 +1549,10 @@
       "filesForgotten_one": "{{config}} no longer counts {{formatted}} file as copied: its next full read copies it again.",
       "filesForgotten_other": "{{config}} no longer counts {{formatted}} files as copied: its next full read copies them again.",
       "unfinishedTitle": "Runs that never ended",
-      "unfinishedNote": "A window closed under these runs, or the history no longer lists them. What they created is kept, and can be removed.",
-      "unfinishedRun": "{{config}}, started {{date}}"
+      "unfinishedNote": "A window closed under these runs, or the history no longer lists them. What they created is kept as each call to the target answered, and can be removed.",
+      "unfinishedRun": "{{config}}, started {{date}}",
+      "unfinishedInFlight_one": "It stopped while it was writing {{formatted}} {{object}} row: if the target took it, it is in the org but not listed here, and its removal does not take it.",
+      "unfinishedInFlight_other": "It stopped while it was writing {{formatted}} {{object}} rows: those the target took are in the org but not listed here, and its removal does not take them."
     },
     "earlierCopies": {
       "leftAsIs": "A run of this saved configuration leaves as they are the records its earlier runs copied, and inserts the others.",
@@ -1974,7 +1986,15 @@
     "backupDeleteAllConfirm_one": "Delete the backup of this org kept on this machine? The records' values it holds in clear are gone for good, and it can no longer be restored.",
     "backupDeleteAllConfirm_other": "Delete the {{count}} backups of this org kept on this machine? The records' values they hold in clear are gone for good, and none can be restored any more.",
     "backupsDeleted_one": "{{count}} backup deleted from this machine.",
-    "backupsDeleted_other": "{{count}} backups deleted from this machine."
+    "backupsDeleted_other": "{{count}} backups deleted from this machine.",
+    "snapshot": {
+      "keep": "Keep the values first, so Restore can put them back",
+      "keepHint": "A backup of the fields the run masks is taken before its first write. If it cannot hold every row the run would mask, nothing is masked.",
+      "taken_one": "The values before masking are kept in a backup of {{formatted}} record: Restore puts them back.",
+      "taken_other": "The values before masking are kept in a backup of {{formatted}} records: Restore puts them back.",
+      "openRestore": "Open in Restore",
+      "refused": "No snapshot could be kept, so nothing was masked. To mask without a way back, untick “Keep the values first” in the confirmation."
+    }
   },
   "automation": {
     "title": "Automation",

@@ -9,6 +9,7 @@ import { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestra
 import type { PipelineOrchestratorDependencies } from '../../modules/automation/PipelineOrchestrator.js';
 import { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { PipelineStepRunners } from './pipelineSteps.js';
 import { DataOpsHandler } from './DataOpsHandler.js';
 
@@ -922,6 +923,43 @@ describe('AutomationHandler', () => {
       ]);
       expect(onlyHistoryEntry(deps)['status']).toBe('cancelled');
       expect(posted(deps, 'operation:failed')).toHaveLength(0);
+    });
+
+    it('lists a run in Live Operations under its request, and ends it there cancelled once Cancel stops it', async () => {
+      deps.services = realServices().services;
+      const registry = new BackgroundOperationRegistry();
+      deps.infraServices = {
+        backgroundRegistry: registry,
+      } as unknown as HandlerDeps['infraServices'];
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      const started = handler.handle(
+        inboundRequest({
+          id: 'run-listed',
+          type: 'pipeline:execute',
+          timestamp: Date.now(),
+          payload: {
+            pipeline: pipelinePayload([
+              { type: 'delay', config: { seconds: 5 } },
+              { type: 'delay', config: { seconds: 0 } },
+            ]),
+            variables: {},
+          },
+        } as unknown as BaseMessage),
+      );
+      await vi.waitFor(() => expect(posted(deps, 'pipeline:step')).toHaveLength(1));
+      expect(tracker.get('run-listed')).toMatchObject({
+        module: 'automation',
+        status: 'running',
+        totalRecords: 2,
+      });
+      // Live Operations' Cancel reaches the run's registry entry.
+      registry.abort('run-listed');
+      await started;
+
+      expect(tracker.get('run-listed')?.status).toBe('cancelled');
+      tracker.dispose();
     });
 
     it('takes no new snapshot when Live Operations cancels a Backup step, and History records the run cancelled', async () => {

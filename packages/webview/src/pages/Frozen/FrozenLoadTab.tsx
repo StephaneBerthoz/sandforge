@@ -29,6 +29,7 @@ import { FrozenLoadRemoval } from './FrozenLoadRemoval';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
@@ -123,8 +124,11 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const [pilot, setPilot] = useState(false);
   const [reload, setReload] = useState(false);
 
+  // A load goes on in the extension until it ends, and answers then: held to
+  // thirty minutes, a large one lost its page and its Cancel while it wrote.
   const loadMutation = useFrozenMutation<FrozenLoadResponse['payload']>('frozen:load', {
-    timeoutMs: 1_800_000,
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
   // Read before anything is written: the target is asked what the load reads
   // before its first write, and the purge a reload would run is planned.

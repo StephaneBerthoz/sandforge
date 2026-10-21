@@ -147,6 +147,21 @@ const createdSchema = z.object({
   at: dateSchema.optional(),
 });
 
+/**
+ * A line before each call to the target — a REST batch, a Bulk API job — that
+ * writes rows of an object: the call is under way until a line of what it
+ * created, empty or not, follows it. A run whose window closed while a call
+ * was under way names it: the rows of that call may be in the target, written
+ * by a job that ran on, with no line of them.
+ */
+const sendingSchema = z.object({
+  sending: z.object({
+    object: objectSchema,
+    rows: z.number().int().positive(),
+    at: dateSchema,
+  }),
+});
+
 /** The last line: how the run ended, on this machine's clock. */
 const endSchema = z.object({
   end: z.object({
@@ -215,6 +230,11 @@ export interface SyncRunKept extends SyncRunHead {
   /** When the run last wrote something it created, on this machine's clock. */
   lastWrittenAt?: string;
   /**
+   * The call the run had under way when it stopped, of a run with no end: its
+   * object and its rows, some of which may be in the target and not here.
+   */
+  inFlight?: { objectApiName: string; rows: number; at: string };
+  /**
    * What it created, per object in the order it first wrote each, the ids in
    * the order it wrote them — files under `ContentDocument` and `Attachment`.
    */
@@ -245,6 +265,8 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
   let head: SyncRunHead | undefined;
   let end: SyncRunKept['end'];
   let lastWrittenAt: string | undefined;
+  /** The call last sent, until a line of what it created answers it. */
+  let inFlight: SyncRunKept['inFlight'];
   const byObject = new Map<string, string[]>();
   const seen = new Set<string>();
   for (const line of text.split('\n')) {
@@ -255,11 +277,20 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
       if (parsed.success) head = parsed.data.run;
       continue;
     }
+    const sending = sendingSchema.safeParse(value);
+    if (sending.success) {
+      const { object, rows, at } = sending.data.sending;
+      inFlight = { objectApiName: object, rows, at };
+      continue;
+    }
     const created = createdSchema.safeParse(value);
     if (created.success) {
+      if (inFlight?.objectApiName === created.data.object) inFlight = undefined;
       const at = created.data.at;
+      // A call that created nothing answers the call; it wrote nothing to date.
       if (
         at !== undefined &&
+        created.data.created.length > 0 &&
         (lastWrittenAt === undefined || Date.parse(at) > Date.parse(lastWrittenAt))
       ) {
         lastWrittenAt = at;
@@ -282,6 +313,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     ...head,
     ...(end ? { end } : {}),
     ...(lastWrittenAt !== undefined ? { lastWrittenAt } : {}),
+    ...(!end && inFlight ? { inFlight } : {}),
     created: [...byObject].flatMap(([objectApiName, ids]) =>
       ids.length > 0 ? [{ objectApiName, ids }] : [],
     ),
@@ -338,6 +370,16 @@ export interface SyncCreationRecorder {
    * ended. Never throws: a write that fails is said by {@link flush}.
    */
   note(objectApiName: string, ids: readonly string[], at?: string): void;
+  /**
+   * A call of `rows` rows of `objectApiName` is about to go: written at once,
+   * so a run cut short while it is under way says so (`SyncRunKept.inFlight`).
+   */
+  sending?(objectApiName: string, rows: number): void;
+  /**
+   * The call {@link sending} announced answered: what it created, none
+   * included, written at once.
+   */
+  answered?(objectApiName: string, ids: readonly string[]): void;
   /**
    * Waits for what was noted to be written, and says why some of it could
    * not be, once: undefined when all of it was.
@@ -418,6 +460,15 @@ export class SyncRunCreations {
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
         if (valid.length === 0 || !objectSchema.safeParse(objectApiName).success) return;
         append({ object: objectApiName, created: valid, at: at ?? new Date().toISOString() });
+      },
+      sending: (objectApiName, rows) => {
+        if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
+        append({ sending: { object: objectApiName, rows, at: new Date().toISOString() } });
+      },
+      answered: (objectApiName, ids) => {
+        if (!objectSchema.safeParse(objectApiName).success) return;
+        const valid = ids.filter((id) => idSchema.safeParse(id).success);
+        append({ object: objectApiName, created: valid, at: new Date().toISOString() });
       },
       flush: async () => {
         await writes;

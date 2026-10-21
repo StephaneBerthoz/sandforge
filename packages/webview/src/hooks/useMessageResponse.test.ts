@@ -6,7 +6,7 @@ import type { BaseMessage } from '@sandforge/shared';
 import i18n from '../i18n';
 import fr from '../i18n/locales/fr.json';
 
-import { useMessageResponse } from './useMessageResponse';
+import { RUN_OUTLIVED_WAIT, useMessageResponse } from './useMessageResponse';
 import type { UseMessageResponseOptions } from './useMessageResponse';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useAppStore } from '../stores/useAppStore';
@@ -136,6 +136,8 @@ describe('useMessageResponse', () => {
       "SandForge stopped waiting for seed:execute after 12 h, but the run may still be writing. Monitor's Live Operations shows where it is; starting it again would write its records twice.",
     );
     expect(result.current.error).not.toContain('Try again');
+    // Under a code of its own, so a page keeps the run in view rather than fail it.
+    expect(result.current.errorCode).toBe(RUN_OUTLIVED_WAIT);
   });
 
   it('names the unanswered request in the timeout message', () => {
@@ -507,8 +509,9 @@ describe('useMessageResponse', () => {
       ['AUTOPILOT_STORAGE_EXCEEDED', 'common.refusal.autopilotStorageExceeded'],
       ['AUTOPILOT_WRITE_DECLINED', 'common.refusal.autopilotWriteDeclined'],
       ['AUTOPILOT_CONFIRMATION_UNAVAILABLE', 'common.refusal.autopilotConfirmationUnavailable'],
+      ['AUTOPILOT_RUNNING', 'common.refusal.autopilotRunning'],
     ])(
-      'says an Autopilot run its write gate stopped (%s) in the interface language',
+      'says an Autopilot run its write gate, or a run still writing, stopped (%s) in the interface language',
       (code, key) => {
         const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
@@ -16,6 +16,8 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useLatestRef } from '../../hooks/useLatestRef';
+import { useOperationCancel } from '../../hooks/useOperationCancel';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
@@ -43,6 +45,21 @@ function maskedObjects(templates: readonly ListedAnonymizationTemplate[]): strin
   return templates
     .flatMap((tpl) => tpl.rules.map((rule) => rule.fieldPattern.split('.')[0]))
     .filter((name, i, all) => name !== '' && name !== '*' && all.indexOf(name) === i);
+}
+
+/**
+ * The snapshot a masking run's answer names, which Restore puts back, or
+ * none: a run asked for without one, or that masked nothing.
+ */
+function readSnapshot(
+  answer: Record<string, unknown> | null,
+): { operationId: string; totalRecords: number } | null {
+  const snapshot = answer?.snapshot;
+  if (typeof snapshot !== 'object' || snapshot === null) return null;
+  const { operationId, totalRecords } = snapshot as Record<string, unknown>;
+  return typeof operationId === 'string' && typeof totalRecords === 'number'
+    ? { operationId, totalRecords }
+    : null;
 }
 
 /** What Backup read whatever the templates masked, kept for an org that lists none. */
@@ -97,8 +114,10 @@ export const DataOpsPage: React.FC = () => {
     // A backup reads every page of each object, up to the cap of rows per
     // object (fifty thousand unless the setting says otherwise), so a large
     // org takes many minutes; operation:progress events keep flowing while
-    // the response is pending. Two minutes showed a timeout while it went on.
-    timeoutMs: 60 * 60_000,
+    // the response is pending. It answers once it ends, as every write run
+    // does, and a wait that ends first says where it is, not to try again.
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   /** Bridge mutation: restore a backup (dataops:rollback). */
@@ -107,7 +126,8 @@ export const DataOpsPage: React.FC = () => {
     errorType: 'dataops:error',
     // Upserts every backed-up record in 200-row batches, as many as the
     // backup's cap of rows per object; the 30 s default is far too short.
-    timeoutMs: 60 * 60_000,
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   /**
@@ -136,8 +156,32 @@ export const DataOpsPage: React.FC = () => {
     // A run masks every row of every object, page by page, so a large object
     // takes many minutes; operation:progress events keep flowing while the
     // response is pending. Two minutes showed a timeout while the run went on.
-    timeoutMs: 60 * 60_000,
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
+
+  /*
+   * The Stop of each run the page started: the extension runs a backup, a
+   * restore and a masking run under the id of the request that started it,
+   * and `execution:abort` with that id stops it before its next page or
+   * batch, as Live Operations' Cancel does. The tabs had none.
+   */
+  const cancelRefused = {
+    title: t('common.runCancelRefused'),
+    message: t('common.runCancelRefusedDetail'),
+  };
+  const backupStop = useOperationCancel(
+    backupMutation.loading ? backupMutation.requestId : null,
+    cancelRefused,
+  );
+  const restoreStop = useOperationCancel(
+    rollbackMutation.loading ? rollbackMutation.requestId : null,
+    cancelRefused,
+  );
+  const anonymizeStop = useOperationCancel(
+    anonymizeMutation.loading ? anonymizeMutation.requestId : null,
+    cancelRefused,
+  );
 
   /**
    * Bridge query: load anonymization templates.
@@ -237,6 +281,15 @@ export const DataOpsPage: React.FC = () => {
   useEffect(() => {
     if (anonymizeEnded) refetchCoverage.current();
   }, [anonymizeEnded, refetchCoverage]);
+
+  // The snapshot a run took before it masked is a backup of the org: listed
+  // once the run ends, so Restore offers it.
+  const anonymizeAnswer = anonymizeMutation.data;
+  const anonymizeSnapshot = useMemo(() => readSnapshot(anonymizeAnswer), [anonymizeAnswer]);
+  const refetchBackupsOnSnapshot = useLatestRef(() => backupsQuery.refetch());
+  useEffect(() => {
+    if (anonymizeSnapshot) refetchBackupsOnSnapshot.current();
+  }, [anonymizeSnapshot, refetchBackupsOnSnapshot]);
 
   // A backup that ends, however it ends, is listed: one that stopped at the
   // cap, or whose read failed part-way, says so in the list, and the list was
@@ -437,15 +490,24 @@ export const DataOpsPage: React.FC = () => {
   };
 
   // A run writes over the records a preview showed as they were: the preview
-  // goes with it.
-  const handleApplyAnonymize = (templateId: string) => {
+  // goes with it. Unless unticked, it keeps the values it masks first, as the
+  // command line's runs always did: the panel's took no snapshot, and a run
+  // on an org with no backup had no way back.
+  const handleApplyAnonymize = (templateId: string, options: { snapshot: boolean }) => {
     if (!currentOrg) return;
     setError(null);
     previewMutation.reset();
     anonymizeMutation.mutate({
       orgId: currentOrg.id,
       templateId,
+      ...(options.snapshot ? { snapshot: true } : {}),
     });
+  };
+
+  /** Open the Restore tab on the snapshot a masking run took. */
+  const openRestoreOn = (operationId: string) => {
+    setSelectedBackupId(operationId);
+    setActiveTab('restore');
   };
 
   // Masks only what the run that stopped short left, from where it stopped.
@@ -589,6 +651,10 @@ export const DataOpsPage: React.FC = () => {
               template={pickedTemplate?.name}
               onCreate={handleCreateBackup}
               onExport={handleExportBackup}
+              // Nothing held the button while a backup read, nor stopped it.
+              isCreating={backupMutation.loading}
+              onStop={backupStop.cancel}
+              stopRequested={backupStop.requested}
             />
           )}
 
@@ -607,6 +673,8 @@ export const DataOpsPage: React.FC = () => {
               onDelete={(operationId) => handleDeleteBackups([operationId])}
               onDeleteAll={() => handleDeleteBackups()}
               isDeleting={deleteBackupsMutation.loading}
+              onStop={restoreStop.cancel}
+              stopRequested={restoreStop.requested}
             />
           )}
 
@@ -630,6 +698,11 @@ export const DataOpsPage: React.FC = () => {
               // click started a second run over the same records.
               isApplying={anonymizeMutation.loading}
               coverage={coverageQuery.data}
+              onStop={anonymizeStop.cancel}
+              stopRequested={anonymizeStop.requested}
+              snapshotTaken={anonymizeSnapshot}
+              onOpenRestore={openRestoreOn}
+              snapshotRefused={anonymizeMutation.errorCode === 'SNAPSHOT_NOT_TAKEN'}
             />
           )}
 

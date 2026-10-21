@@ -1,5 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useOperationCancel } from '../../../hooks/useOperationCancel';
+import { useLatestRef } from '../../../hooks/useLatestRef';
+import { Button } from '../../../components/ui/Button';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { Wizard } from '../../../components/ui/Wizard';
 import type { WizardStep } from '../../../components/ui/Wizard';
@@ -38,6 +41,11 @@ export interface CloneWizardProps {
   onBack: () => void;
   /** Source org selected on open (Home's clone recommendation), if any. */
   initialSourceOrgId?: string;
+  /**
+   * Told whether a clone is running: the page hides its way back while it
+   * does, since leaving loses the clone's answer and stops nothing.
+   */
+  onRunningChange?: (running: boolean) => void;
 }
 
 /**
@@ -47,13 +55,34 @@ export interface CloneWizardProps {
  * 3. Preview -- view record counts, insert order, sample data
  * 4. Execute & Results -- progress tracking and final results
  */
-export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceOrgId }) => {
+export const CloneWizard: React.FC<CloneWizardProps> = ({
+  onBack,
+  initialSourceOrgId,
+  onRunningChange,
+}) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const targetOrgId = selectedOrgId ?? '';
 
   const clone = useClone(targetOrgId, initialSourceOrgId);
+
+  /*
+   * The clone runs in the extension under the id of its request, which a
+   * Cancel names on `execution:abort`, as Live Operations' does: it stops
+   * before its next object or batch. The running view drew bars and nothing
+   * to stop them with.
+   */
+  const running = clone.executionStatus === 'executing';
+  const { requested: stopRequested, cancel: stopClone } = useOperationCancel(
+    running ? clone.runRequestId : null,
+    { title: t('common.runCancelRefused'), message: t('common.runCancelRefusedDetail') },
+  );
+  const toldRunning = useLatestRef(onRunningChange);
+  useEffect(() => {
+    toldRunning.current?.(running);
+  }, [running, toldRunning]);
+  useEffect(() => () => toldRunning.current?.(false), [toldRunning]);
 
   const currentStepIndex = STEP_INDEX[clone.step];
 
@@ -219,6 +248,28 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
                     </div>
                   </div>
                 ))}
+                {clone.runRequestId && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    className="self-start"
+                    disabled={stopRequested}
+                    focusableWhenDisabled
+                    onClick={stopClone}
+                    data-testid="clone-stop"
+                  >
+                    {t('common.cancelRun')}
+                  </Button>
+                )}
+                {stopRequested && (
+                  <p
+                    role="status"
+                    className="text-[11px] text-(--sf-text-secondary)"
+                    data-testid="clone-stopping"
+                  >
+                    {t('common.runStopping')}
+                  </p>
+                )}
               </div>
             ) : clone.executionResult ? (
               <CloneResultsPanel result={clone.executionResult} onDone={onBack} />

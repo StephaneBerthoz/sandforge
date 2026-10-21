@@ -58,6 +58,27 @@ function bulkDetailsOf(error: string | undefined): Pick<OperationOutcome, 'error
   return detail ? detailsOf([detail]) : {};
 }
 
+/**
+ * The records a write created, by their ids in the target: every record an
+ * insert wrote, and those an upsert wrote that the org said it created. One
+ * the org updated was the target's before; one an upsert wrote without the
+ * org saying which it did is left out, never guessed into the run's.
+ */
+export function createdIds(
+  operation: BulkOperation,
+  outcomes: readonly OperationOutcome[],
+): string[] {
+  if (operation !== 'insert' && operation !== 'upsert') return [];
+  return outcomes.flatMap((outcome) =>
+    outcome.success &&
+    typeof outcome.id === 'string' &&
+    outcome.id !== '' &&
+    (operation === 'insert' || outcome.created === true)
+      ? [outcome.id]
+      : [],
+  );
+}
+
 /** Dependencies required by BulkDataWriter. */
 export interface BulkDataWriterDeps {
   /**
@@ -96,6 +117,26 @@ export interface BulkDataWriterDeps {
   onProgress: (processed: number, total: number, label: string) => void;
   /** Log sink for non-fatal validation warnings. */
   log: (message: string) => void;
+  /**
+   * Told of each call to the target before it goes — a REST batch, a Bulk
+   * API job — and of what it wrote once it answers. A run that keeps what it
+   * creates writes both down as they happen: told only once an object's
+   * whole write returned, a window closed during a Bulk API job of ten
+   * thousand rows kept none of them, though the job ran on to its end.
+   */
+  calls?: WriterCalls;
+}
+
+/** See {@link BulkDataWriterDeps.calls}. */
+export interface WriterCalls {
+  /** A call of `rows` rows of `objectName` is about to go. */
+  sending(objectName: string, operation: BulkOperation, rows: number): void;
+  /** The call answered: one outcome per row it sent, in their order. */
+  answered(
+    objectName: string,
+    operation: BulkOperation,
+    outcomes: readonly OperationOutcome[],
+  ): void;
 }
 
 /**
@@ -155,6 +196,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      'insert',
       objectName,
       records,
       batchSize,
@@ -188,6 +230,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      'upsert',
       objectName,
       records,
       batchSize,
@@ -223,6 +266,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      'update',
       objectName,
       records,
       batchSize,
@@ -256,6 +300,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      'delete',
       objectName,
       recordIds,
       batchSize,
@@ -283,6 +328,7 @@ export class BulkDataWriter {
     if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName);
 
     const chunkedExecutor = new ChunkedBulkExecutor({ signal: this.deps.signal });
+    this.deps.calls?.sending(objectName, operation, records.length);
     const bulkDeps: BulkApiExecutorDeps = {
       connection: this.deps.connection as unknown as BulkApiConnection,
       bulkManager: this.deps.bulkManager,
@@ -301,9 +347,12 @@ export class BulkDataWriter {
     // The cancel aborted the job before it was closed: none of its records
     // was written. Answered as an empty list, it read as an object with
     // nothing to write, and a run cancelled on its last object succeeded.
-    if (streamResult.aborted) throw new WriteCancelledError(objectName);
+    if (streamResult.aborted) {
+      this.deps.calls?.answered(objectName, operation, []);
+      throw new WriteCancelledError(objectName);
+    }
     this.logUnmatched(`Streaming ${operation} ${objectName}`, streamResult.unmatchedIds);
-    return (streamResult.outcomes ?? []).map((outcome) =>
+    const outcomes = (streamResult.outcomes ?? []).map((outcome) =>
       this.withExistingRecord(objectName, {
         id: outcome.id,
         success: outcome.success,
@@ -312,6 +361,8 @@ export class BulkDataWriter {
         ...(outcome.success ? {} : bulkDetailsOf(outcome.error)),
       }),
     );
+    this.deps.calls?.answered(objectName, operation, outcomes);
+    return outcomes;
   }
 
   /**
@@ -341,6 +392,7 @@ export class BulkDataWriter {
       },
       signal: this.deps.signal,
     };
+    this.deps.calls?.sending(objectName, operation, records.length);
     const bulkResult = await this.deps.bulkExecutor.executeBulk(
       bulkDeps,
       objectName,
@@ -350,12 +402,15 @@ export class BulkDataWriter {
     );
     // The cancel aborted the job before it was closed: none of its records
     // was written, as on the streaming path.
-    if (bulkResult.aborted) throw new WriteCancelledError(objectName);
+    if (bulkResult.aborted) {
+      this.deps.calls?.answered(objectName, operation, []);
+      throw new WriteCancelledError(objectName);
+    }
     this.logUnmatched(`Bulk ${operation} ${objectName}`, bulkResult.unmatchedIds);
     // Real per-record outcomes: input-aligned, real Salesforce IDs (the old
     // code fabricated `bulk-${i}` IDs and assumed the first successCount
     // records had succeeded).
-    return bulkResult.outcomes.map((outcome) =>
+    const outcomes = bulkResult.outcomes.map((outcome) =>
       this.withExistingRecord(objectName, {
         id: outcome.id,
         success: outcome.success,
@@ -364,6 +419,8 @@ export class BulkDataWriter {
         ...(outcome.success ? {} : bulkDetailsOf(outcome.error)),
       }),
     );
+    this.deps.calls?.answered(objectName, operation, outcomes);
+    return outcomes;
   }
 
   /**
@@ -396,6 +453,7 @@ export class BulkDataWriter {
    * retries marks every item in it as failed with the last error message.
    */
   private async executeRestBatches<T>(
+    operation: BulkOperation,
     objectName: string,
     items: T[],
     batchSize: number,
@@ -414,24 +472,31 @@ export class BulkDataWriter {
       await this.deps.pauseGate?.whilePaused(this.deps.signal);
       if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
       const batch = items.slice(i, i + batchSize);
+      this.deps.calls?.sending(objectName, operation, batch.length);
       const retryResult = await this.retryOp.execute(() => call(batch));
       // The batch failed and the cancel came before it was tried again: none
       // of it was written, and nothing after it is sent.
-      if (retryResult.cancelled) throw new WriteCancelledError(objectName, outcomes);
+      if (retryResult.cancelled) {
+        this.deps.calls?.answered(objectName, operation, []);
+        throw new WriteCancelledError(objectName, outcomes);
+      }
+      const answered: OperationOutcome[] = [];
       if (retryResult.success && retryResult.result) {
         for (const r of Array.isArray(retryResult.result)
           ? retryResult.result
           : [retryResult.result]) {
-          outcomes.push(this.restOutcome(objectName, r));
+          answered.push(this.restOutcome(objectName, r));
         }
       } else {
-        outcomes.push(
+        answered.push(
           ...batch.map(() => ({
             success: false as const,
             errors: [retryResult.error?.message ?? failureMessage],
           })),
         );
       }
+      outcomes.push(...answered);
+      this.deps.calls?.answered(objectName, operation, answered);
     }
     return outcomes;
   }

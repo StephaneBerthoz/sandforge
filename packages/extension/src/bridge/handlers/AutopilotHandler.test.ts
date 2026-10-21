@@ -1084,6 +1084,62 @@ describe('AutopilotHandler', () => {
       tracker.dispose();
     });
 
+    it('refuses a second run on the same target while the first writes, and writes nothing for it', async () => {
+      recordingStore();
+      const { registry, executePlan, running } = await startStoppableRun(PART_WRITTEN);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'exec-again',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0 },
+        } as BaseMessage),
+      );
+
+      expect(executePlan).toHaveBeenCalledTimes(1);
+      expect(postedMessages(deps).find((m) => m.correlationId === 'exec-again')).toMatchObject({
+        type: 'autopilot:error',
+        payload: { code: 'AUTOPILOT_RUNNING' },
+      });
+      expect(registry.get('exec-again')).toBeUndefined();
+
+      // Once the first has ended, a run starts again.
+      await abort(registry);
+      await running;
+      const after = handler.handle(
+        inboundRequest({
+          id: 'exec-after',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0 },
+        } as BaseMessage),
+      );
+      await vi.waitFor(() => expect(executePlan).toHaveBeenCalledTimes(2));
+      registry.abort('exec-after');
+      await after;
+    });
+
+    it('is listed paused in Live Operations while it is paused, and running once resumed', async () => {
+      recordingStore();
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      const { registry, running } = await startStoppableRun(PART_WRITTEN);
+
+      await handler.handle(
+        inboundRequest({ id: 'pause-1', type: 'autopilot:pause', timestamp: Date.now() }),
+      );
+      expect(tracker.get('exec-stop')?.status).toBe('paused');
+      await handler.handle(
+        inboundRequest({ id: 'resume-1', type: 'autopilot:resume', timestamp: Date.now() }),
+      );
+      expect(tracker.get('exec-stop')?.status).toBe('running');
+
+      await abort(registry);
+      await running;
+      tracker.dispose();
+    });
+
     it('records a run stopped after it wrote as cancelled, with what it never sent', async () => {
       const store = recordingStore();
       const { registry, running } = await startStoppableRun(PART_WRITTEN);

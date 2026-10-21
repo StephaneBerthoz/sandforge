@@ -58,6 +58,7 @@ import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 
 /** Message types handled by AutopilotHandler. */
 const AUTOPILOT_TYPES = new Set([
@@ -102,6 +103,18 @@ export const AUTOPILOT_GATE_CODES = {
 export const AUTOPILOT_NOT_READY = {
   code: 'AUTOPILOT_NOT_READY',
   message: 'Autopilot module is not initialized.',
+} as const;
+
+/**
+ * How a second run is refused while one writes to the same target: started
+ * again — a second click once the page had stopped waiting — it wrote every
+ * table twice, and nothing takes either copy back.
+ */
+export const AUTOPILOT_RUNNING = {
+  code: 'AUTOPILOT_RUNNING',
+  message:
+    "An Autopilot run is still writing to this target org: Monitor's Live Operations shows " +
+    'where it is. Start another once it has ended.',
 } as const;
 
 /**
@@ -162,6 +175,16 @@ export class AutopilotHandler implements DomainHandler {
   private currentOperationId?: string;
   /** Operations currently inside executePlan — the target of pause/resume/skip. */
   private readonly executingOperations = new Set<string>();
+  /**
+   * The runs writing now, from the request until their end, by the id of
+   * their request: Live Operations lists each under it.
+   */
+  private readonly runningRequests = new Set<string>();
+  /**
+   * The target orgs a run writes to now, from its request on — before the
+   * guard's question, which waits on a person — until it ends.
+   */
+  private readonly writingTargets = new Set<string>();
   private orchestrator?: AutopilotOrchestrator;
   private registry?: BackgroundOperationRegistry;
   private liveTracker?: LiveOperationTracker;
@@ -577,6 +600,47 @@ export class AutopilotHandler implements DomainHandler {
       );
       return;
     }
+    // One run at a time on a target, claimed before the guard is asked.
+    if (this.writingTargets.has(operation.targetOrgId)) {
+      sendHandlerError(
+        this.deps,
+        'autopilot:execute',
+        'autopilot:error',
+        msg,
+        new Error(AUTOPILOT_RUNNING.message),
+        { code: AUTOPILOT_RUNNING.code },
+      );
+      return;
+    }
+    this.writingTargets.add(operation.targetOrgId);
+    this.runningRequests.add(msg.id);
+    try {
+      await this.executeRun(msg, operation, { plan, graph, rules, scanResult }, payload, guard);
+    } finally {
+      this.writingTargets.delete(operation.targetOrgId);
+      this.runningRequests.delete(msg.id);
+    }
+  }
+
+  /** The run of `autopilot:execute` once nothing refused it before its guard. */
+  private async executeRun(
+    msg: InboundRequest,
+    operation: AutopilotOperation,
+    {
+      plan,
+      graph,
+      rules,
+      scanResult,
+    }: {
+      plan: ExecutionPlan;
+      graph: AutopilotGraph;
+      rules: AutopilotAnonymizationRule[];
+      scanResult: SchemaScanResult;
+    },
+    payload: { grappeThreshold?: number; keepContactPoints?: boolean },
+    guard: ProductionGuard,
+  ): Promise<void> {
+    if (!this.orchestrator) return;
     const totalRecords = Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0);
 
     // The run's stop. `execution:abort` with this request's id reaches it
@@ -1081,6 +1145,8 @@ export class AutopilotHandler implements DomainHandler {
     }
     try {
       this.orchestrator.pause();
+      // Listed paused in Live Operations, as a paused Sync run is.
+      for (const requestId of this.runningRequests) this.liveTracker?.pause(requestId);
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution paused.');
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:pause', 'autopilot:error', msg, err);
@@ -1105,6 +1171,7 @@ export class AutopilotHandler implements DomainHandler {
     }
     try {
       this.orchestrator.resume();
+      for (const requestId of this.runningRequests) this.liveTracker?.resume(requestId);
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution resumed.');
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:resume', 'autopilot:error', msg, err);

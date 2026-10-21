@@ -353,8 +353,10 @@ export class SeedCsvHandler implements DomainHandler {
       } else {
         recordWriteRun(this.deps, {
           ...run,
-          // An import the cancel stopped did not write the rows it was for.
-          outcome: cancelled && reached === 'success' ? 'partial' : reached,
+          // Stopped by the user once it wrote or had a row refused: cancelled,
+          // as a Sync run the user stopped is. It read partial, as an import
+          // the org refused part of does.
+          outcome: cancelled ? 'cancelled' : reached,
           objects: [
             {
               ...emptyCounts(parsed.objectApiName),

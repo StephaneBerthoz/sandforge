@@ -62,7 +62,8 @@
       "autopilotConfirmationUnavailable": "L'exécution Autopilot a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",
       "seedStorageExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit : ses enregistrements prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}}. Réduisez le nombre d'enregistrements, choisissez un modèle plus léger, ou libérez du stockage de données dans {{org}}.",
       "seedEmailsExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Réduisez le nombre d'enregistrements, mettez {{objects}} à 0, désactivez {{senders}}, ou attribuez-vous la permission qui les fait taire.",
-      "backupBusy": "Une sauvegarde ou une restauration de cette org est en cours : supprimez ses sauvegardes une fois qu'elle est terminée."
+      "backupBusy": "Une sauvegarde ou une restauration de cette org est en cours : supprimez ses sauvegardes une fois qu'elle est terminée.",
+      "autopilotRunning": "Une exécution Autopilot écrit encore dans cette org cible, et rien d'autre n'a été lancé : les Opérations en cours du Moniteur montrent où elle en est. Lancez-en une autre une fois qu'elle est terminée."
     },
     "list": {
       "separator": ", ",
@@ -73,7 +74,11 @@
       "listed": "Regroupés à partir des {{listed}} premiers des {{failed}} enregistrements refusés."
     },
     "details": "Détails",
-    "optional": "Facultatif"
+    "optional": "Facultatif",
+    "runStopping": "Arrêt en cours : l'exécution s'arrête avant son prochain appel à l'org.",
+    "noWayBack": "SandForge ne peut pas retirer ce que cette exécution écrit : essayez-la sur une scratch org ou une sandbox que vous pouvez rafraîchir.",
+    "runCancelRefused": "Impossible d'annuler l'exécution",
+    "runCancelRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre."
   },
   "status": {
     "apiUsage": "Utilisation API",
@@ -766,7 +771,9 @@
         "inserted_one": "{{count}} enregistrement inséré",
         "inserted_other": "{{count}} enregistrements insérés",
         "failed_one": "{{count}} enregistrement échoué",
-        "failed_other": "{{count}} enregistrements échoués"
+        "failed_other": "{{count}} enregistrements échoués",
+        "cancelled_one": "Annulé : {{count}} enregistrement importé avant l'arrêt reste dans l'org",
+        "cancelled_other": "Annulé : {{count}} enregistrements importés avant l'arrêt restent dans l'org"
       }
     },
     "modeSelect": {
@@ -775,7 +782,8 @@
       "csv": "Import CSV",
       "csvDesc": "Importez des données depuis un fichier CSV",
       "clone": "Cloner depuis une org",
-      "cloneDesc": "Clonez des enregistrements depuis une autre org"
+      "cloneDesc": "Clonez des enregistrements depuis une autre org",
+      "notRemovable": "Ce qu'il écrit ne peut pas être retiré depuis Seeds précédents."
     },
     "persona": {
       "title": "Personas IA",
@@ -976,9 +984,11 @@
       "historyPartlyRemoved": "retiré en partie le {{date}} : le reste peut être retiré",
       "historyNothingLeft": "plus rien à retirer",
       "historyRefused": "ne peut pas être retiré d'ici",
-      "historyUnfinished": "partiel : le seed s'est arrêté avant sa fin — sa fenêtre fermée, ou l'extension arrêtée — et liste ce qu'il avait écrit jusque-là",
+      "historyUnfinished": "partiel : le seed s'est arrêté avant sa fin — sa fenêtre fermée, ou l'extension arrêtée — et liste ce que l'org avait confirmé jusque-là : les enregistrements d'un appel encore en cours peuvent être dans l'org sans être listés",
       "historyShow": "Afficher",
-      "historyHide": "Masquer"
+      "historyHide": "Masquer",
+      "historyRunning": "en cours : le seed écrit encore dans cette fenêtre. Arrêtez-le avec l'Annuler de l'assistant ou depuis les Opérations en cours du Moniteur, et retirez-le une fois terminé",
+      "historyOpenLiveOps": "Ouvrir les Opérations en cours"
     },
     "start": {
       "subtitle": "Remplir une org de données réalistes",
@@ -1539,8 +1549,10 @@
       "filesForgotten_one": "{{config}} ne compte plus {{formatted}} fichier comme copié : sa prochaine lecture complète le copie à nouveau.",
       "filesForgotten_other": "{{config}} ne compte plus {{formatted}} fichiers comme copiés : sa prochaine lecture complète les copie à nouveau.",
       "unfinishedTitle": "Exécutions jamais terminées",
-      "unfinishedNote": "Une fenêtre s'est fermée pendant ces exécutions, ou l'historique ne les liste plus. Ce qu'elles ont créé est conservé, et peut être retiré.",
-      "unfinishedRun": "{{config}}, lancée le {{date}}"
+      "unfinishedNote": "Une fenêtre s'est fermée pendant ces exécutions, ou l'historique ne les liste plus. Ce qu'elles ont créé est conservé à mesure que chaque appel à la cible répondait, et peut être retiré.",
+      "unfinishedRun": "{{config}}, lancée le {{date}}",
+      "unfinishedInFlight_one": "Elle s'est arrêtée pendant l'écriture de {{formatted}} ligne {{object}} : si la cible l'a prise, elle est dans l'org sans être listée ici, et son retrait ne la prend pas.",
+      "unfinishedInFlight_other": "Elle s'est arrêtée pendant l'écriture de {{formatted}} lignes {{object}} : celles que la cible a prises sont dans l'org sans être listées ici, et son retrait ne les prend pas."
     },
     "earlierCopies": {
       "leftAsIs": "Une exécution de cette configuration enregistrée laisse tels quels les enregistrements que ses exécutions précédentes ont copiés, et insère les autres.",
@@ -1974,7 +1986,15 @@
     "backupDeleteAllConfirm_one": "Supprimer la sauvegarde de cette org conservée sur cette machine ? Les valeurs des enregistrements qu'elle conserve en clair disparaissent définitivement, et elle ne peut plus être restaurée.",
     "backupDeleteAllConfirm_other": "Supprimer les {{count}} sauvegardes de cette org conservées sur cette machine ? Les valeurs des enregistrements qu'elles conservent en clair disparaissent définitivement, et aucune ne peut plus être restaurée.",
     "backupsDeleted_one": "{{count}} sauvegarde supprimée de cette machine.",
-    "backupsDeleted_other": "{{count}} sauvegardes supprimées de cette machine."
+    "backupsDeleted_other": "{{count}} sauvegardes supprimées de cette machine.",
+    "snapshot": {
+      "keep": "Conserver d'abord les valeurs, pour que Restaurer puisse les remettre",
+      "keepHint": "Une sauvegarde des champs que l'exécution masque est prise avant sa première écriture. Si elle ne peut pas contenir toutes les lignes que l'exécution masquerait, rien n'est masqué.",
+      "taken_one": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrement : Restaurer les remet.",
+      "taken_other": "Les valeurs d'avant le masquage sont conservées dans une sauvegarde de {{formatted}} enregistrements : Restaurer les remet.",
+      "openRestore": "Ouvrir dans Restaurer",
+      "refused": "Aucun instantané n'a pu être conservé, donc rien n'a été masqué. Pour masquer sans retour possible, décochez « Conserver d'abord les valeurs » dans la confirmation."
+    }
   },
   "automation": {
     "title": "Automatisation",

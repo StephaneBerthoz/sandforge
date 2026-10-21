@@ -17,6 +17,8 @@ import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutopilotWizard } from './AutopilotWizard';
 import { AutopilotGraph } from './AutopilotGraph';
 import { ControlPanel } from './ControlPanel';
@@ -176,7 +178,10 @@ export const AutopilotPage: React.FC = () => {
 
   // Execute request — owned by the page (not the wizard) so the response/error
   // listeners survive the wizard unmounting when the view flips to execution.
-  // Executions run long: the timeout is 10 min, not the 30 s default.
+  // A run goes on in the extension until it ends, and answers then: held to
+  // ten minutes — the Production Guard's and the gate's questions counted in
+  // them — the page went back to the review saying "Try again" while the run
+  // went on writing, and a second Execute wrote every table again.
   const executeMutation = useBridgeMutation<{
     totalRecords: number;
     totalSuccessCount: number;
@@ -186,7 +191,8 @@ export const AutopilotPage: React.FC = () => {
   }>('autopilot:execute', {
     responseType: 'autopilot:completed',
     errorType: 'autopilot:error',
-    timeoutMs: 600_000,
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   /** Start execution: flip to the execution view and post `autopilot:execute`. */
@@ -219,10 +225,15 @@ export const AutopilotPage: React.FC = () => {
   // A run refused because Production Guard is missing is said by its code:
   // the host words it in English, and a notification beside it said the
   // same in English.
+  // A wait that ended before the run did is not a failed run: the page stays
+  // on the run, which may still be writing, and says where to follow it.
+  const outlivedWait = executeMutation.errorCode === RUN_OUTLIVED_WAIT;
   const executeError =
     executeMutation.errorCode === 'NOT_INITIALIZED'
       ? t('common.refusal.guardMissing')
-      : executeMutation.error;
+      : outlivedWait
+        ? null
+        : executeMutation.error;
   useEffect(() => {
     if (!executeError) return;
     const store = useAutopilotStore.getState();
@@ -318,6 +329,15 @@ export const AutopilotPage: React.FC = () => {
             </button>
           )}
         </div>
+        {outlivedWait && step === 'executing' && executeMutation.error && (
+          <p
+            role="status"
+            className="px-4 py-2 text-xs text-text-secondary border-b border-(--sf-border)"
+            data-testid="autopilot-outlived-wait"
+          >
+            {executeMutation.error}
+          </p>
+        )}
         {/* Grappe progress panel — shown when grappe mode is active */}
         <AutopilotGrappePanel />
         {/* Split view: graph placeholder (left 60%) + control panel (right 40%) */}

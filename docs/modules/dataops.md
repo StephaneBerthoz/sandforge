@@ -40,10 +40,11 @@ Take a snapshot of the objects an Anonymize writes over:
   the records the object held, and that it stopped at the cap. A restore of
   it brings back those records only
 - One-click backup creation from the Backup Panel
-- A backup stops between two pages when the window closes, the extension
-  deactivates or Live Operations cancels it, and what it wrote is removed, so
-  a stopped run leaves no half-saved snapshot -- run it again for a complete
-  one
+- A backup is listed in Live Operations while it reads, and the Backup tab
+  offers **Cancel run** meanwhile. It stops between two pages when either
+  cancels it, the window closes or the extension deactivates, and what it
+  wrote is removed, so a stopped run leaves no half-saved snapshot -- run it
+  again for a complete one
 - A backup whose read the org fails part-way keeps the records it read,
   listed as failed and partial with the object it stopped on and each object
   it never reached, which it holds none of -- the Backup and Restore tabs and
@@ -105,9 +106,10 @@ What a restore does, in order:
 - Stops with an FLS error if a field _you_ may not write is in the payload,
   rather than restoring the record with that column silently missing
 
-A restore stops between two batches when it is cancelled — from Live
-Operations, by Ctrl-C at `sandforge-dataops --restore`, or as the window
-closes — as a masking run does: the records it put back before are counted,
+A restore is listed in Live Operations while it writes, and the Restore tab
+offers **Cancel run** meanwhile. It stops between two batches when it is
+cancelled — from either, by Ctrl-C at `sandforge-dataops --restore`, or as the
+window closes — as a masking run does: the records it put back before are counted,
 the audit trail records it cancelled with them, and the same restore run
 again puts back the rest, writing only the rows that do not hold the backup's
 values yet.
@@ -138,8 +140,20 @@ your own:
   else of the record: an empty field stays empty rather than being given a
   made-up value, and a record none of whose named fields holds anything is not
   written at all
-- **A run that stops before the end says what it left.** A cancel, honoured
-  between two batches; the org's daily API requests reaching 95%, past which
+- **Keep the values first.** Apply's confirmation offers **Keep the values
+  first, so Restore can put them back**, ticked unless you untick it, as the
+  command line always does: before its first write, the run takes a backup of
+  the fields it masks, held to the records it masks, listed with the backups.
+  It writes nothing unless that backup holds every record it would mask --
+  one stopped at the cap refuses the run, `SNAPSHOT_NOT_TAKEN`, and the tab
+  says how to mask without one. Its result points to the backup, and **Open
+  in Restore** opens the Restore tab on it. Unticked, the confirmation names
+  instead the records a restore of the latest backup can never bring back. A
+  resume takes no backup: the run it resumes took one
+- **A run that stops before the end says what it left.** A cancel -- the
+  Anonymize tab's **Cancel run** while the run masks, or Live Operations',
+  where it is listed -- honoured between two batches, or before the first
+  write while it counts, waits on Production Guard or takes its backup; the org's daily API requests reaching 95%, past which
   the run makes no further call; an error; records the org refuses. The run
   then ends partial -- failed when it masked nothing -- and says, per object,
   how many records still hold their original values: in its result, in the
@@ -203,8 +217,8 @@ your own:
   an object the org will not read is listed with what the org said, and a
   field the org does not have is named. A made-up name is the one Apply
   writes on the first object; on the next ones Apply may draw another for a
-  record whose name an earlier record of the run took first. Apply is
-  irreversible -- back up first.
+  record whose name an earlier record of the run took first. Apply cannot be
+  undone unless it keeps the values first (see above) or a backup holds them.
 - **Your own templates.** **Create Template** opens an editor on the rules of
   the template on screen, or on none: change a rule's field or method, add or
   remove rules, name the set and save it. A rule names its field as
@@ -282,7 +296,10 @@ number, or several, and **Search**. It looks in the objects the inventory read:
   have overwritten and how, or how many related records the org would delete
   along with them. Then a typed confirmation, then **Production Guard**:
   refused on production for a delete, a confirmation where the org's tier
-  asks for one. Every erasure is recorded in the audit trail (Reports)
+  asks for one. An erasure is listed in Live Operations while it writes,
+  where Cancel stops it before its next call to the org: what it did by then
+  is logged with the request, and the rest is left as it is. Every erasure is
+  recorded in the audit trail (Reports), one you cancelled as cancelled
 - A backup taken before the erasure still holds the person's records;
   restoring it brings them back. Once anything was erased, the section says
   how many backups of the org this machine keeps and offers to delete them
@@ -324,7 +341,10 @@ Each recommendation can be:
   other objects the org deletes along with them (counted per object people
   work with; the org's own history, sharing and feed rows are not), then a
   typed confirmation, then **Production Guard**. Deleted records go to the
-  recycle bin. Every delete is recorded in the audit trail
+  recycle bin. A delete is listed in Live Operations while it runs, where
+  Cancel stops it before its next call of 200 records, the records deleted by
+  then said. Every delete is recorded in the audit trail, one you cancelled as
+  cancelled
 
 An export or a delete takes **at most 1,000 records at a time** (stale records
 the oldest first); run it again for the rest. The records are read again when

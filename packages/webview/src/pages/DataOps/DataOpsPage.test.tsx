@@ -6,6 +6,7 @@ import type { BackupExportResult, SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { DataOpsPage } from './DataOpsPage';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
 const mockOrgs: SalesforceOrg[] = [
   {
@@ -157,11 +158,20 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   },
 }));
 
-const mutationOptions: Record<string, { timeoutMs?: number } | undefined> = {};
+const mutationOptions: Record<
+  string,
+  { timeoutMs?: number; runOutlivesWait?: boolean } | undefined
+> = {};
+
+/** `execution:abort`, which each tab's Stop sends. */
+const mockAbortMutate = vi.fn();
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string, options?: { timeoutMs?: number }) => {
     mutationOptions[type] = options;
+    if (type === 'execution:abort') {
+      return { mutate: mockAbortMutate, data: null, loading: false, error: null, reset: vi.fn() };
+    }
     if (type === 'backup:execute') {
       return mockBackupMutationState;
     }
@@ -325,6 +335,60 @@ describe('DataOpsPage', () => {
 
     expect(mutationOptions['backup:execute']?.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
     expect(mutationOptions['dataops:rollback']?.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
+  });
+
+  it('waits on a backup, a restore and a masking run as on any write run, and never says to try again', () => {
+    render(<DataOpsPage />);
+
+    for (const type of ['backup:execute', 'dataops:rollback', 'dataops:anonymize']) {
+      expect(mutationOptions[type]).toMatchObject({
+        timeoutMs: WRITE_RUN_TIMEOUT_MS,
+        runOutlivesWait: true,
+      });
+    }
+  });
+
+  describe('the Stop of each run the page started', () => {
+    beforeEach(() => {
+      mockAbortMutate.mockClear();
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    });
+
+    it('stops a backup by the id of its request, as Live Operations does, and holds Create meanwhile', () => {
+      mockBackupMutationState = {
+        ...mockBackupMutationState,
+        loading: true,
+        requestId: 'req-backup-1',
+      } as typeof mockBackupMutationState;
+      render(<DataOpsPage />);
+
+      expect(screen.getByTestId('create-backup-btn').hasAttribute('disabled')).toBe(true);
+      fireEvent.click(screen.getByTestId('backup-stop'));
+
+      expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'req-backup-1' });
+      expect(screen.getByTestId('backup-stop-stopping')).toBeDefined();
+    });
+
+    it('stops a restore by the id of its request', () => {
+      mockRollbackMutationState = {
+        ...mockRollbackMutationState,
+        loading: true,
+        requestId: 'req-restore-1',
+      } as typeof mockRollbackMutationState;
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Restore'));
+
+      fireEvent.click(screen.getByTestId('restore-stop'));
+
+      expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'req-restore-1' });
+    });
+
+    it('offers no Stop while nothing runs', () => {
+      render(<DataOpsPage />);
+      expect(screen.queryByTestId('backup-stop')).toBeNull();
+      fireEvent.click(screen.getByText('Restore'));
+      expect(screen.queryByTestId('restore-stop')).toBeNull();
+    });
   });
 
   it('asks for the backup list again once a backup ends, so one stopped at the cap is listed as such', () => {
@@ -930,7 +994,56 @@ describe('DataOpsPage', () => {
       fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
-      expect(mockAnonymizeMutate).toHaveBeenCalledWith({ orgId: 'org-1', templateId: 'tpl-1' });
+      // With a snapshot of what it masks unless unticked, as the command line sends it.
+      expect(mockAnonymizeMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        templateId: 'tpl-1',
+        snapshot: true,
+      });
+    });
+
+    it('stops a masking run by the id of its request', () => {
+      mockAbortMutate.mockClear();
+      mockAnonymizeMutationState = {
+        ...mockAnonymizeMutationState,
+        loading: true,
+        requestId: 'req-mask-1',
+      } as typeof mockAnonymizeMutationState;
+      openTemplate();
+
+      fireEvent.click(screen.getByTestId('anonymize-stop'));
+
+      expect(mockAnonymizeMutate).not.toHaveBeenCalled();
+      expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'req-mask-1' });
+    });
+
+    it('opens Restore on the snapshot a masking run took, listed with the backups', () => {
+      mockAnonymizeMutationState = {
+        ...mockAnonymizeMutationState,
+        data: {
+          templateId: 'tpl-1',
+          status: 'success',
+          snapshot: { operationId: 'req-mask-1-snapshot', totalRecords: 3 },
+        },
+      };
+      openTemplate();
+      // The snapshot is a backup of the org: the list is read again to hold it.
+      expect(mockBackupsQueryState.refetch).toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('anonymize-open-restore'));
+
+      expect(screen.getByTestId('restore-panel')).toBeDefined();
+    });
+
+    it('says a run refused for its snapshot masked nothing, and how to mask without one', () => {
+      mockAnonymizeMutationState = {
+        ...mockAnonymizeMutationState,
+        error: 'No snapshot was taken, so nothing was masked: INVALID_TYPE',
+        errorCode: 'SNAPSHOT_NOT_TAKEN',
+      } as typeof mockAnonymizeMutationState;
+      openTemplate();
+
+      expect(screen.getByTestId('anonymize-snapshot-refused')).toBeDefined();
     });
 
     it('asks, for the template picked, what a restore of the org’s latest backup brings back, and says it before Apply', () => {

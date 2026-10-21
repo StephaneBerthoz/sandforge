@@ -83,4 +83,27 @@ describe('SyncUnfinishedRuns', () => {
     // Its card asks what the run kept, by its id.
     expect(sent('sync:removal:info')?.payload).toEqual({ runId: 'run-9' });
   });
+
+  it('says what is kept of such a run is what the target had answered, not everything it wrote', () => {
+    render(<SyncUnfinishedRuns />);
+
+    answer('sync:removal:list', 'sync:removal:list:response', { runs: [STOPPED] });
+
+    const note = screen.getByTestId('sync-unfinished-runs').textContent ?? '';
+    expect(note).not.toContain('What they created is kept, and can be removed.');
+    expect(note).toContain('as each call to the target answered');
+    expect(screen.queryByTestId('sync-unfinished-in-flight-run-9')).toBeNull();
+  });
+
+  it('names the call a run had under way when its window closed, whose rows the list may lack', () => {
+    render(<SyncUnfinishedRuns />);
+
+    answer('sync:removal:list', 'sync:removal:list:response', {
+      runs: [{ ...STOPPED, inFlight: { objectApiName: 'Contact', rows: 12_000 } }],
+    });
+
+    expect(screen.getByTestId('sync-unfinished-in-flight-run-9').textContent).toBe(
+      'It stopped while it was writing 12,000 Contact rows: those the target took are in the org but not listed here, and its removal does not take them.',
+    );
+  });
 });

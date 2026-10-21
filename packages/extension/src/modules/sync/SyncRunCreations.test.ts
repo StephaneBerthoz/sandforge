@@ -125,6 +125,47 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     ]);
   });
 
+  it('names the call a run had under way when its window closed, and none once the call answered', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const cut = store.recorder(start('run-cut'));
+    cut.sending?.('Account', 2);
+    cut.answered?.('Account', [fakeId('001', 1), fakeId('001', 2)]);
+    cut.sending?.('Contact', 10_000);
+    await cut.flush();
+    const answered = store.recorder(start('run-answered'));
+    answered.sending?.('Contact', 200);
+    // A call that created nothing answers it all the same.
+    answered.answered?.('Contact', []);
+    await answered.flush();
+
+    const run = await store.get('run-cut');
+    expect(run?.inFlight).toEqual({
+      objectApiName: 'Contact',
+      rows: 10_000,
+      at: expect.any(String),
+    });
+    expect(run?.created).toEqual([
+      { objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] },
+    ]);
+    const other = await store.get('run-answered');
+    expect(other?.inFlight).toBeUndefined();
+    expect(other?.created).toEqual([]);
+    // It wrote nothing, so it has no date of a last write.
+    expect(other?.lastWrittenAt).toBeUndefined();
+  });
+
+  it('names no call under way for a run that ended', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.note('Account', [fakeId('001', 1)]);
+    recorder.sending?.('Contact', 5);
+    await recorder.end({ status: 'partial', cancelled: true });
+
+    expect((await store.get('run-1'))?.inFlight).toBeUndefined();
+  });
+
   it('leaves out a line a closed window cut short, and reads the rest', () => {
     const text =
       `${JSON.stringify({ run: start('run-1') })}\n` +

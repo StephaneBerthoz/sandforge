@@ -49,6 +49,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   const requiredWarningId = useId();
   const keepHintId = useId();
   const keepWarningId = useId();
+  const noWayBackId = useId();
 
   const totalRecords = previewResult.objects.reduce((sum, obj) => sum + obj.recordCount, 0);
   const totalRelationships = previewResult.objects.reduce(
@@ -273,6 +274,16 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
         </div>
       )}
 
+      {/* Said before the write: a clone keeps no list of what it creates,
+          and nothing in SandForge takes it back. */}
+      <p
+        id={noWayBackId}
+        className="text-xs text-(--sf-text-secondary)"
+        data-testid="clone-no-way-back"
+      >
+        {t('common.noWayBack')}
+      </p>
+
       {/* Actions */}
       <div className="flex justify-between items-center pt-2">
         <Button variant="secondary" size="sm" onClick={onBack} data-testid="clone-preview-back">
@@ -282,7 +293,9 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
           variant="primary"
           size="sm"
           onClick={onExecute}
-          aria-describedby={targetOnlyRequired.length > 0 ? requiredWarningId : undefined}
+          aria-describedby={
+            targetOnlyRequired.length > 0 ? `${requiredWarningId} ${noWayBackId}` : noWayBackId
+          }
           data-testid="clone-preview-execute"
         >
           {t('seed.clone.preview.execute')}

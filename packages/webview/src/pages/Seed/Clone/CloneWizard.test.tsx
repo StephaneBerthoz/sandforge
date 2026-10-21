@@ -26,8 +26,14 @@ let previewFailure: string | null = null;
 /** What `seed:clone:execute` answers with: set by a test, dropped by a reset. */
 let executeAnswer: CloneExecutionResult | null = null;
 
+/** `execution:abort`, which the running step's Stop sends. */
+const mockAbortMutate = vi.fn();
+
 vi.mock('../../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
+    if (type === 'execution:abort') {
+      return { mutate: mockAbortMutate, data: null, loading: false, error: null, reset: vi.fn() };
+    }
     if (type === 'seed:clone:describe-source') {
       return {
         mutate: mockDescribeMutate,
@@ -404,6 +410,21 @@ describe('CloneWizard', () => {
       expect(document.activeElement).toBe(
         screen.getByRole('group', { name: en.seed.clone.wizard.stepExecute }),
       );
+    });
+
+    it('stops a running clone by the id of its request, and says the page may not be left meanwhile', () => {
+      // The running step drew bars and nothing to stop them with.
+      mockAbortMutate.mockClear();
+      const onRunningChange = vi.fn();
+      const view = previewShown();
+      view.rerender(<CloneWizard onBack={vi.fn()} onRunningChange={onRunningChange} />);
+      fireEvent.click(screen.getByTestId('clone-preview-execute'));
+
+      expect(onRunningChange).toHaveBeenLastCalledWith(true);
+      fireEvent.click(screen.getByTestId('clone-stop'));
+
+      expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'wv-clone-run' });
+      expect(screen.getByTestId('clone-stopping').textContent).toBe(en.common.runStopping);
     });
 
     it('stays on a run while it runs: neither Back nor the steps leave it', () => {

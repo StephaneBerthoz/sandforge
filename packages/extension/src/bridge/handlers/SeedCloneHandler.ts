@@ -72,7 +72,7 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
-import { contactPointsAudit } from '../../modules/forge/forgeAudit.js';
+import { RUN_CANCELLED, contactPointsAudit } from '../../modules/forge/forgeAudit.js';
 import { readEmailLimits } from '../../modules/forge/ForgeRunGate.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { FieldInfo } from '../../modules/forge/ForgeExecutor.js';
@@ -1432,7 +1432,19 @@ export class SeedCloneHandler implements DomainHandler {
         contactPoints: said,
       };
       unrecorded = false;
-      recordWriteRun(this.deps, cloneRun(run, result.status, objectResults, upserts, said));
+      // Stopped by the user: cancelled once it wrote a row or had one refused,
+      // stopped under the code of a run cancelled before it wrote otherwise,
+      // as a Sync run is recorded. It was recorded partial, as a clone the org
+      // refused part of is.
+      const audited: AuditOutcome = cancelled
+        ? totalInserted + totalFailed > 0
+          ? 'cancelled'
+          : 'stopped'
+        : result.status;
+      recordWriteRun(this.deps, {
+        ...cloneRun(run, audited, objectResults, upserts, said),
+        ...(audited === 'stopped' ? { code: RUN_CANCELLED } : {}),
+      });
       /** Why the clone ended failed — it wrote nothing — or nothing when it did not. */
       const cloneFailed =
         !cancelled && result.status === 'failure' ? 'No record could be cloned.' : undefined;

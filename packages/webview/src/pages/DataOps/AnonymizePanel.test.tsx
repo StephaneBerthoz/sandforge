@@ -192,7 +192,80 @@ describe('AnonymizePanel', () => {
     fireEvent.click(screen.getByTestId('apply-btn'));
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
-    expect(onApply).toHaveBeenCalledWith('tpl-1');
+    // Keeping the values first unless unticked, as the command line does.
+    expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: true });
+  });
+
+  it('masks with no snapshot only once the box that keeps the values is unticked', () => {
+    // The panel took none: a run on an org with no backup had no way back,
+    // where the command line's took one every time.
+    const onApply = vi.fn();
+    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    fireEvent.click(screen.getByTestId('apply-btn'));
+
+    const keep = screen.getByTestId('confirm-keep-values-toggle') as HTMLInputElement;
+    expect(keep.checked).toBe(true);
+    fireEvent.click(keep);
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: false });
+  });
+
+  it('offers no snapshot on a resume, which the run it resumes took', () => {
+    render(
+      <AnonymizePanel
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        onResume={vi.fn()}
+        coverage={{
+          templateId: 'tpl-1',
+          objects: [],
+          checkpoint: { id: 'run-1', savedAt: '2026-10-01T10:00:00.000Z' },
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('resume-btn'));
+
+    expect(screen.queryByTestId('confirm-keep-values')).toBeNull();
+  });
+
+  it('offers Stop while a run masks, and says what a refused snapshot left and how to go on', () => {
+    const onStop = vi.fn();
+    const { rerender } = render(
+      <AnonymizePanel
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        isApplying
+        onStop={onStop}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('anonymize-stop'));
+    expect(onStop).toHaveBeenCalledTimes(1);
+
+    rerender(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" snapshotRefused />);
+    expect(screen.queryByTestId('anonymize-stop')).toBeNull();
+    expect(screen.getByTestId('anonymize-snapshot-refused').textContent).toContain(
+      'untick “Keep the values first”',
+    );
+  });
+
+  it('points to the snapshot a run took, which Restore opens on', () => {
+    const onOpenRestore = vi.fn();
+    render(
+      <AnonymizePanel
+        templates={templates}
+        selectedTemplateId="tpl-1"
+        snapshotTaken={{ operationId: 'an-1-snapshot', totalRecords: 1220 }}
+        onOpenRestore={onOpenRestore}
+      />,
+    );
+
+    expect(screen.getByTestId('anonymize-snapshot-taken').textContent).toContain(
+      'The values before masking are kept in a backup of 1,220 records: Restore puts them back.',
+    );
+    fireEvent.click(screen.getByTestId('anonymize-open-restore'));
+    expect(onOpenRestore).toHaveBeenCalledWith('an-1-snapshot');
   });
 
   it('applies a template the user saved the way it applies one that ships', () => {
@@ -203,7 +276,7 @@ describe('AnonymizePanel', () => {
     fireEvent.click(screen.getByTestId('apply-btn'));
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
-    expect(onApply).toHaveBeenCalledWith('tpl-saved-1');
+    expect(onApply).toHaveBeenCalledWith('tpl-saved-1', { snapshot: true });
   });
 
   it('should not anonymize when the typed confirmation does not match', () => {
@@ -358,6 +431,9 @@ describe('AnonymizePanel', () => {
       );
 
       fireEvent.click(screen.getByTestId('apply-btn'));
+      // A run that keeps the values first writes nothing unless it keeps them all.
+      expect(screen.queryByTestId('confirm-unrestorable')).toBeNull();
+      fireEvent.click(screen.getByTestId('confirm-keep-values-toggle'));
 
       const lost = screen.getByTestId('confirm-unrestorable');
       expect(lost.textContent).toContain(
@@ -376,6 +452,7 @@ describe('AnonymizePanel', () => {
       );
 
       fireEvent.click(screen.getByTestId('apply-btn'));
+      fireEvent.click(screen.getByTestId('confirm-keep-values-toggle'));
 
       expect(
         within(screen.getByTestId('confirm-unrestorable'))
@@ -454,7 +531,7 @@ describe('AnonymizePanel', () => {
       fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
-      expect(onApply).toHaveBeenCalledWith('tpl-1');
+      expect(onApply).toHaveBeenCalledWith('tpl-1', { snapshot: true });
       expect(onResume).not.toHaveBeenCalled();
     });
 

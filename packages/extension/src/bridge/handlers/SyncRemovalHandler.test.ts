@@ -240,6 +240,38 @@ describe('SyncRemovalHandler', () => {
       );
       expect(response.payload.runs.map((run) => run.runId)).toEqual(['run-2']);
     });
+
+    it('lists a run stopped during a call with the call it had under way, and not one that ended having created nothing', async () => {
+      const start = {
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+      };
+      // Killed while its first Bulk API job ran: nothing kept, but its rows may be there.
+      const cut = creations.recorder({ ...start, runId: 'run-cut' });
+      cut.sending?.('Contact', 12_000);
+      await cut.flush();
+      // Every row refused: it ended, created nothing, and has nothing to take back.
+      const refused = creations.recorder({ ...start, runId: 'run-refused' });
+      refused.sending?.('Contact', 3);
+      refused.answered?.('Contact', []);
+      await refused.end({ status: 'failure' });
+
+      await handler.handle(buildMsg('sync:removal:list'));
+
+      const [response] = posted<BaseMessage & { payload: { runs: SyncRunRemovalInfo[] } }>(
+        'sync:removal:list:response',
+      );
+      const listed = response.payload.runs.filter((run) => run.runId !== 'run-1');
+      expect(listed).toEqual([
+        expect.objectContaining({
+          runId: 'run-cut',
+          created: 0,
+          inFlight: { objectApiName: 'Contact', rows: 12_000 },
+        }),
+      ]);
+    });
   });
 
   describe('sync:remove', () => {

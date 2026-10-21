@@ -293,14 +293,19 @@ function countAnswer(answer: unknown, objectApiName: string, counts: WriteCounts
  * Write `records` over the org's, {@link RECORDS_PER_CALL} at a time. A call
  * the org refuses whole counts every record of it as refused, and the rest
  * still go.
+ *
+ * @param signal - A cancel, honoured before each call: what the calls before
+ *   it wrote is counted, the rest is not sent.
  */
 export async function updateRecords(
   conn: Pick<OrgSession, 'update'>,
   objectApiName: string,
   records: ReadonlyArray<Record<string, unknown>>,
+  signal?: AbortSignal,
 ): Promise<WriteCounts> {
   const counts: WriteCounts = { done: 0, failed: 0, errors: [] };
   for (let at = 0; at < records.length; at += RECORDS_PER_CALL) {
+    if (signal?.aborted) break;
     const batch = records.slice(at, at + RECORDS_PER_CALL);
     try {
       countAnswer(await conn.update(objectApiName, [...batch]), objectApiName, counts);
@@ -317,14 +322,19 @@ export async function updateRecords(
 /**
  * Delete `ids`, {@link RECORDS_PER_CALL} at a time. The org sends them to its
  * recycle bin, and deletes along with them what cascades from them.
+ *
+ * @param signal - A cancel, honoured before each call: what the calls before
+ *   it deleted is counted, the rest stays in the org.
  */
 export async function deleteRecords(
   conn: Pick<OrgSession, 'destroy'>,
   objectApiName: string,
   ids: readonly string[],
+  signal?: AbortSignal,
 ): Promise<WriteCounts> {
   const counts: WriteCounts = { done: 0, failed: 0, errors: [] };
   for (let at = 0; at < ids.length; at += RECORDS_PER_CALL) {
+    if (signal?.aborted) break;
     const batch = ids.slice(at, at + RECORDS_PER_CALL);
     try {
       countAnswer(await conn.destroy(objectApiName, [...batch]), objectApiName, counts);

@@ -1,4 +1,5 @@
 import type {
+  BaseMessage,
   JobInsight,
   StorageObjectEntry,
   DeploymentEntry,
@@ -27,7 +28,10 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { transformLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
-import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type {
+  LiveOperation,
+  LiveOperationTracker,
+} from '../../modules/monitor/LiveOperationTracker.js';
 import type { Connection } from 'jsforce';
 import type { ErrorLogMonitor } from '../../modules/monitor/ErrorLogMonitor.js';
 import type { UserSessionMonitor } from '../../modules/monitor/UserSessionMonitor.js';
@@ -54,6 +58,13 @@ const MONITOR_REFRESH_TIMEOUT_MS = 25_000;
 const DEPLOYMENT_LIST_BOUND = 20;
 const APEX_LOG_SAMPLE = 20;
 const STORAGE_LIST_BOUND = 20;
+
+/**
+ * How often, at most, the live operations are pushed to the panels: a run
+ * reports its progress several times a second, and every open panel is sent
+ * each push.
+ */
+export const LIVE_OPERATIONS_PUSH_MS = 500;
 
 /**
  * Platform facts relied on below. Those marked (describe) were checked against
@@ -515,6 +526,37 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveOperationTracker = tracker;
+    // Pushed as the list changes. It was read when the Monitor opened, and
+    // again on a dashboard refresh, which asks the org: a Monitor opened
+    // before a run started never listed it, and one opened during a run kept
+    // it Running, with a Cancel, after it had ended.
+    tracker.onChange(() => this.pushLiveOperationsSoon());
+  }
+
+  /** The push of the live operations that is due, if one is. */
+  private livePush: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Push the live operations as they are when the wait ends, at most once
+   * every {@link LIVE_OPERATIONS_PUSH_MS}: every change in between is in it.
+   */
+  private pushLiveOperationsSoon(): void {
+    if (this.livePush !== undefined) return;
+    this.livePush = setTimeout(() => {
+      this.livePush = undefined;
+      const message: BaseMessage & { payload: { operations: LiveOperation[] } } = {
+        id: this.deps.nextId(),
+        type: 'monitor:live-operations:changed',
+        timestamp: Date.now(),
+        // Copies, as they are now: the tracker goes on changing its own.
+        payload: {
+          operations: (this.liveOperationTracker?.getAll() ?? []).map((op) => ({ ...op })),
+        },
+      };
+      this.deps.broker.postToWebview(message);
+    }, LIVE_OPERATIONS_PUSH_MS);
+    // A push still due does not keep the extension host up.
+    this.livePush.unref?.();
   }
 
   /**

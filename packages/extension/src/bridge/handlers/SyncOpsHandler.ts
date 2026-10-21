@@ -79,11 +79,13 @@ import { isNetworkError } from '../../core/common/isNetworkError.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import type { BulkOperation } from '../../core/engine/BulkApiExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
-import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { BulkDataWriter, createdIds } from '../../modules/sync/BulkDataWriter.js';
+import type { OperationOutcome } from '../../modules/sync/DataSync.js';
 import {
   targetWriteFieldsOf,
   type TargetWriteFields,
@@ -1997,6 +1999,32 @@ export class SyncOpsHandler implements DomainHandler {
           this.liveTracker?.updateProgress(operationId, pct, processed, total, label);
         },
         log: (message) => this.deps.log(message),
+        // What each call that can create writes, kept as it goes and as it
+        // answers: kept once the object's whole write returned, a window
+        // closed during it kept none of the object's records — a Bulk API job
+        // of ten thousand runs on to its end — and its removal left them in
+        // the target without a word. The object's write still notes them all
+        // once it returns, which the file reads once.
+        ...(creations
+          ? {
+              calls: {
+                sending: (objectName: string, operation: BulkOperation, rows: number) => {
+                  if (operation === 'insert' || operation === 'upsert') {
+                    creations.sending?.(objectName, rows);
+                  }
+                },
+                answered: (
+                  objectName: string,
+                  operation: BulkOperation,
+                  outcomes: readonly OperationOutcome[],
+                ) => {
+                  if (operation === 'insert' || operation === 'upsert') {
+                    creations.answered?.(objectName, createdIds(operation, outcomes));
+                  }
+                },
+              },
+            }
+          : {}),
       });
 
       // Lazy-import sync dependencies

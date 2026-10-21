@@ -97,6 +97,13 @@ export interface SeedInsertDeps {
   log: (line: string) => void;
   /** Told as a bulk insert goes: the records processed of the insert's, and what it is. */
   onProgress: (processed: number, total: number, step: string) => void;
+  /**
+   * Told of the records each REST call created, as it answers. An object a
+   * duplicate rule sends through REST goes in many calls inside one insert,
+   * and its records were kept once the insert returned: a window closed
+   * during it kept none of the calls already answered.
+   */
+  onCreated?: (objectApiName: string, ids: readonly string[]) => void;
 }
 
 /** The orchestrator's `insert`, the panel's and the command line's. */
@@ -239,9 +246,11 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
       if (retryResult.cancelled) return { successIds, errors, rows, stopped: true };
 
       if (retryResult.success && retryResult.result) {
+        const created: string[] = [];
         for (const r of retryResult.result) {
           if (r.success && r.id) {
             successIds.push(r.id);
+            created.push(r.id);
             rows.push({ id: r.id });
           } else {
             const error = recordErrorText(r.errors);
@@ -249,6 +258,7 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
             rows.push({ error, errorDetails: (r.errors ?? []).map(saveErrorDetail) });
           }
         }
+        if (created.length > 0) deps.onCreated?.(objectApiName, created);
       } else {
         // The whole batch is lost, not one record: `errors.length` is what
         // SeedOrchestrator reports as recordsFailed, so a single push made

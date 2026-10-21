@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { LiveOperationSnapshot, SalesforceOrg } from '@sandforge/shared';
@@ -95,6 +95,9 @@ const liveOperations = [
   }),
 ];
 
+/** The query's answer, one object as a hook's state is: a new one each render read as a new answer. */
+const liveOpsAnswer = { operations: liveOperations };
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'monitor:refresh') {
@@ -102,7 +105,7 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
     }
     if (type === 'monitor:live-operations') {
       return {
-        data: { operations: liveOperations },
+        data: liveOpsAnswer,
         loading: false,
         error: null,
         refetch: mockLiveOpsRefetch,
@@ -284,6 +287,40 @@ describe('MonitorPage live-operation controls', () => {
 
     expect(useNotificationStore.getState().notifications).toEqual([]);
     expect(mockLiveOpsRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the list the extension pushes as runs start and end, with no refresh of the org', () => {
+    render(<MonitorPage />);
+    expect(screen.queryByTestId('cancel-op-9')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'ext-push-1',
+            type: 'monitor:live-operations:changed',
+            timestamp: Date.now(),
+            payload: {
+              operations: [
+                makeOperation({
+                  operationId: 'op-9',
+                  module: 'autopilot',
+                  description: 'Autopilot run',
+                }),
+              ],
+            },
+          },
+        }),
+      );
+    });
+
+    // A run started after the Monitor opened is listed, with its Cancel, and
+    // its module read by the navigation's name.
+    expect(screen.getByTestId('cancel-op-9')).toBeTruthy();
+    expect(screen.getByText('Autopilot')).toBeTruthy();
+    // The list it replaced is gone: op-1 ended meanwhile.
+    expect(screen.queryByTestId('cancel-op-1')).toBeNull();
+    expect(mockLiveOpsRefetch).not.toHaveBeenCalled();
   });
 
   it('reads the list again on each dashboard refresh, not on the first one', () => {

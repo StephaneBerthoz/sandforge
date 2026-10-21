@@ -335,6 +335,12 @@ export interface SyncRunRemovalInfo {
   startedAt: ISODateString;
   /** When it ended; absent from a run a closed window stopped part way. */
   endedAt?: ISODateString;
+  /**
+   * Of a run a closed window stopped part way, the call it had under way: the
+   * rows of it that the target took are in the org and not in `created`, and
+   * no removal of the run takes them.
+   */
+  inFlight?: { objectApiName: string; rows: number };
   /** Records and files it created, in all. */
   created: number;
   /**

@@ -596,6 +596,62 @@ describe('BulkDataWriter', () => {
     });
   });
 
+  describe('each call, as it goes and as it answers', () => {
+    it('tells the run of every REST batch before it goes, and of what it wrote once it answers', async () => {
+      const h = createHarness();
+      const told: string[] = [];
+      const writer = new BulkDataWriter({
+        ...h.deps,
+        calls: {
+          sending: (object, operation, rows) => told.push(`sending ${operation} ${object} ${rows}`),
+          answered: (object, operation, outcomes) =>
+            told.push(`answered ${operation} ${object} ${outcomes.map((o) => o.id).join(',')}`),
+        },
+      });
+      h.sobject.create.mockImplementation(async (batch: unknown[]) => {
+        told.push(`call ${batch.length}`);
+        return batch.length === 2 ? okResults(2, 0) : okResults(1, 2);
+      });
+
+      await writer.insert('Account', makeRecords(3), 2);
+
+      expect(told).toEqual([
+        'sending insert Account 2',
+        'call 2',
+        'answered insert Account 001000,001001',
+        'sending insert Account 1',
+        'call 1',
+        'answered insert Account 001002',
+      ]);
+    });
+
+    it('tells the run of a Bulk API job before it opens, and of its rows once it ends', async () => {
+      const h = createHarness({ useBulkApi: true });
+      const told: string[] = [];
+      const writer = new BulkDataWriter({
+        ...h.deps,
+        calls: {
+          sending: (object, operation, rows) => told.push(`sending ${operation} ${object} ${rows}`),
+          answered: (_object, _operation, outcomes) =>
+            told.push(`answered ${outcomes.filter((o) => o.success).length}`),
+        },
+      });
+      h.executeBulk.mockImplementation(async () => {
+        told.push('job');
+        return {
+          outcomes: [
+            { recordIndex: 0, id: '001BULK', success: true },
+            { recordIndex: 1, success: false, error: 'STORAGE_LIMIT_EXCEEDED' },
+          ],
+        };
+      });
+
+      await writer.upsert('Account', 'External_Id__c', makeRecords(2), 200);
+
+      expect(told).toEqual(['sending upsert Account 2', 'job', 'answered 1']);
+    });
+  });
+
   describe('Bulk API path', () => {
     it('uses executeBulk and skips REST entirely above the bulk threshold', async () => {
       const h = createHarness({ useBulkApi: true });

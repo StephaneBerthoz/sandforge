@@ -155,6 +155,11 @@ export interface UseCloneReturn {
   setStep: (step: CloneStep) => void;
   /** Dismiss the error, and nothing else: the orgs, the objects and the preview stay. */
   dismissError: () => void;
+  /**
+   * The id of the request that started the clone, which the extension runs
+   * it under: what a Cancel sends to stop it. Null before the first one.
+   */
+  runRequestId: string | null;
   /** Reset all clone state. */
   reset: () => void;
 }
@@ -509,6 +514,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     handleExecute,
     setStep: goToStep,
     dismissError,
+    runRequestId: executeMutation.requestId,
     reset,
   };
 }

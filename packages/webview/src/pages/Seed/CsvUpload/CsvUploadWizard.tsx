@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { useBridgeQuery } from '../../../hooks/useBridgeQuery';
 import { useLatestRef } from '../../../hooks/useLatestRef';
+import { useOperationCancel } from '../../../hooks/useOperationCancel';
 import { Button } from '../../../components/ui/Button';
 import { Select } from '../../../components/ui/Select';
 import { Skeleton } from '../../../components/ui/Skeleton';
@@ -19,6 +20,11 @@ import type { CsvImportStep } from './useCsvImport';
 export interface CsvUploadWizardProps {
   /** Callback when the user wants to return to mode selection. */
   onBack: () => void;
+  /**
+   * Told whether an import is running: the page hides its way back while it
+   * does, since leaving loses the import's answer and stops nothing.
+   */
+  onRunningChange?: (running: boolean) => void;
 }
 
 /** Wizard step definition for the CSV import flow. */
@@ -50,10 +56,27 @@ const STEP_INDEX: Record<CsvImportStep, number> = {
  * execution progress into a linear wizard flow. Uses useCsvImport hook
  * for all state management.
  */
-export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
+export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunningChange }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const csv = useCsvImport(t);
+
+  /*
+   * The import runs in the extension under the id of its request, which a
+   * Cancel names on `execution:abort`, as Live Operations' does: it stops
+   * before its next batch, and what it wrote stays in the org. The page had
+   * no Stop, and its Cancel only left the wizard while every row was written.
+   */
+  const running = csv.executionStatus === 'executing';
+  const { requested: stopRequested, cancel: stopImport } = useOperationCancel(
+    running ? csv.runRequestId : null,
+    { title: t('common.runCancelRefused'), message: t('common.runCancelRefusedDetail') },
+  );
+  const toldRunning = useLatestRef(onRunningChange);
+  useEffect(() => {
+    toldRunning.current?.(running);
+  }, [running, toldRunning]);
+  useEffect(() => () => toldRunning.current?.(false), [toldRunning]);
 
   const describeGlobal = useBridgeQuery<{ objects: Array<{ apiName: string; label: string }> }>(
     'seed:describe-global',
@@ -251,10 +274,20 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
                 <Badge variant="default">
                   {t('common.recordCount', { count: csv.parsedRows.length })}
                 </Badge>
+                {/* Said before the write: an import keeps no list of what it
+                    writes, and nothing in SandForge takes it back. */}
+                <p
+                  id="csv-no-way-back"
+                  className="text-xs text-(--sf-text-secondary) text-center max-w-md"
+                  data-testid="csv-no-way-back"
+                >
+                  {t('common.noWayBack')}
+                </p>
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={csv.handleExecute}
+                  aria-describedby="csv-no-way-back"
                   data-testid="execute-button"
                 >
                   {t('seed.csv.wizard.execute')}
@@ -268,14 +301,44 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
                 <span className="text-xs text-(--sf-text-secondary)">
                   {t('seed.csv.wizard.executing')}
                 </span>
+                {csv.runRequestId && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={stopRequested}
+                    focusableWhenDisabled
+                    onClick={stopImport}
+                    data-testid="csv-stop"
+                  >
+                    {t('common.cancelRun')}
+                  </Button>
+                )}
+                {stopRequested && (
+                  <p
+                    role="status"
+                    className="text-[11px] text-(--sf-text-secondary)"
+                    data-testid="csv-stopping"
+                  >
+                    {t('common.runStopping')}
+                  </p>
+                )}
               </div>
             )}
 
             {csv.executionStatus === 'complete' && csv.executionResult && (
               <div className="flex flex-col items-center gap-3 py-6" data-testid="csv-complete">
-                <Badge variant="success">
-                  {t('seed.csv.wizard.inserted', { count: csv.executionResult.insertedCount })}
-                </Badge>
+                {/* A stopped import is said as one: it read as a success. */}
+                {csv.executionResult.cancelled ? (
+                  <Badge variant="warning" data-testid="csv-cancelled">
+                    {t('seed.csv.wizard.cancelled', {
+                      count: csv.executionResult.insertedCount,
+                    })}
+                  </Badge>
+                ) : (
+                  <Badge variant="success">
+                    {t('seed.csv.wizard.inserted', { count: csv.executionResult.insertedCount })}
+                  </Badge>
+                )}
                 {csv.executionResult.failedCount > 0 && (
                   <Badge variant="error">
                     {t('seed.csv.wizard.failed', { count: csv.executionResult.failedCount })}
@@ -302,9 +365,13 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
       {/* Navigation bar */}
       <div className="flex justify-between items-center pt-2 border-t border-(--sf-border)">
         <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={onBack} data-testid="csv-cancel-button">
-            {t('seed.csv.wizard.cancel')}
-          </Button>
+          {/* Not while the import runs: leaving stopped nothing, and the
+              import's answer was lost with the wizard. */}
+          {!running && (
+            <Button variant="secondary" size="sm" onClick={onBack} data-testid="csv-cancel-button">
+              {t('seed.csv.wizard.cancel')}
+            </Button>
+          )}
           {csv.step !== 'upload' && csv.step !== 'execute' && (
             <Button
               variant="secondary"

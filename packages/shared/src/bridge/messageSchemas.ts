@@ -197,6 +197,8 @@ const MonitorMessages = [
   msg('monitor:open-apex-jobs:response'),
   msg('monitor:live-operations'),
   msg('monitor:live-operations:response'),
+  // The list as it is now, pushed as it changes: see `LiveOperationsChanged`.
+  msg('monitor:live-operations:changed'),
   msg('monitor:storage'),
   msg('monitor:storage:response'),
   msg('monitor:deployments'),
@@ -221,7 +223,7 @@ const MonitorMessages = [
   msg('monitor:alert:dismiss:response'),
   // (The `monitor:metric` / `monitor:metrics:batch` / `monitor:metric:subscribe`
   // MetricBus envelope variants + the `monitor:live-operations:updated` push
-  // variant were purged with the extension-side Monitor v2 removal — no
+  // variant, which nothing emitted, were purged with the extension-side Monitor v2 removal — no
   // emitter or consumer remains. The `monitor:export:*` envelopes were removed
   // when ReportExporter was dropped at P2; the legacy `MonitorExport*` TS
   // interfaces are gone too. The `monitor:fleet:summary:request/response` +

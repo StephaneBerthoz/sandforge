@@ -42,6 +42,7 @@ const REFUSAL_KEYS: Record<SeedRemovalRefusalCode, string> = {
   GUARD_BLOCKED: 'sync.removal.refusedGuard',
   NO_GUARD: 'sync.removal.refusedNoGuard',
   ORG_GONE: 'sync.removal.refusedOrgGone',
+  RUNNING: 'sync.removal.refusedRunning',
 };
 
 /** What `seed:remove` answers. */

@@ -19,6 +19,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 import { SeedRunHistory } from './SeedRunHistory';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 
 const DEV = {
   id: 'org-dev',
@@ -112,17 +113,41 @@ describe('SeedRunHistory', () => {
     );
   });
 
-  it('says a seed that stopped before it ended is partial, and still offers its removal', () => {
+  it('says a seed that stopped before it ended is partial, lists what the org confirmed, and still offers its removal', () => {
     render(<SeedRunHistory />);
     answer('seed:removal:list', 'seed:removal:list:response', {
       runs: [{ ...RUNS[0], runId: 'op-cut', unfinished: true }, RUNS[1]],
     });
 
     expect(screen.getByTestId('seed-run-history-unfinished-op-cut').textContent).toBe(
-      'partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what it wrote until then',
+      'partial: the seed stopped before it ended — its window closed, or the extension stopped — and lists what the org had confirmed by then: records of a call still under way may be in the org unlisted',
     );
     expect(screen.getByTestId('seed-run-history-state-op-cut').textContent).toBe('can be removed');
     expect(screen.queryByTestId('seed-run-history-unfinished-op-1')).toBeNull();
+  });
+
+  it('says a seed still writing in this window is running, offers no removal, and leads to Live Operations', () => {
+    useAppStore.setState({ currentRoute: 'seed' });
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        {
+          ...RUNS[0],
+          runId: 'op-live',
+          running: true,
+          refusal: { code: 'RUNNING', message: 'The seed is still writing.' },
+        },
+        RUNS[1],
+      ],
+    });
+
+    expect(screen.getByTestId('seed-run-history-running-op-live').textContent).toBe(
+      "running: the seed is still writing in this window. Stop it with the wizard's Cancel or from Monitor's Live Operations, and remove it once it has ended",
+    );
+    expect(screen.queryByTestId('seed-run-history-unfinished-op-live')).toBeNull();
+    expect(screen.queryByTestId('seed-run-history-toggle-op-live')).toBeNull();
+    fireEvent.click(screen.getByTestId('seed-run-history-live-op-live'));
+    expect(useAppStore.getState().currentRoute).toBe('monitor');
   });
 
   it('shows nothing when no seed is kept', () => {

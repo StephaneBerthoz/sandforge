@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import {
@@ -46,11 +46,13 @@ import { MonitorOrgInfoBar } from './MonitorOrgInfoBar';
 import { MonitorTrendsJobsRow } from './MonitorTrendsJobsRow';
 import { MonitorLimitsSection } from './MonitorLimitsSection';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { useMessageListener } from '../../hooks/useMessageBus';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type {
   SalesforceOrg,
   LiveOperationSnapshot,
+  LiveOperationsChanged,
   ExecutionAbortResponse,
   SyncRunControlAnswer,
 } from '@sandforge/shared';
@@ -202,7 +204,23 @@ export const MonitorPage: React.FC = () => {
     undefined,
     { responseType: 'monitor:live-operations:response', skip: !selectedOrgId },
   );
-  const liveOperations = liveOpsQuery.data?.operations ?? [];
+  /*
+   * The list as the extension pushes it while it changes: a run registered,
+   * its progress, its end. Read once, then on a dashboard refresh alone, a
+   * Monitor opened before a run started never listed it, and one opened
+   * during a run kept it Running, with its Cancel, once it had ended. The
+   * newer of the two is shown: an answer to the query read after a push
+   * replaces it.
+   */
+  const [pushedLiveOps, setPushedLiveOps] = useState<LiveOperationSnapshot[] | null>(null);
+  useMessageListener<LiveOperationsChanged>('monitor:live-operations:changed', (msg) =>
+    setPushedLiveOps(msg.payload.operations),
+  );
+  const queriedLiveOps = liveOpsQuery.data;
+  useEffect(() => {
+    setPushedLiveOps(null);
+  }, [queriedLiveOps]);
+  const liveOperations = pushedLiveOps ?? queriedLiveOps?.operations ?? [];
   const refetchLiveOps = liveOpsQuery.refetch;
   const addNotification = useNotificationStore((s) => s.addNotification);
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { MonitorOpsHandler } from './MonitorOpsHandler.js';
+import { LIVE_OPERATIONS_PUSH_MS, MonitorOpsHandler } from './MonitorOpsHandler.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import type * as vscode from 'vscode';
@@ -141,6 +142,65 @@ describe('MonitorOpsHandler', () => {
     expect(response.type).toBe('monitor:live-operations:response');
     expect(response.correlationId).toBe('req-mon-2');
     expect(response.payload.operations).toEqual([]);
+  });
+
+  describe('live operations pushed as they change', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** The pushes of the list sent so far, each with the list it carried. */
+    function pushes(): Array<{
+      correlationId?: string;
+      operations: Array<Record<string, unknown>>;
+    }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0] as BaseMessage & { payload: { operations: [] } })
+        .filter((m) => m.type === 'monitor:live-operations:changed')
+        .map((m) => ({ correlationId: m.correlationId, operations: m.payload.operations }));
+    }
+
+    it('pushes the list, uncorrelated, once a run starts, and again as it ends', async () => {
+      vi.useFakeTimers();
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      tracker.register('op-1', 'seed', 'Seeding 3 object(s)', 300);
+      await vi.advanceTimersByTimeAsync(LIVE_OPERATIONS_PUSH_MS);
+      tracker.complete('op-1');
+      await vi.advanceTimersByTimeAsync(LIVE_OPERATIONS_PUSH_MS);
+
+      expect(pushes()).toEqual([
+        {
+          correlationId: undefined,
+          operations: [expect.objectContaining({ operationId: 'op-1', status: 'running' })],
+        },
+        {
+          correlationId: undefined,
+          operations: [expect.objectContaining({ operationId: 'op-1', status: 'completed' })],
+        },
+      ]);
+      tracker.dispose();
+    });
+
+    it('pushes at most once per wait, with the list as it is at its end', async () => {
+      vi.useFakeTimers();
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      tracker.register('op-1', 'sync', 'Syncing', 1000);
+      for (let i = 1; i <= 50; i++) tracker.updateProgress('op-1', i, i * 10, 1000, `batch ${i}`);
+      expect(pushes()).toEqual([]);
+      await vi.advanceTimersByTimeAsync(LIVE_OPERATIONS_PUSH_MS);
+
+      expect(pushes()).toEqual([
+        {
+          correlationId: undefined,
+          operations: [expect.objectContaining({ processedRecords: 500, currentStep: 'batch 50' })],
+        },
+      ]);
+      tracker.dispose();
+    });
   });
 
   it('does not claim monitor:start or monitor:health-score, which no page sends', async () => {

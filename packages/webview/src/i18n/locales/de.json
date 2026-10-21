@@ -62,7 +62,8 @@
       "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
       "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
-      "backupBusy": "Ein Backup oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Backups, sobald der Vorgang beendet ist."
+      "backupBusy": "Ein Backup oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Backups, sobald der Vorgang beendet ist.",
+      "autopilotRunning": "Ein Autopilot-Lauf schreibt noch in diese Ziel-Org, und es wurde nichts weiter gestartet: Die Live-Operationen im Monitor zeigen, wo er steht. Starten Sie einen weiteren, wenn er beendet ist."
     },
     "list": {
       "separator": ", ",
@@ -73,7 +74,11 @@
       "listed": "Gruppiert aus den ersten {{listed}} der {{failed}} abgelehnten Datensätze."
     },
     "details": "Details",
-    "optional": "Optional"
+    "optional": "Optional",
+    "runStopping": "Wird gestoppt: Der Lauf endet vor seinem nächsten Aufruf an die Org.",
+    "noWayBack": "SandForge kann nicht entfernen, was dieser Lauf schreibt: Probieren Sie ihn in einer Scratch-Org oder einer Sandbox aus, die Sie aktualisieren können.",
+    "runCancelRefused": "Lauf konnte nicht abgebrochen werden",
+    "runCancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet."
   },
   "status": {
     "apiUsage": "API-Nutzung",
@@ -766,7 +771,9 @@
         "inserted_one": "{{count}} Datensatz eingefügt",
         "inserted_other": "{{count}} Datensätze eingefügt",
         "failed_one": "{{count}} Datensatz fehlgeschlagen",
-        "failed_other": "{{count}} Datensätze fehlgeschlagen"
+        "failed_other": "{{count}} Datensätze fehlgeschlagen",
+        "cancelled_one": "Abgebrochen: {{count}} vor dem Stopp importierter Datensatz bleibt in der Org",
+        "cancelled_other": "Abgebrochen: {{count}} vor dem Stopp importierte Datensätze bleiben in der Org"
       }
     },
     "modeSelect": {
@@ -775,7 +782,8 @@
       "csv": "CSV-Upload",
       "csvDesc": "Daten aus einer CSV-Datei importieren",
       "clone": "Von Org klonen",
-      "cloneDesc": "Datensätze aus einer anderen Org klonen"
+      "cloneDesc": "Datensätze aus einer anderen Org klonen",
+      "notRemovable": "Was es schreibt, kann nicht über „Frühere Seeds“ entfernt werden."
     },
     "persona": {
       "title": "KI-Personas",
@@ -976,9 +984,11 @@
       "historyPartlyRemoved": "teilweise entfernt am {{date}}: der Rest kann entfernt werden",
       "historyNothingLeft": "nichts mehr zu entfernen",
       "historyRefused": "kann von hier aus nicht entfernt werden",
-      "historyUnfinished": "unvollständig: der Seed hielt vor seinem Ende an — sein Fenster wurde geschlossen oder die Erweiterung angehalten — und listet, was er bis dahin geschrieben hat",
+      "historyUnfinished": "unvollständig: der Seed hielt vor seinem Ende an — sein Fenster wurde geschlossen oder die Erweiterung angehalten — und listet, was die Org bis dahin bestätigt hatte: Datensätze eines noch laufenden Aufrufs können ungelistet in der Org sein",
       "historyShow": "Anzeigen",
-      "historyHide": "Ausblenden"
+      "historyHide": "Ausblenden",
+      "historyRunning": "läuft: Der Seed schreibt in diesem Fenster noch. Stoppen Sie ihn mit „Abbrechen“ im Assistenten oder über die Live-Operationen im Monitor, und entfernen Sie ihn, wenn er beendet ist",
+      "historyOpenLiveOps": "Live-Operationen öffnen"
     },
     "start": {
       "subtitle": "Eine Org mit realistischen Daten füllen",
@@ -1539,8 +1549,10 @@
       "filesForgotten_one": "{{config}} zählt {{formatted}} Datei nicht mehr als kopiert: Das nächste vollständige Lesen kopiert sie erneut.",
       "filesForgotten_other": "{{config}} zählt {{formatted}} Dateien nicht mehr als kopiert: Das nächste vollständige Lesen kopiert sie erneut.",
       "unfinishedTitle": "Nie beendete Läufe",
-      "unfinishedNote": "Während dieser Läufe wurde ein Fenster geschlossen, oder der Verlauf führt sie nicht mehr. Was sie erstellt haben, wird aufbewahrt und kann entfernt werden.",
-      "unfinishedRun": "{{config}}, gestartet am {{date}}"
+      "unfinishedNote": "Während dieser Läufe wurde ein Fenster geschlossen, oder der Verlauf führt sie nicht mehr. Was sie erstellt haben, wird aufbewahrt, sobald jeder Aufruf an das Ziel beantwortet war, und kann entfernt werden.",
+      "unfinishedRun": "{{config}}, gestartet am {{date}}",
+      "unfinishedInFlight_one": "Er hielt an, während er {{formatted}} {{object}}-Zeile schrieb: Hat das Ziel sie übernommen, ist sie in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht.",
+      "unfinishedInFlight_other": "Er hielt an, während er {{formatted}} {{object}}-Zeilen schrieb: Die vom Ziel übernommenen sind in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht."
     },
     "earlierCopies": {
       "leftAsIs": "Ein Lauf dieser gespeicherten Konfiguration lässt die Datensätze, die ihre früheren Läufe kopiert haben, wie sie sind, und fügt die anderen ein.",
@@ -1974,7 +1986,15 @@
     "backupDeleteAllConfirm_one": "Das auf diesem Rechner gespeicherte Backup dieser Org löschen? Die Werte der Datensätze, die es im Klartext enthält, sind endgültig weg, und es lässt sich nicht mehr wiederherstellen.",
     "backupDeleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Backups dieser Org löschen? Die Werte der Datensätze, die sie im Klartext enthalten, sind endgültig weg, und keines lässt sich mehr wiederherstellen.",
     "backupsDeleted_one": "{{count}} Backup von diesem Rechner gelöscht.",
-    "backupsDeleted_other": "{{count}} Backups von diesem Rechner gelöscht."
+    "backupsDeleted_other": "{{count}} Backups von diesem Rechner gelöscht.",
+    "snapshot": {
+      "keep": "Die Werte vorher aufbewahren, damit „Wiederherstellen“ sie zurückschreiben kann",
+      "keepHint": "Vor dem ersten Schreiben wird eine Sicherung der Felder erstellt, die der Lauf maskiert. Kann sie nicht jede Zeile aufnehmen, die der Lauf maskieren würde, wird nichts maskiert.",
+      "taken_one": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensatz aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
+      "taken_other": "Die Werte vor dem Maskieren sind in einer Sicherung von {{formatted}} Datensätzen aufbewahrt: „Wiederherstellen“ schreibt sie zurück.",
+      "openRestore": "In „Wiederherstellen“ öffnen",
+      "refused": "Es konnte kein Snapshot aufbewahrt werden, daher wurde nichts maskiert. Um ohne Weg zurück zu maskieren, deaktivieren Sie „Die Werte vorher aufbewahren“ in der Bestätigung."
+    }
   },
   "automation": {
     "title": "Automatisierung",

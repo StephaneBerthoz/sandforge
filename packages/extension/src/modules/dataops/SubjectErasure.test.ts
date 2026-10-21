@@ -170,4 +170,22 @@ describe('runErasure', () => {
       errors: [{ objectApiName: 'Contact', message: 'DELETE_FAILED: associated with cases' }],
     });
   });
+
+  it('writes nothing once its cancel is aborted, and says what it did not do', async () => {
+    const conn = org();
+    const prepared = await prepareErasure(conn, new PIIDetector(), 'delete', targets);
+    const cancel = new AbortController();
+    cancel.abort();
+
+    const done = await runErasure(
+      conn,
+      new AnonymizationEngine(undefined, 'k'),
+      prepared,
+      undefined,
+      cancel.signal,
+    );
+
+    expect(conn.destroy).not.toHaveBeenCalled();
+    expect(done).toEqual([]);
+  });
 });

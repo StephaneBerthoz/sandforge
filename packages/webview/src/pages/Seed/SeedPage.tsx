@@ -88,6 +88,12 @@ export const SeedPage: React.FC = () => {
     [startQuickSeed],
   );
   const backToStart = useCallback(() => setSeedMode('start'), []);
+  /**
+   * Whether the CSV import or the clone is running: its way back is hidden
+   * meanwhile. Leaving stopped nothing — the run went on writing — and lost
+   * its answer with the flow it unmounted.
+   */
+  const [flowRunning, setFlowRunning] = useState(false);
 
   if (orgs.length === 0) {
     return (
@@ -123,7 +129,7 @@ export const SeedPage: React.FC = () => {
       )}
 
       {/* Back to the start, from the CSV import or the clone */}
-      {(seedMode === 'csv' || seedMode === 'clone') && (
+      {(seedMode === 'csv' || seedMode === 'clone') && !flowRunning && (
         <button
           className="flex items-center gap-1 text-xs text-(--sf-text-link) hover:underline self-start"
           onClick={backToStart}
@@ -177,6 +183,14 @@ export const SeedPage: React.FC = () => {
                       <span className="text-xs text-text-secondary text-center">
                         {t('seed.modeSelect.csvDesc')}
                       </span>
+                      {/* Unlike a template's run and the wizard's, which Earlier
+                          seeds takes back. */}
+                      <span
+                        className="text-[11px] text-text-secondary text-center"
+                        data-testid="mode-card-csv-not-removable"
+                      >
+                        {t('seed.modeSelect.notRemovable')}
+                      </span>
                     </div>
                   </CardBody>
                 </Card>
@@ -190,6 +204,12 @@ export const SeedPage: React.FC = () => {
                       </span>
                       <span className="text-xs text-text-secondary text-center">
                         {t('seed.modeSelect.cloneDesc')}
+                      </span>
+                      <span
+                        className="text-[11px] text-text-secondary text-center"
+                        data-testid="mode-card-clone-not-removable"
+                      >
+                        {t('seed.modeSelect.notRemovable')}
                       </span>
                     </div>
                   </CardBody>
@@ -207,14 +227,18 @@ export const SeedPage: React.FC = () => {
       {/* ----- CSV UPLOAD MODE ----- */}
       {seedMode === 'csv' && (
         <Suspense fallback={FLOW_LOADING}>
-          <CsvUploadWizard onBack={backToStart} />
+          <CsvUploadWizard onBack={backToStart} onRunningChange={setFlowRunning} />
         </Suspense>
       )}
 
       {/* ----- CLONE MODE ----- */}
       {seedMode === 'clone' && (
         <Suspense fallback={FLOW_LOADING}>
-          <CloneWizard onBack={backToStart} initialSourceOrgId={recommendedCloneSource} />
+          <CloneWizard
+            onBack={backToStart}
+            initialSourceOrgId={recommendedCloneSource}
+            onRunningChange={setFlowRunning}
+          />
         </Suspense>
       )}
 

@@ -10,6 +10,8 @@ import { SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
+import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import {
   dataOpsPiiInventoryPayloadSchema,
   dataOpsSubjectErasePayloadSchema,
@@ -78,6 +80,8 @@ export class DataOpsComplianceHandler implements DomainHandler {
   private readonly maskingKey = randomBytes(32).toString('hex');
 
   private readonly saveDialog: SaveDialogAdapter;
+  /** The Monitor's Live Operations, which list an erasure while it runs, with its Cancel. */
+  private liveTracker?: LiveOperationTracker;
 
   /**
    * @param deps - Injected handler dependencies.
@@ -88,6 +92,11 @@ export class DataOpsComplianceHandler implements DomainHandler {
     saveDialog?: SaveDialogAdapter,
   ) {
     this.saveDialog = saveDialog ?? new SaveDialogAdapter();
+  }
+
+  /** Inject the tracker the Monitor's Live Operations lists runs from. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /** The local log of subject requests. */
@@ -365,16 +374,20 @@ export class DataOpsComplianceHandler implements DomainHandler {
       }
 
       const engine = new AnonymizationEngine(undefined, this.maskingKey);
-      const result = await runGuardedRemoval(this.deps, {
-        orgId,
-        operation: mode === 'delete' ? 'delete' : 'update',
-        objectNames: acting.map((p) => p.objectApiName),
-        recordCount,
-        action: 'subject_erase',
-        description: `Erase ${recordCount} record(s) of a subject request`,
-        origin: 'dataops:dsr:erase',
-        run: (onObject) => runErasure(session, engine, prepared, onObject),
-      });
+      const result = await runGuardedRemoval(
+        this.deps,
+        {
+          orgId,
+          operation: mode === 'delete' ? 'delete' : 'update',
+          objectNames: acting.map((p) => p.objectApiName),
+          recordCount,
+          action: 'subject_erase',
+          description: `Erase ${recordCount} record(s) of a subject request`,
+          origin: 'dataops:dsr:erase',
+          run: (onObject, signal) => runErasure(session, engine, prepared, onObject, signal),
+        },
+        this.liveTracker,
+      );
 
       const at = new Date().toISOString();
       if (!result.ran) {
@@ -406,13 +419,14 @@ export class DataOpsComplianceHandler implements DomainHandler {
       });
       if (result.error !== undefined) {
         // Stopped half way: logged with what it had written, and said as the
-        // failure it is.
+        // failure, or the cancel, it is.
         sendHandlerError(
           this.deps,
           'dataops:dsr:erase',
           'dataops:error',
           msg,
           new Error(result.error),
+          result.cancelled ? { code: RUN_CANCELLED } : undefined,
         );
         return;
       }

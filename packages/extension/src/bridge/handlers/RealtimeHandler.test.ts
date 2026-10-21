@@ -7,6 +7,7 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes';
 import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import {
   SubscriptionRefused,
   type CometdTransport,
@@ -694,6 +695,27 @@ describe('RealtimeHandler', () => {
     expect(stopped.payload).toEqual({ sessionId, reason: 'cancelled', success: true });
     await handler.handle(request('realtime:status'));
     expect(ofType('realtime:status:response')[0].payload.status).toBe('disconnected');
+  });
+
+  it('lists a running session in Live Operations, ended cancelled by its Cancel and ended by its page', async () => {
+    const { handler, ofType } = setup();
+    const registry = new BackgroundOperationRegistry();
+    const tracker = new LiveOperationTracker();
+    handler.setRegistry(registry);
+    handler.setLiveOperationTracker(tracker);
+    await handler.handle(start());
+    const first = String(ofType('realtime:started')[0].payload.sessionId);
+
+    expect(tracker.get(first)).toMatchObject({ module: 'realtime', status: 'running' });
+    registry.abort(first);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tracker.get(first)?.status).toBe('cancelled');
+
+    await handler.handle(start());
+    const second = String(ofType('realtime:started')[1].payload.sessionId);
+    await handler.handle(request('realtime:stop', { sessionId: second }));
+    expect(tracker.get(second)?.status).toBe('completed');
+    tracker.dispose();
   });
 
   it('hands its writes no cancel: the batch a stopped session is writing is finished', async () => {

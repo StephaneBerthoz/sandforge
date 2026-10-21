@@ -2232,6 +2232,31 @@ describe('SeedOpsHandler', () => {
       );
     }
 
+    it('says its run is running while it writes, under the id its creations are kept by, and not once it ended', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      let runId: string | undefined;
+      let whileWriting: boolean | undefined;
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({
+          execute: vi.fn(async (_template: unknown, _org: string, id: string) => {
+            runId = id;
+            whileWriting = handler.isRunning(id);
+            return seedResult(1);
+          }),
+        })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await startSeed('seed-running');
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+
+      expect(whileWriting).toBe(true);
+      expect(handler.isRunning(runId ?? '')).toBe(false);
+    });
+
     it('hands the orchestrator the signal a Cancel from the Seed page aborts', async () => {
       const registry = new BackgroundOperationRegistry();
       handler.setRegistry(registry);
@@ -2278,14 +2303,34 @@ describe('SeedOpsHandler', () => {
         cancelled: true,
         totalRecordsCreated: 5,
       });
+      // Cancelled, as a Sync run the user stopped: partial read as a seed the
+      // org had refused records of.
       expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
         expect.objectContaining({
           operationId: 'seed-cancel-ends',
-          outcome: 'partial',
+          outcome: 'cancelled',
           objects: [expect.objectContaining({ objectApiName: 'Account', created: 5 })],
         }),
       ]);
       tracker.dispose();
+    });
+
+    it('records a seed stopped before its first record as stopped, under the code of a cancel', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      orchestratorUntilTheCancel(() => ({ ...seedResult(0), status: 'partial', cancelled: true }));
+
+      await startSeed('seed-cancel-early');
+      registry.abort('seed-cancel-early');
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          operationId: 'seed-cancel-early',
+          outcome: 'stopped',
+          details: { code: 'RUN_CANCELLED' },
+        }),
+      ]);
     });
 
     it('still ends as failed when the run fails while the cancel is pending', async () => {
@@ -2458,6 +2503,63 @@ describe('SeedOpsHandler', () => {
       rmSync(storage, { recursive: true, force: true });
       expect(kept.runId).toBe(ran);
       expect(kept.targetOrgId).toBe('org-1');
+      expect(kept.end).toBeUndefined();
+      expect(kept.created).toEqual([
+        { objectApiName: 'Account', ids: ['001000000000001', '001000000000002'] },
+      ]);
+    });
+
+    it('keeps what each call of an insert created as it answers, when the window closes during the insert', async () => {
+      // An object a duplicate rule sends through REST goes in many calls of
+      // one insert: kept once the insert returned, a window closed during it
+      // kept none of the calls already answered.
+      const storage = mkdtempSync(join(tmpdir(), 'sandforge-seed-kept-'));
+      handler.setRunCreations(nodeSeedRunCreations(storage));
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      let calls = 0;
+      const create = vi.fn(async (batch: unknown[]) => {
+        calls++;
+        // The window closes during the second call: it never answers.
+        if (calls === 2) return new Promise(() => undefined);
+        return batch.map((_, i) => ({
+          success: true,
+          id: `001${String(i + 1).padStart(12, '0')}`,
+        }));
+      });
+      mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps: SeedOrchestratorDependencies) => ({
+          execute: vi.fn(async () => {
+            await seedDeps.insert(
+              'org-1',
+              'Account',
+              [{ Name: 'a' }, { Name: 'b' }, { Name: 'c' }],
+              2,
+            );
+            return new Promise<SeedExecutionResult>(() => undefined);
+          }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-closed-mid-insert',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+      await vi.waitFor(() => expect(calls).toBe(2));
+
+      await vi.waitFor(async () =>
+        expect(await nodeSeedRunCreations(storage).list()).toHaveLength(1),
+      );
+      const [kept] = await nodeSeedRunCreations(storage).list();
+      registry.dispose();
+      rmSync(storage, { recursive: true, force: true });
       expect(kept.end).toBeUndefined();
       expect(kept.created).toEqual([
         { objectApiName: 'Account', ids: ['001000000000001', '001000000000002'] },

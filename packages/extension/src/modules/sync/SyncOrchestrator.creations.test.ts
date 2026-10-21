@@ -5,7 +5,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { SyncConfig, SyncObjectConfig } from '@sandforge/shared';
-import { SyncOrchestrator, createdIds, type SyncOrchestratorDeps } from './SyncOrchestrator';
+import { SyncOrchestrator, type SyncOrchestratorDeps } from './SyncOrchestrator';
+import { createdIds } from './BulkDataWriter';
 import { SyncRunFailure } from './SyncRunFailure';
 import { DataSync, type OperationOutcome } from './DataSync';
 import { FieldMappingService } from './FieldMapping';

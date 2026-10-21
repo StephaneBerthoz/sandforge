@@ -150,7 +150,11 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 
 /* The page's other ways to seed load as chunks of their own (see seedFlows);
    here they are the modules themselves, so each renders as it is opened. */
+/** Whether the CSV import says, once opened, that an import runs. */
+const flowState = vi.hoisted(() => ({ csvRuns: false }));
+
 vi.mock('./seedFlows', async () => {
+  const { createElement, useEffect } = await import('react');
   const [generate, quick, csv, clone, history] = await Promise.all([
     import('./SeedGenerateFlow'),
     import('./QuickSeedFlow'),
@@ -158,10 +162,18 @@ vi.mock('./seedFlows', async () => {
     import('./Clone/CloneWizard'),
     import('./SeedRunHistory'),
   ]);
+  /** The CSV import, which says an import runs when the test asks it to. */
+  const CsvUploadWizard = (props: Parameters<typeof csv.CsvUploadWizard>[0]) => {
+    const { onRunningChange } = props;
+    useEffect(() => {
+      if (flowState.csvRuns) onRunningChange?.(true);
+    }, [onRunningChange]);
+    return createElement(csv.CsvUploadWizard, { ...props, onRunningChange: undefined });
+  };
   return {
     SeedGenerateFlow: generate.SeedGenerateFlow,
     QuickSeedFlow: quick.QuickSeedFlow,
-    CsvUploadWizard: csv.CsvUploadWizard,
+    CsvUploadWizard,
     CloneWizard: clone.CloneWizard,
     SeedRunHistory: history.SeedRunHistory,
   };
@@ -505,6 +517,31 @@ describe('SeedPage', () => {
     fireEvent.click(screen.getByTestId('back-to-modes'));
     expect(screen.getByTestId('template-gallery')).toBeDefined();
     expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
+  });
+
+  it('offers no way back from the CSV import while an import runs: leaving stopped nothing', () => {
+    flowState.csvRuns = true;
+    try {
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SeedPage />);
+      fireEvent.click(screen.getByTestId('mode-card-csv'));
+
+      expect(screen.getByTestId('csv-upload-wizard')).toBeDefined();
+      expect(screen.queryByTestId('back-to-modes')).toBeNull();
+    } finally {
+      flowState.csvRuns = false;
+    }
+  });
+
+  it('says on the CSV and clone cards that what they write cannot be removed from Earlier seeds', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+
+    for (const card of ['csv', 'clone']) {
+      expect(screen.getByTestId(`mode-card-${card}-not-removable`).textContent).toBe(
+        'What it writes cannot be removed from Earlier seeds.',
+      );
+    }
   });
 
   it('goes back to the gallery from the wizard', () => {

@@ -205,6 +205,13 @@ describe('useClone', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('names the clone by the id of its request, which a Cancel sends to stop it', () => {
+    mockExecuteState = { ...mockExecuteState, requestId: 'wv-clone-run' };
+    const { result } = renderHook(() => useClone('org-1'));
+
+    expect(result.current.runRequestId).toBe('wv-clone-run');
+  });
+
   it('should set sourceOrgId and send describe-source message on handleSourceOrgSelected', () => {
     const { result } = renderHook(() => useClone('target-1'));
 

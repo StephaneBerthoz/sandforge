@@ -62,7 +62,8 @@
       "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",
       "seedStorageExceeded": "O seed foi recusado antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Reduza o número de registros, escolha um modelo mais leve ou libere armazenamento de dados em {{org}}.",
       "seedEmailsExceeded": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Reduza o número de registros, defina {{objects}} como 0, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
-      "backupBusy": "Um backup ou uma restauração desta org está em andamento: exclua seus backups quando terminar."
+      "backupBusy": "Um backup ou uma restauração desta org está em andamento: exclua seus backups quando terminar.",
+      "autopilotRunning": "Uma execução do Autopilot ainda está gravando nesta org de destino, e nada mais foi iniciado: as Operações ao vivo do Monitor mostram em que ponto ela está. Inicie outra quando ela terminar."
     },
     "list": {
       "separator": ", ",
@@ -73,7 +74,11 @@
       "listed": "Agrupados a partir dos primeiros {{listed}} dos {{failed}} registros recusados."
     },
     "details": "Detalhes",
-    "optional": "Opcional"
+    "optional": "Opcional",
+    "runStopping": "Parando: a execução termina antes da próxima chamada à org.",
+    "noWayBack": "O SandForge não pode remover o que esta execução grava: teste-a em uma scratch org ou em um sandbox que você possa atualizar.",
+    "runCancelRefused": "Não foi possível cancelar a execução",
+    "runCancelRefusedDetail": "A execução não está mais em andamento ou não foi iniciada nesta janela."
   },
   "status": {
     "apiUsage": "Uso de API",
@@ -766,7 +771,9 @@
         "inserted_one": "{{count}} registro inserido",
         "inserted_other": "{{count}} registros inseridos",
         "failed_one": "{{count}} registro falhou",
-        "failed_other": "{{count}} registros falharam"
+        "failed_other": "{{count}} registros falharam",
+        "cancelled_one": "Cancelado: {{count}} registro importado antes da parada permanece na org",
+        "cancelled_other": "Cancelado: {{count}} registros importados antes da parada permanecem na org"
       }
     },
     "modeSelect": {
@@ -775,7 +782,8 @@
       "csv": "Upload CSV",
       "csvDesc": "Importar dados de um arquivo CSV",
       "clone": "Clonar de Org",
-      "cloneDesc": "Clonar registros de outra org"
+      "cloneDesc": "Clonar registros de outra org",
+      "notRemovable": "O que ele grava não pode ser removido em Seeds anteriores."
     },
     "persona": {
       "title": "Personas de IA",
@@ -976,9 +984,11 @@
       "historyPartlyRemoved": "removido em parte em {{date}}: o que resta pode ser removido",
       "historyNothingLeft": "nada mais a remover",
       "historyRefused": "não pode ser removido daqui",
-      "historyUnfinished": "parcial: o seed parou antes de terminar — a janela foi fechada ou a extensão parou — e lista o que tinha gravado até então",
+      "historyUnfinished": "parcial: o seed parou antes de terminar — a janela foi fechada ou a extensão parou — e lista o que a org tinha confirmado até então: os registros de uma chamada ainda em andamento podem estar na org sem aparecer",
       "historyShow": "Mostrar",
-      "historyHide": "Ocultar"
+      "historyHide": "Ocultar",
+      "historyRunning": "em andamento: o seed ainda está gravando nesta janela. Pare-o com o Cancelar do assistente ou nas Operações ao vivo do Monitor, e remova-o quando ele terminar",
+      "historyOpenLiveOps": "Abrir Operações ao vivo"
     },
     "start": {
       "subtitle": "Preencher uma org com dados realistas",
@@ -1539,8 +1549,10 @@
       "filesForgotten_one": "{{config}} não conta mais {{formatted}} arquivo como copiado: sua próxima leitura completa o copia de novo.",
       "filesForgotten_other": "{{config}} não conta mais {{formatted}} arquivos como copiados: sua próxima leitura completa os copia de novo.",
       "unfinishedTitle": "Execuções que nunca terminaram",
-      "unfinishedNote": "Uma janela foi fechada durante estas execuções, ou o histórico não as lista mais. O que elas criaram é guardado, e pode ser removido.",
-      "unfinishedRun": "{{config}}, iniciada em {{date}}"
+      "unfinishedNote": "Uma janela foi fechada durante estas execuções, ou o histórico não as lista mais. O que elas criaram é guardado à medida que cada chamada ao destino respondia, e pode ser removido.",
+      "unfinishedRun": "{{config}}, iniciada em {{date}}",
+      "unfinishedInFlight_one": "Ela parou enquanto gravava {{formatted}} linha de {{object}}: se o destino a aceitou, ela está na org mas não aparece aqui, e a remoção não a inclui.",
+      "unfinishedInFlight_other": "Ela parou enquanto gravava {{formatted}} linhas de {{object}}: as que o destino aceitou estão na org mas não aparecem aqui, e a remoção não as inclui."
     },
     "earlierCopies": {
       "leftAsIs": "Uma execução desta configuração salva deixa como estão os registros que suas execuções anteriores copiaram e insere os outros.",
@@ -1974,7 +1986,15 @@
     "backupDeleteAllConfirm_one": "Excluir o backup desta org guardado nesta máquina? Os valores dos registros que ele guarda em claro somem de vez, e ele não poderá mais ser restaurado.",
     "backupDeleteAllConfirm_other": "Excluir os {{count}} backups desta org guardados nesta máquina? Os valores dos registros que eles guardam em claro somem de vez, e nenhum poderá mais ser restaurado.",
     "backupsDeleted_one": "{{count}} backup excluído desta máquina.",
-    "backupsDeleted_other": "{{count}} backups excluídos desta máquina."
+    "backupsDeleted_other": "{{count}} backups excluídos desta máquina.",
+    "snapshot": {
+      "keep": "Guardar os valores antes, para que Restaurar possa devolvê-los",
+      "keepHint": "Antes da primeira gravação, é feito um backup dos campos que a execução mascara. Se ele não puder conter todas as linhas que a execução mascararia, nada é mascarado.",
+      "taken_one": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registro: Restaurar os devolve.",
+      "taken_other": "Os valores de antes do mascaramento estão guardados em um backup de {{formatted}} registros: Restaurar os devolve.",
+      "openRestore": "Abrir em Restaurar",
+      "refused": "Nenhum snapshot pôde ser guardado, então nada foi mascarado. Para mascarar sem volta, desmarque “Guardar os valores antes” na confirmação."
+    }
   },
   "automation": {
     "title": "Automação",

@@ -158,19 +158,23 @@ function erasureRules(
  * @param engine - The DataOps anonymizer.
  * @param prepared - What {@link prepareErasure} planned.
  * @param onObject - Told as each object is done.
+ * @param signal - A cancel, honoured before each object and each call.
  */
 export async function runErasure(
   conn: Pick<OrgSession, 'update' | 'destroy'>,
   engine: Pick<AnonymizationEngine, 'anonymize'>,
   prepared: readonly PreparedErasure[],
   onObject?: (objectApiName: string, counts: WriteCounts) => void,
+  signal?: AbortSignal,
 ): Promise<Array<{ objectApiName: string; counts: WriteCounts }>> {
   const done: Array<{ objectApiName: string; counts: WriteCounts }> = [];
   for (const object of prepared) {
+    // A cancel stops the erasure before its next object, as before its next call.
+    if (signal?.aborted) break;
     if (object.plan.refused) continue;
     let counts: WriteCounts;
     if (object.ids) {
-      counts = await deleteRecords(conn, object.objectApiName, object.ids);
+      counts = await deleteRecords(conn, object.objectApiName, object.ids, signal);
     } else {
       const erased = object.erased ?? [];
       const records = object.records ?? [];
@@ -191,7 +195,7 @@ export async function runErasure(
         if (Object.keys(payload).length > 1) payloads.push(payload);
         else untouched++;
       });
-      counts = await updateRecords(conn, object.objectApiName, payloads);
+      counts = await updateRecords(conn, object.objectApiName, payloads, signal);
       // A record with none of those fields filled has nothing left to erase.
       counts.done += untouched;
     }

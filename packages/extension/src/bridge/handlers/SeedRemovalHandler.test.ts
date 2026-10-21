@@ -247,6 +247,39 @@ describe('SeedRemovalHandler', () => {
       });
     });
 
+    it('lists a run this window is still writing as running, not stopped, and refuses its removal', async () => {
+      const writing = new Set(['op-live']);
+      const live = new SeedRemovalHandler(deps, undefined, (runId) => writing.has(runId));
+      live.setRunCreations(runs);
+      live.setRegistry(registry);
+      const recorder = runs.recorder({
+        runId: 'op-live',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+      });
+      const account = fakeId('001', 5);
+      recorder.note('Account', [account]);
+      await vi.waitFor(async () => expect(await runs.get('op-live')).toBeDefined());
+      org.add('Account', { Id: account }, new Date().toISOString());
+
+      await live.handle(buildMsg('seed:removal:list', {}));
+      await live.handle(buildMsg('seed:remove', { runId: 'op-live' }));
+
+      const listed = lists()[0].find((run) => run.runId === 'op-live');
+      expect(listed).toMatchObject({ running: true, refusal: { code: 'RUNNING' } });
+      expect(listed?.unfinished).toBeUndefined();
+      expect(errors()[0].payload).toMatchObject({ code: 'RUNNING' });
+      expect(org.deletes).toEqual([]);
+
+      // Once it ended, it is offered as any run.
+      writing.clear();
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await live.handle(buildMsg('seed:removal:list', {}));
+      const after = lists()[0].find((run) => run.runId === 'op-live');
+      expect(after?.running).toBeUndefined();
+      expect(after?.refusal).toBeUndefined();
+    });
+
     it('lists no run in a window given nowhere to keep them', async () => {
       const bare = new SeedRemovalHandler(deps);
 

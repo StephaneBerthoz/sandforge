@@ -1820,6 +1820,22 @@ describe('ForgeHandler', () => {
       expect(tracker.get(listed[0].operationId)?.status).toBe('completed');
     });
 
+    it('lists a clone paused while it is paused, and running again once resumed', async () => {
+      const seen: string[] = [];
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        const id = tracker.getAll()[0].operationId;
+        await handler.handle(buildMsg('forge:pause'));
+        seen.push(tracker.get(id)?.status ?? 'unlisted');
+        await handler.handle(buildMsg('forge:resume'));
+        seen.push(tracker.get(id)?.status ?? 'unlisted');
+        return createMockResult();
+      });
+
+      await execute();
+
+      expect(seen).toEqual(['paused', 'running']);
+    });
+
     it('moves object by object, with the records of the objects the run is through', async () => {
       let listener: ProgressListener | undefined;
       vi.mocked(orchestrator.on).mockImplementation((_type, l) => {

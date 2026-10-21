@@ -73,6 +73,9 @@ const SWEEP_AUTOMATION_TIMEOUT_MS = 60_000;
 /** How long listing what a sweep would take may take: the automation read, then one read per object. */
 const SWEEP_LIST_TIMEOUT_MS = 120_000;
 
+/** Why a run still writing cannot be removed, until it ends. */
+const SEED_STILL_WRITING = 'The seed is still writing: remove it once it has ended.';
+
 /**
  * The removal of what a Seed run created, from the run's results or the list
  * of earlier seeds, and what the page reads before it asks for one. The
@@ -122,10 +125,12 @@ export class SeedRemovalHandler implements DomainHandler {
   /**
    * @param deps - Injected handler dependencies.
    * @param externalBrowser - Injected for tests; defaults to VS Code's `openExternal`.
+   * @param isRunning - Whether a run is still writing, in this window.
    */
   constructor(
     private readonly deps: HandlerDeps,
     externalBrowser?: ExternalBrowserAdapter,
+    private readonly isRunning: (runId: string) => boolean = () => false,
   ) {
     this.externalBrowser = externalBrowser ?? new ExternalBrowserAdapter();
   }
@@ -191,8 +196,13 @@ export class SeedRemovalHandler implements DomainHandler {
       targetOrgId: run.targetOrgId,
       startedAt: run.startedAt,
       endedAt: run.end?.at ?? run.lastWrittenAt ?? run.startedAt,
-      // A run is kept as it writes: one whose window closed under it has no end.
-      ...(run.end ? {} : { unfinished: true as const }),
+      // A run is kept as it writes: one whose window closed under it has no
+      // end, and so has one still writing in this window, which is not it.
+      ...(run.end
+        ? {}
+        : this.isRunning(run.runId)
+          ? { running: true as const }
+          : { unfinished: true as const }),
       created: createdCount(run),
       left: plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
@@ -207,6 +217,9 @@ export class SeedRemovalHandler implements DomainHandler {
     run: SyncRunKept,
     plan: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
   ): SeedRunRemovalInfo['refusal'] {
+    if (this.isRunning(run.runId)) {
+      return { code: 'RUNNING', message: SEED_STILL_WRITING };
+    }
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) {
       return {
         code: 'ORG_GONE',
@@ -568,6 +581,12 @@ export class SeedRemovalHandler implements DomainHandler {
       } else {
         this.refuse(msg, 'This run created nothing to remove.', 'NOTHING_TO_REMOVE');
       }
+      return;
+    }
+    // Still writing in this window: its accounts would go while its contacts
+    // are inserted under them. Sync refuses its runs the same way.
+    if (this.isRunning(run.runId)) {
+      this.refuse(msg, SEED_STILL_WRITING, 'RUNNING');
       return;
     }
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) {

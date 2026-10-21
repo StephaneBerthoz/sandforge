@@ -14,7 +14,9 @@ import { uiLocale } from '../../utils/formatters';
  *
  * The operations tracked here are the runs that write to an org — Seed, Sync,
  * a Forge clone and the removal of what one created, a record clone, a CSV
- * import, a Frozen dataset load. Every one can be cancelled. A Sync run can
+ * import, a Frozen dataset load, an Autopilot run, a DataOps backup, restore,
+ * masking run, cleanup delete or erasure, a pipeline run, a real-time
+ * session. Every one can be cancelled. A Sync run can
  * be paused and resumed too, through the pause its engine waits on before
  * each object and batch, as on the Sync page; the extension says which runs
  * can (`pausable`), and no other is offered a Pause. The buttons this panel
@@ -49,6 +51,9 @@ const MODULE_LABEL_KEYS: Readonly<Record<string, string>> = {
   forge: 'nav.forge',
   frozen: 'nav.frozen',
   dataops: 'nav.dataops',
+  autopilot: 'nav.autopilot',
+  automation: 'nav.automation',
+  realtime: 'sync.realtime.title',
   clone: 'reports.auditActions.seed_clone',
   csv: 'reports.auditActions.seed_csv_import',
 };

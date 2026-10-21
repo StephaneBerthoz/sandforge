@@ -169,8 +169,16 @@ export interface LiveOperationsResponse extends BaseMessage {
   payload: { operations: LiveOperationSnapshot[] };
 }
 
-// (The `monitor:live-operations:updated` push variant was purged — never
-// emitted by the extension, never listened to by the webview.)
+/**
+ * The live operations as they are now, pushed to the panels whenever the list
+ * changes — a run registered, its progress, its end, its removal from the
+ * list — at most every half second. A Monitor opened before a run started
+ * read the list once and showed it as it was.
+ */
+export interface LiveOperationsChanged extends BaseMessage {
+  type: 'monitor:live-operations:changed';
+  payload: { operations: LiveOperationSnapshot[] };
+}
 
 // ─── Monitor Storage / Deployments / API Usage Messages ──────────────────────
 

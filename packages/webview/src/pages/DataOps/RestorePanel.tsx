@@ -1,5 +1,6 @@
 import React, { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { RunStopControl } from './RunStopControl';
 import type { BackupSummary } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -41,6 +42,10 @@ export interface RestorePanelProps {
   onDeleteAll?: () => void;
   /** A deletion is in flight. */
   isDeleting?: boolean;
+  /** Stop the run in progress: shown while it runs (`RunStopControl`). */
+  onStop?: () => void;
+  /** Whether that stop was sent and not refused. */
+  stopRequested?: boolean;
 }
 
 /** Panel for restoring data from backups. */
@@ -57,6 +62,8 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
   onDelete,
   onDeleteAll,
   isDeleting = false,
+  onStop,
+  stopRequested = false,
 }) => {
   const { t } = useTranslation();
   /**
@@ -78,6 +85,10 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="restore-panel">
       <h2 className="text-sm font-semibold text-text-primary">{t('dataops.restore')}</h2>
+
+      {isRestoring && onStop && (
+        <RunStopControl onStop={onStop} requested={stopRequested} testId="restore-stop" />
+      )}
 
       {isRestoring && restoreProgress && (
         <div data-testid="restore-progress">

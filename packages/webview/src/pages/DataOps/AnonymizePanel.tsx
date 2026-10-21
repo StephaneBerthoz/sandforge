@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AnonymizePreviewValue,
@@ -16,6 +16,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { AnonymizationTemplateEditor, ruleTypeLabel } from './AnonymizationTemplateEditor';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
+import { RunStopControl } from './RunStopControl';
 
 /** AnonymizePanel component props. */
 export interface AnonymizePanelProps {
@@ -31,7 +32,11 @@ export interface AnonymizePanelProps {
   saveTemplateError?: string | null;
   /** Deletes a template the user saved; one that ships offers no delete. */
   onDeleteTemplate?: (templateId: string) => void;
-  onApply?: (templateId: string) => void;
+  /**
+   * Masks every row of the template's objects; `snapshot` takes, before the
+   * first write, a backup of the fields it masks, which Restore puts back.
+   */
+  onApply?: (templateId: string, options: { snapshot: boolean }) => void;
   /**
    * Resumes the run of the template that stopped short, the checkpoint the
    * coverage answer names: only what that run left is masked.
@@ -53,6 +58,16 @@ export interface AnonymizePanelProps {
    * back once the run has masked them.
    */
   coverage?: AnonymizeCoverage | null;
+  /** Stop the run in progress: shown while it runs (`RunStopControl`). */
+  onStop?: () => void;
+  /** Whether that stop was sent and not refused. */
+  stopRequested?: boolean;
+  /** The snapshot the last run took before it masked, which Restore puts back. */
+  snapshotTaken?: { operationId: string; totalRecords: number } | null;
+  /** Open the Restore tab on that snapshot. */
+  onOpenRestore?: (operationId: string) => void;
+  /** Whether the last run was refused because its snapshot could not be taken. */
+  snapshotRefused?: boolean;
 }
 
 /** What the host answers `dataops:anonymize:coverage` with. */
@@ -276,10 +291,22 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   isPreviewing = false,
   preview,
   coverage,
+  onStop,
+  stopRequested = false,
+  snapshotTaken,
+  onOpenRestore,
+  snapshotRefused = false,
 }) => {
   const { t } = useTranslation();
   // Apply and Resume both write over the org's records, behind the same typed confirmation.
   const [confirming, setConfirming] = useState<'apply' | 'resume' | null>(null);
+  /**
+   * Whether Apply keeps the values it masks first, as the command line always
+   * does: ticked unless the user unticks it. The panel took no snapshot, and
+   * a masking run on an org with no backup had no way back.
+   */
+  const [keepValues, setKeepValues] = useState(true);
+  const keepHintId = useId();
   const [editing, setEditing] = useState(false);
   // Held by id: a delete asked about one template is not a delete of the next one picked.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -440,6 +467,13 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                         {t('dataops.resumeAnonymization')}
                       </Button>
                     )}
+                    {isApplying && onStop && (
+                      <RunStopControl
+                        onStop={onStop}
+                        requested={stopRequested}
+                        testId="anonymize-stop"
+                      />
+                    )}
                     {selectedTemplate.saved &&
                       onDeleteTemplate &&
                       (confirmDeleteId === selectedTemplate.id ? (
@@ -476,6 +510,38 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                       ))}
                   </div>
                 </div>
+                {snapshotRefused && !isApplying && (
+                  <p
+                    role="status"
+                    className="text-xs text-text-primary"
+                    data-testid="anonymize-snapshot-refused"
+                  >
+                    {t('dataops.snapshot.refused')}
+                  </p>
+                )}
+                {snapshotTaken && !isApplying && (
+                  <div
+                    className="flex flex-wrap items-center gap-2 text-xs text-text-secondary"
+                    data-testid="anonymize-snapshot-taken"
+                  >
+                    <span>
+                      {t('dataops.snapshot.taken', {
+                        count: snapshotTaken.totalRecords,
+                        formatted: formatNumber(snapshotTaken.totalRecords),
+                      })}
+                    </span>
+                    {onOpenRestore && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onOpenRestore(snapshotTaken.operationId)}
+                        data-testid="anonymize-open-restore"
+                      >
+                        {t('dataops.snapshot.openRestore')}
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             </CardBody>
           </Card>
@@ -488,7 +554,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
               const resumeFrom = confirming === 'resume' ? checkpoint?.id : undefined;
               setConfirming(null);
               if (resumeFrom !== undefined) onResume?.(selectedTemplate.id, resumeFrom);
-              else onApply?.(selectedTemplate.id);
+              else onApply?.(selectedTemplate.id, { snapshot: keepValues });
             }}
             title={
               confirming === 'resume'
@@ -502,7 +568,28 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                 the backup held: 1 220 contacts on a Developer Edition, 500
                 backed up, and nothing said the other 720 could never come
                 back. */}
-            {lost.length > 0 && (
+            {/* A resume takes no snapshot: the run it resumes took one. */}
+            {confirming === 'apply' && (
+              <div className="flex flex-col gap-1" data-testid="confirm-keep-values">
+                <label className="flex items-start gap-2 text-xs text-text-primary">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={keepValues}
+                    onChange={(e) => setKeepValues(e.target.checked)}
+                    aria-describedby={keepHintId}
+                    data-testid="confirm-keep-values-toggle"
+                  />
+                  <span>{t('dataops.snapshot.keep')}</span>
+                </label>
+                <p id={keepHintId} className="text-xs text-text-secondary">
+                  {t('dataops.snapshot.keepHint')}
+                </p>
+              </div>
+            )}
+            {/* What a restore cannot bring back, unless the run keeps the
+                values first: then it writes nothing unless it keeps them all. */}
+            {lost.length > 0 && !(confirming === 'apply' && keepValues) && (
               <div className="text-xs text-text-primary" data-testid="confirm-unrestorable">
                 <p>{t('dataops.coverage.confirmShortfall')}</p>
                 <ul className="list-disc pl-4">

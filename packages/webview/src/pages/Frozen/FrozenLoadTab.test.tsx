@@ -5,6 +5,7 @@ import type { FrozenLoadPlanInfo, FrozenStatusInfo } from '@sandforge/shared';
 import { FrozenLoadTab } from './FrozenLoadTab';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
 const ORGS = [
   { id: 'org-dev', alias: 'DEV-SANDBOX', status: 'connected' },
@@ -25,9 +26,12 @@ interface Answer {
 }
 const answers: Record<string, Answer> = {};
 const mutate = vi.fn();
+/** The options each request was asked with, by its type. */
+const askedWith: Record<string, unknown> = {};
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: (requestType: string) => ({
+  useBridgeMutation: (requestType: string, options?: unknown) => ({
+    ...((askedWith[requestType] = options), {}),
     mutate: (payload?: Record<string, unknown>) => mutate(requestType, payload),
     data: answers[requestType]?.data ?? null,
     loading: answers[requestType]?.loading ?? false,
@@ -199,6 +203,15 @@ describe('FrozenLoadTab', () => {
   });
 
   describe('cancelling the load it started', () => {
+    it('waits on a load as long as any write run, and never offers to try it again', () => {
+      render(tab());
+
+      expect(askedWith['frozen:load']).toMatchObject({
+        timeoutMs: WRITE_RUN_TIMEOUT_MS,
+        runOutlivesWait: true,
+      });
+    });
+
     it('offers no cancel while no load runs', () => {
       render(tab());
 

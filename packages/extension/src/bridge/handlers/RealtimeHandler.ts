@@ -59,6 +59,9 @@ import {
 import { ReplayStore } from '../../modules/realtime/ReplayStore.js';
 import type { HeldChange } from '../../modules/realtime/RealtimeApplier.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { listLive } from './liveRun.js';
+import type { LiveRun } from './liveRun.js';
 
 /** Message types handled by RealtimeHandler. */
 const REALTIME_TYPES = new Set([
@@ -205,6 +208,8 @@ export class RealtimeHandler implements DomainHandler {
   private current: RunningSession | undefined;
   private lastMetrics: RealTimeSyncMetrics | null = null;
   private registry: BackgroundOperationRegistry | undefined;
+  /** The Monitor's Live Operations, which list a session while it runs, with its Cancel. */
+  private liveTracker: LiveOperationTracker | undefined;
   private readonly syncConfigs: SyncConfigStore;
   private readonly access: RealtimeOrgAccess;
 
@@ -260,6 +265,14 @@ export class RealtimeHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /**
+   * Inject the tracker the Monitor's Live Operations lists runs from: the
+   * registry alone is not what the list reads, and a session was never shown.
+   */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /** Stop the running session, as the extension deactivates. */
@@ -468,9 +481,19 @@ export class RealtimeHandler implements DomainHandler {
         ]),
       );
 
+      /** Its entry in Live Operations, once it subscribed to something. */
+      let live: LiveRun | undefined;
       let finish: (error?: string) => void = () => {};
       const ended = new Promise<void>((resolve, reject) => {
-        finish = (error) => (error ? reject(new Error(error)) : resolve());
+        finish = (error) => {
+          // Stopped from Live Operations, the session is listed cancelled;
+          // stopped from its page, or by a reload, as ended.
+          if (error) live?.fail(error);
+          else if (abort.signal.aborted) live?.cancel();
+          else live?.complete();
+          if (error) reject(new Error(error));
+          else resolve();
+        };
       });
       // Settled for the operation registry, the only one waiting on it; a
       // session that fails before being listed there must not leave a
@@ -514,13 +537,9 @@ export class RealtimeHandler implements DomainHandler {
       const outcome = await session.start();
       const snapshot = session.snapshot();
       if (outcome.subscribed.length > 0) {
-        this.registry?.register(
-          session.sessionId,
-          'sync',
-          `Real-time sync of ${outcome.subscribed.length} object(s)`,
-          ended,
-          abort,
-        );
+        const description = `Real-time sync of ${outcome.subscribed.length} object(s)`;
+        this.registry?.register(session.sessionId, 'sync', description, ended, abort);
+        live = listLive(this.liveTracker, session.sessionId, 'realtime', description);
         const onCancel = (): void => {
           if (this.current?.session !== session) return;
           void this.stopCurrent().then((sessionId) => {

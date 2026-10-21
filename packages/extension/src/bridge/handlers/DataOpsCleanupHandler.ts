@@ -4,6 +4,8 @@ import { CLEANUP_ACTION_LIMIT } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
+import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import {
   dataOpsCleanupDeletePayloadSchema,
   dataOpsCleanupExportPayloadSchema,
@@ -52,6 +54,8 @@ function recommendationTag(recommendation: CleanupRecommendation): string {
  */
 export class DataOpsCleanupHandler implements DomainHandler {
   private readonly saveDialog: SaveDialogAdapter;
+  /** The Monitor's Live Operations, which list a delete while it runs, with its Cancel. */
+  private liveTracker?: LiveOperationTracker;
 
   /**
    * @param deps - Injected handler dependencies.
@@ -62,6 +66,11 @@ export class DataOpsCleanupHandler implements DomainHandler {
     saveDialog?: SaveDialogAdapter,
   ) {
     this.saveDialog = saveDialog ?? new SaveDialogAdapter();
+  }
+
+  /** Inject the tracker the Monitor's Live Operations lists runs from. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   private async session(orgId: string, context: string): Promise<OrgSession> {
@@ -230,20 +239,24 @@ export class DataOpsCleanupHandler implements DomainHandler {
         label: object.label,
         records: ids.length,
       };
-      const result = await runGuardedRemoval(this.deps, {
-        orgId,
-        operation: 'delete',
-        objectNames: [object.name],
-        recordCount: ids.length,
-        action: 'cleanup_delete',
-        description: `Delete ${ids.length} ${object.name} record(s): ${recommendationTag(recommendation)}`,
-        origin: 'dataops:cleanup:delete',
-        run: async (onObject) => {
-          const counts = await deleteRecords(session, object.name, ids);
-          onObject(object.name, counts);
-          return [{ objectApiName: object.name, counts }];
+      const result = await runGuardedRemoval(
+        this.deps,
+        {
+          orgId,
+          operation: 'delete',
+          objectNames: [object.name],
+          recordCount: ids.length,
+          action: 'cleanup_delete',
+          description: `Delete ${ids.length} ${object.name} record(s): ${recommendationTag(recommendation)}`,
+          origin: 'dataops:cleanup:delete',
+          run: async (onObject, signal) => {
+            const counts = await deleteRecords(session, object.name, ids, signal);
+            onObject(object.name, counts);
+            return [{ objectApiName: object.name, counts }];
+          },
         },
-      });
+        this.liveTracker,
+      );
       if (!result.ran) {
         sendHandlerError(
           this.deps,
@@ -262,6 +275,7 @@ export class DataOpsCleanupHandler implements DomainHandler {
           'dataops:error',
           msg,
           new Error(result.error),
+          result.cancelled ? { code: RUN_CANCELLED } : undefined,
         );
         return;
       }

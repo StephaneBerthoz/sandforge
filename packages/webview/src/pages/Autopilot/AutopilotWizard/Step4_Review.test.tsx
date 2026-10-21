@@ -42,6 +42,17 @@ describe('Step4_Review', () => {
     expect(onFrameworkChange).toHaveBeenCalledWith('hipaa');
   });
 
+  it('says before Execute that SandForge cannot take back what the run writes', () => {
+    // Only the FAQ said it: a run keeps no list of what it writes.
+    render(<Step4Review {...defaultProps} />);
+
+    const note = screen.getByTestId('step4-no-way-back');
+    expect(note.textContent).toBe(
+      'SandForge cannot remove what this run writes: try it on a scratch org or a sandbox you can refresh.',
+    );
+    expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toBe(note.id);
+  });
+
   it('holds Execute while the plan is built again', () => {
     render(<Step4Review {...defaultProps} planning />);
     expect(screen.getByTestId('step4-planning')).toBeDefined();

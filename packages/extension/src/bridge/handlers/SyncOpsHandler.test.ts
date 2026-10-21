@@ -34,7 +34,8 @@ vi.mock('../../modules/sync/TransformPipeline.js', () => ({
     return {};
   }),
 }));
-vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
+vi.mock('../../modules/sync/BulkDataWriter.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../modules/sync/BulkDataWriter.js')>()),
   BulkDataWriter: vi.fn(),
 }));
 vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
@@ -1815,6 +1816,54 @@ describe('SyncOpsHandler', () => {
         end: { status: 'success' },
         created: [{ objectApiName: 'Account', ids: [CREATED] }],
       });
+    });
+
+    it('keeps each call of a write as it goes and as it answers, before the object is done', async () => {
+      handler.setRunCreations(creations);
+      /** What the run had kept while its first call was under way, and once it answered. */
+      const kept: unknown[] = [];
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: { creations?: SyncCreationRecorder }) {
+          return {
+            execute: vi.fn(async () => {
+              // The calls the run's writer makes, as the writer tells of them:
+              // no note of the object's whole write follows here.
+              const { calls } = vi.mocked(BulkDataWriter).mock.calls[0][0];
+              calls?.sending('Account', 'insert', 2);
+              await d.creations?.flush();
+              kept.push(await creations.get('sync-calls-1'));
+              calls?.answered('Account', 'insert', [
+                { success: true, id: CREATED, errors: [] },
+                { success: false, errors: ['REQUIRED_FIELD_MISSING'] },
+              ]);
+              // An update creates nothing, and is not written down.
+              calls?.sending('Contact', 'update', 5);
+              await d.creations?.flush();
+              kept.push(await creations.get('sync-calls-1'));
+              return { status: 'success', objectResults: [] };
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-calls-1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      expect(kept[0]).toMatchObject({
+        inFlight: { objectApiName: 'Account', rows: 2 },
+        created: [],
+      });
+      expect(kept[1]).toMatchObject({ created: [{ objectApiName: 'Account', ids: [CREATED] }] });
+      expect((kept[1] as { inFlight?: unknown }).inFlight).toBeUndefined();
     });
 
     it('keeps what a scheduled run and a pipeline run created too', async () => {

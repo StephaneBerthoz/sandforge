@@ -209,6 +209,16 @@ describe('useCsvImport', () => {
     });
   });
 
+  it('names the import by the id of its request, which a Cancel sends to stop it', () => {
+    mockMutationState = {
+      ...mockMutationState,
+      requestId: 'req-csv-1',
+    } as typeof mockMutationState;
+    const { result } = renderHook(() => useCsvImport(tMock));
+
+    expect(result.current.runRequestId).toBe('req-csv-1');
+  });
+
   it('listens for validate and execute failures on seed:csv:error', () => {
     // The handler posts its failures on this channel, correlated to the
     // request, and the mutations listen there themselves. A separate

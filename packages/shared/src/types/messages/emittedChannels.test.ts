@@ -836,6 +836,15 @@ const UNVERIFIABLE_SUBSCRIPTIONS: ReadonlyArray<{ site: string; why: string }> =
       'cross-file binding this scan does not resolve.',
   },
   {
+    site: 'bridge/handlers/MonitorOpsHandler.ts: tracker.onChange',
+    why:
+      'LiveOperationTracker is built in extension.ts and handed through ' +
+      'ExtensionHandlers.setLiveOperationTracker to every handler of a run that writes, which ' +
+      'drives it (register, updateProgress, complete, fail, cancel): a cross-file binding this ' +
+      'scan does not resolve. Each change is pushed to the panels as ' +
+      'monitor:live-operations:changed.',
+  },
+  {
     site: 'providers/WebviewPanelManager.ts: panel.onDidChangeViewState',
     why:
       'vscode.WebviewPanel: VS Code fires it when it shows or hides the panel, which then ' +

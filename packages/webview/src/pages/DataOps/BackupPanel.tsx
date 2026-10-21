@@ -6,6 +6,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { RunStopControl } from './RunStopControl';
 import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
 
 /** BackupPanel component props. */
@@ -20,6 +21,10 @@ export interface BackupPanelProps {
   onDelete?: (operationId: string) => void;
   /** Download this backup, records included, so it can leave the machine. */
   onExport?: (operationId: string) => void;
+  /** Stop the run in progress: shown while it runs (`RunStopControl`). */
+  onStop?: () => void;
+  /** Whether that stop was sent and not refused. */
+  stopRequested?: boolean;
 }
 
 const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
@@ -106,6 +111,8 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
   onCreate,
   onDelete,
   onExport,
+  onStop,
+  stopRequested = false,
 }) => {
   const { t } = useTranslation();
 
@@ -123,6 +130,10 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
           {t('dataops.createBackup')}
         </Button>
       </div>
+
+      {isCreating && onStop && (
+        <RunStopControl onStop={onStop} requested={stopRequested} testId="backup-stop" />
+      )}
 
       {/* Said before the click: the objects it reads follow the templates. */}
       {objects.length > 0 && (

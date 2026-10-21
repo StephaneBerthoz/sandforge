@@ -90,6 +90,7 @@ import {
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
 import type { SyncCreationRecorder } from './SyncRunCreations.js';
+import { createdIds } from './BulkDataWriter.js';
 
 /** How a source read of one object is asked, beyond the object's own filter. */
 export interface SourceRead {
@@ -2082,27 +2083,6 @@ export class SyncOrchestrator {
     }
     return { held };
   }
-}
-
-/**
- * The records a write created, by their ids in the target: every record an
- * insert wrote, and those an upsert wrote that the org said it created. One
- * the org updated was the target's before; one an upsert wrote without the
- * org saying which it did is left out, never guessed into the run's.
- */
-export function createdIds(
-  operation: SyncObjectConfig['operation'],
-  outcomes: readonly OperationOutcome[],
-): string[] {
-  if (operation !== 'insert' && operation !== 'upsert') return [];
-  return outcomes.flatMap((outcome) =>
-    outcome.success &&
-    typeof outcome.id === 'string' &&
-    outcome.id !== '' &&
-    (operation === 'insert' || outcome.created === true)
-      ? [outcome.id]
-      : [],
-  );
 }
 
 /**

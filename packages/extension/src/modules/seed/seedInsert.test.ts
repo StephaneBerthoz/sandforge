@@ -110,6 +110,32 @@ describe('the write path of a seed', () => {
     );
   });
 
+  it('tells of the records each REST call created as it answers, before the insert returns', async () => {
+    const org = fakeOrg({ ruled: ['Contact'] });
+    const told: Array<{ object: string; ids: number; callsSoFar: number }> = [];
+    const insert = seedInsert({
+      conn: org.conn,
+      bulkThreshold: 200,
+      bulkManager: new BulkApiManager(5),
+      retry: new RetryableOperation({ retryConfig: { maxRetries: 0 } }),
+      signal: new AbortController().signal,
+      label: 'seed:execute op-1',
+      log: () => {},
+      onProgress: () => {},
+      onCreated: (object, ids) =>
+        told.push({ object, ids: ids.length, callsSoFar: org.restCalls.length }),
+    });
+
+    await insert('org', 'Contact', records(450), 200);
+
+    // Each call's records once it answered, not all of them at the end.
+    expect(told).toEqual([
+      { object: 'Contact', ids: 200, callsSoFar: 1 },
+      { object: 'Contact', ids: 200, callsSoFar: 2 },
+      { object: 'Contact', ids: 50, callsSoFar: 3 },
+    ]);
+  });
+
   it('sends an object a duplicate rule watches through REST past 10 000 records too, and says it is slower', async () => {
     const org = fakeOrg({ ruled: ['Contact'] });
     const { insert, logged } = writer(org);

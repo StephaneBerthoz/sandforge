@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import en from '../../i18n/locales/en.json';
 import { AutopilotPage } from './AutopilotPage';
+import { RUN_OUTLIVED_WAIT } from '../../hooks/useMessageResponse';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
 /** Mock message bus hooks used by AutopilotPage. */
 vi.mock('../../hooks/useMessageBus', () => ({
@@ -12,14 +14,25 @@ vi.mock('../../hooks/useMessageBus', () => ({
 
 /** Mock the execute bridge mutation. */
 const mockExecuteMutate = vi.fn();
+/** How the execute request ended, as the page reads it; nothing yet by default. */
+let executeEnded: { error: string | null; errorCode: string | null } = {
+  error: null,
+  errorCode: null,
+};
+/** The options the page asked the execute request with. */
+let executeOptions: Record<string, unknown> | undefined;
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: mockExecuteMutate,
-    data: null,
-    loading: false,
-    error: null,
-    reset: vi.fn(),
-  }),
+  useBridgeMutation: (type: string, options?: Record<string, unknown>) => {
+    if (type === 'autopilot:execute') executeOptions = options;
+    return {
+      mutate: mockExecuteMutate,
+      data: null,
+      loading: false,
+      ...executeEnded,
+      requestId: null,
+      reset: vi.fn(),
+    };
+  },
 }));
 
 /** Avoid reactflow in jsdom — graph rendering is covered by its own tests. */
@@ -126,6 +139,62 @@ describe('AutopilotPage', () => {
     };
     mockNavigate.mockClear();
     mockExecuteMutate.mockClear();
+    executeEnded = { error: null, errorCode: null };
+  });
+
+  it('waits on a run as long as any write run, and never offers to try it again', () => {
+    render(<AutopilotPage />);
+    expect(executeOptions).toMatchObject({
+      timeoutMs: WRITE_RUN_TIMEOUT_MS,
+      runOutlivesWait: true,
+    });
+  });
+
+  it('stays on the run once it stops waiting for it, and says where to follow it', () => {
+    // It went back to the review saying "Try again" while the run went on
+    // writing: a second Execute wrote every table again.
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'executing',
+      executionStatus: 'executing',
+    };
+    executeEnded = {
+      error:
+        'SandForge stopped waiting for autopilot:execute after 12 h, but the run may still be writing.',
+      errorCode: RUN_OUTLIVED_WAIT,
+    };
+
+    render(<AutopilotPage />);
+
+    const state = mockAutopilotState as {
+      setStep: ReturnType<typeof vi.fn>;
+      setExecutionStatus: ReturnType<typeof vi.fn>;
+      addError: ReturnType<typeof vi.fn>;
+    };
+    expect(state.setStep).not.toHaveBeenCalledWith('review');
+    expect(state.setExecutionStatus).not.toHaveBeenCalledWith('failed');
+    expect(state.addError).not.toHaveBeenCalled();
+    expect(screen.getByTestId('autopilot-outlived-wait').textContent).toContain(
+      'the run may still be writing',
+    );
+  });
+
+  it('goes back to the review on a run refused before it wrote, a run still writing included', () => {
+    mockAutopilotState = {
+      ...defaultAutopilotState(),
+      step: 'executing',
+      executionStatus: 'executing',
+    };
+    executeEnded = { error: en.common.refusal.autopilotRunning, errorCode: 'AUTOPILOT_RUNNING' };
+
+    render(<AutopilotPage />);
+
+    const state = mockAutopilotState as {
+      setStep: ReturnType<typeof vi.fn>;
+      addError: ReturnType<typeof vi.fn>;
+    };
+    expect(state.setStep).toHaveBeenCalledWith('review');
+    expect(state.addError).toHaveBeenCalledWith(en.common.refusal.autopilotRunning);
   });
 
   it('should show empty state when no org selected', () => {

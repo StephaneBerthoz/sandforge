@@ -209,7 +209,10 @@ export class ExtensionHandlers {
     this.settingsHandler = new SettingsHandler(this.handlerDeps);
     this.monitorHandler = new MonitorOpsHandler(this.handlerDeps);
     this.seedHandler = new SeedOpsHandler(this.handlerDeps);
-    this.seedRemovalHandler = new SeedRemovalHandler(this.handlerDeps);
+    // A run still writing in this window is listed as running, and not removed.
+    this.seedRemovalHandler = new SeedRemovalHandler(this.handlerDeps, undefined, (runId) =>
+      this.seedHandler.isRunning(runId),
+    );
     this.seedCloneHandler = new SeedCloneHandler(this.handlerDeps);
     this.seedCsvHandler = new SeedCsvHandler(this.handlerDeps);
     this.syncHandler = new SyncOpsHandler(this.handlerDeps);
@@ -361,6 +364,15 @@ export class ExtensionHandlers {
     this.seedCsvHandler.setLiveOperationTracker(tracker);
     this.frozenHandler.setLiveOperationTracker(tracker);
     this.autopilotHandler.setLiveOperationTracker(tracker);
+    // A backup, a restore and a masking run; a Cleanup delete and a subject
+    // request's erasure; a pipeline run; a real-time session. They were in the
+    // registry alone, which Live Operations does not list: their Cancel was
+    // promised by the docs and offered nowhere.
+    this.dataOpsHandler.setLiveOperationTracker(tracker);
+    this.cleanupHandler.setLiveOperationTracker(tracker);
+    this.complianceHandler.setLiveOperationTracker(tracker);
+    this.automationHandler.setLiveOperationTracker(tracker);
+    this.realtimeHandler.setLiveOperationTracker(tracker);
   }
 
   /** Inject the file-backed store that holds backup record payloads. */

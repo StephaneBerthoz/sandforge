@@ -38,7 +38,7 @@ Before you start, know three things:
 
 ## While it runs
 
-The control panel shows the records processed, the API calls, the elapsed time and the current wave, and offers **Pause**, **Resume**, **Skip Node** and **Stop**. A stopped run writes nothing after the stop and says what it did not write, or left unfinished: lookups a second pass would have filled, statuses not given back. The audit trail (Reports → Audit Trail) records each run, with what it wrote per object.
+The review says, above **Execute Autopilot**, that SandForge cannot remove what the run writes. The page waits on the run for up to 12 hours, as Seed's and Sync's do; should it stop waiting, it stays on the run and says it may still be writing and that Monitor's Live Operations shows where it is. A second run on the same target is refused while one writes, `AUTOPILOT_RUNNING`, and nothing of it is written. The control panel shows the records processed, the API calls, the elapsed time and the current wave, and offers **Pause**, **Resume**, **Skip Node** and **Stop**; Live Operations lists the run, paused while it is paused, and its Cancel stops it as **Stop** does. A stopped run writes nothing after the stop and says what it did not write, or left unfinished: lookups a second pass would have filled, statuses not given back. The audit trail (Reports → Audit Trail) records each run, with what it wrote per object.
 
 ## From the command line
 

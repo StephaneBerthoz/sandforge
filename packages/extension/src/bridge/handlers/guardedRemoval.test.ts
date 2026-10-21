@@ -8,6 +8,9 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { deleteRecords } from '../../modules/dataops/RecordRemoval.js';
 
 function deps(orgType: string, guard?: ProductionGuard, edition?: string): HandlerDeps {
   const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
@@ -198,5 +201,120 @@ describe('runGuardedRemoval', () => {
     );
 
     expect(JSON.stringify(d.configStore.get('audit:trail'))).not.toContain('jane@example.com');
+  });
+
+  describe('a run Live Operations lists and stops', () => {
+    /** A sandbox's deps with the registry composition gives every handler. */
+    function listed(): { d: HandlerDeps; registry: BackgroundOperationRegistry } {
+      const d = deps('Sandbox', new ProductionGuard());
+      const registry = new BackgroundOperationRegistry();
+      d.infraServices = { ...d.infraServices, backgroundRegistry: registry } as never;
+      return { d, registry };
+    }
+
+    /** 450 contacts, three calls of 200: Cancel comes while the first is answered. */
+    const ids = Array.from({ length: 450 }, (_, i) => `003${String(i).padStart(12, '0')}`);
+
+    it('is listed while it deletes, under the id it is recorded with', async () => {
+      const { d, registry } = listed();
+      const tracker = new LiveOperationTracker();
+      let whileDeleting: unknown;
+
+      const result = await runGuardedRemoval(
+        d,
+        removal({
+          run: async (onObject) => {
+            whileDeleting = {
+              listed: tracker.getAll().map((op) => ({ ...op })),
+              running: registry.getRunning().map((op) => op.operationId),
+            };
+            const counts = { done: 2, failed: 0, errors: [] };
+            onObject('Contact', counts);
+            return [{ objectApiName: 'Contact', counts }];
+          },
+        }),
+        tracker,
+      );
+
+      expect(whileDeleting).toEqual({
+        listed: [
+          expect.objectContaining({
+            operationId: result.operationId,
+            module: 'dataops',
+            description: 'Delete 2 Contact record(s)',
+            status: 'running',
+          }),
+        ],
+        running: [result.operationId],
+      });
+      expect(tracker.get(result.operationId)?.status).toBe('completed');
+      expect(registry.get(result.operationId)?.status).toBe('completed');
+      tracker.dispose();
+    });
+
+    it('stops before its next call once cancelled, says so, and records it cancelled with what it deleted', async () => {
+      const { d, registry } = listed();
+      const tracker = new LiveOperationTracker();
+      const destroy = vi.fn(async (_object: string, batch: string[]) => {
+        // Live Operations' Cancel, through the registry entry.
+        for (const op of registry.getRunning()) registry.abort(op.operationId);
+        return batch.map((id) => ({ success: true, id }));
+      });
+
+      const result = await runGuardedRemoval(
+        d,
+        removal({
+          recordCount: ids.length,
+          run: async (onObject, signal) => {
+            const counts = await deleteRecords({ destroy } as never, 'Contact', ids, signal);
+            onObject('Contact', counts);
+            return [{ objectApiName: 'Contact', counts }];
+          },
+        }),
+        tracker,
+      );
+
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ ran: true, cancelled: true, outcome: { done: 200 } });
+      expect(result.ran && result.error).toBe(
+        'Cancelled: 200 record(s) deleted before the cancel; the rest were left as they are.',
+      );
+      expect(tracker.get(result.operationId)?.status).toBe('cancelled');
+      expect(posted(d)).not.toContain('operation:failed');
+      expect(new AuditTrailStore(d.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'cleanup_delete',
+          outcome: 'cancelled',
+          objects: [expect.objectContaining({ objectApiName: 'Contact', deleted: 200 })],
+        }),
+      ]);
+      tracker.dispose();
+    });
+
+    it('records a run cancelled before its first call as stopped, under the code that says so', async () => {
+      const { d, registry } = listed();
+
+      const result = await runGuardedRemoval(
+        d,
+        removal({
+          run: async (onObject, signal) => {
+            for (const op of registry.getRunning()) registry.abort(op.operationId);
+            const counts = await deleteRecords(
+              { destroy: vi.fn() } as never,
+              'Contact',
+              ids,
+              signal,
+            );
+            onObject('Contact', counts);
+            return [{ objectApiName: 'Contact', counts }];
+          },
+        }),
+      );
+
+      expect(result).toMatchObject({ ran: true, cancelled: true, outcome: { done: 0 } });
+      expect(new AuditTrailStore(d.configStore).list().entries).toEqual([
+        expect.objectContaining({ outcome: 'stopped', details: { code: 'RUN_CANCELLED' } }),
+      ]);
+    });
   });
 });

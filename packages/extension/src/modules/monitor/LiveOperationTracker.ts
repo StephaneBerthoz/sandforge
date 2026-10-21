@@ -163,7 +163,9 @@ export class LiveOperationTracker {
    */
   pause(operationId: string): void {
     const op = this.operations.get(operationId);
-    if (!op) return;
+    // A run that ended stays as it ended: a Pause clicked as it finished
+    // listed a completed run paused.
+    if (op?.status !== 'running') return;
 
     op.status = 'paused';
     this.notifyChange();
@@ -175,7 +177,7 @@ export class LiveOperationTracker {
    */
   resume(operationId: string): void {
     const op = this.operations.get(operationId);
-    if (!op) return;
+    if (op?.status !== 'paused') return;
 
     op.status = 'running';
     this.notifyChange();

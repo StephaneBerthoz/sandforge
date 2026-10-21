@@ -44,6 +44,12 @@ export interface UseMessageResponseOptions {
   runOutlivesWait?: boolean;
 }
 
+/**
+ * The code of a wait that ended before a run it waited on did: the run may
+ * still be writing, and a page offers neither to retry nor to start it again.
+ */
+export const RUN_OUTLIVED_WAIT = 'RUN_OUTLIVED_WAIT';
+
 /** Duration in milliseconds before the `timedOut` flag is set. */
 const FEEDBACK_TIMEOUT_MS = 10_000;
 
@@ -153,6 +159,8 @@ function guardRefusal(
     return i18n.t('common.refusal.autopilotStorageExceeded');
   }
   if (code === 'AUTOPILOT_WRITE_DECLINED') return i18n.t('common.refusal.autopilotWriteDeclined');
+  // A second run asked for while one writes to the same target.
+  if (code === 'AUTOPILOT_RUNNING') return i18n.t('common.refusal.autopilotRunning');
   // Backups of an org a backup or a restore is running on are not deleted.
   if (code === 'BACKUP_BUSY') return i18n.t('common.refusal.backupBusy');
   if (code === 'AUTOPILOT_CONFIRMATION_UNAVAILABLE') {
@@ -176,7 +184,9 @@ export interface MessageResponseHandler<T> {
   /**
    * The code the handler's error carried (`payload.code`), or null: no error,
    * one with no code, a timeout or a rejection at the bridge. Lets a page key
-   * off the kind of refusal rather than its English.
+   * off the kind of refusal rather than its English. The wait for a run that
+   * goes on once it ends (`runOutlivesWait`) ends under
+   * {@link RUN_OUTLIVED_WAIT}: the run is not known to have failed.
    */
   errorCode: string | null;
   /** Whether the response has been waiting longer than 10 seconds without a reply. */
@@ -253,6 +263,9 @@ export function useMessageResponse<T>(
       const timer = setTimeout(() => {
         if (mountedRef.current && activeRequestId.current === messageId) {
           setLoading(false);
+          // A run waited on that may still write is not a failed one: the page
+          // keeps it in view rather than offer to start it again.
+          if (runOutlivesWait) setErrorCode(RUN_OUTLIVED_WAIT);
           setError(
             runOutlivesWait
               ? requestError('bridge.runOutlivedWait', {

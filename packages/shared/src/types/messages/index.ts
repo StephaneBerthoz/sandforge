@@ -186,6 +186,7 @@ import type {
   MonitorAlertDismissResponse,
   LiveOperationsRequest,
   LiveOperationsResponse,
+  LiveOperationsChanged,
   MonitorStorageRequest,
   MonitorStorageResponse,
   MonitorDeploymentsRequest,
@@ -838,6 +839,7 @@ export type ExtensionToWebViewMessage =
   | MonitorAlertAcknowledgeResponse
   | MonitorAlertDismissResponse
   | LiveOperationsResponse
+  | LiveOperationsChanged
   | MonitorStorageResponse
   | MonitorDeploymentsResponse
   | MonitorApiUsageResponse

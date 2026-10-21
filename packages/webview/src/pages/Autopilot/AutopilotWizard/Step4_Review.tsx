@@ -324,6 +324,15 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         </div>
       </div>
 
+      {/* Said before the write, as the FAQ said it alone: no list of what a
+          run writes is kept, and nothing in SandForge takes it back. */}
+      <p
+        id="step4-no-way-back"
+        className="text-xs text-text-secondary"
+        data-testid="step4-no-way-back"
+      >
+        {t('common.noWayBack')}
+      </p>
       <div className="flex justify-end pt-2">
         <Button
           variant="primary"
@@ -331,6 +340,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           onClick={onExecute}
           loading={isExecuting}
           disabled={isExecuting || planning}
+          aria-describedby="step4-no-way-back"
           data-testid="execute-button"
         >
           {isExecuting ? t('autopilot.step4.executing') : t('autopilot.step4.execute')}

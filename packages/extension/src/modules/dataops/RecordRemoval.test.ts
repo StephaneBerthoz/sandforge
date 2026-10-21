@@ -167,6 +167,44 @@ describe('record removal', () => {
     expect(counts.errors[0]).toEqual({ objectApiName: 'Contact', message: 'ENTITY_IS_DELETED' });
   });
 
+  it('sends no call once its cancel is aborted, and counts what the calls before did', async () => {
+    const cancel = new AbortController();
+    const destroy = vi.fn(async (_name: string, ids: string[]) => {
+      cancel.abort();
+      return ids.map((id) => ({ success: true, id }));
+    });
+    const update = vi.fn(async (_n: string, records: Array<{ Id: string }>) => {
+      cancel.abort();
+      return records.map((r) => ({ success: true, id: r.Id }));
+    });
+
+    const deleted = await deleteRecords(
+      { destroy },
+      'Contact',
+      contactIds(RECORDS_PER_CALL * 2 + 1),
+      cancel.signal,
+    );
+    const second = new AbortController();
+    const records = contactIds(RECORDS_PER_CALL + 1).map((Id) => ({ Id, Email: null }));
+    const overwritten = await updateRecords(
+      {
+        update: async (n: string, batch: Array<{ Id: string }>) => {
+          const answer = await update(n, batch);
+          second.abort();
+          return answer;
+        },
+      },
+      'Contact',
+      records,
+      second.signal,
+    );
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(deleted).toMatchObject({ done: RECORDS_PER_CALL, failed: 0 });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(overwritten).toMatchObject({ done: RECORDS_PER_CALL, failed: 0 });
+  });
+
   it('counts a call the org refuses whole as refused records, and goes on', async () => {
     const update = vi
       .fn()

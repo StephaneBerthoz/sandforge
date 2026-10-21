@@ -167,14 +167,24 @@ describe('ClonePreviewPanel', () => {
     expect(warning.compareDocumentPosition(execute) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(execute.getAttribute('aria-describedby')).toBe(warning.id);
+    expect(execute.getAttribute('aria-describedby')).toBe(
+      `${warning.id} ${screen.getByTestId('clone-no-way-back').id}`,
+    );
   });
 
   it('warns of no lookup the target requires when the source has every one', () => {
     render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
     expect(screen.queryByTestId('clone-preview-target-only-required')).toBeNull();
-    expect(screen.getByTestId('clone-preview-execute').hasAttribute('aria-describedby')).toBe(
-      false,
+    // Only what the clone cannot take back.
+    expect(screen.getByTestId('clone-preview-execute').getAttribute('aria-describedby')).toBe(
+      screen.getByTestId('clone-no-way-back').id,
+    );
+  });
+
+  it('says before Execute that SandForge cannot take back what the clone writes', () => {
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
+    expect(screen.getByTestId('clone-no-way-back').textContent).toBe(
+      'SandForge cannot remove what this run writes: try it on a scratch org or a sandbox you can refresh.',
     );
   });
 

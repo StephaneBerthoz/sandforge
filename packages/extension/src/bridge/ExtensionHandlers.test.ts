@@ -2094,6 +2094,31 @@ describe('ExtensionHandlers', () => {
       tracker.dispose();
     });
 
+    it('hands the tracker to DataOps, Cleanup, subject requests, pipelines and real-time sessions', async () => {
+      const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
+      const { DataOpsHandler } = await import('./handlers/DataOpsHandler.js');
+      const { DataOpsCleanupHandler } = await import('./handlers/DataOpsCleanupHandler.js');
+      const { DataOpsComplianceHandler } = await import('./handlers/DataOpsComplianceHandler.js');
+      const { AutomationHandler } = await import('./handlers/AutomationHandler.js');
+      const { RealtimeHandler } = await import('./handlers/RealtimeHandler.js');
+      const handed = [
+        DataOpsHandler,
+        DataOpsCleanupHandler,
+        DataOpsComplianceHandler,
+        AutomationHandler,
+        RealtimeHandler,
+      ].map((handler) => vi.spyOn(handler.prototype, 'setLiveOperationTracker'));
+      const tracker = new LiveOperationTracker();
+
+      handlers.setLiveOperationTracker(tracker);
+
+      for (const spy of handed) {
+        expect(spy).toHaveBeenCalledWith(tracker);
+        spy.mockRestore();
+      }
+      tracker.dispose();
+    });
+
     it('hands Autopilot the registry execution:abort stops it through, and the tracker', async () => {
       const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
       const { BackgroundOperationRegistry } =

@@ -25,6 +25,8 @@ import {
   type OperationFailureContext,
 } from './HandlerTypes.js';
 import type { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { listLive } from './liveRun.js';
 import type { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
 import { PipelineTriggerScheduler } from '../../modules/automation/PipelineTriggerScheduler.js';
 import type {
@@ -238,9 +240,20 @@ export class AutomationHandler implements DomainHandler {
    * the log was last told: said once, not at every look of the triggers.
    */
   private readonly unreadableSaid = new Map<string, string>();
+  /**
+   * The Monitor's Live Operations, which list a pipeline run while it goes —
+   * one a schedule or a refresh started too, which no page shows — with the
+   * Cancel that reaches its registry entry.
+   */
+  private liveTracker?: LiveOperationTracker;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
+
+  /** Inject the tracker the Monitor's Live Operations lists runs from. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
+  }
 
   /**
    * The Approval steps' gate: the question goes to a VS Code notification and,
@@ -713,6 +726,15 @@ export class AutomationHandler implements DomainHandler {
     this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
     const description = `Pipeline: ${pipeline.name}`;
     sendOperationStarted(this.deps, operationId, 'automation', description);
+    // Listed in Live Operations as it starts; registered in the registry, where
+    // its Cancel reaches it, below, before anything is awaited.
+    const live = listLive(
+      this.liveTracker,
+      operationId,
+      'automation',
+      description,
+      pipeline.steps.length,
+    );
 
     const stepCompletedListener = (_event: unknown, data: unknown): void => {
       const stepData = data as {
@@ -722,14 +744,10 @@ export class AutomationHandler implements DomainHandler {
       const activeRuns = orchestrator.getActiveRuns();
       const totalSteps = pipeline.steps.length;
       const completedSteps = activeRuns[0]?.stepResults.length ?? 0;
-      sendOperationProgress(
-        this.deps,
-        operationId,
-        Math.round((completedSteps / totalSteps) * 100),
-        completedSteps,
-        totalSteps,
-        `Step: ${stepData.stepResult.stepName} (${stepData.stepResult.status})`,
-      );
+      const percentage = Math.round((completedSteps / totalSteps) * 100);
+      const step = `Step: ${stepData.stepResult.stepName} (${stepData.stepResult.status})`;
+      sendOperationProgress(this.deps, operationId, percentage, completedSteps, totalSteps, step);
+      live.progress(percentage, completedSteps, totalSteps, step);
     };
     // Each step as it starts and as it ends, for the page's execution view,
     // which otherwise showed every step pending until the run was over.
@@ -773,8 +791,9 @@ export class AutomationHandler implements DomainHandler {
     // own Pause, Cancel and progress: see `runSyncUntimed`.
     //
     // The same signal is the one a cancel aborts: the run is registered with
-    // it, so `execution:abort` from the page, or Cancel in Live Operations,
-    // stops the run through the orchestrator's abort path.
+    // it and listed in Live Operations, so `execution:abort` from the page, or
+    // Cancel in Live Operations, stops the run through the orchestrator's
+    // abort path — a run a schedule started, which no page shows, included.
     budget.start();
     let settleRegistered: (error?: Error) => void = () => {};
     this.deps.infraServices?.backgroundRegistry?.register(
@@ -792,6 +811,7 @@ export class AutomationHandler implements DomainHandler {
     } catch (err: unknown) {
       // Live Operations would otherwise list the run as running for good.
       settleRegistered(new Error(extractErrorMessage(err)));
+      live.fail(extractErrorMessage(err));
       throw err;
     } finally {
       budget.end();
@@ -817,6 +837,9 @@ export class AutomationHandler implements DomainHandler {
     settleRegistered(
       result.status === 'failed' ? new Error(result.error ?? 'Pipeline failed') : undefined,
     );
+    if (result.status === 'failed') live.fail(result.error ?? 'Pipeline failed');
+    else if (result.status === 'cancelled') live.cancel();
+    else live.complete();
 
     this.deps.infraServices?.performanceTracker?.complete(operationId);
     this.recordRun(result, pipeline);

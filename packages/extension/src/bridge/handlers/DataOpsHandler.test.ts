@@ -20,6 +20,7 @@ import {
   maskingFingerprint,
 } from '../../modules/dataops/MaskingCheckpointStore.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
@@ -928,6 +929,63 @@ describe('DataOpsHandler', () => {
 
       expect(events).toEqual(['started', 'failed']);
     });
+
+    it('lists a backup in Live Operations while it reads, under its request, and ends it there', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      /** How Live Operations listed the backup while its first page was read. */
+      let whileReading: unknown;
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+        query: vi.fn(async () => {
+          whileReading ??= { ...tracker.get('bk-live') };
+          return { records: [{ Id: '001' }], done: true };
+        }),
+      } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-live',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account', 'Contact'] },
+        } as BaseMessage),
+      );
+
+      expect(whileReading).toMatchObject({
+        module: 'dataops',
+        description: 'Backup 2 object(s)',
+        status: 'running',
+      });
+      expect(tracker.get('bk-live')).toMatchObject({ status: 'completed', percentage: 100 });
+      tracker.dispose();
+    });
+
+    it('lists a backup that failed as failed in Live Operations, with the reason', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+        query: vi.fn().mockRejectedValue(new Error('INVALID_TYPE: Account is not queryable')),
+      } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-live-failed',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+
+      expect(tracker.get('bk-live-failed')?.status).toBe('failed');
+      expect(tracker.get('bk-live-failed')?.error).toContain('INVALID_TYPE');
+      tracker.dispose();
+    });
   });
 
   describe('rollback safety', () => {
@@ -1617,6 +1675,57 @@ describe('DataOpsHandler', () => {
         ]);
       });
 
+      it('lists a restore in Live Operations, where its Cancel stops it, and ends it there cancelled', async () => {
+        const { upsert } = await mockConnection();
+        const registry = new BackgroundOperationRegistry();
+        deps.infraServices = { ...deps.infraServices, backgroundRegistry: registry } as never;
+        const tracker = new LiveOperationTracker();
+        handler.setLiveOperationTracker(tracker);
+        /** How Live Operations listed the restore while its first batch was written. */
+        let whileWriting: unknown;
+        upsert.mockImplementation(async (batch: Array<{ Id: string }>) => {
+          whileWriting ??= { ...tracker.get('msg-rb') };
+          // Live Operations' Cancel goes through the registry entry under the same id.
+          registry.abort('msg-rb');
+          return batch.map((row) => ({ success: true, id: row.Id }));
+        });
+        storeWithBackup(
+          Array.from({ length: 450 }, (_, i) => ({
+            ...backedUpRecord,
+            Id: `001000000000${String(i).padStart(3, '0')}`,
+          })),
+        );
+
+        await handler.handle(rollbackMsg('org-1'));
+
+        expect(whileWriting).toMatchObject({
+          module: 'dataops',
+          description: 'Rollback 1 object(s)',
+          status: 'running',
+        });
+        expect(upsert).toHaveBeenCalledTimes(1);
+        expect(tracker.get('msg-rb')?.status).toBe('cancelled');
+        tracker.dispose();
+      });
+
+      it('lists a restore that stopped at an object it may not write as failed in Live Operations', async () => {
+        await mockConnection({
+          ...accountDescribe,
+          fields: accountDescribe.fields.map((f) =>
+            f.name === 'Name' ? { ...f, createable: false, updateable: false } : f,
+          ),
+        });
+        storeWithBackup([backedUpRecord]);
+        const tracker = new LiveOperationTracker();
+        handler.setLiveOperationTracker(tracker);
+
+        await handler.handle(rollbackMsg('org-1'));
+
+        expect(tracker.get('msg-rb')?.status).toBe('failed');
+        expect(tracker.get('msg-rb')?.error).toContain('Name');
+        tracker.dispose();
+      });
+
       it('records a restore that stopped at an object it may not write as failed', async () => {
         await mockConnection({
           ...accountDescribe,
@@ -2195,6 +2304,56 @@ describe('DataOpsHandler', () => {
       expect(options?.headers?.['Sforce-Auto-Assign']).toBe('FALSE');
     });
 
+    it('does not send the refusal of a run whose snapshot was not taken to the model: SandForge wrote it', async () => {
+      const update = vi.fn();
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        query: vi.fn(async (soql: string) => {
+          if (soql.startsWith('SELECT COUNT() ')) return answer([{ Id: '003000000000001' }]);
+          throw new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd');
+        }),
+        describe: vi.fn().mockResolvedValue(contactDescribe),
+        sobject: vi.fn(() => ({ update })),
+      } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'an-no-snapshot',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: {
+            orgId: 'org-1',
+            templateId: 'tpl-gdpr-standard',
+            objects: ['Contact'],
+            snapshot: true,
+          },
+        } as BaseMessage),
+      );
+      // The org's own error, which the snapshot failed on, may be asked about;
+      // the refusal SandForge words around it is not.
+      await vi.waitFor(() =>
+        expect(posted().find((m) => m.type === 'dataops:error')?.payload).toMatchObject({
+          code: 'SNAPSHOT_NOT_TAKEN',
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(update).not.toHaveBeenCalled();
+      for (const [prompt] of provider.mock.calls) {
+        expect(prompt).not.toContain('No snapshot was taken');
+      }
+    });
+
     it('tells the model the object and batch size a refused masking used', async () => {
       // Masking fails inside the same write loop as the restore, and needs the
       // same two lines to be answered usefully.
@@ -2391,6 +2550,71 @@ describe('DataOpsHandler', () => {
                 notSent: 450,
               },
             ],
+          }),
+        ]);
+      });
+
+      it('runs under the id of its request, listed in Live Operations, and ends there cancelled', async () => {
+        const tracker = new LiveOperationTracker();
+        handler.setLiveOperationTracker(tracker);
+        /** How Live Operations listed the run while its first batch was written. */
+        let whileWriting: unknown;
+        const update = vi.fn(async (batch: unknown[]) => {
+          whileWriting ??= { ...tracker.get('an-cancel') };
+          // The page's Stop, and Live Operations' Cancel, name the run by its request.
+          registry.abort('an-cancel');
+          return batch.map(() => ({ success: true }));
+        });
+
+        await anonymizeWith(update);
+
+        expect(update).toHaveBeenCalledTimes(1);
+        expect(whileWriting).toMatchObject({ module: 'dataops', status: 'running' });
+        expect(tracker.get('an-cancel')?.status).toBe('cancelled');
+        expect(posted().find((m) => m.type === 'operation:completed')?.payload).toMatchObject({
+          operationId: 'an-cancel',
+        });
+        tracker.dispose();
+      });
+
+      it('writes nothing when it is stopped before its first write, while it counts the rows', async () => {
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        deps.configStore = store;
+        const update = vi.fn(async (batch: unknown[]) => batch.map(() => ({ success: true })));
+        const query = vi.fn(async (soql: string) => {
+          // The Stop comes before the run is registered: while it counts.
+          if (soql.startsWith('SELECT COUNT() ')) registry.cancelBeforeStart('an-cancel');
+          return answer(contacts);
+        });
+        const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          query,
+          describe: vi.fn().mockResolvedValue(contactDescribe),
+          sobject: vi.fn(() => ({ update })),
+        } as never);
+        (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+          orgType: 'Sandbox',
+        });
+
+        await handler.handle(
+          inboundRequest({
+            id: 'an-cancel',
+            type: 'dataops:anonymize',
+            timestamp: Date.now(),
+            payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+          } as BaseMessage),
+        );
+
+        expect(update).not.toHaveBeenCalled();
+        expect(posted().find((m) => m.type === 'dataops:error')?.payload).toMatchObject({
+          code: 'ABORTED_BEFORE_START',
+        });
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'anonymize_execute',
+            outcome: 'stopped',
+            details: { code: 'ABORTED_BEFORE_START' },
           }),
         ]);
       });

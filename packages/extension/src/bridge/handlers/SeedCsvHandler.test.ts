@@ -265,7 +265,7 @@ describe('SeedCsvHandler', () => {
         ]);
       });
 
-      it('keeps one as partial once a row landed', async () => {
+      it('keeps one as cancelled once a row landed, as a Sync run the user stopped', async () => {
         const store = recordingStore();
         writer.insert.mockImplementation(async () => {
           registry.abort(OPERATION_ID);
@@ -281,7 +281,7 @@ describe('SeedCsvHandler', () => {
 
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({
-            outcome: 'partial',
+            outcome: 'cancelled',
             objects: [{ objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 0 }],
             details: {},
           }),

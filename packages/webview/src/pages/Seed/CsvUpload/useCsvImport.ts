@@ -16,6 +16,8 @@ export interface CsvExecutionResult {
   insertedCount: number;
   failedCount: number;
   errors: string[];
+  /** Set when a cancel stopped the import: the rows it wrote stay in the org. */
+  cancelled?: boolean;
 }
 
 /** Return type of the useCsvImport hook. */
@@ -40,6 +42,11 @@ export interface CsvImportState {
   validationResult: CsvValidationResult | null;
   /** Current execution status. */
   executionStatus: CsvExecutionStatus;
+  /**
+   * The id of the request that started the import, which the extension runs
+   * it under: what a Cancel sends to stop it. Null before the first one.
+   */
+  runRequestId: string | null;
   /** Execution result after completion. */
   executionResult: CsvExecutionResult | null;
   /** Error message from the last failed step, if any. */
@@ -300,6 +307,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
     describeFields,
     validationResult,
     executionStatus,
+    runRequestId: executeMutation.requestId,
     executionResult,
     error,
     step,

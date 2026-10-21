@@ -362,7 +362,7 @@ export interface VRCheckResult {
 }
 
 /** Why no removal of a Seed run can run now. */
-export type SeedRemovalRefusalCode = 'GUARD_BLOCKED' | 'NO_GUARD' | 'ORG_GONE';
+export type SeedRemovalRefusalCode = 'GUARD_BLOCKED' | 'NO_GUARD' | 'ORG_GONE' | 'RUNNING';
 
 /**
  * What a Seed run created, as the extension keeps it, and what a removal of
@@ -386,6 +386,12 @@ export interface SeedRunRemovalInfo {
    * written until then, removable as any run's.
    */
   unfinished?: true;
+  /**
+   * Set for a run still writing in this window: it has no end yet because it
+   * has not ended, not because its window closed. Its removal is refused
+   * until it ends, as a Sync run's is.
+   */
+  running?: true;
   /** Records it created, in all. */
   created: number;
   /**

@@ -148,6 +148,9 @@ export class SyncRemovalHandler implements DomainHandler {
       targetOrgId: run.targetOrgId,
       startedAt: run.startedAt,
       ...(run.end ? { endedAt: run.end.at } : {}),
+      ...(!run.end && run.inFlight
+        ? { inFlight: { objectApiName: run.inFlight.objectApiName, rows: run.inFlight.rows } }
+        : {}),
       created: createdCount(run),
       left,
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
@@ -225,7 +228,16 @@ export class SyncRemovalHandler implements DomainHandler {
           .flatMap((entry) => (entry.result.created?.runId ? [entry.result.created.runId] : [])),
       );
       const runs = (await this.creations?.list()) ?? [];
-      const unlisted = runs.filter((run) => !listed.has(run.runId) && !this.isRunning(run.runId));
+      // A run is kept from its first call that can create: one that created
+      // nothing and ended has nothing to take back, and is not listed. One a
+      // closed window stopped during a call is, even with nothing kept: the
+      // rows of that call may be in the target.
+      const unlisted = runs.filter(
+        (run) =>
+          !listed.has(run.runId) &&
+          !this.isRunning(run.runId) &&
+          (createdCount(run) > 0 || (!run.end && run.inFlight !== undefined)),
+      );
       const response = buildResponse(this.deps, msg, 'sync:removal:list:response', {
         runs: unlisted.map((run) => this.infoOf(run)) as unknown as Record<string, unknown>[],
       });

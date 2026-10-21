@@ -31,7 +31,7 @@ interface FrozenErrorPayload {
  */
 export function useFrozenMutation<T>(
   requestType: string,
-  options?: { responseType?: string; timeoutMs?: number },
+  options?: { responseType?: string; timeoutMs?: number; runOutlivesWait?: boolean },
 ): BridgeMutationState<T> {
   const mutation = useBridgeMutation<T>(requestType, options);
   const setLastError = useFrozenStore((s) => s.setLastError);
