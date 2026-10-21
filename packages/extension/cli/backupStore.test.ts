@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { defaultBackupStoreOf, openBackupStore, type StoreFolderFs } from './backupStore.js';
 import { parseArgs as parseBackupArgs } from './sandforge-backup.js';
 import { parseArgs as parseDataOpsArgs } from './sandforge-dataops.js';
@@ -16,8 +16,10 @@ describe('defaultBackupStoreOf', () => {
   });
 
   it('goes under the folder SANDFORGE_JOURNAL_DIR names, as the clone command’s journals do', () => {
+    // Resolved as the store resolves it: on Windows the folder takes the
+    // current drive, which a bare join leaves out.
     expect(defaultBackupStoreOf({ SANDFORGE_JOURNAL_DIR: '/srv/runner/sandforge' })).toBe(
-      join('/srv/runner/sandforge', 'backups'),
+      join(resolve('/srv/runner/sandforge'), 'backups'),
     );
     expect(defaultBackupStoreOf({ SANDFORGE_JOURNAL_DIR: '  ' })).toBe(
       join(homedir(), '.sandforge', 'backups'),
