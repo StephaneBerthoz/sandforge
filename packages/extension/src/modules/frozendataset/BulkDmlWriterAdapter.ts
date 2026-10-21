@@ -8,7 +8,7 @@
  * and ignored.
  */
 
-import type { BulkDataWriter } from '../sync/BulkDataWriter.js';
+import type { BulkDataWriter, WriterCalls } from '../sync/BulkDataWriter.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import { WriteCancelledError } from '../sync/WriteCancelledError.js';
 import type { FrozenDmlWriter } from './loadTypes.js';
@@ -22,12 +22,43 @@ export function createBulkDmlWriter(
   batchSize: number = DEFAULT_FROZEN_LOAD_BATCH_SIZE,
 ): FrozenDmlWriter {
   return {
-    insert: (_orgId, objectApiName, records) =>
-      writtenBeforeTheCancel(writer.insert(objectApiName, records, batchSize)),
+    insert: (_orgId, objectApiName, records, onAnswered) =>
+      writtenBeforeTheCancel(
+        writer.insert(
+          objectApiName,
+          records,
+          batchSize,
+          onAnswered ? answeredInOrder(onAnswered) : undefined,
+        ),
+      ),
     update: (_orgId, objectApiName, records) =>
       writtenBeforeTheCancel(writer.update(objectApiName, records, batchSize)),
     delete: (_orgId, objectApiName, recordIds) =>
       writtenBeforeTheCancel(writer.delete(objectApiName, recordIds, batchSize)),
+  };
+}
+
+/**
+ * The calls of one insert told to `onAnswered` as each answers, with the
+ * place of its first record among the insert's: the calls go in the order of
+ * the records, one after the other, each the records it said it sends —
+ * answered with an outcome per record, or fewer when the answer was cut
+ * short, and none for a job the cancel aborted, whose records go nowhere.
+ */
+function answeredInOrder(
+  onAnswered: (offset: number, outcomes: readonly OperationOutcome[]) => void,
+): WriterCalls {
+  let offset = 0;
+  let sent = 0;
+  return {
+    sending: (_objectName, _operation, rows) => {
+      sent = rows;
+    },
+    answered: (_objectName, _operation, outcomes) => {
+      onAnswered(offset, outcomes);
+      offset += sent;
+      sent = 0;
+    },
   };
 }
 

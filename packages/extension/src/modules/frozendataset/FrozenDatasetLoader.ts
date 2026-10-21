@@ -131,6 +131,7 @@ import type {
   FrozenDataset,
   FrozenRecord,
   LoadCreatedRecords,
+  LoadJournal,
   PersonContactLink,
   PreviousLoad,
   RecordTypeIdResolver,
@@ -170,6 +171,13 @@ export interface LoadMappingStore extends ReferenceIdMappingStore {
    */
   recordStamps(stamps: Readonly<Record<string, string>>): Promise<boolean>;
   readonly filePath: string;
+  /**
+   * The journal of a load that begins at `startedAt`, which keeps what it
+   * creates a batch at a time until its mapping is written: see
+   * `LoadJournal`. Absent, a load killed before its end leaves nothing that
+   * names what it created.
+   */
+  journal?(startedAt: Date): LoadJournal;
 }
 
 /** Dependencies of {@link FrozenDatasetLoader}. */
@@ -1013,6 +1021,13 @@ function heldTo<R extends { referenceId: string }>(
 export class FrozenDatasetLoader {
   private readonly config: FrozenLoadConfig;
   private readonly sasGuard: SasPathGuard;
+  /**
+   * Where the load under way keeps what it creates, a batch at a time, until
+   * its mapping is written (`LoadMappingStore.journal`): its mapping was kept
+   * at its end, a cancel or a failure only, and a load whose process was
+   * killed left its records in the target with nothing naming them.
+   */
+  private journal: LoadJournal | undefined;
 
   constructor(private readonly deps: FrozenDatasetLoaderDeps) {
     this.config = deps.config ?? {};
@@ -1032,6 +1047,21 @@ export class FrozenDatasetLoader {
    */
   async load(options: FrozenLoadOptions): Promise<FrozenLoadReport> {
     const running: RunningLoad = {};
+    try {
+      return await this.loadKeeping(options, running);
+    } finally {
+      // Gone once the mapping holds what it named; kept when it names
+      // records no mapping does, which are then read as a load that stopped.
+      await this.journal?.close().catch(() => undefined);
+      this.journal = undefined;
+    }
+  }
+
+  /** {@link load}, a failure once it wrote keeping what it wrote. */
+  private async loadKeeping(
+    options: FrozenLoadOptions,
+    running: RunningLoad,
+  ): Promise<FrozenLoadReport> {
     try {
       return await this.loadInto(options, running);
     } catch (err: unknown) {
@@ -1628,6 +1658,8 @@ export class FrozenDatasetLoader {
     const startedAt = now();
     const emit = (event: FrozenLoadProgressEvent): void => options.onProgress?.(event);
     const { orgId } = options;
+    // Begun with the load's first batch: one that writes nothing leaves none.
+    this.journal = this.deps.mappingStore.journal?.(startedAt);
 
     const {
       previousLoads,
@@ -4052,6 +4084,7 @@ export class FrozenDatasetLoader {
     const placeholderKey = `${PLACEHOLDER_KEY_PREFIX}${targetObject}:${key}`;
     mapping.set(placeholderKey, outcome.id);
     created.add(targetObject, placeholderKey);
+    this.journal?.created(targetObject, [[placeholderKey, outcome.id]]);
     let affected = 0;
     for (const aligned of records) {
       const current = aligned.fields[missing.field];
@@ -4223,7 +4256,12 @@ export class FrozenDatasetLoader {
       result.inserted++;
     };
     await this.checkGuard(options, 'insert', objectApiName, payloads.length);
-    const outcomes = await this.deps.writer.insert(options.orgId, objectApiName, payloads);
+    const outcomes = await this.deps.writer.insert(
+      options.orgId,
+      objectApiName,
+      payloads,
+      (offset, answered) => this.journalBatch(objectApiName, toInsert, offset, answered),
+    );
     const refused: Array<SentAgain & { referenceId: string; errors: string[] }> = [];
     outcomes.forEach((outcome, i) => {
       const referenceId = toInsert[i].referenceId;
@@ -4271,6 +4309,7 @@ export class FrozenDatasetLoader {
         options.orgId,
         objectApiName,
         refused.map((row) => row.payload),
+        (offset, answered) => this.journalBatch(objectApiName, refused, offset, answered),
       );
     } catch (err: unknown) {
       notSentAgain(refused, extractErrorMessage(err));
@@ -4313,6 +4352,28 @@ export class FrozenDatasetLoader {
       }
     });
     return result;
+  }
+
+  /**
+   * Keep in the load's journal the records a call of an insert created, as
+   * it answers: each by the key of its row — `rows`, in the order the insert
+   * sent them, the call's first at `offset` — with its id in the target.
+   */
+  private journalBatch(
+    objectApiName: string,
+    rows: ReadonlyArray<{ referenceId: string }>,
+    offset: number,
+    outcomes: readonly OperationOutcome[],
+  ): void {
+    const journal = this.journal;
+    if (!journal) return;
+    journal.created(
+      objectApiName,
+      outcomes.flatMap((outcome, index): Array<readonly [string, string]> => {
+        const row = rows[offset + index];
+        return outcome.success && outcome.id && row ? [[row.referenceId, outcome.id]] : [];
+      }),
+    );
   }
 
   /**

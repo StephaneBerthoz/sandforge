@@ -3,10 +3,20 @@
  * points at itself, through the real insert order: the lookups that point
  * forward go in empty and are filled by the second pass.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { BaseMessage } from '@sandforge/shared';
 import { SeedCloneHandler } from './SeedCloneHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import type { OperationOutcome } from '../../modules/sync/DataSync.js';
+import {
+  SEED_RUNS_DIR,
+  nodeSeedRunCreations,
+  type SeedRunCreations,
+} from '../../modules/seed/SeedRunCreations.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -32,7 +42,9 @@ const fetcher = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
+vi.mock('../../modules/sync/BulkDataWriter.js', async (importOriginal) => ({
+  // What a clone keeps of each call reads the writer's own `createdIds`.
+  ...(await importOriginal<typeof import('../../modules/sync/BulkDataWriter.js')>()),
   BulkDataWriter: vi.fn().mockImplementation(function () {
     return writer;
   }),
@@ -1114,6 +1126,100 @@ describe('SeedCloneHandler — the second pass', () => {
           { objectApiName: 'Task', sourceCount: 3, insertedCount: 2, linkedCount: 1 },
         ],
       });
+    });
+  });
+
+  describe('what a clone created, kept for its removal', () => {
+    const RUN_ID = 'msg-seed:clone:execute';
+    let storage: string;
+    let runs: SeedRunCreations;
+
+    /** Each insert told to the calls hook the run handed the (mocked) writer, as the writer tells it. */
+    function insertsTellTheRun(): void {
+      const answer = writer.insert.getMockImplementation();
+      writer.insert.mockImplementation(async (name: string, records: unknown[]) => {
+        const calls = vi.mocked(BulkDataWriter).mock.calls.at(-1)?.[0].calls;
+        calls?.sending(name, 'insert', records.length);
+        const outcomes = (await answer?.(name, records)) as OperationOutcome[];
+        calls?.answered(name, 'insert', outcomes);
+        return outcomes;
+      });
+    }
+
+    beforeEach(() => {
+      storage = mkdtempSync(join(tmpdir(), 'sandforge-clone-runs-'));
+      runs = nodeSeedRunCreations(storage);
+      handler.setRunCreations(runs);
+    });
+    afterEach(() => {
+      rmSync(storage, { recursive: true, force: true });
+    });
+
+    it('keeps what the clone created in the target as each call answers, named a clone of its source, and answers with the id it is kept under', async () => {
+      orgWithAccountsAndContacts();
+      const rows = {
+        Account: [{ Id: ACME, Name: 'Acme', Key_Contact__c: DOE }],
+        Contact: [{ Id: DOE, LastName: 'Doe', AccountId: ACME }],
+      };
+      sourceRows(rows);
+      targetGivesIds(rows);
+      insertsTellTheRun();
+
+      await previewed(ACCOUNTS_AND_CONTACTS);
+      await handler.handle(runOf(ACCOUNTS_AND_CONTACTS));
+
+      const [response] = posted(deps, 'seed:clone:execute:response');
+      expect(response.payload as unknown).toMatchObject({ status: 'success', runId: RUN_ID });
+      expect(handler.isRunning(RUN_ID)).toBe(false);
+      const kept = await nodeSeedRunCreations(storage).get(RUN_ID);
+      expect(kept).toMatchObject({
+        origin: 'clone',
+        sourceOrgId: 'src-org',
+        targetOrgId: 'tgt-org',
+        end: { status: 'success' },
+        created: [
+          { objectApiName: 'Account', ids: [inTarget(ACME)] },
+          { objectApiName: 'Contact', ids: [inTarget(DOE)] },
+        ],
+      });
+      // The account the second pass wrote to again is the run's last write,
+      // so a removal reads the date the pass left on it as the clone's.
+      const lines = readFileSync(
+        join(storage, SEED_RUNS_DIR, `${RUN_ID.replace(/[^A-Za-z0-9_-]/g, '_')}.ndjson`),
+        'utf8',
+      )
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(lines.at(-2)).toMatchObject({ object: 'Account', created: [inTarget(ACME)] });
+      expect(lines.at(-1)).toHaveProperty('end');
+    });
+
+    it('keeps none of the records the clone linked to, the target holding them before', async () => {
+      orgWithAccountsAndContacts();
+      const held = '001Fk00000HeLdXIAV';
+      const rows = {
+        Account: [
+          { Id: ACME, Name: 'Acme' },
+          { Id: GLOBEX, Name: 'Globex' },
+        ],
+      };
+      sourceRows(rows);
+      writer.insert.mockImplementation(async () => [
+        { id: inTarget(ACME), success: true, errors: [] },
+        { success: false, errors: ['DUPLICATE_VALUE: duplicate value found'], existingId: held },
+      ]);
+      insertsTellTheRun();
+
+      const accounts = { ...ACCOUNTS_AND_CONTACTS, objects: [{ objectApiName: 'Account' }] };
+      await previewed(accounts);
+      await handler.handle(runOf(accounts));
+
+      const [response] = posted(deps, 'seed:clone:execute:response');
+      expect(response.payload as unknown).toMatchObject({ totalLinked: 1, runId: RUN_ID });
+      expect((await runs.get(RUN_ID))?.created).toEqual([
+        { objectApiName: 'Account', ids: [inTarget(ACME)] },
+      ]);
     });
   });
 });

@@ -218,14 +218,6 @@ export const SeedPage: React.FC = () => {
                       <span className="text-xs text-text-secondary text-center">
                         {t('seed.modeSelect.csvDesc')}
                       </span>
-                      {/* Unlike a template's run and the wizard's, which Earlier
-                          seeds takes back. */}
-                      <span
-                        className="text-[11px] text-text-secondary text-center"
-                        data-testid="mode-card-csv-not-removable"
-                      >
-                        {t('seed.modeSelect.notRemovable')}
-                      </span>
                     </div>
                   </CardBody>
                 </Card>
@@ -239,12 +231,6 @@ export const SeedPage: React.FC = () => {
                       </span>
                       <span className="text-xs text-text-secondary text-center">
                         {t('seed.modeSelect.cloneDesc')}
-                      </span>
-                      <span
-                        className="text-[11px] text-text-secondary text-center"
-                        data-testid="mode-card-clone-not-removable"
-                      >
-                        {t('seed.modeSelect.notRemovable')}
                       </span>
                     </div>
                   </CardBody>

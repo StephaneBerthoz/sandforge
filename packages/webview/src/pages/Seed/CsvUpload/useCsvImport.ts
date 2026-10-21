@@ -18,6 +18,11 @@ export interface CsvExecutionResult {
   errors: string[];
   /** Set when a cancel stopped the import: the rows it wrote stay in the org. */
   cancelled?: boolean;
+  /**
+   * The id what the import created is kept under, for its removal from the
+   * results or Earlier seeds. Absent when it created nothing.
+   */
+  runId?: string;
 }
 
 /** Return type of the useCsvImport hook. */

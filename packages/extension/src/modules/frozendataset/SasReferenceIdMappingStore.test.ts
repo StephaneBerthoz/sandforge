@@ -6,6 +6,7 @@ import { InsideRepoPathError, SasPathGuard, findRepoRoot } from './SasPathGuard.
 import {
   REFERENCEID_MAPPING_FILENAME,
   SasReferenceIdMappingStore,
+  loadOfJournal,
   mappedOrgIds,
   referenceIdMappingFileName,
 } from './SasReferenceIdMappingStore.js';
@@ -1002,5 +1003,202 @@ describe('SasReferenceIdMappingStore', () => {
     });
     await expect(store.persist(new Map())).rejects.toThrow(InsideRepoPathError);
     await expect(store.load()).rejects.toThrow(InsideRepoPathError);
+  });
+
+  describe('a load killed before its mapping was written', () => {
+    const FIRST_ACCOUNT = '001XX00000AbCdEAAA';
+    const ACCOUNT = '001XX00000FgHiJAAA';
+    const CONTACTS = ['003XX00000FgHiJAAA', '003XX00000KlMnOAAA'];
+    const FIRST = new Date('2026-09-24T10:00:00.000Z');
+    const KILLED = new Date('2026-09-24T11:00:00.000Z');
+    /** A process that is not running: the window whose load was killed. */
+    const GONE = 2_147_483_646;
+
+    function storeOf(dir: string, now = '2026-09-24T12:00:00.000Z'): SasReferenceIdMappingStore {
+      return new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-dev',
+        now: () => new Date(now),
+      });
+    }
+
+    /** The journal a load killed in process `pid` left: an account, then two contacts. */
+    function killedJournal(dir: string, pid = GONE): string {
+      const file = path.join(dir, `referenceid-mapping.org-dev.load-${KILLED.getTime()}.ndjson`);
+      const lines = [
+        { journal: { startedAt: KILLED.toISOString(), pid } },
+        {
+          at: '2026-09-24T11:00:05.000Z',
+          object: 'Account',
+          created: [['Account-000002', ACCOUNT]],
+        },
+        {
+          at: '2026-09-24T11:00:09.000Z',
+          object: 'Contact',
+          created: [
+            ['Contact-000002', CONTACTS[0]],
+            ['Contact-000003', CONTACTS[1]],
+          ],
+        },
+      ];
+      // The last line cut short as the process died.
+      fs.writeFileSync(file, `${lines.map((l) => JSON.stringify(l)).join('\n')}\n{"at":"2026-09`);
+      return file;
+    }
+
+    /** A first load that ended, at two past ten, and wrote its mapping. */
+    async function firstLoad(dir: string): Promise<void> {
+      await storeOf(dir, '2026-09-24T10:02:00.000Z').persist(
+        new Map([['Account-000001', FIRST_ACCOUNT]]),
+        {
+          created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+          startedAt: FIRST,
+          earlier: { settled: [] },
+        },
+      );
+    }
+
+    it('writes a line per batch as the batch answers, before the load ends', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      const journal = store.journal(KILLED);
+
+      journal.created('Account', [['Account-000002', ACCOUNT]]);
+      journal.created('Contact', [
+        ['Contact-000002', CONTACTS[0]],
+        ['Contact-000003', 'not an id'],
+      ]);
+      await expect(journal.flush()).resolves.toBeUndefined();
+
+      const file = path.join(dir, `referenceid-mapping.org-dev.load-${KILLED.getTime()}.ndjson`);
+      const read = loadOfJournal(fs.readFileSync(file, 'utf8'));
+      expect(read).toMatchObject({
+        startedAt: KILLED.toISOString(),
+        pid: process.pid,
+        load: {
+          mapping: { 'Account-000002': ACCOUNT, 'Contact-000002': CONTACTS[0] },
+          created: [
+            { objectApiName: 'Account', referenceIds: ['Account-000002'] },
+            { objectApiName: 'Contact', referenceIds: ['Contact-000002'] },
+          ],
+        },
+      });
+      // Still writing in this process: never read as a load that stopped.
+      expect((await store.recordedLoads()).map((load) => load.endedAt)).toEqual([]);
+      await journal.close();
+    });
+
+    it('reads the journal a killed load left as the last load, removable, the load before it kept', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await firstLoad(dir);
+      killedJournal(dir);
+
+      const [last, before] = await store.recordedLoads();
+
+      expect(last).toMatchObject({
+        orgId: 'org-dev',
+        startedAt: KILLED.toISOString(),
+        endedAt: '2026-09-24T11:00:09.000Z',
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000002'] },
+          { objectApiName: 'Contact', referenceIds: ['Contact-000002', 'Contact-000003'] },
+        ],
+      });
+      expect([...(last?.mapping.values() ?? [])]).toEqual([ACCOUNT, ...CONTACTS]);
+      expect(before).toMatchObject({ earlier: true, startedAt: FIRST.toISOString() });
+      // A reload purges both.
+      expect(await store.previousLoads()).toHaveLength(2);
+      // And the org is listed, though its file says nothing of the killed load.
+      await expect(mappedOrgIds(dir, new SasPathGuard(repoRoot))).resolves.toEqual(['org-dev']);
+    });
+
+    it('lists the org of a first load killed before any mapping was written', async () => {
+      const dir = makeTmpDir();
+      killedJournal(dir);
+
+      await expect(mappedOrgIds(dir, new SasPathGuard(repoRoot))).resolves.toEqual(['org-dev']);
+      await expect(storeOf(dir).recorded()).resolves.toMatchObject({
+        endedAt: '2026-09-24T11:00:09.000Z',
+      });
+    });
+
+    it('keeps the killed load with the next one, its journal gone, and its records still named', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await firstLoad(dir);
+      const killed = killedJournal(dir);
+      const next = new Date('2026-09-24T12:00:00.000Z');
+      const journal = store.journal(next);
+      journal.created('Account', [['Account-000009', '001XX00000PqRsTAAA']]);
+
+      await store.persist(new Map([['Account-000009', '001XX00000PqRsTAAA']]), {
+        created: [{ objectApiName: 'Account', referenceIds: ['Account-000009'] }],
+        startedAt: next,
+        earlier: { settled: [] },
+      });
+      await journal.close();
+
+      expect(fs.existsSync(killed)).toBe(false);
+      expect(fs.readdirSync(dir).filter((name) => name.endsWith('.ndjson'))).toEqual([]);
+      const loads = await storeOf(dir).recordedLoads();
+      expect(loads.map((load) => load.startedAt)).toEqual([
+        next.toISOString(),
+        KILLED.toISOString(),
+        FIRST.toISOString(),
+      ]);
+    });
+
+    it('writes the killed load into the file with what its removal did, and lets its journal go', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await firstLoad(dir);
+      const killed = killedJournal(dir);
+
+      const written = await store.recordRemoval('2026-09-24T11:00:09.000Z', {
+        gone: [ACCOUNT, ...CONTACTS],
+        stamps: {},
+        mark: {
+          removedAt: '2026-09-24T12:00:00.000Z',
+          deleted: 3,
+          alreadyGone: 0,
+          kept: 0,
+          refused: 0,
+        },
+      });
+
+      expect(written).toBe(true);
+      expect(fs.existsSync(killed)).toBe(false);
+      const [last] = await storeOf(dir).recordedLoads();
+      expect(last).toMatchObject({ startedAt: KILLED.toISOString(), removal: { deleted: 3 } });
+      expect(last?.created).toEqual([]);
+    });
+
+    it('leaves alone the journal of a load another window has under way', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      await firstLoad(dir);
+      killedJournal(dir, process.ppid);
+
+      expect((await store.recordedLoads()).map((load) => load.startedAt)).toEqual([
+        FIRST.toISOString(),
+      ]);
+    });
+
+    it('leaves no journal of a load that created nothing, and keeps the one of a load whose mapping was never written', async () => {
+      const dir = makeTmpDir();
+      const store = storeOf(dir);
+      const nothing = store.journal(FIRST);
+      await nothing.close();
+      const unwritten = store.journal(KILLED);
+      unwritten.created('Account', [['Account-000002', ACCOUNT]]);
+      await unwritten.close();
+
+      expect(fs.readdirSync(dir)).toEqual([
+        `referenceid-mapping.org-dev.load-${KILLED.getTime()}.ndjson`,
+      ]);
+      // Closed, it is no load under way: read as one that stopped.
+      await expect(store.recorded()).resolves.toMatchObject({ startedAt: KILLED.toISOString() });
+    });
   });
 });

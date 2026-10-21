@@ -9,7 +9,7 @@ import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkDataWriter } from '../sync/BulkDataWriter.js';
 import { createBulkDmlWriter } from './BulkDmlWriterAdapter.js';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
-import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
+import { SasReferenceIdMappingStore, loadOfJournal } from './SasReferenceIdMappingStore.js';
 import { contractCountsLoad, readCountingContract } from './CountingContract.js';
 import {
   FrozenDatasetLoader,
@@ -1320,6 +1320,65 @@ describe('FrozenDatasetLoader — what removing the load takes', () => {
   async function recorded(sasDir: string) {
     return new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recorded();
   }
+
+  it('keeps in the sas what each batch created as it answers, before the object is written whole, and lets it go once the mapping holds it', async () => {
+    // Kept at the load's end only, a load whose process was killed during
+    // the contacts left the account and the first contacts in the target,
+    // and nothing in the sas named them.
+    const dataset = makeAccountContactDataset();
+    dataset.objects[1].records.push({
+      referenceId: 'Contact-000002',
+      fields: { LastName: 'Roe', AccountId: 'Account-000001' },
+    });
+    const ids: Record<string, string[]> = {
+      Account: ['001XX00000AbCdEAAA'],
+      Contact: ['003XX00000AbCdEAAA', '003XX00000FgHiJAAA'],
+    };
+    let journalDuringTheContacts: string | undefined;
+    const sasDir = makeTmpDir();
+    const writer: FrozenDmlWriter = {
+      ...makeWriter([]),
+      insert: vi.fn<FrozenDmlWriter['insert']>(async (_org, objectApiName, records, onAnswered) => {
+        const outcomes = records.map((_record, index) => ({
+          id: ids[objectApiName]?.[index] ?? '',
+          success: true,
+          errors: [],
+        }));
+        if (objectApiName !== 'Contact') {
+          onAnswered?.(0, outcomes);
+          return outcomes;
+        }
+        // The first batch answers; while the second is under way, the sas
+        // holds what the account and the first batch created.
+        onAnswered?.(0, outcomes.slice(0, 1));
+        await vi.waitFor(() => {
+          const name = fs.readdirSync(sasDir).find((file) => file.endsWith('.ndjson'));
+          const text = name ? fs.readFileSync(path.join(sasDir, name), 'utf8') : '';
+          expect(text).toContain('Contact-000001');
+          journalDuringTheContacts = text;
+        });
+        onAnswered?.(1, outcomes.slice(1));
+        return outcomes;
+      }),
+    };
+    const deps = makeDeps({ dataset, writer, sasDir });
+
+    await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(loadOfJournal(journalDuringTheContacts ?? '')?.load).toMatchObject({
+      mapping: { 'Account-000001': ids.Account[0], 'Contact-000001': ids.Contact[0] },
+      created: [
+        { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+        { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+      ],
+    });
+    // Once the mapping is written, the journal goes.
+    expect(fs.readdirSync(sasDir).filter((name) => name.endsWith('.ndjson'))).toEqual([]);
+    expect((await recorded(sasDir))?.created).toEqual([
+      { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+      { objectApiName: 'Contact', referenceIds: ['Contact-000001', 'Contact-000002'] },
+    ]);
+  });
 
   it('keeps as created every record it inserted, and never the standard book it matched', async () => {
     const dataset: FrozenDataset = {

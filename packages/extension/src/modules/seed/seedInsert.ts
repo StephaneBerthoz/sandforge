@@ -98,12 +98,23 @@ export interface SeedInsertDeps {
   /** Told as a bulk insert goes: the records processed of the insert's, and what it is. */
   onProgress: (processed: number, total: number, step: string) => void;
   /**
-   * Told of the records each REST call created, as it answers. An object a
-   * duplicate rule sends through REST goes in many calls inside one insert,
-   * and its records were kept once the insert returned: a window closed
-   * during it kept none of the calls already answered.
+   * Told of each call before it goes — a REST call, a Bulk API job, said again
+   * with its id once the org has opened it — and of the records it created
+   * once it answers, none included. An object a duplicate rule sends through
+   * REST goes in many calls inside one insert, and its records were kept once
+   * the insert returned: a window closed during it kept none of the calls
+   * already answered; and a job still running when the window closed was
+   * named nowhere, though it wrote all its records.
    */
-  onCreated?: (objectApiName: string, ids: readonly string[]) => void;
+  calls?: SeedInsertCalls;
+}
+
+/** See {@link SeedInsertDeps.calls}. */
+export interface SeedInsertCalls {
+  /** A call of `rows` records of an object is about to go; `call.job` once the org opened its job. */
+  sending(objectApiName: string, rows: number, call?: { job?: string }): void;
+  /** The call answered: the records it created, none included. */
+  answered(objectApiName: string, ids: readonly string[]): void;
 }
 
 /** The orchestrator's `insert`, the panel's and the command line's. */
@@ -168,7 +179,9 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
         onProgress: (processed, total) => {
           deps.onProgress(processed, total, `Streaming insert ${objectApiName}`);
         },
+        onOpened: (job) => deps.calls?.sending(objectApiName, records.length, { job }),
       };
+      deps.calls?.sending(objectApiName, records.length);
       const streamResult = await chunkedExecutor.executeChunked(
         bulkDeps,
         objectApiName,
@@ -176,6 +189,7 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
         chunkedExecutor.createChunkGenerator(records),
         records.length,
       );
+      deps.calls?.answered(objectApiName, streamResult.aborted ? [] : streamResult.successIds);
       return {
         successIds: streamResult.successIds,
         errors: streamResult.errors,
@@ -198,8 +212,11 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
           deps.onProgress(processed, total, `Bulk insert ${objectApiName}`);
         },
         signal,
+        onOpened: (job) => deps.calls?.sending(objectApiName, records.length, { job }),
       };
+      deps.calls?.sending(objectApiName, records.length);
       const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectApiName, 'insert', records);
+      deps.calls?.answered(objectApiName, bulkResult.aborted ? [] : bulkResult.successIds);
       const rows = bulkRows(bulkResult, records.length);
       return {
         successIds: bulkResult.successIds,
@@ -229,6 +246,7 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
         return { successIds, errors, rows, stopped: true };
       }
       const batch = records.slice(i, i + batchSize);
+      deps.calls?.sending(objectApiName, batch.length);
       const retryResult = await retry.execute(async () => {
         // Seeded rows are invented and land in an org that may already
         // hold rows like them — a duplicate rule stops exactly that. Forge
@@ -243,7 +261,10 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
       });
       // The batch failed and the cancel came before it was tried again:
       // none of it was created, and nothing after it is sent.
-      if (retryResult.cancelled) return { successIds, errors, rows, stopped: true };
+      if (retryResult.cancelled) {
+        deps.calls?.answered(objectApiName, []);
+        return { successIds, errors, rows, stopped: true };
+      }
 
       if (retryResult.success && retryResult.result) {
         const created: string[] = [];
@@ -258,7 +279,7 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
             rows.push({ error, errorDetails: (r.errors ?? []).map(saveErrorDetail) });
           }
         }
-        if (created.length > 0) deps.onCreated?.(objectApiName, created);
+        deps.calls?.answered(objectApiName, created);
       } else {
         // The whole batch is lost, not one record: `errors.length` is what
         // SeedOrchestrator reports as recordsFailed, so a single push made
@@ -268,6 +289,8 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
           errors.push(failMsg);
           rows.push({ error: failMsg });
         }
+        // Answered as Sync's writer answers a call that failed: with nothing created.
+        deps.calls?.answered(objectApiName, []);
       }
     }
 

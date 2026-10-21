@@ -186,9 +186,10 @@ The Forge page lists your recent runs under **Recent runs**. A run that created 
 Every clone that writes keeps a journal of what it writes as it goes — the
 ids of the records it created and linked to, put on disk as each call's
 answer comes back, where each object's read stood, the lookups and statuses
-it still owed, and those it filled in; and, before each insert call goes — a
-parent it copies from outside the clone and a file included — the source ids
-of its rows with a fingerprint of what each writes, a file's by its title, its
+it still owed, and those it filled in; and, before each insert or upsert call
+goes — a parent it copies from outside the clone and a file included — the
+source ids of its rows with a fingerprint of what each writes, an upsert's
+row with one of the external id value it matches on, a file's by its title, its
 size and its checksum, which holds none of it, and the lookups each row goes
 in without; never a value of a record — in the extension's own storage. One that stopped before its end — you cancelled it,
 it failed past its first objects, or VS Code closed under it — offers
@@ -215,9 +216,13 @@ there: its removal looks for the call it had under way first, as a resume
 does, and takes back what it finds; a row the target may hold that the
 journal does not name stays, and the removal's result counts it among the
 records it cannot reach. Only a run's first removal looks for such a call: a
-later one says how many calls it did not look for again. Rows sent by upsert,
-whose calls the journal does not keep, are never looked for, and the result
-says how many of the records it cannot reach they are. Such a run is dated, for its removal and its
+later one says how many calls it did not look for again. An upsert call is
+looked for the same way, by the value of the external id it matches on: a
+record of the window carrying a row's value is the one the row created, linked
+to and removed with the run's records; a row none carries wrote over a record
+the target held before the run, which stays, or wrote nothing. Rows sent by
+upsert in a journal kept before upsert calls were are not looked for, and the
+result says how many of the records it cannot reach they are. Such a run is dated, for its removal and its
 **Verify**, by when the target created the first and the last records its
 journal names, not by when it began. Resume is refused, writing nothing, when the org the run wrote to was
 refreshed or replaced since, or is no longer registered; when the clone on

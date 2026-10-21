@@ -244,8 +244,10 @@ export interface WriteNodeInput {
    * counted: the run's journal. A process killed while a call was under way
    * left records in the target the journal did not name, and a resume wrote
    * them again; kept so, the call's rows are looked for in the target first
-   * (`reconcileInFlight`). An upsert is not kept: sent again, it matches the
-   * records it wrote by their external id. Absent, no call is kept.
+   * (`reconcileInFlight`). An upsert call is kept too, with the external id it
+   * matches by: sent again, it matches the records it wrote, but a removal
+   * read the rows of one cut short as written nowhere it could reach, and
+   * left the records it had created in the target. Absent, no call is kept.
    */
   calls?: InsertCallJournal;
   /** Pause/abort checkpoint — called between batch iterations. */
@@ -271,8 +273,15 @@ export interface RowSent {
 
 /** Where a node's insert calls are kept: see {@link WriteNodeInput.calls}. */
 export interface InsertCallJournal {
-  /** Keep the call about to go, its rows in the order sent; says its id. */
-  sending(objectApiName: string, rows: readonly RowSent[]): string | undefined;
+  /**
+   * Keep the call about to go, its rows in the order sent; says its id. An
+   * upsert names the external id it matches the rows by.
+   */
+  sending(
+    objectApiName: string,
+    rows: readonly RowSent[],
+    upsertField?: string,
+  ): string | undefined;
   /** Keep that the call's answer is counted, once what it created is registered. */
   answered(callId: string): void;
 }
@@ -923,17 +932,17 @@ export class BatchWriter {
   ): Promise<CallAnswered | CallThrew> {
     const payloads = rows.map(sentAs);
     for (let resends = 0; ; resends++) {
-      // Kept before it goes, each time it goes: see `WriteNodeInput.calls`.
-      const callId = write.upsertField
-        ? undefined
-        : write.calls?.sending(
-            write.objectApiName,
-            rows.map((row, i) => ({
-              sourceId: sourceIdOf(row),
-              payload: payloads[i],
-              owes: owedBy(row),
-            })),
-          );
+      // Kept before it goes, each time it goes, an upsert with the external
+      // id it matches by: see `WriteNodeInput.calls`.
+      const callId = write.calls?.sending(
+        write.objectApiName,
+        rows.map((row, i) => ({
+          sourceId: sourceIdOf(row),
+          payload: payloads[i],
+          owes: owedBy(row),
+        })),
+        write.upsertField,
+      );
       try {
         const answers = await this.send(write, payloads);
         return callId === undefined ? { answers } : { answers, callId };

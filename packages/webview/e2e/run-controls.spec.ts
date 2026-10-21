@@ -9,10 +9,12 @@ import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
  * What a user sees of a run that writes to an org, and of stopping it: Live
  * Operations as the extension pushes it; the Cancel of a backup, a restore, a
  * masking run, a CSV import and a clone; the masking run's snapshot; a seed
- * still writing; a Sync run cut during a call; and, before Autopilot, a CSV
- * import or a clone writes, that SandForge cannot take it back. Each state is
- * scanned with axe under VS Code's default themes and the two they replaced,
- * painted as the host paints a webview.
+ * still writing, and the CSV imports and clones Earlier seeds keeps beside
+ * the seeds; a Sync run cut during a call; before Autopilot writes, that
+ * SandForge cannot take it back; and the removal a CSV import and a clone
+ * offer of what they wrote. Each state is scanned with axe under VS Code's
+ * default themes and the two they replaced, painted as the host paints a
+ * webview.
  */
 const THEMES = ['Light 2026', 'Dark 2026', 'Light Modern', 'Dark Modern'] as const;
 type Theme = (typeof THEMES)[number];
@@ -327,30 +329,42 @@ for (const theme of THEMES) {
       await passesAxe(page);
     });
 
-    test('the Seed gallery says what cannot be removed, Earlier seeds lists a seed still writing as running, and passes axe', async ({
+    test('Earlier seeds lists a seed still writing as running, and a CSV import and a clone by their way, and passes axe', async ({
       page,
     }) => {
       await openModule(page, 'seed', theme);
+      const kept = (runId: string, over: Record<string, unknown>): Record<string, unknown> => ({
+        runId,
+        targetOrgId: 'org-src-1',
+        startedAt: '2026-10-21T08:00:00.000Z',
+        endedAt: '2026-10-21T08:00:30.000Z',
+        created: 2,
+        left: [{ objectApiName: 'Account', count: 2 }],
+        ...over,
+      });
       await answerAll(page, 'seed:removal:list', 'seed:removal:list:response', {
         runs: [
-          {
-            runId: 'op-writing',
-            targetOrgId: 'org-src-1',
-            startedAt: '2026-10-21T08:00:00.000Z',
-            endedAt: '2026-10-21T08:00:30.000Z',
+          kept('op-writing', {
             running: true,
             created: 200,
             left: [{ objectApiName: 'Account', count: 200 }],
             refusal: { code: 'RUNNING', message: 'The seed is still writing.' },
-          },
+          }),
+          kept('op-csv', { origin: 'csv' }),
+          kept('op-clone', { origin: 'clone', sourceOrgId: QA_SANDBOX.id }),
         ],
       });
 
       await expect(page.getByTestId('seed-run-history-running-op-writing')).toBeVisible({
         timeout: 10_000,
       });
-      await expect(page.getByTestId('mode-card-csv-not-removable')).toBeVisible();
-      await expect(page.getByTestId('mode-card-clone-not-removable')).toBeVisible();
+      await expect(page.getByTestId('seed-run-history-origin-op-csv')).toHaveText('CSV Upload');
+      await expect(page.getByTestId('seed-run-history-origin-op-clone')).toHaveText(
+        'Clone from Org',
+      );
+      // The cards no longer say their runs cannot be removed: Earlier seeds takes them back.
+      await expect(page.getByTestId('mode-card-csv-not-removable')).toHaveCount(0);
+      await expect(page.getByTestId('mode-card-clone-not-removable')).toHaveCount(0);
       await passesAxe(page);
     });
 
@@ -381,7 +395,7 @@ for (const theme of THEMES) {
       await passesAxe(page);
     });
 
-    test('a CSV import says it cannot be taken back, offers Cancel while it writes, reads cancelled once stopped, and passes axe', async ({
+    test('a CSV import offers Cancel while it writes, reads cancelled once stopped, offers the removal of what it wrote, and passes axe', async ({
       page,
     }) => {
       await openModule(page, 'seed', theme);
@@ -423,7 +437,8 @@ for (const theme of THEMES) {
         warningCount: 0,
       });
 
-      await expect(page.getByTestId('csv-no-way-back')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('execute-button')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('csv-no-way-back')).toHaveCount(0);
       await passesAxe(page);
 
       await page.getByTestId('execute-button').click();
@@ -434,13 +449,28 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('csv-stopping')).toBeVisible();
       await passesAxe(page);
 
+      const csvRequest = (await outgoing(page, 'seed:csv:execute')).at(-1);
       await answerAll(page, 'seed:csv:execute', 'seed:csv:execute:response', {
         insertedCount: 1,
         failedCount: 0,
         errors: [],
         cancelled: true,
+        runId: String(csvRequest?.id),
       });
       await expect(page.getByTestId('csv-cancelled')).toBeVisible({ timeout: 10_000 });
+      // What the import wrote before the stop, kept as a seed's is, and offered back.
+      await answerAll(page, 'seed:removal:info', 'seed:removal:info:response', {
+        info: {
+          runId: String(csvRequest?.id),
+          origin: 'csv',
+          targetOrgId: 'org-src-1',
+          startedAt: '2026-10-21T08:00:00.000Z',
+          endedAt: '2026-10-21T08:00:30.000Z',
+          created: 1,
+          left: [{ objectApiName: 'Account', count: 1 }],
+        },
+      });
+      await expect(page.getByTestId('seed-removal-remove')).toBeVisible({ timeout: 10_000 });
       await passesAxe(page);
     });
 
@@ -488,7 +518,7 @@ for (const theme of THEMES) {
       await passesAxe(page);
     });
 
-    test('a clone says it cannot be taken back, offers Cancel while it writes, and passes axe', async ({
+    test('a clone offers Cancel while it writes, then the removal of what it created, and passes axe', async ({
       page,
     }) => {
       await openModule(page, 'seed', theme);
@@ -507,7 +537,8 @@ for (const theme of THEMES) {
         insertOrder: ['Account'],
       });
 
-      await expect(page.getByTestId('clone-no-way-back')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('clone-preview-execute')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('clone-no-way-back')).toHaveCount(0);
       await passesAxe(page);
 
       await page.getByTestId('clone-preview-execute').click();
@@ -515,6 +546,43 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('back-to-modes')).toHaveCount(0);
       await page.getByTestId('clone-stop').click();
       await expect(page.getByTestId('clone-stopping')).toBeVisible();
+      await passesAxe(page);
+
+      // Stopped once it had written: what it created is kept as a seed's is, and offered back.
+      const cloneRequest = (await outgoing(page, 'seed:clone:execute')).at(-1);
+      await answerAll(page, 'seed:clone:execute', 'seed:clone:execute:response', {
+        status: 'partial',
+        cancelled: true,
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            sourceCount: 3,
+            insertedCount: 2,
+            failedCount: 0,
+            idMappings: [],
+            errors: [],
+          },
+        ],
+        totalSourceRecords: 3,
+        totalInserted: 2,
+        totalFailed: 0,
+        durationMs: 1200,
+        runId: String(cloneRequest?.id),
+      });
+      await answerAll(page, 'seed:removal:info', 'seed:removal:info:response', {
+        info: {
+          runId: String(cloneRequest?.id),
+          origin: 'clone',
+          sourceOrgId: QA_SANDBOX.id,
+          targetOrgId: 'org-src-1',
+          startedAt: '2026-10-21T08:00:00.000Z',
+          endedAt: '2026-10-21T08:00:30.000Z',
+          created: 2,
+          left: [{ objectApiName: 'Account', count: 2 }],
+        },
+      });
+      await expect(page.getByTestId('clone-results-cancelled')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('seed-removal-remove')).toBeVisible({ timeout: 10_000 });
       await passesAxe(page);
     });
   });

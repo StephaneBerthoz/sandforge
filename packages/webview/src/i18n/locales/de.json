@@ -785,8 +785,7 @@
       "csv": "CSV-Upload",
       "csvDesc": "Daten aus einer CSV-Datei importieren",
       "clone": "Von Org klonen",
-      "cloneDesc": "Datensätze aus einer anderen Org klonen",
-      "notRemovable": "Was es schreibt, kann nicht über „Frühere Seeds“ entfernt werden."
+      "cloneDesc": "Datensätze aus einer anderen Org klonen"
     },
     "persona": {
       "title": "KI-Personas",

@@ -745,8 +745,8 @@ function unreachableOf(entry: Pick<ForgeExecutionResult, 'mayHaveBeenWritten'>):
  * What a removal says a call of the run may have written under ids no one
  * knows, once the rows of the calls it had under way were looked for in the
  * target (`reconcileInFlight`): those the target may hold, and those the
- * run's own count names that no call looked for sent — an upsert, which its
- * journal does not keep. A call that threw before its answer stays open in
+ * run's own count names that no call looked for sent — an upsert, which a
+ * journal kept before upsert calls were does not hold. A call that threw before its answer stays open in
  * the journal: found since, its rows are the run's, and removed. Without a
  * reconciliation, the run's own count.
  */
@@ -768,8 +768,9 @@ function unreachableAfter(
  * may have written, said with them rather than counted silently: the insert
  * calls its journal still holds open, of a run an earlier removal marked —
  * looked for before the first removal only — and the rows no call the journal
- * holds names, which went by upsert, whose calls it does not keep. Nothing of
- * a run whose journal was not read.
+ * holds names, which went by upsert in a journal kept before upsert calls
+ * were: a run's journal keeps them now, and they are looked for by their
+ * external id. Nothing of a run whose journal was not read.
  */
 function notLookedForOf(
   mayHaveBeenWritten: ForgeExecutionResult['mayHaveBeenWritten'],

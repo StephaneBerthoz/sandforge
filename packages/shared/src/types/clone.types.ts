@@ -153,6 +153,12 @@ export interface CloneExecutionResult {
    * source holds them, as it was asked. Absent for older results.
    */
   contactPoints?: ForgeContactPointsReport;
+  /**
+   * The id what the clone created in the target is kept under, as a seed's
+   * is, for its removal from the results or Earlier seeds (`seed:remove`).
+   * Set when it created a record; a record it linked to was the target's.
+   */
+  runId?: string;
 }
 
 /**

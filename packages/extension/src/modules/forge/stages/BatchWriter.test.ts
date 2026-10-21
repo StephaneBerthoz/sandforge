@@ -715,6 +715,52 @@ describe('BatchWriter', () => {
     infoSpy.mockRestore();
   });
 
+  it('keeps an upsert call before it goes, with the external id it matches by, and closes it once answered', async () => {
+    const told: string[] = [];
+    const upsertRecords = vi.fn<UpsertFn>().mockImplementation(async () => {
+      told.push('upsert');
+      return [{ id: '001UP1', success: true, created: true, errors: [] }];
+    });
+    const deps: WriterDeps = { ...makeDeps(), upsertRecords };
+    const fields: FieldInfo[] = [
+      ...FIELDS,
+      {
+        name: 'ExternalKey__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        externalId: true,
+      },
+    ];
+    const input = makeInput([{ Id: '001OLD', ExternalKey__c: 'KEY-1' }], {
+      records: [{ ExternalKey__c: 'KEY-1' }],
+      cleanedRecords: [
+        {
+          source: { Id: '001OLD', ExternalKey__c: 'KEY-1' },
+          cleaned: { ExternalKey__c: 'KEY-1' },
+          nullifiedFks: [],
+        },
+      ],
+      fieldInfos: fields,
+      creatableFields: new Set(['ExternalKey__c']),
+      upsertMode: 'auto',
+      calls: {
+        sending: (objectApiName, rows, upsertField) => {
+          told.push(
+            `sending ${objectApiName} ${rows.map((row) => row.sourceId).join(',')} by ${String(upsertField)}`,
+          );
+          return 'call-1';
+        },
+        answered: (callId) => told.push(`answered ${callId}`),
+      },
+    });
+
+    await new BatchWriter(deps).writeNode(input);
+
+    // Kept before it went: a removal of a run cut short during it reads it back.
+    expect(told).toEqual(['sending Account 001OLD by ExternalKey__c', 'upsert', 'answered call-1']);
+  });
+
   it('counts a row the upsert matched by its external id as updated, never as one the run created', async () => {
     const upsertRecords = vi.fn<UpsertFn>().mockResolvedValue([
       { id: '001NEW1', success: true, created: true, errors: [] },

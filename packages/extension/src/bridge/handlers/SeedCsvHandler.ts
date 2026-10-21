@@ -34,6 +34,8 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { SeedRunCreations, SeedRunRecorder } from '../../modules/seed/SeedRunCreations.js';
+import { seedWriterCalls } from '../../modules/seed/seedRunCalls.js';
 
 /** Message types handled by SeedCsvHandler. */
 const SEED_CSV_TYPES = new Set(['seed:csv:validate', 'seed:csv:execute']);
@@ -51,6 +53,11 @@ interface CsvExecutionResultPayload {
   errors: string[];
   /** Set when a cancel stopped the import before its rows were written. */
   cancelled?: boolean;
+  /**
+   * The id what the import created is kept under, for its removal from the
+   * results or Earlier seeds (`seed:remove`): set when it created a record.
+   */
+  runId?: string;
 }
 
 /**
@@ -60,9 +67,14 @@ interface CsvExecutionResultPayload {
  * extension validates against the live describe metadata (CsvValidator) and
  * writes through BulkDataWriter (REST batches / Bulk API with retry):
  *   seed:csv:validate -> seed:csv:validate:response (CsvValidationResult)
- *   seed:csv:execute  -> seed:csv:execute:response  { insertedCount, failedCount, errors }
+ *   seed:csv:execute  -> seed:csv:execute:response  { insertedCount, failedCount, errors, runId? }
  * Validation failures are reported on `seed:csv:error`; execute failures on
  * `operation:failed` (same convention as seed:execute / sync:execute).
+ *
+ * What an import creates is kept as a seed's is (`SeedRunCreations`), as each
+ * call goes and answers, under the request's id: the response names it, and
+ * the import is taken back from its results or from Earlier seeds by the
+ * removal a seed takes (`seed:remove`).
  */
 export class SeedCsvHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
@@ -85,6 +97,26 @@ export class SeedCsvHandler implements DomainHandler {
     this.liveTracker = tracker;
   }
 
+  /** Where what each import creates is kept, as a seed's is: see `SeedRunCreations`. */
+  private runCreations?: SeedRunCreations;
+
+  /** The imports this window is writing now, by the id what they create is kept under. */
+  private readonly runningRuns = new Set<string>();
+
+  /**
+   * Where each import keeps what it creates, as it writes it, for its removal
+   * from the results or Earlier seeds: what an import wrote could not be
+   * taken back from SandForge.
+   */
+  setRunCreations(store: SeedRunCreations): void {
+    this.runCreations = store;
+  }
+
+  /** Whether the import kept under `runId` is still writing, in this window. */
+  isRunning(runId: string): boolean {
+    return this.runningRuns.has(runId);
+  }
+
   /**
    * Handle an incoming bridge message.
    *
@@ -103,6 +135,38 @@ export class SeedCsvHandler implements DomainHandler {
         return true;
       default:
         return false;
+    }
+  }
+
+  /**
+   * Note how an import ended with what it created, and let it be removed: the
+   * calls kept what each created as it answered. A store that cannot keep it
+   * all is said, and the import ends as it did.
+   *
+   * @returns Whether all of it was kept.
+   */
+  private async endKept(
+    kept: SeedRunRecorder | undefined,
+    operationId: string,
+    ending: { status: 'success' | 'partial' | 'failure'; cancelled: boolean },
+  ): Promise<boolean> {
+    if (!kept) return false;
+    try {
+      await kept.end({
+        finishedAt: new Date().toISOString(),
+        status: ending.status,
+        ...(ending.cancelled ? { cancelled: true } : {}),
+        objectResults: [],
+      });
+      return true;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] seed:csv:execute ${operationId}: what the import created could not all be kept, ` +
+          `so removing it may leave some of it in the org: ${extractErrorMessage(err)}`,
+      );
+      return false;
+    } finally {
+      this.runningRuns.delete(operationId);
     }
   }
 
@@ -181,6 +245,10 @@ export class SeedCsvHandler implements DomainHandler {
      * a failure before it wrote nothing, and a run is recorded once.
      */
     let unrecorded = false;
+    /** What keeps what the import creates, from its first write until it ended. */
+    let kept: SeedRunRecorder | undefined;
+    /** Records the import created, as its calls answered: an upsert's rows the org created. */
+    let created = 0;
 
     try {
       // Production guard check on target org (mirror SyncOpsHandler), and no
@@ -275,6 +343,18 @@ export class SeedCsvHandler implements DomainHandler {
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
       failure.batchSize = defaultBatchSize;
+      // What the import creates, kept as each call goes and answers, under
+      // the request's id, as a seed's is: it is listed in Earlier seeds and
+      // taken back from there or from its results, also after a reload or a
+      // window closed under it. The import said, before it wrote, that what
+      // it wrote could not be removed.
+      kept = this.runCreations?.recorder({
+        runId: operationId,
+        targetOrgId: parsed.orgId,
+        startedAt: new Date().toISOString(),
+        origin: 'csv',
+      });
+      if (kept) this.runningRuns.add(operationId);
       const writer = new BulkDataWriter({
         connection: conn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
@@ -287,6 +367,13 @@ export class SeedCsvHandler implements DomainHandler {
           this.liveTracker?.updateProgress(operationId, percent, processed, total, label);
         },
         log: (message) => this.deps.log(message),
+        ...(kept
+          ? {
+              calls: seedWriterCalls(kept, (count) => {
+                created += count;
+              }),
+            }
+          : {}),
       });
 
       const writeRecords = parsed.records.map((row) =>
@@ -370,11 +457,19 @@ export class SeedCsvHandler implements DomainHandler {
         });
       }
 
+      // Kept whole before the page is answered, a stopped import's too: what
+      // it wrote can be taken back from its results, or from Earlier seeds.
+      const keptAll = await this.endKept(kept, operationId, {
+        status: cancelled && reached === 'success' ? 'partial' : reached,
+        cancelled,
+      });
+      kept = undefined;
       const payload: CsvExecutionResultPayload = {
         insertedCount,
         failedCount,
         errors,
         ...(cancelled ? { cancelled: true } : {}),
+        ...(keptAll && created > 0 ? { runId: operationId } : {}),
       };
       if (cancelled) {
         // Ended the way a cancelled Sync or Seed ends: aborted in the registry
@@ -416,6 +511,8 @@ export class SeedCsvHandler implements DomainHandler {
       settle(importFailed === undefined ? undefined : new Error(importFailed));
     } catch (err: unknown) {
       if (unrecorded) recordWriteRun(this.deps, run);
+      // What it created before it failed stays removable, the import ended failed.
+      await this.endKept(kept, operationId, { status: 'failure', cancelled: false });
       // Dual channel, as seed:execute and sync:execute fail: `operation:failed`
       // carries the lifecycle, and seed:csv:error settles the page's request,
       // which waits on it — it was sent `operation:failed` alone, and the page

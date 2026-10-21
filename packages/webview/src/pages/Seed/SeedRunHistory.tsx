@@ -18,6 +18,12 @@ const SeedRunRemoval = lazy(() =>
   import('./SeedRunRemoval').then((module) => ({ default: module.SeedRunRemoval })),
 );
 
+/** The name of the way a run was written, when not the generator: the Seed page's own cards. */
+const ORIGIN_LABELS: Record<NonNullable<SeedRunRemovalInfo['origin']>, string> = {
+  csv: 'seed.modeSelect.csv',
+  clone: 'seed.modeSelect.clone',
+};
+
 /** What a run's line says of its removal: whether it can still be taken back. */
 function removalState(t: TFunction, run: SeedRunRemovalInfo): string {
   const removedOn = run.removed
@@ -79,6 +85,16 @@ export const SeedRunHistory: React.FC = () => {
                   data-testid={`seed-run-history-${run.runId}`}
                 >
                   <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    {/* A CSV import and a clone are kept and taken back as a
+                        seed is, and named by the way that wrote them. */}
+                    {run.origin && (
+                      <span
+                        className="font-semibold text-text-primary"
+                        data-testid={`seed-run-history-origin-${run.runId}`}
+                      >
+                        {t(ORIGIN_LABELS[run.origin])}
+                      </span>
+                    )}
                     <span className="text-text-primary">
                       {t('seed.removal.historyRun', {
                         date,

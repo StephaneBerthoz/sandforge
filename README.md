@@ -116,7 +116,7 @@ Safety is on by default: Forge refuses a Production org as a target, and for eve
 | Whole objects in dependency order, in one go           | **Autopilot**                            | None: a run cannot be removed, so try it on an org you can refresh or throw away |
 | The same set after every sandbox refresh               | **Frozen Dataset**                       | **Remove the records this load created**, under **Last load** on the Load tab    |
 
-Seed's **CSV Upload** and **Clone from Org** keep no list of what they created, and cannot be taken back from the panel: [the FAQ](docs/faq.md#how-do-i-undo-what-sandforge-wrote) says what each module can undo.
+Seed's **CSV Upload** and **Clone from Org** are taken back as a seed is, from their results or **Earlier seeds**: [the FAQ](docs/faq.md#how-do-i-undo-what-sandforge-wrote) says what each module can undo.
 
 ---
 
@@ -143,7 +143,7 @@ Seed's **CSV Upload** and **Clone from Org** keep no list of what they created, 
 - **Is this an SFDMU replacement?** For moving data between orgs from your editor, yes — and without the config file: you paste a record ID, SandForge discovers the relationship graph and remaps IDs on write (a record type the target does not have keeps its source Id, and the SandForge log names it). SFDMU keeps the edge for headless CI, where it is a binary you install: SandForge's ten [command-line scripts](ci-examples/README.md) run from a checkout of this repository. Switching costs nothing you already built: the Migration module imports your existing `export.json` into a Sync config, non-destructively — nothing is written to your orgs.
 - **Which orgs are supported?** Any org authenticated in the Salesforce CLI (`sf`), imported in one click.
 - **Is it free?** Yes — MIT licensed, no account, no paid tier.
-- **Can I undo a run?** Forge, Seed's templates and wizard, Sync and Frozen Dataset each take back what a run created; Autopilot, Seed's CSV Upload and Clone from Org cannot. [The FAQ](docs/faq.md#how-do-i-undo-what-sandforge-wrote) has the table.
+- **Can I undo a run?** Forge, Seed (its templates, its wizard, CSV Upload and Clone from Org), Sync and Frozen Dataset each take back what a run created; Autopilot cannot. [The FAQ](docs/faq.md#how-do-i-undo-what-sandforge-wrote) has the table.
 
 ---
 

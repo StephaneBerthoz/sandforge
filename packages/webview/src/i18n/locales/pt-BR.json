@@ -785,8 +785,7 @@
       "csv": "Upload CSV",
       "csvDesc": "Importar dados de um arquivo CSV",
       "clone": "Clonar de Org",
-      "cloneDesc": "Clonar registros de outra org",
-      "notRemovable": "O que ele grava não pode ser removido em Seeds anteriores."
+      "cloneDesc": "Clonar registros de outra org"
     },
     "persona": {
       "title": "Personas de IA",

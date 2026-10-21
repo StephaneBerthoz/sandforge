@@ -209,12 +209,18 @@ export class ExtensionHandlers {
     this.settingsHandler = new SettingsHandler(this.handlerDeps);
     this.monitorHandler = new MonitorOpsHandler(this.handlerDeps);
     this.seedHandler = new SeedOpsHandler(this.handlerDeps);
-    // A run still writing in this window is listed as running, and not removed.
-    this.seedRemovalHandler = new SeedRemovalHandler(this.handlerDeps, undefined, (runId) =>
-      this.seedHandler.isRunning(runId),
-    );
     this.seedCloneHandler = new SeedCloneHandler(this.handlerDeps);
     this.seedCsvHandler = new SeedCsvHandler(this.handlerDeps);
+    // A run still writing in this window is listed as running, and not
+    // removed: a seed's, a CSV import's or a clone's, kept the same way.
+    this.seedRemovalHandler = new SeedRemovalHandler(
+      this.handlerDeps,
+      undefined,
+      (runId) =>
+        this.seedHandler.isRunning(runId) ||
+        this.seedCsvHandler.isRunning(runId) ||
+        this.seedCloneHandler.isRunning(runId),
+    );
     this.syncHandler = new SyncOpsHandler(this.handlerDeps);
     // Sync execution history: one shared store — SyncOpsHandler writes via
     // SyncExecutionLogger, SyncHistoryHandler serves the read surface and
@@ -393,9 +399,12 @@ export class ExtensionHandlers {
    * Inject the file-backed store of what each Seed run created, kept whole
    * for its removal from the run's results or the list of earlier seeds — the
    * results carry a thousand ids an object — in this window and after a reload.
+   * The CSV imports and the clones of the Seed page keep theirs there too.
    */
   setSeedRunCreations(store: SeedRunCreations): void {
     this.seedHandler.setRunCreations(store);
+    this.seedCsvHandler.setRunCreations(store);
+    this.seedCloneHandler.setRunCreations(store);
     this.seedRemovalHandler.setRunCreations(store);
   }
 

@@ -110,10 +110,17 @@ export interface TargetOrgAccess {
  * this interface — see BulkDmlWriterAdapter. Outcomes are input-aligned.
  */
 export interface FrozenDmlWriter {
+  /**
+   * @param onAnswered - Told of each call of the insert as it answers — a
+   *   REST batch, a Bulk API job — with the place of its first record among
+   *   `records` and an outcome per record it sent: what the load keeps a
+   *   batch at a time (`LoadJournal`).
+   */
   insert(
     orgId: string,
     objectApiName: string,
     records: Array<Record<string, unknown>>,
+    onAnswered?: (offset: number, outcomes: readonly OperationOutcome[]) => void,
   ): Promise<OperationOutcome[]>;
   update(
     orgId: string,

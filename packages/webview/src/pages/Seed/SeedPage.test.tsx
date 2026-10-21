@@ -538,14 +538,13 @@ describe('SeedPage', () => {
     }
   });
 
-  it('says on the CSV and clone cards that what they write cannot be removed from Earlier seeds', () => {
+  it('no longer says on the CSV and clone cards that what they write cannot be removed: Earlier seeds takes it back', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
 
     for (const card of ['csv', 'clone']) {
-      expect(screen.getByTestId(`mode-card-${card}-not-removable`).textContent).toBe(
-        'What it writes cannot be removed from Earlier seeds.',
-      );
+      expect(screen.queryByTestId(`mode-card-${card}-not-removable`)).toBeNull();
+      expect(screen.getByTestId(`mode-card-${card}`).textContent).not.toMatch(/cannot be removed/);
     }
   });
 

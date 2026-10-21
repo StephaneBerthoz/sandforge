@@ -150,6 +150,27 @@ describe('SeedRunHistory', () => {
     expect(useAppStore.getState().currentRoute).toBe('monitor');
   });
 
+  it('lists a CSV import and a clone among the seeds, each named by the way that wrote it, and offers their removal', () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        { ...RUNS[0], runId: 'op-csv', origin: 'csv' },
+        { ...RUNS[0], runId: 'op-clone', origin: 'clone', sourceOrgId: 'org-src' },
+        RUNS[1],
+      ],
+    });
+
+    expect(screen.getByTestId('seed-run-history-origin-op-csv').textContent).toBe('CSV Upload');
+    expect(screen.getByTestId('seed-run-history-origin-op-clone').textContent).toBe(
+      'Clone from Org',
+    );
+    expect(screen.getByTestId('seed-run-history-state-op-clone').textContent).toBe(
+      'can be removed',
+    );
+    // A seed the generator wrote is not named.
+    expect(screen.queryByTestId('seed-run-history-origin-op-1')).toBeNull();
+  });
+
   it('shows nothing when no seed is kept', () => {
     render(<SeedRunHistory />);
     answer('seed:removal:list', 'seed:removal:list:response', { runs: [] });

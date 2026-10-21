@@ -31,6 +31,7 @@ vi.mock('../../modules/forge/ForgeRunRemoval.js', async (original) => ({
 }));
 
 import { removalOrg } from '../../modules/forge/ForgeRunRemoval.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
@@ -278,6 +279,102 @@ describe('SeedRemovalHandler', () => {
       const after = lists()[0].find((run) => run.runId === 'op-live');
       expect(after?.running).toBeUndefined();
       expect(after?.refusal).toBeUndefined();
+    });
+
+    it('lists a seed whose window closed during a Bulk API job with what the job wrote, read back by its id, and removes it all', async () => {
+      const job = fakeId('750', 4);
+      const account = fakeId('001', 5);
+      const contacts = [fakeId('003', 7), fakeId('003', 8)];
+      const recorder = runs.recorder({
+        runId: 'op-job',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      });
+      recorder.sending('Account', 1);
+      recorder.answered('Account', [account]);
+      recorder.sending('Contact', 2);
+      recorder.sending('Contact', 2, { job });
+      await vi.waitFor(async () => expect((await runs.get('op-job'))?.inFlight?.job).toBe(job));
+      // The job ran on to its end once the window had closed.
+      const jobEnded = new Date(Date.now() - 60_000).toISOString();
+      org.add('Account', { Id: account }, new Date(Date.now() - 2 * 60_000).toISOString());
+      for (const id of contacts) org.add('Contact', { Id: id, AccountId: account }, jobEnded);
+      const asked: string[] = [];
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        bulk2: {
+          job: (_type: string, { id }: { id: string }) => {
+            asked.push(id);
+            return {
+              check: async () => ({ state: 'JobComplete', systemModstamp: jobEnded }),
+              getSuccessfulResults: async () =>
+                contacts.map((sf__Id) => ({ sf__Id, sf__Created: 'true' })),
+              abort: async () => undefined,
+            };
+          },
+        },
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+
+      await handler.handle(buildMsg('seed:removal:list', {}));
+
+      expect(asked).toEqual([job]);
+      const listed = lists()[0].find((run) => run.runId === 'op-job');
+      expect(listed).toMatchObject({
+        unfinished: true,
+        created: 3,
+        left: [
+          { objectApiName: 'Contact', count: 2 },
+          { objectApiName: 'Account', count: 1 },
+        ],
+      });
+      // Answered once: the next listing reads the run's file alone.
+      await handler.handle(buildMsg('seed:removal:list', {}));
+      expect(asked).toEqual([job]);
+
+      await remove({ runId: 'op-job' });
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Contact', planned: 2, deleted: 2 },
+          { objectApiName: 'Account', planned: 1, deleted: 1 },
+        ],
+      });
+      expect(org.all('Contact').filter((row) => contacts.includes(row.Id))).toEqual([]);
+    });
+
+    it('leaves a seed whose job the org still processes as it is, and asks nothing of a seed still writing', async () => {
+      const job = fakeId('750', 5);
+      const writing = new Set(['op-live']);
+      const live = new SeedRemovalHandler(deps, undefined, (runId) => writing.has(runId));
+      live.setRunCreations(runs);
+      for (const runId of ['op-job', 'op-live']) {
+        const recorder = runs.recorder({ runId, targetOrgId: TARGET });
+        recorder.answered('Account', [fakeId('001', runId === 'op-job' ? 6 : 7)]);
+        recorder.sending('Contact', 300, { job });
+      }
+      await vi.waitFor(async () => {
+        expect((await runs.get('op-job'))?.inFlight?.job).toBe(job);
+        expect((await runs.get('op-live'))?.inFlight?.job).toBe(job);
+      });
+      const asked: string[] = [];
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        bulk2: {
+          job: (_type: string, { id }: { id: string }) => {
+            asked.push(id);
+            return {
+              check: async () => ({ state: 'InProgress' }),
+              getSuccessfulResults: async () => [],
+              abort: async () => undefined,
+            };
+          },
+        },
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+
+      await live.handle(buildMsg('seed:removal:list', {}));
+
+      // Only the run no window writes is read back, and its job runs on.
+      expect(asked).toEqual([job]);
+      expect((await runs.get('op-job'))?.inFlight?.job).toBe(job);
+      expect(lists()[0].find((run) => run.runId === 'op-job')?.created).toBe(1);
     });
 
     it('lists no run in a window given nowhere to keep them', async () => {

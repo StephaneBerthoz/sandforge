@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { BulkDataWriter } from '../sync/BulkDataWriter.js';
+import type { BulkDataWriter, WriterCalls } from '../sync/BulkDataWriter.js';
 import { WriteCancelledError } from '../sync/WriteCancelledError.js';
 import { createBulkDmlWriter, DEFAULT_FROZEN_LOAD_BATCH_SIZE } from './BulkDmlWriterAdapter.js';
 
@@ -26,6 +26,7 @@ describe('createBulkDmlWriter', () => {
       'Account',
       [{ Name: 'Anon' }],
       DEFAULT_FROZEN_LOAD_BATCH_SIZE,
+      undefined,
     );
     expect(writer.update).toHaveBeenCalledWith(
       'Account',
@@ -66,6 +67,40 @@ describe('createBulkDmlWriter', () => {
     await expect(
       dml.insert('00D-any', 'Contact', [{ LastName: 'Doe' }, { LastName: 'Roe' }]),
     ).resolves.toBe(written);
+  });
+
+  it('tells the loader of each call of an insert as it answers, with the place of its first record', async () => {
+    // Told once the insert had returned, a load killed during an object's
+    // write kept none of the batches already answered.
+    const told: Array<[number, number]> = [];
+    const writer = {
+      insert: vi.fn(
+        async (_object: string, records: unknown[], _batch: number, calls?: WriterCalls) => {
+          const outcome = { id: '003Fk00000AbCdEIAV', success: true, errors: [] };
+          calls?.sending('Contact', 'insert', 2);
+          calls?.answered('Contact', 'insert', [outcome, outcome]);
+          calls?.sending('Contact', 'insert', 2);
+          // An answer cut short: the next call still starts after both rows sent.
+          calls?.answered('Contact', 'insert', [outcome]);
+          calls?.sending('Contact', 'insert', 1);
+          calls?.answered('Contact', 'insert', [outcome]);
+          return records.map(() => outcome);
+        },
+      ),
+    } as unknown as BulkDataWriter;
+
+    await createBulkDmlWriter(writer).insert(
+      '00D-any',
+      'Contact',
+      Array.from({ length: 5 }, () => ({ LastName: 'Doe' })),
+      (offset, outcomes) => told.push([offset, outcomes.length]),
+    );
+
+    expect(told).toEqual([
+      [0, 2],
+      [2, 1],
+      [4, 1],
+    ]);
   });
 
   it('lets any other error through: a failure stays a failure', async () => {

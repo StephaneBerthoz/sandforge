@@ -109,6 +109,36 @@ describe('ChunkedBulkExecutor', () => {
     expect(job.getAllResults).toHaveBeenCalledTimes(1);
   });
 
+  it('tells the id the org gave the job once it opened it, before any chunk is uploaded or the job closed', async () => {
+    const job = createMockJob({ results: [{ success: true, id: '001xx0000001' }] });
+    let id: string | undefined;
+    Object.defineProperty(job, 'id', { get: () => id });
+    vi.mocked(job.open).mockImplementation(async () => {
+      id = '750000000000002AAA';
+    });
+    const told: string[] = [];
+    vi.mocked(job.uploadData).mockImplementation(async () => {
+      told.push('uploaded');
+    });
+    vi.mocked(job.close).mockImplementation(async () => {
+      told.push('closed');
+    });
+    const deps = {
+      ...createMockDeps(job),
+      onOpened: (jobId: string) => told.push(`opened ${jobId}`),
+    };
+
+    await executor.executeChunked(
+      deps,
+      'Account',
+      'insert',
+      toAsyncIterable([generateRecords(1)]),
+      1,
+    );
+
+    expect(told).toEqual(['opened 750000000000002AAA', 'uploaded', 'closed']);
+  });
+
   it('uploads the chunks in one CSV whose header names every field of every chunk', async () => {
     // jsforce refuses a second upload to a job: the chunks went one call
     // each, and a write of more than one chunk threw at its second.

@@ -234,6 +234,36 @@ describe('ExtensionHandlers', () => {
     });
   });
 
+  describe("where the Seed page's runs keep what they create", () => {
+    it('hands the store to the CSV import and the clone, and lists a run either has under way as running', () => {
+      const inner = handlers as unknown as {
+        seedCsvHandler: {
+          setRunCreations: (store: unknown) => void;
+          isRunning: (runId: string) => boolean;
+        };
+        seedCloneHandler: {
+          setRunCreations: (store: unknown) => void;
+          isRunning: (runId: string) => boolean;
+        };
+        seedRemovalHandler: { isRunning: (runId: string) => boolean };
+      };
+      const csv = vi.spyOn(inner.seedCsvHandler, 'setRunCreations');
+      const clone = vi.spyOn(inner.seedCloneHandler, 'setRunCreations');
+      const store = {} as Parameters<ExtensionHandlers['setSeedRunCreations']>[0];
+
+      handlers.setSeedRunCreations(store);
+
+      expect(csv).toHaveBeenCalledWith(store);
+      expect(clone).toHaveBeenCalledWith(store);
+      // Still writing in this window: its removal is refused until it ends.
+      vi.spyOn(inner.seedCsvHandler, 'isRunning').mockImplementation((id) => id === 'csv-1');
+      vi.spyOn(inner.seedCloneHandler, 'isRunning').mockImplementation((id) => id === 'clone-1');
+      expect(inner.seedRemovalHandler.isRunning('csv-1')).toBe(true);
+      expect(inner.seedRemovalHandler.isRunning('clone-1')).toBe(true);
+      expect(inner.seedRemovalHandler.isRunning('other')).toBe(false);
+    });
+  });
+
   describe("the reader of the target's automation", () => {
     it("leaves an Autopilot run's gate and a Frozen removal's sweep to readers of their own", () => {
       // Handed Forge's reader once Forge's composition loaded, a gate or a

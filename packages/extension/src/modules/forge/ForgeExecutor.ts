@@ -199,7 +199,7 @@ import {
 } from './ForgeAnonymizer.js';
 import { keepPartialSummary } from './interruptedRun.js';
 import type { ForgeRunStore, StoredOwedLookup } from './ForgeRunStore.js';
-import { fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
+import { externalIdKey, fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
 import type { FieldBounds } from './describeBounds.js';
 import {
   findUnavailableRecordTypes,
@@ -2836,13 +2836,15 @@ function marksIn(store: ForgeRunStore): NonNullable<CycleFkPatchInput['onPatched
  * goes, its rows' source ids, the fingerprints of what it writes and the
  * lookups each goes in without (`ForgeRunStore.sent`), and its answer once
  * counted. A row without a source id is kept under none, and looked for by
- * no one. The parents an expansion copies (`OrphanExpander`) and the files
- * (`copyFiles`) are kept here too. Exported so that the stages' tests keep
- * their calls as a run does.
+ * no one. An upsert call is kept with the external id it matches by, and
+ * each row with the fingerprint of that id's value (`externalIdKey`). The
+ * parents an expansion copies (`OrphanExpander`) and the files (`copyFiles`)
+ * are kept here too. Exported so that the stages' tests keep their calls as a
+ * run does.
  */
 export function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
   return {
-    sending: (objectApiName, rows) => {
+    sending: (objectApiName, rows, upsertField) => {
       const fields = fingerprintFields(rows.map(({ payload }) => payload));
       return store.sent(
         objectApiName,
@@ -2850,8 +2852,20 @@ export function insertCallsIn(store: ForgeRunStore): InsertCallJournal {
         rows.flatMap(({ sourceId, payload, owes }) =>
           sourceId === undefined
             ? []
-            : [{ sourceId, fingerprint: rowFingerprint(payload, fields), owes }],
+            : [
+                {
+                  sourceId,
+                  fingerprint: rowFingerprint(payload, fields),
+                  owes,
+                  // An upsert's row is told by the value it matches on.
+                  ...(upsertField !== undefined
+                    ? { externalKey: externalIdKey(payload, upsertField) }
+                    : {}),
+                },
+              ],
         ),
+        new Date(),
+        upsertField,
       );
     },
     answered: (callId) => store.answered(callId),

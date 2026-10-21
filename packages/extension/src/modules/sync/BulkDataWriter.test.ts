@@ -650,6 +650,34 @@ describe('BulkDataWriter', () => {
 
       expect(told).toEqual(['sending upsert Account 2', 'job', 'answered 1']);
     });
+
+    it('tells the run the id of the job the org opened, with its rows, before the job answers', async () => {
+      const h = createHarness({ useBulkApi: true });
+      const told: string[] = [];
+      const writer = new BulkDataWriter({
+        ...h.deps,
+        calls: {
+          sending: (object, operation, rows) => told.push(`sending ${operation} ${object} ${rows}`),
+          opened: (object, operation, rows, jobId) =>
+            told.push(`opened ${operation} ${object} ${rows} ${jobId}`),
+          answered: () => told.push('answered'),
+        },
+      });
+      h.executeBulk.mockImplementation(async (deps: { onOpened?: (jobId: string) => void }) => {
+        deps.onOpened?.('750000000000003AAA');
+        told.push('job');
+        return { outcomes: [{ recordIndex: 0, id: '001BULK', success: true }] };
+      });
+
+      await writer.insert('Account', makeRecords(1), 200);
+
+      expect(told).toEqual([
+        'sending insert Account 1',
+        'opened insert Account 1 750000000000003AAA',
+        'job',
+        'answered',
+      ]);
+    });
   });
 
   describe('Bulk API path', () => {

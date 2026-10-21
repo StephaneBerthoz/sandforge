@@ -17,8 +17,14 @@ vi.mock('./useCsvImport', () => ({
   useCsvImport: () => csvState,
 }));
 
+/** What `useBridgeQuery` answers, per type asked, and what it was asked. */
+let queried: Record<string, unknown> = {};
+const asked: Array<{ type: string; payload: unknown }> = [];
 vi.mock('../../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({ data: null, loading: false, error: null, refetch: vi.fn() }),
+  useBridgeQuery: (type: string, payload: unknown) => {
+    asked.push({ type, payload });
+    return { data: queried[type] ?? null, loading: false, error: null, refetch: vi.fn() };
+  },
 }));
 
 /** `execution:abort`, which Stop sends. */
@@ -52,16 +58,55 @@ function executeStep(over: Partial<CsvImportState>): Partial<CsvImportState> {
 describe('CsvUploadWizard, once the import is asked to run', () => {
   beforeEach(() => {
     mockAbortMutate.mockClear();
+    queried = {};
+    asked.length = 0;
   });
 
-  it('says before Execute that SandForge cannot take back what the import writes', () => {
+  it('no longer says before Execute that SandForge cannot take back what the import writes', () => {
     csvState = executeStep({});
     render(<CsvUploadWizard onBack={vi.fn()} />);
 
-    expect(screen.getByTestId('csv-no-way-back').textContent).toBe(en.common.noWayBack);
-    expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toBe(
-      'csv-no-way-back',
+    expect(screen.queryByTestId('csv-no-way-back')).toBeNull();
+    expect(screen.queryByText(en.common.noWayBack)).toBeNull();
+    expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('offers on its results the removal of what the import created, by the id it is kept under', () => {
+    queried = {
+      'seed:removal:info': {
+        info: {
+          runId: 'req-csv-7',
+          origin: 'csv',
+          targetOrgId: 'org-1',
+          startedAt: '2026-10-21T10:00:00.000Z',
+          endedAt: '2026-10-21T10:01:00.000Z',
+          created: 2,
+          left: [{ objectApiName: 'Account', count: 2 }],
+        },
+      },
+    };
+    csvState = executeStep({
+      executionStatus: 'complete',
+      executionResult: { insertedCount: 2, failedCount: 0, errors: [], runId: 'req-csv-7' },
+    });
+    render(<CsvUploadWizard onBack={vi.fn()} />);
+
+    expect(asked).toContainEqual({ type: 'seed:removal:info', payload: { runId: 'req-csv-7' } });
+    expect(screen.getByTestId('seed-removal-created').textContent).toBe(
+      '2 records created in org-1',
     );
+    expect(screen.getByTestId('seed-removal-remove')).toBeDefined();
+  });
+
+  it('offers no removal of an import that created nothing', () => {
+    csvState = executeStep({
+      executionStatus: 'complete',
+      executionResult: { insertedCount: 0, failedCount: 1, errors: ['REQUIRED_FIELD_MISSING'] },
+    });
+    render(<CsvUploadWizard onBack={vi.fn()} />);
+
+    expect(asked.some((query) => query.type === 'seed:removal:info')).toBe(false);
+    expect(screen.queryByTestId('seed-removal')).toBeNull();
   });
 
   it('stops a running import by the id of its request, and hides the Cancel that only left the wizard', () => {

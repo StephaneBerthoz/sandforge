@@ -23,7 +23,9 @@ const writer = vi.hoisted(() => ({
 }));
 const validator = vi.hoisted(() => ({ validate: vi.fn() }));
 
-vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
+vi.mock('../../modules/sync/BulkDataWriter.js', async (importOriginal) => ({
+  // What an import keeps of each call reads the writer's own `createdIds`.
+  ...(await importOriginal<typeof import('../../modules/sync/BulkDataWriter.js')>()),
   BulkDataWriter: vi.fn().mockImplementation(function () {
     return writer;
   }),
@@ -48,6 +50,13 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
+import {
+  nodeSeedRunCreations,
+  type SeedRunCreations,
+} from '../../modules/seed/SeedRunCreations.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -538,6 +547,144 @@ describe('SeedCsvHandler', () => {
           operationId: OPERATION_ID,
           error: 'bulk write exploded',
         });
+      });
+    });
+  });
+
+  describe('what an import created, kept for its removal', () => {
+    const OPERATION_ID = 'msg-seed:csv:execute';
+    const fakeId = (prefix: string, n: number): string =>
+      `${prefix}${String(n).padStart(12, '0')}AAA`;
+    let storage: string;
+    let runs: SeedRunCreations;
+
+    /** The calls hook the run handed the (mocked) writer. */
+    const callsOfTheWriter = () => {
+      const calls = vi.mocked(BulkDataWriter).mock.calls.at(-1)?.[0].calls;
+      if (!calls) throw new Error('the writer was handed no calls hook');
+      return calls;
+    };
+    const response = () =>
+      posted(deps, 'seed:csv:execute:response')[0]?.payload as unknown as Record<string, unknown>;
+
+    beforeEach(() => {
+      storage = mkdtempSync(join(tmpdir(), 'sandforge-csv-runs-'));
+      runs = nodeSeedRunCreations(storage);
+      handler.setRunCreations(runs);
+    });
+    afterEach(() => {
+      rmSync(storage, { recursive: true, force: true });
+    });
+
+    it('keeps what an import inserted as each call answers, named a CSV import, and answers with the id it is kept under', async () => {
+      const running: boolean[] = [];
+      writer.insert.mockImplementation(async () => {
+        const calls = callsOfTheWriter();
+        running.push(handler.isRunning(OPERATION_ID));
+        calls.sending('Account', 'insert', 2);
+        const outcomes = [
+          { id: fakeId('001', 1), success: true, errors: [] },
+          { success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+        ];
+        calls.answered('Account', 'insert', outcomes);
+        return outcomes;
+      });
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(running).toEqual([true]);
+      expect(handler.isRunning(OPERATION_ID)).toBe(false);
+      expect(response()).toMatchObject({ insertedCount: 1, failedCount: 1, runId: OPERATION_ID });
+      const kept = await nodeSeedRunCreations(storage).get(OPERATION_ID);
+      expect(kept).toMatchObject({
+        origin: 'csv',
+        targetOrgId: 'tgt-org',
+        end: { status: 'partial' },
+        created: [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+      });
+    });
+
+    it('keeps of an upsert only the rows the org created, the ones it wrote over being the org own records', async () => {
+      writer.upsert.mockImplementation(async () => {
+        const outcomes = [
+          { id: fakeId('001', 1), success: true, created: false, errors: [] },
+          { id: fakeId('001', 2), success: true, created: true, errors: [] },
+        ];
+        callsOfTheWriter().sending('Account', 'upsert', 2);
+        callsOfTheWriter().answered('Account', 'upsert', outcomes);
+        return outcomes;
+      });
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ externalIdField: 'External_Id__c' })),
+      );
+
+      expect((await runs.get(OPERATION_ID))?.created).toEqual([
+        { objectApiName: 'Account', ids: [fakeId('001', 2)] },
+      ]);
+    });
+
+    it('names no run, and keeps nothing, of an import that created nothing', async () => {
+      writer.upsert.mockImplementation(async () => {
+        const outcomes = [{ id: fakeId('001', 1), success: true, created: false, errors: [] }];
+        callsOfTheWriter().sending('Account', 'upsert', 1);
+        callsOfTheWriter().answered('Account', 'upsert', outcomes);
+        return outcomes;
+      });
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ externalIdField: 'External_Id__c' })),
+      );
+
+      expect(response().runId).toBeUndefined();
+      expect(await runs.list()).toEqual([]);
+    });
+
+    it('keeps what an import wrote before a cancel or a failure, its end said', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      writer.insert.mockImplementationOnce(async () => {
+        callsOfTheWriter().sending('Account', 'insert', 1);
+        callsOfTheWriter().answered('Account', 'insert', [
+          { id: fakeId('001', 1), success: true, errors: [] },
+        ]);
+        registry.abort(OPERATION_ID);
+        throw new WriteCancelledError('Account', [
+          { id: fakeId('001', 1), success: true, errors: [] },
+        ]);
+      });
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(response()).toMatchObject({ cancelled: true, runId: OPERATION_ID });
+      expect(await runs.get(OPERATION_ID)).toMatchObject({
+        end: { status: 'partial', cancelled: true },
+        created: [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+      });
+
+      await runs.updateRemoval(OPERATION_ID, () => ({}));
+      writer.insert.mockImplementationOnce(async () => {
+        callsOfTheWriter().sending('Contact', 'insert', 1);
+        callsOfTheWriter().answered('Contact', 'insert', [
+          { id: fakeId('003', 1), success: true, errors: [] },
+        ]);
+        throw new Error('bulk write exploded');
+      });
+      const failing = new SeedCsvHandler(deps);
+      failing.setRunCreations(runs);
+      await failing.handle(
+        inboundRequest({
+          id: 'msg-failed',
+          type: 'seed:csv:execute',
+          timestamp: Date.now(),
+          payload: csvPayload({ objectApiName: 'Contact' }),
+        } as BaseMessage),
+      );
+
+      expect(await runs.get('msg-failed')).toMatchObject({
+        origin: 'csv',
+        end: { status: 'failure' },
+        created: [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }],
       });
     });
   });

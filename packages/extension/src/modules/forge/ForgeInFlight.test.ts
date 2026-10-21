@@ -3,6 +3,8 @@ import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
 import {
   IN_FLIGHT_LEAD_MS,
   IN_FLIGHT_TRAIL_MS,
+  callsInFlight,
+  externalIdKey,
   fingerprintFields,
   inFlightLines,
   reconcileInFlight,
@@ -450,5 +452,101 @@ describe('the insert calls a journal names no answer of, looked for in the targe
       expect(outcome.calls).toBe(0);
       expect(file.text()).toBe(text);
     });
+  });
+});
+
+describe('the upsert calls a journal names no answer of, looked for by their external id', () => {
+  /** A contact as an upsert sends it: matched on its external id. */
+  const upserted = (n: number): Record<string, unknown> => ({
+    LastName: `Upserted ${n}`,
+    Ext__c: `EXT-${n}`,
+  });
+  const keyOf = (n: number): string | undefined => externalIdKey(upserted(n), 'Ext__c');
+
+  /** A journal whose run sent the rows `rows` in an upsert call it names no answer of. */
+  function upsertJournal(rows: number[], key = keyOf): string {
+    const disk = memoryRunFile(HEAD);
+    const store = ForgeRunStore.open(disk);
+    store.beginPart(new Date(SENT_AT));
+    const payloads = rows.map(upserted);
+    const fields = fingerprintFields(payloads);
+    store.sent(
+      'Contact',
+      fields,
+      rows.map((n, i) => {
+        const externalKey = key(n);
+        return {
+          sourceId: source(n),
+          fingerprint: rowFingerprint(payloads[i], fields),
+          ...(externalKey !== undefined ? { externalKey } : {}),
+        };
+      }),
+      new Date(SENT_AT),
+      'Ext__c',
+    );
+    store.flush();
+    return disk.text();
+  }
+
+  it('keeps as created by the run the records the call created, found by the value of their external id, and leaves the ones it wrote over', async () => {
+    const text = upsertJournal([1, 2, 3]);
+    const file = memoryRunFile(text);
+    // Created in the window by the run's user: the rows 1 and 3. Row 2 wrote
+    // over a record the target held before the run, which the read of the
+    // window does not return. The target keeps the value in another case.
+    const org = targetHolding([
+      { Id: target(1), ...upserted(1) },
+      { Id: target(3), ...upserted(3), Ext__c: 'ext-3', LastName: 'Changed by a flow' },
+    ]);
+
+    const outcome = await reconcileInFlight(file, org);
+
+    expect(outcome).toMatchObject({
+      calls: 1,
+      found: [{ objectApiName: 'Contact', rows: 2 }],
+      notFound: [{ objectApiName: 'Contact', rows: 1 }],
+      uncertain: [],
+    });
+    expect(org.queries[0]).toContain('Ext__c');
+    const lines = added(text, file.text());
+    expect(lines.filter(([tag]) => tag === 'c')).toEqual([
+      ['c', source(1), target(1), 'Contact', 'found-owed'],
+      ['c', source(3), target(3), 'Contact', 'found-owed'],
+    ]);
+    expect(lines.at(-1)?.[0]).toBe('a');
+  });
+
+  it('says a row may be in the target when two records of the window carry its external id, and leaves the call open', async () => {
+    const text = upsertJournal([1]);
+    const file = memoryRunFile(text);
+
+    const outcome = await reconcileInFlight(
+      file,
+      targetHolding([
+        { Id: target(1), ...upserted(1) },
+        { Id: target(7), ...upserted(1) },
+      ]),
+    );
+
+    expect(outcome.found).toEqual([]);
+    expect(uncertainRows(outcome)).toBe(1);
+    expect(added(text, file.text()).some(([tag]) => tag === 'a')).toBe(false);
+  });
+
+  it('says a row kept without the value it matches on may be in the target', async () => {
+    const text = upsertJournal([1, 2], (n) => (n === 1 ? keyOf(1) : undefined));
+    const file = memoryRunFile(text);
+
+    const outcome = await reconcileInFlight(
+      file,
+      targetHolding([{ Id: target(1), ...upserted(1) }]),
+    );
+
+    expect(outcome.found).toEqual([{ objectApiName: 'Contact', rows: 1 }]);
+    expect(uncertainRows(outcome)).toBe(1);
+  });
+
+  it('counts an upsert call under way among the calls a journal names no answer of', () => {
+    expect(callsInFlight(memoryRunFile(upsertJournal([1, 2])))).toBe(1);
   });
 });

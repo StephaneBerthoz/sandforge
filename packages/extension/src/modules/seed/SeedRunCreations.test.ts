@@ -157,6 +157,129 @@ describe('SeedRunCreations', () => {
     expect((await runs.list()).map((r) => r.runId)).toEqual(['op-4', 'op-3']);
   });
 
+  it('keeps each call before it goes, a job again with its id once opened, so a run cut short during a job names it', async () => {
+    const recorder = nodeSeedRunCreations(dir).recorder({
+      runId: 'op-job',
+      targetOrgId: 'org-target',
+      startedAt: '2026-10-17T10:00:00.000Z',
+    });
+    recorder.sending('Account', 2);
+    recorder.answered('Account', [fakeId('001', 1), fakeId('001', 2)]);
+    recorder.sending('Contact', 450);
+    recorder.sending('Contact', 450, { job: fakeId('750', 7) });
+
+    // The window closed while the job ran: no answer, no end.
+    await vi.waitFor(async () =>
+      expect((await nodeSeedRunCreations(dir).get('op-job'))?.inFlight?.job).toBe(fakeId('750', 7)),
+    );
+    const kept = await nodeSeedRunCreations(dir).get('op-job');
+    expect(kept?.inFlight).toMatchObject({ objectApiName: 'Contact', rows: 450 });
+    expect(kept?.created).toEqual([
+      { objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] },
+    ]);
+  });
+
+  it('answers a job a closed window left under way with what the org says it created, listed and removed with the run', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({ runId: 'op-job', targetOrgId: 'org-target' });
+    recorder.answered('Account', [fakeId('001', 1)]);
+    recorder.sending('Contact', 2, { job: fakeId('750', 7) });
+    await vi.waitFor(async () => expect((await runs.get('op-job'))?.inFlight).toBeDefined());
+
+    // The job ended after the window closed: its records are dated then.
+    const jobEnded = new Date(Date.now() + 60_000).toISOString();
+    const answered = await nodeSeedRunCreations(dir).answerInFlight(
+      'op-job',
+      'Contact',
+      [fakeId('003', 1), fakeId('003', 2)],
+      jobEnded,
+    );
+
+    expect(answered).toBe(true);
+    const kept = await nodeSeedRunCreations(dir).get('op-job');
+    expect(kept?.inFlight).toBeUndefined();
+    expect(kept?.lastWrittenAt).toBe(jobEnded);
+    expect(syncRemovalPlan(kept!)).toEqual([
+      { objectApiName: 'Contact', ids: [fakeId('003', 2), fakeId('003', 1)] },
+      { objectApiName: 'Account', ids: [fakeId('001', 1)] },
+    ]);
+    expect(await runs.answerInFlight('never-ran', 'Contact', [], '2026-10-17T10:05:00.000Z')).toBe(
+      false,
+    );
+  });
+
+  it('closes a call whose every row was refused, so the run is not read as one cut short during it', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({ runId: 'op-refused', targetOrgId: 'org-target' });
+    recorder.answered('Account', [fakeId('001', 1)]);
+    recorder.sending('Contact', 3);
+    recorder.answered('Contact', []);
+
+    await vi.waitFor(async () => {
+      const kept = await runs.get('op-refused');
+      expect(kept?.created).toHaveLength(1);
+      expect(kept?.inFlight).toBeUndefined();
+    });
+  });
+
+  it('dates the records a run wrote to again, as a clone fills the lookups they went in without, as its own write', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({ runId: 'op-pass', targetOrgId: 'org-target' });
+    recorder.answered('Account', [fakeId('001', 1)]);
+    await vi.waitFor(async () => expect((await runs.get('op-pass'))?.lastWrittenAt).toBeDefined());
+    const inserted = (await runs.get('op-pass'))?.lastWrittenAt ?? '';
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // An id the run did not create is none of its writes.
+    recorder.wroteAgain('Account', [fakeId('001', 1), fakeId('001', 9)]);
+
+    await vi.waitFor(async () =>
+      expect(Date.parse((await runs.get('op-pass'))?.lastWrittenAt ?? '')).toBeGreaterThan(
+        Date.parse(inserted),
+      ),
+    );
+    expect((await runs.get('op-pass'))?.created).toEqual([
+      { objectApiName: 'Account', ids: [fakeId('001', 1)] },
+    ]);
+  });
+
+  it('leaves no file of a run whose calls went and created nothing', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({ runId: 'op-none', targetOrgId: 'org-target' });
+    recorder.sending('Contact', 3);
+    recorder.answered('Contact', []);
+
+    await recorder.end({ status: 'failure', objectResults: [] });
+
+    expect(await runs.get('op-none')).toBeUndefined();
+    expect(readdirSync(join(dir, SEED_RUNS_DIR))).toEqual([]);
+  });
+
+  it('names the way a CSV import or a clone wrote, and the org a clone read from', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    const clone = runs.recorder({
+      runId: 'op-clone',
+      targetOrgId: 'org-target',
+      sourceOrgId: 'org-source',
+      origin: 'clone',
+    });
+    clone.answered('Contact', [fakeId('003', 1)]);
+    await clone.end({ status: 'success', objectResults: [] });
+    const csv = runs.recorder({ runId: 'op-csv', targetOrgId: 'org-target', origin: 'csv' });
+    csv.answered('Account', [fakeId('001', 1)]);
+    await csv.end({ status: 'success', objectResults: [] });
+
+    expect(await nodeSeedRunCreations(dir).get('op-clone')).toMatchObject({
+      origin: 'clone',
+      sourceOrgId: 'org-source',
+      targetOrgId: 'org-target',
+    });
+    expect(await nodeSeedRunCreations(dir).get('op-csv')).toMatchObject({
+      origin: 'csv',
+      sourceOrgId: 'org-target',
+    });
+  });
+
   it('keeps what a removal did on the run, for the next removal to read after a reload', async () => {
     const runs = nodeSeedRunCreations(dir);
     await runs.record(run('op-1'));

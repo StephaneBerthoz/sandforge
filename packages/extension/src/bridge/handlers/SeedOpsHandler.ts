@@ -1071,9 +1071,17 @@ export class SeedOpsHandler implements DomainHandler {
         label: `seed:execute ${operationId}`,
         log: (line) => this.deps.log(line),
         onProgress: reportInsertProgress,
-        // Kept call by call, as each answers: the insert notes them all
+        // Kept call by call, before each goes — a job with its id once the
+        // org opened it — and as each answers: the insert notes them all
         // again once it returns, which the recorder keeps once.
-        onCreated: (objectApiName, ids) => kept?.note(objectApiName, ids),
+        ...(kept
+          ? {
+              calls: {
+                sending: (objectApiName, rows, call) => kept.sending(objectApiName, rows, call),
+                answered: (objectApiName, ids) => kept.answered(objectApiName, ids),
+              },
+            }
+          : {}),
       });
       const insertFn = async (
         orgId: string,

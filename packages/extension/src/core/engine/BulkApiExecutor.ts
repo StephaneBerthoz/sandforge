@@ -360,6 +360,29 @@ export interface BulkApiExecutorDeps {
    * job is closed, Salesforce writes all of it, and it is awaited and counted.
    */
   signal?: AbortSignal;
+  /**
+   * Told the job's id once the org has opened it, before anything of it is
+   * closed: a job writes nothing until then. A run that keeps what it creates
+   * writes the id down, so a window closed while the job runs on can read
+   * its records back from it (`readJobCreated`). Not told of a job the org
+   * gave no id.
+   */
+  onOpened?: (jobId: string) => void;
+}
+
+/**
+ * The id the org gave a job once it opened it: jsforce fills `job.id` only
+ * then. Nothing when it holds none.
+ */
+export function openedJobId(job: Pick<BulkJobHandle, 'id'>): string | undefined {
+  let id: string | undefined;
+  try {
+    id = job.id;
+  } catch {
+    // jsforce's getter throws for a job it has not opened.
+    return undefined;
+  }
+  return typeof id === 'string' && /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(id) ? id : undefined;
 }
 
 /**
@@ -455,6 +478,8 @@ export class BulkApiExecutor {
     deps.bulkManager.registerJob(jobInfo);
     try {
       await job.open();
+      const opened = openedJobId(job);
+      if (opened !== undefined) deps.onOpened?.(opened);
 
       /*
        * A cancel before the job is closed aborts it, as the streaming upload

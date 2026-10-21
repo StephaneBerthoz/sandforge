@@ -23,6 +23,16 @@
  * had inserted in the org with nothing to take them back from. Such a run is
  * kept with no end, and listed as one that did not end.
  *
+ * Each call is kept before it goes too (`sending`), a Bulk API job with its id
+ * once the org has opened it, as a Sync run keeps its calls: the records of a
+ * job still running when the window closed were in the org with no line of
+ * them, the job running on to its end on the org's side. Read back from the
+ * job by its id once the run is listed again (`readJobCreated`), they are
+ * added to the run's file as the job's answer (`answerInFlight`).
+ *
+ * The panel's CSV imports and clones from another org are kept here too,
+ * named by their way (`SeedRunStart.origin`), and taken back the same way.
+ *
  * Bounded: the {@link SEED_RUNS_KEPT} latest runs are kept, the oldest run
  * removed with nothing left going first past it, then the oldest; and the
  * files are bounded on bytes as a Sync run's are.
@@ -34,8 +44,10 @@
 
 import type { ApiName } from '@sandforge/shared';
 import {
+  IDS_PER_LINE,
   nodeSyncRunCreations,
   settled,
+  type SendingCall,
   type SyncRunCreations,
   type SyncRunKept,
   type SyncRunRemovalState,
@@ -51,8 +63,22 @@ export const SEED_RUNS_DIR = 'seed-runs';
 /** Who the removal of a Seed run says ran it, where a Sync run names its configuration. */
 const SEED_CONFIGURATION = 'sandforge-seed';
 
-/** The most ids one line of a run's file holds, as a Sync run's file reads one. */
-const IDS_PER_LINE = 50_000;
+/**
+ * A run of the panel as it begins: a seed the generator writes, or a CSV
+ * import or a clone from another org, which are kept the same way and listed
+ * with them (`origin`). A CSV import and a clone were not kept at all, and
+ * what they wrote could not be taken back from SandForge.
+ */
+export interface SeedRunStart {
+  runId: string;
+  /** The org it writes to: the org's id in the panel. */
+  targetOrgId: string;
+  startedAt?: string;
+  /** The org a clone reads from; the target for the other ways. */
+  sourceOrgId?: string;
+  /** Which way wrote the run, when not the generator. */
+  origin?: 'csv' | 'clone';
+}
 
 /** A Seed run as its result says it ended: what `seedRunKept` reads. */
 export interface SeedRunEnded {
@@ -101,6 +127,25 @@ export interface SeedRunRecorder {
    */
   note(objectApiName: ApiName, ids: readonly string[]): void;
   /**
+   * A call of `rows` rows of an object is about to go — a REST call, a Bulk
+   * API job — and, once the org has opened the job, its id (`call.job`):
+   * written at once, so a run cut short while the call is under way names it
+   * (`SyncRunKept.inFlight`), and a job that ran on is read back by its id.
+   */
+  sending(objectApiName: ApiName, rows: number, call?: SendingCall): void;
+  /**
+   * The call {@link sending} announced answered: what it created, none
+   * included, written at once.
+   */
+  answered(objectApiName: ApiName, ids: readonly string[]): void;
+  /**
+   * The run wrote again to records it created — a clone's second pass, which
+   * fills the lookups they went in without: dated now, so a removal reads the
+   * dates the pass left on them as the run's doing and not as changes since.
+   * An id the run did not create is not one of them.
+   */
+  wroteAgain(objectApiName: ApiName, ids: readonly string[]): void;
+  /**
    * The run ended as its result says: an id the result holds that no insert
    * noted is kept too, then how it ended. A run that created nothing leaves
    * no file. Then the runs past the most kept go, the oldest removed with
@@ -135,27 +180,47 @@ export class SeedRunCreations implements SyncRemovalStateStore {
    * The recorder of one run, told of it as it begins: its file is begun with
    * the first ids noted.
    */
-  recorder(start: Pick<SeedRunEnded, 'runId' | 'targetOrgId' | 'startedAt'>): SeedRunRecorder {
+  recorder(start: SeedRunStart): SeedRunRecorder {
     const recorder = this.runs.recorder({
       runId: start.runId,
       configId: SEED_CONFIGURATION,
       configName: SEED_CONFIGURATION,
-      sourceOrgId: start.targetOrgId,
+      sourceOrgId: start.sourceOrgId ?? start.targetOrgId,
       targetOrgId: start.targetOrgId,
       ...(start.startedAt !== undefined ? { startedAt: start.startedAt } : {}),
+      ...(start.origin !== undefined ? { origin: start.origin } : {}),
     });
     /** The ids noted so far, by their first fifteen characters, as the file reads them back. */
     const noted = new Set<string>();
-    const note = (objectApiName: ApiName, ids: readonly string[], at?: string): void => {
-      const fresh = ids.filter((id) => !noted.has(id.slice(0, 15)));
-      for (const id of fresh) noted.add(id.slice(0, 15));
-      for (let from = 0; from < fresh.length; from += IDS_PER_LINE) {
-        recorder.note(objectApiName, fresh.slice(from, from + IDS_PER_LINE), at);
+    /** Of `ids`, those not noted yet, noted now. */
+    const fresh = (ids: readonly string[]): string[] => {
+      const unseen = ids.filter((id) => !noted.has(id.slice(0, 15)));
+      for (const id of unseen) noted.add(id.slice(0, 15));
+      return unseen;
+    };
+    /** `ids` written down in lines of at most what a line holds, each by `write`. */
+    const inLines = (ids: readonly string[], write: (line: string[]) => void): void => {
+      for (let from = 0; from < ids.length; from += IDS_PER_LINE) {
+        write(ids.slice(from, from + IDS_PER_LINE));
       }
     };
+    const note = (objectApiName: ApiName, ids: readonly string[], at?: string): void =>
+      inLines(fresh(ids), (line) => recorder.note(objectApiName, line, at));
     return {
       runId: start.runId,
       note: (objectApiName, ids) => note(objectApiName, ids),
+      sending: (objectApiName, rows, call) => recorder.sending?.(objectApiName, rows, call),
+      answered: (objectApiName, ids) => {
+        const created = fresh(ids);
+        // A line however few it created: the call is answered once one follows it.
+        recorder.answered?.(objectApiName, created.slice(0, IDS_PER_LINE));
+        inLines(created.slice(IDS_PER_LINE), (line) => recorder.note(objectApiName, line));
+      },
+      wroteAgain: (objectApiName, ids) =>
+        inLines(
+          ids.filter((id) => noted.has(id.slice(0, 15))),
+          (line) => recorder.note(objectApiName, line),
+        ),
       end: async (run) => {
         // Dated when the run ended, as its result says: what a removal reads
         // the org's dates against, a record modified after it being changed since.
@@ -163,7 +228,12 @@ export class SeedRunCreations implements SyncRemovalStateStore {
         for (const { objectApiName, createdIds } of run.objectResults) {
           note(objectApiName, createdIds, endedAt);
         }
-        if (noted.size === 0) return;
+        if (noted.size === 0) {
+          // Its calls were kept as they went, and it created nothing: no file.
+          await recorder.flush();
+          await this.runs.forget(start.runId);
+          return;
+        }
         await recorder.end({
           status: run.status,
           ...(run.cancelled ? { cancelled: true } : {}),
@@ -214,6 +284,19 @@ export class SeedRunCreations implements SyncRemovalStateStore {
   /** Every run kept, newest first. */
   list(): Promise<SyncRunKept[]> {
     return this.runs.list();
+  }
+
+  /**
+   * Answer the call a run had under way when its window closed with what it
+   * created, read back from the org since: see `SyncRunCreations.answerInFlight`.
+   */
+  answerInFlight(
+    runId: string,
+    objectApiName: string,
+    ids: readonly string[],
+    at: string,
+  ): Promise<boolean> {
+    return this.runs.answerInFlight(runId, objectApiName, ids, at);
   }
 
   /** Keep what a removal of a run did, for the next one: see `SyncRemovalStateStore`. */

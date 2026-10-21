@@ -100,7 +100,7 @@ A new Developer Edition, a Trailhead playground or a fresh scratch org holds a f
 3. Check its record counts, which you can change, and the org, already selected. The confirmation also says what the org's automation runs as the records go in, and the emails it would send. Press **Start Seeding**: nothing is written before
 4. The results count the records per object, group what the org refused by what refused it, and open a created record in Salesforce. **What this run created** removes them, and so does **Earlier seeds**, under the gallery, at any later time
 
-Under the gallery, Seed offers three other ways: **Generate data** (the objects, record counts and field rules you choose, with Faker or AI), **CSV Upload** (map a file's columns, validate, import) and **Clone from Org** (objects from another org, in dependency order). A CSV import and a clone from another org keep no list of the records they created, and cannot be removed from the panel: to copy records from another org, [Forge](forge-quickstart.md) and [Sync](modules/sync.md) runs can be. The [Seed guide](modules/seed.md) has every template and option.
+Under the gallery, Seed offers three other ways: **Generate data** (the objects, record counts and field rules you choose, with Faker or AI), **CSV Upload** (map a file's columns, validate, import) and **Clone from Org** (objects from another org, in dependency order). A CSV import and a clone from another org are kept and taken back as a seed is, from their results or **Earlier seeds**. The [Seed guide](modules/seed.md) has every template and option.
 
 ### Two orgs: clone a record with Forge
 

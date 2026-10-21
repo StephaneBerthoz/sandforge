@@ -849,12 +849,26 @@ export class ForgeRunStore {
    * without it, a run taken up owed every lookup of every row it found: run
    * for real, 200 contacts found after a kill each had their account written
    * to again, one update each, though the insert had set it.
+   *
+   * An upsert call is kept too, with the external id it matches by
+   * (`upsertField`) and, per row, the fingerprint of that id's value alone
+   * (`externalKey`), a hash as the others are: a row of it the target took
+   * may have created a record or written over one, and only the records it
+   * created are the run's. They were never kept, and a removal of a run whose
+   * upsert was under way counted its rows as written nowhere it could reach.
    */
   sent(
     objectApiName: string,
     fields: readonly string[],
-    rows: ReadonlyArray<{ sourceId: string; fingerprint: string; owes?: readonly OwedAtInsert[] }>,
+    rows: ReadonlyArray<{
+      sourceId: string;
+      fingerprint: string;
+      owes?: readonly OwedAtInsert[];
+      /** The fingerprint of the row's external id value, for an upsert call. */
+      externalKey?: string;
+    }>,
     at: Date = new Date(),
+    upsertField?: string,
   ): string {
     this.callsSent++;
     const callId = `${Math.max(0, this.parts - 1)}.${this.callsSent}`;
@@ -865,7 +879,11 @@ export class ForgeRunStore {
         objectApiName,
         at.toISOString(),
         fields,
-        rows.map(({ sourceId, fingerprint }) => [sourceId, fingerprint]),
+        rows.map(({ sourceId, fingerprint, externalKey }) =>
+          upsertField !== undefined && externalKey !== undefined
+            ? [sourceId, fingerprint, externalKey]
+            : [sourceId, fingerprint],
+        ),
         rows.flatMap(({ owes }, row) =>
           (owes ?? []).map(({ field, sourceRefId, insertOnly }) => [
             row,
@@ -874,6 +892,7 @@ export class ForgeRunStore {
             insertOnly ? 1 : 0,
           ]),
         ),
+        ...(upsertField !== undefined ? [upsertField] : []),
       ]),
     );
     this.flush();

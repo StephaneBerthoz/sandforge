@@ -72,6 +72,8 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { SeedRunCreations, SeedRunRecorder } from '../../modules/seed/SeedRunCreations.js';
+import { seedWriterCalls } from '../../modules/seed/seedRunCalls.js';
 import { RUN_CANCELLED, contactPointsAudit } from '../../modules/forge/forgeAudit.js';
 import { readEmailLimits } from '../../modules/forge/ForgeRunGate.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
@@ -187,6 +189,12 @@ interface HeldPreview extends PreviewedOrgs {
  * empty and is filled by a second pass once every object is written. Query
  * failures are reported on `seed:clone:error`; execute failures on
  * `operation:failed` (same convention as seed:execute / sync:execute).
+ *
+ * What a clone creates in the target is kept as a seed's is
+ * (`SeedRunCreations`), as each call goes and answers, under the request's id:
+ * the result names it (`CloneExecutionResult.runId`), and the clone is taken
+ * back from its results or from Earlier seeds by the removal a seed takes
+ * (`seed:remove`). A record it linked to was the target's, and is not kept.
  */
 export class SeedCloneHandler implements DomainHandler {
   private registry?: BackgroundOperationRegistry;
@@ -271,6 +279,59 @@ export class SeedCloneHandler implements DomainHandler {
   /** Inject the tracker the Monitor's Live Operations panel lists. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /** Where what each clone creates is kept, as a seed's is: see `SeedRunCreations`. */
+  private runCreations?: SeedRunCreations;
+
+  /** The clones this window is writing now, by the id what they create is kept under. */
+  private readonly runningRuns = new Set<string>();
+
+  /**
+   * Where each clone keeps what it creates in the target, as it writes it,
+   * for its removal from the results or Earlier seeds: what a clone wrote
+   * could not be taken back from SandForge.
+   */
+  setRunCreations(store: SeedRunCreations): void {
+    this.runCreations = store;
+  }
+
+  /** Whether the clone kept under `runId` is still writing, in this window. */
+  isRunning(runId: string): boolean {
+    return this.runningRuns.has(runId);
+  }
+
+  /**
+   * Note how a clone ended, and let it be removed: its calls kept what each
+   * created as it answered, and a record it linked to — one the target held —
+   * is none of them. A store that cannot keep it all is said, and the clone
+   * ends as it did.
+   *
+   * @returns Whether all of it was kept.
+   */
+  private async endKept(
+    kept: SeedRunRecorder | undefined,
+    operationId: string,
+    ending: { status: 'success' | 'partial' | 'failure'; cancelled: boolean },
+  ): Promise<boolean> {
+    if (!kept) return false;
+    try {
+      await kept.end({
+        finishedAt: new Date().toISOString(),
+        status: ending.status,
+        ...(ending.cancelled ? { cancelled: true } : {}),
+        objectResults: [],
+      });
+      return true;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] seed:clone:execute ${operationId}: what the clone created could not all be kept, ` +
+          `so removing it may leave some of it in the org: ${extractErrorMessage(err)}`,
+      );
+      return false;
+    } finally {
+      this.runningRuns.delete(operationId);
+    }
   }
 
   /**
@@ -624,6 +685,10 @@ export class SeedCloneHandler implements DomainHandler {
      * a failure before it wrote nothing, and a run is recorded once.
      */
     let unrecorded = false;
+    /** What keeps what the clone creates in the target, from its first write until it ended. */
+    let kept: SeedRunRecorder | undefined;
+    /** Records the clone created, as its calls answered: none it linked to. */
+    let created = 0;
     /** Per object, what the clone did — kept outside the run, so a failure can say it. */
     const objectResults: CloneObjectResult[] = [];
     /** Whether the clone writes by upsert, as the write below decides it. */
@@ -771,7 +836,27 @@ export class SeedCloneHandler implements DomainHandler {
        * records written before the object now written, out of how many objects.
        */
       const written = { objects: 0, records: 0, of: 1 };
+      // What the clone creates in the target, kept as each call goes and
+      // answers, under the request's id, as a seed's is: it is listed in
+      // Earlier seeds and taken back from there or from its results, also
+      // after a reload or a window closed under it. The clone said, before it
+      // wrote, that what it wrote could not be removed.
+      kept = this.runCreations?.recorder({
+        runId: operationId,
+        targetOrgId: parsed.targetOrgId,
+        sourceOrgId: parsed.sourceOrgId,
+        startedAt: new Date(startedAt).toISOString(),
+        origin: 'clone',
+      });
+      if (kept) this.runningRuns.add(operationId);
       const writer = new BulkDataWriter({
+        ...(kept
+          ? {
+              calls: seedWriterCalls(kept, (count) => {
+                created += count;
+              }),
+            }
+          : {}),
         keyPrefixOf: (objectName) => targetObjects.get(objectName)?.keyPrefix,
         connection: targetConn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
@@ -1385,6 +1470,15 @@ export class SeedCloneHandler implements DomainHandler {
             });
         // Cancelled during the pass: the clone ends as a cancelled one does.
         if (abortController.signal.aborted) cancelled = true;
+        // The pass wrote to records the clone created: their dates are its
+        // own, and a removal reads them so, not as changes since the clone.
+        if (kept && secondPass.filled > 0) {
+          const byObject = new Map<string, string[]>();
+          for (const { objectApiName, newId } of owedLookups) {
+            byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), newId]);
+          }
+          for (const [objectApiName, ids] of byObject) kept.wroteAgain(objectApiName, ids);
+        }
       }
 
       // Said on the object's line: the records went in, owned by someone else.
@@ -1417,9 +1511,14 @@ export class SeedCloneHandler implements DomainHandler {
       const lookupsLeftEmpty = secondPass !== undefined && secondPass.filled < secondPass.owed;
       /** What the clone did with the email addresses and phone numbers it wrote. */
       const said = contactPointsReport();
+      // A clone the cancel stopped did not write every object it was for.
+      const status = (cancelled || lookupsLeftEmpty) && reached === 'success' ? 'partial' : reached;
+      // Kept whole before the page is answered, a stopped clone's too: what
+      // it wrote can be taken back from its results, or from Earlier seeds.
+      const keptAll = await this.endKept(kept, operationId, { status, cancelled });
+      kept = undefined;
       const result: CloneExecutionResult = {
-        // A clone the cancel stopped did not write every object it was for.
-        status: (cancelled || lookupsLeftEmpty) && reached === 'success' ? 'partial' : reached,
+        status,
         objectResults,
         totalSourceRecords,
         totalInserted,
@@ -1430,6 +1529,7 @@ export class SeedCloneHandler implements DomainHandler {
         durationMs: Date.now() - startedAt,
         ...(cancelled ? { cancelled: true } : {}),
         contactPoints: said,
+        ...(keptAll && created > 0 ? { runId: operationId } : {}),
       };
       unrecorded = false;
       // Stopped by the user: cancelled once it wrote a row or had one refused,
@@ -1490,6 +1590,8 @@ export class SeedCloneHandler implements DomainHandler {
           cloneRun(run, 'failure', objectResults, upserts, contactPointsReport()),
         );
       }
+      // What it created before it failed stays removable, the clone ended failed.
+      await this.endKept(kept, operationId, { status: 'failure', cancelled: false });
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
       const message = extractErrorMessage(err);

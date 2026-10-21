@@ -785,8 +785,7 @@
       "csv": "CSV Upload",
       "csvDesc": "Import data from a CSV file",
       "clone": "Clone from Org",
-      "cloneDesc": "Clone records from another org",
-      "notRemovable": "What it writes cannot be removed from Earlier seeds."
+      "cloneDesc": "Clone records from another org"
     },
     "persona": {
       "title": "AI Personas",

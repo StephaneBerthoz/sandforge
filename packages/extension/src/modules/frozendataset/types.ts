@@ -279,6 +279,38 @@ export interface PreviousLoad {
 }
 
 /**
+ * What a load keeps of what it creates as it writes it, a batch at a time, in
+ * the sas beside the mapping (`SasReferenceIdMappingStore.journal`): the
+ * mapping itself is written once the load ends, is cancelled or fails
+ * (`persist`), and a load whose process was killed — a window closed, a host
+ * that stopped — left its records in the target with nothing naming them,
+ * which no removal and no reload could find. Read back, a journal no process
+ * writes any more is a load that stopped part way, removed and purged as one;
+ * it goes once the mapping of a load holds it.
+ *
+ * A line per batch the target answered: the records it created, by their key,
+ * with their id in the target — ids and keys alone, as the mapping holds.
+ * Appended as each batch answers and never held: what the load keeps in
+ * memory is what it keeps anyway.
+ */
+export interface LoadJournal {
+  /**
+   * The records a batch of the load created, each by its key with its id in
+   * the target: appended at once. Never throws: a write that fails is said by
+   * {@link flush}.
+   */
+  created(objectApiName: string, records: ReadonlyArray<readonly [key: string, id: string]>): void;
+  /** Waits for what was appended to be written; says why some could not be, once. */
+  flush(): Promise<string | undefined>;
+  /**
+   * The load is over: its journal goes once its mapping was written, or when
+   * it created nothing. One that created records no mapping names stays, and
+   * is read as a load that stopped.
+   */
+  close(): Promise<void>;
+}
+
+/**
  * Load-phase contract, implemented by {@link SasReferenceIdMappingStore}.
  * Persists the only reliable address of a loaded record: the mapping
  * `referenceId → real target Id` captured at insert (target-org

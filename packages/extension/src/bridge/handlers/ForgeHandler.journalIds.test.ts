@@ -17,7 +17,11 @@ import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
 import type { ExecuteOptions, ExecutionSummary } from '../../modules/forge/ForgeExecutor.js';
 import { ForgeRunJournal, HISTORY_IDS_BOUND } from '../../modules/forge/ForgeRunJournal.js';
 import { memoryRunFile, type ForgeRunStore } from '../../modules/forge/ForgeRunStore.js';
-import { fingerprintFields, rowFingerprint } from '../../modules/forge/ForgeInFlight.js';
+import {
+  externalIdKey,
+  fingerprintFields,
+  rowFingerprint,
+} from '../../modules/forge/ForgeInFlight.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
@@ -965,6 +969,54 @@ describe('a run whose ids are in its journal', () => {
       // The history takes it in, and the plan kept of the run too.
       expect(stored()[0]).toMatchObject({ createdCount: 5 });
       expect(stored()[0]?.idRemapTable?.[IN_FLIGHT]).toBe(FOUND);
+    });
+
+    it('removes with the run the record an upsert call under way created, found by its external id, and leaves the one it wrote over', async () => {
+      const created = { ...SENT, Ext__c: 'EXT-1' };
+      const wroteOver = { ...SENT, LastName: 'Held', Ext__c: 'EXT-2' };
+      const OVER = sourceOf('003', 900_002);
+      execute.mockImplementation(async (_graph: ForgeGraph, _config: ForgeConfig, options) => {
+        const store = (options as ExecuteOptions | undefined)?.stream?.store;
+        writeTheRun(store, 3);
+        const fields = fingerprintFields([created, wroteOver]);
+        store?.sent(
+          'Contact',
+          fields,
+          [
+            {
+              sourceId: IN_FLIGHT,
+              fingerprint: rowFingerprint(created, fields),
+              externalKey: externalIdKey(created, 'Ext__c'),
+            },
+            {
+              sourceId: OVER,
+              fingerprint: rowFingerprint(wroteOver, fields),
+              externalKey: externalIdKey(wroteOver, 'Ext__c'),
+            },
+          ],
+          new Date(),
+          'Ext__c',
+        );
+        return new Promise<ForgeExecutionResult>(() => {});
+      });
+      void send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      handler = windowOpened();
+      const entry = (await listed()).history[0];
+      // The upsert created one contact in the window; the other it wrote over
+      // was the target's before the run, and is not among its records.
+      held = [{ Id: FOUND, ...created, Ext__c: 'ext-1' }];
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+
+      const contacts = removals[0]?.find((object) => object.objectApiName === 'Contact')?.ids;
+      expect(contacts).toHaveLength(4);
+      expect(contacts).toContain(FOUND);
+      const result = answerTo('wv-undo', 'forge:undo:response')?.result;
+      expect(result).not.toHaveProperty('mayHaveBeenWritten');
+      expect(result).not.toHaveProperty('notLookedFor');
+      expect(stored()[0]?.idRemapTable?.[IN_FLIGHT]).toBe(FOUND);
+      expect(stored()[0]?.idRemapTable?.[OVER]).toBeUndefined();
     });
 
     it('dates the removal by when the target created the first and the last record its journal names, the one found last', async () => {

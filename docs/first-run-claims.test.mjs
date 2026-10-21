@@ -160,11 +160,13 @@ function removability() {
     /SeedRunCreations/,
     'a Seed template or wizard run no longer keeps what it created',
   );
+  // A CSV import and a clone keep what they create as a seed does, and are
+  // listed and removed with the seeds.
   for (const file of ['SeedCsvHandler.ts', 'SeedCloneHandler.ts']) {
-    assert.doesNotMatch(
+    assert.match(
       read(...handlers, file),
-      /RunCreations|removal/i,
-      `${file} keeps what it created now: the docs say it cannot be removed`,
+      /SeedRunCreations/,
+      `${file} no longer keeps what it created: the docs say it can be removed`,
     );
   }
   assert.ok(
@@ -194,7 +196,7 @@ function removability() {
   };
 }
 
-test('anchor: Forge, a Seed template or wizard run, Sync and Frozen keep what they create; Autopilot, CSV Upload and Clone from Org do not', () => {
+test('anchor: Forge, every way of Seed — a template, the wizard, CSV Upload, Clone from Org — Sync and Frozen keep what they create; Autopilot does not', () => {
   removability();
 });
 
@@ -217,8 +219,13 @@ test('the READMEs and the FAQ say which tool copies data, and how each run is ta
     const body = section(read(...relPath.split('/')), '## Which tool copies my data?');
     assert.match(
       body,
+      /\*\*CSV Upload\*\* and \*\*Clone from Org\*\*[^\n]*taken back as a seed is/,
+      `${relPath}: say that a CSV import and a clone from another org are taken back as a seed is`,
+    );
+    assert.doesNotMatch(
+      body,
       /\*\*CSV Upload\*\* and \*\*Clone from Org\*\*[^\n]*cannot be taken back/,
-      `${relPath}: say that a CSV import and a clone from another org cannot be taken back`,
+      `${relPath}: still says that a CSV import and a clone cannot be taken back`,
     );
   }
 });
@@ -230,8 +237,11 @@ test('the FAQ says how to undo a run, module by module, as the code allows', () 
   assert.ok(row(body, 'Sync').includes(`**${labels.sync}**`));
   assert.ok(row(body, 'Frozen Dataset').includes(`**${labels.frozen}**`));
   assert.ok(row(body, 'Seed: a template').includes(`**${labels.seed}**`));
-  assert.match(row(body, 'CSV Upload'), /Not removable/);
-  assert.match(row(body, 'Clone from Org'), /Not removable/);
+  for (const way of ['CSV Upload', 'Clone from Org']) {
+    assert.ok(row(body, way).includes(`**${labels.seed}**`), `${way}: Earlier seeds`);
+    assert.ok(row(body, way).includes(`**${labels.seedResults}**`), `${way}: its results`);
+    assert.doesNotMatch(row(body, way), /Not removable/);
+  }
   assert.match(row(body, 'Autopilot'), /Not removable/);
   // The way out for a run nothing takes back, said with its danger.
   assert.match(body, /`sandforge-cleanup` deletes every record your user created/);

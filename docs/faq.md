@@ -52,7 +52,7 @@ Several modules write records into an org; which one depends on what the org nee
 | Whole objects in dependency order, in one go           | **Autopilot**                            | None: a run cannot be removed, so try it on an org you can refresh or throw away |
 | The same set after every sandbox refresh               | **Frozen Dataset**                       | **Remove the records this load created**, under **Last load** on the Load tab    |
 
-**Seed** generates or imports data into one org: from a template of its gallery, in one confirmation, or one of three other ways -- Generate data (objects, counts and field rules of your own, with Faker or AI), CSV Upload (from a CSV file), or Clone from Org (copy records from another org). **Sync** copies existing data between two orgs with field mapping, transforms, and conflict resolution, and can run a saved configuration again, on a schedule or in delta mode. Seed's Clone from Org copies objects too, but keeps no list of what it created: prefer Sync, whose runs can be removed. See [How do I undo what SandForge wrote?](#how-do-i-undo-what-sandforge-wrote).
+**Seed** generates or imports data into one org: from a template of its gallery, in one confirmation, or one of three other ways -- Generate data (objects, counts and field rules of your own, with Faker or AI), CSV Upload (from a CSV file), or Clone from Org (copy records from another org). **Sync** copies existing data between two orgs with field mapping, transforms, and conflict resolution, and can run a saved configuration again, on a schedule or in delta mode. Seed's Clone from Org copies objects too, once, with no configuration to run again: prefer Sync for a copy you repeat. Runs of all three can be removed. See [How do I undo what SandForge wrote?](#how-do-i-undo-what-sandforge-wrote).
 
 ### How do I undo what SandForge wrote?
 
@@ -64,7 +64,7 @@ A run that keeps the list of the records it created can be taken back: its recor
 | Seed: a template (Quick Seed) or the wizard | **What this run created**, on the results, and **Earlier seeds**, under the gallery: the last 20 seeds                               |
 | Sync                                        | **Remove what this run created**, on the results, on the run's history entry, and under **Runs that never ended**                    |
 | Frozen Dataset                              | **Remove the records this load created**, under **Last load** on the Load tab                                                        |
-| Seed: CSV Upload, Clone from Org            | Not removable: neither keeps a list of what it created                                                                               |
+| Seed: CSV Upload, Clone from Org            | **What this run created**, on the results, and **Earlier seeds**, under the gallery, with the seeds                                  |
 | Autopilot                                   | Not removable: a run keeps no list of what it created                                                                                |
 | DataOps Anonymize                           | **Restore** puts back the values a snapshot holds; it deletes nothing                                                                |
 
@@ -78,7 +78,7 @@ Navigate to **Seed**, select **CSV Upload** under the template gallery, choose y
 
 With **Forge**, for a record and what hangs on it: paste the record's Id or URL, pick the source and the target, **Discover Graph**, then **Review & Execute** -- see the [Forge Quickstart](forge-quickstart.md). For whole objects, **Sync** copies the objects you name, filtered and mapped, and **Autopilot** copies the objects you select in the order their dependencies set. Forge and Sync runs can be removed; an Autopilot run cannot.
 
-Seed's **Clone from Org**, under the template gallery, copies the objects you pick, with an optional SOQL WHERE filter per object, in dependency order, and gives an ID mapping table (source ID to new ID) you can export as CSV. It keeps no list of what it created, so nothing in the panel takes it back.
+Seed's **Clone from Org**, under the template gallery, copies the objects you pick, with an optional SOQL WHERE filter per object, in dependency order, and gives an ID mapping table (source ID to new ID) you can export as CSV. What it created in the target is kept, and taken back from its results or **Earlier seeds**, as a seed is.
 
 ### Can I clone self-referential objects (e.g., Account.ParentId)?
 
@@ -109,7 +109,7 @@ What lets a run be resumed, checked or taken back, and nothing it does not need.
 
 - **VS Code's secret storage**: the session of each org you connect, the Anthropic key once you store one, and the Frozen Dataset salt.
 - **VS Code's global state**: the list of orgs, the Forge and Sync run history, saved Sync configurations, the audit trail, the newest 2000 runs, and the AI conversations, whole, the 50 written to most recently -- **Delete all conversations** on the AI page, or **Remove key** on the Settings page, deletes them.
-- **The extension's own storage folder** (VS Code's global storage for SandForge): the ids of the records each Forge, Sync and Seed run created -- the last 20 Seed runs, and for Forge and Sync up to a few megabytes, the oldest runs going first -- and each Forge run's journal, ids only, in `forge-runs/`; and the DataOps backups, which hold the records' values in clear, personal data among them, up to `sandforge.backup.maxCount` per org and for `sandforge.backup.maxAgeDays` days (30 unless you set it; a backup taken before that setting existed is kept until you delete it) -- the Restore tab deletes them, and disconnecting an org asks whether its backups go with it.
+- **The extension's own storage folder** (VS Code's global storage for SandForge): the ids of the records each Forge, Sync and Seed run created -- the last 20 Seed runs, CSV imports and clones from another org among them, and for Forge and Sync up to a few megabytes, the oldest runs going first -- and each Forge run's journal, ids only, in `forge-runs/`; and the DataOps backups, which hold the records' values in clear, personal data among them, up to `sandforge.backup.maxCount` per org and for `sandforge.backup.maxAgeDays` days (30 unless you set it; a backup taken before that setting existed is kept until you delete it) -- the Restore tab deletes them, and disconnecting an org asks whether its backups go with it.
 - **Your workspace**: Forge templates, in `.sandforge/forge-templates.json`, so they can be committed and shared.
 - **Your home folder**: a Frozen Dataset's working folder, `~/.sandforge-sas` unless its configuration names another, never inside a repository; the journals of the command-line clone, in `~/.sandforge/forge-runs/`; and the snapshots, templates and checkpoints of `sandforge-backup` and `sandforge-dataops`, in `~/.sandforge/backups/` unless `--store` names another folder of your own, readable by your user alone (`SANDFORGE_JOURNAL_DIR` names another folder for both).
 

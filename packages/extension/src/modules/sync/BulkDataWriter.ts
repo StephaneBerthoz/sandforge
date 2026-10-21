@@ -131,12 +131,41 @@ export interface BulkDataWriterDeps {
 export interface WriterCalls {
   /** A call of `rows` rows of `objectName` is about to go. */
   sending(objectName: string, operation: BulkOperation, rows: number): void;
+  /**
+   * The call {@link sending} announced is a Bulk API job, which the org has
+   * just opened under `jobId`, before anything of it is closed: the job runs
+   * on to its end on the org's side whatever becomes of the window, and is
+   * read back by this id (`readJobCreated`).
+   */
+  opened?(objectName: string, operation: BulkOperation, rows: number, jobId: string): void;
   /** The call answered: one outcome per row it sent, in their order. */
   answered(
     objectName: string,
     operation: BulkOperation,
     outcomes: readonly OperationOutcome[],
   ): void;
+}
+
+/** Both hooks told of each call, either missing: the writer's own, then one call's. */
+function bothCalls(
+  own: WriterCalls | undefined,
+  more: WriterCalls | undefined,
+): WriterCalls | undefined {
+  if (!own || !more) return own ?? more;
+  return {
+    sending: (objectName, operation, rows) => {
+      own.sending(objectName, operation, rows);
+      more.sending(objectName, operation, rows);
+    },
+    opened: (objectName, operation, rows, jobId) => {
+      own.opened?.(objectName, operation, rows, jobId);
+      more.opened?.(objectName, operation, rows, jobId);
+    },
+    answered: (objectName, operation, outcomes) => {
+      own.answered(objectName, operation, outcomes);
+      more.answered(objectName, operation, outcomes);
+    },
+  };
 }
 
 /**
@@ -182,17 +211,23 @@ export class BulkDataWriter {
    * @param objectName - Salesforce object API name.
    * @param records - Records to insert.
    * @param batchSize - REST batch size (small-record path only).
+   * @param calls - Told of this insert's calls, beside the writer's own
+   *   (`BulkDataWriterDeps.calls`): what a caller that writes many objects
+   *   through one writer learns of one of them, its rows' outcomes call by
+   *   call, in the order sent.
    * @returns Per-record outcomes aligned with the input order.
    */
   async insert(
     objectName: string,
     records: Record<string, unknown>[],
     batchSize: number,
+    calls?: WriterCalls,
   ): Promise<OperationOutcome[]> {
-    const streamed = await this.tryStreaming('insert', objectName, records);
+    const told = bothCalls(this.deps.calls, calls);
+    const streamed = await this.tryStreaming('insert', objectName, records, undefined, told);
     if (streamed) return streamed;
 
-    const bulked = await this.tryBulk('insert', objectName, records);
+    const bulked = await this.tryBulk('insert', objectName, records, undefined, told);
     if (bulked) return bulked;
 
     return this.executeRestBatches(
@@ -205,6 +240,7 @@ export class BulkDataWriter {
           .sobject(objectName)
           .create(batch, { headers: recordWriteHeaders() }) as Promise<JsforceResult[]>,
       'Insert failed after retries',
+      told,
     );
   }
 
@@ -321,6 +357,7 @@ export class BulkDataWriter {
     objectName: string,
     records: Record<string, unknown>[],
     externalIdField?: string,
+    calls: WriterCalls | undefined = this.deps.calls,
   ): Promise<OperationOutcome[] | undefined> {
     if (records.length <= STREAMING_THRESHOLD) return undefined;
     await this.deps.pauseGate?.whilePaused(this.deps.signal);
@@ -328,13 +365,14 @@ export class BulkDataWriter {
     if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName);
 
     const chunkedExecutor = new ChunkedBulkExecutor({ signal: this.deps.signal });
-    this.deps.calls?.sending(objectName, operation, records.length);
+    calls?.sending(objectName, operation, records.length);
     const bulkDeps: BulkApiExecutorDeps = {
       connection: this.deps.connection as unknown as BulkApiConnection,
       bulkManager: this.deps.bulkManager,
       onProgress: (processed, total) => {
         this.deps.onProgress(processed, total, `Streaming ${operation} ${objectName}`);
       },
+      onOpened: (jobId) => calls?.opened?.(objectName, operation, records.length, jobId),
     };
     const streamResult = await chunkedExecutor.executeChunked(
       bulkDeps,
@@ -348,7 +386,7 @@ export class BulkDataWriter {
     // was written. Answered as an empty list, it read as an object with
     // nothing to write, and a run cancelled on its last object succeeded.
     if (streamResult.aborted) {
-      this.deps.calls?.answered(objectName, operation, []);
+      calls?.answered(objectName, operation, []);
       throw new WriteCancelledError(objectName);
     }
     this.logUnmatched(`Streaming ${operation} ${objectName}`, streamResult.unmatchedIds);
@@ -361,7 +399,7 @@ export class BulkDataWriter {
         ...(outcome.success ? {} : bulkDetailsOf(outcome.error)),
       }),
     );
-    this.deps.calls?.answered(objectName, operation, outcomes);
+    calls?.answered(objectName, operation, outcomes);
     return outcomes;
   }
 
@@ -374,6 +412,7 @@ export class BulkDataWriter {
     objectName: string,
     records: Record<string, unknown>[],
     externalIdField?: string,
+    calls: WriterCalls | undefined = this.deps.calls,
   ): Promise<OperationOutcome[] | undefined> {
     if (!this.deps.bulkExecutor.shouldUseBulkApi(records.length)) return undefined;
     // A pause holds the write before its job is opened, never once it is.
@@ -391,8 +430,9 @@ export class BulkDataWriter {
         this.deps.onProgress(processed, total, `Bulk ${operation} ${objectName}`);
       },
       signal: this.deps.signal,
+      onOpened: (jobId) => calls?.opened?.(objectName, operation, records.length, jobId),
     };
-    this.deps.calls?.sending(objectName, operation, records.length);
+    calls?.sending(objectName, operation, records.length);
     const bulkResult = await this.deps.bulkExecutor.executeBulk(
       bulkDeps,
       objectName,
@@ -403,7 +443,7 @@ export class BulkDataWriter {
     // The cancel aborted the job before it was closed: none of its records
     // was written, as on the streaming path.
     if (bulkResult.aborted) {
-      this.deps.calls?.answered(objectName, operation, []);
+      calls?.answered(objectName, operation, []);
       throw new WriteCancelledError(objectName);
     }
     this.logUnmatched(`Bulk ${operation} ${objectName}`, bulkResult.unmatchedIds);
@@ -419,7 +459,7 @@ export class BulkDataWriter {
         ...(outcome.success ? {} : bulkDetailsOf(outcome.error)),
       }),
     );
-    this.deps.calls?.answered(objectName, operation, outcomes);
+    calls?.answered(objectName, operation, outcomes);
     return outcomes;
   }
 
@@ -459,6 +499,7 @@ export class BulkDataWriter {
     batchSize: number,
     call: (batch: T[]) => Promise<JsforceResult[]>,
     failureMessage: string,
+    calls: WriterCalls | undefined = this.deps.calls,
   ): Promise<OperationOutcome[]> {
     const outcomes: OperationOutcome[] = [];
     for (let i = 0; i < items.length; i += batchSize) {
@@ -472,12 +513,12 @@ export class BulkDataWriter {
       await this.deps.pauseGate?.whilePaused(this.deps.signal);
       if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
       const batch = items.slice(i, i + batchSize);
-      this.deps.calls?.sending(objectName, operation, batch.length);
+      calls?.sending(objectName, operation, batch.length);
       const retryResult = await this.retryOp.execute(() => call(batch));
       // The batch failed and the cancel came before it was tried again: none
       // of it was written, and nothing after it is sent.
       if (retryResult.cancelled) {
-        this.deps.calls?.answered(objectName, operation, []);
+        calls?.answered(objectName, operation, []);
         throw new WriteCancelledError(objectName, outcomes);
       }
       const answered: OperationOutcome[] = [];
@@ -496,7 +537,7 @@ export class BulkDataWriter {
         );
       }
       outcomes.push(...answered);
-      this.deps.calls?.answered(objectName, operation, answered);
+      calls?.answered(objectName, operation, answered);
     }
     return outcomes;
   }

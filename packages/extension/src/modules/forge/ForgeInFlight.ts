@@ -29,6 +29,14 @@
  * target's own automation may have changed as it saved them — is not written
  * unless the user says so: a duplicate is a decision.
  *
+ * An upsert call is kept and read back the same way, by the value of the
+ * external id it matches on, which the target holds one record of at most
+ * (`externalIdKey`): a record of the window carrying a row's value is the one
+ * the row created, the run's, which a removal takes back; a row no such
+ * record carries wrote over one the target held before the run, which stays,
+ * or wrote nothing. Upsert calls were not kept, and a removal of a run whose
+ * upsert was under way left what that call created in the target.
+ *
  * Memory stays bounded as the journal's readers keep it: the journal is gone
  * through with the records it names held as hashed keys, a few bytes each and
  * no id, and the window is read a page at a time, keeping of each record its
@@ -144,12 +152,23 @@ export function rowFingerprint(row: Record<string, unknown>, fields: readonly st
   return hashA(text).toString(36).padStart(7, '0') + hashB(text).toString(36).padStart(7, '0');
 }
 
+/**
+ * The fingerprint of the external id a row is upserted by, its value alone,
+ * as {@link rowFingerprint} takes it — the same for the row sent and for the
+ * record read back, whichever case or spacing the target keeps the value in.
+ */
+export function externalIdKey(row: Record<string, unknown>, field: string): string {
+  return rowFingerprint(row, [field]);
+}
+
 /** A row of a call the journal says was sent. */
 interface SentRow {
   sourceId: string;
   fingerprint: string;
   /** The lookups it went in without, owed to the second pass once it is in. */
   owes: OwedAtInsert[];
+  /** For an upsert call: the fingerprint of the external id value it matches on. */
+  externalKey?: string;
 }
 
 /** A call the journal says was sent, as {@link reconcileInFlight} reads it back. */
@@ -166,6 +185,12 @@ interface SentCall {
    * whose rows found are owed again every lookup they name.
    */
   owesKept: boolean;
+  /**
+   * The external id an upsert call matches its rows by: a row of it the
+   * target took created a record, or wrote over one it held. Absent for an
+   * insert.
+   */
+  upsertField?: string;
 }
 
 /** The lookups a sent line says its rows went in without, onto `rows`; false for a line that says it wrongly. */
@@ -192,23 +217,39 @@ function sentCallOf(text: string): SentCall | undefined {
     return undefined;
   }
   if (!Array.isArray(value) || value.length < 6) return undefined;
-  const [, callId, objectApiName, at, fields, rows, owed] = value as unknown[];
+  const [, callId, objectApiName, at, fields, rows, owed, upsertField] = value as unknown[];
   if (typeof callId !== 'string' || typeof objectApiName !== 'string') return undefined;
   if (!API_NAME.test(objectApiName) || typeof at !== 'string') return undefined;
   const sentAt = Date.parse(at);
   if (!Number.isFinite(sentAt) || !Array.isArray(fields) || !Array.isArray(rows)) return undefined;
   if (!fields.every((field) => typeof field === 'string' && API_NAME.test(field))) return undefined;
+  if (upsertField !== undefined && (typeof upsertField !== 'string' || !API_NAME.test(upsertField)))
+    return undefined;
   const read: SentRow[] = [];
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 2) return undefined;
-    const [sourceId, fingerprint] = row as unknown[];
+    const [sourceId, fingerprint, externalKey] = row as unknown[];
     if (typeof sourceId !== 'string' || !RECORD_ID.test(sourceId)) return undefined;
     if (typeof fingerprint !== 'string') return undefined;
-    read.push({ sourceId, fingerprint, owes: [] });
+    if (externalKey !== undefined && typeof externalKey !== 'string') return undefined;
+    read.push({
+      sourceId,
+      fingerprint,
+      owes: [],
+      ...(typeof externalKey === 'string' ? { externalKey } : {}),
+    });
   }
   const owesKept = owed !== undefined;
   if (owesKept && !readOwes(owed, read)) return undefined;
-  return { callId, objectApiName, at: sentAt, fields: fields as string[], rows: read, owesKept };
+  return {
+    callId,
+    objectApiName,
+    at: sentAt,
+    fields: fields as string[],
+    rows: read,
+    owesKept,
+    ...(typeof upsertField === 'string' ? { upsertField } : {}),
+  };
 }
 
 /** The call id an answered line closes; nothing for any other line. */
@@ -329,6 +370,8 @@ function soqlDate(epoch: number): string {
 interface Candidate {
   id: string;
   fingerprints: Map<string, string>;
+  /** Per external id an upsert call of its object matches by, the fingerprint of its value. */
+  externalKeys: Map<string, string>;
   /** Matched to a row. */
   taken: boolean;
 }
@@ -445,7 +488,13 @@ export async function reconcileInFlight(
     }
     const fieldSets = new Map<string, string[]>();
     for (const call of ofObject) fieldSets.set(call.fields.join(','), call.fields);
-    const fields = [...new Set(ofObject.flatMap((call) => call.fields))].sort();
+    /** The external ids the upsert calls of the object match by. */
+    const upsertFields = [
+      ...new Set(ofObject.flatMap((call) => (call.upsertField ? [call.upsertField] : []))),
+    ];
+    const fields = [
+      ...new Set([...ofObject.flatMap((call) => call.fields), ...upsertFields]),
+    ].sort();
     let candidates: Candidate[];
     try {
       if (user === undefined && userUnread === undefined) {
@@ -476,7 +525,9 @@ export async function reconcileInFlight(
           if (named.has(id.slice(0, 15))) continue;
           const fingerprints = new Map<string, string>();
           for (const [key, set] of fieldSets) fingerprints.set(key, rowFingerprint(record, set));
-          candidates.push({ id, fingerprints, taken: false });
+          const externalKeys = new Map<string, string>();
+          for (const field of upsertFields) externalKeys.set(field, externalIdKey(record, field));
+          candidates.push({ id, fingerprints, externalKeys, taken: false });
         }
       }
     } catch (err: unknown) {
@@ -498,10 +549,75 @@ export async function reconcileInFlight(
       index.set(key, byFingerprint);
     }
 
-    // Each call's rows matched in turn, to the records left unmatched.
-    const unmatched: Array<{ callId: string; sourceId: string }> = [];
+    /**
+     * Keep `row` as the record `candidate` the call created: the record, and
+     * the lookups the row went in without, owed to the second pass, as the
+     * call's answer would have kept them.
+     */
+    const found = (call: SentCall, row: SentRow, candidate: Candidate): void => {
+      candidate.taken = true;
+      lines.push(
+        JSON.stringify([
+          'c',
+          row.sourceId,
+          candidate.id,
+          objectApiName,
+          call.owesKept ? FOUND_OWING_KEPT : FOUND_AFTER_STOP,
+        ]),
+      );
+      for (const { field, sourceRefId, insertOnly } of row.owes) {
+        lines.push(
+          owedLine({
+            objectApiName,
+            newId: candidate.id,
+            sourceId: row.sourceId,
+            fieldName: field,
+            sourceRefId,
+            ...(insertOnly ? { insertOnly } : {}),
+          }),
+        );
+      }
+      tally(outcome.found, objectApiName);
+    };
+
     const doubtful = new Set<string>();
+    // The upsert calls first, each row by the value of the external id it
+    // matches on, which the target holds one record of at most: a record of
+    // the window carrying it is the one the row created, and a row none
+    // carries created nothing — it wrote over a record the target held before
+    // the run, which stays, or it wrote nothing. Neither is the run's to take.
     for (const { call, rows } of rowsLeft) {
+      const field = call.upsertField;
+      if (field === undefined) continue;
+      const held = new Map<string, Candidate[]>();
+      for (const candidate of candidates) {
+        const key = candidate.externalKeys.get(field);
+        if (candidate.taken || key === undefined) continue;
+        held.set(key, [...(held.get(key) ?? []), candidate]);
+      }
+      const byKey = new Map<string, SentRow[]>();
+      for (const row of rows) {
+        const key = row.externalKey ?? '';
+        byKey.set(key, [...(byKey.get(key) ?? []), row]);
+      }
+      for (const [key, same] of byKey) {
+        const holding = key === '' ? [] : (held.get(key) ?? []);
+        // A value two rows share, two records carry, or a row kept without
+        // one: which is which cannot be told.
+        if (key === '' || same.length > 1 || holding.length > 1) {
+          tally(outcome.uncertain, objectApiName, same.length);
+          doubtful.add(call.callId);
+          continue;
+        }
+        if (holding.length === 1) found(call, same[0], holding[0]);
+        else tally(outcome.notFound, objectApiName);
+      }
+    }
+
+    // Each insert call's rows matched in turn, to the records left unmatched.
+    const unmatched: Array<{ callId: string; sourceId: string }> = [];
+    for (const { call, rows } of rowsLeft) {
+      if (call.upsertField !== undefined) continue;
       const key = call.fields.join(',');
       const byFingerprint = new Map<string, SentRow[]>();
       for (const row of rows) {
@@ -521,35 +637,8 @@ export async function reconcileInFlight(
           continue;
         }
         // As many or fewer: the call's, in the order it sent them, which is
-        // the order the org created them in. Each is kept as the call's
-        // answer would have kept it: the record, and the lookups the row
-        // went in without, owed to the second pass.
-        held.forEach((candidate, index) => {
-          candidate.taken = true;
-          const row = same[index];
-          lines.push(
-            JSON.stringify([
-              'c',
-              row.sourceId,
-              candidate.id,
-              objectApiName,
-              call.owesKept ? FOUND_OWING_KEPT : FOUND_AFTER_STOP,
-            ]),
-          );
-          for (const { field, sourceRefId, insertOnly } of row.owes) {
-            lines.push(
-              owedLine({
-                objectApiName,
-                newId: candidate.id,
-                sourceId: row.sourceId,
-                fieldName: field,
-                sourceRefId,
-                ...(insertOnly ? { insertOnly } : {}),
-              }),
-            );
-          }
-          tally(outcome.found, objectApiName);
-        });
+        // the order the org created them in.
+        held.forEach((candidate, index) => found(call, same[index], candidate));
         for (const row of same.slice(held.length)) {
           unmatched.push({ callId: call.callId, sourceId: row.sourceId });
         }
@@ -590,7 +679,7 @@ export function inFlightLines(
   const each = (list: InFlightObjectRows[]): string =>
     list.map(({ objectApiName, rows }) => `${rows} ${objectApiName}`).join(', ');
   const lines = [
-    `${reconciled.calls} insert call(s) were under way when the run stopped, their answer ` +
+    `${reconciled.calls} insert or upsert call(s) were under way when the run stopped, their answer ` +
       `never kept: their rows were looked for in ${org}`,
   ];
   if (reconciled.found.length > 0) {

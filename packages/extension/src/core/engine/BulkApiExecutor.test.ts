@@ -103,6 +103,41 @@ describe('BulkApiExecutor', () => {
   });
 
   describe('executeBulk', () => {
+    it('tells the id the org gave the job once it opened it, before the job is closed', async () => {
+      const job = createMockJob();
+      let id: string | undefined;
+      Object.defineProperty(job, 'id', { get: () => id });
+      vi.mocked(job.open).mockImplementation(async () => {
+        id = '750000000000001AAA';
+      });
+      const told: string[] = [];
+      vi.mocked(job.close).mockImplementation(async () => {
+        told.push('closed');
+      });
+      const deps: BulkApiExecutorDeps = {
+        ...createDeps(createMockConnection(job)),
+        onOpened: (jobId) => told.push(`opened ${jobId}`),
+      };
+
+      const promise = new BulkApiExecutor().executeBulk(deps, 'Account', 'insert', [{ Name: 'A' }]);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      expect(told).toEqual(['opened 750000000000001AAA', 'closed']);
+    });
+
+    it('tells nothing of a job the org gave no id of a record', async () => {
+      const job = createMockJob();
+      const onOpened = vi.fn();
+      const deps: BulkApiExecutorDeps = { ...createDeps(createMockConnection(job)), onOpened };
+
+      const promise = new BulkApiExecutor().executeBulk(deps, 'Account', 'insert', [{ Name: 'A' }]);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      expect(onOpened).not.toHaveBeenCalled();
+    });
+
     it('should register job with BulkApiManager', async () => {
       const job = createMockJob();
       const connection = createMockConnection(job);

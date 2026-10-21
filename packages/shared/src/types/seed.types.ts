@@ -366,13 +366,21 @@ export type SeedRemovalRefusalCode = 'GUARD_BLOCKED' | 'NO_GUARD' | 'ORG_GONE' |
 
 /**
  * What a Seed run created, as the extension keeps it, and what a removal of
- * it takes: read from what the run kept, nothing asked of the org.
+ * it takes: read from what the run kept, nothing asked of the org but the
+ * Bulk API job a run whose window closed left under way.
  */
 export interface SeedRunRemovalInfo {
-  /** The run, by its result's `operationId`. */
+  /** The run, by its result's `operationId`, or the id a CSV import or a clone answered with. */
   runId: string;
   /** The org it wrote to. */
   targetOrgId: string;
+  /**
+   * Which of the Seed page's ways wrote it, when not the generator: a CSV
+   * import, or a clone from another org. Absent for a seed.
+   */
+  origin?: 'csv' | 'clone';
+  /** The org a clone read from. */
+  sourceOrgId?: string;
   /** When the run started, by this machine's clock. */
   startedAt: ISODateString;
   /**

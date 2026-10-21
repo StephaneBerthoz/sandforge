@@ -10,6 +10,7 @@ import { DataTable } from '../../../components/ui/DataTable';
 import type { DataTableColumn } from '../../../components/ui/DataTable';
 import { Pagination } from '../../../components/ui/Pagination';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
+import { SeedRunRemoval } from '../SeedRunRemoval';
 
 /** Page size for ID mapping tables. */
 const MAPPING_PAGE_SIZE = 25;
@@ -249,8 +250,8 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         )}
       </div>
 
-      {/* What a cancelled clone created stays in the target: nothing takes
-          it back, and the objects it never reached are not listed below. */}
+      {/* What a cancelled clone created stays in the target until it is
+          removed below, and the objects it never reached are not listed. */}
       {result.cancelled && (
         <div
           className="rounded-sm border border-(--sf-border) px-3 py-2 text-xs text-(--sf-text-secondary)"
@@ -269,6 +270,11 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           wrote, said as Forge says it: neutralized field by field, or kept as
           the source holds them, as the run was asked. */}
       {result.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
+
+      {/* What the clone created in the target, kept as a seed's is: taken
+          back from here, or later from Earlier seeds. What it linked to was
+          the target's, and stays. */}
+      {result.runId && <SeedRunRemoval runId={result.runId} />}
 
       {/* The lookups written empty and filled in once the record they point
           at was in: how many were, and why the others were not. */}

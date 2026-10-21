@@ -119,6 +119,9 @@ export function nodeSyncRunCreations(storagePath: string, runsDir?: string): Syn
   });
 }
 
+/** The most ids one line of a run's file holds. */
+export const IDS_PER_LINE = 50_000;
+
 /** A Salesforce id, as every id kept is: they end up in deletes. */
 const idSchema = z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/);
 const objectSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/);
@@ -133,6 +136,12 @@ const headSchema = z.object({
     sourceOrgId: z.string().min(1).max(200),
     targetOrgId: z.string().min(1).max(200),
     startedAt: dateSchema,
+    /**
+     * Which of the Seed module's ways wrote the run, when not its generator:
+     * a CSV import or a clone from another org (`SeedRunCreations`). A Sync
+     * run names none.
+     */
+    origin: z.enum(['csv', 'clone']).optional(),
   }),
 });
 
@@ -143,7 +152,7 @@ const headSchema = z.object({
  */
 const createdSchema = z.object({
   object: objectSchema,
-  created: z.array(idSchema).max(50_000),
+  created: z.array(idSchema).max(IDS_PER_LINE),
   at: dateSchema.optional(),
 });
 
@@ -159,6 +168,15 @@ const sendingSchema = z.object({
     object: objectSchema,
     rows: z.number().int().positive(),
     at: dateSchema,
+    /**
+     * The Bulk API job the call is, once the org has opened it: a line names
+     * the call again with it, before anything of the job is closed. The job
+     * runs on to its end on the org's side whatever becomes of the window,
+     * and its records are read back from it by this id (`readJobCreated`).
+     */
+    job: idSchema.optional(),
+    /** Set for a call that upserts: only the rows the org says it created are the run's. */
+    upsert: z.literal(true).optional(),
   }),
 });
 
@@ -233,7 +251,15 @@ export interface SyncRunKept extends SyncRunHead {
    * The call the run had under way when it stopped, of a run with no end: its
    * object and its rows, some of which may be in the target and not here.
    */
-  inFlight?: { objectApiName: string; rows: number; at: string };
+  inFlight?: {
+    objectApiName: string;
+    rows: number;
+    at: string;
+    /** The Bulk API job it is, once the org opened it: what its records are read back by. */
+    job?: string;
+    /** Set for an upsert: only the rows the org created are the run's. */
+    upsert?: true;
+  };
   /**
    * What it created, per object in the order it first wrote each, the ids in
    * the order it wrote them — files under `ContentDocument` and `Attachment`.
@@ -279,8 +305,14 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     }
     const sending = sendingSchema.safeParse(value);
     if (sending.success) {
-      const { object, rows, at } = sending.data.sending;
-      inFlight = { objectApiName: object, rows, at };
+      const { object, rows, at, job, upsert } = sending.data.sending;
+      inFlight = {
+        objectApiName: object,
+        rows,
+        at,
+        ...(job !== undefined ? { job } : {}),
+        ...(upsert ? { upsert } : {}),
+      };
       continue;
     }
     const created = createdSchema.safeParse(value);
@@ -373,8 +405,10 @@ export interface SyncCreationRecorder {
   /**
    * A call of `rows` rows of `objectApiName` is about to go: written at once,
    * so a run cut short while it is under way says so (`SyncRunKept.inFlight`).
+   * Said again with `call.job` once the org has opened the Bulk API job the
+   * call is, and with `call.upsert` for a call that upserts.
    */
-  sending?(objectApiName: string, rows: number): void;
+  sending?(objectApiName: string, rows: number, call?: SendingCall): void;
   /**
    * The call {@link sending} announced answered: what it created, none
    * included, written at once.
@@ -385,6 +419,14 @@ export interface SyncCreationRecorder {
    * not be, once: undefined when all of it was.
    */
   flush(): Promise<string | undefined>;
+}
+
+/** What a `sending` line says of its call beside its object and rows. */
+export interface SendingCall {
+  /** The Bulk API job the call is, once the org opened it. */
+  job?: string;
+  /** Whether it upserts. */
+  upsert?: boolean;
 }
 
 /** What a run's recorder is told of the run when it begins. */
@@ -461,9 +503,18 @@ export class SyncRunCreations {
         if (valid.length === 0 || !objectSchema.safeParse(objectApiName).success) return;
         append({ object: objectApiName, created: valid, at: at ?? new Date().toISOString() });
       },
-      sending: (objectApiName, rows) => {
+      sending: (objectApiName, rows, call) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
-        append({ sending: { object: objectApiName, rows, at: new Date().toISOString() } });
+        const job = call?.job !== undefined && idSchema.safeParse(call.job).success ? call.job : '';
+        append({
+          sending: {
+            object: objectApiName,
+            rows,
+            at: new Date().toISOString(),
+            ...(job !== '' ? { job } : {}),
+            ...(call?.upsert ? { upsert: true } : {}),
+          },
+        });
       },
       answered: (objectApiName, ids) => {
         if (!objectSchema.safeParse(objectApiName).success) return;
@@ -551,6 +602,45 @@ export class SyncRunCreations {
     });
     this.queue = next.catch(() => undefined);
     return next;
+  }
+
+  /**
+   * Answer the call a run had under way when it stopped (`SyncRunKept.inFlight`)
+   * with what it created, read back from the org since: a line added to the
+   * run's file as the call's own answer would have been, dated `at`, when the
+   * org says the call last wrote. Only for a run no window writes any more:
+   * one still writing adds its own lines.
+   *
+   * @returns Whether the run's file was there to add to.
+   */
+  async answerInFlight(
+    runId: string,
+    objectApiName: string,
+    ids: readonly string[],
+    at: string,
+  ): Promise<boolean> {
+    if (!objectSchema.safeParse(objectApiName).success) return false;
+    const file = this.runPath(runId);
+    try {
+      await this.deps.readFile(file);
+    } catch {
+      return false;
+    }
+    const valid = ids.filter((id) => idSchema.safeParse(id).success);
+    // As many lines as the ids need, at most what a line holds each.
+    const lines: string[] = [];
+    for (let from = 0; from === 0 || from < valid.length; from += IDS_PER_LINE) {
+      lines.push(
+        JSON.stringify({
+          object: objectApiName,
+          created: valid.slice(from, from + IDS_PER_LINE),
+          at,
+        }),
+      );
+    }
+    // On a line of its own: the window that closed may have cut its last one short.
+    await this.deps.appendFile(file, `\n${lines.join('\n')}\n`);
+    return true;
   }
 
   /** Forget a run: its file, and what its removals did. */

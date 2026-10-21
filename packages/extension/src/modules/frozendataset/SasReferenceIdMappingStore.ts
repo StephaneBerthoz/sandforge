@@ -19,6 +19,11 @@
  *
  * One file per target org: a load into one org leaves the loads into another
  * named, for their removal, their reload and their verification.
+ *
+ * While a load writes, what each batch creates is kept beside the file, in a
+ * journal of the load (`journal`), until the load's mapping is written: a load
+ * whose process was killed is read back from its journal as a load that
+ * stopped part way (`readWithJournals`), and removed or purged as one.
  */
 
 import * as fs from 'node:fs/promises';
@@ -28,6 +33,7 @@ import type { ForgeRemovalSpan, ForgeUndoMark, ForgeWrittenBetween } from '@sand
 import { SasPathGuard, orgFileKey } from './SasPathGuard.js';
 import type {
   LoadCreatedRecords,
+  LoadJournal,
   PersistedLoad,
   PreviousLoad,
   ReferenceIdMappingStore,
@@ -45,6 +51,96 @@ export const REFERENCEID_MAPPING_FILENAME = 'referenceid-mapping.json';
 
 /** The per-org file names, and the org each is of. */
 const PER_ORG_MAPPING = /^referenceid-mapping\.([A-Za-z0-9_-]{1,128})\.json$/;
+
+/** The journal of a load into one registered org, and the org it is of: see {@link LoadJournal}. */
+const PER_ORG_JOURNAL = /^referenceid-mapping\.([A-Za-z0-9_-]{1,128})\.load-\d{1,16}\.ndjson$/;
+
+/** A Salesforce id, as every id a journal holds is: they end up in deletes. */
+const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * The journals this process is writing now, by path: a load still under way,
+ * whose records its own mapping will name once it ends. Never read as a load
+ * that stopped.
+ */
+const JOURNALS_WRITING = new Set<string>();
+
+/**
+ * Whether the process `pid` is running: a load another window has under way
+ * keeps its journal, and is not read as one that stopped.
+ */
+function processRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    // Running, owned by another user.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** One line of a journal: a batch's records, by key, with their ids. */
+const journalBatchSchema = z.object({
+  at: z.string().min(1).max(40),
+  object: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/),
+  created: z.array(z.tuple([z.string().min(1).max(400), z.string().regex(RECORD_ID)])).max(10_000),
+});
+
+/** The first line of a journal: the load and the process writing it. */
+const journalHeadSchema = z.object({
+  journal: z.object({ startedAt: z.string().min(1).max(40), pid: z.number().int().positive() }),
+});
+
+/**
+ * A journal read back as the load it was writing: its records by key, what it
+ * created per object in the order it wrote them, from when it began to its
+ * last batch. Undefined for a journal that names no load, or no record.
+ */
+export function loadOfJournal(
+  text: string,
+): { load: LoadPayload; startedAt: string; pid: number } | undefined {
+  let head: z.infer<typeof journalHeadSchema>['journal'] | undefined;
+  const mapping: Record<string, string> = {};
+  const byObject = new Map<string, string[]>();
+  let last: string | undefined;
+  for (const line of text.split('\n')) {
+    if (line.trim() === '') continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      // A line a killed process cut short.
+      continue;
+    }
+    if (!head) {
+      const parsed = journalHeadSchema.safeParse(value);
+      if (parsed.success) head = parsed.data.journal;
+      continue;
+    }
+    const batch = journalBatchSchema.safeParse(value);
+    if (!batch.success) continue;
+    const keys = byObject.get(batch.data.object) ?? [];
+    for (const [key, id] of batch.data.created) {
+      if (!Object.prototype.hasOwnProperty.call(mapping, key)) keys.push(key);
+      mapping[key] = id;
+    }
+    byObject.set(batch.data.object, keys);
+    last = batch.data.at;
+  }
+  if (!head || last === undefined || Object.keys(mapping).length === 0) return undefined;
+  return {
+    startedAt: head.startedAt,
+    pid: head.pid,
+    load: {
+      updatedAt: last,
+      mapping,
+      created: [...byObject]
+        .filter(([, keys]) => keys.length > 0)
+        .map(([objectApiName, referenceIds]) => ({ objectApiName, referenceIds })),
+      load: { startedAt: head.startedAt, endedAt: last },
+    },
+  };
+}
 
 /** File name of the mapping of the loads into one registered org, inside the sas directory. */
 export function referenceIdMappingFileName(orgId: string): string {
@@ -82,7 +178,12 @@ export async function mappedOrgIds(sasDir: string, guard: SasPathGuard): Promise
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw err;
   }
-  const orgs = new Set(names.flatMap((name) => PER_ORG_MAPPING.exec(name)?.[1] ?? []));
+  // An org whose only load stopped part way has its journal and no mapping.
+  const orgs = new Set(
+    names.flatMap(
+      (name) => PER_ORG_MAPPING.exec(name)?.[1] ?? PER_ORG_JOURNAL.exec(name)?.[1] ?? [],
+    ),
+  );
   if (names.includes(REFERENCEID_MAPPING_FILENAME)) {
     const single = await readMappingFile(
       guard.assertOutsideRepo(path.join(dir, REFERENCEID_MAPPING_FILENAME)),
@@ -486,6 +587,128 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
       : this.guard.assertOutsideRepo(path.join(this.sasDir, REFERENCEID_MAPPING_FILENAME));
   }
 
+  /** The name of the store's mapping file without its extension: what its journals are named after. */
+  private get journalStem(): string {
+    return this.orgId === ''
+      ? 'referenceid-mapping'
+      : `referenceid-mapping.${orgFileKey(this.orgId)}`;
+  }
+
+  /** The journal of the load that began at `startedAt`, in the sas. */
+  private journalPath(startedAt: Date | string): string {
+    const at = typeof startedAt === 'string' ? Date.parse(startedAt) : startedAt.getTime();
+    return this.guard.assertOutsideRepo(
+      path.join(this.sasDir, `${this.journalStem}.load-${Math.max(0, Math.trunc(at))}.ndjson`),
+    );
+  }
+
+  /** The journals being retired once their load's mapping was written, by path. */
+  private readonly retiring = new Map<string, () => Promise<void>>();
+
+  /**
+   * The journal of the load that begins at `startedAt`: see {@link LoadJournal}.
+   * Its file is begun with the load's first batch, and goes once the load's
+   * mapping is written ({@link persist}).
+   */
+  journal(startedAt: Date): LoadJournal {
+    const file = this.journalPath(startedAt);
+    let begun = false;
+    let retired = false;
+    let createdSome = false;
+    let writes: Promise<void> = Promise.resolve();
+    let failure: string | undefined;
+    JOURNALS_WRITING.add(file);
+    const append = (line: unknown): void => {
+      writes = writes.then(async () => {
+        if (failure !== undefined || retired) return;
+        try {
+          if (!begun) {
+            begun = true;
+            await fs.mkdir(path.dirname(file), { recursive: true });
+            const head = { journal: { startedAt: startedAt.toISOString(), pid: process.pid } };
+            await fs.appendFile(file, `${JSON.stringify(head)}\n`, 'utf8');
+          }
+          await fs.appendFile(file, `${JSON.stringify(line)}\n`, 'utf8');
+        } catch (err: unknown) {
+          failure = err instanceof Error ? err.message : String(err);
+        }
+      });
+    };
+    const retire = async (): Promise<void> => {
+      await writes;
+      retired = true;
+      await fs.rm(file, { force: true });
+    };
+    this.retiring.set(file, retire);
+    return {
+      created: (objectApiName, records) => {
+        const valid = records.filter(([key, id]) => key !== '' && RECORD_ID.test(id));
+        if (valid.length === 0) return;
+        createdSome = true;
+        for (let from = 0; from < valid.length; from += 10_000) {
+          append({
+            at: this.now().toISOString(),
+            object: objectApiName,
+            created: valid.slice(from, from + 10_000),
+          });
+        }
+      },
+      flush: async () => {
+        await writes;
+        return failure;
+      },
+      close: async () => {
+        await writes;
+        this.retiring.delete(file);
+        // Kept when it names records no mapping holds: a load that stopped.
+        if (retired || !createdSome) await fs.rm(file, { force: true });
+        retired = true;
+        JOURNALS_WRITING.delete(file);
+      },
+    };
+  }
+
+  /**
+   * The journals of the store's loads that no process writes any more, each
+   * read back as the load it was writing (`loadOfJournal`): loads that
+   * stopped part way, their process killed before their mapping was written.
+   * A journal this process writes is left out, and so is one of a process
+   * still running — another window's load under way — and one whose load the
+   * file records already.
+   */
+  private async stoppedLoads(
+    recorded: readonly LoadPayload[],
+  ): Promise<Array<{ file: string; load: LoadPayload }>> {
+    let names: string[];
+    try {
+      names = await fs.readdir(this.guard.assertOutsideRepo(this.sasDir));
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
+    const prefix = `${this.journalStem}.load-`;
+    const known = new Set(recorded.flatMap((load) => (load.load ? [load.load.startedAt] : [])));
+    const stopped: Array<{ file: string; load: LoadPayload }> = [];
+    for (const name of names) {
+      if (!name.startsWith(prefix) || !/^\d{1,16}\.ndjson$/.test(name.slice(prefix.length))) {
+        continue;
+      }
+      const file = this.guard.assertOutsideRepo(path.join(this.sasDir, name));
+      if (JOURNALS_WRITING.has(file)) continue;
+      let text: string;
+      try {
+        text = await fs.readFile(file, 'utf8');
+      } catch {
+        continue;
+      }
+      const read = loadOfJournal(text);
+      if (!read || known.has(read.startedAt)) continue;
+      if (read.pid !== process.pid && processRunning(read.pid)) continue;
+      stopped.push({ file, load: read.load });
+    }
+    return stopped;
+  }
+
   /**
    * Read the persisted mapping of the last load; empty when the file does not
    * exist yet, and empty when it was written to an org the target no longer
@@ -597,12 +820,59 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * and none of this one's.
    */
   private async read(): Promise<MappingFilePayload | undefined> {
+    return (await this.readWithJournals()).payload;
+  }
+
+  /** The file as written, without the loads that stopped part way: see {@link read}. */
+  private async readFile(): Promise<MappingFilePayload | undefined> {
     const own = await readMappingFile(this.filePath);
     if (own !== undefined) return own;
     const single = this.singleFilePath;
     if (single === undefined) return undefined;
     const payload = await readMappingFile(single);
     return payload?.orgId === this.orgId ? payload : undefined;
+  }
+
+  /**
+   * The file as written, with the loads that stopped part way before their
+   * mapping was written, read from their journals (`stoppedLoads`): each
+   * among the loads it records by when it wrote its last record, the newest
+   * the last. Removed, purged and verified as a load that stopped part way,
+   * as one cancelled is. `journals` names the journals read in: once a
+   * mapping that holds them is written, they go.
+   */
+  private async readWithJournals(): Promise<{
+    payload: MappingFilePayload | undefined;
+    journals: string[];
+  }> {
+    const payload = await this.readFile();
+    const recorded = payload ? [loadPartsOf(payload), ...earlierOf(payload)] : [];
+    const stopped = await this.stoppedLoads(
+      recorded.filter((load): load is LoadPayload => load !== undefined),
+    );
+    if (stopped.length === 0) return { payload, journals: [] };
+    const loads = [
+      ...recorded.filter((load): load is LoadPayload => load !== undefined),
+      ...stopped.map(({ load }) => load),
+    ].sort((a, b) => Date.parse(endedAtOf(b)) - Date.parse(endedAtOf(a)));
+    const [last, ...earlier] = loads;
+    return {
+      payload: {
+        version: 1,
+        orgId: typeof payload?.orgId === 'string' ? payload.orgId : this.orgId,
+        ...(payload?.organizationId !== undefined
+          ? { organizationId: payload.organizationId }
+          : {}),
+        ...last,
+        ...(earlier.length > 0 ? { earlier } : {}),
+      },
+      journals: stopped.map(({ file }) => file),
+    };
+  }
+
+  /** Let the journals of loads a written mapping now holds go. */
+  private async dropJournals(journals: readonly string[]): Promise<void> {
+    for (const file of journals) await fs.rm(file, { force: true }).catch(() => undefined);
   }
 
   /**
@@ -629,8 +899,10 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * to another org, a registered one or the one a refresh left, and none of a
    * load left with nothing a reload or a removal would look for.
    */
-  private async keptLoads(settled: readonly string[]): Promise<LoadPayload[]> {
-    const payload = await this.read();
+  private async keptLoads(
+    payload: MappingFilePayload | undefined,
+    settled: readonly string[],
+  ): Promise<LoadPayload[]> {
     if (payload === undefined || payload.orgId !== this.orgId) return [];
     if (await this.writtenToAnotherOrg(payload)) return [];
     const keys = new Set(settled.map(recordKey));
@@ -646,13 +918,18 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * inserted), with what it created and when it ran — and what an earlier
    * removal left there belonged to the load before.
    *
+   * The loads that stopped part way, read from their journals, are kept with
+   * the others before it, and their journals go; the load's own journal goes
+   * too, the mapping holding what it named.
+   *
    * @param load - Which keys the load created, when it began, when the
    *   target dated its writes, and whether the loads before it are kept.
    *   Absent, the file says none of it, and the load's records cannot be
    *   removed from it.
    */
   async persist(mapping: ReadonlyMap<string, string>, load?: PersistedLoad): Promise<void> {
-    const kept = load?.earlier ? await this.keptLoads(load.earlier.settled) : [];
+    const { payload, journals } = await this.readWithJournals();
+    const kept = load?.earlier ? await this.keptLoads(payload, load.earlier.settled) : [];
     const organizationId = await this.currentOrganizationId();
     const endedAt = this.now().toISOString();
     const named = (links: Readonly<Record<string, string>> | undefined): Record<string, string> =>
@@ -685,6 +962,15 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
         : {}),
       ...(kept.length > 0 ? { earlier: kept } : {}),
     });
+    // Kept with the loads before it, the stopped loads' journals go; kept
+    // alone, the file holds none of them, and their journals stay.
+    if (load?.earlier) await this.dropJournals(journals);
+    if (load) {
+      const own = this.journalPath(load.startedAt);
+      const retire = this.retiring.get(own);
+      if (retire) await retire();
+      else await fs.rm(own, { force: true }).catch(() => undefined);
+    }
   }
 
   /**
@@ -703,7 +989,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    * @returns Whether the file still recorded that load, and was written.
    */
   async recordRemoval(endedAt: string, removal: RecordedRemoval): Promise<boolean> {
-    const payload = await this.read();
+    const { payload, journals } = await this.readWithJournals();
     const last = loadPartsOf(payload);
     if (payload === undefined || last === undefined) return false;
     const loads = [last, ...earlierOf(payload)];
@@ -724,6 +1010,8 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
       updatedAt: this.now().toISOString(),
       ...(nextEarlier.length > 0 ? { earlier: nextEarlier } : {}),
     });
+    // The loads that stopped part way are in the file now, with what went.
+    await this.dropJournals(journals);
     return true;
   }
 
@@ -747,7 +1035,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    *   file was written.
    */
   async recordStamps(stamps: Readonly<Record<string, string>>): Promise<boolean> {
-    const payload = await this.read();
+    const { payload, journals } = await this.readWithJournals();
     const last = loadPartsOf(payload);
     if (payload === undefined || last === undefined) return false;
     const loads = [last, ...earlierOf(payload)];
@@ -761,6 +1049,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
       ...nextLast,
       ...(nextEarlier.length > 0 ? { earlier: nextEarlier } : {}),
     });
+    await this.dropJournals(journals);
     return true;
   }
 }

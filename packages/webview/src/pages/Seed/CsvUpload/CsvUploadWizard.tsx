@@ -13,6 +13,7 @@ import { orgOptionLabel } from '../../../utils/orgFormatters';
 import { CsvPreview } from './CsvPreview';
 import { CsvColumnMapper } from './CsvColumnMapper';
 import { CsvValidationPanel } from './CsvValidationPanel';
+import { SeedRunRemoval } from '../SeedRunRemoval';
 import { useCsvImport } from './useCsvImport';
 import type { CsvImportStep } from './useCsvImport';
 
@@ -274,20 +275,10 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
                 <Badge variant="default">
                   {t('common.recordCount', { count: csv.parsedRows.length })}
                 </Badge>
-                {/* Said before the write: an import keeps no list of what it
-                    writes, and nothing in SandForge takes it back. */}
-                <p
-                  id="csv-no-way-back"
-                  className="text-xs text-(--sf-text-secondary) text-center max-w-md"
-                  data-testid="csv-no-way-back"
-                >
-                  {t('common.noWayBack')}
-                </p>
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={csv.handleExecute}
-                  aria-describedby="csv-no-way-back"
                   data-testid="execute-button"
                 >
                   {t('seed.csv.wizard.execute')}
@@ -351,6 +342,13 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
                         {err}
                       </span>
                     ))}
+                  </div>
+                )}
+                {/* What the import created, kept as a seed's is: taken back
+                    from here, or later from Earlier seeds. */}
+                {csv.executionResult.runId && (
+                  <div className="self-stretch max-w-md mx-auto w-full">
+                    <SeedRunRemoval runId={csv.executionResult.runId} />
                   </div>
                 )}
                 <Button variant="primary" size="sm" onClick={onBack} data-testid="done-button">

@@ -5,6 +5,11 @@ import fr from '../../../i18n/locales/fr.json';
 import { CloneResultsPanel } from './CloneResultsPanel';
 import type { CloneExecutionResult } from '@sandforge/shared';
 
+// The removal card is the seed's, tested with it: here, which run it is handed.
+vi.mock('../SeedRunRemoval', () => ({
+  SeedRunRemoval: ({ runId }: { runId: string }) => <p data-testid="seed-removal-of">{runId}</p>,
+}));
+
 const mockSuccessResult: CloneExecutionResult = {
   status: 'success',
   totalSourceRecords: 200,
@@ -511,5 +516,22 @@ describe('CloneResultsPanel', () => {
     render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 
     expect(screen.queryByTestId('forge-results-contact-points')).toBeNull();
+  });
+
+  it('offers the removal of what the clone created, by the id the extension kept it under', () => {
+    render(
+      <CloneResultsPanel
+        result={{ ...mockSuccessResult, runId: 'req-clone-3' }}
+        onDone={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('seed-removal-of').textContent).toBe('req-clone-3');
+  });
+
+  it('offers no removal of a clone that created nothing it kept', () => {
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
+
+    expect(screen.queryByTestId('seed-removal-of')).toBeNull();
   });
 });

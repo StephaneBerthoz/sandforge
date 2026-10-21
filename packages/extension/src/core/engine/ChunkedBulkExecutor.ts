@@ -1,5 +1,10 @@
 import type { StreamingExecutionResult } from '@sandforge/shared';
-import { abortOpenJob, jobErrorOf, normalizeBulkJobResults } from './BulkApiExecutor.js';
+import {
+  abortOpenJob,
+  jobErrorOf,
+  normalizeBulkJobResults,
+  openedJobId,
+} from './BulkApiExecutor.js';
 import type { BulkApiExecutorDeps, BulkOperation, BulkRecordOutcome } from './BulkApiExecutor.js';
 import type { BulkJobInfo, BulkJobStatus } from './BulkApiManager.js';
 import { buildBulkCsv, type BulkCsv } from './bulkCsv.js';
@@ -111,6 +116,8 @@ export class ChunkedBulkExecutor {
     deps.bulkManager.registerJob(jobInfo);
     try {
       await job.open();
+      const opened = openedJobId(job);
+      if (opened !== undefined) deps.onOpened?.(opened);
 
       // Read phase: gather the chunks, then upload them in one CSV.
       const records: Record<string, unknown>[] = [];

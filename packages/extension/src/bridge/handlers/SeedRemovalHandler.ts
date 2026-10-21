@@ -43,6 +43,7 @@ import {
   type SyncRunKept,
 } from '../../modules/sync/SyncRunCreations.js';
 import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
+import { answerJobInFlight, type IngestJobReading } from '../../modules/sync/inFlightJob.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
@@ -73,6 +74,9 @@ const SWEEP_AUTOMATION_TIMEOUT_MS = 60_000;
 /** How long listing what a sweep would take may take: the automation read, then one read per object. */
 const SWEEP_LIST_TIMEOUT_MS = 120_000;
 
+/** How long reading back the job a run left under way may take: two reads of the job. */
+const JOB_READ_TIMEOUT_MS = 60_000;
+
 /** Why a run still writing cannot be removed, until it ends. */
 const SEED_STILL_WRITING = 'The seed is still writing: remove it once it has ended.';
 
@@ -85,9 +89,11 @@ const SEED_STILL_WRITING = 'The seed is still writing: remove it once it has end
  *
  * - `seed:removal:info` — what the run kept, what a removal would take, and
  *   why none can run when none can: read from what the extension kept,
- *   nothing asked of the org.
+ *   nothing asked of the org but the Bulk API job a run whose window closed
+ *   left under way, read back by its id (`withJobAnswered`).
  * - `seed:removal:list` — the same for every run kept, newest first: the runs
- *   of earlier windows, which a reload left removable.
+ *   of earlier windows, which a reload left removable. The panel's CSV
+ *   imports and clones are among them, named by their way.
  * - `seed:remove:sweep` — what a sweep asked with the removal would take,
  *   read only, for the confirmation to list (`listSweep`).
  * - `seed:remove` — the removal itself, its sweep first when asked: the one
@@ -196,6 +202,9 @@ export class SeedRemovalHandler implements DomainHandler {
       targetOrgId: run.targetOrgId,
       startedAt: run.startedAt,
       endedAt: run.end?.at ?? run.lastWrittenAt ?? run.startedAt,
+      // A CSV import and a clone are kept and listed with the seeds, named.
+      ...(run.origin ? { origin: run.origin } : {}),
+      ...(run.origin === 'clone' ? { sourceOrgId: run.sourceOrgId } : {}),
       // A run is kept as it writes: one whose window closed under it has no
       // end, and so has one still writing in this window, which is not it.
       ...(run.end
@@ -242,6 +251,64 @@ export class SeedRemovalHandler implements DomainHandler {
       : { code: 'GUARD_BLOCKED', message: check.blockedReason ?? check.impactSummary };
   }
 
+  /**
+   * A run as it reads once the Bulk API job it left under way is answered:
+   * a run with no end, no window writing it any more, whose last call is a
+   * job the org opened. The job ran on to its end on the org's side, and its
+   * records were in the org with no line of them; read back from the job by
+   * its id (`answerJobInFlight`), they go into the run's file, and the run is
+   * listed and removed with them. A job still running, or one the org cannot
+   * be asked about, leaves the run as it is, said in the log, and is asked
+   * again next time. Nothing is asked of an org for any other run.
+   */
+  private async withJobAnswered(run: SyncRunKept): Promise<SyncRunKept> {
+    const store = this.creations;
+    if (!store || run.end || !run.inFlight?.job || this.isRunning(run.runId)) return run;
+    if (!this.deps.orgManager.getOrg(run.targetOrgId)) return run;
+    const context = `seed:removal job ${run.inFlight.job}`;
+    try {
+      const answered = await new TimeoutManager(JOB_READ_TIMEOUT_MS).withTimeout(
+        context,
+        async () => {
+          const conn = await getJsforceConnection(
+            run.targetOrgId,
+            this.deps.orgRegistry,
+            this.deps.orgManager,
+          );
+          const org = removalOrg(conn, context);
+          return answerJobInFlight(store, run, conn as unknown as IngestJobReading, () =>
+            org.serverTime(),
+          );
+        },
+      );
+      const read = answered.read;
+      if (read?.state === 'ended') {
+        this.deps.log(
+          `[INFO] ${context}: the job a run left under way ended in the org; ` +
+            `${read.created.length} record(s) it created kept with the run`,
+        );
+      } else if (read?.state === 'never-closed') {
+        this.deps.log(`[INFO] ${context}: the job was never closed, and wrote nothing`);
+      } else if (read?.state === 'running') {
+        this.deps.log(`[INFO] ${context}: the job is still running in the org; read again later`);
+      } else if (read?.state === 'unread') {
+        this.deps.log(`[WARN] ${context}: the job could not be read back: ${read.reason}`);
+      }
+      return answered.answered ? ((await store.get(run.runId)) ?? run) : run;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] ${context}: the job could not be read back: ${extractErrorMessage(err)}`,
+      );
+      return run;
+    }
+  }
+
+  /** The run kept under `runId`, its job under way answered first: see {@link withJobAnswered}. */
+  private async runOf(runId: string): Promise<SyncRunKept | undefined> {
+    const run = await this.creations?.get(runId);
+    return run ? this.withJobAnswered(run) : undefined;
+  }
+
   private async handleInfo(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
@@ -252,7 +319,7 @@ export class SeedRemovalHandler implements DomainHandler {
     );
     if (!parsed) return;
     try {
-      const run = await this.creations?.get(parsed.runId);
+      const run = await this.runOf(parsed.runId);
       const response = buildResponse(this.deps, msg, 'seed:removal:info:response', {
         info: run ? (this.infoOf(run) as unknown as Record<string, unknown>) : null,
       });
@@ -351,7 +418,10 @@ export class SeedRemovalHandler implements DomainHandler {
   private async handleList(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
-      const runs = (await this.creations?.list()) ?? [];
+      const runs: SyncRunKept[] = [];
+      for (const run of (await this.creations?.list()) ?? []) {
+        runs.push(await this.withJobAnswered(run));
+      }
       const response = buildResponse(this.deps, msg, 'seed:removal:list:response', {
         runs: runs.map((run) => this.infoOf(run)) as unknown as Record<string, unknown>[],
       });
@@ -415,7 +485,7 @@ export class SeedRemovalHandler implements DomainHandler {
         { code },
       );
     try {
-      const run = await this.creations?.get(parsed.runId);
+      const run = await this.runOf(parsed.runId);
       if (!run) {
         refuse('Nothing this run created is kept: there is nothing to sweep after.', 'NOT_KEPT');
         return;
@@ -561,7 +631,7 @@ export class SeedRemovalHandler implements DomainHandler {
     const parsed = validatePayload(seedRemovePayloadSchema, msg, 'seed:remove:error', this.deps);
     if (!parsed) return;
     const store = this.creations;
-    const run = await store?.get(parsed.runId);
+    const run = await this.runOf(parsed.runId);
     if (!store || !run) {
       this.refuse(
         msg,
