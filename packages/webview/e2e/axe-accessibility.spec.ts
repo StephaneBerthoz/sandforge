@@ -5371,11 +5371,17 @@ for (const theme of SCANNED_THEMES) {
           }));
           expect(box).toEqual({ text: box.text, cut: false });
         }
-        // The column is as narrow as the one it was cut in: the name takes two lines.
-        const lines = await frozen.evaluate(
-          (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
-        );
-        expect(Math.round(lines)).toBe(2);
+        // Wider than the column on one line, the name takes two; in fonts that
+        // set it narrower, as a CI runner's do, one. Never more, never cut.
+        const { lines, wider } = await frozen.evaluate((el) => {
+          const lines =
+            el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight);
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const words = [...range.getClientRects()].reduce((sum, rect) => sum + rect.width, 0);
+          return { lines: Math.round(lines), wider: words > el.clientWidth + 0.5 };
+        });
+        expect(lines).toBe(wider ? 2 : 1);
 
         await expectReadable(page, theme);
       });
