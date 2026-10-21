@@ -53,6 +53,68 @@ function flatten(obj: Catalogue, prefix = '', out = new Map<string, string>()) {
   return out;
 }
 
+const EXTENSION_ROOT = join(SRC, '..', '..', 'extension');
+
+/** The token VS Code names a locale's manifest, host and walkthrough files by. */
+const VSCODE_TOKEN: Record<string, string> = {
+  en: '',
+  fr: 'fr',
+  de: 'de',
+  es: 'es',
+  ja: 'ja',
+  'pt-BR': 'pt-br',
+};
+
+/** A flat bundle of the extension: a manifest's strings, or the host's messages. */
+function extensionBundle(...parts: string[]): Map<string, string> {
+  const file = join(EXTENSION_ROOT, ...parts);
+  return new Map(Object.entries(JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>));
+}
+
+/** The Marketplace manifest's strings in a locale: titles, walkthrough steps, settings. */
+const manifestOf = (locale: string): Map<string, string> =>
+  extensionBundle(
+    locale === 'en' ? 'package.nls.json' : `package.nls.${VSCODE_TOKEN[locale]}.json`,
+  );
+
+/** The extension host's messages in a locale. */
+const hostOf = (locale: string): Map<string, string> =>
+  extensionBundle(
+    'l10n',
+    locale === 'en' ? 'bundle.l10n.json' : `bundle.l10n.${VSCODE_TOKEN[locale]}.json`,
+  );
+
+/** Each line of the Get Started walkthrough bodies in a locale, by file and line. */
+function walkthroughOf(locale: string): Map<string, string> {
+  const dir = join(EXTENSION_ROOT, 'walkthrough');
+  const ours = (name: string) =>
+    locale === 'en'
+      ? name.endsWith('.md') && !name.includes('.nls.')
+      : name.endsWith(`.nls.${VSCODE_TOKEN[locale]}.md`);
+  const lines = new Map<string, string>();
+  for (const name of readdirSync(dir).filter(ours)) {
+    readFileSync(join(dir, name), 'utf8')
+      .split('\n')
+      .forEach((line, index) => lines.set(`${name}:${index + 1}`, line));
+  }
+  return lines;
+}
+
+/** All a reader of a locale sees: the panels, the manifest, the host's messages, the walkthrough. */
+function everySurface(locale: string): Map<string, string> {
+  const all = new Map<string, string>();
+  const surfaces: [string, Map<string, string>][] = [
+    ['', flatten(load(locale))],
+    ['package.nls ', manifestOf(locale)],
+    ['l10n ', hostOf(locale)],
+    ['walkthrough ', walkthroughOf(locale)],
+  ];
+  for (const [prefix, values] of surfaces) {
+    for (const [key, value] of values) all.set(`${prefix}${key}`, value);
+  }
+  return all;
+}
+
 describe('inline t() defaults are backed by the catalogue', () => {
   it('resolves every key that ships an inline English default', () => {
     // t('a.b', 'Default') and t('a.b', { defaultValue: 'Default' }).
@@ -84,7 +146,7 @@ describe('French copy carries its accents', () => {
   /* Words whose French spelling is always accented. A hit means the value was
      typed on an unaccented keyboard, not that the word is missing. */
   const UNACCENTED =
-    /\b(Termine|Cree|Donnees|Parametre|Selectionn|execution|operation|Echec|reussi|genere|requete|deja|apres|securite|defaut|Modele|Delai|Etape|etape|Executer|qualite|Duree|Apercu|regles?|Resultat|dependance|Pre|Sequence)\b/;
+    /\b(Termine|Cree|Donnees|Parametre|Selectionn|execution|operation|Echec|reussi|genere|requete|deja|apres|securite|defaut|Modele|Delai|Etape|etape|Executer|qualite|Duree|Apercu|regles?|Resultat|dependance|Pre|Sequence|Reference)\b/;
 
   it('has no unaccented form in fr.json', () => {
     const offenders = [...flatten(fr)]
@@ -147,14 +209,20 @@ describe('a language names one thing with one word', () => {
     expect(offenders('fr', /\bmodèles?\b/i).length).toBeGreaterThan(5);
   });
 
-  it('Spanish makes a sandbox masculine', () => {
+  /* The panels were masculine, and the Marketplace listing and the walkthrough
+     a newcomer reads first said "una sandbox", "tu primera sandbox", "Las
+     sandboxes". */
+  it('Spanish makes a sandbox masculine, on every surface', () => {
+    const feminine =
+      /\b(?:la|una|esta|esa|las|unas|estas|esas|primera|nueva)\s+sandbox|sandbox\s+(?:está\s+)?(?:vacía|lista|nueva)/i;
+    const surfaces = [...everySurface('es')];
+    expect(surfaces.filter(([, value]) => feminine.test(value)).map(([key]) => key)).toEqual([]);
     expect(
-      offenders(
-        'es',
-        /\b(?:la|una|esta|esa|las|unas|estas|esas)\s+sandbox|sandbox\s+está\s+(?:vacía|lista)/i,
-      ),
-    ).toEqual([]);
-    expect(offenders('es', /\b(?:el|un)\s+sandbox\b/).length).toBeGreaterThan(5);
+      surfaces.filter(([, value]) => /\b(?:el|un)\s+sandbox\b/.test(value)).length,
+    ).toBeGreaterThan(5);
+    for (const shipped of ['Llena una sandbox', 'rellena tu primera sandbox', '> Las sandboxes']) {
+      expect({ shipped, caught: feminine.test(shipped) }).toEqual({ shipped, caught: true });
+    }
   });
 
   /* German wrote "in den Ziel-Org", "im Ziel-Org", "zum Quell-Org" and "des
@@ -492,5 +560,479 @@ describe('where the app explains the Forge flow, Clone directly and the Graph/Ta
     expect(body).toContain(label(catalogue, 'forge.graphView'));
     expect(body).toContain(label(catalogue, 'forge.tableView'));
     expect(body).toContain('sandforge.forge.graphView');
+  });
+});
+
+describe('each locale reads as Salesforce’s own UI in that language, consistently', () => {
+  const ALL = ['en', ...NON_EN] as const;
+
+  /** A catalogue value that the test expects to be there. */
+  const text = (catalogue: Catalogue, key: string): string => {
+    const value = lookup(catalogue, key);
+    expect(typeof value, key).toBe('string');
+    return value as string;
+  };
+
+  /** How often a pattern (with its g flag) occurs in a text. */
+  const count = (value: string, pattern: RegExp): number => (value.match(pattern) ?? []).length;
+
+  /*
+   * German named the Frozen Dataset module "Eingefrorener Datensatz", and its
+   * page said "Noch kein Datensatz eingefroren" above "{{count}} Datensätze …
+   * eingefroren", where Datensätze are records: the word Salesforce's German
+   * UI, and this same catalogue, keep for a record.
+   */
+  it('German calls the frozen dataset Dataset, and keeps Datensatz for a record', () => {
+    const de = flatten(load('de'));
+    const callsItDataset = (english: string, german: string) =>
+      /Dataset/.test(german) && count(german, /datens[aä]tz/gi) <= count(english, /record/gi);
+    const said = [...flatten(en)].filter(([, value]) => /dataset/i.test(value));
+    const offenders = said
+      .filter(([key, value]) => !callsItDataset(value, de.get(key) ?? ''))
+      .map(([key]) => `${key} = ${de.get(key)}`);
+    expect(offenders).toEqual([]);
+    // Positive control: the walk reads the values that name one.
+    expect(said.length).toBeGreaterThan(25);
+    // Controls: what shipped is refused; a record named beside the dataset is not.
+    expect(callsItDataset('Frozen Dataset', 'Eingefrorener Datensatz')).toBe(false);
+    expect(callsItDataset('No dataset frozen yet', 'Noch kein Datensatz eingefroren')).toBe(false);
+    expect(
+      callsItDataset(
+        'Never a record id — Frozen Dataset',
+        'Nie eine Datensatz-ID — Eingefrorenes Dataset',
+      ),
+    ).toBe(true);
+    const nls = manifestOf('de');
+    for (const key of ['command.openFrozen', 'command.copyFrozenSalt', 'command.useFrozenSalt']) {
+      expect({ key, title: nls.get(key) }).toEqual({
+        key,
+        title: expect.stringMatching(/eingefrorene[ns]? Datasets?/i),
+      });
+    }
+  });
+
+  /*
+   * The Command Palette said "Frozen Dataset öffnen" under a sidebar entry
+   * "Eingefrorener Datensatz", "Ouvrir Jeu de référence figé" under "Jeu figé",
+   * and "Open Compare" under "Compare Org": two names for one module, in every
+   * language, English included.
+   */
+  const PALETTE_MODULES: Record<string, string> = {
+    Home: 'home',
+    Monitor: 'monitor',
+    Seed: 'seed',
+    Sync: 'sync',
+    Forge: 'forge',
+    Frozen: 'frozen',
+    Grappe: 'grappe',
+    Autopilot: 'autopilot',
+    Compare: 'compare',
+    DataOps: 'dataops',
+    Automation: 'automation',
+    Migration: 'migration',
+    AI: 'ai',
+    Reports: 'reports',
+    Settings: 'settings',
+    Help: 'help',
+  };
+  const names = (title: string, label: string) => title.toLowerCase().includes(label.toLowerCase());
+  /** German declines the Frozen Dataset's name in a sentence: das eingefrorene Dataset, des eingefrorenen Datasets. */
+  const namesFrozen = (locale: string, value: string, label: string) =>
+    locale === 'de' ? /eingefrorene[ns]? Datasets?/i.test(value) : names(value, label);
+
+  it.each(ALL)('%s names each module in the Command Palette as its navigation does', (locale) => {
+    const catalogue = load(locale);
+    const nls = manifestOf(locale);
+    const offenders = Object.entries(PALETTE_MODULES)
+      .map(([command, module]) => [nls.get(`command.open${command}`) ?? '', module] as const)
+      .filter(([title, module]) => !names(title, text(catalogue, `nav.${module}`)))
+      .map(([title, module]) => `${title} (nav.${module} = ${text(catalogue, `nav.${module}`)})`);
+    expect(offenders).toEqual([]);
+    for (const module of ['Forge', 'Frozen', 'Monitor', 'Seed', 'Settings', 'Sync']) {
+      const label = text(catalogue, `nav.${module.toLowerCase()}`);
+      expect({ module, named: names(text(catalogue, `onboarding.open${module}`), label) }).toEqual({
+        module,
+        named: true,
+      });
+    }
+  });
+
+  it('the palette check refuses the titles that shipped', () => {
+    expect(names('SandForge: Open Compare', 'Compare Org')).toBe(false);
+    expect(names('SandForge : Ouvrir Jeu de référence figé', 'Jeu figé')).toBe(false);
+    expect(names('SandForge: Frozen Dataset öffnen', 'Eingefrorener Datensatz')).toBe(false);
+    expect(names('SandForge: Abrir Assistente de IA', 'Assistente IA')).toBe(false);
+  });
+
+  it.each(ALL)(
+    '%s quotes the Frozen Dataset salt commands as the palette titles them, with the module’s name',
+    (locale) => {
+      const catalogue = load(locale);
+      const nls = manifestOf(locale);
+      const use = nls.get('command.useFrozenSalt') ?? '';
+      const copy = nls.get('command.copyFrozenSalt') ?? '';
+      expect(text(catalogue, 'frozen.salt.created')).toContain(copy);
+      expect(text(catalogue, 'frozen.salt.created')).toContain(use);
+      expect(text(catalogue, 'frozen.extract.saltHint')).toContain(copy);
+      expect(text(catalogue, 'frozen.extract.saltHint')).toContain(use);
+      expect(text(catalogue, 'frozen.status.saltMismatch')).toContain(use);
+      const label = text(catalogue, 'nav.frozen');
+      for (const title of [use, copy]) {
+        expect({ title, named: namesFrozen(locale, title, label) }).toEqual({
+          title,
+          named: true,
+        });
+      }
+    },
+  );
+
+  /*
+   * Help, the release notes and the panels went on naming modules in English —
+   * "Brouillons de pipeline dans Automation", "Monitor suit les limites",
+   * "Compare lee lo que compara" — beside navigation entries that say
+   * Automatisation, Moniteur and Comparación.
+   */
+  const ENGLISH_NAME: Record<string, string> = {
+    automation: 'Automation',
+    compare: 'Compare',
+    monitor: 'Monitor',
+    reports: 'Reports',
+    frozen: 'Frozen Dataset',
+  };
+  /** Where Spanish and Portuguese write "Compare", the verb, and not the module. */
+  const COMPARE_THE_VERB = new Set([
+    'help.compareContent',
+    'compare.emptyState.description',
+    'errors.invalidType.forge.action',
+  ]);
+
+  it.each(NON_EN)(
+    '%s names a module by its navigation label, not by its English name',
+    (locale) => {
+      const catalogue = load(locale);
+      const surfaces = [
+        ...flatten(catalogue),
+        ...[...manifestOf(locale)].map(([key, value]) => [`package.nls ${key}`, value] as const),
+        ...[...hostOf(locale)].map(([key, value]) => [`l10n ${key}`, value] as const),
+      ];
+      const offenders: string[] = [];
+      for (const [module, word] of Object.entries(ENGLISH_NAME)) {
+        const label = text(catalogue, `nav.${module}`);
+        if (label === text(en, `nav.${module}`)) continue;
+        const english = new RegExp(`(?<![A-Za-zÀ-ÿ])${word}(?![A-Za-zÀ-ÿ])`);
+        for (const [key, value] of surfaces) {
+          if (module === 'compare' && COMPARE_THE_VERB.has(key)) continue;
+          if (english.test(value)) offenders.push(`${key}: ${word} (nav: ${label})`);
+        }
+      }
+      expect(offenders).toEqual([]);
+      // The step of Help that lists the modules says their names.
+      const getStarted = text(catalogue, 'help.gettingStartedContent');
+      for (const module of ['compare', 'frozen', 'automation']) {
+        const label = text(catalogue, `nav.${module}`);
+        const named =
+          module === 'frozen' ? namesFrozen(locale, getStarted, label) : names(getStarted, label);
+        expect({ module, named }).toEqual({ module, named: true });
+      }
+    },
+  );
+
+  /*
+   * The Marketplace listing and the walkthrough said tú — "Conecta tu primera
+   * org", "Llena una sandbox", "Confía en la carpeta" — and the panel usted, as
+   * Salesforce's Spanish UI does; a few panel strings had kept tú too.
+   */
+  const TU = /(?<!\p{L})(?:tu|tus|tuyo|tuya|te|ti|contigo|haz|hazlo|pon|ponlo)(?!\p{L})/iu;
+  const TU_INSTRUCTION =
+    /(?:^|[.:!?]\s+|##\s+|\d\.\s+)(?:Conecta|Elige|Llena|Rellena|Clona|Supervisa|Ajusta|Confía|Sigue|Importa|Usa|Abre|Pega|Haz|Revisa|Adapta|Arrastra)(?!\p{L})/u;
+
+  it('Spanish speaks to the reader as usted on every surface, as the panel does', () => {
+    const surfaces = [...everySurface('es')];
+    const words = (value: string) => value.replace(/\{\{[^}]*\}\}|\{\d+\}/g, '');
+    expect(surfaces.filter(([, value]) => TU.test(words(value))).map(([key]) => key)).toEqual([]);
+    // A walkthrough step is an instruction from its first word.
+    const instructions = surfaces.filter(
+      ([key]) => key.startsWith('walkthrough ') || key.startsWith('package.nls walkthrough.'),
+    );
+    expect(instructions.length).toBeGreaterThan(20);
+    expect(
+      instructions.filter(([, value]) => TU_INSTRUCTION.test(value)).map(([key]) => key),
+    ).toEqual([]);
+    // Controls: the shipped tú is caught, the usted that replaced it is not.
+    for (const shipped of [
+      'Arrastra y suelta tu archivo CSV aquí',
+      'o haz clic en el botón para buscar',
+      'SandForge: el pipeline «{0}» espera tu aprobación',
+    ]) {
+      expect({ shipped, caught: TU.test(shipped) }).toEqual({ shipped, caught: true });
+    }
+    for (const shipped of [
+      'Conecta tu primera org',
+      '1. Haz clic en **Importar desde SF CLI**',
+      'Ajusta tu configuración',
+    ]) {
+      expect({ shipped, caught: TU_INSTRUCTION.test(shipped) }).toEqual({ shipped, caught: true });
+    }
+    for (const fine of [
+      'Conecte su primera org',
+      '1. Haga clic en **Importar desde SF CLI**',
+      'Elimina de la org los registros',
+    ]) {
+      expect({ fine, caught: TU.test(fine) || TU_INSTRUCTION.test(fine) }).toEqual({
+        fine,
+        caught: false,
+      });
+    }
+  });
+
+  /* "Reportes" in the navigation and the palette, "(Informes)" in the
+     walkthrough, and both in the panels: Salesforce's Spanish UI says Informes. */
+  it('Spanish names the Reports tab Informes, as Salesforce’s Spanish UI does', () => {
+    expect(text(load('es'), 'nav.reports')).toBe('Informes');
+    expect(
+      [...everySurface('es')]
+        .filter(([, value]) => /\breportes?\b/i.test(value))
+        .map(([key]) => key),
+    ).toEqual([]);
+  });
+
+  /* Brazilian Portuguese split the sandbox twenty to twenty: feminine in the
+     Marketplace listing and the first-run screens, masculine in Automation,
+     Compare and the host's notifications. */
+  it('Brazilian Portuguese makes a sandbox feminine, on every surface', () => {
+    const masculine =
+      /(?<!\p{L})(?:o|um|do|no|ao|pelo|num|este|esse|deste|desse|neste|nesse|seu|meu|nenhum|novo|primeiro|outro|mesmo|próprio)\s+sandbox(?!\p{L})|sandbox\s+(?:está\s+)?(?:vazio|pronto|novo|atualizado|criado|conectado|indicado|escolhido)(?!\p{L})/iu;
+    const surfaces = [...everySurface('pt-BR')];
+    expect(surfaces.filter(([, value]) => masculine.test(value)).map(([key]) => key)).toEqual([]);
+    expect(
+      surfaces.filter(([, value]) =>
+        /(?<!\p{L})(?:a|uma|da|na|sua)\s+sandbox(?!\p{L})/iu.test(value),
+      ).length,
+    ).toBeGreaterThan(10);
+    for (const shipped of [
+      'Escolher um sandbox',
+      'Um sandbox atualizado é uma nova org',
+      'SandForge: o sandbox {0} foi atualizado',
+    ]) {
+      expect({ shipped, caught: masculine.test(shipped) }).toEqual({ shipped, caught: true });
+    }
+  });
+
+  /*
+   * Production Guard's question put the org phrase, which carries its article,
+   * right after a preposition: Portuguese read "Inserir 12 registros em a org
+   * de produção", and German "in die Produktions-Org aktualisieren" where an
+   * update in the org takes the dative.
+   */
+  it('the Guard’s question contracts and declines the org it names, in Portuguese and German', () => {
+    const SENTENCES = [
+      'Insert {0} into {1}.',
+      'Update {0} in {1}.',
+      'Insert or update {0} in {1}.',
+      'Delete {0} in {1}.',
+      'Permanently delete {0} in {1}.',
+      'Deploy {0} to {1}.',
+    ];
+    const REFUSAL =
+      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.';
+    const asked = (locale: string): string[] => {
+      const host = hostOf(locale);
+      const org = (host.get('the {0} org "{1}"') ?? '')
+        .replace('{0}', host.get('production') ?? '')
+        .replace('{1}', 'my-org');
+      return [
+        ...SENTENCES.map((key) => (host.get(key) ?? '').replace('{0}', '12').replace('{1}', org)),
+        (host.get(REFUSAL) ?? '').replace('{0}', org),
+      ];
+    };
+    const uncontracted = /(?<!\p{L})em (?:a|o|as|os)(?!\p{L})/iu;
+    const portuguese = asked('pt-BR');
+    expect(portuguese.filter((sentence) => uncontracted.test(sentence))).toEqual([]);
+    expect(portuguese.filter((sentence) => / na org /.test(sentence))).toHaveLength(6);
+    expect(
+      [...everySurface('pt-BR')]
+        .filter(([, value]) => uncontracted.test(value))
+        .map(([key]) => key),
+    ).toEqual([]);
+    expect(uncontracted.test('Inserir 12 em a org de produção "my-org".')).toBe(true);
+
+    const german = asked('de');
+    expect(german.map((sentence) => / in (der|die) /.exec(sentence)?.[1])).toEqual([
+      'die',
+      'der',
+      'der',
+      'der',
+      'der',
+      'die',
+      'die',
+    ]);
+  });
+
+  /*
+   * A stop dialog asks to type a word, and its Cancel button closes it without
+   * stopping anything. Forge's Abort was that very word in French, German,
+   * Spanish and Portuguese: "Saisissez Annuler pour confirmer", [Annuler].
+   */
+  it.each(ALL)(
+    '%s asks to type, to abort a clone, a word that no dismiss button says',
+    (locale) => {
+      const catalogue = load(locale);
+      expect(text(catalogue, 'forge.abort').toLowerCase()).not.toBe(
+        text(catalogue, 'common.cancel').toLowerCase(),
+      );
+    },
+  );
+
+  /*
+   * "Ouvrir un Account créé", "Ein erstelltes Account", "Abrir un Account
+   * creado": the object's API name took an article and an agreement its
+   * language gives it no gender for.
+   */
+  it.each(NON_EN)(
+    '%s puts an object’s API name in brackets, where no article agrees with it',
+    (locale) => {
+      const catalogue = load(locale);
+      for (const key of [
+        'seed.results.openRecord',
+        'forge.idMapping.openRoot',
+        'forge.idMapping.openRootInTarget',
+      ]) {
+        expect({ key, value: text(catalogue, key) }).toEqual({
+          key,
+          value: expect.stringMatching(/[(（]\{\{object\}\}[)）]/),
+        });
+      }
+    },
+  );
+
+  /*
+   * Spanish and Portuguese named the recommended template "Inicio CRM", the
+   * label of the Home tab, beside "Sales Cloud Starter"; French said
+   * "Démarrage" in the gallery and "CRM Starter" in Help.
+   */
+  const STARTER: Record<(typeof ALL)[number], string> = {
+    en: 'Starter',
+    fr: 'Kit de démarrage',
+    de: 'Starter',
+    es: 'Kit inicial',
+    ja: 'スターター',
+    'pt-BR': 'Kit inicial',
+  };
+
+  it.each(ALL)('%s names the Starter templates with one word, never the Home tab’s', (locale) => {
+    const catalogue = load(locale);
+    const home = new RegExp(`(?<!\\p{L})${text(catalogue, 'nav.home')}(?!\\p{L})`, 'u');
+    for (const template of [
+      'crmStarter',
+      'salesCloudStarter',
+      'serviceCloudStarter',
+      'leadsActivitiesStarter',
+    ]) {
+      const name = text(catalogue, `seed.templates.${template}.name`);
+      expect({ name, starter: name.includes(STARTER[locale]), home: home.test(name) }).toEqual({
+        name,
+        starter: true,
+        home: false,
+      });
+    }
+    const crm = text(catalogue, 'seed.templates.crmStarter.name');
+    expect(text(catalogue, 'help.gettingStartedContent')).toContain(crm);
+    expect([...walkthroughOf(locale).values()].join('\n')).toContain(`**${crm}**`);
+  });
+
+  /*
+   * The first card of the gallery said "Accounts, Contacts and Opportunities"
+   * in German, Spanish, Portuguese and Japanese, where its neighbours used
+   * Salesforce's labels; German Seed said "Cases" where Salesforce's German UI,
+   * and the rest of the catalogue, say Kundenvorgänge.
+   */
+  const ENGLISH_OBJECTS: Record<(typeof NON_EN)[number], RegExp> = {
+    fr: /\b(?:Accounts?|Opportunit(?:y|ies))\b/,
+    de: /\b(?:Contacts?|Cases?)\b|\bCase-/,
+    es: /\b(?:Accounts?|Contacts?|Opportunit(?:y|ies)|Cases?)\b/,
+    ja: /Account|Contact|Opportunit/,
+    'pt-BR': /\b(?:Accounts?|Contacts?|Opportunit(?:y|ies)|Cases?)\b/,
+  };
+
+  it.each(NON_EN)(
+    '%s describes the gallery templates with Salesforce’s labels for their objects',
+    (locale) => {
+      const descriptions = [...flatten(load(locale))].filter(([key]) =>
+        /^seed\.templates\.\w+\.description$/.test(key),
+      );
+      expect(descriptions.length).toBeGreaterThanOrEqual(5);
+      expect(
+        descriptions.filter(([, value]) => ENGLISH_OBJECTS[locale].test(value)).map(([key]) => key),
+      ).toEqual([]);
+    },
+  );
+
+  it('German calls a Case Kundenvorgang wherever it names one', () => {
+    const de = [...everySurface('de')];
+    expect(de.filter(([, value]) => /\bCases?\b|\bCase-/.test(value)).map(([key]) => key)).toEqual(
+      [],
+    );
+    expect(de.filter(([, value]) => /Kundenvorg/.test(value)).length).toBeGreaterThan(3);
+  });
+
+  /*
+   * French said "votre défaut" (your defect) beside the default record type,
+   * left "Reference" and "Picklist" in English in the Configure rules, and
+   * named Quick Seed and Quick Sync in English on the Home recommendation,
+   * under screens titled "Seed rapide" and "Sync Rapide".
+   */
+  it('French writes its first-run words in French', () => {
+    const fr = [...everySurface('fr')];
+    const english = /Quick S(?:eed|ync)|Sync Rapide|Seed Rapide|votre défaut|\bPicklists?\b/;
+    expect(fr.filter(([, value]) => english.test(value)).map(([key]) => key)).toEqual([]);
+    expect(text(load('fr'), 'quickSync.title')).toBe('Sync rapide');
+    expect(text(load('fr'), 'seed.quickSeed.title')).toBe('Seed rapide');
+  });
+
+  it.each(NON_EN)('%s names Quick Seed and Quick Sync by the titles of their screens', (locale) => {
+    const catalogue = load(locale);
+    expect(text(catalogue, 'quickSync.title')).not.toBe('Quick Sync');
+    expect(
+      [...flatten(catalogue)]
+        .filter(([, value]) => /Quick S(?:eed|ync)/.test(value))
+        .map(([key]) => key),
+    ).toEqual([]);
+  });
+
+  it('French writes Nœud with its ligature', () => {
+    const fr = [...everySurface('fr')];
+    expect(fr.filter(([, value]) => /\b[Nn]oeuds?\b/.test(value)).map(([key]) => key)).toEqual([]);
+    expect(fr.filter(([, value]) => /[Nn]œud/.test(value)).length).toBeGreaterThan(2);
+  });
+
+  /*
+   * Japanese said サンドボックス in the Marketplace listing and Sandbox in the
+   * panel, クローン and 複製 for Forge's clone, ターゲット組織 and 対象組織 for the
+   * target org, ブラウザ and ブラウザー, フロー and Flow.
+   */
+  it('Japanese names each thing with one word, on every surface', () => {
+    const ja = [...everySurface('ja')];
+    const naming = (pattern: RegExp) =>
+      ja.filter(([, value]) => pattern.test(value)).map(([key, value]) => `${key} = ${value}`);
+    expect(
+      naming(/サンドボックス|複製|対象組織|ブラウザー|(?<![A-Za-z])Flows?(?![A-Za-z])/),
+    ).toEqual([]);
+    // Positive controls: the walk reads the values that name them.
+    expect(naming(/Sandbox/).length).toBeGreaterThan(20);
+    expect(naming(/クローン/).length).toBeGreaterThan(50);
+    expect(naming(/ターゲット組織/).length).toBeGreaterThan(100);
+    expect(naming(/フロー/).length).toBeGreaterThan(20);
+    expect(naming(/ブラウザ/).length).toBeGreaterThan(3);
+  });
+
+  /*
+   * The side panel's first-run title truncates to one line. German and
+   * Japanese put the alias first, so a scratch org named by its long username
+   * lost the verb: the main button never said what it does.
+   */
+  it.each(ALL)('%s puts the verb of the side panel’s fill title before the org alias', (locale) => {
+    const value = text(load(locale), 'sidePanel.fillOrg');
+    expect(value).toContain('{{alias}}');
+    expect(value.startsWith('{{alias}}')).toBe(false);
   });
 });

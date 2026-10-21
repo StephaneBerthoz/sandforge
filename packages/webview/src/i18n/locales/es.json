@@ -90,11 +90,11 @@
     "seed": "Seed",
     "sync": "Sync",
     "monitor": "Monitor",
-    "compare": "Comparar Org",
+    "compare": "Comparación",
     "dataops": "DataOps",
     "automation": "Automatización",
     "ai": "Asistente IA",
-    "reports": "Reportes",
+    "reports": "Informes",
     "settings": "Configuración",
     "forge": "Forge",
     "frozen": "Dataset congelado",
@@ -188,8 +188,8 @@
     "acknowledge": "Confirmar recepción",
     "dismiss": "Descartar",
     "selectOrg": "Seleccione una org para vigilar",
-    "viewFullReport": "Ver reporte completo",
-    "healthReport": "Reporte de salud",
+    "viewFullReport": "Ver informe completo",
+    "healthReport": "Informe de salud",
     "limitReachedIn": "Límite alcanzado en ~{{hours}}h",
     "period24h": "24h",
     "period7d": "7d",
@@ -381,7 +381,7 @@
     "jobCount_other": "{{count}} jobs"
   },
   "compare": {
-    "title": "Comparar Org",
+    "title": "Comparación",
     "source": "Org origen",
     "target": "Org destino",
     "selectSource": "Seleccione la org origen",
@@ -679,23 +679,23 @@
     "seedAgain": "Repetir Seed",
     "templates": {
       "salesCloudStarter": {
-        "name": "Sales Cloud Starter",
+        "name": "Kit inicial de Sales Cloud",
         "description": "Cuentas, contactos, oportunidades y productos con precio en la lista de precios estándar, con las partidas de cada oportunidad: 7.600 registros, unos 15 MB, más que los 5 MB de una Developer Edition."
       },
       "serviceCloudStarter": {
-        "name": "Service Cloud Starter",
+        "name": "Kit inicial de Service Cloud",
         "description": "Cuentas, contactos, casos, comentarios de caso y artículos de Knowledge: 3.800 registros, unos 7,6 MB, más que los 5 MB de una Developer Edition. Los artículos se omiten en una org sin Knowledge."
       },
       "minimalDemo": {
         "name": "Demo mínima",
-        "description": "Plantilla de demo ligera con solo Accounts, Contacts y Opportunities. Perfecta para demos rápidas y pruebas."
+        "description": "Plantilla de demo ligera con solo cuentas, contactos y oportunidades. Perfecta para demos rápidas y pruebas."
       },
       "crmStarter": {
-        "name": "Inicio CRM",
+        "name": "Kit inicial de CRM",
         "description": "Cuentas con sus contactos, oportunidades con precios de la lista de precios estándar y sus partidas, y casos: unos 300 registros, menos de 1 MB, a la medida de los 5 MB de una Developer Edition nueva."
       },
       "leadsActivitiesStarter": {
-        "name": "Inicio Candidatos y actividades",
+        "name": "Kit inicial de candidatos y actividades",
         "description": "Candidatos, las campañas a las que respondieron y las llamadas y reuniones programadas con ellos: unos 110 registros. Un usuario sin la casilla Usuario de marketing obtiene los candidatos y sus actividades, y un aviso sobre las campañas."
       }
     },
@@ -721,8 +721,8 @@
     },
     "csv": {
       "dropzone": {
-        "title": "Arrastra y suelta tu archivo CSV aquí",
-        "subtitle": "o haz clic en el botón para buscar",
+        "title": "Arrastre y suelte su archivo CSV aquí",
+        "subtitle": "o haga clic en el botón para buscar",
         "browse": "Buscar archivos",
         "maxSize": "El archivo supera el tamaño máximo de {{max}} MB"
       },
@@ -959,7 +959,7 @@
     "results": {
       "aiFallback": "La IA no devolvió ningún valor, así que estos campos recibieron frases generadas: {{fields}}. La IA está desactivada, o la llamada fue rechazada (el registro de SandForge indica el motivo).",
       "aiFallbackShort": "A la respuesta de la IA le faltaban valores, así que estos campos recibieron frases generadas: {{fields}}.",
-      "openRecord": "Abrir un {{object}} creado en {{org}}"
+      "openRecord": "Abrir el primer registro creado ({{object}}) en {{org}}"
     },
     "sampleRecordCount_one": "{{count}} registro de muestra",
     "sampleRecordCount_other": "{{count}} registros de muestra",
@@ -2238,9 +2238,9 @@
       "approve": "Aprobar",
       "reject": "Rechazar",
       "record": {
-        "approvedOnPage": "Aprobado en la página Automation, {{time}}",
+        "approvedOnPage": "Aprobado en la página Automatización, {{time}}",
         "approvedOnNotification": "Aprobado en la notificación de VS Code, {{time}}",
-        "rejectedOnPage": "Rechazado en la página Automation, {{time}}",
+        "rejectedOnPage": "Rechazado en la página Automatización, {{time}}",
         "rejectedOnNotification": "Rechazado en la notificación de VS Code, {{time}}",
         "timedOut": "No se aprobó a tiempo: nadie respondió antes de {{time}}",
         "cancelled": "Detenido antes de que nadie respondiera, {{time}}"
@@ -2290,17 +2290,17 @@
     "title": "Notificaciones"
   },
   "reports": {
-    "title": "Reportes y Analíticas",
+    "title": "Informes y analíticas",
     "executions": "Ejecuciones",
     "analytics": "Analíticas",
     "audit": "Registro de auditoría",
     "lineage": "Linaje de datos",
-    "noReports": "Sin reportes generados",
-    "reportsUnreadable": "No se pudieron leer los reportes: {{error}}",
-    "analyticsUnreadable": "No se pudieron cargar las analíticas: llegan con los reportes, que no se pudieron leer.",
-    "generateReport": "Generar reporte",
-    "exportReport": "Exportar reporte",
-    "reportType": "Tipo de reporte",
+    "noReports": "Sin informes generados",
+    "reportsUnreadable": "No se pudieron leer los informes: {{error}}",
+    "analyticsUnreadable": "No se pudieron cargar las analíticas: llegan con los informes, que no se pudieron leer.",
+    "generateReport": "Generar informe",
+    "exportReport": "Exportar informe",
+    "reportType": "Tipo de informe",
     "summary": "Resumen",
     "sections": "Secciones",
     "metadata": "Metadatos",
@@ -2357,7 +2357,7 @@
     "destination": "Destino",
     "noLineageData": "Sin datos de linaje disponibles",
     "recordsProcessed": "Registros procesados",
-    "totalReports": "Total de reportes",
+    "totalReports": "Total de informes",
     "auditEntries": "Entradas de auditoría",
     "filterByOrg": "Filtrar por org",
     "allOrgs": "Todas las orgs",
@@ -2572,7 +2572,7 @@
       "sweepAutomation1540Desc": "Una eliminación de Forge ahora también puede deshacer lo que la automatización del destino creó durante la ejecución, primero listado y preguntado. El informe de automatización lee la condición de inicio de cada Flow, y la verificación ya no cuenta como roto un lookup que vació el destino.",
       "scaleTested1550": "Sync, Seed, Autopilot y Frozen aguantan a gran escala",
       "scaleTested1550Desc": "Probados en una org grande: Sync asigna los tipos de registro y retiene lo que el destino rechazaría, y su simulación lo dice antes. Autopilot copia solo los registros a los que hace referencia su selección y comprueba primero el almacenamiento del destino. Seed puede deshacer una ejecución, y Frozen selecciona con muchas menos llamadas a la API.",
-      "frozenScale1560": "Frozen Dataset aguanta en una org grande",
+      "frozenScale1560": "El dataset congelado aguanta en una org grande",
       "frozenScale1560Desc": "Un expediente sigue siendo un expediente: los hijos solo se leen bajo lo que alcanza su raíz, y un padre que nombra ya no trae a todos sus hermanos. Una carga retiene lo que un padre rechazado dejaría huérfano y dice que falló cuando falló, y una eliminación puede barrer lo que creó la automatización del destino. Los atributos personales como el género o el tratamiento siguen vacíos.",
       "syncLinks1570": "Sync enlaza entre ejecuciones",
       "syncLinks1570Desc": "Una configuración de Sync guardada recuerda ahora los registros que escribieron sus ejecuciones, de modo que una ejecución posterior o delta se enlaza con ellos, y un padre que el destino rechaza como duplicado se enlaza con el registro que coincide. El enmascaramiento de DataOps tiene línea de comandos con instantánea y restauración, una ejecución de Seed se puede eliminar desde sus resultados y el informe de automatización lee los Flows de una org grande dentro de los límites de Salesforce.",
@@ -2581,7 +2581,7 @@
       "seedCurrency1590": "Seed y las divisas van más lejos",
       "seedCurrency1590Desc": "Seed elige ahora un tipo de registro personal o de empresa, guarda sus ejecuciones para que una anterior se elimine desde cualquier ventana y puede barrer lo que la automatización del destino creó. Las partidas siguen la divisa de su padre, a los tipos fechados donde la gestión avanzada de divisas está activa, y Autopilot sigue Account por defecto.",
       "emptyOrg1600": "Llenar una org vacía con un clic",
-      "emptyOrg1600Desc": "Seed se abre en su galería de plantillas: CRM Starter llena una Developer Edition nueva con cuentas, contactos, oportunidades con precio y casos enlazados, tras comprobar su almacenamiento. Una Developer Edition ya no se trata como producción, Sync y Autopilot ocultan por defecto los correos y teléfonos reales, y las eliminaciones grandes tardan menos de un minuto.",
+      "emptyOrg1600Desc": "Seed se abre en su galería de plantillas: el Kit inicial de CRM llena una Developer Edition nueva con cuentas, contactos, oportunidades con precio y casos enlazados, tras comprobar su almacenamiento. Una Developer Edition ya no se trata como producción, Sync y Autopilot ocultan por defecto los correos y teléfonos reales, y las eliminaciones grandes tardan menos de un minuto.",
       "firstRun1610": "De ninguna org a datos de demostración",
       "firstRun1610Desc": "Un usuario nuevo recibe guía desde la primera vista: importar las orgs que la CLI de Salesforce ya conoce, o iniciar sesión en el navegador, y luego llenar la org con Seed. Seed muestra la automatización del destino y rechaza una ejecución que agotaría los correos del día. Los errores se leen con claridad y con un siguiente paso en cada módulo, una ejecución de Forge detenida se reanuda sin escribir nada dos veces y SandForge no hace nada hasta que se abre una de sus vistas.",
       "exactResume1530": "Reanudar exactamente donde se detuvo",
@@ -2674,9 +2674,9 @@
       "fixRound137Desc": "Una clonación desde un registro trae todos los hijos de lo que clona, donde un campo de búsqueda hacia el padre, o un hijo de otro usuario, dejaba algunos atrás sin aviso; una ventana ya no deshace lo que guarda otra; un perfil de configuración lleva las plantillas de Forge al proyecto en que se importó; el japonés, el francés y el español nombran una cosa con una sola palabra.",
       "forgeAnonymizes": "Forge anonimiza lo que clona",
       "forgeAnonymizesDesc": "La opción de anonimizar no hacía nada: un clon llevaba los datos personales del origen. Ahora se aplican los campos y métodos que elija en Revisión, y los correos siguen siendo direcciones válidas.",
-      "fixRound136": "Sync, Compare y programaciones, corregidos",
-      "fixRound136Desc": "Sync conserva los campos renombrados, constantes y de fórmula; una programación de sync se ejecuta una sola vez, sin importar cuántas ventanas haya abiertas; Compare interpreta correctamente lo eliminado y lo añadido; los errores permanecen en pantalla hasta que los lea.",
-      "compareDeploy": "Compare despliega lo que difiere",
+      "fixRound136": "Sync, Comparación y programaciones, corregidos",
+      "fixRound136Desc": "Sync conserva los campos renombrados, constantes y de fórmula; una programación de sync se ejecuta una sola vez, sin importar cuántas ventanas haya abiertas; Comparación interpreta correctamente lo eliminado y lo añadido; los errores permanecen en pantalla hasta que los lea.",
+      "compareDeploy": "Comparación despliega lo que difiere",
       "compareDeployDesc": "Elija los componentes nuevos o modificados en el origen y despliéguelos en el destino, validados primero: el estado de cada componente, las pruebas fallidas con sus líneas y un despliegue real solo de una validación superada.",
       "realtimeSync": "Sincronización en tiempo real",
       "realtimeSyncDesc": "Sync aplica al destino cada cambio que publica la org de origen, al momento — por ID externo, ID de registro o una asignación guardada — y retiene para su decisión un cambio que choca con una edición más reciente.",
@@ -2685,14 +2685,14 @@
       "compliance": "Solicitudes de interesados y limpieza",
       "complianceDesc": "DataOps encuentra todos los registros de una persona, los exporta y los borra tras una revisión y su confirmación; Limpieza recomienda registros obsoletos, huérfanos y duplicados, y solo elimina lo que un análisis recomendó.",
       "auditTrail": "Cada escritura, registrada",
-      "auditTrailDesc": "Cada ejecución que escribe en una org —Forge, Sync, Seed, Autopilot, DataOps, Frozen Dataset— queda ahora en Reports con su resultado, la decisión de Production Guard, sus recuentos por objeto y el origen de sus datos. Nunca un id de registro ni un valor de campo.",
+      "auditTrailDesc": "Cada ejecución que escribe en una org —Forge, Sync, Seed, Autopilot, DataOps, Dataset congelado— queda ahora en Informes con su resultado, la decisión de Production Guard, sus recuentos por objeto y el origen de sus datos. Nunca un id de registro ni un valor de campo.",
       "dataopsQuality": "La calidad de los datos, contada por la org",
       "dataopsQualityDesc": "DataOps → Calidad analiza hasta diez objetos: con qué frecuencia se rellena cada campo, los campos obligatorios vacíos, los duplicados por la clave que elija y los registros que nadie ha modificado en mucho tiempo. Cada cifra es un recuento que hace la org; nada se lee registro a registro.",
       "seedRuns": "Cada seed que ofrece el asistente arranca",
       "seedRunsDesc": "Una ejecución de dos a cuatro objetos se rechazaba siempre: salía sin reglas de campos. Ahora arranca y escribe, y una plantilla puede repartir los hijos entre los padres que elija, generados en la ejecución o ya presentes en la org.",
       "pipelineSteps": "Los pipelines respaldan, comparan, comprueban y notifican",
       "pipelineStepsDesc": "Los pasos Copia de seguridad, Comparación, Comprobación previa y Notificación ya se ejecutan, con el mismo código que sus páginas; la vista de ejecución sigue cada paso y Cancelar detiene una ejecución. Los pasos que escriben en una org siguen rechazados: un pipeline se ejecuta sin nadie que confirme.",
-      "compareContent": "Compare lee lo que compara",
+      "compareContent": "Comparación lee lo que compara",
       "compareContentDesc": "Entre dos sandboxes informaba de 374 componentes modificados donde hay 47: los ids y las fechas difieren entre dos orgs cualesquiera, y comparaba cómo los listaba cada org. Ahora lee el contenido de cada componente que tienen ambas orgs, y uno que no pudo leer queda como no comparado: nunca sin cambios, nunca seguro.",
       "refreshNoticed": "Se detecta la actualización de un sandbox",
       "refreshNoticedDesc": "Una actualización da a un sandbox una org nueva con el mismo inicio de sesión, y SandForge seguía usando lo que sabía de la anterior. Ahora comprueba como qué org responde un sandbox, avisa cuando cambió y descarta lo que guardaba de la org que era.",
@@ -2721,7 +2721,7 @@
       "stylesheet": "El panel vuelve a parecerse a sí mismo",
       "stylesheetDesc": "La 1.23.0 salió sin su hoja de estilos, así que cada pantalla se mostraba como HTML sin formato. Ahora una comprobación lee los archivos a los que se enlaza la extensión y pide cada uno al disco.",
       "syncWrites": "Una sincronización escribe los campos que ha leído",
-      "syncWritesDesc": "Una configuración sin asignación de campos escribía registros vacíos, y Quick Sync comparaba con una clave que la org de destino nunca había emitido: ninguna ejecución podía funcionar.",
+      "syncWritesDesc": "Una configuración sin asignación de campos escribía registros vacíos, y Sync rápido comparaba con una clave que la org de destino nunca había emitido: ninguna ejecución podía funcionar.",
       "failureReason": "Una ejecución con errores dice por qué",
       "failureReasonDesc": "El motivo se conserva en la entrada del historial, junto a los objetos que la ejecución ya había escrito antes de detenerse.",
       "forgeProgress": "Forge ya no muestra el progreso de la ejecución anterior",
@@ -2733,7 +2733,7 @@
       "perObjectMapping": "Asigne cada objeto, no solo el primero",
       "perObjectMappingDesc": "Lo que asignaba se adjuntaba a todos los objetos de la ejecución, así que solo un objeto podía asignarse de verdad. Ahora cada uno conserva el suyo, y un objeto sin asignación se copia campo por campo.",
       "describeOnce": "Un objeto se describe una vez, no dos",
-      "describeOnceDesc": "Quick Sync describía sus objetos para crear la asignación y la ejecución los describía otra vez. Cada descripción tiene su propio tiempo límite, y superarlo termina la ejecución.",
+      "describeOnceDesc": "Sync rápido describía sus objetos para crear la asignación y la ejecución los describía otra vez. Cada descripción tiene su propio tiempo límite, y superarlo termina la ejecución.",
       "orgsCrash": "La página Organizaciones vuelve a abrirse",
       "orgsCrashDesc": "Una org guardada por una versión anterior podía bloquear la página al cargarse. Ahora las orgs almacenadas reciben la forma esperada al leerlas.",
       "forgeCounts": "Forge rellena los recuentos a medida que lee",
@@ -2764,12 +2764,12 @@
       "autopilotCopiesDesc": "Una petición de dos objetos devolvía veinte y no escribía ni un registro: entraba en usuarios, perfiles y objetos de historial, enviaba todos los campos leídos y ponía ids de origen en las búsquedas del destino. Todo corregido, y ahora una verja impide que el siguiente módulo olvide la exención de reglas de duplicados.",
       "backupPartial": "Una copia dice cuándo es solo parcial",
       "backupPartialDesc": "Lee hasta dos mil registros por objeto — quinientos contra una org de producción — y anunciaba una instantánea completa en ambos casos. Medido contra una org real: 656 registros copiados a 500 y declarados completos. Ahora avisa del corte, y la instantánea lo conserva.",
-      "frozenLoads": "Un conjunto congelado se carga de principio a fin",
-      "frozenLoadsDesc": "Ejecutado por primera vez contra una org real, Frozen Dataset no podía seleccionar ni una raíz, y su primera carga escribía un registro de veintiocho. Ahora lee lo que un expediente necesita —los precios a los que apuntan sus pedidos y los precios estándar detrás de ellos—, carga ochenta y ocho registros, los recarga limpiamente y supera su propia verificación.",
+      "frozenLoads": "Un dataset congelado se carga de principio a fin",
+      "frozenLoadsDesc": "Ejecutado por primera vez contra una org real, el Dataset congelado no podía seleccionar ni una raíz, y su primera carga escribía un registro de veintiocho. Ahora lee lo que un expediente necesita —los precios a los que apuntan sus pedidos y los precios estándar detrás de ellos—, carga ochenta y ocho registros, los recarga limpiamente y supera su propia verificación.",
       "automationHonest": "Ningún paso de pipeline informa de un trabajo que no hizo",
       "automationHonestDesc": "Trece de los quince tipos de paso no tenían nada detrás y devolvían éxito, y Delay esperaba cero segundos. Un pipeline con un paso que no puede ejecutarse ahora se marca como tal y se rechaza antes de empezar, en lugar de registrarse como terminado.",
-      "monitorReads": "Monitor y Compare muestran lo que contiene la org",
-      "monitorReadsDesc": "Ejecutados por primera vez contra orgs reales: el almacenamiento fallaba en todas las orgs, los objetos personalizados se contaban cuarenta y uno por cinco, las alertas de una org aparecían en otra y Compare leía una parte distinta de los conjuntos de permisos de cada org. Ahora leen lo que muestran, y una señal de salud que no se puede leer lo dice en lugar de informar de una org sana."
+      "monitorReads": "Monitor y Comparación muestran lo que contiene la org",
+      "monitorReadsDesc": "Ejecutados por primera vez contra orgs reales: el almacenamiento fallaba en todas las orgs, los objetos personalizados se contaban cuarenta y uno por cinco, las alertas de una org aparecían en otra y Comparación leía una parte distinta de los conjuntos de permisos de cada org. Ahora leen lo que muestran, y una señal de salud que no se puede leer lo dice en lugar de informar de una org sana."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",
@@ -2792,7 +2792,7 @@
     "title": "Ayuda y Recursos",
     "gettingStarted": "Primeros pasos",
     "gettingStartedDesc": "Aprenda los conceptos básicos de SandForge",
-    "gettingStartedContent": "1. Conecte su org Salesforce en la página Organizaciones.\n2. Llénela con Seed: una plantilla como CRM Starter escribe cuentas, contactos, oportunidades y casos vinculados, tras comprobar el almacenamiento de la org.\n3. Clone con Forge: copie un registro real y todo lo que lo rodea desde otra org.\n4. Abra el Monitor para comprobar la salud, los límites y los jobs de la org.\n5. Explore Sync, Compare, DataOps, Dataset congelado y Automatización cuando los necesite.",
+    "gettingStartedContent": "1. Conecte su org Salesforce en la página Organizaciones.\n2. Llénela con Seed: una plantilla como el Kit inicial de CRM escribe cuentas, contactos, oportunidades y casos vinculados, tras comprobar el almacenamiento de la org.\n3. Clone con Forge: copie un registro real y todo lo que lo rodea desde otra org.\n4. Abra el Monitor para comprobar la salud, los límites y los jobs de la org.\n5. Explore Sync, Comparación, DataOps, Dataset congelado y Automatización cuando los necesite.",
     "monitorContent": "El panel de Monitor muestra la salud de la org en tiempo real:\n- Indicador de puntaje de salud con factores contribuyentes\n- Límites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Alertas para umbrales críticos\n\nConsejo: Habilite la actualización automática para monitoreo continuo.",
     "seedContent": "En cinco pasos:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estático, secuencia...)\n4. Fije el número de registros — un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n5. Revise y ejecute\n\nConsejo: Use la generación IA para los datos más realistas.",
     "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Completa o delta: una ejecución completa lee cada objeto entero; una ejecución delta de una configuración guardada lee cada objeto desde donde terminó su última ejecución correcta, y puede eliminar en el destino lo que el origen eliminó. Una configuración que pide incremental se rechaza\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas, minúsculas y recorte de espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; el mapeo de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Pestaña Tiempo real: sigue los eventos de cambio (Change Data Capture) que publica la org de origen y escribe cada cambio en el destino en cuanto llega, localizado por un ID externo, el ID de registro o la asignación de una sync guardada; las eliminaciones solo si se piden. Para seguir otro objeto, selecciónelo en Configuración → Change Data Capture en la org de origen. Un cambio cuyo registro de destino se editó después lo decide la estrategia, o queda retenido en la pestaña Conflictos\n- Quitar lo que creó una ejecución: desde sus resultados o su entrada del historial, la eliminación de una ejecución borra los registros que insertó, o escribió por upsert donde el destino no tenía ninguno, y los archivos que creó; Production Guard la rechaza en una org de producción. Los registros que una ejecución actualizó conservan sus nuevos valores, así que haga primero un respaldo DataOps de la org de destino (cubre los objetos que enmascaran las plantillas de anonimización: Contact, Lead, Account y Opportunity en las incluidas)",
@@ -2800,9 +2800,9 @@
     "dataopsContent": "Operaciones de datos en la org seleccionada:\n- Respaldo: una instantánea de los objetos que enmascaran las plantillas de anonimización, o de los que enmascara la plantilla elegida, guardada en el almacenamiento de la extensión\n- Restauración: devuelve un respaldo, entero, a la org de la que se tomó\n- Anonimización: enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA; es irreversible, así que haga un respaldo antes\n- Calidad: para los objetos que elija, cuenta con qué frecuencia se rellena cada campo, qué valores de una clave como Name o Email comparten varios registros y cuántos registros nadie ha modificado en un número de días; la org hace el recuento, y no se lee registro por registro ni se escribe nada\n- Cumplimiento: encuentra los campos de los objetos elegidos que contienen datos personales, confirmados en una muestra de sus últimos 200 registros; después encuentra los registros de una persona por correo, nombre o teléfono, los exporta a un archivo y los anonimiza in situ o los elimina, tras una revisión, una confirmación escrita y Production Guard; un registro local guarda recuentos de cada solicitud, nunca a quién se refería\n- Limpieza: cuenta los registros que nadie ha modificado en un número de días, los que dejan vacío un campo de búsqueda en el que se apoya el negocio y las copias sobrantes de un valor repetido; cada grupo puede exportarse, o eliminarse tras una revisión, una confirmación escrita y Production Guard, como mucho 1.000 a la vez",
     "automationContent": "Constructor visual de pipelines:\n- La paleta ofrece los tipos de pasos que un pipeline ejecuta: Respaldo, Comparación, Pre-verificación, Retraso y Notificación; un paso Condición viene con una plantilla del Marketplace. Un pipeline que contenga un paso que escribe en una org, o un paso Script, Aprobación, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
     "forgeContent": "En cuatro pasos:\n1. Pegue un ID de registro o una URL de Salesforce y elija las orgs de origen y destino\n2. Descubrir grafo recorre las relaciones desde ese registro\n3. Ajuste la profundidad, los registros por objeto y la anonimización de PII\n4. Revise el plan y ejecútelo: los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica\n\nClonar directamente, bajo Descubrir grafo, ejecuta el descubrimiento y luego la clonación de lo que encontró, sin detenerse en el grafo ni en la revisión: la ejecución se envía como la envía la revisión cuando no se cambió nada allí, Production Guard la juzga como cualquier ejecución y no se ejecuta la comparación de metadatos entre las dos orgs.\n\nGrafo o tabla: las pantallas de descubrimiento, revisión y ejecución dibujan un grafo de hasta 25 objetos y enumeran uno mayor en una tabla. El selector Vista de grafo / Vista de tabla elige la otra vista en todas las pantallas hasta que se cierra el panel; el ajuste sandforge.forge.graphView (auto, graph o table) elige la vista con la que se abren.\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",
-    "frozenContent": "Dataset congelado extrae un conjunto de datos de un sandbox de origen una sola vez y lo reproduce idéntico tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Seudonimización determinista, con una sal que se guarda fuera del repositorio\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: solo sandboxes como destino, con un Piloto opcional sobre un único expediente raíz antes de la carga completa, y una verificación después de la carga",
+    "frozenContent": "El Dataset congelado extrae los datos de un sandbox de origen una sola vez y los reproduce idénticos tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Seudonimización determinista, con una sal que se guarda fuera del repositorio\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: solo sandboxes como destino, con un Piloto opcional sobre un único expediente raíz antes de la carga completa, y una verificación después de la carga",
     "grappeContent": "Grappe divide una operación grande en particiones e informa el progreso al completarse cada una:\n- Actívelo con el ajuste sandforge.grappe.enabled\n- Una ejecución de Seed por encima del umbral de registros informa cada partición, una Sync por encima de ese umbral informa una partición por objeto y un plan de Autopilot solo informa su inicio y su fin\n- Las particiones se procesan una tras otra: Grappe no hace más rápida una ejecución",
-    "aiContent": "El Asistente IA, con su propia clave de Anthropic:\n- Chat, NL2SOQL en la pestaña IA de Forge, y personas personalizadas y reglas de campo IA en Seed\n- Borradores de pipeline en Automation\n- Una tabla integrada de códigos de error de Salesforce responde primero a los códigos que conoce, en su máquina, con la IA activada o desactivada, y no envía nada\n- No se envía nada por una lista fija de mensajes propios de SandForge, como una confirmación de producción rechazada, una ejecución duplicada o un rechazo CRUD, FLS o de Production Guard, ni por un fallo ocurrido sin ninguna vista de SandForge abierta\n- Con la IA activada, cualquier otra ejecución fallida de Seed, Sync, DataOps o Automation envía su mensaje de error, con sus Id de Salesforce reemplazados por <id>, y la sugerencia vuelve como notificación de VS Code\n- Desactive ese envío con sandforge.ai.errorResolution: el resto del asistente sigue funcionando\n- Los consejos de esquema de Compare y el escaneo de anomalías de Monitor se basan en reglas: funcionan con la IA desactivada y sin clave\n- Configure su clave API en Configuración > IA",
+    "aiContent": "El Asistente IA, con su propia clave de Anthropic:\n- Chat, NL2SOQL en la pestaña IA de Forge, y personas personalizadas y reglas de campo IA en Seed\n- Borradores de pipeline en Automatización\n- Una tabla integrada de códigos de error de Salesforce responde primero a los códigos que conoce, en su máquina, con la IA activada o desactivada, y no envía nada\n- No se envía nada por una lista fija de mensajes propios de SandForge, como una confirmación de producción rechazada, una ejecución duplicada o un rechazo CRUD, FLS o de Production Guard, ni por un fallo ocurrido sin ninguna vista de SandForge abierta\n- Con la IA activada, cualquier otra ejecución fallida de Seed, Sync, DataOps o Automatización envía su mensaje de error, con sus Id de Salesforce reemplazados por <id>, y la sugerencia vuelve como notificación de VS Code\n- Desactive ese envío con sandforge.ai.errorResolution: el resto del asistente sigue funcionando\n- Los consejos de esquema de Comparación y el escaneo de anomalías de Monitor se basan en reglas: funcionan con la IA desactivada y sin clave\n- Configure su clave API en Configuración > IA",
     "shortcutsContent": "G + letra — Ir a un módulo (p. ej. G y luego F para Forge, G y luego Y para Sync, G y luego L para Ayuda)\nCtrl+K — Paleta de comandos\nAlt+N — Ir a la última notificación que sigue en pantalla\nEscape — Cerrar modales y diálogos\nTab — Navegar entre elementos\nFlechas — Pasar de una pestaña a otra\nEnter/Espacio — Activar botones y enlaces",
     "faqContent": "P: ¿Por qué mi Puntaje de Salud es bajo?\nR: Verifique el uso de límites de API, jobs fallidos y consumo de almacenamiento. El puntaje pondera múltiples factores.\n\nP: ¿Cómo solucionar errores de timeout?\nR: SandForge no tiene ningún ajuste de tiempo de espera para las llamadas a Salesforce. Reduzca el tamaño de lote (sandforge.seed.defaultBatchSize y sandforge.sync.defaultBatchSize en la configuración de VS Code) y divida una ejecución grande en varias más pequeñas. Grappe no hace más rápida una ejecución: informa el progreso por partición.\n\nP: ¿Puedo deshacer una operación de sync?\nR: En parte. La eliminación de una ejecución, desde sus resultados o su entrada del historial, borra lo que creó: los registros que insertó, o escribió por upsert donde el destino no tenía ninguno, y sus archivos. Los registros que actualizó conservan sus nuevos valores. Antes de una ejecución arriesgada, haga un respaldo DataOps de la org de destino: cubre los objetos que enmascaran las plantillas de anonimización, y solo se restaura en esa org.\n\nP: ¿Cómo conectar una org de producción de forma segura?\nR: SandForge detecta una org de producción y la marca con el nivel de seguridad Crítico. Production Guard rechaza allí de entrada una eliminación o un despliegue de metadatos, y le pide confirmar cualquier otra escritura antes de que se ejecute (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
@@ -2825,7 +2825,7 @@
     "startTour": "Iniciar tour guiado",
     "autopilotContent": "En tres pasos:\n1. Elija la org de origen y la de destino\n2. Seleccione los objetos que desea copiar\n3. Revise el plan (oleadas, registros, llamadas a la API, campos PII) y ejecútelo. Los correos y los números de teléfono se neutralizan salvo que lo desmarque — cada dirección bajo .invalid, cada número ficticio — y Avanzado elige un marco de cumplimiento que anonimiza más (RGPD, CCPA, HIPAA o PCI-DSS)",
     "migrationContent": "Migración convierte una definición de migración existente en una configuración de Sync:\n- Importe un export.json de SFDMU, o un archivo .json o .csv\n- La importación lee el archivo y no cambia nada en ninguna org\n- Ejecutar la configuración convertida escribe registros en la org de destino",
-    "reportsContent": "Reportes muestra lo que hicieron las ejecuciones de SandForge:\n- Ejecuciones: cada ejecución de Forge y Sync con su estado, duración y número de registros, exportable en JSON\n- Análisis: tasas de éxito calculadas a partir de esas ejecuciones\n- Registro de auditoría: cada ejecución que escribe en una org — una clonación Forge, una sincronización, un seed, una importación CSV, una clonación de registros, una ejecución de Autopilot, una restauración, un enmascaramiento o una carga de dataset congelado — con lo que escribió en cada objeto y lo que decidió Production Guard\n- Linaje de datos: de dónde vinieron los registros que escribió una ejecución — otra org, datos generados, un archivo CSV, un respaldo o un dataset congelado — y cuántos de cada objeto"
+    "reportsContent": "Informes muestra lo que hicieron las ejecuciones de SandForge:\n- Ejecuciones: cada ejecución de Forge y Sync con su estado, duración y número de registros, exportable en JSON\n- Análisis: tasas de éxito calculadas a partir de esas ejecuciones\n- Registro de auditoría: cada ejecución que escribe en una org — una clonación Forge, una sincronización, un seed, una importación CSV, una clonación de registros, una ejecución de Autopilot, una restauración, un enmascaramiento o una carga de dataset congelado — con lo que escribió en cada objeto y lo que decidió Production Guard\n- Linaje de datos: de dónde vinieron los registros que escribió una ejecución — otra org, datos generados, un archivo CSV, un respaldo o un dataset congelado — y cuántos de cada objeto"
   },
   "emptyState": {
     "connectViaSfdx": "Conecte una org (inicio de sesión en el navegador)",
@@ -3008,8 +3008,8 @@
     "failed": "Fallido",
     "pause": "Pausar",
     "resume": "Reanudar",
-    "abort": "Cancelar",
-    "abortConfirm": "¿Cancelar la ejecución? Se detiene en cuanto termina el paso en curso, y lo que ya escribió se queda en la org de destino.",
+    "abort": "Detener",
+    "abortConfirm": "¿Detener la ejecución? Se detiene en cuanto termina el paso en curso, y lo que ya escribió se queda en la org de destino.",
     "elapsed": "Transcurrido",
     "discovery": "Descubrimiento de grafo",
     "discoveryProgress": "Descubriendo… {{discovered}} objetos analizados, {{queued}} en cola",
@@ -3047,7 +3047,7 @@
     "idRemaps": "Reasignaciones de ID",
     "successRate": "Tasa de éxito",
     "saveTemplate": "Guardar como plantilla",
-    "copyReport": "Copiar reporte",
+    "copyReport": "Copiar informe",
     "forgeAgain": "Forjar de nuevo",
     "object": "Objeto",
     "status": "Estado",
@@ -3243,8 +3243,8 @@
       "existingNote_other": "{{count}} de ellos ya estaban en la org destino: vinculados, no creados.",
       "existingBadge": "existente",
       "openRecord": "Abrir {{object}} {{id}} en la org destino",
-      "openRoot": "Abrir el {{object}} clonado en {{org}}",
-      "openRootInTarget": "Abrir el {{object}} clonado en la org destino",
+      "openRoot": "Abrir el registro clonado ({{object}}) en {{org}}",
+      "openRootInTarget": "Abrir el registro clonado ({{object}}) en la org de destino",
       "openNote": "Seleccione el Id de un registro que creó esta ejecución para abrirlo en la org destino.",
       "openFailed": "No se pudo abrir el registro: {{message}}",
       "inJournal_one": "El Id del registro que esta ejecución asignó se guarda en su diario, no en sus resultados: Guardar correspondencia de Ids lo escribe en un archivo.",
@@ -3252,7 +3252,7 @@
     },
     "preview": {
       "title": "Qué ocurrirá al ejecutar",
-      "truncatedAction": "Grafo cortado por el tope de objetos — súbelo y vuelve a descubrir si falta algo",
+      "truncatedAction": "Grafo cortado por el tope de objetos — súbalo y vuelva a descubrir si falta algo",
       "willClone": "Se clonará",
       "willMap": "Se asignará",
       "skippedExcluded": "Omitido (excluido)",
@@ -3515,7 +3515,7 @@
       "reuse": "Reutilizar la configuración",
       "resume": "Reanudar",
       "resumeHint": "Retomar esta ejecución donde se detuvo: nada de lo que escribió se vuelve a escribir",
-      "reuseHint": "Rellena el formulario con los ajustes de esta ejecución. Las orgs no se restauran: elígelas y luego inicia el descubrimiento.",
+      "reuseHint": "Rellena el formulario con los ajustes de esta ejecución. Las orgs no se restauran: elíjalas y luego inicie el descubrimiento.",
       "noConfig": "Registrada antes de que se guardaran las configuraciones: no hay nada que rellenar.",
       "loadError": "No se pudo cargar el historial de ejecuciones.",
       "reused": "Formulario rellenado a partir de la ejecución del {{date}}.",
@@ -4069,7 +4069,7 @@
       "skipNamed": "Omitir {{object}}"
     },
     "report": {
-      "title": "Reporte de cumplimiento",
+      "title": "Informe de cumplimiento",
       "framework": "Marco",
       "status": "Estado",
       "pass": "Aprobado",
@@ -4171,18 +4171,18 @@
       "selection": "Selección",
       "noSelection": "Ninguna selección aún",
       "lastVerify": "Última verificación",
-      "saltMismatch": "La sal de este editor ({{current}}) no es aquella con la que se construyó este conjunto de datos ({{manifest}}). Una nueva extracción con ella daría a los mismos registros seudónimos distintos de los de este conjunto. Vuelva a definir antes esa sal, con «SandForge: Usar una sal para el Frozen Dataset» o SANDFORGE_FROZEN_SALT."
+      "saltMismatch": "La sal de este editor ({{current}}) no es aquella con la que se construyó este dataset ({{manifest}}). Una nueva extracción con ella daría a los mismos registros seudónimos distintos de los de este dataset. Vuelva a definir antes esa sal, con «SandForge: Usar una sal para el dataset congelado» o SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extraer",
       "load": "Cargar"
     },
     "salt": {
-      "created": "Esta primera extracción creó la sal con la que se saca cada seudónimo y la guarda en el almacenamiento secreto de VS Code: cada extracción posterior seudonimiza los mismos registros de la misma manera. Un compañero que extraiga este conjunto de datos necesita la misma sal: cópiela con «SandForge: Copiar la sal del Frozen Dataset» y pásesela como pasaría una contraseña; él la define con «SandForge: Usar una sal para el Frozen Dataset». Quien la tiene puede saber de qué valor de origen se sacó un seudónimo.",
+      "created": "Esta primera extracción creó la sal con la que se saca cada seudónimo y la guarda en el almacenamiento secreto de VS Code: cada extracción posterior seudonimiza los mismos registros de la misma manera. Un compañero que extraiga este dataset necesita la misma sal: cópiela con «SandForge: Copiar la sal del dataset congelado» y pásesela como pasaría una contraseña; él la define con «SandForge: Usar una sal para el dataset congelado». Quien la tiene puede saber de qué valor de origen se sacó un seudónimo.",
       "createdTitle": "Sal del dataset congelado"
     },
     "manifest": {
-      "version": "Conjunto de datos v{{version}}"
+      "version": "Dataset v{{version}}"
     },
     "config": {
       "title": "Configuración del proyecto",
@@ -4239,7 +4239,7 @@
       "run": "Ejecutar extracción",
       "summary_one": "{{count}} registro congelado en {{files}} archivos",
       "summary_other": "{{count}} registros congelados en {{files}} archivos",
-      "saltHint": "Cada seudónimo se saca con la sal de este editor, creada en la primera extracción y guardada en el almacenamiento secreto de VS Code. Para extraer los mismos seudónimos que un compañero, defina la suya con «SandForge: Usar una sal para el Frozen Dataset»; pase la suya con «SandForge: Copiar la sal del Frozen Dataset». SANDFORGE_FROZEN_SALT, donde está definida, se impone a ambas. Una carga no necesita la sal."
+      "saltHint": "Cada seudónimo se saca con la sal de este editor, creada en la primera extracción y guardada en el almacenamiento secreto de VS Code. Para extraer los mismos seudónimos que un compañero, defina la suya con «SandForge: Usar una sal para el dataset congelado»; pase la suya con «SandForge: Copiar la sal del dataset congelado». SANDFORGE_FROZEN_SALT, donde está definida, se impone a ambas. Una carga no necesita la sal."
     },
     "control": {
       "check": "Control",
@@ -4276,7 +4276,7 @@
       "hint": "Leído del destino, sin escribir nada. El destino aún puede rechazar registros u omitir duplicados, y la relación directa de un contacto o la tarea de un correo se vincula a la que escribe la plataforma una vez que su registro está dentro.",
       "earlierLoads_one": "Recarga: purga lo que {{count}} carga anterior en esta org creó y esta no vuelve a encontrar.",
       "earlierLoads_other": "Recarga: purga lo que {{count}} cargas anteriores en esta org crearon y esta no vuelve a encontrar.",
-      "fromFiles": "En el conjunto de datos",
+      "fromFiles": "En el dataset",
       "toInsert": "Por insertar",
       "reusedByKeys": "Encontrados por claves de identidad",
       "reusedFromCatalog": "Encontrados en el catálogo",
@@ -4337,12 +4337,12 @@
       "leftToThePlatform": "Excluidos en la carga — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
       "excludedObjects": "Objetos no cargados",
       "heldForExcludedParents": "Excluidos en la carga — un lookup sin el cual estos registros no pueden entrar apunta a un objeto que excludedObjects deja fuera, o dependen de tales registros; declare un marcador en requiredLookupPlaceholders para cargarlos: {{objects}}",
-      "untypedFeedItems": "Excluidos en la carga — el conjunto de datos no incluye el tipo de estos elementos de noticias, o de aquellos de los que dependen, así que un cambio registrado no se distingue de una publicación; extraiga de nuevo el conjunto de datos para cargarlos: {{objects}}",
+      "untypedFeedItems": "Excluidos en la carga — el dataset no incluye el tipo de estos elementos de noticias, o de aquellos de los que dependen, así que un cambio registrado no se distingue de una publicación; extraiga de nuevo el dataset para cargarlos: {{objects}}",
       "failedReasons": "Por qué fallaron los registros",
       "statusCode": "Código de estado",
       "writtenWithoutFields": {
         "title": "Escritos de nuevo sin un campo que rechazó la org de destino",
-        "hint": "La org de destino rechazó estos registros por los campos que indicó: una de sus reglas de validación, o una lista de selección restringida que no acepta el valor para el tipo de registro del registro — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno, algo que nada de lo leído antes de la escritura indica. La carga volvió a escribir cada registro sin esos campos, o con el valor que declara la regla de lista de selección del campo: el registro está en la org de destino, sin el valor que tiene el conjunto de datos.",
+        "hint": "La org de destino rechazó estos registros por los campos que indicó: una de sus reglas de validación, o una lista de selección restringida que no acepta el valor para el tipo de registro del registro — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno, algo que nada de lo leído antes de la escritura indica. La carga volvió a escribir cada registro sin esos campos, o con el valor que declara la regla de lista de selección del campo: el registro está en la org de destino, sin el valor que tiene el dataset.",
         "refusedBy": "Rechazado por",
         "written": "Escrito",
         "leftOut": "sin el campo",
@@ -4396,8 +4396,8 @@
       "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que la carga no los creó: {{names}}"
     },
     "coverage": {
-      "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
-      "truncatedRaised": "El descubrimiento se detuvo en {{objects}} objetos con un límite de {{maxNodes}} (elevado para los padres sin los que sus registros no se pueden escribir): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
+      "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este dataset pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
+      "truncatedRaised": "El descubrimiento se detuvo en {{objects}} objetos con un límite de {{maxNodes}} (elevado para los padres sin los que sus registros no se pueden escribir): los objetos más alejados de la raíz no se leyeron, así que a este dataset pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
       "unbounded": "Leídos sin el límite de fecha, por no tener CreatedDate: {{objects}}",
       "filesLeftOut": "Excluidos — sus archivos no se pueden seudonimizar sin una regla keep aprobada: {{objects}}",
       "leftToThePlatform": "Excluidos — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
@@ -4449,7 +4449,7 @@
   },
   "errorBoundary": {
     "title": "Algo salió mal",
-    "description": "SandForge encontró un error inesperado. Puede intentar recuperarse o copiar los detalles del error para un reporte de bug.",
+    "description": "SandForge encontró un error inesperado. Puede intentar recuperarse o copiar los detalles del error para un informe de error.",
     "recover": "Recuperar",
     "copyError": "Copiar error",
     "copied": "¡Copiado!"
@@ -4589,7 +4589,7 @@
       "action": "Dé primero un precio estándar a estos productos en la org y vuelva a ejecutar.",
       "forge": {
         "explanation": "Salesforce no pone precio a un producto en un catálogo personalizado mientras ese producto no tenga precio en el estándar, y esa entrada estándar no está en la org de destino.",
-        "action": "Añade un precio estándar para estos productos en la org de destino y vuelve a lanzar el clon."
+        "action": "Añada un precio estándar para estos productos en la org de destino y vuelva a lanzar el clon."
       },
       "seed": {
         "action": "Dé primero un precio estándar a estos productos."
@@ -4616,7 +4616,7 @@
     },
     "recordTypeUnavailable": {
       "explanation": "El tipo de registro existe en la org, pero el usuario con el que escribe la ejecución no puede usarlo.",
-      "action": "En el Setup de la org, dé el tipo de registro al perfil de ese usuario o a un conjunto de permisos, y vuelva a ejecutar.",
+      "action": "En la Configuración de la org, dé el tipo de registro al perfil de ese usuario o a un conjunto de permisos, y vuelva a ejecutar.",
       "forge": {
         "explanation": "El tipo de registro existe en la org de destino y la correspondencia es correcta, pero no está disponible para el usuario con el que se ejecuta el clon.",
         "action": "Asigne el tipo de registro al perfil de ese usuario en la org de destino, o deje RecordTypeId fuera de este objeto en Revisión → Ajustes."
@@ -4643,10 +4643,10 @@
     },
     "invalidPicklist": {
       "explanation": "Un valor de lista de selección no es uno que la org acepte: el campo no lo tiene, o el tipo de registro del registro no lo permite.",
-      "action": "Añada el valor a la lista de selección y al tipo de registro en el Setup de la org, o cambie el valor, y vuelva a ejecutar.",
+      "action": "Añada el valor a la lista de selección y al tipo de registro en la Configuración de la org, o cambie el valor, y vuelva a ejecutar.",
       "forge": {
         "explanation": "Un valor de lista de selección del origen no lo acepta la org de destino: el campo no lo contiene, o el tipo de registro con el que se escribe el registro no lo acepta — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno. Cuando el rechazo indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
-        "action": "Añada el valor a la lista de selección en el Setup de la org de destino, y al tipo de registro del registro, o cambie el valor en el registro de origen."
+        "action": "Añada el valor a la lista de selección en la Configuración de la org de destino, y al tipo de registro del registro, o cambie el valor en el registro de origen."
       },
       "seed": {
         "action": "Dé al campo los valores que la org prevé para él."
@@ -4654,7 +4654,7 @@
     },
     "fieldCustomValidation": {
       "explanation": "Una regla de validación de la org rechazó el registro.",
-      "action": "Cambie los valores que comprueba la regla, o desactívela en el Setup de la org mientras escribe la ejecución, y vuelva a ejecutar.",
+      "action": "Cambie los valores que comprueba la regla, o desactívela en la Configuración de la org mientras escribe la ejecución, y vuelva a ejecutar.",
       "forge": {
         "explanation": "Una regla de validación de la org de destino rechazó el registro. Cuando la regla indica un campo al que el registro da un valor, el clon vuelve a escribir el registro sin ese campo; un registro que aparece aquí no se pudo escribir así.",
         "action": "Cambie el valor en el registro de origen, o ajuste la regla en la org de destino, y luego reintente los objetos fallidos."
@@ -4724,18 +4724,18 @@
     },
     "lookupFilter": {
       "explanation": "Un filtro de búsqueda de la org rechazó el registro al que apunta la búsqueda: no cumple los criterios del filtro, o el filtro comprueba el usuario con el que escribe la ejecución.",
-      "action": "En el Setup de la org, haga opcional el filtro de búsqueda o desactívelo mientras escribe la ejecución, o dé al registro apuntado los valores que pide el filtro; luego vuelva a ejecutar.",
+      "action": "En la Configuración de la org, haga opcional el filtro de búsqueda o desactívelo mientras escribe la ejecución, o dé al registro apuntado los valores que pide el filtro; luego vuelva a ejecutar.",
       "forge": {
         "explanation": "Un filtro de búsqueda de la org de destino rechazó el registro al que apunta este: allí, ese registro no cumple los criterios del filtro — un campo que el filtro comprueba tiene otro valor, o ninguno — o el filtro comprueba el usuario con el que escribe el clon.",
-        "action": "En el Setup de la org de destino, haga opcional el filtro de búsqueda o desactívelo mientras clona, o dé al registro apuntado los valores que pide el filtro; luego reintente los objetos fallidos."
+        "action": "En la Configuración de la org de destino, haga opcional el filtro de búsqueda o desactívelo mientras clona, o dé al registro apuntado los valores que pide el filtro; luego reintente los objetos fallidos."
       }
     },
     "duplicateRule": {
       "explanation": "Una regla de duplicados de la org configurada en Bloquear rechazó el registro.",
-      "action": "En el Setup de la org, desactive la regla mientras escribe la ejecución, o configure su acción al crear en Permitir; luego vuelva a ejecutar.",
+      "action": "En la Configuración de la org, desactive la regla mientras escribe la ejecución, o configure su acción al crear en Permitir; luego vuelva a ejecutar.",
       "forge": {
         "explanation": "Una regla de duplicados de la org de destino configurada para Bloquear rechazó el registro. El clon ya guarda por encima de toda regla configurada para Permitir, y vincula una fila al registro que duplica cuando la regla nombra solo uno; esta regla no nombró ninguno de este objeto, o nombró varios.",
-        "action": "En el Setup de la org de destino, desactive esta regla de duplicados mientras clona, o configure su acción al crear en Permitir; luego reintente los objetos fallidos."
+        "action": "En la Configuración de la org de destino, desactive esta regla de duplicados mientras clona, o configure su acción al crear en Permitir; luego reintente los objetos fallidos."
       },
       "seed": {
         "action": "Desactívela mientras hace el seed, o configure su acción al crear en Permitir."
@@ -4862,7 +4862,7 @@
     },
     "licenseLimit": {
       "explanation": "La org no tiene licencias disponibles para esto: todas las licencias de usuario, de función o de conjunto de permisos de ese tipo están asignadas.",
-      "action": "Libere una licencia en el Setup de la org — desactive un usuario que ya no la necesite — o deje estos registros fuera de la ejecución."
+      "action": "Libere una licencia en la Configuración de la org — desactive un usuario que ya no la necesite — o deje estos registros fuera de la ejecución."
     },
     "duplicateUsername": {
       "explanation": "Un nombre de usuario ya está en uso: los nombres de usuario son únicos en todas las orgs de Salesforce, sandboxes incluidos.",

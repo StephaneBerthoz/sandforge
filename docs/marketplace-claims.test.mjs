@@ -616,7 +616,7 @@ const ANOTHER_ORG = {
   en: /from another org into the one you fill/,
   fr: /d'une autre org vers celle que vous remplissez/,
   de: /aus einer anderen Org in die Org, die Sie füllen/,
-  es: /desde otra org hacia la que llenas/,
+  es: /desde otra org hacia la que rellena/,
   ja: /別の組織から投入先の組織へ/,
   'pt-br': /de outra org para a que você preenche/,
 };

@@ -172,6 +172,29 @@ describe('the error catalogue’s keys', () => {
     }
   });
 
+  /*
+   * A Seed refusal sent a French admin to "le Setup de l'org", a Spanish one
+   * to "el Setup de la org": Salesforce's own UI in those languages, and these
+   * catalogues elsewhere, say Configuration, Configuración and Configuração.
+   * German and Japanese keep their UI's words, Setup and 設定.
+   */
+  it('sends a French, Spanish or Portuguese admin to Setup by the name their Salesforce gives it', () => {
+    const CONFIGURATION: Record<string, RegExp> = {
+      fr: /la Configuration de l'org/,
+      es: /la Configuración de la org/,
+      'pt-BR': /Configuração da org/,
+    };
+    for (const [locale, setup] of Object.entries(CONFIGURATION)) {
+      const values = keys.map((key) => lookup(LOCALES[locale], key) as string);
+      expect({ locale, english: values.filter((value) => /\bSetup\b/.test(value)) }).toEqual({
+        locale,
+        english: [],
+      });
+      // Positive control: the walk reads the hints that send there.
+      expect(values.filter((value) => setup.test(value)).length).toBeGreaterThanOrEqual(9);
+    }
+  });
+
   it('names the code in both link labels, in every locale', () => {
     for (const [locale, bundle] of Object.entries(LOCALES)) {
       for (const key of ['errors.guideLink', 'errors.searchLink']) {

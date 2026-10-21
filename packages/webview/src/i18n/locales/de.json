@@ -62,7 +62,7 @@
       "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
       "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
-      "backupBusy": "Ein Backup oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Backups, sobald der Vorgang beendet ist.",
+      "backupBusy": "Eine Sicherung oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Sicherungen, sobald der Vorgang beendet ist.",
       "autopilotRunning": "Ein Autopilot-Lauf schreibt noch in diese Ziel-Org, und es wurde nichts weiter gestartet: Die Live-Operationen im Monitor zeigen, wo er steht. Starten Sie einen weiteren, wenn er beendet ist."
     },
     "list": {
@@ -90,14 +90,14 @@
     "seed": "Seed",
     "sync": "Sync",
     "monitor": "Monitor",
-    "compare": "Org vergleichen",
+    "compare": "Vergleich",
     "dataops": "DataOps",
     "automation": "Automatisierung",
     "ai": "KI-Assistent",
     "reports": "Berichte",
     "settings": "Einstellungen",
     "forge": "Forge",
-    "frozen": "Eingefrorener Datensatz",
+    "frozen": "Eingefrorenes Dataset",
     "grappe": "Grappe",
     "autopilot": "Autopilot",
     "migration": "Migration",
@@ -159,8 +159,8 @@
       "fill": "{{alias}} mit Demodaten füllen",
       "clone": "Aus einer anderen Org klonen"
     },
-    "disconnectDeleteBackups_one": "Auch das auf diesem Rechner gespeicherte DataOps-Backup dieser Org löschen, das die Werte ihrer Datensätze im Klartext enthält",
-    "disconnectDeleteBackups_other": "Auch die {{count}} auf diesem Rechner gespeicherten DataOps-Backups dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthalten"
+    "disconnectDeleteBackups_one": "Auch die auf diesem Rechner gespeicherte DataOps-Sicherung dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthält",
+    "disconnectDeleteBackups_other": "Auch die {{count}} auf diesem Rechner gespeicherten DataOps-Sicherungen dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthalten"
   },
   "monitor": {
     "refresh": "Aktualisieren",
@@ -381,7 +381,7 @@
     "jobCount_other": "{{count}} Jobs"
   },
   "compare": {
-    "title": "Org vergleichen",
+    "title": "Vergleich",
     "source": "Quell-Org",
     "target": "Ziel-Org",
     "selectSource": "Quell-Org auswählen",
@@ -684,15 +684,15 @@
       },
       "serviceCloudStarter": {
         "name": "Service Cloud Starter",
-        "description": "Accounts, Kontakte, Cases, Case-Kommentare und Knowledge-Artikel: 3.800 Datensätze, rund 7,6 MB, mehr als die 5 MB einer Developer Edition. In einer Org ohne Knowledge werden die Artikel übersprungen."
+        "description": "Accounts, Kontakte, Kundenvorgänge, Kundenvorgangskommentare und Knowledge-Artikel: 3.800 Datensätze, rund 7,6 MB, mehr als die 5 MB einer Developer Edition. In einer Org ohne Knowledge werden die Artikel übersprungen."
       },
       "minimalDemo": {
         "name": "Minimale Demo",
-        "description": "Leichtgewichtige Demo-Vorlage mit nur Accounts, Contacts und Opportunities. Ideal für schnelle Demos und Tests."
+        "description": "Leichtgewichtige Demo-Vorlage mit nur Accounts, Kontakten und Opportunities. Ideal für schnelle Demos und Tests."
       },
       "crmStarter": {
         "name": "CRM-Starter",
-        "description": "Accounts mit ihren Kontakten, Opportunities mit Preisen aus dem Standardpreisbuch samt Produktpositionen, und Cases: rund 300 Datensätze, unter 1 MB, passend für die 5 MB einer neuen Developer Edition."
+        "description": "Accounts mit ihren Kontakten, Opportunities mit Preisen aus dem Standardpreisbuch samt Produktpositionen, und Kundenvorgänge: rund 300 Datensätze, unter 1 MB, passend für die 5 MB einer neuen Developer Edition."
       },
       "leadsActivitiesStarter": {
         "name": "Starter Leads & Aktivitäten",
@@ -959,7 +959,7 @@
     "results": {
       "aiFallback": "Die KI hat keine Werte geliefert, daher erhielten diese Felder generierte Sätze: {{fields}}. Die KI ist ausgeschaltet, oder der Aufruf wurde abgelehnt (das SandForge-Protokoll nennt den Grund).",
       "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}.",
-      "openRecord": "Ein erstelltes {{object}} in {{org}} öffnen"
+      "openRecord": "Ersten erstellten Datensatz ({{object}}) in {{org}} öffnen"
     },
     "sampleRecordCount_one": "{{count}} Beispieldatensatz",
     "sampleRecordCount_other": "{{count}} Beispieldatensätze",
@@ -1714,7 +1714,7 @@
     "emptyState": {
       "title": "Schützen Sie die Daten Ihrer Org",
       "description": "DataOps sichert Ihre Org-Daten, stellt sie wieder her und anonymisiert sie, bearbeitet Betroffenenanfragen und bereinigt die Datensätze, die niemand braucht.",
-      "step2": "Vor riskanten Operationen ein Backup erstellen",
+      "step2": "Vor riskanten Operationen eine Sicherung erstellen",
       "step3": "Sensible Felder mit einer Vorlage anonymisieren",
       "step4": "Eine Sicherung in die Org zurückspielen, aus der sie stammt"
     },
@@ -1883,10 +1883,10 @@
       "confirmAnonymize": "Die aufgeführten Felder werden in der Org überschrieben, und das ist nicht umkehrbar. Sichern Sie zuerst, falls Sie sie noch brauchen könnten.",
       "confirmDelete": "Die Datensätze und alles, was die Org mit ihnen löscht, kommen in den Papierkorb und bleiben dort, bis er geleert wird.",
       "confirmWord": "löschen",
-      "backupsBefore_one": "Diese Org hat ein Backup auf diesem Rechner, das vor dieser Löschung erstellt wurde: Es enthält die Datensätze der Person im Klartext, und eine Wiederherstellung bringt sie zurück.",
-      "backupsBefore_other": "Diese Org hat {{count}} Backups auf diesem Rechner, die vor dieser Löschung erstellt wurden: Sie enthalten die Datensätze der Person im Klartext, und die Wiederherstellung eines davon bringt sie zurück.",
-      "deleteBackupsBefore_one": "Dieses Backup löschen",
-      "deleteBackupsBefore_other": "Diese {{count}} Backups löschen"
+      "backupsBefore_one": "Diese Org hat eine Sicherung auf diesem Rechner, die vor dieser Löschung erstellt wurde: Sie enthält die Datensätze der Person im Klartext, und eine Wiederherstellung bringt sie zurück.",
+      "backupsBefore_other": "Diese Org hat {{count}} Sicherungen auf diesem Rechner, die vor dieser Löschung erstellt wurden: Sie enthalten die Datensätze der Person im Klartext, und die Wiederherstellung einer davon bringt sie zurück.",
+      "deleteBackupsBefore_one": "Diese Sicherung löschen",
+      "deleteBackupsBefore_other": "Diese {{count}} Sicherungen löschen"
     },
     "dsrLog": {
       "title": "Anfrageprotokoll",
@@ -1987,12 +1987,12 @@
       "fieldsNotFound": "Anwenden maskiert nichts in {{fields}}: Die Org hat kein solches Feld."
     },
     "backupDelete": "Löschen",
-    "backupDeleteConfirm": "Dieses Backup löschen? Die Werte der Datensätze, die es im Klartext auf diesem Rechner enthält, sind endgültig weg, und es lässt sich nicht mehr wiederherstellen.",
-    "backupDeleteAll": "Alle Backups dieser Org löschen",
-    "backupDeleteAllConfirm_one": "Das auf diesem Rechner gespeicherte Backup dieser Org löschen? Die Werte der Datensätze, die es im Klartext enthält, sind endgültig weg, und es lässt sich nicht mehr wiederherstellen.",
-    "backupDeleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Backups dieser Org löschen? Die Werte der Datensätze, die sie im Klartext enthalten, sind endgültig weg, und keines lässt sich mehr wiederherstellen.",
-    "backupsDeleted_one": "{{count}} Backup von diesem Rechner gelöscht.",
-    "backupsDeleted_other": "{{count}} Backups von diesem Rechner gelöscht.",
+    "backupDeleteConfirm": "Diese Sicherung löschen? Die Werte der Datensätze, die sie im Klartext auf diesem Rechner enthält, sind endgültig weg, und sie lässt sich nicht mehr wiederherstellen.",
+    "backupDeleteAll": "Alle Sicherungen dieser Org löschen",
+    "backupDeleteAllConfirm_one": "Die auf diesem Rechner gespeicherte Sicherung dieser Org löschen? Die Werte der Datensätze, die sie im Klartext enthält, sind endgültig weg, und sie lässt sich nicht mehr wiederherstellen.",
+    "backupDeleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Sicherungen dieser Org löschen? Die Werte der Datensätze, die sie im Klartext enthalten, sind endgültig weg, und keine lässt sich mehr wiederherstellen.",
+    "backupsDeleted_one": "{{count}} Sicherung von diesem Rechner gelöscht.",
+    "backupsDeleted_other": "{{count}} Sicherungen von diesem Rechner gelöscht.",
     "snapshot": {
       "keep": "Die Werte vorher aufbewahren, damit „Wiederherstellen“ sie zurückschreiben kann",
       "keepHint": "Vor dem ersten Schreiben wird eine Sicherung der Felder erstellt, die der Lauf maskiert. Kann sie nicht jede Zeile aufnehmen, die der Lauf maskieren würde, wird nichts maskiert.",
@@ -2238,9 +2238,9 @@
       "approve": "Genehmigen",
       "reject": "Ablehnen",
       "record": {
-        "approvedOnPage": "Auf der Automation-Seite genehmigt, {{time}}",
+        "approvedOnPage": "Auf der Seite Automatisierung genehmigt, {{time}}",
         "approvedOnNotification": "In der VS Code-Benachrichtigung genehmigt, {{time}}",
-        "rejectedOnPage": "Auf der Automation-Seite abgelehnt, {{time}}",
+        "rejectedOnPage": "Auf der Seite Automatisierung abgelehnt, {{time}}",
         "rejectedOnNotification": "In der VS Code-Benachrichtigung abgelehnt, {{time}}",
         "timedOut": "Nicht rechtzeitig genehmigt: Bis {{time}} hat niemand geantwortet",
         "cancelled": "Angehalten, bevor jemand geantwortet hat, {{time}}"
@@ -2334,7 +2334,7 @@
       "seed_csv_import": "CSV-Import",
       "seed_clone": "Datensatz-Klon",
       "autopilot_execute": "Autopilot-Lauf",
-      "frozen_load": "Eingefrorenen Datensatz laden",
+      "frozen_load": "Eingefrorenes Dataset laden",
       "metadata_deploy": "Metadaten-Bereitstellung",
       "realtime_sync": "Echtzeit-Synchronisierung",
       "subject_erase": "Löschung auf Betroffenenanfrage",
@@ -2404,10 +2404,10 @@
     "auditShowing": "{{shown}} von {{total}} angezeigt",
     "showMore": "Mehr anzeigen",
     "auditEmptyTitle": "Noch nichts aufgezeichnet",
-    "auditEmptyDesc": "Jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datensatzes — erscheint hier, sobald er endet: was er in jedes Objekt geschrieben hat und wie Production Guard entschieden hat.",
+    "auditEmptyDesc": "Jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datasets — erscheint hier, sobald er endet: was er in jedes Objekt geschrieben hat und wie Production Guard entschieden hat.",
     "auditUnreadable": "Das Audit-Protokoll konnte nicht gelesen werden: {{error}}",
     "lineageEmptyTitle": "Noch kein Lauf nachverfolgt",
-    "lineageEmptyDesc": "Sobald ein Lauf Datensätze in eine Org schreibt, zeigt dieser Tab, woher sie kamen — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Datensatz — und wie viele Datensätze je Objekt dort angekommen sind.",
+    "lineageEmptyDesc": "Sobald ein Lauf Datensätze in eine Org schreibt, zeigt dieser Tab, woher sie kamen — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Dataset — und wie viele Datensätze je Objekt dort angekommen sind.",
     "lineageUnreadable": "Die Datenherkunft konnte nicht gelesen werden: {{error}}",
     "lineageRun": "Lauf",
     "viewRun": "Lauf ansehen",
@@ -2416,7 +2416,7 @@
       "generator": "Generierte Daten",
       "csv": "CSV-Datei",
       "backup": "Sicherung",
-      "dataset": "Eingefrorener Datensatz"
+      "dataset": "Eingefrorenes Dataset"
     },
     "object": "Objekt",
     "nodeCount_one": "{{count}} Knoten",
@@ -2572,7 +2572,7 @@
       "sweepAutomation1540Desc": "Eine Forge-Entfernung kann jetzt auch zurücknehmen, was die Automatisierung des Ziels während des Laufs erstellt hat, zuerst aufgelistet und erfragt. Der Automatisierungsbericht liest die Startbedingung jedes Flows, und die Überprüfung zählt ein vom Ziel geleertes Lookup nicht mehr als defekt.",
       "scaleTested1550": "Sync, Seed, Autopilot und Frozen halten im großen Maßstab",
       "scaleTested1550Desc": "Auf einer großen Org getestet: Sync ordnet Datensatztypen zu und hält zurück, was das Ziel ablehnen würde, und seine Simulation sagt es vorher. Autopilot kopiert nur die Datensätze, auf die Ihre Auswahl verweist, und prüft zuerst den Speicher des Ziels. Seed kann einen Lauf zurücknehmen, und Frozen wählt mit weit weniger API-Aufrufen aus.",
-      "frozenScale1560": "Frozen Dataset hält auf einer großen Org",
+      "frozenScale1560": "Das eingefrorene Dataset hält auf einer großen Org",
       "frozenScale1560Desc": "Ein Dossier bleibt ein Dossier: Kinder werden nur unter dem gelesen, was seine Wurzel erreicht, und ein genannter Elterndatensatz bringt nicht mehr alle Geschwister mit. Ein Laden hält zurück, was ein abgelehnter Elterndatensatz verwaisen ließe, und meldet ein Scheitern, wenn es eines gab; eine Entfernung kann aufräumen, was die Automatisierung des Ziels erstellt hat. Persönliche Merkmale wie Geschlecht oder Anrede bleiben geleert.",
       "syncLinks1570": "Sync verknüpft über Läufe hinweg",
       "syncLinks1570Desc": "Eine gespeicherte Sync-Konfiguration merkt sich jetzt die Datensätze, die ihre Läufe geschrieben haben, sodass ein späterer oder Delta-Lauf auf sie verweist, und ein vom Ziel als Duplikat abgelehnter Elterndatensatz wird mit dem passenden Datensatz verknüpft. Die DataOps-Maskierung erhält eine Befehlszeile mit Snapshot und Wiederherstellung, ein Seed-Lauf lässt sich aus seinen Ergebnissen entfernen, und der Automatisierungsbericht liest die Flows einer großen Org innerhalb der Salesforce-Limits.",
@@ -2581,7 +2581,7 @@
       "seedCurrency1590": "Seed und Währungen gehen weiter",
       "seedCurrency1590Desc": "Seed wählt jetzt einen Datensatztyp für Personen- oder Firmenkonten, behält seine Läufe, sodass ein früherer aus jedem Fenster entfernt werden kann, und kann wegräumen, was die Automatisierung des Ziels erstellt hat. Positionen folgen der Währung ihres Elterndatensatzes, zu datierten Kursen, wo die erweiterte Währungsverwaltung aktiv ist, und Autopilot folgt Account standardmäßig.",
       "emptyOrg1600": "Eine leere Org mit einem Klick füllen",
-      "emptyOrg1600Desc": "Seed öffnet mit seiner Vorlagengalerie: CRM Starter füllt eine neue Developer Edition mit verknüpften Accounts, Kontakten, Opportunities mit Preisen und Fällen, nachdem der Speicher geprüft wurde. Eine Developer Edition gilt nicht mehr als Produktion, Sync und Autopilot verbergen echte E-Mail-Adressen und Telefonnummern standardmäßig, und große Löschungen dauern weniger als eine Minute.",
+      "emptyOrg1600Desc": "Seed öffnet mit seiner Vorlagengalerie: CRM-Starter füllt eine neue Developer Edition mit verknüpften Accounts, Kontakten, Opportunities mit Preisen und Kundenvorgängen, nachdem der Speicher geprüft wurde. Eine Developer Edition gilt nicht mehr als Produktion, Sync und Autopilot verbergen echte E-Mail-Adressen und Telefonnummern standardmäßig, und große Löschungen dauern weniger als eine Minute.",
       "firstRun1610": "Von keiner Org zu Demodaten",
       "firstRun1610Desc": "Neue Nutzer werden ab der ersten Ansicht geführt: die Orgs importieren, die die Salesforce CLI schon kennt, oder sich im Browser anmelden, dann die Org mit Seed füllen. Seed zeigt die Automatisierung des Ziels und lehnt einen Lauf ab, der die E-Mails des Tages aufbrauchen würde. Fehler sind in jedem Modul verständlich formuliert, mit einem nächsten Schritt, ein gestoppter Forge-Lauf wird fortgesetzt, ohne etwas doppelt zu schreiben, und SandForge bleibt untätig, bis eine seiner Ansichten geöffnet wird.",
       "exactResume1530": "Genau dort fortsetzen, wo der Lauf anhielt",
@@ -2659,7 +2659,7 @@
       "fixRound139": "Jedes Modul sagt, was es zurückgehalten hat",
       "fixRound139Desc": "Forge hält zurück, was Sie auslassen, und jede Zeile, die es braucht, der Seed-Klon ordnet nach dem, was beide Orgs gemeinsam haben, und meldet einen abgebrochenen Klon, die Zeilen, die die Plattform selbst schreibt, bleiben ihr in jedem Modul überlassen, und ein abgebrochener Lauf, der nichts geschrieben hat, wird als gestoppt erfasst.",
       "fixRound1382": "Klone bringen mit, was ein Datensatz wirklich enthält",
-      "fixRound1382Desc": "Ein Opportunity-Klon mit Produktpositionen funktioniert mit den Standardeinstellungen, die Ergebnisse zählen den Klon statt ganzer Tabellen, jedes Modul überlässt verfolgte Änderungen der Plattform, und ein Eingefrorener Datensatz enthält seine Angebote, Aufträge und Preise.",
+      "fixRound1382Desc": "Ein Opportunity-Klon mit Produktpositionen funktioniert mit den Standardeinstellungen, die Ergebnisse zählen den Klon statt ganzer Tabellen, jedes Modul überlässt verfolgte Änderungen der Plattform, und ein eingefrorenes Dataset enthält seine Angebote, Aufträge und Preise.",
       "fixRound1381": "Forge: Korrekturen an Klonen und Entfernungen",
       "fixRound1381Desc": "Ein Opportunity-Klon schreibt die Produkte, die seine Positionen nennen, und jede Währung behält ihren eigenen Preis; ein Lauf, dessen Dateien nicht nachgeschlagen werden konnten, wird vor dem Schreiben abgelehnt; das Entfernen eines Laufs lässt stehen, was ein Kollege währenddessen hinzufügt, und gibt einem Auftrag, den es auf Entwurf gesetzt hat, seinen Status zurück, wenn der Auftrag bleibt.",
       "forgeFiles": "Forge kopiert die Dateien dessen, was es klont",
@@ -2674,9 +2674,9 @@
       "fixRound137Desc": "Ein Klon ab einem Datensatz übernimmt jedes Kind dessen, was er klont – bisher blieben bei einem Lookup-Feld zurück zum übergeordneten Datensatz oder bei einem Kind eines anderen Benutzers still Datensätze zurück; ein Fenster verwirft nicht mehr, was ein anderes speichert; ein Konfigurationsprofil bringt Forge-Vorlagen in das Projekt, in das es importiert wurde; Japanisch, Französisch und Spanisch benennen eine Sache mit einem Wort.",
       "forgeAnonymizes": "Forge anonymisiert, was es klont",
       "forgeAnonymizesDesc": "Der Anonymisierungsschalter bewirkte nichts: Ein Klon trug die personenbezogenen Daten der Quelle mit. Die in der Prüfung gewählten Felder und Methoden werden jetzt angewendet, und E-Mails bleiben gültige Adressen.",
-      "fixRound136": "Sync, Compare und Zeitpläne korrigiert",
-      "fixRound136Desc": "Sync behält umbenannte, konstante und berechnete Felder; ein Sync-Zeitplan läuft einmal, egal wie viele Fenster offen sind; Compare liest Entferntes und Hinzugefügtes richtig herum; Fehler bleiben sichtbar, bis Sie sie gelesen haben.",
-      "compareDeploy": "Compare stellt bereit, was sich unterscheidet",
+      "fixRound136": "Sync, Vergleich und Zeitpläne korrigiert",
+      "fixRound136Desc": "Sync behält umbenannte, konstante und berechnete Felder; ein Sync-Zeitplan läuft einmal, egal wie viele Fenster offen sind; der Vergleich liest Entferntes und Hinzugefügtes richtig herum; Fehler bleiben sichtbar, bis Sie sie gelesen haben.",
+      "compareDeploy": "Der Vergleich stellt bereit, was sich unterscheidet",
       "compareDeployDesc": "Wählen Sie die in der Quelle neuen oder geänderten Komponenten und stellen Sie sie im Ziel bereit, zuerst validiert: der Status jeder Komponente, fehlgeschlagene Tests mit ihren Zeilen und eine echte Bereitstellung nur einer bestandenen Validierung.",
       "realtimeSync": "Echtzeit-Synchronisierung",
       "realtimeSyncDesc": "Sync überträgt jede Änderung, die die Quell-Org veröffentlicht, sofort ins Ziel – per externer ID, Datensatz-ID oder gespeicherter Zuordnung – und hält eine Änderung, die mit einer neueren Bearbeitung kollidiert, für Ihre Entscheidung zurück.",
@@ -2685,14 +2685,14 @@
       "compliance": "Betroffenenanfragen und Bereinigung",
       "complianceDesc": "DataOps findet alle Datensätze zu einer Person, exportiert sie und löscht sie nach einer Prüfung und Ihrer Bestätigung; die Bereinigung empfiehlt veraltete und verwaiste Datensätze sowie Duplikate und löscht nur, was ein Scan empfohlen hat.",
       "auditTrail": "Jeder Schreibvorgang wird festgehalten",
-      "auditTrailDesc": "Jeder Lauf, der in eine Org schreibt – Forge, Sync, Seed, Autopilot, DataOps, Frozen Dataset –, wird jetzt in Reports mit seinem Ergebnis, der Entscheidung der Production Guard, seinen Zählungen pro Objekt und der Herkunft seiner Daten festgehalten. Nie eine Datensatz-ID oder ein Feldwert.",
+      "auditTrailDesc": "Jeder Lauf, der in eine Org schreibt – Forge, Sync, Seed, Autopilot, DataOps, Eingefrorenes Dataset –, wird jetzt in den Berichten mit seinem Ergebnis, der Entscheidung der Production Guard, seinen Zählungen pro Objekt und der Herkunft seiner Daten festgehalten. Nie eine Datensatz-ID oder ein Feldwert.",
       "dataopsQuality": "Datenqualität, von der Org gezählt",
       "dataopsQualityDesc": "DataOps → Qualität prüft bis zu zehn Objekte: wie oft jedes Feld gefüllt ist, leer gelassene Pflichtfelder, Duplikate nach einem Schlüssel Ihrer Wahl, Datensätze, die lange niemand geändert hat. Jede Zahl ist eine Zählung der Org; nichts wird Datensatz für Datensatz gelesen.",
       "seedRuns": "Jeder vom Assistenten angebotene Seed startet",
       "seedRunsDesc": "Ein Lauf mit zwei bis vier Objekten wurde jedes Mal abgelehnt: Er ging ohne Feldregeln los. Jetzt startet er und schreibt – und eine Vorlage kann Kinddatensätze auf die gewählten Eltern verteilen, im Lauf erzeugt oder bereits in der Org.",
       "pipelineSteps": "Pipelines sichern, vergleichen, prüfen und benachrichtigen",
       "pipelineStepsDesc": "Die Schritte Sicherung, Vergleich, Vorprüfung und Benachrichtigung laufen jetzt mit demselben Code wie ihre Seiten; die Ausführungsansicht folgt jedem Schritt, und Abbrechen stoppt einen Lauf. Schritte, die in eine Org schreiben, bleiben abgelehnt: Eine Pipeline läuft ohne jemanden, der bestätigt.",
-      "compareContent": "Compare liest, was es vergleicht",
+      "compareContent": "Der Vergleich liest, was er vergleicht",
       "compareContentDesc": "Zwischen zwei Sandboxes meldete es 374 geänderte Komponenten, wo es 47 sind: IDs und Datumswerte unterscheiden sich zwischen zwei beliebigen Orgs, und verglichen wurde, wie jede Org sie auflistete. Jetzt liest es den Inhalt jeder Komponente, die beide Orgs enthalten; eine, die es nicht lesen konnte, gilt als nicht verglichen – nie als unverändert, nie als sicher.",
       "refreshNoticed": "Ein Sandbox-Refresh wird erkannt",
       "refreshNoticedDesc": "Ein Refresh gibt einer Sandbox eine neue Org unter demselben Login, und SandForge arbeitete mit dem weiter, was es über die alte wusste. Jetzt prüft es, als welche Org eine Sandbox antwortet, meldet eine Änderung und verwirft, was es über die frühere Org gespeichert hatte.",
@@ -2721,7 +2721,7 @@
       "stylesheet": "Das Panel sieht wieder aus wie es soll",
       "stylesheetDesc": "Die 1.23.0 ging ohne ihr Stylesheet hinaus, sodass jeder Bildschirm als nacktes HTML erschien. Eine Prüfung liest jetzt die Dateien, auf die die Erweiterung verweist, und fragt für jede die Festplatte.",
       "syncWrites": "Eine Synchronisierung schreibt die Felder, die sie gelesen hat",
-      "syncWritesDesc": "Eine Konfiguration ohne Feldzuordnung schrieb leere Datensätze, und Quick Sync verglich über einen Schlüssel, den die Ziel-Org nie ausgegeben hatte — kein Lauf konnte gelingen.",
+      "syncWritesDesc": "Eine Konfiguration ohne Feldzuordnung schrieb leere Datensätze, und Schnell-Sync verglich über einen Schlüssel, den die Ziel-Org nie ausgegeben hatte — kein Lauf konnte gelingen.",
       "failureReason": "Ein fehlgeschlagener Lauf sagt, warum",
       "failureReasonDesc": "Der Grund bleibt am Verlaufseintrag, neben den Objekten, die der Lauf vor dem Abbruch bereits geschrieben hatte.",
       "forgeProgress": "Forge zeigt nicht mehr den Fortschritt des letzten Laufs",
@@ -2733,7 +2733,7 @@
       "perObjectMapping": "Jedes Objekt zuordnen, nicht nur das erste",
       "perObjectMappingDesc": "Was Sie zuordneten, hing an jedem Objekt des Laufs, sodass wirklich nur ein Objekt zugeordnet werden konnte. Jedes behält nun seine eigene Zuordnung, und ein Objekt ohne Zuordnung wird Feld für Feld kopiert.",
       "describeOnce": "Ein Objekt wird einmal beschrieben, nicht zweimal",
-      "describeOnceDesc": "Ein Quick Sync beschrieb seine Objekte für die Zuordnung, und der Lauf beschrieb sie danach erneut. Jede Beschreibung hat ihr eigenes Zeitlimit, und eines zu überschreiten beendet den Lauf.",
+      "describeOnceDesc": "Ein Schnell-Sync beschrieb seine Objekte für die Zuordnung, und der Lauf beschrieb sie danach erneut. Jede Beschreibung hat ihr eigenes Zeitlimit, und eines zu überschreiten beendet den Lauf.",
       "orgsCrash": "Die Seite Organisationen öffnet wieder",
       "orgsCrashDesc": "Eine von einer älteren Version gespeicherte Org konnte die Seite beim Laden zum Absturz bringen. Gespeicherte Orgs erhalten beim Lesen nun die erwartete Form.",
       "forgeCounts": "Forge trägt die Zahlen ein, während es liest",
@@ -2762,18 +2762,18 @@
       "seedFillsDesc": "Zum ersten Mal gegen eine echte Org ausgeführt, schrieb Seed nichts und meldete Erfolg, und füllte die Org dann mit Datensätzen, die an nichts hängen. Jetzt lehnt er eine Vorlage ab, die nichts schreiben kann, hält vor den Kindern eines nicht geschriebenen Objekts an und lässt ein fehlendes Feld weg, statt das Objekt daran zu verlieren.",
       "autopilotCopies": "Autopilot kopiert, worum Sie gebeten haben — und schreibt es",
       "autopilotCopiesDesc": "Eine Anfrage über zwei Objekte lieferte zwanzig und schrieb keinen Datensatz: Sie lief in Benutzer, Profile und Verlaufsobjekte, schickte jedes gelesene Feld und setzte Quell-IDs in die Lookups des Ziels. Alles behoben, und ein Gate hält das nächste Modul davon ab, die Dublettenregel-Freigabe zu vergessen.",
-      "backupPartial": "Ein Backup sagt, wenn es nur ein Teil ist",
+      "backupPartial": "Eine Sicherung sagt, wenn sie nur ein Teil ist",
       "backupPartialDesc": "Es liest bis zu zweitausend Datensätze je Objekt — fünfhundert gegen eine Produktions-Org — und meldete in beiden Fällen einen vollständigen Snapshot. An einer echten Org gemessen: 656 Datensätze bei 500 gesichert und als fertig gemeldet. Es sagt nun, wenn eine Grenze es abgeschnitten hat, und der Snapshot behält das.",
-      "frozenLoads": "Ein eingefrorener Datensatz lädt vollständig",
-      "frozenLoadsDesc": "Zum ersten Mal gegen eine echte Org ausgeführt, konnte Frozen Dataset keine einzige Wurzel auswählen, und sein erstes Laden schrieb einen von achtundzwanzig Datensätzen. Jetzt liest es, was ein Vorgang braucht — die Preise, auf die seine Aufträge zeigen, und die Standardpreise dahinter —, lädt achtundachtzig Datensätze, lädt sie sauber neu und besteht seine eigene Prüfung.",
+      "frozenLoads": "Ein eingefrorenes Dataset lädt vollständig",
+      "frozenLoadsDesc": "Zum ersten Mal gegen eine echte Org ausgeführt, konnte das eingefrorene Dataset keine einzige Wurzel auswählen, und sein erstes Laden schrieb einen von achtundzwanzig Datensätzen. Jetzt liest es, was ein Vorgang braucht — die Preise, auf die seine Aufträge zeigen, und die Standardpreise dahinter —, lädt achtundachtzig Datensätze, lädt sie sauber neu und besteht seine eigene Prüfung.",
       "automationHonest": "Kein Pipeline-Schritt meldet Arbeit, die er nicht getan hat",
       "automationHonestDesc": "Dreizehn der fünfzehn Schritttypen hatten nichts dahinter und meldeten Erfolg, und Delay wartete null Sekunden. Eine Pipeline mit einem nicht ausführbaren Schritt wird jetzt als solche gekennzeichnet und vor dem Start abgelehnt, statt als erledigt protokolliert zu werden.",
-      "monitorReads": "Monitor und Compare zeigen, was die Org enthält",
-      "monitorReadsDesc": "Zum ersten Mal gegen echte Orgs ausgeführt: Der Speicher schlug in jeder Org fehl, benutzerdefinierte Objekte wurden einundvierzig statt fünf gezählt, die Warnungen einer Org erschienen bei einer anderen, und Compare las von jeder Org einen anderen Ausschnitt der Berechtigungssätze. Jetzt lesen sie, was sie anzeigen, und ein nicht lesbares Gesundheitssignal sagt das, statt eine gesunde Org zu melden."
+      "monitorReads": "Monitor und Vergleich zeigen, was die Org enthält",
+      "monitorReadsDesc": "Zum ersten Mal gegen echte Orgs ausgeführt: Der Speicher schlug in jeder Org fehl, benutzerdefinierte Objekte wurden einundvierzig statt fünf gezählt, die Warnungen einer Org erschienen bei einer anderen, und der Vergleich las von jeder Org einen anderen Ausschnitt der Berechtigungssätze. Jetzt lesen sie, was sie anzeigen, und ein nicht lesbares Gesundheitssignal sagt das, statt eine gesunde Org zu melden."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
-    "openFrozen": "Eingefrorenen Datensatz öffnen",
+    "openFrozen": "Eingefrorenes Dataset öffnen",
     "paths": {
       "forgeTitle": "Aus einem Datensatz klonen",
       "forgeDesc": "Datensatz-ID einfügen, Beziehungsgraph entdecken, in Ihre Sandbox klonen",
@@ -2792,7 +2792,7 @@
     "title": "Hilfe & Ressourcen",
     "gettingStarted": "Erste Schritte",
     "gettingStartedDesc": "Lernen Sie die Grundlagen von SandForge",
-    "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org auf der Seite Organisationen.\n2. Füllen Sie sie mit Seed: Eine Vorlage wie CRM Starter schreibt verknüpfte Accounts, Kontakte, Opportunities und Fälle, nachdem sie den Speicher der Org geprüft hat.\n3. Klonen Sie mit Forge: Kopieren Sie einen echten Datensatz mit allem, was dazugehört, aus einer anderen Org.\n4. Öffnen Sie den Monitor, um Gesundheit, Limits und Jobs der Org zu prüfen.\n5. Entdecken Sie Sync, Compare, DataOps, den eingefrorenen Datensatz und Automation, wenn Sie sie brauchen.",
+    "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org auf der Seite Organisationen.\n2. Füllen Sie sie mit Seed: Eine Vorlage wie CRM-Starter schreibt verknüpfte Accounts, Kontakte, Opportunities und Kundenvorgänge, nachdem sie den Speicher der Org geprüft hat.\n3. Klonen Sie mit Forge: Kopieren Sie einen echten Datensatz mit allem, was dazugehört, aus einer anderen Org.\n4. Öffnen Sie den Monitor, um Gesundheit, Limits und Jobs der Org zu prüfen.\n5. Entdecken Sie Sync, den Vergleich, DataOps, das eingefrorene Dataset und die Automatisierung, wenn Sie sie brauchen.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen für kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung für kontinuierliche Überwachung.",
     "seedContent": "In fünf Schritten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Vollständig oder Delta: Ein vollständiger Lauf liest jedes Objekt ganz; ein Delta-Lauf einer gespeicherten Konfiguration liest jedes Objekt ab dem Punkt, an dem sein letzter erfolgreicher Lauf aufhörte, und kann im Ziel löschen, was die Quelle gelöscht hat. Eine Konfiguration, die Inkrementell verlangt, wird abgelehnt\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Trimmen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Tab „Echtzeit“: folgt den Änderungsereignissen (Change Data Capture), die die Quell-Org veröffentlicht, und schreibt jede Änderung sofort in das Ziel, gefunden über eine externe ID, die Datensatz-ID oder die Zuordnung einer gespeicherten Sync; Löschungen nur auf Wunsch. Um einem weiteren Objekt zu folgen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus. Über eine Änderung, deren Zieldatensatz danach bearbeitet wurde, entscheidet die Strategie, oder sie wird auf dem Tab „Konflikte“ zurückgehalten\n- Entfernen, was ein Lauf erstellt hat: Aus den Ergebnissen oder dem Verlaufseintrag eines Laufs löscht sein Entfernen die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo das Ziel keinen hatte, und die Dateien, die er erstellt hat; Production Guard verweigert es in einer Produktions-Org. Die Datensätze, die ein Lauf aktualisiert hat, behalten ihre neuen Werte: Erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst die Objekte, die die Anonymisierungsvorlagen maskieren: Contact, Lead, Account und Opportunity bei den mitgelieferten)",
@@ -2800,9 +2800,9 @@
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein Snapshot der Objekte, die die Anonymisierungsvorlagen maskieren, oder derer, die die gewählte Vorlage maskiert, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance: findet die Felder der gewählten Objekte mit personenbezogenen Daten, bestätigt an einer Stichprobe ihrer letzten 200 Datensätze; findet dann die Datensätze einer Person über E-Mail, Name oder Telefon, exportiert sie in eine Datei und anonymisiert sie direkt oder löscht sie – nach einer Prüfung, einer eingetippten Bestätigung und Production Guard; ein lokales Protokoll hält Zahlen zu jeder Anfrage fest, nie die betroffene Person\n- Bereinigung: zählt die Datensätze, die seit einer Anzahl von Tagen niemand geändert hat, die, die ein Lookup-Feld leer lassen, auf das sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts; jede Gruppe lässt sich exportieren oder nach einer Prüfung, einer eingetippten Bestätigung und Production Guard löschen, höchstens 1.000 auf einmal",
     "automationContent": "Visueller Pipeline-Builder:\n- Die Palette bietet die Schritttypen an, die eine Pipeline ausführt: Sicherung, Vergleich, Vorabprüfung, Verzögerung und Benachrichtigung; ein Bedingungsschritt kommt mit einer Vorlage aus dem Marketplace. Eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "In vier Schritten:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nDirekt klonen, unter Graph ermitteln, führt die Ermittlung und danach das Klonen des Gefundenen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten: Der Lauf wird so gesendet, wie die Überprüfung ihn sendet, wenn dort nichts geändert wurde, Production Guard beurteilt ihn wie jeden Lauf, und der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt.\n\nGraph oder Tabelle: Die Bildschirme Ermittlung, Überprüfung und Ausführung zeichnen einen Graphen mit bis zu 25 Objekten und listen einen größeren in einer Tabelle. Der Umschalter Graph-Ansicht / Tabellenansicht wählt auf allen Bildschirmen die andere Ansicht, bis das Panel geschlossen wird; die Einstellung sandforge.forge.graphView (auto, graph oder table) wählt die Ansicht, mit der sie öffnen.\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
-    "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
+    "frozenContent": "Das eingefrorene Dataset wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor das Dataset geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
-    "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat, NL2SOQL im KI-Tab von Forge sowie eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in Automation\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automation-Lauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Die Schema-Empfehlungen von Compare und der Anomalie-Scan von Monitor sind regelbasiert: Sie laufen mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
+    "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat, NL2SOQL im KI-Tab von Forge sowie eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in der Automatisierung\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automatisierungslauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Die Schema-Empfehlungen des Vergleichs und der Anomalie-Scan des Monitors sind regelbasiert: Sie laufen mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
     "shortcutsContent": "G + Taste — Zu einem Modul springen (z. B. G dann F für Forge, G dann Y für Sync, G dann L für Hilfe)\nStrg+K — Befehlspalette\nAlt+N — Zur letzten Benachrichtigung springen, die angezeigt bleibt\nEscape — Modale und Dialoge schließen\nTab — Zwischen Elementen navigieren\nPfeiltasten — Zwischen Registerkarten wechseln\nEnter/Leertaste — Schaltflächen und Links aktivieren",
     "faqContent": "F: Warum ist mein Gesundheitswert niedrig?\nA: Prüfen Sie die API-Limit-Nutzung, fehlgeschlagene Jobs und den Speicherverbrauch. Der Wert gewichtet mehrere Faktoren.\n\nF: Wie behebe ich Timeout-Fehler?\nA: SandForge hat keine Timeout-Einstellung für Salesforce-Aufrufe. Verringern Sie die Stapelgröße (sandforge.seed.defaultBatchSize und sandforge.sync.defaultBatchSize in den VS Code-Einstellungen) und teilen Sie einen großen Lauf in kleinere auf. Grappe macht einen Lauf nicht schneller: Es meldet den Fortschritt je Partition.\n\nF: Kann ich eine Sync-Operation rückgängig machen?\nA: Teilweise. Das Entfernen eines Laufs, aus seinen Ergebnissen oder seinem Verlaufseintrag, löscht, was er erstellt hat: die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo das Ziel keinen hatte, und seine Dateien. Die Datensätze, die er aktualisiert hat, behalten ihre neuen Werte. Erstellen Sie vor einem riskanten Lauf eine DataOps-Sicherung der Ziel-Org: Sie umfasst die Objekte, die die Anonymisierungsvorlagen maskieren, und lässt sich nur in diese Org zurückspielen.\n\nF: Wie verbinde ich eine Produktions-Org sicher?\nA: SandForge erkennt eine Produktions-Org und markiert sie mit der kritischen Sicherheitsstufe. Production Guard lehnt dort ein Löschen oder eine Metadaten-Bereitstellung von vornherein ab und lässt Sie jeden anderen Schreibvorgang bestätigen, bevor er läuft (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
@@ -2825,7 +2825,7 @@
     "startTour": "Geführte Tour starten",
     "autopilotContent": "In drei Schritten:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn. E-Mail-Adressen und Telefonnummern werden neutralisiert, sofern Sie das nicht abwählen — jede Adresse unter .invalid, jede Nummer fiktiv —, und unter Erweitert wählen Sie ein Compliance-Framework, das mehr anonymisiert (DSGVO, CCPA, HIPAA oder PCI-DSS)",
     "migrationContent": "Migration wandelt eine bestehende Migrationsdefinition in eine Sync-Konfiguration um:\n- Importieren Sie eine SFDMU-export.json oder eine .json- bzw. .csv-Datei\n- Der Import liest die Datei und ändert in keiner Org etwas\n- Das Ausführen der umgewandelten Konfiguration schreibt Datensätze in die Ziel-Org",
-    "reportsContent": "Berichte zeigt, was die Läufe von SandForge getan haben:\n- Ausführungen: jeder Forge- und Sync-Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Protokoll: jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datensatzes — mit dem, was er in jedes Objekt geschrieben hat, und wie Production Guard entschieden hat\n- Datenherkunft: woher die Datensätze kamen, die ein Lauf geschrieben hat — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Datensatz — und wie viele je Objekt"
+    "reportsContent": "Berichte zeigt, was die Läufe von SandForge getan haben:\n- Ausführungen: jeder Forge- und Sync-Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Protokoll: jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datasets — mit dem, was er in jedes Objekt geschrieben hat, und wie Production Guard entschieden hat\n- Datenherkunft: woher die Datensätze kamen, die ein Lauf geschrieben hat — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Dataset — und wie viele je Objekt"
   },
   "emptyState": {
     "connectViaSfdx": "Verbinden Sie eine Org (Anmeldung im Browser)",
@@ -3008,8 +3008,8 @@
     "failed": "Fehlgeschlagen",
     "pause": "Pause",
     "resume": "Fortsetzen",
-    "abort": "Abbrechen",
-    "abortConfirm": "Lauf abbrechen? Er hält an, sobald der laufende Schritt beendet ist, und was er geschrieben hat, bleibt in der Ziel-Org.",
+    "abort": "Anhalten",
+    "abortConfirm": "Lauf anhalten? Er hält an, sobald der laufende Schritt beendet ist, und was er geschrieben hat, bleibt in der Ziel-Org.",
     "elapsed": "Vergangen",
     "discovery": "Graph-Ermittlung",
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
@@ -3243,8 +3243,8 @@
       "existingNote_other": "Davon {{count}} bereits in der Ziel-Org: verknüpft, nicht erstellt.",
       "existingBadge": "vorhanden",
       "openRecord": "{{object}} {{id}} in der Ziel-Org öffnen",
-      "openRoot": "Geklontes {{object}} in {{org}} öffnen",
-      "openRootInTarget": "Geklontes {{object}} in der Ziel-Org öffnen",
+      "openRoot": "Geklonten Datensatz ({{object}}) in {{org}} öffnen",
+      "openRootInTarget": "Geklonten Datensatz ({{object}}) in der Ziel-Org öffnen",
       "openNote": "Wählen Sie die Id eines Datensatzes, den dieser Durchlauf erstellt hat, um ihn in der Ziel-Org zu öffnen.",
       "openFailed": "Der Datensatz konnte nicht geöffnet werden: {{message}}",
       "inJournal_one": "Die Id des Datensatzes, den dieser Durchlauf zugeordnet hat, liegt in seinem Journal, nicht in seinen Ergebnissen: Id-Zuordnung speichern schreibt sie in eine Datei.",
@@ -3346,8 +3346,8 @@
       },
       "planTab": "Plan",
       "anonymizationTab": "Anonymisierung",
-      "anonymizeTheseFields_one": "Das {{count}} von der Erkundung gefundene personenbezogene Feld anonymisieren",
-      "anonymizeTheseFields_other": "Die {{count}} von der Erkundung gefundenen personenbezogenen Felder anonymisieren",
+      "anonymizeTheseFields_one": "Das {{count}} von der Ermittlung gefundene personenbezogene Feld anonymisieren",
+      "anonymizeTheseFields_other": "Die {{count}} von der Ermittlung gefundenen personenbezogenen Felder anonymisieren",
       "anonymizationOff": "Aus: Der Lauf schreibt diese Felder so, wie die Quelle sie enthält. E-Mail-Adressen und Telefonnummern werden trotzdem neutralisiert, es sei denn, das Formular behält sie.",
       "complianceTab": "Compliance",
       "metadataTab": "Metadaten",
@@ -4133,7 +4133,7 @@
       "minutesAgo": "vor {{count}}m",
       "hoursAgo": "vor {{count}}h"
     },
-    "fillOrg": "{{alias}} mit Demodaten füllen",
+    "fillOrg": "Mit Demodaten füllen: {{alias}}",
     "fillOrgDesc": "Eine Seed-Vorlage, eine Bestätigung, kein KI-Schlüssel",
     "advanced": "Erweitert",
     "firstOrg": {
@@ -4155,7 +4155,7 @@
     "subtitle": "Einmal extrahieren, deterministisch pseudonymisieren, nach jedem Sandbox-Refresh identisch wieder laden",
     "emptyState": {
       "title": "Keine Org verbunden",
-      "description": "Verbinden Sie eine Salesforce-Org, um einen eingefrorenen Referenzdatensatz zu erstellen oder erneut zu laden.",
+      "description": "Verbinden Sie eine Salesforce-Org, um ein eingefrorenes Referenz-Dataset zu erstellen oder erneut zu laden.",
       "cta": "Org auswählen"
     },
     "status": {
@@ -4164,25 +4164,25 @@
       "saltKept": "Im geheimen Speicher von VS Code aufbewahrt",
       "saltFromEnvironment": "Aus SANDFORGE_FROZEN_SALT",
       "saltMadeOnExtraction": "Bei der ersten Extraktion erstellt und aufbewahrt",
-      "dataset": "Eingefrorener Datensatz",
+      "dataset": "Eingefrorenes Dataset",
       "records_one": "{{count}} Datensatz",
       "records_other": "{{count}} Datensätze",
-      "noDataset": "Noch kein Datensatz eingefroren",
+      "noDataset": "Noch kein Dataset eingefroren",
       "selection": "Auswahl",
       "noSelection": "Noch keine Auswahl",
       "lastVerify": "Letzte Prüfung",
-      "saltMismatch": "Das Salt dieses Editors ({{current}}) ist nicht das, mit dem dieser Datensatz erstellt wurde ({{manifest}}). Eine neue Extraktion damit gäbe denselben Datensätzen andere Pseudonyme als in diesem Datensatz. Setzen Sie zuerst wieder dieses Salt, mit „SandForge: Ein Salt für das Frozen Dataset verwenden“ oder SANDFORGE_FROZEN_SALT."
+      "saltMismatch": "Das Salt dieses Editors ({{current}}) ist nicht das, mit dem dieses Dataset erstellt wurde ({{manifest}}). Eine neue Extraktion damit gäbe denselben Datensätzen andere Pseudonyme als in diesem Dataset. Setzen Sie zuerst wieder dieses Salt, mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“ oder SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extrahieren",
       "load": "Laden"
     },
     "salt": {
-      "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team diesen Datensatz extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des Frozen Dataset kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das Frozen Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde.",
-      "createdTitle": "Salt des eingefrorenen Datensatzes"
+      "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team dieses Dataset extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des eingefrorenen Datasets kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde.",
+      "createdTitle": "Salt des eingefrorenen Datasets"
     },
     "manifest": {
-      "version": "Datensatz v{{version}}"
+      "version": "Dataset v{{version}}"
     },
     "config": {
       "title": "Projektkonfiguration",
@@ -4239,7 +4239,7 @@
       "run": "Extraktion starten",
       "summary_one": "{{count}} Datensatz in {{files}} Dateien eingefroren",
       "summary_other": "{{count}} Datensätze in {{files}} Dateien eingefroren",
-      "saltHint": "Jedes Pseudonym wird mit dem Salt dieses Editors gezogen, das bei der ersten Extraktion erstellt und im geheimen Speicher von VS Code aufbewahrt wird. Um dieselben Pseudonyme wie jemand im Team zu extrahieren, setzen Sie dessen Salt mit „SandForge: Ein Salt für das Frozen Dataset verwenden“; Ihres geben Sie mit „SandForge: Salt des Frozen Dataset kopieren“ weiter. SANDFORGE_FROZEN_SALT hat, wo es gesetzt ist, Vorrang vor beiden. Ein Laden braucht das Salt nicht."
+      "saltHint": "Jedes Pseudonym wird mit dem Salt dieses Editors gezogen, das bei der ersten Extraktion erstellt und im geheimen Speicher von VS Code aufbewahrt wird. Um dieselben Pseudonyme wie jemand im Team zu extrahieren, setzen Sie dessen Salt mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“; Ihres geben Sie mit „SandForge: Salt des eingefrorenen Datasets kopieren“ weiter. SANDFORGE_FROZEN_SALT hat, wo es gesetzt ist, Vorrang vor beiden. Ein Laden braucht das Salt nicht."
     },
     "control": {
       "check": "Prüfung",
@@ -4276,7 +4276,7 @@
       "hint": "Aus dem Ziel gelesen, nichts geschrieben. Das Ziel kann Datensätze noch ablehnen oder als Duplikate überspringen, und die direkte Beziehung eines Kontakts oder die Aufgabe einer E-Mail wird mit der verknüpft, die die Plattform schreibt, sobald ihr Datensatz angelegt ist.",
       "earlierLoads_one": "Neuladen: entfernt, was {{count}} früherer Ladevorgang in diese Org erstellt hat und dieser nicht wiederfindet.",
       "earlierLoads_other": "Neuladen: entfernt, was {{count}} frühere Ladevorgänge in diese Org erstellt haben und dieser nicht wiederfindet.",
-      "fromFiles": "Im Datensatz",
+      "fromFiles": "Im Dataset",
       "toInsert": "Einzufügen",
       "reusedByKeys": "Über Identitätsschlüssel gefunden",
       "reusedFromCatalog": "Im Katalog gefunden",
@@ -4303,7 +4303,7 @@
     },
     "verify": {
       "run": "Erneut prüfen",
-      "noLoad": "Für {{org}} ist kein Ladevorgang erfasst: Laden Sie den Datensatz dorthin, bevor Sie die Org prüfen.",
+      "noLoad": "Für {{org}} ist kein Ladevorgang erfasst: Laden Sie das Dataset dorthin, bevor Sie die Org prüfen.",
       "title": "Prüfung nach dem Laden",
       "attempts_one": "{{count}} Messung",
       "attempts_other": "{{count}} Messungen",
@@ -4337,12 +4337,12 @@
       "leftToThePlatform": "Beim Laden ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",
       "excludedObjects": "Nicht geladene Objekte",
       "heldForExcludedParents": "Beim Laden ausgelassen — ein Lookup, ohne den diese Datensätze nicht geladen werden können, verweist auf ein Objekt, das excludedObjects auslässt, oder sie hängen von solchen Datensätzen ab; deklarieren Sie einen Platzhalter in requiredLookupPlaceholders, um sie zu laden: {{objects}}",
-      "untypedFeedItems": "Beim Laden ausgelassen — der Datensatz enthält den Typ dieser Feed-Elemente oder derer, von denen sie abhängen, nicht, sodass sich eine nachverfolgte Änderung nicht von einem Beitrag unterscheiden lässt; extrahieren Sie den Datensatz erneut, um sie zu laden: {{objects}}",
+      "untypedFeedItems": "Beim Laden ausgelassen — das Dataset enthält den Typ dieser Feed-Elemente oder derer, von denen sie abhängen, nicht, sodass sich eine nachverfolgte Änderung nicht von einem Beitrag unterscheiden lässt; extrahieren Sie das Dataset erneut, um sie zu laden: {{objects}}",
       "failedReasons": "Warum Datensätze fehlgeschlagen sind",
       "statusCode": "Statuscode",
       "writtenWithoutFields": {
         "title": "Erneut ohne ein von der Ziel-Org abgelehntes Feld geschrieben",
-        "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln oder eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das. Der Ladevorgang hat jeden Datensatz ohne diese Felder erneut geschrieben, oder mit dem Wert, den die Auswahllistenregel des Felds festlegt: Der Datensatz ist in der Ziel-Org, ohne den Wert, den der eingefrorene Datensatz für diese Felder enthält.",
+        "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln oder eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — einer, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das. Der Ladevorgang hat jeden Datensatz ohne diese Felder erneut geschrieben, oder mit dem Wert, den die Auswahllistenregel des Felds festlegt: Der Datensatz ist in der Ziel-Org, ohne den Wert, den das eingefrorene Dataset für diese Felder enthält.",
         "refusedBy": "Abgelehnt von",
         "written": "Geschrieben",
         "leftOut": "ohne das Feld",
@@ -4396,8 +4396,8 @@
       "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}"
     },
     "coverage": {
-      "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieser Datensatz kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
-      "truncatedRaised": "Die Erkennung endete bei {{objects}} Objekten mit einer Grenze von {{maxNodes}} (angehoben für die übergeordneten Objekte, ohne die ihre Datensätze nicht geschrieben werden können): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieser Datensatz kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
+      "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieses Dataset kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
+      "truncatedRaised": "Die Erkennung endete bei {{objects}} Objekten mit einer Grenze von {{maxNodes}} (angehoben für die übergeordneten Objekte, ohne die ihre Datensätze nicht geschrieben werden können): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieses Dataset kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
       "unbounded": "Ohne Datumsgrenze gelesen, da kein CreatedDate vorhanden: {{objects}}",
       "filesLeftOut": "Ausgelassen — ihre Dateien lassen sich ohne genehmigte keep-Regel nicht pseudonymisieren: {{objects}}",
       "leftToThePlatform": "Ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",

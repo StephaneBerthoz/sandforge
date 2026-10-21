@@ -12,7 +12,7 @@
   "command.openFrozen": "SandForge: Open Frozen Dataset",
   "command.openGrappe": "SandForge: Open Grappe (partition progress)",
   "command.openAutopilot": "SandForge: Open Autopilot",
-  "command.openCompare": "SandForge: Open Compare",
+  "command.openCompare": "SandForge: Open Compare Org",
   "command.openDataOps": "SandForge: Open DataOps",
   "command.openAutomation": "SandForge: Open Automation",
   "command.openMigration": "SandForge: Open Migration",
