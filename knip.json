@@ -16,6 +16,8 @@
         "src/main.sidepanel.tsx",
         "src/PanelApp.tsx",
         "src/i18n/sidepanelCatalogue.ts",
+        "src/i18n/panelCatalogue.ts",
+        "src/zodJitless.ts",
         "vite.config.e2e.ts"
       ],
       "project": ["src/**/*.{ts,tsx,css}"]

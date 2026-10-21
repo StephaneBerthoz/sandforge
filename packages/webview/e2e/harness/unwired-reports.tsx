@@ -13,6 +13,7 @@ import ReactDOM from 'react-dom/client';
 import '@xyflow/react/dist/style.css';
 import '../../src/index.css';
 import { i18nReady } from '../../src/i18n';
+import { loadEnglishNamespaces } from '../../src/i18n/englishNamespaces';
 import { AnalyticsDashboard } from '../../src/pages/Reports/AnalyticsDashboard';
 import { LineageGraph } from '../../src/pages/Reports/LineageGraph';
 
@@ -26,7 +27,9 @@ const points = (metric: string, values: readonly number[]) =>
 
 const root = document.getElementById('root');
 if (root) {
-  void i18nReady.then(() => {
+  // Mounted outside the router, the components bring Reports' English as its
+  // page does.
+  void Promise.all([i18nReady, loadEnglishNamespaces(['reports'])]).then(() => {
     ReactDOM.createRoot(root).render(
       <React.StrictMode>
         <main className="flex flex-col gap-4 p-4">

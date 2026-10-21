@@ -671,8 +671,8 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
       const nls = manifestOf(locale);
       const use = nls.get('command.useFrozenSalt') ?? '';
       const copy = nls.get('command.copyFrozenSalt') ?? '';
-      expect(text(catalogue, 'frozen.salt.created')).toContain(copy);
-      expect(text(catalogue, 'frozen.salt.created')).toContain(use);
+      expect(text(catalogue, 'common.frozenSalt.created')).toContain(copy);
+      expect(text(catalogue, 'common.frozenSalt.created')).toContain(use);
       expect(text(catalogue, 'frozen.extract.saltHint')).toContain(copy);
       expect(text(catalogue, 'frozen.extract.saltHint')).toContain(use);
       expect(text(catalogue, 'frozen.status.saltMismatch')).toContain(use);

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { forgeGraphViewSchema } from '@sandforge/shared';
+import { isForgeGraphView } from '@sandforge/shared';
 import type { ForgeGraphView } from '@sandforge/shared';
 
 /** What the discovery, Review and execution screens show a graph's objects as. */
@@ -59,8 +59,9 @@ export const useForgeViewStore = create<ForgeViewState>((set) => ({
   choice: null,
 
   adoptSetting(value: unknown): void {
-    const read = forgeGraphViewSchema.safeParse(value);
-    if (read.success) set({ setting: read.data });
+    // Read without zod: the bridge calls this in every panel, and a schema
+    // here put zod in the code every page shares (isForgeGraphView).
+    if (isForgeGraphView(value)) set({ setting: value });
   },
 
   choose(view: ForgeObjectsView): void {

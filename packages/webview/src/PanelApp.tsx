@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import './i18n';
+import { withEnglish } from './i18n/englishNamespaces';
 import { BridgeProvider } from './bridge/BridgeProvider';
 import { MotionProvider } from './motion/MotionProvider';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -22,17 +23,30 @@ import { useAppStore } from './stores/useAppStore';
  * The overlays a panel shows now and then — the welcome wizard on a first
  * run, What's New after an update, the easter egg — each come in a chunk of
  * their own, loaded when one opens: every panel used to parse them up front.
+ * Each brings the namespaces of the English catalogue it renders beyond the
+ * shell's, as a page does (PanelRouter).
  */
-const WelcomePage = lazy(() =>
-  import('./pages/Welcome/WelcomePage').then((module) => ({ default: module.WelcomePage })),
+const WelcomePage = lazy(
+  withEnglish(
+    () => import('./pages/Welcome/WelcomePage').then((module) => ({ default: module.WelcomePage })),
+    ['errors', 'onboarding', 'settings'],
+  ),
 );
-const WhatsNewPage = lazy(() =>
-  import('./pages/Welcome/WhatsNewPage').then((module) => ({ default: module.WhatsNewPage })),
+const WhatsNewPage = lazy(
+  withEnglish(
+    () =>
+      import('./pages/Welcome/WhatsNewPage').then((module) => ({ default: module.WhatsNewPage })),
+    ['onboarding'],
+  ),
 );
-const MojitoOverlay = lazy(() =>
-  import('./components/EasterEgg/MojitoOverlay').then((module) => ({
-    default: module.MojitoOverlay,
-  })),
+const MojitoOverlay = lazy(
+  withEnglish(
+    () =>
+      import('./components/EasterEgg/MojitoOverlay').then((module) => ({
+        default: module.MojitoOverlay,
+      })),
+    [],
+  ),
 );
 
 /** Props for PanelApp. */

@@ -80,7 +80,11 @@
     "runStopping": "Stopping: the run ends before its next call to the org.",
     "noWayBack": "SandForge cannot remove what this run writes: try it on a scratch org or a sandbox you can refresh.",
     "runCancelRefused": "Could not cancel the run",
-    "runCancelRefusedDetail": "The run is no longer in progress, or it was not started from this window."
+    "runCancelRefusedDetail": "The run is no longer in progress, or it was not started from this window.",
+    "frozenSalt": {
+      "created": "This first extraction made the salt every pseudonym is drawn with, and keeps it in VS Code's secret storage: every later extraction pseudonymizes the same records the same way. A teammate who extracts this dataset needs the same salt: copy it with \"SandForge: Copy Frozen Dataset Salt\" and give it to them as you would a password; they set it with \"SandForge: Use a Frozen Dataset Salt\". Whoever holds it can tell which source value a pseudonym was drawn from.",
+      "createdTitle": "Frozen dataset salt"
+    }
   },
   "status": {
     "apiUsage": "API usage",
@@ -4195,10 +4199,6 @@
     "tabs": {
       "extract": "Extract",
       "load": "Load"
-    },
-    "salt": {
-      "created": "This first extraction made the salt every pseudonym is drawn with, and keeps it in VS Code's secret storage: every later extraction pseudonymizes the same records the same way. A teammate who extracts this dataset needs the same salt: copy it with \"SandForge: Copy Frozen Dataset Salt\" and give it to them as you would a password; they set it with \"SandForge: Use a Frozen Dataset Salt\". Whoever holds it can tell which source value a pseudonym was drawn from.",
-      "createdTitle": "Frozen dataset salt"
     },
     "manifest": {
       "version": "Dataset v{{version}}"

@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
+import { englishCatalogue } from './vite.config.ts';
 
 export default defineConfig({
+  /* The loaders of the English namespaces resolve here as in the build. The
+     tests start with the whole catalogue (no alias to the panel's), so a
+     component rendered on its own has its English: what a page loads with
+     it is held to what it renders by src/PanelRouter.english.test.ts. */
+  plugins: [englishCatalogue()],
   define: {
     __APP_VERSION__: JSON.stringify('0.0.0-test'),
   },

@@ -36,7 +36,11 @@ const ROUTE_ICONS: Record<string, string> = {
   help: 'question',
 };
 
-/** Route-to-i18n-key mapping for navigation items. */
+/**
+ * Route-to-i18n-key mapping for navigation items: each page by its name in
+ * the navigation. Help read the Help page's heading, `help.title`, which put
+ * the Help page's whole namespace in the English every panel starts with.
+ */
 const ROUTE_LABEL_KEYS: Record<string, string> = {
   home: 'nav.home',
   orgs: 'nav.orgs',
@@ -49,7 +53,7 @@ const ROUTE_LABEL_KEYS: Record<string, string> = {
   ai: 'nav.ai',
   reports: 'nav.reports',
   settings: 'nav.settings',
-  help: 'help.title',
+  help: 'nav.help',
 };
 
 /**

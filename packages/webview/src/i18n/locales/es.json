@@ -80,7 +80,11 @@
     "runStopping": "Deteniendo: la ejecución termina antes de su siguiente llamada a la org.",
     "noWayBack": "SandForge no puede quitar lo que escribe esta ejecución: pruébela en una scratch org o en un sandbox que pueda actualizar.",
     "runCancelRefused": "No se pudo cancelar la ejecución",
-    "runCancelRefusedDetail": "La ejecución ya no está en curso o no se inició desde esta ventana."
+    "runCancelRefusedDetail": "La ejecución ya no está en curso o no se inició desde esta ventana.",
+    "frozenSalt": {
+      "created": "Esta primera extracción creó la sal con la que se saca cada seudónimo y la guarda en el almacenamiento secreto de VS Code: cada extracción posterior seudonimiza los mismos registros de la misma manera. Un compañero que extraiga este dataset necesita la misma sal: cópiela con «SandForge: Copiar la sal del dataset congelado» y pásesela como pasaría una contraseña; él la define con «SandForge: Usar una sal para el dataset congelado». Quien la tiene puede saber de qué valor de origen se sacó un seudónimo.",
+      "createdTitle": "Sal del dataset congelado"
+    }
   },
   "status": {
     "apiUsage": "Uso de API",
@@ -4195,10 +4199,6 @@
     "tabs": {
       "extract": "Extraer",
       "load": "Cargar"
-    },
-    "salt": {
-      "created": "Esta primera extracción creó la sal con la que se saca cada seudónimo y la guarda en el almacenamiento secreto de VS Code: cada extracción posterior seudonimiza los mismos registros de la misma manera. Un compañero que extraiga este dataset necesita la misma sal: cópiela con «SandForge: Copiar la sal del dataset congelado» y pásesela como pasaría una contraseña; él la define con «SandForge: Usar una sal para el dataset congelado». Quien la tiene puede saber de qué valor de origen se sacó un seudónimo.",
-      "createdTitle": "Sal del dataset congelado"
     },
     "manifest": {
       "version": "Dataset v{{version}}"

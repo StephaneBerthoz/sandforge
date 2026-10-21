@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { ZOD_WITHOUT_EVAL, englishCatalogue } from './vite.config.ts';
 
 /**
  * Vite config for E2E testing.
@@ -35,17 +36,29 @@ export default defineConfig({
       },
     },
     react(),
+    englishCatalogue(),
   ],
   resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, './src'),
+    alias: [
+      { find: '@', replacement: path.resolve(import.meta.dirname, './src') },
       // Map @sandforge/shared to its SOURCE (not its CommonJS dist) so Vite
       // serves ESM modules end-to-end and named exports like PROTOCOL_VERSION
       // resolve correctly at runtime. The dist/ build is CJS (tsc default +
       // no "type": "module"), which Vite cannot reliably re-export via
       // `export * from './bridge/protocolVersion.js'` at runtime.
-      '@sandforge/shared': path.resolve(import.meta.dirname, '../shared/src/index.ts'),
-    },
+      {
+        find: '@sandforge/shared',
+        replacement: path.resolve(import.meta.dirname, '../shared/src/index.ts'),
+      },
+      // zod and the English catalogue as the panel build serves them: each
+      // page's namespaces come with the page, so a page that renders a key
+      // its loader does not name shows the key here too.
+      ZOD_WITHOUT_EVAL,
+      {
+        find: /^\.\/locales\/en\.json$/,
+        replacement: path.resolve(import.meta.dirname, 'src/i18n/panelCatalogue.ts'),
+      },
+    ],
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify('development'),

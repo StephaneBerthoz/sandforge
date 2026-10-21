@@ -220,6 +220,7 @@ export {
   leftOutByTheUser,
   objectsBeyondTheGraph,
 } from './utils/forge-graph-nodes.js';
+export { FORGE_GRAPH_VIEWS, isForgeGraphView } from './utils/forge-graph-view.js';
 export { leftOutCosts, type ForgeLeftOutCost } from './utils/forge-left-out-costs.js';
 export {
   forgeGapId,

@@ -22,7 +22,11 @@ import {
   bundleFiles,
   chunkImports,
   collectRequested,
+  namespaceSentinels,
+  namespacesHeld,
+  panelShellNamespaces,
   requestedAssets,
+  staticBundleFiles,
   zodJitlessVerdict,
 } from './check-webview-assets.mjs';
 
@@ -179,4 +183,74 @@ test('it requires the file holding zod to turn its compiler off', () => {
     { path: 'assets/chunks/zod.js', jitless: false },
   );
   assert.equal(zodJitlessVerdict(new Map([['assets/sidepanel.js', 'no schema here']])), undefined);
+});
+
+test('it reads what a panel parses up front: the static imports, not the chunks loaded on demand', () => {
+  const built = new Map([
+    [
+      'assets/index.js',
+      'import{a}from"./chunks/a.js";const l={forge:()=>import(`./chunks/forge.js`)};',
+    ],
+    ['assets/chunks/a.js', 'import"./b.js";export const a=1;'],
+    ['assets/chunks/b.js', 'export const b=2;'],
+    ['assets/chunks/forge.js', 'import"./b.js";export default {title:`Forge`};'],
+  ]);
+  assert.deepEqual(staticBundleFiles('assets/index.js', (path) => built.get(path)).sort(), [
+    'assets/chunks/a.js',
+    'assets/chunks/b.js',
+    'assets/index.js',
+  ]);
+});
+
+test('it finds a namespace by a plain sentence of its own, and the namespaces a build holds', () => {
+  const catalogue = {
+    common: { cancel: 'Cancel', shared: 'Something both namespaces say' },
+    forge: {
+      title: 'Forge',
+      hint: 'Copy a real record and everything around it',
+      quoted: 'A "quoted" sentence longer than the plain one is',
+      shared: 'Something both namespaces say',
+    },
+    nav: { home: 'Home' },
+  };
+  const sentinels = namespaceSentinels(catalogue);
+  // A sentence two namespaces share tells neither apart; a quoted one may be
+  // escaped by the minifier; a namespace of short labels has none.
+  assert.deepEqual([...sentinels], [['forge', 'Copy a real record and everything around it']]);
+  assert.deepEqual(namespacesHeld(['x=`Copy a real record and everything around it`'], sentinels), [
+    'forge',
+  ]);
+  assert.deepEqual(namespacesHeld(['x=`Cancel`'], sentinels), []);
+});
+
+test('it reads the namespaces the panel catalogue starts with', () => {
+  const source = [
+    "import { a11y, common, nav } from '../i18n/locales/en.json';",
+    '',
+    'export default { a11y, common, nav };',
+  ].join('\n');
+  assert.deepEqual(panelShellNamespaces(source), ['a11y', 'common', 'nav']);
+  const onDisk = readFileSync(
+    join(repoRoot, 'packages', 'webview', 'src', 'i18n', 'panelCatalogue.ts'),
+    'utf8',
+  );
+  assert.ok(panelShellNamespaces(onDisk).includes('common'), 'the catalogue on disk is not read');
+});
+
+test('the English catalogue gives most of its namespaces a sentence to be found by', () => {
+  const en = JSON.parse(
+    readFileSync(
+      join(repoRoot, 'packages', 'webview', 'src', 'i18n', 'locales', 'en.json'),
+      'utf8',
+    ),
+  );
+  const sentinels = namespaceSentinels(en);
+  assert.ok(
+    sentinels.size >= 25,
+    `only ${sentinels.size} of ${Object.keys(en).length} namespaces can be found in a build`,
+  );
+  // The big ones, whose place in the build the check is for.
+  for (const namespace of ['forge', 'onboarding', 'errors', 'sync', 'seed', 'dataops']) {
+    assert.ok(sentinels.has(namespace), `no sentence finds "${namespace}"`);
+  }
 });

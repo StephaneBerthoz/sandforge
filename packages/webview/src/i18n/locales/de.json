@@ -80,7 +80,11 @@
     "runStopping": "Wird gestoppt: Der Lauf endet vor seinem nächsten Aufruf an die Org.",
     "noWayBack": "SandForge kann nicht entfernen, was dieser Lauf schreibt: Probieren Sie ihn in einer Scratch-Org oder einer Sandbox aus, die Sie aktualisieren können.",
     "runCancelRefused": "Lauf konnte nicht abgebrochen werden",
-    "runCancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet."
+    "runCancelRefusedDetail": "Der Lauf ist nicht mehr aktiv oder wurde nicht in diesem Fenster gestartet.",
+    "frozenSalt": {
+      "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team dieses Dataset extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des eingefrorenen Datasets kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde.",
+      "createdTitle": "Salt des eingefrorenen Datasets"
+    }
   },
   "status": {
     "apiUsage": "API-Nutzung",
@@ -4195,10 +4199,6 @@
     "tabs": {
       "extract": "Extrahieren",
       "load": "Laden"
-    },
-    "salt": {
-      "created": "Diese erste Extraktion hat das Salt erstellt, mit dem jedes Pseudonym gezogen wird, und bewahrt es im geheimen Speicher von VS Code auf: Jede spätere Extraktion pseudonymisiert dieselben Datensätze auf dieselbe Weise. Wer im Team dieses Dataset extrahiert, braucht dasselbe Salt: Kopieren Sie es mit „SandForge: Salt des eingefrorenen Datasets kopieren“ und geben Sie es wie ein Passwort weiter; gesetzt wird es mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“. Wer es hat, kann erkennen, aus welchem Quellwert ein Pseudonym gezogen wurde.",
-      "createdTitle": "Salt des eingefrorenen Datasets"
     },
     "manifest": {
       "version": "Dataset v{{version}}"

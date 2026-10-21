@@ -252,7 +252,7 @@ describe('BridgeProvider', () => {
     expect(said).toContain('SandForge: Use a Frozen Dataset Salt');
     // Its title too, in the interface language rather than the host's English.
     expect(useNotificationStore.getState().notifications[0].title).toBe(
-      i18n.t('frozen.salt.createdTitle'),
+      i18n.t('common.frozenSalt.createdTitle'),
     );
   });
 

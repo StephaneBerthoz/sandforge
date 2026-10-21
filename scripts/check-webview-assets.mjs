@@ -33,6 +33,12 @@
  *    probes `new Function` as each schema is built, which the webview CSP
  *    reports as a `script-src eval` violation. A chunk's imports run before
  *    it, so a call left in index.js ran after the schemas its chunks built;
+ *  - what every panel parses before its page — the panel bundle and the
+ *    chunks it imports up front — holds neither zod nor the English of a
+ *    namespace `src/i18n/panelCatalogue.ts` leaves out, and holds the ones it
+ *    names; every namespace is in some file the panel loads. Each namespace
+ *    is found by its longest plain sentence. The base held both, 380 kB of
+ *    the 874 every panel parsed, and every source-level test passed;
  *  - with `--vsix`, every one of those paths is in `sandforge.vsix` too. The
  *    VSIX is what a user installs, and `.vscodeignore` can drop a file the
  *    build produced. It is a flag rather than "check it if it is there"
@@ -141,6 +147,91 @@ export function zodJitlessVerdict(files) {
   return { path, jitless: /jitless\s*:\s*(?:!0|true)\b/.test(source) };
 }
 
+/**
+ * What every panel parses before its page can paint: the panel bundle and the
+ * chunks it imports statically, followed through theirs. A chunk loaded on
+ * demand — a page, a namespace of the English catalogue — is parsed only by
+ * the panel that asks for it.
+ *
+ * @param entry - The bundle, e.g. `assets/index.js`.
+ * @param read - Reads a path relative to `webview-dist`; undefined when absent.
+ */
+export function staticBundleFiles(entry, read) {
+  const seen = new Set();
+  const queue = [entry];
+  while (queue.length > 0) {
+    const path = queue.shift();
+    if (seen.has(path)) continue;
+    const source = read(path);
+    if (source === undefined) continue;
+    seen.add(path);
+    const dynamic = new Set(
+      [...source.matchAll(/\bimport\(\s*(['"`])(\.{1,2}\/[^'"`]+)\1\s*\)/g)].map((m) => m[2]),
+    );
+    for (const specifier of chunkImports(source)) {
+      if (dynamic.has(specifier)) continue;
+      queue.push(posix.normalize(posix.join(posix.dirname(path), specifier)));
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * A string of each namespace of a catalogue that a build can be searched
+ * for: its longest value written in plain words, which a minifier leaves as
+ * it is, and which no other namespace holds. Namespaces with no such value
+ * (a few short labels) are left out.
+ *
+ * @param catalogue - A locale catalogue, keyed by namespace.
+ */
+export function namespaceSentinels(catalogue) {
+  const strings = (node) =>
+    typeof node === 'string'
+      ? [node]
+      : node && typeof node === 'object'
+        ? Object.values(node).flatMap(strings)
+        : [];
+  const byNamespace = new Map(
+    Object.entries(catalogue).map(([namespace, node]) => [namespace, strings(node)]),
+  );
+  const sentinels = new Map();
+  for (const [namespace, values] of byNamespace) {
+    const elsewhere = new Set(
+      [...byNamespace].filter(([other]) => other !== namespace).flatMap(([, own]) => own),
+    );
+    const plain = values
+      .filter((value) => /^[A-Za-z][A-Za-z0-9 ,.()-]{15,}$/.test(value) && !elsewhere.has(value))
+      .sort((a, b) => b.length - a.length);
+    if (plain.length > 0) sentinels.set(namespace, plain[0]);
+  }
+  return sentinels;
+}
+
+/**
+ * The namespaces whose sentinel one of `sources` holds.
+ *
+ * @param sources - The built files' sources.
+ * @param sentinels - From {@link namespaceSentinels}.
+ */
+export function namespacesHeld(sources, sentinels) {
+  return [...sentinels]
+    .filter(([, sentinel]) => sources.some((source) => source.includes(sentinel)))
+    .map(([namespace]) => namespace)
+    .sort();
+}
+
+/** The namespaces of the English catalogue a panel starts with (src/i18n/panelCatalogue.ts). */
+export function panelShellNamespaces(source) {
+  const body = /export\s+default\s*\{([^}]*)\}/.exec(source);
+  return body
+    ? body[1]
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .sort()
+    : [];
+}
+
 /** Paths the extension asks for, each with the files that ask for it. */
 export function collectRequested(sources) {
   const byPath = new Map();
@@ -232,7 +323,59 @@ function main() {
     }
   }
 
-  // 4. The VSIX carries them too, for a caller that just packaged one.
+  // 4. What every panel parses before its page holds neither zod nor the
+  // English of a page: each comes with the pages that need it. Both were in
+  // it, and only a reading of the build can tell: the sources that load them
+  // on demand say nothing of where the bundler put them.
+  const panelBundle = [...requested.keys()].find((path) => path.endsWith('/index.js'));
+  if (panelBundle && readBuilt(panelBundle) !== undefined) {
+    const base = staticBundleFiles(panelBundle, readBuilt);
+    const baseSources = base.map((path) => readBuilt(path));
+    const zodFile = base.find((path) => /["'`]\$ZodType["'`]/.test(readBuilt(path)));
+    if (zodFile) {
+      note(
+        `${BUILT_DIR}/${zodFile} holds zod and ${panelBundle} imports it up front: every panel ` +
+          'parses zod before its page, whether or not the page validates anything',
+      );
+    }
+    const catalogue = JSON.parse(
+      readFileSync(
+        join(repoRoot, 'packages', 'webview', 'src', 'i18n', 'locales', 'en.json'),
+        'utf8',
+      ),
+    );
+    const shell = panelShellNamespaces(
+      readFileSync(
+        join(repoRoot, 'packages', 'webview', 'src', 'i18n', 'panelCatalogue.ts'),
+        'utf8',
+      ),
+    );
+    const sentinels = namespaceSentinels(catalogue);
+    const held = namespacesHeld(baseSources, sentinels);
+    const shipped = namespacesHeld(
+      [...loaded, ...requested.keys()]
+        .map((path) => readBuilt(path))
+        .filter((source) => source !== undefined),
+      sentinels,
+    );
+    for (const namespace of held.filter((n) => !shell.includes(n))) {
+      note(
+        `the English of "${namespace}" is in what ${panelBundle} imports up front, and ` +
+          'src/i18n/panelCatalogue.ts leaves it out: every panel parses it before its page',
+      );
+    }
+    for (const namespace of shell.filter((n) => sentinels.has(n) && !held.includes(n))) {
+      note(
+        `the English of "${namespace}", which every panel starts with, is not in what ` +
+          `${panelBundle} imports up front — the shell would show its keys`,
+      );
+    }
+    for (const namespace of [...sentinels.keys()].filter((n) => !shipped.includes(n))) {
+      note(`the English of "${namespace}" is in no file the panel loads`);
+    }
+  }
+
+  // 5. The VSIX carries them too, for a caller that just packaged one.
   const checkVsix = process.argv.includes('--vsix');
   if (checkVsix) {
     if (!existsSync(join(repoRoot, VSIX))) {

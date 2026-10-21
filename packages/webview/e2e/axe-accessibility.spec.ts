@@ -1252,6 +1252,31 @@ const FORGE_GAPS = [
 ];
 
 /**
+ * Hand Review `gaps` as the extension answers the read of the target it asks
+ * for as it opens (`forge:gaps:request`), through the listener the page holds.
+ *
+ * The tests wrote them into the store by importing the store's module from the
+ * page, by its path on the dev server. Once that served the file again, the panel
+ * imported the store under a `?t=` stamp while the test's import still named
+ * the bare path: two copies of the module, the gaps written into the one the
+ * panel never reads, and the test failed on a page that had done nothing
+ * wrong. The store files each read's gaps apart and the Gaps tab shows them
+ * merged, so the read that carries them changes the tab's "Read:" line and
+ * not the states scanned; each gap keeps the read that found it.
+ */
+async function answerGapsRead(
+  bridge: MockBridge,
+  page: Page,
+  gaps: readonly Record<string, unknown>[],
+  unread: readonly { part: string; reason: string }[] = [],
+): Promise<void> {
+  await bridge.waitForMessage('forge:gaps:request', { timeout: 10_000 });
+  await answerAll(page, 'forge:gaps:request', 'forge:gaps:response', {
+    gaps: { gaps, unread, requests: 1 },
+  });
+}
+
+/**
  * What a target runs on that account and its contacts, as the extension reads
  * it at Review: a flow after a contact is created that a custom permission
  * keeps quiet, which sends an email and runs again after commit, one whose
@@ -2457,15 +2482,7 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-execute-btn').click();
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('forge-preview-source-tables')).toBeVisible();
-      await page.evaluate(
-        async ({ gaps, storeModule }) => {
-          const store = (await import(storeModule)) as {
-            useForgeStore: { getState: () => { setGaps: (...args: unknown[]) => void } };
-          };
-          store.useForgeStore.getState().setGaps('simulation', gaps, []);
-        },
-        { gaps: [FORGE_GAPS[1]], storeModule: '/src/stores/useForgeStore.ts' },
-      );
+      await answerGapsRead(bridge, page, [FORGE_GAPS[1]]);
       await expect(page.getByTestId('forge-gaps-undecided')).toContainText(
         '1 gap will refuse rows',
       );
@@ -3681,21 +3698,11 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
 
       // The reads come from the simulation, the rehearsal and the target's
-      // metadata, each through its own channel: the store is fed here as each
-      // of them feeds it.
-      // The dev server serves the panel's own module under its path: the
-      // import is the store the panel holds, not a copy of it.
-      await page.evaluate(
-        async ({ gaps, storeModule }) => {
-          const store = (await import(storeModule)) as {
-            useForgeStore: { getState: () => { setGaps: (...args: unknown[]) => void } };
-          };
-          store.useForgeStore
-            .getState()
-            .setGaps('simulation', gaps, [{ part: 'currencies', reason: 'INSUFFICIENT_ACCESS' }]);
-        },
-        { gaps: FORGE_GAPS, storeModule: '/src/stores/useForgeStore.ts' },
-      );
+      // metadata, each through its own channel: here the metadata's carries
+      // them, with a part of the target it could not read.
+      await answerGapsRead(bridge, page, FORGE_GAPS, [
+        { part: 'currencies', reason: 'INSUFFICIENT_ACCESS' },
+      ]);
       await page.getByTestId('gaps-severity-blocking').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('tab-gaps')).toHaveText('Gaps2');
       // The rule's bypass, under it: checked with the rest of the tab.

@@ -43,6 +43,11 @@ vi.mock('./PanelApp', () => ({
 vi.mock('./SidePanel', () => ({
   SidePanel: () => <div data-testid="side-panel" />,
 }));
+/* The sidebar's English comes with it (src/i18n/englishNamespaces.test.ts):
+   here the loader hands over the part alone, under the i18n stand-in below. */
+vi.mock('./i18n/englishNamespaces', () => ({
+  withEnglish: (load: () => Promise<unknown>) => load,
+}));
 
 /**
  * The anti-flash gate, under this test's control.

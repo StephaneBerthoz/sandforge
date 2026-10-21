@@ -186,7 +186,7 @@ describe('sidebar entry', () => {
     expect(outside).toEqual([]);
   });
 
-  it('points the sidebar build at that catalogue, and leaves the panel build the whole one', async () => {
+  it('points the sidebar build at that catalogue, and the panel build at its shell’s', async () => {
     // Loaded by URL, as the Tailwind config above is: it sits outside src/.
     const { default: viteConfig } = (await import(pathToFileURL(VITE_CONFIG).href)) as {
       default: (env: { mode: string; command: 'build' }) => {
@@ -200,6 +200,9 @@ describe('sidebar entry', () => {
     const sidebar = catalogueAlias('sidepanel');
     expect(sidebar).toHaveLength(1);
     expect(relative(SRC, sidebar[0].replacement)).toBe(join('i18n', 'sidepanelCatalogue.ts'));
-    expect(catalogueAlias('production')).toEqual([]);
+    // A panel's pages bring their own namespaces (src/PanelRouter.english.test.ts).
+    const panel = catalogueAlias('production');
+    expect(panel).toHaveLength(1);
+    expect(relative(SRC, panel[0].replacement)).toBe(join('i18n', 'panelCatalogue.ts'));
   });
 });

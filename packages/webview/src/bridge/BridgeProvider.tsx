@@ -37,11 +37,16 @@ const DROP_REASON_KEYS: Readonly<Record<string, string>> = {
  * carry: their message, and their title where it is more than a module's
  * name. A notification with a code not listed here shows the host's words,
  * which are English — the first extraction's salt was titled "Frozen dataset
- * salt" in every language over a translated message.
+ * salt" in every language over a translated message. The keys are in
+ * `common`, which every panel starts with: any panel can be the one the
+ * notification reaches, and Frozen's namespace comes only with its page.
  */
 const NOTIFICATION_CODE_KEYS: Readonly<Record<string, { message: string; title?: string }>> = {
   AUTOPILOT_NOT_READY: { message: 'common.refusal.autopilotNotReady' },
-  FROZEN_SALT_CREATED: { message: 'frozen.salt.created', title: 'frozen.salt.createdTitle' },
+  FROZEN_SALT_CREATED: {
+    message: 'common.frozenSalt.created',
+    title: 'common.frozenSalt.createdTitle',
+  },
 };
 
 /** Props for BridgeProvider. */

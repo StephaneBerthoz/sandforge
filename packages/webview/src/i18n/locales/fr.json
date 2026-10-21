@@ -80,7 +80,11 @@
     "runStopping": "Arrêt en cours : l'exécution s'arrête avant son prochain appel à l'org.",
     "noWayBack": "SandForge ne peut pas retirer ce que cette exécution écrit : essayez-la sur une scratch org ou une sandbox que vous pouvez rafraîchir.",
     "runCancelRefused": "Impossible d'annuler l'exécution",
-    "runCancelRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre."
+    "runCancelRefusedDetail": "L'exécution n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
+    "frozenSalt": {
+      "created": "Cette première extraction a créé le sel avec lequel chaque pseudonyme est tiré, et le garde dans le stockage secret de VS Code : chaque extraction suivante pseudonymise les mêmes enregistrements de la même façon. Un collègue qui extrait ce jeu de données a besoin du même sel : copiez-le avec « SandForge : Copier le sel du Jeu de données figé » et transmettez-le-lui comme un mot de passe ; il le définit avec « SandForge : Utiliser un sel pour le Jeu de données figé ». Qui le détient peut savoir de quelle valeur source un pseudonyme a été tiré.",
+      "createdTitle": "Sel du jeu de données figé"
+    }
   },
   "status": {
     "apiUsage": "Utilisation API",
@@ -4195,10 +4199,6 @@
     "tabs": {
       "extract": "Extraire",
       "load": "Charger"
-    },
-    "salt": {
-      "created": "Cette première extraction a créé le sel avec lequel chaque pseudonyme est tiré, et le garde dans le stockage secret de VS Code : chaque extraction suivante pseudonymise les mêmes enregistrements de la même façon. Un collègue qui extrait ce jeu de données a besoin du même sel : copiez-le avec « SandForge : Copier le sel du Jeu de données figé » et transmettez-le-lui comme un mot de passe ; il le définit avec « SandForge : Utiliser un sel pour le Jeu de données figé ». Qui le détient peut savoir de quelle valeur source un pseudonyme a été tiré.",
-      "createdTitle": "Sel du jeu de données figé"
     },
     "manifest": {
       "version": "Jeu de données v{{version}}"

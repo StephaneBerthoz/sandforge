@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { readFileSync } from 'fs';
@@ -7,6 +7,63 @@ const pkg = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'),
 ) as {
   version: string;
+};
+
+/** The English catalogue, the one language the webview carries. */
+const ENGLISH_CATALOGUE = path.resolve(import.meta.dirname, 'src/i18n/locales/en.json');
+
+/** The module of the loaders, one per namespace. */
+const ENGLISH_LOADERS_MODULE = 'virtual:english-catalogue';
+
+/**
+ * The English catalogue as one module per namespace, and a module of their
+ * loaders (src/i18n/englishNamespaces.ts loads a page's with the page).
+ *
+ * Every panel parsed the whole catalogue before its page could paint, about
+ * 270 kB of it for a page that renders a few of its 37 namespaces. A JSON
+ * file is one module however its namespaces are imported, and a module goes
+ * whole into the chunk its importers share: named imports from several pages
+ * would have put every namespace any of them reads back in the base. Each
+ * namespace is a module of its own here, and the chunk of each holds it alone.
+ */
+export function englishCatalogue(): Plugin {
+  const prefix = `${ENGLISH_LOADERS_MODULE}/`;
+  const read = (): Record<string, unknown> =>
+    JSON.parse(readFileSync(ENGLISH_CATALOGUE, 'utf-8')) as Record<string, unknown>;
+  return {
+    name: 'sandforge-english-catalogue',
+    resolveId(id) {
+      return id === ENGLISH_LOADERS_MODULE || id.startsWith(prefix) ? `\0${id}` : null;
+    },
+    load(id) {
+      if (!id.startsWith(`\0${ENGLISH_LOADERS_MODULE}`)) return null;
+      this.addWatchFile(ENGLISH_CATALOGUE);
+      const catalogue = read();
+      if (id === `\0${ENGLISH_LOADERS_MODULE}`) {
+        const loaders = Object.keys(catalogue).map(
+          (namespace) =>
+            `  ${JSON.stringify(namespace)}: () => import(${JSON.stringify(prefix + namespace)}),`,
+        );
+        return `export const englishNamespaceLoaders = {\n${loaders.join('\n')}\n};\n`;
+      }
+      const namespace = id.slice(prefix.length + 1);
+      if (!(namespace in catalogue)) {
+        this.error(`the English catalogue has no namespace "${namespace}"`);
+      }
+      return `export default ${JSON.stringify(catalogue[namespace])};\n`;
+    },
+  };
+}
+
+/**
+ * zod as the webview imports it: through src/zodJitless.ts, which turns zod's
+ * compiler off before any importer builds a schema. The module that turns it
+ * off is the module importers get zod from, so no entry has to load zod
+ * first: a page that validates nothing no longer parses it.
+ */
+export const ZOD_WITHOUT_EVAL = {
+  find: /^zod$/,
+  replacement: path.resolve(import.meta.dirname, 'src/zodJitless.ts'),
 };
 
 /**
@@ -26,7 +83,7 @@ const pkg = JSON.parse(
 export default defineConfig(({ mode }) => {
   const isSidepanel = mode === 'sidepanel';
   return {
-    plugins: [react()],
+    plugins: [react(), englishCatalogue()],
     build: {
       outDir: 'dist',
       /* Default pass empties dist; the sidepanel pass must keep index.js */
@@ -85,7 +142,9 @@ export default defineConfig(({ mode }) => {
                    zodJitless in index.js: each one probed `new Function` and
                    the CSP reported a script-src eval at every panel start.
                    In zod's chunk, the call runs right after zod and before
-                   any chunk that imports it. */
+                   any chunk that imports it; zod is imported through it
+                   (ZOD_WITHOUT_EVAL), so the chunk loads with the first
+                   page that validates and with no other. */
                 codeSplitting: {
                   groups: [
                     {
@@ -109,16 +168,18 @@ export default defineConfig(({ mode }) => {
           find: '@sandforge/shared',
           replacement: path.resolve(import.meta.dirname, '../shared/src/index.ts'),
         },
-        /* The sidebar's English is its own namespaces of the catalogue, not
-           all of it: see src/i18n/sidepanelCatalogue.ts. */
-        ...(isSidepanel
-          ? [
-              {
-                find: /^\.\/locales\/en\.json$/,
-                replacement: path.resolve(import.meta.dirname, 'src/i18n/sidepanelCatalogue.ts'),
-              },
-            ]
-          : []),
+        ZOD_WITHOUT_EVAL,
+        /* The English a webview starts with is its own namespaces of the
+           catalogue, not all of it: the sidebar's
+           (src/i18n/sidepanelCatalogue.ts), or those of the panel's shell
+           (src/i18n/panelCatalogue.ts), each page's coming with it. */
+        {
+          find: /^\.\/locales\/en\.json$/,
+          replacement: path.resolve(
+            import.meta.dirname,
+            isSidepanel ? 'src/i18n/sidepanelCatalogue.ts' : 'src/i18n/panelCatalogue.ts',
+          ),
+        },
       ],
     },
     define: {
