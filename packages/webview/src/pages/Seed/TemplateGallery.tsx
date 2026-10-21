@@ -46,22 +46,20 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
         <ErrorBanner message={error} code={null} module="seed" data-testid="gallery-error" />
       )}
 
-      {loading ? (
-        <div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-          data-testid="gallery-skeleton"
-        >
-          <Skeleton variant="rect" height="180px" />
-          <Skeleton variant="rect" height="180px" />
-          <Skeleton variant="rect" height="180px" />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((item) => (
-            <TemplateCard key={item.id} item={item} onUseThis={handleUseThis} />
-          ))}
-        </div>
-      )}
+      {/* The built-in templates are drawn while the saved ones load, a
+          placeholder standing for those: the whole grid gave way to the
+          placeholders each time the gallery asked again, and the card Back
+          had just handed the keyboard to went with it. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {items.map((item) => (
+          <TemplateCard key={item.id} item={item} onUseThis={handleUseThis} />
+        ))}
+        {loading && (
+          <div data-testid="gallery-skeleton">
+            <Skeleton variant="rect" height="180px" />
+          </div>
+        )}
+      </div>
     </div>
   );
 };

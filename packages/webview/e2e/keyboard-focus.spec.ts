@@ -220,9 +220,22 @@ test.describe('Keyboard and screen reader — the one-click Seed', () => {
 
     await pressWithKeyboard(page, 'btn-quick-seed-back');
 
-    await expect(
-      page.getByTestId('template-card-prebuilt-minimal-demo').getByTestId('btn-use-template'),
-    ).toBeFocused();
+    // The gallery asks for its saved templates again. Its grid gave way to
+    // placeholders while it waited, the card that held the focus with it; the
+    // card is to keep the focus while they load and once they are in.
+    const card = page
+      .getByTestId('template-card-prebuilt-minimal-demo')
+      .getByTestId('btn-use-template');
+    await expect
+      .poll(async () => {
+        await answerAll(page, 'seed:template:list', 'seed:template:list:response', {
+          templates: [],
+        });
+        await answerAll(page, 'seed:removal:list', 'seed:removal:list:response', { runs: [] });
+        return card.count();
+      })
+      .toBe(1);
+    await expect(card).toBeFocused();
   });
 });
 

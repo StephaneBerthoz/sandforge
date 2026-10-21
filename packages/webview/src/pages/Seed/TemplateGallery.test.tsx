@@ -99,6 +99,15 @@ describe('TemplateGallery', () => {
     expect(screen.getByTestId('gallery-skeleton')).toBeDefined();
   });
 
+  it('keeps the built-in cards drawn while the saved templates load', () => {
+    mockGalleryState = { ...mockGalleryState, loading: true };
+
+    render(<TemplateGallery onSelectTemplate={vi.fn()} />);
+
+    expect(screen.getByTestId('gallery-skeleton')).toBeDefined();
+    expect(screen.getByTestId('template-card-prebuilt-minimal-demo')).toBeDefined();
+  });
+
   it('renders template cards when loaded', () => {
     render(<TemplateGallery onSelectTemplate={vi.fn()} />);
 
