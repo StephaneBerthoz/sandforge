@@ -78,6 +78,8 @@ vi.mock('./useSeedWizardState', () => ({
     selectedOrg: undefined,
     selectedOrgId: '',
     selectedObjects: [],
+    availableObjects: [],
+    fieldConfigs: [],
     error: null,
     setError: vi.fn(),
     isRunning: mockIsRunning,
@@ -177,8 +179,9 @@ describe('SeedPage — cancelling a running seed', () => {
     emitProgress('op-other');
 
     fireEvent.click(screen.getByTestId('seed-wizard-cancel'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Cancel' } });
-    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    // Nothing to type: stopping one's own run writes nothing.
+    expect(screen.queryByTestId('danger-input')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the run' }));
 
     expect(aborts()).toHaveLength(1);
     expect(aborts()[0].payload.operationId).toBe('op-own');

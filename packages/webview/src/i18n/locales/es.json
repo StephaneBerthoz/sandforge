@@ -3,6 +3,8 @@
     "save": "Guardar",
     "cancel": "Cancelar",
     "cancelRun": "Cancelar ejecución",
+    "stopRun": "Detener la ejecución",
+    "keepRunning": "Seguir ejecutando",
     "confirm": "Confirmar",
     "delete": "Eliminar",
     "edit": "Editar",
@@ -62,7 +64,7 @@
       "autopilotConfirmationUnavailable": "La ejecución de Autopilot se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
       "seedStorageExceeded": "El seed se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB. Reduzca el número de registros, elija una plantilla más ligera o libere almacenamiento de datos en {{org}}.",
       "seedEmailsExceeded": "El seed se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Reduzca el número de registros, ponga {{objects}} a 0, desactive {{senders}} o asígnese el permiso que los silencia.",
-      "backupBusy": "Hay una copia de seguridad o una restauración de esta org en curso: elimine sus copias de seguridad cuando haya terminado.",
+      "backupBusy": "Hay un respaldo o una restauración de esta org en curso: elimine sus respaldos cuando haya terminado.",
       "autopilotRunning": "Una ejecución de Autopilot sigue escribiendo en esta org de destino, y no se inició nada más: las Operaciones en vivo del Monitor muestran en qué punto está. Inicie otra cuando haya terminado."
     },
     "list": {
@@ -159,8 +161,8 @@
       "fill": "Rellenar {{alias}} con datos de demostración",
       "clone": "Clonar desde otra org"
     },
-    "disconnectDeleteBackups_one": "Eliminar también la copia de seguridad de DataOps de esta org guardada en este equipo, que contiene en claro los valores de sus registros",
-    "disconnectDeleteBackups_other": "Eliminar también las {{count}} copias de seguridad de DataOps de esta org guardadas en este equipo, que contienen en claro los valores de sus registros"
+    "disconnectDeleteBackups_one": "Eliminar también el respaldo de DataOps de esta org guardado en este equipo, que contiene en claro los valores de sus registros",
+    "disconnectDeleteBackups_other": "Eliminar también los {{count}} respaldos de DataOps de esta org guardados en este equipo, que contienen en claro los valores de sus registros"
   },
   "monitor": {
     "refresh": "Actualizar",
@@ -1636,13 +1638,13 @@
   "dataops": {
     "title": "DataOps",
     "backup": "Respaldo",
-    "backupPartial": "Parcial: {{objects}} contienen más filas de las que leyó esta copia de seguridad. Una restauración solo recupera esas filas.",
-    "backupPartialLead": "Parcial: una restauración solo recupera las filas que leyó esta copia de seguridad y deja el resto de cada objeto como está.",
+    "backupPartial": "Parcial: {{objects}} contienen más filas de las que leyó este respaldo. Una restauración solo recupera esas filas.",
+    "backupPartialLead": "Parcial: una restauración solo recupera las filas que leyó este respaldo y deja el resto de cada objeto como está.",
     "backupStoppedAtCap": "{{object}}: {{read}} de {{held}} filas leídas — se detuvo en el límite (sandforge.backup.maxRecordsPerObject).",
     "backupStoppedAtCapUncounted": "{{object}}: {{read}} filas leídas — se detuvo en el límite (sandforge.backup.maxRecordsPerObject).",
     "backupReadFailed": "{{object}}: {{read}} de {{held}} filas leídas — la lectura falló ahí.",
     "backupReadFailedUncounted": "{{object}}: {{read}} filas leídas — la lectura falló ahí.",
-    "backupNotReached": "{{object}}: no leído — la copia de seguridad falló antes de llegar a este objeto y no contiene ninguna de sus filas.",
+    "backupNotReached": "{{object}}: no leído — el respaldo falló antes de llegar a este objeto y no contiene ninguna de sus filas.",
     "restorePartialBadge": "Parcial",
     "backupExported": "Guardada en {{path}}. Registros por objeto: {{records}}.",
     "backupDesc": "Crear y administrar respaldos de datos",
@@ -1653,7 +1655,7 @@
     "cleanup": "Limpieza",
     "quality": "Calidad",
     "selectOrg": "Seleccionar Org",
-    "noOrgSelected": "Ninguna org seleccionada: elija una en la página Organizaciones antes de ejecutar una copia de seguridad o anonimización.",
+    "noOrgSelected": "Ninguna org seleccionada: elija una en la página Organizaciones antes de ejecutar un respaldo o una anonimización.",
     "noBackups": "No hay respaldos disponibles",
     "createBackup": "Crear respaldo",
     "backupObjectsTemplate": "Respalda {{objects}}: los objetos que enmascara {{name}}.",
@@ -1687,7 +1689,7 @@
       "confirmShortfall": "Una vez enmascarados, una restauración nunca podrá devolver estos registros:",
       "stoppedAtCap": "{{rows}} (se detuvo en el límite)",
       "readFailed": "{{rows}} (la lectura falló)",
-      "capHint": "La copia de seguridad se detuvo en su límite de filas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject en la Configuración y vuelva a hacer la copia para conservar todas las filas."
+      "capHint": "El respaldo se detuvo en su límite de filas por objeto para {{objects}}: aumente sandforge.backup.maxRecordsPerObject en la Configuración y vuelva a hacer el respaldo para conservar todas las filas."
     },
     "compliance": "Cumplimiento",
     "frameworks": {
@@ -1883,10 +1885,10 @@
       "confirmAnonymize": "Los campos listados se sobrescriben en la org, y no se puede deshacer. Haga antes un respaldo si puede necesitarlos.",
       "confirmDelete": "Los registros, y lo que la org elimina junto con ellos, van a la papelera, donde quedan hasta que se vacía.",
       "confirmWord": "borrar",
-      "backupsBefore_one": "Esta org tiene una copia de seguridad en este equipo, hecha antes de este borrado: guarda en claro los registros de la persona, y restaurarla los trae de vuelta.",
-      "backupsBefore_other": "Esta org tiene {{count}} copias de seguridad en este equipo, hechas antes de este borrado: guardan en claro los registros de la persona, y restaurar una los trae de vuelta.",
-      "deleteBackupsBefore_one": "Eliminar esta copia de seguridad",
-      "deleteBackupsBefore_other": "Eliminar estas {{count}} copias de seguridad"
+      "backupsBefore_one": "Esta org tiene un respaldo en este equipo, hecho antes de este borrado: guarda en claro los registros de la persona, y restaurarlo los trae de vuelta.",
+      "backupsBefore_other": "Esta org tiene {{count}} respaldos en este equipo, hechos antes de este borrado: guardan en claro los registros de la persona, y restaurar uno los trae de vuelta.",
+      "deleteBackupsBefore_one": "Eliminar este respaldo",
+      "deleteBackupsBefore_other": "Eliminar estos {{count}} respaldos"
     },
     "dsrLog": {
       "title": "Registro de solicitudes",
@@ -1987,12 +1989,12 @@
       "fieldsNotFound": "Aplicar no enmascara nada en {{fields}}: la org no tiene ese campo."
     },
     "backupDelete": "Eliminar",
-    "backupDeleteConfirm": "¿Eliminar esta copia de seguridad? Los valores de los registros que guarda en claro en este equipo desaparecen para siempre, y ya no se podrá restaurar.",
-    "backupDeleteAll": "Eliminar todas las copias de seguridad de esta org",
-    "backupDeleteAllConfirm_one": "¿Eliminar la copia de seguridad de esta org guardada en este equipo? Los valores de los registros que guarda en claro desaparecen para siempre, y ya no se podrá restaurar.",
-    "backupDeleteAllConfirm_other": "¿Eliminar las {{count}} copias de seguridad de esta org guardadas en este equipo? Los valores de los registros que guardan en claro desaparecen para siempre, y ninguna se podrá restaurar.",
-    "backupsDeleted_one": "{{count}} copia de seguridad eliminada de este equipo.",
-    "backupsDeleted_other": "{{count}} copias de seguridad eliminadas de este equipo.",
+    "backupDeleteConfirm": "¿Eliminar este respaldo? Los valores de los registros que guarda en claro en este equipo desaparecen para siempre, y ya no se podrá restaurar.",
+    "backupDeleteAll": "Eliminar todos los respaldos de esta org",
+    "backupDeleteAllConfirm_one": "¿Eliminar el respaldo de esta org guardado en este equipo? Los valores de los registros que guarda en claro desaparecen para siempre, y ya no se podrá restaurar.",
+    "backupDeleteAllConfirm_other": "¿Eliminar los {{count}} respaldos de esta org guardados en este equipo? Los valores de los registros que guardan en claro desaparecen para siempre, y ninguno se podrá restaurar.",
+    "backupsDeleted_one": "{{count}} respaldo eliminado de este equipo.",
+    "backupsDeleted_other": "{{count}} respaldos eliminados de este equipo.",
     "snapshot": {
       "keep": "Conservar primero los valores, para que Restaurar pueda devolverlos",
       "keepHint": "Antes de la primera escritura se toma un respaldo de los campos que enmascara la ejecución. Si no puede contener todas las filas que la ejecución enmascararía, no se enmascara nada.",
@@ -2585,7 +2587,7 @@
       "firstRun1610": "De ninguna org a datos de demostración",
       "firstRun1610Desc": "Un usuario nuevo recibe guía desde la primera vista: importar las orgs que la CLI de Salesforce ya conoce, o iniciar sesión en el navegador, y luego llenar la org con Seed. Seed muestra la automatización del destino y rechaza una ejecución que agotaría los correos del día. Los errores se leen con claridad y con un siguiente paso en cada módulo, una ejecución de Forge detenida se reanuda sin escribir nada dos veces y SandForge no hace nada hasta que se abre una de sus vistas.",
       "saferCopies1620": "Copias entre orgs más seguras",
-      "saferCopies1620Desc": "Sync escribe ahora primero los registros principales, nunca vuelve a copiar lo que copió una ejecución anterior y comprueba volumen, almacenamiento y correos del día antes de escribir. La clonación desde otra org de Seed funciona entre dos orgs cualesquiera y oculta los correos y teléfonos reales. Toda ejecución que escribe aparece en Live Operations con un botón de detener, las copias de seguridad de DataOps se pueden eliminar, y con teclado y lector de pantalla se puede seguir cada flujo.",
+      "saferCopies1620Desc": "Sync escribe ahora primero los registros principales, nunca vuelve a copiar lo que copió una ejecución anterior y comprueba volumen, almacenamiento y correos del día antes de escribir. La clonación desde otra org de Seed funciona entre dos orgs cualesquiera y oculta los correos y teléfonos reales. Toda ejecución que escribe aparece en Live Operations con un botón de detener, los respaldos de DataOps se pueden eliminar, y con teclado y lector de pantalla se puede seguir cada flujo.",
       "exactResume1530": "Reanudar exactamente donde se detuvo",
       "exactResume1530Desc": "Una ejecución de Forge reanudada ahora copia los archivos pendientes, nunca devuelve un estado dos veces y ya no se rechaza cuando una tabla vacía cambió entretanto. Eliminar una ejecución grande lee su diario página por página.",
       "undoSync1520": "Deshacer lo que creó una ejecución de Sync",
@@ -2596,8 +2598,8 @@
       "syncAlone1500Desc": "Una configuración de Sync guardada puede funcionar en modo delta: solo lee lo que cambió desde su última ejecución correcta, traslada las eliminaciones si lo pide y copia los archivos de sus registros. La página Sync ejecuta ahora una configuración guardada.",
       "approvedPipelines1500": "Pipelines que escriben, tras su aprobación",
       "approvedPipelines1500Desc": "Un paso de Aprobación espera su confirmación en VS Code, un editor de Condición lee lo que encontraron los pasos anteriores y un paso de Sync ejecuta una configuración guardada, tras una Aprobación donde Production Guard preguntaría.",
-      "wholeBackups1480": "Copias de seguridad completas y un botón Detener para cada espera",
-      "wholeBackups1480Desc": "Una copia de seguridad de DataOps ahora lee todas las páginas de un objeto, hasta el límite que usted fije, y dice cuándo se detiene antes. Un enmascaramiento reanudado no da dos veces el mismo nombre ficticio. Una eliminación de Frozen se detiene desde su tarjeta, y NL2SOQL, el plan de Forge y el generador de pipelines pueden detenerse.",
+      "wholeBackups1480": "Respaldos completos y un botón Detener para cada espera",
+      "wholeBackups1480Desc": "Un respaldo de DataOps ahora lee todas las páginas de un objeto, hasta el límite que usted fije, y dice cuándo se detiene antes. Un enmascaramiento reanudado no da dos veces el mismo nombre ficticio. Una eliminación de Frozen se detiene desde su tarjeta, y NL2SOQL, el plan de Forge y el generador de pipelines pueden detenerse.",
       "readAgain1470": "Volver a leer, y saber qué deja una detención",
       "readAgain1470Desc": "La pestaña Automatización de Revisión vuelve a leer la org de destino a petición: un conjunto de permisos recién asignado aparece como asignado. Una ejecución de Autopilot detenida dice qué búsquedas dejó vacías y qué estados no devolvió.",
       "previewResume1460": "Vista previa, reanudar y detener, en todas partes",
@@ -2606,8 +2608,8 @@
       "cloneFlags1460Desc": "Un ensayo ahora evalúa las actualizaciones de una ejecución; la omisión de una regla de validación viene con el conjunto de permisos que la contiene; --upsert hace un upsert, y el comando de clonación lleva un registro de auditoría con --audit.",
       "emailBudget1450": "Saber cuándo el destino se quedaría sin correos",
       "emailBudget1450Desc": "Antes de escribir, un clon cuenta los correos que los flujos del destino enviarían por sus registros frente a lo que le queda hoy a la org. Más allá, un registro cuyo flujo falla se rechaza, así que la ejecución pregunta antes.",
-      "partialBackup1450": "Una copia parcial lo dice",
-      "partialBackup1450Desc": "Una copia de seguridad de DataOps cortada por el límite del nivel nombra los objetos que solo contiene en parte. Este panel ahora solo se abre en las versiones menores, y el ajuste sandforge.showWhatsNew lo desactiva.",
+      "partialBackup1450": "Un respaldo parcial lo dice",
+      "partialBackup1450Desc": "Un respaldo de DataOps cortado por el límite del nivel nombra los objetos que solo contiene en parte. Este panel ahora solo se abre en las versiones menores, y el ajuste sandforge.showWhatsNew lo desactiva.",
       "emptyTables1442": "El descubrimiento va más allá de las tablas vacías",
       "emptyTables1442Desc": "Un objeto hijo con registros bajo su registro se cortaba cuando objetos estándar vacíos llenaban el límite de cincuenta. Las tablas vacías ya no ocupan lugar en él: el clon, su comprobación de reversibilidad y su control de escritura ven cada objeto que tiene filas.",
       "bypassHeld1441": "Las omisiones que tiene se reconocen",
@@ -2693,7 +2695,7 @@
       "seedRuns": "Cada seed que ofrece el asistente arranca",
       "seedRunsDesc": "Una ejecución de dos a cuatro objetos se rechazaba siempre: salía sin reglas de campos. Ahora arranca y escribe, y una plantilla puede repartir los hijos entre los padres que elija, generados en la ejecución o ya presentes en la org.",
       "pipelineSteps": "Los pipelines respaldan, comparan, comprueban y notifican",
-      "pipelineStepsDesc": "Los pasos Copia de seguridad, Comparación, Comprobación previa y Notificación ya se ejecutan, con el mismo código que sus páginas; la vista de ejecución sigue cada paso y Cancelar detiene una ejecución. Los pasos que escriben en una org siguen rechazados: un pipeline se ejecuta sin nadie que confirme.",
+      "pipelineStepsDesc": "Los pasos Respaldo, Comparación, Comprobación previa y Notificación ya se ejecutan, con el mismo código que sus páginas; la vista de ejecución sigue cada paso y Cancelar detiene una ejecución. Los pasos que escriben en una org siguen rechazados: un pipeline se ejecuta sin nadie que confirme.",
       "compareContent": "Comparación lee lo que compara",
       "compareContentDesc": "Entre dos sandboxes informaba de 374 componentes modificados donde hay 47: los ids y las fechas difieren entre dos orgs cualesquiera, y comparaba cómo los listaba cada org. Ahora lee el contenido de cada componente que tienen ambas orgs, y uno que no pudo leer queda como no comparado: nunca sin cambios, nunca seguro.",
       "refreshNoticed": "Se detecta la actualización de un sandbox",
@@ -2764,7 +2766,7 @@
       "seedFillsDesc": "Ejecutado por primera vez contra una org real, Seed no escribía nada y anunciaba éxito, y luego llenaba la org de registros colgados de nada. Ahora rechaza una plantilla que no puede escribir nada, se detiene antes de los hijos de un objeto que no pudo escribir, y descarta un campo que la org no tiene en vez de perder el objeto entero.",
       "autopilotCopies": "Autopilot copia lo que pediste, y lo escribe",
       "autopilotCopiesDesc": "Una petición de dos objetos devolvía veinte y no escribía ni un registro: entraba en usuarios, perfiles y objetos de historial, enviaba todos los campos leídos y ponía ids de origen en las búsquedas del destino. Todo corregido, y ahora una verja impide que el siguiente módulo olvide la exención de reglas de duplicados.",
-      "backupPartial": "Una copia dice cuándo es solo parcial",
+      "backupPartial": "Un respaldo dice cuándo es solo parcial",
       "backupPartialDesc": "Lee hasta dos mil registros por objeto — quinientos contra una org de producción — y anunciaba una instantánea completa en ambos casos. Medido contra una org real: 656 registros copiados a 500 y declarados completos. Ahora avisa del corte, y la instantánea lo conserva.",
       "frozenLoads": "Un dataset congelado se carga de principio a fin",
       "frozenLoadsDesc": "Ejecutado por primera vez contra una org real, el Dataset congelado no podía seleccionar ni una raíz, y su primera carga escribía un registro de veintiocho. Ahora lee lo que un expediente necesita —los precios a los que apuntan sus pedidos y los precios estándar detrás de ellos—, carga ochenta y ocho registros, los recarga limpiamente y supera su propia verificación.",
@@ -4136,6 +4138,7 @@
       "hoursAgo": "hace {{count}}h"
     },
     "fillOrg": "Rellenar {{alias}} con datos de demostración",
+    "fillOrgAction": "Rellenar con datos de demostración",
     "fillOrgDesc": "Una plantilla de Seed, una confirmación, sin clave de IA",
     "advanced": "Avanzado",
     "firstOrg": {

@@ -41,6 +41,44 @@ test('the root lint reads the scripts and gates after the packages', () => {
   }
 });
 
+/**
+ * What a lint script hands ESLint, `--fix` aside: its files, after the
+ * recursive run of the packages' own when there is one.
+ */
+function eslintTargets(script) {
+  const own = script.replace(/^pnpm -r lint(?::fix)? && /, '');
+  return {
+    recursive: own !== script,
+    files: own
+      .replace(/^eslint /, '')
+      .split(' ')
+      .filter((word) => word !== '--fix' && word !== ''),
+  };
+}
+
+/*
+ * The root lint read the scripts and gates, and `lint:fix` still ran the
+ * packages' alone: a finding `lint` reported there, `lint:fix` left. The
+ * webview's `lint:fix` fixed `src/` and none of the end-to-end specs and
+ * configurations its `lint` reads.
+ */
+test('each lint:fix fixes every file its lint reads', () => {
+  const manifests = [
+    ['package.json', rootPkg],
+    ...['shared', 'extension', 'webview'].map((name) => [
+      `packages/${name}/package.json`,
+      JSON.parse(readFileSync(join(root, 'packages', name, 'package.json'), 'utf8')),
+    ]),
+  ];
+  for (const [file, manifest] of manifests) {
+    const { lint, 'lint:fix': fix } = manifest.scripts;
+    assert.match(fix ?? '', /--fix$/, `${file}: lint:fix does not end with --fix: ${fix}`);
+    assert.deepEqual(eslintTargets(fix), eslintTargets(lint), `${file}: lint:fix reads ${fix}`);
+  }
+  // The control: the root script as it was refuses.
+  assert.notDeepEqual(eslintTargets('pnpm -r lint:fix'), eslintTargets(rootPkg.scripts.lint));
+});
+
 test("ESLint gives a script Node's globals", () => {
   const printed = JSON.parse(
     execFileSync(eslintBin(), ['--print-config', 'scripts/trap-bypass.mjs'], {

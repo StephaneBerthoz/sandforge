@@ -93,7 +93,9 @@ export const SyncRunControls: React.FC<SyncRunControlsProps> = ({ operationId, k
         }}
         title={t('common.cancelRun')}
         description={t('sync.runControls.cancelConfirm')}
-        confirmText={t('common.cancel')}
+        // Stopping writes nothing: a question, not a word to type.
+        confirmLabel={t('common.stopRun')}
+        dismissLabel={t('common.keepRunning')}
       />
     </div>
   );

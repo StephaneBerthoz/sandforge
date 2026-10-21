@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
@@ -38,6 +39,11 @@ type ScannedTheme = (typeof SCANNED_THEMES)[number];
  */
 const STATE_THEMES = [...SCANNED_THEMES, 'Light+', 'Quiet Light', 'Dark+'] as const;
 type StateTheme = (typeof STATE_THEMES)[number];
+
+/** The German catalogue, as the extension answers `i18n:locale` with it. */
+const DE_BUNDLE = JSON.parse(
+  readFileSync(new URL('../src/i18n/locales/de.json', import.meta.url), 'utf8'),
+) as Record<string, unknown>;
 
 /**
  * Set the host theme's custom properties on the document before first paint,
@@ -2845,13 +2851,22 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
     });
 
+    test('Forge abort question: nothing to type, Keep running focused', async ({ page }) => {
+      await startForgeRun(bridge, page, theme);
+      await page.getByTestId('forge-abort-button').click();
+
+      await expectPlainStopQuestion(page, 'Abort');
+      await expectReadable(page, theme);
+      await page.getByRole('button', { name: 'Stop the run' }).click();
+      await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
+    });
+
     test('Forge run the user aborts, stopping until it answers, then the rest of it to write', async ({
       page,
     }) => {
       const request = await startForgeRun(bridge, page, theme);
       await forgeProgress(page, request, 'Account', 'done');
       await page.getByTestId('forge-abort-button').click();
-      await page.getByTestId('danger-input').fill('Abort');
       await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
 
@@ -2908,7 +2923,6 @@ for (const theme of SCANNED_THEMES) {
     }) => {
       const request = await startForgeRun(bridge, page, theme);
       await page.getByTestId('forge-abort-button').click();
-      await page.getByTestId('danger-input').fill('Abort');
       await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
 
@@ -3069,7 +3083,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('anonymization-preview-Email')).toContainText(
         'john.doe@acme.com.invalid',
       );
-      await expect(page.getByTestId('anonymization-preview-Phone')).toContainText('+3363998');
+      await expect(page.getByTestId('anonymization-preview-Phone')).toContainText('+33 6 39 98');
       const preview = await checkAccessibility(page);
       expectNoViolations(preview);
       expect(
@@ -3251,7 +3265,6 @@ for (const theme of SCANNED_THEMES) {
       const request = await startForgeRun(bridge, page, theme);
       await forgeProgress(page, request, 'Account', 'done');
       await page.getByTestId('forge-abort-button').click();
-      await page.getByTestId('danger-input').fill('Abort');
       await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('forge:abort', { timeout: 10_000 });
       await page.getByTestId('forge-execution-stopping').waitFor({ timeout: 10_000 });
@@ -5302,13 +5315,70 @@ for (const theme of SCANNED_THEMES) {
           },
         },
       ]);
-      await expect(page.getByTestId('sidepanel-seed-hero')).toContainText(
-        `Fill ${DEV_SANDBOX.alias} with demo data`,
-      );
+      const hero = page.getByTestId('sidepanel-seed-hero');
+      await expect(hero).toContainText('Fill with demo data');
+      await expect(page.getByTestId('sidepanel-seed-hero-alias')).toHaveText(DEV_SANDBOX.alias);
+      await expect(hero).toHaveAttribute('title', `Fill ${DEV_SANDBOX.alias} with demo data`);
       await page.getByTestId('sidepanel-advanced-toggle').click();
       await expect(page.getByTestId('sidepanel-nav-compare')).toBeVisible();
 
       await expectReadable(page, theme);
+    });
+
+    test.describe('in German, in a sidebar column about 125 pixels wide', () => {
+      test.use({ locale: 'de-DE', viewport: { width: 215, height: 900 } });
+
+      test('Side panel with one scratch org: the fill verb whole, each module name wrapped, none cut', async ({
+        page,
+      }) => {
+        // "Mit Demodaten füllen: <alias>" truncated to one line, and
+        // "Eingefrorenes Dataset", 134 pixels, read "Eingefrorenes Dat…".
+        const alias = 'test-abcdefghijklmnop@example.com';
+        await openPanel(bridge, page, 'sidepanel', theme);
+        await bridge.respondToNext(
+          'i18n:locale',
+          'i18n:locale:response',
+          { lng: 'de', bundle: DE_BUNDLE },
+          { timeout: 10_000 },
+        );
+        await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+        await bridge.stream([
+          {
+            type: 'org:list:response',
+            payload: {
+              orgs: [{ ...DEV_SANDBOX, alias, orgType: 'Scratch' }],
+              selectedOrgId: DEV_SANDBOX.id,
+            },
+          },
+        ]);
+        await page.getByTestId('sidepanel-advanced-toggle').click();
+
+        const hero = page.getByTestId('sidepanel-seed-hero');
+        const verb = hero.getByText('Mit Demodaten füllen', { exact: true });
+        await expect(verb).toBeVisible();
+        await expect(hero).toHaveAttribute('title', `Mit Demodaten füllen: ${alias}`);
+        const frozen = page.getByTestId('sidepanel-nav-frozen').getByText('Eingefrorenes Dataset');
+        const names = [
+          verb,
+          frozen,
+          page.getByTestId('sidepanel-nav-automation').getByText('Automatisierung'),
+          page.getByTestId('sidepanel-nav-orgs').getByText('Organisationen'),
+        ];
+        for (const name of names) {
+          const box = await name.evaluate((el) => ({
+            text: el.textContent,
+            cut: el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight,
+          }));
+          expect(box).toEqual({ text: box.text, cut: false });
+        }
+        // The column is as narrow as the one it was cut in: the name takes two lines.
+        const lines = await frozen.evaluate(
+          (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+        );
+        expect(Math.round(lines)).toBe(2);
+
+        await expectReadable(page, theme);
+      });
     });
 
     test('Organizations before a click: the CLI that does not answer, and More methods open', async ({
@@ -7097,6 +7167,70 @@ async function openQuickSeedRunning(
   ]);
   await page.getByTestId('btn-quick-seed-cancel').waitFor({ state: 'visible', timeout: 10_000 });
   return operationId;
+}
+
+/**
+ * The Seed wizard's run of accounts and contacts, under way: its execute
+ * unanswered, the progress it reported, its Cancel offered.
+ */
+async function openSeedWizardRunning(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+): Promise<void> {
+  await openPanel(bridge, page, 'seed', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('mode-card-generate').click();
+  await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
+  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+  await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: [
+      { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
+      { apiName: 'Contact', label: 'Contact', recordCount: 0, dependencies: [] },
+    ],
+  });
+  await page.getByTestId('obj-Account').click();
+  await page.getByTestId('obj-Contact').click();
+  await page.getByTestId('seed-wizard-next').click();
+  const answered = new Set<string>();
+  await expect
+    .poll(
+      async () => {
+        await answerSeedDescribes(page, answered);
+        return page.getByTestId('seed-fields-status').textContent();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe('Using default field rules.');
+  await page.getByTestId('seed-wizard-next').click();
+  await page.getByTestId('seed-wizard-finish').click();
+  const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+  await bridge.stream([
+    {
+      type: 'operation:progress',
+      payload: {
+        operationId: String(request.id),
+        percentage: 40,
+        processedRecords: 40,
+        totalRecords: 100,
+        currentStep: 'Insert Account',
+      },
+    },
+  ]);
+  await page.getByTestId('seed-wizard-cancel').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/**
+ * A run's stop question, as stopping one's own run asks it: nothing to type —
+ * it asked to type "Cancel", the label of the button beside it that stops
+ * nothing — and the focus on the button that keeps the run going.
+ */
+async function expectPlainStopQuestion(page: Page, title = 'Cancel run'): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: title });
+  await dialog.waitFor({ state: 'visible', timeout: 10_000 });
+  await expect(dialog.getByTestId('danger-input')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Stop the run' })).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: 'Keep running' })).toBeFocused();
 }
 
 /** What the run of the small demo answers: accounts created, contacts refused for two reasons. */
@@ -9416,6 +9550,82 @@ for (const theme of STATE_THEMES) {
       await openQuickSeedRunning(bridge, page, theme);
 
       await expectReadable(page, theme, '[data-testid="quick-seed-executing"]');
+    });
+
+    test('Seed Quick Seed stop question: nothing to type, Keep running focused', async ({
+      page,
+    }) => {
+      const operationId = await openQuickSeedRunning(bridge, page, theme);
+      await page.getByTestId('btn-quick-seed-cancel').click();
+
+      await expectPlainStopQuestion(page);
+      await expectReadable(page, theme);
+      await page.getByRole('button', { name: 'Stop the run' }).click();
+      const abort = await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
+      expect(abort.payload).toEqual({ operationId });
+    });
+
+    test('Seed wizard stop question: nothing to type, Keep running focused', async ({ page }) => {
+      await openSeedWizardRunning(bridge, page, theme);
+      await page.getByTestId('seed-wizard-cancel').click();
+
+      await expectPlainStopQuestion(page);
+      await expectReadable(page, theme);
+      // Kept going from the keyboard: Enter on the focused button closes it.
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(await bridge.getMessages('execution:abort')).toEqual([]);
+    });
+
+    test('Sync run stop question: nothing to type, Keep running focused', async ({ page }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+      await page.getByTestId('sync-cancel').click();
+
+      await expectPlainStopQuestion(page);
+      await expectReadable(page, theme);
+      // Stopped from the keyboard: Tab to Stop the run, Enter.
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('button', { name: 'Stop the run' })).toBeFocused();
+      await page.keyboard.press('Enter');
+      const abort = await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
+      expect(abort.payload).toEqual({ operationId: run.id });
+    });
+
+    test('Sync tabs walked from the keyboard, each tab’s panel named by it', async ({ page }) => {
+      // The bar had the arrows of the tab pattern and no tabpanel.
+      await openPanel(bridge, page, 'sync', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('tab-sync').focus();
+      await expect(page.getByRole('tabpanel', { name: 'Sync' })).toBeVisible();
+
+      await page.keyboard.press('ArrowRight');
+      const history = page.getByTestId('tab-history');
+      await expect(history).toBeFocused();
+      const panel = page.getByRole('tabpanel', { name: 'History' });
+      await expect(panel).toBeVisible();
+      await expect(history).toHaveAttribute(
+        'aria-controls',
+        (await panel.getAttribute('id')) ?? '',
+      );
+
+      await expectReadable(page, theme);
+    });
+
+    test('Monitor skeleton headed by the org it watches, before its first read', async ({
+      page,
+    }) => {
+      // Headed by nothing, the page left a page change's focus on main until
+      // the read answered.
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      const skeleton = page.getByTestId('monitor-loading');
+      await skeleton.waitFor({ timeout: 10_000 });
+      await expect(skeleton.getByRole('heading', { level: 1 })).toHaveText(DEV_SANDBOX.alias);
+
+      await expectReadable(page, theme);
     });
 
     test('Seed Quick Seed results: refusals grouped by reason, a created account to open', async ({

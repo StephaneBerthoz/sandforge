@@ -63,7 +63,7 @@ describe('consultProductionGuard', () => {
     );
 
     expect(decision).toBe('refused');
-    expect(check.blockedReason).toContain('delete is not allowed');
+    expect(check.blockedReason).toContain('Deleting records is not allowed');
     expect(ask).not.toHaveBeenCalled();
   });
 

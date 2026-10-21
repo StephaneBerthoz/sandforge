@@ -400,7 +400,7 @@ describe('QuickSeedFlow', () => {
       expect(screen.getAllByRole('progressbar')[0].getAttribute('aria-valuenow')).toBe('60');
     });
 
-    it('can be stopped once it has reported progress, after the typed confirmation', () => {
+    it('can be stopped once it has reported progress, after a question with nothing to type', () => {
       // The one-click path had no Cancel: a seed started by mistake ran to its end.
       const cancel = vi.fn();
       render(
@@ -409,8 +409,12 @@ describe('QuickSeedFlow', () => {
 
       fireEvent.click(screen.getByTestId('btn-quick-seed-cancel'));
       expect(cancel).not.toHaveBeenCalled();
-      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Cancel' } });
-      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(screen.queryByTestId('danger-input')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Keep running' }));
+      expect(cancel).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('btn-quick-seed-cancel'));
+      fireEvent.click(screen.getByRole('button', { name: 'Stop the run' }));
 
       expect(cancel).toHaveBeenCalledOnce();
     });

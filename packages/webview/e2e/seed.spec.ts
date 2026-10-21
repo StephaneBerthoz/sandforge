@@ -988,7 +988,6 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
       },
     ]);
     await page.getByTestId('btn-quick-seed-cancel').click();
-    await page.getByTestId('danger-input').fill('Cancel');
     await page.getByTestId('danger-confirm-btn').click();
     const abort = await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
     expect(abort.payload).toEqual({ operationId });

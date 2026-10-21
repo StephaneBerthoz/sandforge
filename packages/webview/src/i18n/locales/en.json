@@ -3,6 +3,8 @@
     "save": "Save",
     "cancel": "Cancel",
     "cancelRun": "Cancel run",
+    "stopRun": "Stop the run",
+    "keepRunning": "Keep running",
     "confirm": "Confirm",
     "delete": "Delete",
     "edit": "Edit",
@@ -4136,6 +4138,7 @@
       "hoursAgo": "{{count}}h ago"
     },
     "fillOrg": "Fill {{alias}} with demo data",
+    "fillOrgAction": "Fill with demo data",
     "fillOrgDesc": "A Seed template, one confirmation, no AI key",
     "advanced": "Advanced",
     "firstOrg": {

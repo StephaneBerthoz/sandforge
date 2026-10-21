@@ -10,6 +10,8 @@ import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 export interface ObjectDescribe {
   /** API name of the object. */
   name: string;
+  /** The object's label in the org, when the describe kept it: the graph node's `label`. */
+  label?: string;
   /** Fields on the object. */
   fields: FieldDescribe[];
   /** Child relationships where this object is the parent. */
@@ -537,6 +539,7 @@ export class GraphDiscoveryService {
         const createableFieldCount = describe.fields.filter((f) => f.type !== 'id').length;
         const node: ForgeGraphNode = {
           objectApiName: objectName,
+          ...(describe.label ? { label: describe.label } : {}),
           recordCount: effectiveCount,
           fieldCount: describe.fields.length,
           status: countFailed ? 'error' : 'idle',

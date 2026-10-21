@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft } from 'lucide-react';
 import type { PersonaMsg } from '@sandforge/shared';
@@ -19,6 +19,7 @@ import { useSeedWizardState } from './useSeedWizardState';
 import { PersonaGallery } from './Persona/PersonaGallery';
 import { personaName } from './Persona/personaText';
 import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
+import { objectLabelsOf } from '../../utils/objectLabels';
 
 const SEED_STEPS: WizardStep[] = [
   { id: 'select', labelKey: 'seed.stepSelect' },
@@ -145,6 +146,16 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
   const wizardOrgName = state.selectedOrg
     ? state.selectedOrg.alias || state.selectedOrg.username
     : '';
+  // The labels the describes the wizard read gave each object: an object's
+  // own describe first, then the org's list of objects.
+  const objectLabels = useMemo(
+    () =>
+      objectLabelsOf([
+        ...state.fieldConfigs.map((c) => ({ apiName: c.objectApiName, label: c.objectLabel })),
+        ...state.availableObjects,
+      ]),
+    [state.fieldConfigs, state.availableObjects],
+  );
 
   return (
     <div hidden={!active}>
@@ -266,6 +277,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
               executionResult={state.executionResult}
               template={state.lastTemplate}
               orgName={wizardOrgName}
+              objectLabels={objectLabels}
               onSeedAgain={handleSeedAgain}
             />
           )}
@@ -277,7 +289,9 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
           onConfirm={handleConfirmCancelRun}
           title={t('common.cancelRun')}
           description={t('seed.cancelRunConfirm')}
-          confirmText={t('common.cancel')}
+          // Stopping writes nothing: a question, not a word to type.
+          confirmLabel={t('common.stopRun')}
+          dismissLabel={t('common.keepRunning')}
         />
       </div>
     </div>

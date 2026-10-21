@@ -155,6 +155,20 @@ describe('ForgeNodeDetail', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Whether a number is one of the fictional range written in the layout of
+   * the one it replaces, as `ContactPointNeutralizer` writes it: every
+   * character but a digit where it was, as many digits, and those of
+   * +33 6 39 98 XX XX.
+   */
+  const inLayoutOf = (written: string, sample: string): boolean =>
+    written.length === sample.length &&
+    [...written].every(
+      (char, at) =>
+        /\d/.test(char) === /\d/.test(sample[at]) && (/\d/.test(char) || char === sample[at]),
+    ) &&
+    /^3363998\d{4}$/.test(written.replace(/\D/g, ''));
+
   /** What the preview says the run writes in one field: its sample, then what replaces it. */
   const previewOf = (field: string): string[] =>
     [...screen.getByTestId(`anonymization-preview-${field}`).querySelectorAll('td')].map(
@@ -183,7 +197,12 @@ describe('ForgeNodeDetail', () => {
       'john.doe@acme.com',
       'alex.smith@example.invalid',
     ]);
-    expect(previewOf('Phone')[2]).toMatch(/^\+3363998\d{4}$/);
+    const [, sample, written] = previewOf('Phone');
+    expect({ sample, written, inLayout: inLayoutOf(written, sample) }).toEqual({
+      sample: '+33 1 23 45 67 89',
+      written: '+33 6 39 98 12 34',
+      inLayout: true,
+    });
     expect(previewOf('SSN')[2]).toBe('[REDACTED]');
     expect(screen.getByTestId('anonymization-preview').textContent).not.toContain('***');
   });
@@ -206,7 +225,7 @@ describe('ForgeNodeDetail', () => {
       'Emails and phone numbers, as the run writes them',
     );
     expect(previewOf('Email')).toEqual(['Email', 'john.doe@acme.com', 'john.doe@acme.com.invalid']);
-    expect(previewOf('MobilePhone')[2]).toMatch(/^\+3363998\d{4}$/);
+    expect(inLayoutOf(previewOf('MobilePhone')[2], previewOf('MobilePhone')[1])).toBe(true);
     // A name is written as the source holds it when the run does not anonymize.
     expect(screen.queryByTestId('anonymization-preview-FirstName')).toBeNull();
   });
@@ -222,7 +241,7 @@ describe('ForgeNodeDetail', () => {
     );
 
     expect(previewOf('FirstName')).toEqual(['FirstName', 'John', 'Alex']);
-    expect(previewOf('HomePhone')[2]).toMatch(/^\+3363998\d{4}$/);
+    expect(inLayoutOf(previewOf('HomePhone')[2], previewOf('HomePhone')[1])).toBe(true);
   });
 
   it('shows no preview of the fields the run writes as the source holds them', () => {

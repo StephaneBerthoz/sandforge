@@ -43,6 +43,7 @@ import {
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
 import { LANDING_COMMAND } from './composition/moduleCommands';
+import { panelTitleOf } from './composition/panelTitles';
 import { registerFrozenSaltCommands } from './composition/frozenSaltCommands';
 import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposition';
 import { wirePipelineTriggers } from './composition/pipelineTriggerComposition';
@@ -375,6 +376,18 @@ export function activate(context: vscode.ExtensionContext): void {
     () => readConfiguredLanguage(configStore.getByCategory('settings')),
     // Editor display language, for the `auto` language setting.
     () => vscode.env.language,
+  );
+  // Each panel's tab is titled as the navigation names its module, in the
+  // panels' language.
+  panelManager.setTitleOf((moduleId) =>
+    panelTitleOf(
+      localesDir,
+      uiLocaleOf(
+        readConfiguredLanguage(configStore.getByCategory('settings')),
+        vscode.env.language,
+      ),
+      moduleId,
+    ),
   );
 
   // What each panel's page shows: Help and Reports are released while hidden

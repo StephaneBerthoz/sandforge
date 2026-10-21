@@ -12,7 +12,11 @@ export interface ModuleCommand {
   command: string;
   /** Module id — doubles as the webview route and the `sandforge.<moduleId>` viewType suffix. */
   moduleId: string;
-  /** English module name used in the panel title (`SandForge: <title>`). */
+  /**
+   * The module's English navigation label (`nav.*` of the webview's
+   * `en.json`): the panel's title (`SandForge: <title>`) until the label of
+   * the panels' language is read (`panelTitleOf`).
+   */
   title: string;
   /**
    * Whether the panel's page is released while the panel is hidden, and
@@ -56,7 +60,7 @@ export const MODULE_COMMANDS: readonly ModuleCommand[] = [
   { command: 'sandforge.openFrozen', moduleId: 'frozen', title: 'Frozen Dataset' },
   { command: 'sandforge.openGrappe', moduleId: 'grappe', title: 'Grappe' },
   { command: 'sandforge.openAutopilot', moduleId: 'autopilot', title: 'Autopilot' },
-  { command: 'sandforge.openCompare', moduleId: 'compare', title: 'Compare' },
+  { command: 'sandforge.openCompare', moduleId: 'compare', title: 'Compare Org' },
   { command: 'sandforge.openDataOps', moduleId: 'dataops', title: 'DataOps' },
   { command: 'sandforge.openAutomation', moduleId: 'automation', title: 'Automation' },
   { command: 'sandforge.openMigration', moduleId: 'migration', title: 'Migration' },

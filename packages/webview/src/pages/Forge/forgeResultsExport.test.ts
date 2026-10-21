@@ -63,6 +63,24 @@ describe('the copy of the record the run cloned', () => {
     });
   });
 
+  it('gives the copy its object’s label where discovery’s describe gave the node one', () => {
+    const labelled = {
+      ...ROOTED,
+      graph: {
+        nodes: [
+          { objectApiName: 'Contact', level: 1 },
+          { objectApiName: 'Account', level: 0, label: 'Compte' },
+        ],
+      },
+    } as unknown as Parameters<typeof rootCopyOf>[0];
+
+    expect(rootCopyOf(labelled, '001000000000002AAA')).toEqual({
+      targetId: '001000000000102AAA',
+      objectApiName: 'Account',
+      label: 'Compte',
+    });
+  });
+
   it('finds none of a record the target held, which the run linked to', () => {
     expect(rootCopyOf(ROOTED, '001000000000003AAA')).toBeUndefined();
     expect(rootCopyOf({ ...ROOTED, idRemapTable: {} }, '001000000000002AAA')).toBeUndefined();

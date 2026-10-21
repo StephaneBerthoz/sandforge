@@ -195,7 +195,7 @@ describe('SyncRemovalHandler', () => {
 
       expect(info()?.refusal).toEqual({
         code: 'GUARD_BLOCKED',
-        message: `delete is not allowed on production org ${TARGET}`,
+        message: `Deleting records is not allowed in the production org ${TARGET}.`,
       });
     });
 
@@ -383,7 +383,7 @@ describe('SyncRemovalHandler', () => {
         expect.objectContaining({
           payload: expect.objectContaining({
             code: 'GUARD_BLOCKED',
-            message: `Operation blocked by Production Guard: delete is not allowed on production org ${TARGET}`,
+            message: `Operation blocked by Production Guard: Deleting records is not allowed in the production org ${TARGET}.`,
           }),
         }),
       ]);

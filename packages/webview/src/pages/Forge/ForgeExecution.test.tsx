@@ -470,7 +470,6 @@ describe('ForgeExecution', () => {
     render(<ForgeExecution />);
 
     fireEvent.click(screen.getByTestId('forge-abort-button'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
@@ -486,7 +485,6 @@ describe('ForgeExecution', () => {
     render(<ForgeExecution />);
 
     fireEvent.click(screen.getByTestId('forge-abort-button'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
@@ -502,7 +500,6 @@ describe('ForgeExecution', () => {
     render(<ForgeExecution />);
 
     fireEvent.click(screen.getByTestId('forge-abort-button'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     expect(mockRequestStop).toHaveBeenCalledTimes(1);
@@ -612,12 +609,13 @@ describe('ForgeExecution', () => {
     });
   });
 
-  it('should not post forge:abort when the confirm text does not match', () => {
+  it('asks before aborting, with nothing to type, and keeps the run going when told to', () => {
+    // It asked to type "Abort" for a stop that writes nothing.
     render(<ForgeExecution />);
 
     fireEvent.click(screen.getByTestId('forge-abort-button'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'nope' } });
-    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(screen.queryByTestId('danger-input')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep running' }));
 
     expect(mockPostMessage).not.toHaveBeenCalled();
   });
@@ -747,7 +745,6 @@ describe('ForgeExecution', () => {
     render(<ForgeExecution />);
 
     fireEvent.click(screen.getByTestId('forge-abort-button'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
     expect(mockAddLog).toHaveBeenCalledWith(

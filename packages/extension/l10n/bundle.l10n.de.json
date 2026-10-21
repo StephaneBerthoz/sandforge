@@ -143,6 +143,8 @@
   "the {0} org \"{1}\"": "{0}-Org „{1}“",
   "the {0} org {1}": "{0}-Org {1}",
   "SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.": "SandForge stellt Metadaten nur in eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org bereit, nicht in die {0}.",
+  "Deleting records is not allowed in {0}.": "Das Löschen von Datensätzen ist in der {0} nicht erlaubt.",
+  "Permanently deleting records is not allowed in {0}.": "Das endgültige Löschen von Datensätzen ist in der {0} nicht erlaubt.",
   "production": "Produktions",
   "staging": "Staging",
   "development": "Entwicklungs",

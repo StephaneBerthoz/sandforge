@@ -833,8 +833,11 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
       'Permanently delete {0} in {1}.',
       'Deploy {0} to {1}.',
     ];
-    const REFUSAL =
-      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.';
+    const REFUSALS = [
+      'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.',
+      'Deleting records is not allowed in {0}.',
+      'Permanently deleting records is not allowed in {0}.',
+    ];
     const asked = (locale: string): string[] => {
       const host = hostOf(locale);
       const org = (host.get('the {0} org "{1}"') ?? '')
@@ -842,13 +845,13 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
         .replace('{1}', 'my-org');
       return [
         ...SENTENCES.map((key) => (host.get(key) ?? '').replace('{0}', '12').replace('{1}', org)),
-        (host.get(REFUSAL) ?? '').replace('{0}', org),
+        ...REFUSALS.map((key) => (host.get(key) ?? '').replace('{0}', org)),
       ];
     };
     const uncontracted = /(?<!\p{L})em (?:a|o|as|os)(?!\p{L})/iu;
     const portuguese = asked('pt-BR');
     expect(portuguese.filter((sentence) => uncontracted.test(sentence))).toEqual([]);
-    expect(portuguese.filter((sentence) => / na org /.test(sentence))).toHaveLength(6);
+    expect(portuguese.filter((sentence) => / na org /.test(sentence))).toHaveLength(8);
     expect(
       [...everySurface('pt-BR')]
         .filter(([, value]) => uncontracted.test(value))
@@ -865,31 +868,40 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
       'der',
       'die',
       'die',
+      'der',
+      'der',
     ]);
   });
 
   /*
-   * A stop dialog asks to type a word, and its Cancel button closes it without
-   * stopping anything. Forge's Abort was that very word in French, German,
-   * Spanish and Portuguese: "Saisissez Annuler pour confirmer", [Annuler].
+   * A stop dialog asked to type the word Cancel beside a Cancel button that
+   * closed it and stopped nothing: "Saisissez Annuler pour confirmer",
+   * [Annuler]. Its two buttons now say what each does, and neither says Cancel.
    */
-  it.each(ALL)(
-    '%s asks to type, to abort a clone, a word that no dismiss button says',
-    (locale) => {
-      const catalogue = load(locale);
-      expect(text(catalogue, 'forge.abort').toLowerCase()).not.toBe(
-        text(catalogue, 'common.cancel').toLowerCase(),
-      );
-    },
-  );
+  it.each(ALL)('%s names the stop dialog’s buttons by what each does', (locale) => {
+    const catalogue = load(locale);
+    const said = (key: string) => text(catalogue, key).toLowerCase();
+    const stop = said('common.stopRun');
+    const keep = said('common.keepRunning');
+    expect(stop).not.toBe(keep);
+    for (const plain of ['common.cancel', 'common.confirm']) {
+      expect({ plain, stop: stop === said(plain), keep: keep === said(plain) }).toEqual({
+        plain,
+        stop: false,
+        keep: false,
+      });
+    }
+  });
 
   /*
    * "Ouvrir un Account créé", "Ein erstelltes Account", "Abrir un Account
    * creado": the object's API name took an article and an agreement its
-   * language gives it no gender for.
+   * language gives it no gender for. Its label, which these sentences now
+   * take where the page holds one, is in the org's language, whatever the
+   * panel's: no article can agree with it either.
    */
   it.each(NON_EN)(
-    '%s puts an object’s API name in brackets, where no article agrees with it',
+    '%s puts an object’s name in brackets, where no article agrees with it',
     (locale) => {
       const catalogue = load(locale);
       for (const key of [
@@ -1034,5 +1046,88 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
     const value = text(load(locale), 'sidePanel.fillOrg');
     expect(value).toContain('{{alias}}');
     expect(value.startsWith('{{alias}}')).toBe(false);
+  });
+
+  /*
+   * Spanish named a DataOps backup "respaldo" on its tab and in twenty-nine
+   * strings, and "copia de seguridad" in twenty others, the settings among them.
+   */
+  it('Spanish names a backup with its DataOps tab’s word, on every surface', () => {
+    const es = [...everySurface('es')];
+    const backupWord = /(?<!\p{L})respaldos?(?!\p{L})/iu;
+    const otherWord = /(?<!\p{L})copias? de seguridad(?!\p{L})/iu;
+    expect(text(load('es'), 'dataops.backup')).toMatch(backupWord);
+    expect(es.filter(([, value]) => otherWord.test(value)).map(([key]) => key)).toEqual([]);
+    // Positive control: the walk reads the values that name one.
+    expect(es.filter(([, value]) => backupWord.test(value)).length).toBeGreaterThan(40);
+    // Control: what shipped is refused.
+    expect(otherWord.test('Eliminar todas las copias de seguridad de esta org')).toBe(true);
+  });
+
+  /*
+   * Brazilian Portuguese wrote "lista de seleção" in four strings and "lista
+   * de opções", Salesforce's own word, in eleven, with an English "picklist".
+   */
+  it('Brazilian Portuguese calls a picklist lista de opções, as Salesforce does', () => {
+    const pt = [...everySurface('pt-BR')];
+    const otherWord = /(?<!\p{L})(?:listas? de seleção|picklists?)(?!\p{L})/iu;
+    expect(pt.filter(([, value]) => otherWord.test(value)).map(([key]) => key)).toEqual([]);
+    expect(pt.filter(([, value]) => /listas? de opções/iu.test(value)).length).toBeGreaterThan(10);
+    expect(otherWord.test('Valor de lista de seleção inválido')).toBe(true);
+    expect(otherWord.test('regras de picklist')).toBe(true);
+  });
+
+  /*
+   * French and German offered "Smart (selon l'entrée)" and "Smart (je nach
+   * Eingabe)" for the records-per-object limit, where Spanish, Portuguese and
+   * Japanese say it in their own words.
+   */
+  it.each(['fr', 'de'] as const)(
+    '%s names the automatic record limit in its own words',
+    (locale) => {
+      const smart = /(?<!\p{L})Smart(?!\p{L})/u;
+      expect(
+        [...everySurface(locale)].filter(([, value]) => smart.test(value)).map(([key]) => key),
+      ).toEqual([]);
+      const catalogue = load(locale);
+      const option = text(catalogue, 'forge.recordLimitSmart');
+      const word = option.split(' ')[0];
+      for (const key of ['forge.recordLimitSmartRecord', 'forge.recordLimitSmartSoql']) {
+        expect({ key, startsWithIt: text(catalogue, key).startsWith(word) }).toEqual({
+          key,
+          startsWithIt: true,
+        });
+      }
+      expect(smart.test("Smart (selon l'entrée)")).toBe(true);
+    },
+  );
+
+  /*
+   * Japanese wrote "AIアシスタント" in the palette and "AI アシスタント" a line
+   * apart, "SF CLIからインポート" in the walkthrough and "SF CLI からインポート"
+   * on the page it leads to: about 300 places without the space Salesforce's
+   * Japanese UI puts between a Latin word and the Japanese around it
+   * ("Apex クラス", "API 参照名"), beside about a thousand with it.
+   */
+  it('Japanese spaces a Latin word from the Japanese around it, on every surface', () => {
+    const JA = '[\\u3040-\\u30fa\\u30fc-\\u30ff\\u3400-\\u4dbf\\u4e00-\\u9fff]';
+    const touching = new RegExp(`[A-Za-z]${JA}|${JA}[A-Za-z]`, 'u');
+    const spaced = new RegExp(`[A-Za-z] ${JA}|${JA} [A-Za-z]`, 'gu');
+    /** The text as it reads: placeholders, markup and the loanwords that hold a Latin letter set aside. */
+    const reads = (value: string) =>
+      value
+        .replace(/\{\{[^}]*\}\}|\{\d+\}/g, '\u0000')
+        .replace(/<[^>]+>|\*\*|`/g, '')
+        .replace(/eコマース/g, 'コマース');
+    const ja = [...everySurface('ja')];
+    expect(ja.filter(([, value]) => touching.test(reads(value))).map(([key]) => key)).toEqual([]);
+    // Positive control: the walk reads the values that space them.
+    expect(
+      ja.reduce((n, [, value]) => n + (reads(value).match(spaced) ?? []).length, 0),
+    ).toBeGreaterThan(1000);
+    // Controls: what shipped is refused, markup or not.
+    expect(touching.test(reads('SandForge: AIアシスタントを開く'))).toBe(true);
+    expect(touching.test(reads('**SF CLIからインポート** をクリック'))).toBe(true);
+    expect(touching.test(reads('B2C eコマース'))).toBe(false);
   });
 });

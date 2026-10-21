@@ -272,6 +272,16 @@ describe('forgeGraphNodeSchema', () => {
     expect(result.status).toBe('idle');
   });
 
+  it('keeps the label discovery gave the object, which the parse used to drop', () => {
+    const result = forgeGraphNodeSchema.parse({
+      ...createValidForgeGraphNode(),
+      objectApiName: 'Invoice__c',
+      label: 'Invoice',
+    });
+    expect(result.label).toBe('Invoice');
+    expect(forgeGraphNodeSchema.parse(createValidForgeGraphNode())).not.toHaveProperty('label');
+  });
+
   it('should reject progress > 100', () => {
     expect(() =>
       forgeGraphNodeSchema.parse({ ...createValidForgeGraphNode(), progress: 150 }),

@@ -126,7 +126,9 @@ describe('syncGuardVerdict', () => {
       syncGuardRequest(config(['delete']), { orgType: 'Production' }),
     );
     expect(verdict.decision).toBe('refused');
-    expect(verdict).toMatchObject({ reason: expect.stringContaining('delete is not allowed') });
+    expect(verdict).toMatchObject({
+      reason: expect.stringContaining('Deleting records is not allowed'),
+    });
   });
 
   it('refuses where no guard runs, as Sync does', () => {

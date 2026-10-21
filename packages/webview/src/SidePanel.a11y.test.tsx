@@ -4,6 +4,7 @@ import { createInstance } from 'i18next';
 import { I18nextProvider } from 'react-i18next';
 import en from './i18n/locales/en.json';
 import fr from './i18n/locales/fr.json';
+import de from './i18n/locales/de.json';
 import { SidePanel } from './SidePanel';
 import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
@@ -327,5 +328,95 @@ describe('SidePanel org switcher', () => {
       relatedTarget: screen.getByTestId('after-switcher'),
     });
     expect(screen.queryByTestId('sidepanel-org-dropdown')).toBeNull();
+  });
+});
+
+/*
+ * The first-run title truncated to one line: "Mit Demodaten füllen: dev@…"
+ * kept the verb where the alias came last, and a scratch org named by its long
+ * username cut it everywhere else. The module names truncated too:
+ * "Eingefrorenes Dataset" read "Eingefrorenes Dat…" in a narrow column.
+ */
+describe('SidePanel fill hero and module names', () => {
+  const LONG_ALIAS = 'test-abcdefghijkl@example.com';
+  const org: SalesforceOrg = {
+    id: 'org-a',
+    alias: LONG_ALIAS,
+    username: LONG_ALIAS,
+    instanceUrl: 'https://test.salesforce.com',
+    orgId: '00D000000000001',
+    orgType: 'Scratch',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#0000ff', icon: '', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+    status: 'connected',
+    lastConnected: '2026-03-07T00:00:00.000Z',
+    tags: [],
+  };
+
+  /** The panel in a language, with one org to fill. */
+  const renderWithOneOrg = async (lng: 'en' | 'de'): Promise<void> => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng,
+      resources: { en: { translation: en }, de: { translation: de } },
+      interpolation: { escapeValue: false },
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SidePanel />
+      </I18nextProvider>,
+    );
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'org:list:response', payload: { orgs: [org], selectedOrgId: null } },
+        }),
+      );
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useRecentOpsStore.setState({ ops: [] });
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useFavoritesStore.setState({ favorites: ['frozen'] });
+  });
+
+  it.each(['en', 'de'] as const)(
+    'puts the verb in %s on a line of its own, never cut, the alias under it and the whole sentence in its title',
+    async (lng) => {
+      await renderWithOneOrg(lng);
+      const hero = screen.getByTestId('sidepanel-seed-hero');
+      const catalogue = lng === 'en' ? en : de;
+
+      const verb = within(hero).getByText(catalogue.sidePanel.fillOrgAction);
+      expect(verb.className).not.toMatch(/\btruncate\b/);
+      expect(verb.textContent).not.toContain(LONG_ALIAS);
+      expect(screen.getByTestId('sidepanel-seed-hero-alias').textContent).toBe(LONG_ALIAS);
+      expect(hero.getAttribute('title')).toBe(
+        catalogue.sidePanel.fillOrg.replace('{{alias}}', LONG_ALIAS),
+      );
+    },
+  );
+
+  it('wraps a module’s name on two lines rather than cutting it, in every list', async () => {
+    await renderWithOneOrg('de');
+    fireEvent.click(screen.getByTestId('sidepanel-advanced-toggle'));
+    const names = [
+      ...within(screen.getByTestId('sidepanel-favorites')).getAllByText('Eingefrorenes Dataset'),
+      ...within(screen.getByTestId('sidepanel-modules')).queryAllByText('Eingefrorenes Dataset'),
+      ...within(screen.getByTestId('sidepanel-advanced')).queryAllByText('Eingefrorenes Dataset'),
+      within(screen.getByTestId('sidepanel-tools')).getByText('Organisationen'),
+    ];
+    expect(names.length).toBeGreaterThanOrEqual(3);
+    for (const name of names) {
+      expect({ name: name.textContent, cut: /\btruncate\b/.test(name.className) }).toEqual({
+        name: name.textContent,
+        cut: false,
+      });
+      expect(name.className).toMatch(/\bline-clamp-2\b/);
+    }
   });
 });

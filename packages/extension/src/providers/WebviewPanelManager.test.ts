@@ -261,6 +261,83 @@ describe('WebviewPanelManager', () => {
     });
   });
 
+  describe('a module panel’s title in the panels’ language', () => {
+    /** A panel's title, which the mock panel does not declare. */
+    const titleOfPanel = (panel: MockWebviewPanel): unknown =>
+      (panel as MockWebviewPanel & { title?: string }).title;
+
+    it('takes the title read for its module once it is read, on opening and on reopening', async () => {
+      const titles = ['SandForge: Vergleich', 'SandForge: Comparaison'];
+      const titleOf = vi.fn(() => Promise.resolve(titles.shift()));
+      manager.setTitleOf(titleOf);
+
+      manager.openPanel({
+        viewType: 'sandforge.compare',
+        title: 'Compare Org',
+        moduleId: 'compare',
+      });
+      const panel = lastCreatedPanel;
+      expect(factory).toHaveBeenCalledWith(
+        'sandforge.compare',
+        'Compare Org',
+        1,
+        expect.anything(),
+      );
+      await vi.waitFor(() => expect(titleOfPanel(panel)).toBe('SandForge: Vergleich'));
+
+      // The panels' language changed meanwhile: reopened, the panel says it in that one.
+      manager.openPanel({
+        viewType: 'sandforge.compare',
+        title: 'Compare Org',
+        moduleId: 'compare',
+      });
+      await vi.waitFor(() => expect(titleOfPanel(panel)).toBe('SandForge: Comparaison'));
+      expect(titleOf).toHaveBeenCalledWith('compare');
+    });
+
+    it('keeps the title it opened with when none is read, and titles no panel without a module', async () => {
+      const titleOf = vi.fn((moduleId: string) =>
+        moduleId === 'broken'
+          ? Promise.reject(new Error('unreadable'))
+          : Promise.resolve(undefined),
+      );
+      manager.setTitleOf(titleOf);
+
+      manager.openPanel({ viewType: 'sandforge.broken', title: 'Opened', moduleId: 'broken' });
+      const unread = lastCreatedPanel;
+      manager.openPanel({ viewType: 'sandforge.unknown', title: 'Opened', moduleId: 'unknown' });
+      const unnamed = lastCreatedPanel;
+      manager.openPanel({ viewType: 'plain', title: 'Plain' });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(titleOfPanel(unread)).toBeUndefined();
+      expect(titleOfPanel(unnamed)).toBeUndefined();
+      expect(titleOf).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not title a panel closed before its title was read', async () => {
+      let answer: (title: string) => void = () => undefined;
+      manager.setTitleOf(
+        () =>
+          new Promise<string>((resolve) => {
+            answer = resolve;
+          }),
+      );
+      manager.openPanel({ viewType: 'sandforge.seed', title: 'Seed', moduleId: 'seed' });
+      const closed = lastCreatedPanel;
+      manager.closePanel('sandforge.seed');
+      // The close reaches the manager through the panel's dispose event.
+      const onDispose = closed.onDidDispose.mock.calls[0][0] as () => void;
+      onDispose();
+
+      answer('SandForge: Seed');
+      await Promise.resolve();
+
+      expect(titleOfPanel(closed)).toBeUndefined();
+    });
+  });
+
   describe('closePanel', () => {
     it('should dispose the panel and remove it from tracking', () => {
       manager.openPanel({ viewType: 'test', title: 'Test' });

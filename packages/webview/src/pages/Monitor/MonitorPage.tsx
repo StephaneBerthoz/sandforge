@@ -381,7 +381,12 @@ export const MonitorPage: React.FC = () => {
   if (loading && !lastUpdated) {
     return (
       <div className="flex flex-col gap-4 p-6 w-full" data-testid="monitor-loading">
-        <Skeleton variant="text" width="30%" height="1.5em" />
+        {/* The dashboard's heading, drawn before its first read: the page had
+            none until the read answered, and the focus a page change hands
+            its heading waited on the main landmark meanwhile. */}
+        <h1 tabIndex={-1} className="text-base font-semibold text-text-primary truncate">
+          {currentOrg ? currentOrg.alias || currentOrg.username : t('nav.monitor')}
+        </h1>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {Array.from({ length: 5 }, (_, i) => (
             <Skeleton key={i} variant="rect" height="110px" />

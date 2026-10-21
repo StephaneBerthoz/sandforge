@@ -1921,6 +1921,17 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       lines.push(`  ${e.objectApiName}  ${parts.join(', ')}`);
     }
   }
+  // A read that stopped at --max with rows left in the source: the results
+  // panel says so, and the command printed nothing.
+  if (summary.cappedObjects) {
+    const { perObject, objects } = summary.cappedObjects;
+    lines.push(
+      '',
+      `stopped at ${perObject} records per object (--max), ` +
+        `the source holding more, which were not cloned (${objects.length} object(s)):`,
+      ...objects.map((objectApiName) => `  ${objectApiName}`),
+    );
+  }
   if (summary.files) lines.push('', ...fileLines(summary.files, dryRun));
   // Read, such a field gives its file's address, never the file: the clone
   // leaves it empty rather than write that address where the content goes.
@@ -2282,6 +2293,9 @@ export function jsonResult(summary: ExecutionSummary) {
     // The objects whose read failed: a failure of the run each, though none
     // counts in failedCount, as the clone never learned how many rows it held.
     failedReads: summary.failedReads,
+    // The cap of --max and the objects whose read stopped at it with rows
+    // left in the source; only when a read did.
+    ...(summary.cappedObjects ? { cappedObjects: summary.cappedObjects } : {}),
     // Only with --files: what became of the files. The ones copied are in
     // remapTable too, under their document or attachment id.
     ...(summary.files ? { files: summary.files } : {}),

@@ -100,7 +100,14 @@ export const SeedRecordTypePicker: React.FC<SeedRecordTypePickerProps> = ({ fiel
                 className="text-[11px] text-(--sf-text-secondary)"
                 data-testid={`seed-record-types-person-${objectApiName}`}
               >
-                {t('seed.recordTypes.personNote', { object: objectApiName })}
+                {/* "Account records are written as person accounts": the
+                    object names a kind of record, by its label as the org's
+                    own describe gives it. */}
+                {t('seed.recordTypes.personNote', {
+                  object:
+                    fieldConfigs.find((c) => c.objectApiName === objectApiName)?.objectLabel ||
+                    objectApiName,
+                })}
               </p>
             )}
           </fieldset>

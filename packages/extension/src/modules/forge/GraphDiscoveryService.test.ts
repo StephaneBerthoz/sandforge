@@ -164,6 +164,24 @@ describe('GraphDiscoveryService', () => {
         undefined,
       );
     });
+
+    it('keeps the label its describe gave each object, for the sentences that name a record of it', async () => {
+      // Results said "Open the Invoice__c cloned": the graph held no label.
+      vi.mocked(deps.describeObject).mockResolvedValue({
+        ...makeAccountDescribe(),
+        label: 'Compte',
+      });
+
+      const graph = await service.discover(createConfig());
+
+      expect(graph.nodes[0]).toMatchObject({ objectApiName: 'Account', label: 'Compte' });
+    });
+
+    it('gives no label to an object its describe gave none', async () => {
+      const graph = await service.discover(createConfig());
+
+      expect(graph.nodes[0]).not.toHaveProperty('label');
+    });
   });
 
   describe('per-object filters', () => {

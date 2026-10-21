@@ -103,6 +103,28 @@ describe('SeedOpenRecord', () => {
     ]);
   });
 
+  it('names the record’s object by the label a describe gave it, else by its API name', () => {
+    // "Open a created Invoice__c in dev1": the API name, suffix included, in
+    // a sentence, where the org's own pages say Invoice.
+    const { rerender } = render(
+      <SeedOpenRecord
+        result={result([['Invoice__c', [fakeId('a01', 1)]]])}
+        orgName="dev1"
+        objectLabels={new Map([['Invoice__c', 'Invoice']])}
+      />,
+    );
+    expect(screen.getByTestId('btn-seed-open-record').textContent).toBe(
+      'Open a created Invoice in dev1',
+    );
+
+    rerender(
+      <SeedOpenRecord result={result([['Invoice__c', [fakeId('a01', 1)]]])} orgName="dev1" />,
+    );
+    expect(screen.getByTestId('btn-seed-open-record').textContent).toBe(
+      'Open a created Invoice__c in dev1',
+    );
+  });
+
   it('says why the record did not open, whether the extension refused it or VS Code did not open it', () => {
     render(<SeedOpenRecord result={result([['Account', [fakeId('001', 1)]]])} orgName="dev1" />);
 

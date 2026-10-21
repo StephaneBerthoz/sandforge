@@ -393,6 +393,13 @@ export interface ForgeDecisionApplied {
 export interface ForgeGraphNode {
   /** Salesforce API name of the object (e.g. 'Account') */
   objectApiName: string;
+  /**
+   * The object's label, as discovery's describe of the source gave it: what a
+   * sentence names a record of the object by ("Open the Invoice cloned"),
+   * where the graph and the tables name the object by its API name. Absent
+   * when the describe failed, and on a graph built before it was kept.
+   */
+  label?: string;
   /** Number of records to be processed for this object */
   recordCount: number;
   /**

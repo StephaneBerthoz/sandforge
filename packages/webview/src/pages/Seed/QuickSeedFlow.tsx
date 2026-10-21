@@ -348,7 +348,9 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
         }}
         title={t('common.cancelRun')}
         description={t('seed.cancelRunConfirm')}
-        confirmText={t('common.cancel')}
+        // Stopping writes nothing: a question, not a word to type.
+        confirmLabel={t('common.stopRun')}
+        dismissLabel={t('common.keepRunning')}
       />
     </div>
   );

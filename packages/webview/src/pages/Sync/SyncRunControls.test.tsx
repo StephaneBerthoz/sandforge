@@ -41,9 +41,11 @@ describe('SyncRunControls', () => {
     expect(sentOf('execution:abort')).toEqual([]);
     expect(screen.getByText(/records already written stay in the target org/)).toBeDefined();
 
-    // The confirmation asks for the word typed, as the Seed page's does.
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Cancel' } });
-    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    // A question, not a word to type: stopping the run writes nothing. It
+    // asked to type "Cancel", the label of the button that stops nothing.
+    expect(screen.queryByTestId('danger-input')).toBeNull();
+    expect(screen.getByTestId('danger-dismiss-btn').textContent).toBe('Keep running');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the run' }));
     expect(sentOf('execution:abort').map((m) => m.payload)).toEqual([{ operationId: 'wv-run-1' }]);
     expect(screen.getByTestId('sync-run-state').textContent).toContain('Stopping');
   });

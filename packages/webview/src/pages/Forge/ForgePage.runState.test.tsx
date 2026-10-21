@@ -308,7 +308,6 @@ describe('ForgePage — a run the user aborts', () => {
   /** Abort the run from its screen, confirmed as the dialog asks. */
   function abort(): void {
     fireEvent.click(screen.getByTestId('forge-abort-button'));
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
   }
 

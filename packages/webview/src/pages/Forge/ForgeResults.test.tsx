@@ -1645,6 +1645,30 @@ describe('ForgeResults', () => {
       useOrgStore.setState({ orgs: [] });
     });
 
+    it('names the copy by its object’s label, as discovery’s describe gave it', () => {
+      // "Open the Invoice__c cloned": the object's API name in a sentence.
+      createdRun();
+      mockResult = {
+        ...mockResult,
+        graph: {
+          ...mockResult.graph,
+          nodes: mockResult.graph.nodes.map((node) =>
+            node.objectApiName === 'Account' ? { ...node, label: 'Compte' } : node,
+          ),
+        },
+      };
+      mockConfig = { ...RUN_CONFIG, inputMode: 'record', recordId: '001000000000001SRC' };
+      useOrgStore.setState({
+        orgs: [{ id: 'org-target', alias: 'QA-SANDBOX' } as SalesforceOrg],
+      });
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-results-open-root-btn').textContent).toBe(
+        'Open the Compte cloned in QA-SANDBOX',
+      );
+      useOrgStore.setState({ orgs: [] });
+    });
+
     it('offers no copy to open of a simulation, which created none', () => {
       createdRun();
       mockResult = { ...mockResult, dryRun: true } as typeof mockResult;

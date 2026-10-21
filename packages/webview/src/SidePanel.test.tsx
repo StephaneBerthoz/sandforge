@@ -578,7 +578,7 @@ describe('SidePanel', () => {
       expect(screen.queryByTestId('sidepanel-forge')).not.toBeInTheDocument();
     });
 
-    it('keeps the one-org Seed hero, on one line, on a short panel', () => {
+    it('keeps the one-org Seed hero, in its compact row, on a short panel', () => {
       setViewportHeight(600);
       render(<SidePanel />);
       deliverOrgs([mockOrg]);

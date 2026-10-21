@@ -786,6 +786,10 @@ export const L10N_QUESTION_WORDS: QuestionWords = {
       'SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to {0}.',
       org,
     ),
+  deleteRefused: (operation, org) =>
+    operation === 'hardDelete'
+      ? vscode.l10n.t('Permanently deleting records is not allowed in {0}.', org)
+      : vscode.l10n.t('Deleting records is not allowed in {0}.', org),
 };
 
 /**

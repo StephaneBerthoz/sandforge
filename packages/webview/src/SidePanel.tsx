@@ -212,6 +212,13 @@ const TOOL_ITEMS: NavItem[] = [
   { id: 'help', labelKey: 'nav.help', icon: <HelpCircle className="w-4 h-4" /> },
 ];
 
+/**
+ * A module's name in the launcher's lists: wrapped on two lines at most rather
+ * than cut on one. "Eingefrorenes Dataset", 134 pixels, read "Eingefrorenes
+ * Dat…" in a sidebar column about 125 wide.
+ */
+const NAV_LABEL = 'text-xs font-medium leading-tight min-w-0 line-clamp-2 break-words';
+
 /** Props for one module row of the launcher. */
 interface ModuleRowProps {
   item: NavItem;
@@ -234,9 +241,9 @@ const ModuleRow: React.FC<ModuleRowProps> = ({
     <div className="flex items-center group">
       <button
         className={cn(
-          // min-w-0 so a long label truncates instead of pushing the
-          // star out of the row: "Eingefrorener Datensatz" is 23
-          // characters in a column about 125 wide.
+          // min-w-0 so a long label wraps instead of pushing the star out of
+          // the row: "Eingefrorenes Dataset" is 134 pixels in a column
+          // about 125 wide (NAV_LABEL).
           'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
           'transition-all duration-150',
           'focus-visible:outline-2 focus-visible:-outline-offset-2',
@@ -250,7 +257,7 @@ const ModuleRow: React.FC<ModuleRowProps> = ({
         data-testid={`sidepanel-nav-${item.id}`}
       >
         <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
-        <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
+        <span className={NAV_LABEL}>{t(item.labelKey)}</span>
       </button>
       <button
         className={cn(
@@ -836,14 +843,25 @@ export const SidePanel: React.FC = () => {
               'transition-all duration-200',
             )}
             onClick={() => fillOrg(fillTarget.id)}
+            title={t('sidePanel.fillOrg', { alias: fillAlias })}
             data-testid="sidepanel-seed-hero"
           >
             <div className="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center shrink-0">
               <Sprout className="w-5 h-5 text-hue-green" />
             </div>
+            {/* The verb on a line of its own, wrapped and never cut: the
+                title truncated to one line, and a scratch org named by its
+                long username took the verb with it. The alias under it is
+                cut where it must be, and the title says it whole. */}
             <div className="text-left flex-1 min-w-0">
-              <div className="text-sm font-bold text-text-primary truncate">
-                {t('sidePanel.fillOrg', { alias: fillAlias })}
+              <div className="text-sm font-bold text-text-primary leading-tight">
+                {t('sidePanel.fillOrgAction')}
+              </div>
+              <div
+                className="text-xs text-text-primary truncate"
+                data-testid="sidepanel-seed-hero-alias"
+              >
+                {fillAlias}
               </div>
               <div className="text-[10px] text-text-secondary leading-tight">
                 {t('sidePanel.fillOrgDesc')}
@@ -862,11 +880,15 @@ export const SidePanel: React.FC = () => {
               'hover:bg-surface-2 transition-all text-left',
             )}
             onClick={() => fillOrg(fillTarget.id)}
+            title={t('sidePanel.fillOrg', { alias: fillAlias })}
             data-testid="sidepanel-seed-hero-compact"
           >
             <Sprout className="w-4 h-4 text-hue-green shrink-0" />
-            <span className="text-xs font-bold text-text-primary truncate">
-              {t('sidePanel.fillOrg', { alias: fillAlias })}
+            <span className="flex flex-col min-w-0">
+              <span className="text-xs font-bold text-text-primary leading-tight">
+                {t('sidePanel.fillOrgAction')}
+              </span>
+              <span className="text-[10px] text-text-primary truncate">{fillAlias}</span>
             </span>
             <ArrowRight className="w-3 h-3 text-text-secondary ml-auto shrink-0" />
           </button>
@@ -953,7 +975,7 @@ export const SidePanel: React.FC = () => {
                   data-testid={`sidepanel-fav-${item.id}`}
                 >
                   <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
-                  <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
+                  <span className={NAV_LABEL}>{t(item.labelKey)}</span>
                 </button>
                 {/* Removing a favourite meant scrolling down to find the same
                     row again in Modules. */}
@@ -1073,7 +1095,7 @@ export const SidePanel: React.FC = () => {
               data-testid={`sidepanel-nav-${item.id}`}
             >
               <span className="shrink-0">{item.icon}</span>
-              <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
+              <span className={NAV_LABEL}>{t(item.labelKey)}</span>
             </button>
           ))}
         </nav>

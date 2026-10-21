@@ -79,6 +79,8 @@ export class WebviewPanelManager {
    * event-listener leaks across panel lifecycles.
    */
   private panelSubscriptions = new Map<string, vscode.Disposable[]>();
+  /** Reads a module panel's title in the panels' language: see {@link setTitleOf}. */
+  private titleOf?: (moduleId: string) => Promise<string | undefined>;
 
   /**
    * @param broker - MessageBroker for webview communication
@@ -116,6 +118,7 @@ export class WebviewPanelManager {
     const existing = this.panels.get(config.viewType);
     if (existing) {
       existing.reveal(config.column ?? 1, config.preserveFocus);
+      this.retitle(config, existing);
       return existing;
     }
 
@@ -192,8 +195,32 @@ export class WebviewPanelManager {
     });
 
     this.panelSubscriptions.set(config.viewType, [viewStateSub, disposeSub, brokerRegistration]);
+    this.retitle(config, panel);
 
     return panel;
+  }
+
+  /**
+   * Name each module's panel as the panels' navigation does, in their
+   * language (`panelTitleOf`): a panel opens under the English title it is
+   * given, and takes this one once it is read. Reopening a panel reads it
+   * again, after the panels' language changed.
+   */
+  setTitleOf(titleOf: (moduleId: string) => Promise<string | undefined>): void {
+    this.titleOf = titleOf;
+  }
+
+  /** Give a module's panel its title in the panels' language, while it is still the one open. */
+  private retitle(config: PanelConfig, panel: vscode.WebviewPanel): void {
+    const { moduleId } = config;
+    if (moduleId === undefined || !this.titleOf) return;
+    this.titleOf(moduleId).then(
+      (title) => {
+        if (title !== undefined && this.panels.get(config.viewType) === panel) panel.title = title;
+      },
+      // Unread, the panel keeps the title it opened with.
+      () => undefined,
+    );
   }
 
   /** Close and dispose a panel by its viewType. */

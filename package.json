@@ -12,7 +12,7 @@
     "build:webview": "pnpm --filter @sandforge/webview build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint && eslint \"scripts/**/*.mjs\" \"docs/**/*.mjs\" \"*.mjs\"",
-    "lint:fix": "pnpm -r lint:fix",
+    "lint:fix": "pnpm -r lint:fix && eslint \"scripts/**/*.mjs\" \"docs/**/*.mjs\" \"*.mjs\" --fix",
     "format": "prettier --write \"**/*.{ts,tsx,mjs,cjs,js,json,css,md,yml,yaml,html}\" \"!reports/**\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/build/**\" \"!**/__snapshots__/**\" \"!pnpm-lock.yaml\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,mjs,cjs,js,json,css,md,yml,yaml,html}\" \"!reports/**\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/build/**\" \"!**/__snapshots__/**\" \"!pnpm-lock.yaml\"",
     "test": "pnpm -r test",

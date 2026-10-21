@@ -265,6 +265,9 @@ export const forgeConfigSchemaStrict = forgeConfigSchema.refine(
 /** Zod schema for ForgeGraphNode */
 export const forgeGraphNodeSchema = z.object({
   objectApiName: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+  // Kept through a parse, as the counts below are: a graph Reuse last graph
+  // brings back still names its records by their object's label.
+  label: z.string().max(255).optional(),
   recordCount: z.number().int().nonnegative(),
   // Parsing drops what the schema does not name: without it, the graph a run
   // keeps in its history, which Reuse last graph brings back to Review,

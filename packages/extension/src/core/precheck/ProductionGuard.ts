@@ -520,6 +520,14 @@ export class ProductionGuard {
     return this.options.isProdConfirmationRequired?.() ?? true;
   }
 
+  /** The org a refusal names: by the alias the user knows it by, else by its id. */
+  private orgPhrase(request: OperationRequest, words: QuestionWords): string {
+    const name = this.options.orgNameOf?.(request.orgId);
+    return name
+      ? words.org(request.orgTier, name, true)
+      : words.org(request.orgTier, request.orgId, false);
+  }
+
   /** Apply production-tier safety rules */
   private checkProduction(request: OperationRequest): SafetyCheckResult {
     const warnings: string[] = [];
@@ -532,30 +540,31 @@ export class ProductionGuard {
         `${request.alsoWrites ? `, plus ${request.alsoWrites}` : ''})`,
     );
 
+    const words = this.options.questionWords ?? ENGLISH_QUESTION_WORDS;
     if (request.operation === 'deploy') {
       // No override lifts this one. A metadata deployment changes what every
       // user of the org runs, and SandForge offers it to move changes between
       // development orgs; an org of unknown type is here too (orgTypeToGuardTier).
-      const words = this.options.questionWords ?? ENGLISH_QUESTION_WORDS;
-      const name = this.options.orgNameOf?.(request.orgId);
       return {
         allowed: false,
         requiresConfirmation: false,
-        blockedReason: words.deployRefused(
-          name
-            ? words.org(request.orgTier, name, true)
-            : words.org(request.orgTier, request.orgId, false),
-        ),
+        blockedReason: words.deployRefused(this.orgPhrase(request, words)),
         warnings,
         impactSummary: buildImpactSummary(request),
       };
     }
 
     if (isDestructive && !isOverridden) {
+      // Said in the user's words, as the deployment's refusal is: it read
+      // "hardDelete is not allowed on production org 00D…" inside the
+      // translated sentence each module puts it in.
       return {
         allowed: false,
         requiresConfirmation: false,
-        blockedReason: `${request.operation} is not allowed on production org ${request.orgId}`,
+        blockedReason: words.deleteRefused(
+          request.operation === 'hardDelete' ? 'hardDelete' : 'delete',
+          this.orgPhrase(request, words),
+        ),
         warnings,
         impactSummary: buildImpactSummary(request),
       };
@@ -678,6 +687,12 @@ export interface QuestionWords {
    * last two became development orgs, and in English in every language.
    */
   deployRefused: (org: string) => string;
+  /**
+   * Why a delete, or a permanent delete, in `org` is refused: a production
+   * org takes neither. It named the operation by its code and the org by its
+   * id, in English, inside each module's translated sentence.
+   */
+  deleteRefused: (operation: 'delete' | 'hardDelete', org: string) => string;
 }
 
 /** The question in English, as every host without translations asks it. */
@@ -708,6 +723,10 @@ export const ENGLISH_QUESTION_WORDS: QuestionWords = {
   org: (tier, name, named) => (named ? `the ${tier} org "${name}"` : `the ${tier} org ${name}`),
   deployRefused: (org) =>
     `SandForge deploys metadata only to a sandbox, a scratch org or a Developer Edition org, not to ${org}.`,
+  deleteRefused: (operation, org) =>
+    operation === 'hardDelete'
+      ? `Permanently deleting records is not allowed in ${org}.`
+      : `Deleting records is not allowed in ${org}.`,
 };
 
 /**

@@ -288,6 +288,20 @@ describe('MonitorPage', () => {
     expect(skeletons.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('heads its skeleton with the page’s heading, the org it watches, before the first read answers', () => {
+    // Headed by nothing, the page left the focus a page change hands its
+    // heading on the main landmark until the read answered.
+    mockMonitorQueryState = { data: null, loading: true, error: null, refetch: mockRefetch };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    const heading = within(screen.getByTestId('monitor-loading')).getByRole('heading', {
+      level: 1,
+    });
+    expect(heading.textContent).toBe(createMockOrg().alias);
+    expect(heading.tabIndex).toBe(-1);
+  });
+
   it('should render SkeletonTable and SkeletonPanel during loading', () => {
     mockMonitorQueryState = {
       data: null,

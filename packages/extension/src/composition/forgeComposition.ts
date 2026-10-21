@@ -36,6 +36,8 @@ import { controllersOf, fieldBoundsOf, type FieldBounds } from '../modules/forge
  */
 interface ForgeObjectDescribe {
   name: string;
+  /** The object's label, which the graph names a record of it by in a sentence. */
+  label?: string;
   /** False only when the org says so: jsforce omits the flag on some entities. */
   createable: boolean;
   /** Key prefix of the object's ids; `null` when the org gives none. */
@@ -90,6 +92,7 @@ function toForgeObjectDescribe(
   const controllers = controllersOf(meta.fields);
   return {
     name: meta.name,
+    ...(typeof meta.label === 'string' && meta.label !== '' ? { label: meta.label } : {}),
     // Default to true when jsforce omits the flag — only opt out when
     // the org explicitly says false (read-only system entities).
     createable: meta.createable !== false,
@@ -321,6 +324,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
                 const described = await describeOnce(orgId, objectApiName, [signal, timeoutSignal]);
                 return {
                   name: described.name,
+                  ...(described.label ? { label: described.label } : {}),
                   fields: described.fields.map((f) => ({
                     name: f.name,
                     type: f.type,

@@ -14,6 +14,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
+import type { ObjectLabels } from '../../utils/objectLabels';
 
 const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   success: 'success',
@@ -62,6 +63,8 @@ export interface SeedResultsStepProps {
   template: SeedTemplate | null;
   /** How the org the run wrote to is named: its alias, or its username. */
   orgName: string;
+  /** The labels of the org's objects, from the describes the wizard read. */
+  objectLabels?: ObjectLabels;
   /** Restart the wizard at the select step. */
   onSeedAgain: () => void;
 }
@@ -71,6 +74,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   executionResult,
   template,
   orgName,
+  objectLabels,
   onSeedAgain,
 }) => {
   const { t } = useTranslation();
@@ -197,7 +201,11 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
           {/* Action buttons: the seeded data in the org first, then Save,
               Export CSV, Seed Again */}
           <div className="flex flex-wrap gap-2 pt-2" data-testid="result-actions">
-            <SeedOpenRecord result={executionResult} orgName={orgName} />
+            <SeedOpenRecord
+              result={executionResult}
+              orgName={orgName}
+              {...(objectLabels ? { objectLabels } : {})}
+            />
             <Button
               variant="secondary"
               size="sm"

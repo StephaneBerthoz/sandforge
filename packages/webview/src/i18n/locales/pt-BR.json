@@ -3,6 +3,8 @@
     "save": "Salvar",
     "cancel": "Cancelar",
     "cancelRun": "Cancelar execução",
+    "stopRun": "Parar a execução",
+    "keepRunning": "Continuar executando",
     "confirm": "Confirmar",
     "delete": "Excluir",
     "edit": "Editar",
@@ -646,7 +648,7 @@
       "sequence": "Sequência",
       "formula": "Fórmula",
       "reference": "Referência",
-      "picklist_random": "Lista de seleção aleatória",
+      "picklist_random": "Lista de opções aleatória",
       "ai_generate": "Geração por IA",
       "faker": "Faker",
       "regex": "Padrão Regex",
@@ -753,7 +755,7 @@
           "missing_required": "Campo obrigatório ausente",
           "length_exceeded": "Comprimento excedido",
           "duplicate_external_id": "ID externo duplicado",
-          "invalid_picklist": "Valor de lista de seleção inválido"
+          "invalid_picklist": "Valor de lista de opções inválido"
         }
       },
       "wizard": {
@@ -4136,6 +4138,7 @@
       "hoursAgo": "há {{count}}h"
     },
     "fillOrg": "Preencher {{alias}} com dados de demonstração",
+    "fillOrgAction": "Preencher com dados de demonstração",
     "fillOrgDesc": "Um modelo do Seed, uma confirmação, sem chave de IA",
     "advanced": "Avançado",
     "firstOrg": {
@@ -4203,7 +4206,7 @@
       "edgeLabel": "Rótulo",
       "edgeWhere": "Fragmento WHERE",
       "removeEdgeCase": "Remover caso extremo",
-      "advanced": "Configuração avançada (JSON: ambientes protegidos, chaves de identidade, regras de picklist, placeholders, mocks…)",
+      "advanced": "Configuração avançada (JSON: ambientes protegidos, chaves de identidade, regras de lista de opções, placeholders, mocks…)",
       "invalidJson": "JSON inválido — a configuração avançada deve ser um objeto JSON.",
       "save": "Salvar configuração",
       "saved": "Configuração salva"
@@ -4644,8 +4647,8 @@
       }
     },
     "invalidPicklist": {
-      "explanation": "Um valor de lista de seleção não é aceito pela org: o campo não o tem, ou o tipo de registro do registro não o permite.",
-      "action": "Adicione o valor à lista de seleção e ao tipo de registro na Configuração da org, ou mude o valor, e execute de novo.",
+      "explanation": "Um valor de lista de opções não é aceito pela org: o campo não o tem, ou o tipo de registro do registro não o permite.",
+      "action": "Adicione o valor à lista de opções e ao tipo de registro na Configuração da org, ou mude o valor, e execute de novo.",
       "forge": {
         "explanation": "Um valor de lista de opções da origem não é aceito pela org de destino: o campo não o contém, ou o tipo de registro com que o registro é gravado não o aceita — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum. Quando a recusa indica um campo ao qual o registro dá um valor, o clone grava o registro de novo sem esse campo; um registro listado aqui não pôde ser gravado assim.",
         "action": "Adicione o valor à lista de opções na Configuração da org de destino, e ao tipo de registro do registro, ou altere o valor no registro de origem."

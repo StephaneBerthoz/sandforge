@@ -43,7 +43,13 @@ const ORG: SalesforceOrg = {
 };
 
 /** The wizard facade, on a step of its own. */
-const wizard = vi.hoisted(() => ({ step: 0, error: null as string | null }));
+const wizard = vi.hoisted(() => ({
+  step: 0,
+  error: null as string | null,
+  result: undefined as unknown,
+  availableObjects: [] as Array<{ apiName: string; label: string }>,
+  fieldConfigs: [] as Array<{ objectApiName: string; objectLabel: string; fields: [] }>,
+}));
 vi.mock('./useSeedWizardState', () => ({
   useSeedWizardState: () => ({
     currentStep: wizard.step,
@@ -53,11 +59,13 @@ vi.mock('./useSeedWizardState', () => ({
     selectedOrg: ORG,
     selectedOrgId: 'org-1',
     selectedObjects: [],
+    availableObjects: wizard.availableObjects,
+    fieldConfigs: wizard.fieldConfigs,
     error: wizard.error,
     setError: vi.fn(),
     isRunning: false,
     operationId: null,
-    executionResult: undefined,
+    executionResult: wizard.result,
     handleExecute: vi.fn(),
     objectProgress: [],
     overallPercent: 0,
@@ -70,6 +78,9 @@ describe('SeedGenerateFlow', () => {
   beforeEach(() => {
     wizard.step = 0;
     wizard.error = null;
+    wizard.result = undefined;
+    wizard.availableObjects = [];
+    wizard.fieldConfigs = [];
     mockPostMessage.mockClear();
   });
 
@@ -106,5 +117,36 @@ describe('SeedGenerateFlow', () => {
     expect(screen.getByTestId('seed-step-execute-content')).toBeDefined();
     expect(screen.queryByTestId('page-header')).toBeNull();
     expect(screen.queryByTestId('back-to-modes')).toBeNull();
+  });
+
+  it('names the record its results open by the label the describes gave its object', () => {
+    // "Open a created Invoice__c in dev1": the object's API name in a sentence.
+    wizard.step = 3;
+    wizard.result = {
+      templateId: 'tpl-1',
+      operationId: 'op-1',
+      status: 'success',
+      objectResults: [
+        {
+          objectApiName: 'Invoice__c',
+          recordsCreated: 1,
+          recordsFailed: 0,
+          createdIds: ['a01000000000001AAA'],
+          errors: [],
+        },
+      ],
+      totalRecordsCreated: 1,
+      totalRecordsFailed: 0,
+      duration: 100,
+      timestamp: '2026-10-01T10:00:00.000Z',
+    };
+    wizard.availableObjects = [{ apiName: 'Invoice__c', label: 'Invoices list' }];
+    wizard.fieldConfigs = [{ objectApiName: 'Invoice__c', objectLabel: 'Invoice', fields: [] }];
+
+    render(<SeedGenerateFlow active onBack={vi.fn()} />);
+
+    expect(screen.getByTestId('btn-seed-open-record').textContent).toBe(
+      'Open a created Invoice in dev1',
+    );
   });
 });

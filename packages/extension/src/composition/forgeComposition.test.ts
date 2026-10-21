@@ -203,6 +203,30 @@ describe('initForgeComposition', () => {
     }
   });
 
+  it('gives each node of the graph its object’s label, from the describe discovery read', async () => {
+    // The results named the cloned record "Invoice__c": the label the describe
+    // gave was dropped on the way to the graph.
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        describe: vi.fn(async (objectApiName: string) => ({
+          ...(DESCRIBES[objectApiName] as Record<string, unknown>),
+          label: `${objectApiName} (label)`,
+        })),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+
+    expect(graph.nodes.map((n) => [n.objectApiName, n.label])).toEqual([
+      ['Account', 'Account (label)'],
+      ['Contact', 'Contact (label)'],
+      ['Opportunity', 'Opportunity (label)'],
+    ]);
+  });
+
   it("keeps the target's assignment rules off on every write of a run, and applies them on the run that asks", async () => {
     // Forge sets the owners: REST applies the target's active assignment
     // rules to a case, a lead or an account written without saying otherwise.

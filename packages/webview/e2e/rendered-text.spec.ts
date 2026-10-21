@@ -96,8 +96,8 @@ const RAW_KEY = new RegExp(
 /**
  * The one message a route needs answered before it renders words.
  *
- * Monitor holds a skeleton until its data arrives — a real loading state with
- * no text in it, so there would be nothing to read. Everything else opens on a
+ * Monitor holds a skeleton until its data arrives — a real loading state whose
+ * only text is its heading, so there would be little to read. Everything else opens on a
  * screen that says something: empty, unconnected, or asking for input.
  */
 const PRIMED: Record<string, { request: string; response: string; payload: unknown }> = {

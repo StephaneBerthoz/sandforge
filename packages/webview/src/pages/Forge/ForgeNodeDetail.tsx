@@ -39,13 +39,17 @@ interface PreviewSample {
 
 /** The sample address and number the preview shows the run's writing of. */
 const SAMPLE_EMAIL = 'john.doe@acme.com';
-const SAMPLE_PHONE = '+1-555-0123';
+const SAMPLE_PHONE = '+33 1 23 45 67 89';
 
 /**
  * A number of the mobile range the French regulator keeps for fiction,
- * +33 6 39 98 XX XX, written as the run writes it: no line is ever given one.
+ * +33 6 39 98 XX XX, no line is ever given, written in the layout of the
+ * sample, as the run writes it in the layout of the number it replaces. The
+ * preview showed `+33639981234` after the run had stopped writing every number
+ * so: a target's validation rule on the number's format, met by the source,
+ * refused it.
  */
-const FICTIONAL_PHONE = '+33639981234';
+const FICTIONAL_PHONE = '+33 6 39 98 12 34';
 
 /**
  * What every run writes in an email or a phone field unless told to keep them

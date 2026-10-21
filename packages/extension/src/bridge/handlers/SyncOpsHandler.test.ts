@@ -1381,7 +1381,7 @@ describe('SyncOpsHandler', () => {
       const syncErrors = posted.filter((m) => m.type === 'sync:error');
       expect(syncErrors).toHaveLength(1);
       expect(syncErrors[0].payload.message).toContain(
-        'delete is not allowed on production org tgt-org',
+        'Deleting records is not allowed in the production org tgt-org',
       );
       // The guard gates the run: no connection is even opened.
       expect(mockGetConn).not.toHaveBeenCalled();
@@ -1398,7 +1398,7 @@ describe('SyncOpsHandler', () => {
             { objectApiName: 'Account', operation: 'delete' },
           ]) as unknown as import('@sandforge/shared').SyncConfig,
         ),
-      ).rejects.toThrow(/delete is not allowed on production org tgt-org/);
+      ).rejects.toThrow(/Deleting records is not allowed in the production org tgt-org/);
       expect(mockGetConn).not.toHaveBeenCalled();
     });
 
@@ -1424,7 +1424,7 @@ describe('SyncOpsHandler', () => {
         .filter((m) => m.type === 'sync:error');
       expect(syncErrors).toHaveLength(1);
       expect(syncErrors[0].payload.message).toContain(
-        'delete is not allowed on production org tgt-org',
+        'Deleting records is not allowed in the production org tgt-org',
       );
       expect(mockGetConn).not.toHaveBeenCalled();
     });

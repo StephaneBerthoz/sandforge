@@ -33,7 +33,7 @@ export function rootCopyOf(
     graph: Pick<ForgeExecutionResult['graph'], 'nodes'>;
   },
   recordId: string | undefined,
-): { targetId: string; objectApiName: string } | undefined {
+): { targetId: string; objectApiName: string; label?: string } | undefined {
   const table = result.idRemapTable ?? {};
   let sourceId: string | undefined;
   if (recordId) {
@@ -45,9 +45,11 @@ export function rootCopyOf(
   }
   const targetId = sourceId === undefined ? undefined : table[sourceId];
   const objectApiName = targetId === undefined ? undefined : createdTargets(result).get(targetId);
-  return targetId !== undefined && objectApiName !== undefined
-    ? { targetId, objectApiName }
-    : undefined;
+  if (targetId === undefined || objectApiName === undefined) return undefined;
+  // The object's label, which discovery's describe gave its node: the
+  // results name the copy by it ("Open the Invoice cloned in …").
+  const label = result.graph.nodes.find((node) => node.objectApiName === objectApiName)?.label;
+  return label ? { targetId, objectApiName, label } : { targetId, objectApiName };
 }
 
 /** One object of the results table, as the file takes it. */

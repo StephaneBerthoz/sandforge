@@ -1271,6 +1271,31 @@ describe('SyncPage', () => {
     expect(document.activeElement).toBe(screen.getByTestId('tab-conflicts'));
   });
 
+  it('holds the selected tab’s content in a panel the tab names and controls', () => {
+    // The bar had the arrows of the tab pattern and no tabpanel: a screen
+    // reader announced tabs that controlled nothing.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const panelOf = (tabId: string) => {
+      const tab = screen.getByTestId(tabId);
+      const panel = screen.getByRole('tabpanel');
+      return {
+        controls: tab.getAttribute('aria-controls') === panel.id,
+        labelledBy: panel.getAttribute('aria-labelledby') === tab.id,
+        named: panel.getAttribute('aria-labelledby') !== null,
+      };
+    };
+    expect(panelOf('tab-sync')).toEqual({ controls: true, labelledBy: true, named: true });
+    expect(within(screen.getByRole('tabpanel')).getByTestId('sync-wizard')).toBeDefined();
+
+    fireEvent.click(screen.getByTestId('tab-history'));
+    expect(panelOf('tab-history')).toEqual({ controls: true, labelledBy: true, named: true });
+    expect(within(screen.getByRole('tabpanel')).getByTestId('sync-history-panel')).toBeDefined();
+    // A tab not selected names no panel: none of its own is drawn.
+    expect(screen.getByTestId('tab-sync').getAttribute('aria-controls')).toBeNull();
+  });
+
   it('counts the changes held for a decision on the Conflicts tab', () => {
     const conflict: UIConflict = {
       id: 'Account:001:1',

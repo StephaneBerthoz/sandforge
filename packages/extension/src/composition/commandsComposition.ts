@@ -6,6 +6,7 @@ import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { OnboardingService } from '../core/onboarding/OnboardingService';
 import { MODULE_COMMANDS } from './moduleCommands';
 import { intentMessageFor } from './moduleIntent';
+import { panelTitle } from './panelTitles';
 
 /** Inputs required to register the module-open commands. */
 export interface ModuleCommandsDeps {
@@ -53,7 +54,7 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
         const isReveal = panelManager.isLive(viewType);
         const panel = panelManager.openPanel({
           viewType,
-          title: `SandForge: ${title}`,
+          title: panelTitle(title),
           moduleId,
         });
         orgRegistry.loadAll();

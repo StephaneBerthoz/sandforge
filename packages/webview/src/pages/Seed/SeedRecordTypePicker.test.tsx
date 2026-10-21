@@ -55,6 +55,20 @@ describe('SeedRecordTypePicker', () => {
     expect(screen.getByTestId('seed-record-types-person-Account').textContent).toContain('no Name');
   });
 
+  it('names the accounts written as person accounts by the object’s label', () => {
+    // "{{object}} records are written as person accounts": the object names a
+    // kind of record, as the org's describe labels it.
+    render(
+      <SeedRecordTypePicker fieldConfigs={[{ ...CONFIGS[0], objectLabel: 'Kunde' }, CONFIGS[1]]} />,
+    );
+
+    fireEvent.click(screen.getByTestId('seed-record-type-Account-PersonAccount'));
+
+    expect(screen.getByTestId('seed-record-types-person-Account').textContent).toMatch(
+      /^Kunde records are written as person accounts/,
+    );
+  });
+
   it('says a person type and a business type chosen together take different fields', () => {
     render(<SeedRecordTypePicker fieldConfigs={CONFIGS} />);
 

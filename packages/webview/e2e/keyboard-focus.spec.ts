@@ -123,7 +123,7 @@ test.describe('Keyboard and screen reader — moving between pages', () => {
     await expect(page).toHaveTitle('SandForge: Help');
   });
 
-  test('a page drawn without its heading holds the focus on main, and its heading takes it once drawn', async ({
+  test('Monitor heads its skeleton, whose heading takes the focus, and its dashboard’s takes it once drawn', async ({
     page,
   }) => {
     const bridge = await openModule(page, 'home');
@@ -131,9 +131,12 @@ test.describe('Keyboard and screen reader — moving between pages', () => {
     await page.keyboard.press('Control+k');
     await page.keyboard.type('Monitor');
     await page.keyboard.press('Enter');
-    // Monitor shows its skeleton, headed by nothing, until its first read.
+    // The skeleton was headed by nothing until the first read, and the focus
+    // waited on main: it now carries the page's heading, the org it watches.
     await page.getByTestId('monitor-loading').waitFor({ timeout: 30_000 });
-    await expect(page.locator('main#main-content')).toBeFocused();
+    const skeletonHeading = page.getByTestId('monitor-loading').getByRole('heading', { level: 1 });
+    await expect(skeletonHeading).toHaveText(MOCK_ORGS[0].alias);
+    await expect(skeletonHeading).toBeFocused();
 
     await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
     await answerAll(page, 'monitor:refresh', 'monitor:data', {

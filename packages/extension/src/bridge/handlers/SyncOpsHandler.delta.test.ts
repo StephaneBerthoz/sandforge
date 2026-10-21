@@ -424,7 +424,7 @@ describe('Production Guard on a delta configuration', () => {
 
     const [error] = posted(deps, 'sync:error');
     expect(String(error.payload.message)).toContain(
-      'delete is not allowed on production org tgt-org',
+      'Deleting records is not allowed in the production org tgt-org',
     );
     expect(getJsforceConnection).not.toHaveBeenCalled();
   });

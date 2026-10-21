@@ -296,6 +296,46 @@ describe('production confirmation modal (localized)', () => {
     );
   });
 
+  it.each([
+    [
+      'fr',
+      'delete',
+      "La suppression d'enregistrements n'est pas autorisée dans l'org de production « Acme Prod ».",
+    ],
+    [
+      'de',
+      'hardDelete',
+      'Das endgültige Löschen von Datensätzen ist in der Produktions-Org „Acme Prod“ nicht erlaubt.',
+    ],
+  ] as const)(
+    'refuses, in %s, a %s in production in words, naming the org by its alias',
+    (locale, operation, said) => {
+      // "hardDelete is not allowed on production org 00D…": the operation's
+      // code and the org's id, in English, inside each module's translated
+      // sentence.
+      l10nBundle.current = JSON.parse(
+        readFileSync(join(__dirname, '..', '..', 'l10n', `bundle.l10n.${locale}.json`), 'utf8'),
+      ) as Record<string, string>;
+      const { productionGuard } = createBackgroundComposition({
+        services,
+        configStore: createMockConfigStore(),
+        orgNameOf: () => 'Acme Prod',
+      });
+
+      const check = productionGuard.check({
+        orgId: 'org-prod-1',
+        orgTier: 'production',
+        operation,
+        objectName: 'Contact',
+        recordCount: 4,
+        module: 'seed',
+      });
+
+      expect(check.allowed).toBe(false);
+      expect(check.blockedReason).toBe(said);
+    },
+  );
+
   it('refuses a deployment to production in the UI language, naming the orgs it deploys to', () => {
     // The refusal was English in every language, and said "to sandboxes
     // only" after a scratch org and a Developer Edition became development orgs.

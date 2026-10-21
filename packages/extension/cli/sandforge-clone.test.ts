@@ -505,6 +505,24 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({}))).not.toHaveProperty('mayHaveBeenWritten');
   });
 
+  it('says, and hands a CI job, the objects a read stopped at the records-per-object cap', () => {
+    // The results panel named them; the command line printed nothing, and a
+    // capped clone read as complete.
+    const cappedObjects = { perObject: 2, objects: ['Contact', 'Case'] };
+    const capped = summary({ cappedObjects });
+
+    const lines = summaryLines(capped);
+    const heading = lines.indexOf(
+      'stopped at 2 records per object (--max), the source holding more, ' +
+        'which were not cloned (2 object(s)):',
+    );
+    expect(heading).toBeGreaterThan(-1);
+    expect(lines.slice(heading + 1, heading + 3)).toEqual(['  Contact', '  Case']);
+    expect(jsonResult(capped).cappedObjects).toEqual(cappedObjects);
+    expect(summaryLines(summary({})).some((line) => line.startsWith('stopped at'))).toBe(false);
+    expect(jsonResult(summary({}))).not.toHaveProperty('cappedObjects');
+  });
+
   it('says how many calls the run sent to both orgs, where it counted them', () => {
     const counted = summary({ apiCalls: 64 });
 

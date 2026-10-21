@@ -16,7 +16,7 @@
   "command.openDataOps": "SandForge: DataOps を開く",
   "command.openAutomation": "SandForge: 自動化を開く",
   "command.openMigration": "SandForge: 移行を開く",
-  "command.openAI": "SandForge: AIアシスタントを開く",
+  "command.openAI": "SandForge: AI アシスタントを開く",
   "command.openOrgs": "SandForge: 組織に接続",
   "command.openReports": "SandForge: レポートを開く",
   "command.openSettings": "SandForge: 設定",

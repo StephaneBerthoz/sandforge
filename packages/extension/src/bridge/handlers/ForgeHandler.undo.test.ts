@@ -897,7 +897,9 @@ describe('forge:undo', () => {
         expect.objectContaining({
           payload: expect.objectContaining({
             code: 'GUARD_BLOCKED',
-            message: expect.stringContaining('delete is not allowed on production org'),
+            message: expect.stringContaining(
+              'Deleting records is not allowed in the production org',
+            ),
           }),
         }),
       ]);

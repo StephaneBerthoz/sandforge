@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SeedExecutionResult, SeedOpenRecordResponse } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
+import { objectLabelOf, type ObjectLabels } from '../../utils/objectLabels';
 
 /** A record a run created, as its results list it. */
 export interface CreatedRecord {
@@ -28,6 +29,11 @@ export interface SeedOpenRecordProps {
   result: SeedExecutionResult;
   /** How the org the run wrote to is named: its alias, or its username. */
   orgName: string;
+  /**
+   * The labels of the org's objects, from a describe the page holds: the
+   * button names the record's object by its label, else by its API name.
+   */
+  objectLabels?: ObjectLabels;
 }
 
 /**
@@ -38,7 +44,11 @@ export interface SeedOpenRecordProps {
  * object in what the run kept, and builds the address (`seed:open-record`).
  * Nothing is shown for a run that created nothing.
  */
-export const SeedOpenRecord: React.FC<SeedOpenRecordProps> = ({ result, orgName }) => {
+export const SeedOpenRecord: React.FC<SeedOpenRecordProps> = ({
+  result,
+  orgName,
+  objectLabels,
+}) => {
   const { t } = useTranslation();
   const opener = useBridgeMutation<SeedOpenRecordResponse['payload']>('seed:open-record', {
     responseType: 'seed:open-record:response',
@@ -64,7 +74,10 @@ export const SeedOpenRecord: React.FC<SeedOpenRecordProps> = ({ result, orgName 
         disabled={opener.loading}
         data-testid="btn-seed-open-record"
       >
-        {t('seed.results.openRecord', { object: record.objectApiName, org: orgName })}
+        {t('seed.results.openRecord', {
+          object: objectLabelOf(record.objectApiName, objectLabels),
+          org: orgName,
+        })}
       </Button>
       {failure && (
         <span

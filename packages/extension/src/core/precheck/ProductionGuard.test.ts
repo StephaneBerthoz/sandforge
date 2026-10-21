@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { guardTierOf, isDevelopmentOrg } from '@sandforge/shared';
-import { ProductionGuard, confirmationQuestionOf, largeVolumeThreshold } from './ProductionGuard';
+import {
+  ENGLISH_QUESTION_WORDS,
+  ProductionGuard,
+  confirmationQuestionOf,
+  largeVolumeThreshold,
+} from './ProductionGuard';
 import type { OperationRequest, RunConfirmation } from './ProductionGuard';
 
 function createRequest(overrides?: Partial<OperationRequest>): OperationRequest {
@@ -32,8 +37,9 @@ describe('ProductionGuard', () => {
       const result = guard.check(request);
 
       expect(result.allowed).toBe(false);
-      expect(result.blockedReason).toContain('delete');
-      expect(result.blockedReason).toContain('org-001');
+      expect(result.blockedReason).toBe(
+        'Deleting records is not allowed in the production org org-001.',
+      );
     });
 
     it('should block hardDelete on production', () => {
@@ -45,7 +51,46 @@ describe('ProductionGuard', () => {
       const result = guard.check(request);
 
       expect(result.allowed).toBe(false);
-      expect(result.blockedReason).toContain('hardDelete');
+      expect(result.blockedReason).toBe(
+        'Permanently deleting records is not allowed in the production org org-001.',
+      );
+    });
+
+    /*
+     * The refusal read "hardDelete is not allowed on production org 00D…":
+     * the operation's code and the org's id, inside the sentence each module
+     * puts it in. It names the operation in words and the org as a question
+     * names it.
+     */
+    it('names the delete in words and the org by the alias the user knows it by', () => {
+      const named = new ProductionGuard({ orgNameOf: () => 'Acme Prod' });
+
+      const reason = named.check(
+        createRequest({ orgTier: 'production', operation: 'hardDelete' }),
+      ).blockedReason;
+
+      expect(reason).toBe(
+        'Permanently deleting records is not allowed in the production org "Acme Prod".',
+      );
+      expect(reason).not.toMatch(/hardDelete|org-001/);
+    });
+
+    it('puts the refusal of a delete in the words it is given', () => {
+      const words = {
+        ...ENGLISH_QUESTION_WORDS,
+        org: () => 'ORG',
+        deleteRefused: (operation: 'delete' | 'hardDelete', org: string) => `${operation}|${org}`,
+      };
+      const translated = new ProductionGuard({ questionWords: words });
+
+      expect(
+        translated.check(createRequest({ orgTier: 'production', operation: 'delete' }))
+          .blockedReason,
+      ).toBe('delete|ORG');
+      expect(
+        translated.check(createRequest({ orgTier: 'production', operation: 'hardDelete' }))
+          .blockedReason,
+      ).toBe('hardDelete|ORG');
     });
 
     it('should allow INSERT on production with confirmation', () => {

@@ -194,7 +194,6 @@ test.describe('Sync panel — simulate, then run', () => {
     expect(paused.violations, formatViolations(paused.violations)).toEqual([]);
 
     await page.getByTestId('sync-cancel').click();
-    await page.getByTestId('danger-input').fill('Cancel');
     await page.getByTestId('danger-confirm-btn').click();
     const abort = await bridge.waitForMessage('execution:abort');
     expect(abort.payload).toEqual({ operationId: run.id });

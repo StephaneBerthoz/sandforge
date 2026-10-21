@@ -882,12 +882,15 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             onClick={() => openRecord(rootCopy.targetId)}
             data-testid="forge-results-open-root-btn"
           >
+            {/* The copy is named by its object's label, else by its API name. */}
             {targetOrgName
               ? t('forge.idMapping.openRoot', {
-                  object: rootCopy.objectApiName,
+                  object: rootCopy.label ?? rootCopy.objectApiName,
                   org: targetOrgName,
                 })
-              : t('forge.idMapping.openRootInTarget', { object: rootCopy.objectApiName })}
+              : t('forge.idMapping.openRootInTarget', {
+                  object: rootCopy.label ?? rootCopy.objectApiName,
+                })}
           </Button>
           {openFailure && (
             <span role="status" className="text-xs text-status-error">

@@ -30,14 +30,13 @@ const variantStyles = {
 /** Supported dialog variant types. */
 export type ConfirmVariant = keyof typeof variantStyles;
 
-/** DangerConfirm component props. */
-export interface DangerConfirmProps {
+/** What every confirmation dialog takes, typed or not. */
+interface DangerConfirmBaseProps {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
   title: string;
   description: string;
-  confirmText: string;
   className?: string;
   /** Visual variant: danger (red), warning (yellow), or info (blue). Defaults to danger. */
   variant?: ConfirmVariant;
@@ -49,7 +48,39 @@ export interface DangerConfirmProps {
   children?: React.ReactNode;
 }
 
-/** Danger confirmation dialog requiring typed text to proceed. */
+/** A confirmation armed by typing a word: for what deletes, or writes to production. */
+interface TypedConfirmProps {
+  /** The word to type, which arms the Confirm button. */
+  confirmText: string;
+  confirmLabel?: undefined;
+  dismissLabel?: undefined;
+}
+
+/**
+ * A plain confirmation, its button saying what it does: for what writes
+ * nothing, such as stopping one's own run.
+ */
+interface PlainConfirmProps {
+  confirmText?: undefined;
+  /** What the confirm button says: "Stop the run". */
+  confirmLabel: string;
+  /** What the button that closes the dialog says, when Cancel would read as the action. */
+  dismissLabel?: string;
+}
+
+/** DangerConfirm component props. */
+export type DangerConfirmProps = DangerConfirmBaseProps & (TypedConfirmProps | PlainConfirmProps);
+
+/**
+ * Confirmation dialog. Given a `confirmText`, it is armed by typing it; given
+ * a `confirmLabel` instead, it is a plain question whose buttons say what
+ * each does.
+ *
+ * Stopping one's own run asked to type the word Cancel — the label of the
+ * button beside it, which closes the dialog and stops nothing, and a word
+ * typed in Japanese only through an input method — for a stop that writes
+ * nothing. Typing is kept for what deletes or writes to production.
+ */
 export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   open,
   onClose,
@@ -57,6 +88,8 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   title,
   description,
   confirmText,
+  confirmLabel,
+  dismissLabel,
   className,
   variant = 'danger',
   children,
@@ -74,8 +107,10 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
     setWasOpen(open);
     if (open) setTyped('');
   }
-  const isMatch = typed === confirmText;
+  const asksToType = confirmText !== undefined;
+  const isMatch = !asksToType || typed === confirmText;
   const inputRef = useRef<HTMLInputElement>(null);
+  const dismissRef = useRef<HTMLButtonElement>(null);
   const styles = variantStyles[variant];
 
   const handleConfirm = useCallback(() => {
@@ -112,10 +147,15 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   // the page. An effect on `open` ran first, while the portal had not mounted
   // the field yet, and with Radix's own focus turned off the dialog opened
   // with nothing focused: the typed word went nowhere.
-  const focusField = useCallback((event: Event) => {
-    event.preventDefault();
-    inputRef.current?.focus();
-  }, []);
+  // A plain question gives it to the button that leaves things as they are,
+  // so an Enter pressed as it opens stops nothing.
+  const focusField = useCallback(
+    (event: Event) => {
+      event.preventDefault();
+      (asksToType ? inputRef.current : dismissRef.current)?.focus();
+    },
+    [asksToType],
+  );
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -164,50 +204,56 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                         {children}
                       </div>
                     )}
-                    {/* One translated sentence rather than three glued
-                        fragments: languages that put the literal first or last
-                        need the <code> to move with it. */}
-                    <p className="text-xs text-(--vscode-editor-foreground,#d4d4d4) mt-3">
-                      <Trans
-                        i18nKey="common.typeToConfirm"
-                        t={t}
-                        defaults="Type <code>{{text}}</code> to confirm:"
-                        values={{ text: confirmText }}
-                        components={{
-                          code: (
-                            <code
-                              className={cn(
-                                'px-1 py-0.5 rounded-sm bg-(--vscode-input-background,#3c3c3c) font-mono',
-                                styles.accent,
-                              )}
-                            />
-                          ),
-                        }}
-                      />
-                    </p>
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      value={typed}
-                      onChange={(e) => setTyped(e.target.value)}
-                      onKeyDown={handleInputKeyDown}
-                      className={cn(
-                        'w-full mt-2 px-2 py-1.5 text-sm rounded-sm',
-                        'bg-(--vscode-input-background,#3c3c3c)',
-                        'text-(--vscode-input-foreground,#d4d4d4)',
-                        'border border-(--vscode-input-border,#3c3c3c)',
-                        'focus:outline-hidden focus:border-(--vscode-focusBorder,#007fd4)',
-                      )}
-                      placeholder={confirmText}
-                      aria-label={t('common.confirm')}
-                      data-testid="danger-input"
-                    />
+                    {asksToType && (
+                      <>
+                        {/* One translated sentence rather than three glued
+                            fragments: languages that put the literal first or
+                            last need the <code> to move with it. */}
+                        <p className="text-xs text-(--vscode-editor-foreground,#d4d4d4) mt-3">
+                          <Trans
+                            i18nKey="common.typeToConfirm"
+                            t={t}
+                            defaults="Type <code>{{text}}</code> to confirm:"
+                            values={{ text: confirmText }}
+                            components={{
+                              code: (
+                                <code
+                                  className={cn(
+                                    'px-1 py-0.5 rounded-sm bg-(--vscode-input-background,#3c3c3c) font-mono',
+                                    styles.accent,
+                                  )}
+                                />
+                              ),
+                            }}
+                          />
+                        </p>
+                        <input
+                          ref={inputRef}
+                          type="text"
+                          value={typed}
+                          onChange={(e) => setTyped(e.target.value)}
+                          onKeyDown={handleInputKeyDown}
+                          className={cn(
+                            'w-full mt-2 px-2 py-1.5 text-sm rounded-sm',
+                            'bg-(--vscode-input-background,#3c3c3c)',
+                            'text-(--vscode-input-foreground,#d4d4d4)',
+                            'border border-(--vscode-input-border,#3c3c3c)',
+                            'focus:outline-hidden focus:border-(--vscode-focusBorder,#007fd4)',
+                          )}
+                          placeholder={confirmText}
+                          aria-label={t('common.confirm')}
+                          data-testid="danger-input"
+                        />
+                      </>
+                    )}
                     <div className="flex justify-end gap-2 mt-4">
                       <button
+                        ref={dismissRef}
                         className="px-3 py-1.5 text-sm rounded-sm bg-(--vscode-button-secondaryBackground,#3a3d41) text-(--vscode-button-secondaryForeground,#fff) hover:bg-(--vscode-button-secondaryHoverBackground,#45494e)"
                         onClick={handleClose}
+                        data-testid="danger-dismiss-btn"
                       >
-                        {t('common.cancel')}
+                        {dismissLabel ?? t('common.cancel')}
                       </button>
                       <button
                         className={cn(
@@ -221,7 +267,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                         disabled={!isMatch}
                         data-testid="danger-confirm-btn"
                       >
-                        {t('common.confirm')}
+                        {confirmLabel ?? t('common.confirm')}
                       </button>
                     </div>
                   </m.div>
