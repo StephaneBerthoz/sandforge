@@ -166,12 +166,13 @@ export interface ForgeCompositionDeps {
  * — see the late-injection contract in `./lateServices.ts`. Failures are
  * logged, never thrown (the rest of the extension stays usable).
  *
- * Extracted from `activate()` — behaviour unchanged.
+ * @returns Settles once the module is wired or its failure logged, never
+ *   rejecting: `deactivate` waits for it.
  */
-export function initForgeComposition(deps: ForgeCompositionDeps): void {
+export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> {
   const { handlers, orgRegistry, orgManager, piiDetector, log } = deps;
 
-  Promise.all([
+  return Promise.all([
     import('../modules/forge/GraphDiscoveryService.js'),
     import('../modules/forge/ForgeExecutor.js'),
     import('../modules/forge/ForgeOrchestrator.js'),

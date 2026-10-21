@@ -64,6 +64,8 @@ let router: MessageRouter | undefined;
 let broker: MessageBroker | undefined;
 let servicesRef: Services | undefined;
 let handlersRef: ExtensionHandlers | undefined;
+/** Forge, Autopilot and the analysis modules, wired with the first view. */
+let lateCompositions: Promise<unknown> | undefined;
 
 /** Org fields the status bar label needs (structural subset of SalesforceOrg). */
 export interface StatusBarOrg {
@@ -330,25 +332,27 @@ export function activate(context: vscode.ExtensionContext): void {
   // already true and writing it raises no configuration event.
   services.reinitAI = createAIReinit({ services, run: runAI, log });
   eventBroker.onFirstWebview(() => {
-    initForgeComposition({
-      handlers,
-      orgRegistry,
-      orgManager,
-      piiDetector,
-      log,
-      storagePath: context.globalStorageUri.fsPath,
-    });
-    void initAutopilotComposition({
-      handlers,
-      log,
-      grappeConfig: readGrappeConfig(services),
-      onGrappeEvent: (event) =>
-        postGrappeEvent(
-          { broker: eventBroker, nextId: () => `autopilot-grappe-${++autopilotEventSeq}` },
-          event,
-        ),
-    });
-    runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
+    lateCompositions = Promise.allSettled([
+      initForgeComposition({
+        handlers,
+        orgRegistry,
+        orgManager,
+        piiDetector,
+        log,
+        storagePath: context.globalStorageUri.fsPath,
+      }),
+      initAutopilotComposition({
+        handlers,
+        log,
+        grappeConfig: readGrappeConfig(services),
+        onGrappeEvent: (event) =>
+          postGrappeEvent(
+            { broker: eventBroker, nextId: () => `autopilot-grappe-${++autopilotEventSeq}` },
+            event,
+          ),
+      }),
+      runAI().catch((err) => log(`Failed to init AI: ${String(err)}`)),
+    ]);
   });
   context.subscriptions.push(registerAIConfigListener({ services, run: runAI, log }));
   context.subscriptions.push(registerTokenBudgetReset({ services, log }));
@@ -643,6 +647,11 @@ export function activate(context: vscode.ExtensionContext): void {
  * Cleans up router, broker, memoised AI adapters, and flushes telemetry.
  */
 export async function deactivate(): Promise<void> {
+  // The modules the first view wires, through dynamic imports, finish before
+  // the handlers they are injected into are let go: one still loading went on
+  // to wire, and log, into an extension already torn down.
+  await lateCompositions;
+  lateCompositions = undefined;
   router?.dispose();
   broker?.dispose();
   router = undefined;

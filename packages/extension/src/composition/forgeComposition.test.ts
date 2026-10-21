@@ -149,7 +149,7 @@ async function compose(
     log: vi.fn(),
     ...extra,
   } as unknown as ForgeCompositionDeps;
-  initForgeComposition(deps);
+  await initForgeComposition(deps);
   await vi.waitFor(() => expect(setForgeOrchestrator).toHaveBeenCalled(), { timeout: 5_000 });
   const [orchestrator, services] = setForgeOrchestrator.mock.calls[0] as [
     ForgeOrchestrator,

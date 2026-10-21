@@ -98,7 +98,7 @@ function fakeConnection(orgId: string) {
 
 async function compose(): Promise<ForgeServices> {
   const setForgeOrchestrator = vi.fn();
-  initForgeComposition({
+  await initForgeComposition({
     handlers: { setForgeOrchestrator },
     orgRegistry: {},
     orgManager: {},

@@ -236,7 +236,7 @@ export async function createForgeHost(options: ForgeHostOptions): Promise<ForgeH
       hand(orchestrator, services);
       resolve();
     };
-    initForgeComposition({
+    void initForgeComposition({
       handlers,
       orgRegistry,
       orgManager,

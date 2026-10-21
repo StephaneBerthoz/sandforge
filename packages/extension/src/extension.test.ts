@@ -573,8 +573,10 @@ describe('what an activation costs before a SandForge view opens', () => {
   let orgSeq = 0;
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    // Torn down first: the modules the last test's view wired finish within
+    // it, and what they log is cleared with the rest.
     await deactivate();
+    vi.clearAllMocks();
     activationCost.processes.length = 0;
     activationCost.identityCalls.length = 0;
     // Hermetic: the CLI's default org is read from this variable before any
@@ -684,6 +686,22 @@ describe('what an activation costs before a SandForge view opens', () => {
     await settle();
 
     expect(activationCost.identityCalls).toHaveLength(2);
+  });
+
+  it('finishes wiring the modules a view started before deactivation returns', async () => {
+    activate(createContext());
+    registeredCommands.get('sandforge.openMonitor')?.();
+    await deactivate();
+    vi.clearAllMocks();
+    await settle();
+
+    expect(
+      logged().filter((line) =>
+        /Forge v2 module initialized|Autopilot module initialized|Rule-based analysis modules initialized/.test(
+          line,
+        ),
+      ),
+    ).toEqual([]);
   });
 
   it('wires Forge, Autopilot and the analysis modules with the first view, not at activation', async () => {
