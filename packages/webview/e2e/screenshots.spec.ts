@@ -988,7 +988,10 @@ test.describe('Marketplace Screenshots', () => {
 
   test('monitor', async ({ page }) => {
     const bridge = await openModule(page, 'monitor');
-    await bridge.respondToNext('monitor:refresh', 'monitor:data', MOCK_HEALTH);
+    // Every refresh the page sent, not the first: answered once, the second
+    // left the dashboard on its skeleton (the page asks again as it mounts).
+    await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+    await respondToAll(page, 'monitor:refresh', 'monitor:data', MOCK_HEALTH);
     // Without this the storage panel stays on its loading skeleton and the
     // shot shows a 200px grey slab in the middle of the dashboard.
     await bridge.waitForMessage('monitor:storage', { timeout: 10_000 });
