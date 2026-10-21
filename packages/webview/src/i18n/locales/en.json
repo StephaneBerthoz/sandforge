@@ -2606,6 +2606,8 @@
       "firstRun1610Desc": "A new user is led from the first view: import the orgs the Salesforce CLI already has, or sign in with the browser, then fill the org with Seed. Seed shows the target's automation and refuses a run that would exhaust the day's emails. Errors read in plain words with a next step in every module, a stopped Forge run resumes without writing anything twice, and SandForge stays idle until one of its views opens.",
       "saferCopies1620": "Safer copies between orgs",
       "saferCopies1620Desc": "Sync now writes parents first, never copies again what an earlier run copied, and checks volume, storage and the day's emails before writing. Seed's Clone from Org works between any two orgs and hides real emails and phone numbers. Every run that writes shows in Live Operations with a Stop, DataOps backups can be deleted, and keyboard and screen-reader users can follow every flow.",
+      "takeBack1630": "Every run can be taken back",
+      "takeBack1630Desc": "What CSV Upload and Clone from Org create is listed in Earlier seeds and can be removed, and a run whose window closed during a Bulk job still removes that job's records. Sync now sets the lookups between objects that point at each other, its removal can sweep what the target's automation created, and every page loads lighter.",
       "exactResume1530": "Resume exactly where it stopped",
       "exactResume1530Desc": "A resumed Forge run now copies the files left to copy, never gives a status back twice, and is no longer refused when an empty table changed meanwhile. Removing a large run reads its journal page by page.",
       "undoSync1520": "Take back what a Sync run created",

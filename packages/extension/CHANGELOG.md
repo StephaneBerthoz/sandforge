@@ -5,6 +5,39 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.63.0] - 2026-10-21
+
+Every run that writes can be taken back, CSV imports and clones included, even when its window closed in the middle of a write; Sync keeps the lookups between objects that point at each other, and every page loads lighter.
+
+### Added
+
+- **CSV Upload, Clone from Org**: what they create is listed in Earlier seeds and can be removed, as a seed is.
+- **Sync removal**: can sweep what the target's automation created from the run's records, from the panel or with `sandforge-sync --remove --sweep`.
+- **Real-Time**: an option to keep contact points as read, for objects matched by Id or external id too.
+
+### Changed
+
+- **Sync**: sets a lookup between objects that point at each other once both are written, instead of leaving it empty.
+- **Sync results**: records written without a field or a lookup show as plain lines, not refusals.
+- **Stopping a run**: a plain question with Stop the run and Keep running, nothing to type.
+- **Sentences that name an object**: use its label, as the org shows it.
+- **Panel tabs**: named as the navigation names each module, in your language.
+- **Sidebar**: long module names and the demo-data button wrap instead of being cut.
+- **Pages**: each loads only the English text and the code it uses; the base every page shares is 491 kB instead of 874.
+- **Translations**: Spanish says respaldo, Portuguese lista de opções, French and German Automatique; Japanese spaces Latin words as Salesforce's Japanese interface does.
+- **Command palette**: the Help entry reads Help, as in the navigation.
+
+### Fixed
+
+- **Seed, Sync**: a Bulk job still running when the window closed is read back, and its records are removed with the run.
+- **Frozen Dataset**: a load stopped part way keeps its mapping batch by batch, so its removal and its sweep find every record.
+- **Forge**: an upsert cut off part way is reconciled by its external id values: the records it created are removed with the run, the ones it updated are left alone.
+- **Sync delta**: an object whose lookups were left unset is read again next time, and the results say so.
+- **Production Guard**: its refusal to delete in a production org is worded in your language and names the org by its alias.
+- **Seed gallery**: Back from a template keeps the keyboard on the card it was picked from.
+- **Keyboard and screen readers**: Sync's tabs have their panel; Monitor's loading page has its heading.
+- **Command line**: `sandforge-clone` names the objects its caps cut.
+
 ## [1.62.0] - 2026-10-21
 
 Copies between two orgs check before they write, never duplicate, keep personal data private, and every run can be seen, stopped and taken back.
