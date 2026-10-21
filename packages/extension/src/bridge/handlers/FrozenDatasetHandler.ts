@@ -31,7 +31,11 @@ import {
   strongerDecision,
 } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
-import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import {
+  removalOrg,
+  removeRunRecords,
+  type RemovalOrg,
+} from '../../modules/forge/ForgeRunRemoval.js';
 import {
   listSweep,
   sweepAuditDetails,
@@ -43,6 +47,7 @@ import {
   type SweepInput,
 } from '../../modules/forge/ForgeRunSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import { seedWrittenBetween } from '../../modules/seed/seedRunSweep.js';
 import {
   removalAuditObjects,
   removalAuditOutcome,
@@ -2982,8 +2987,9 @@ export class FrozenDatasetHandler implements DomainHandler {
     let guardDecision: GuardDecision | undefined;
     let result: ForgeSweepResult;
     try {
-      const input = await this.sweepInputOfLoad(load, context.signal);
-      result = await sweepRunRecords(removalOrg(conn, 'frozen:remove sweep'), input, {
+      const org = removalOrg(conn, 'frozen:remove sweep');
+      const input = await this.sweepInputOfLoad(org, load, context.signal);
+      result = await sweepRunRecords(org, input, {
         includeChanged: context.includeChanged,
         removalSpans: load.removalSpans,
         approve: async (listing) => {
@@ -3037,8 +3043,20 @@ export class FrozenDatasetHandler implements DomainHandler {
    * when the target dated its writes, what it created, every record the
    * mapping holds — created, linked or reused, never swept — and what the
    * target's automation creates as the load's objects are written, read now.
+   *
+   * A load the target did not date as it ended — killed part way, its
+   * records read back from its journal, or whose dates could not all be read
+   * then — is dated by the records it created, read back now from the org and
+   * its recycle bin, from the first `CreatedDate` to the last, as a Sync or
+   * Seed run is (`seedWrittenBetween`). The sweep refused it: "The target did
+   * not date this run's writes", the trap's flow having opened a task on each
+   * contact of a load killed under it, which no removal then took.
    */
-  private async sweepInputOfLoad(load: RecordedLoad, signal?: AbortSignal): Promise<SweepInput> {
+  private async sweepInputOfLoad(
+    org: Pick<RemovalOrg, 'queryDeleted'>,
+    load: RecordedLoad,
+    signal?: AbortSignal,
+  ): Promise<SweepInput> {
     const created = loadCreatedRecords(load);
     const remap = new Set([...load.mapping.values()].map((recordId) => recordId.slice(0, 15)));
     const reader = this.targetAutomation;
@@ -3056,7 +3074,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       automation = { error: extractErrorMessage(err) };
     }
     return {
-      writtenBetween: load.writtenBetween,
+      writtenBetween: load.writtenBetween ?? (await seedWrittenBetween(org, created, signal)),
       created,
       remap,
       automation: sweepAutomationOf(automation),
@@ -3113,13 +3131,13 @@ export class FrozenDatasetHandler implements DomainHandler {
       const listing = await new TimeoutManager(SWEEP_LIST_TIMEOUT_MS).withTimeout(
         'frozen:remove:sweep',
         async () => {
-          const input = await this.sweepInputOfLoad(load);
           const conn = await getJsforceConnection(
             load.orgId,
             this.deps.orgRegistry,
             this.deps.orgManager,
           );
-          return listSweep(removalOrg(conn, 'frozen:remove:sweep'), input);
+          const org = removalOrg(conn, 'frozen:remove:sweep');
+          return listSweep(org, await this.sweepInputOfLoad(org, load));
         },
       );
       this.deps.broker.postToWebview(

@@ -60,6 +60,14 @@ export const SyncDeltaLine: React.FC<SyncDeltaLineProps> = ({ delta, simulated, 
         <p className="text-status-error">{t('sync.delta.deletionsNotCarried')}</p>
       )}
       {next !== null && <p className="text-text-secondary">{next}</p>}
+      {/* Why the watermark stayed: records the run left without a lookup it
+          was to set, which the next run reads again. Moved past them, the
+          lookup stayed unset for good, and the line said only "kept". */}
+      {!simulated && (delta.lookupsOwed ?? 0) > 0 && (
+        <p className="text-text-secondary" data-testid={testId ? `${testId}-owed` : undefined}>
+          {t('sync.delta.lookupsOwed', { count: delta.lookupsOwed })}
+        </p>
+      )}
     </div>
   );
 };

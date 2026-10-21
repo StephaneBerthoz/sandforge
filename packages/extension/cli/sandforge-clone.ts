@@ -1879,14 +1879,37 @@ export function fileLines(files: ForgeFilesReport, dryRun: boolean): string[] {
 }
 
 /**
+ * The objects a read was cut at the read ceiling (`--max-records-per-object`)
+ * with rows left in the source, and the ceiling, as `cappedObjects` names the
+ * objects a read stopped at `--max`; undefined when no read was cut.
+ */
+function truncatedObjectsOf(
+  summary: Pick<ExecutionSummary, 'truncatedObjects'>,
+  readCeiling: number | undefined,
+): { perObject?: number; objects: string[] } | undefined {
+  const objects = summary.truncatedObjects ?? [];
+  if (objects.length === 0) return undefined;
+  return {
+    ...(readCeiling !== undefined ? { perObject: readCeiling } : {}),
+    objects: [...objects],
+  };
+}
+
+/**
  * The text summary of a run. Records the target already held are named apart
  * from the created and the failed ones: linked is neither, and a duplicate
  * nobody could identify is a failure whose children lost their lookup.
  * Exported so it can be tested.
  *
  * @param dryRun - Whether the run wrote nothing, for the files it would copy.
+ * @param readCeiling - The most rows one read of an object took
+ *   (`--max-records-per-object`), for the objects a read was cut at.
  */
-export function summaryLines(summary: ExecutionSummary, dryRun = false): string[] {
+export function summaryLines(
+  summary: ExecutionSummary,
+  dryRun = false,
+  readCeiling?: number,
+): string[] {
   const lines = [
     `success: ${summary.successCount}`,
     // A dry run creates nothing: what it would have inserted, under its own name.
@@ -1930,6 +1953,19 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       `stopped at ${perObject} records per object (--max), ` +
         `the source holding more, which were not cloned (${objects.length} object(s)):`,
       ...objects.map((objectApiName) => `  ${objectApiName}`),
+    );
+  }
+  // A read cut at --max-records-per-object, the source holding more: the
+  // help said such an object was said TRUNCATED, and the summary named
+  // none of them, so a clone cut short read as whole.
+  const truncated = truncatedObjectsOf(summary, readCeiling);
+  if (truncated) {
+    const ceiling = truncated.perObject !== undefined ? `${truncated.perObject} ` : '';
+    lines.push(
+      '',
+      `TRUNCATED at ${ceiling}records per object (--max-records-per-object), ` +
+        `the source holding more, which were not cloned (${truncated.objects.length} object(s)):`,
+      ...truncated.objects.map((objectApiName) => `  ${objectApiName}`),
     );
   }
   if (summary.files) lines.push('', ...fileLines(summary.files, dryRun));
@@ -2241,8 +2277,12 @@ export function upsertKeyLines(keys: readonly NeutralizedUpsertKey[], target: st
  * `updatedSourceIds` the ones `--upsert` wrote over, so the table's other
  * entries are exactly the records the run created. Exported so it can be
  * tested.
+ *
+ * @param readCeiling - The most rows one read of an object took
+ *   (`--max-records-per-object`), for `truncatedObjects`.
  */
-export function jsonResult(summary: ExecutionSummary) {
+export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
+  const truncated = truncatedObjectsOf(summary, readCeiling);
   return {
     successCount: summary.successCount,
     // Written over by `--upsert`: the target held them before the run.
@@ -2296,6 +2336,9 @@ export function jsonResult(summary: ExecutionSummary) {
     // The cap of --max and the objects whose read stopped at it with rows
     // left in the source; only when a read did.
     ...(summary.cappedObjects ? { cappedObjects: summary.cappedObjects } : {}),
+    // The ceiling of --max-records-per-object and the objects whose read was
+    // cut at it with rows left in the source; only when a read was.
+    ...(truncated ? { truncatedObjects: truncated } : {}),
     // Only with --files: what became of the files. The ones copied are in
     // remapTable too, under their document or attachment id.
     ...(summary.files ? { files: summary.files } : {}),
@@ -5368,7 +5411,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     targetGaps,
     // The external ids --upsert may match by that the run writes neutralized.
     ...(upsertKeys.length > 0 ? { neutralizedUpsertKeys: upsertKeys } : {}),
-    result: jsonResult(counted),
+    result: jsonResult(counted, args.readCeiling),
     elapsedMs: at.getTime() - t0,
     finishedAt: at.toISOString(),
     // The journal the run wrote as it went, and its part: where the ids are
@@ -5542,7 +5585,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         process.stdout.write(JSON.stringify(document, null, 2) + '\n');
       } else {
         console.log('');
-        for (const line of summaryLines(partial, args.dryRun)) console.log(line);
+        for (const line of summaryLines(partial, args.dryRun, args.readCeiling)) console.log(line);
       }
       say(interruptedLine(args.summary));
       process.exit(INTERRUPTED_EXIT);
@@ -5625,7 +5668,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     process.stdout.write(JSON.stringify(document, null, 2) + '\n');
   } else {
     console.log('');
-    for (const line of summaryLines(summary, args.dryRun)) console.log(line);
+    for (const line of summaryLines(summary, args.dryRun, args.readCeiling)) console.log(line);
     console.log(`\ndone in ${elapsed}ms`);
   }
   if (failedOutright(summary)) {

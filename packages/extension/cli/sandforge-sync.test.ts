@@ -371,6 +371,24 @@ describe('a saved configuration on the command line', () => {
         'reads from the same point',
     );
   });
+
+  it('says why the watermark of an object stayed when the run left lookups it was to set', () => {
+    expect(
+      deltaLine({
+        read: 'delta',
+        since: '2026-10-14T08:00:00.000Z',
+        changed: 2,
+        deletionsChecked: false,
+        deleted: 0,
+        deleteFailed: 0,
+        lookupsOwed: 1,
+      }),
+    ).toBe(
+      'delta: 2 record(s) changed since 2026-10-14T08:00:00.000Z; watermark kept as it was: ' +
+        'the next run reads from the same point, 1 record(s) left without a lookup this run ' +
+        'was to set among them',
+    );
+  });
 });
 
 describe('buildConfig', () => {

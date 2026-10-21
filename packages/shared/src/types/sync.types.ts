@@ -203,6 +203,15 @@ export interface SyncDeltaOutcome {
    * keeps the watermark it had — and in a simulation.
    */
   recorded?: ISODateString;
+  /**
+   * The records the run wrote that it left without a lookup it was to set
+   * once the record named had its copy — one of the same object, or of one
+   * written after it in a cycle — the update refused, or never sent: the
+   * watermark is not moved past them, and the next run reads them again to
+   * set it. Recorded past them, it read only what the source changed since,
+   * and the lookup stayed unset for good. Absent when none.
+   */
+  lookupsOwed?: number;
 }
 
 /** Per-object sync configuration */

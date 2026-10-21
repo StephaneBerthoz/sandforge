@@ -37,6 +37,7 @@ vi.mock('../../modules/forge/ForgeRunRemoval.js', async (original) => ({
   removalOrg: vi.fn(),
 }));
 
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { removalOrg } from '../../modules/forge/ForgeRunRemoval.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
@@ -271,6 +272,99 @@ describe('SyncRemovalHandler', () => {
           inFlight: { objectApiName: 'Contact', rows: 12_000 },
         }),
       ]);
+    });
+  });
+
+  describe('a run whose window closed during a Bulk API job', () => {
+    const JOB = fakeId('750', 1);
+    /** Two contacts the job created, and one it matched and updated: the target's before. */
+    const C1 = fakeId('003', 1);
+    const C2 = fakeId('003', 2);
+    const UPDATED = fakeId('003', 3);
+    let asked: string[];
+
+    beforeEach(async () => {
+      const recorder = creations.recorder({
+        runId: 'run-job',
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      });
+      recorder.sending?.('Contact', 3, { upsert: true });
+      recorder.sending?.('Contact', 3, { job: JOB, upsert: true });
+      await recorder.flush();
+      // The job ran on to its end once the window had closed.
+      const jobEnded = new Date(Date.now() - 60_000).toISOString();
+      org.add('Contact', { Id: C1 }, jobEnded);
+      org.add('Contact', { Id: C2 }, jobEnded);
+      org.add('Contact', { Id: UPDATED }, jobEnded);
+      asked = [];
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        bulk2: {
+          job: (_type: string, { id }: { id: string }) => {
+            asked.push(id);
+            return {
+              check: async () => ({ state: 'JobComplete', systemModstamp: jobEnded }),
+              getSuccessfulResults: async () => [
+                { sf__Id: C1, sf__Created: 'true' },
+                { sf__Id: UPDATED, sf__Created: 'false' },
+                { sf__Id: C2, sf__Created: 'true' },
+              ],
+              abort: async () => undefined,
+            };
+          },
+        },
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+    });
+
+    it('is listed with what the job created, read back by its id once, and removed with it', async () => {
+      await handler.handle(buildMsg('sync:removal:list'));
+
+      expect(asked).toEqual([JOB]);
+      const [response] = posted<BaseMessage & { payload: { runs: SyncRunRemovalInfo[] } }>(
+        'sync:removal:list:response',
+      );
+      const listed = response.payload.runs.find((run) => run.runId === 'run-job');
+      expect(listed).toMatchObject({ created: 2, left: [{ objectApiName: 'Contact', count: 2 }] });
+      expect(listed?.inFlight).toBeUndefined();
+      // Answered once: the next listing reads the run's file alone.
+      await handler.handle(buildMsg('sync:removal:list'));
+      expect(asked).toEqual([JOB]);
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-job' }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [{ objectApiName: 'Contact', planned: 2, deleted: 2 }],
+      });
+      // The contact the upsert matched was the target's before, and stays.
+      expect(org.all('Contact').map((row) => row.Id)).toEqual([UPDATED]);
+    });
+
+    it('is answered by its info and its removal too, with no listing first', async () => {
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-job' }));
+
+      expect(info()).toMatchObject({ created: 2, left: [{ objectApiName: 'Contact', count: 2 }] });
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-job' }));
+      expect(answer()?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', planned: 2, deleted: 2 }),
+      ]);
+    });
+
+    it('asks nothing of the org for a run this window is still writing', async () => {
+      running.add('run-job');
+
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-job' }));
+
+      expect(asked).toEqual([]);
+      expect(info()).toMatchObject({
+        created: 0,
+        inFlight: { objectApiName: 'Contact', rows: 3 },
+      });
     });
   });
 

@@ -85,6 +85,7 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     expect(await store.get('run-1')).toEqual({
       ...start('run-1'),
       lastWrittenAt: expect.any(String),
+      firstWrittenAt: expect.any(String),
       created: [{ objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] }],
     });
   });
@@ -200,6 +201,75 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
       Date.parse('2026-10-14T08:00:05.000Z'),
     );
     expect(createdCount(run ?? { created: [] })).toBe(1);
+  });
+
+  it('dates its first write by its first call, an update before anything was created included', () => {
+    // The sweep of its removal starts there: the tasks the target's flows
+    // opened on the accounts it updated first were left out of a window that
+    // began at its first creation.
+    const text = [
+      JSON.stringify({ run: start('run-update-first') }),
+      JSON.stringify({ writing: { object: 'Account', rows: 3, at: '2026-10-14T08:00:02.000Z' } }),
+      JSON.stringify({ sending: { object: 'Contact', rows: 2, at: '2026-10-14T08:00:06.000Z' } }),
+      JSON.stringify({
+        object: 'Contact',
+        created: [fakeId('003', 1)],
+        at: '2026-10-14T08:00:09.000Z',
+      }),
+    ].join('\n');
+
+    const run = readRunFile(text);
+
+    expect(run?.firstWrittenAt).toBe('2026-10-14T08:00:02.000Z');
+    // An update names no call under way, and creates nothing of the run's.
+    expect(run?.inFlight).toBeUndefined();
+    expect(run?.created).toEqual([{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }]);
+    expect(run?.lastWrittenAt).toBe('2026-10-14T08:00:09.000Z');
+    // A run kept before lines dated its updates: its first call, or what it first created.
+    expect(
+      readRunFile(
+        text
+          .split('\n')
+          .filter((l) => !l.includes('writing'))
+          .join('\n'),
+      ),
+    ).toEqual(expect.objectContaining({ firstWrittenAt: '2026-10-14T08:00:06.000Z' }));
+  });
+
+  it('writes the line of a first write that creates nothing with its file’s first line, and no file for a run that only updates', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { files, deps } = memoryDisk();
+      const store = new SyncRunCreations(deps);
+      vi.setSystemTime(new Date('2026-10-14T08:00:02.000Z'));
+      const updating = store.recorder(start('run-updates'));
+      updating.writing?.('Account', 3);
+      await updating.end({ status: 'success' });
+      expect(files.size).toBe(0);
+
+      const recorder = store.recorder(start('run-update-first'));
+      recorder.writing?.('Account', 3);
+      vi.setSystemTime(new Date('2026-10-14T08:00:05.000Z'));
+      recorder.writing?.('Account', 2);
+      vi.setSystemTime(new Date('2026-10-14T08:00:06.000Z'));
+      recorder.sending?.('Contact', 2);
+      recorder.answered?.('Contact', [fakeId('003', 1)]);
+      vi.setSystemTime(new Date('2026-10-14T08:00:20.000Z'));
+      // Later updates are no first write, and add no line.
+      recorder.writing?.('Contact', 1);
+      await recorder.end({ status: 'success' });
+
+      const lines = [...files.values()][0].trim().split('\n');
+      expect(lines.filter((line) => line.includes('"writing"'))).toEqual([
+        JSON.stringify({ writing: { object: 'Account', rows: 3, at: '2026-10-14T08:00:02.000Z' } }),
+      ]);
+      expect(lines[1]).toContain('"writing"');
+      const run = await store.get('run-update-first');
+      expect(run?.firstWrittenAt).toBe('2026-10-14T08:00:02.000Z');
+      expect(run?.created).toEqual([{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('names no call under way for a run that ended', async () => {

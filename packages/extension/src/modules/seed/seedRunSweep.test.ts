@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 
-import { seedSweepInput, seedWrittenBetween } from './seedRunSweep';
+import { seedSweepInput, seedWrittenBetween, writtenSince } from './seedRunSweep';
 
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
 
@@ -112,5 +112,70 @@ describe('seedSweepInput', () => {
     });
     expect(input.remap.has(fakeId('003', 1).slice(0, 15))).toBe(true);
     expect(input.automation).toEqual({ creates: ['Task'] });
+  });
+});
+
+describe('writtenSince', () => {
+  /** The run's records, as the target dated them: from 10:02 to 10:03. */
+  const WRITTEN = { first: '2026-09-20T10:02:00.000Z', last: '2026-09-20T10:03:00.000Z' };
+  /** This machine's clock now, five minutes behind the org's. */
+  const now = () => new Date('2026-10-01T08:00:00.000Z');
+  const orgClock = async () => '2026-10-01T08:05:00.000Z';
+
+  it('begins the window at the run’s first write, moved onto the org’s clock', async () => {
+    // An update at 09:55 by this machine's clock is 10:00 by the org's: what
+    // the target's automation did on it was left out of a window that began
+    // at the first record the run created.
+    expect(
+      await writtenSince(WRITTEN, { at: '2026-09-20T09:55:00.000Z', serverTime: orgClock, now }),
+    ).toEqual({ first: '2026-09-20T10:00:00.000Z', last: WRITTEN.last });
+  });
+
+  it('keeps the window of a run whose first write is its first creation', async () => {
+    expect(
+      await writtenSince(WRITTEN, { at: '2026-09-20T09:58:00.000Z', serverTime: orgClock, now }),
+    ).toEqual(WRITTEN);
+  });
+
+  it('keeps the window as its records date it when the org’s clock cannot be read', async () => {
+    const unread = async (): Promise<string> => {
+      throw new Error('INVALID_SESSION_ID');
+    };
+
+    expect(
+      await writtenSince(WRITTEN, { at: '2026-09-20T09:00:00.000Z', serverTime: unread, now }),
+    ).toEqual(WRITTEN);
+    expect(
+      await writtenSince(WRITTEN, {
+        at: '2026-09-20T09:00:00.000Z',
+        serverTime: async () => 'not a date',
+        now,
+      }),
+    ).toEqual(WRITTEN);
+  });
+
+  it('dates nothing for a run whose records could not be read, nor for a first write that is no date', async () => {
+    expect(
+      await writtenSince(undefined, { at: '2026-09-20T09:55:00.000Z', serverTime: orgClock, now }),
+    ).toBeUndefined();
+    expect(await writtenSince(WRITTEN, { at: 'soon', serverTime: orgClock, now })).toEqual(WRITTEN);
+    expect(await writtenSince(WRITTEN, undefined)).toEqual(WRITTEN);
+  });
+
+  it('hands the sweep the window from the first write', async () => {
+    const { org } = orgDating({ [fakeId('003', 1)]: '2026-09-20T10:02:00.000+0000' });
+
+    const input = await seedSweepInput(
+      org,
+      [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }],
+      { objectsRead: [], objects: [], unread: [] } as unknown as ForgeTargetAutomation,
+      undefined,
+      { at: '2026-09-20T09:55:00.000Z', serverTime: orgClock, now },
+    );
+
+    expect(input.writtenBetween).toEqual({
+      first: '2026-09-20T10:00:00.000Z',
+      last: '2026-09-20T10:02:00.000Z',
+    });
   });
 });

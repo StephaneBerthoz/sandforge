@@ -13,6 +13,7 @@ import { FieldMappingService } from './FieldMapping.js';
 import { TransformPipeline } from './TransformPipeline.js';
 import { ConflictResolver } from './ConflictResolver.js';
 import { targetWriteFieldsOf, type TargetWriteFields } from './targetWriteFields.js';
+import type { SyncDeltaReads, SyncDeltaStore } from './SyncDelta.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -26,6 +27,13 @@ const DESCRIBES: Record<string, TargetWriteFields> = {
     name: 'Account',
     fields: [
       { name: 'Name', createable: true, type: 'string' },
+      {
+        name: 'ParentId',
+        createable: true,
+        type: 'reference',
+        referenceTo: ['Account'],
+        nillable: true,
+      },
       {
         name: 'Primary_Contact__c',
         createable: true,
@@ -331,5 +339,144 @@ describe('SyncOrchestrator — objects whose lookups name each other', () => {
       ['Contact', 2, 0],
     ]);
     expect(target.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('SyncOrchestrator — the watermark of a delta configuration whose lookups wait', () => {
+  /** The source's latest stamp, as the org answers it before each object is read. */
+  const STAMP = '2026-10-13T09:00:00.000Z';
+
+  /** A store of watermarks in memory, and the delta reads that stamp every object. */
+  function delta() {
+    const recorded = new Map<string, string>();
+    const deltaStore: SyncDeltaStore = {
+      load: () => ({ kind: 'none' }),
+      record: (_configId, watermark) => {
+        recorded.set(watermark.objectApiName, watermark.watermark);
+      },
+    };
+    const deltaReads = {
+      latestModstamp: vi.fn(async () => STAMP),
+    } as unknown as SyncDeltaReads;
+    return { recorded, extra: { deltaStore, deltaReads } };
+  }
+
+  const deltaConfig = (objects = config().objects): SyncConfig => ({
+    ...config(),
+    mode: 'delta',
+    objects,
+  });
+
+  it('records the watermark of an object of a cycle once every lookup it waited for is set', async () => {
+    const target = targetOrg();
+    const { recorded, extra } = delta();
+
+    const result = await orchestrator(target, sourceOrg(), extra).execute(deltaConfig());
+
+    expect(result.objectResults[0].lookupsSetAfter?.records).toBe(2);
+    expect(result.objectResults.map((o) => [o.objectApiName, o.delta?.recorded])).toEqual([
+      ['Account', STAMP],
+      ['Contact', STAMP],
+    ]);
+    expect(result.objectResults[0].delta?.lookupsOwed).toBeUndefined();
+    expect(recorded).toEqual(
+      new Map([
+        ['Account', STAMP],
+        ['Contact', STAMP],
+      ]),
+    );
+  });
+
+  it('keeps the watermark of an object whose lookup the cycle’s pass could not set, and says why', async () => {
+    // The target refused the update that gave Globex its contact. Recorded
+    // as the accounts were written, the watermark moved past Globex, which
+    // the next delta run did not read again: its lookup stayed unset for good.
+    const target = targetOrg();
+    const update = target.update.getMockImplementation();
+    target.update.mockImplementation(async (object, records) => {
+      const outcomes = (await update?.(object, records)) ?? [];
+      return outcomes.map((outcome, at) =>
+        target.held.get(String(records[at].Id))?.Name === 'Globex'
+          ? { success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: locked'] }
+          : outcome,
+      );
+    });
+    const { recorded, extra } = delta();
+
+    const result = await orchestrator(target, sourceOrg(), extra).execute(deltaConfig());
+
+    const accounts = result.objectResults[0];
+    expect(accounts.lookupsLeftOut).toEqual([
+      expect.objectContaining({ records: 1, reason: 'notSet' }),
+    ]);
+    expect(accounts.delta?.recorded).toBeUndefined();
+    expect(accounts.delta?.lookupsOwed).toBe(1);
+    expect(recorded.has('Account')).toBe(false);
+    // The contacts' own watermark moves: nothing of theirs waits.
+    expect(recorded.get('Contact')).toBe(STAMP);
+  });
+
+  it('keeps it too when the record a lookup names was refused, so that the next run sets it', async () => {
+    const source = sourceOrg();
+    source.Contact[1] = { ...source.Contact[1], LastName: 'Refused' };
+    const target = targetOrg();
+    const { recorded, extra } = delta();
+
+    const result = await orchestrator(target, source, extra).execute(deltaConfig());
+
+    expect(result.objectResults[0].delta).toMatchObject({ lookupsOwed: 1 });
+    expect(result.objectResults[0].delta?.recorded).toBeUndefined();
+    expect(recorded.size).toBe(0);
+  });
+
+  it('keeps the watermark of an object whose rows naming each other were not all given their lookup', async () => {
+    // An account and its parent, both new: the account goes first without
+    // its parent, and the update that sets it once the parent has its copy
+    // is refused.
+    const target = targetOrg();
+    target.update.mockImplementation(async (_object, records) =>
+      records.map(() => ({ success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: no'] })),
+    );
+    const source = {
+      Account: [
+        { Id: fakeId('001', 1), Name: 'Child', ParentId: fakeId('001', 2) },
+        { Id: fakeId('001', 2), Name: 'Parent' },
+      ],
+    };
+    const { recorded, extra } = delta();
+
+    const result = await orchestrator(target, source, extra).execute(
+      deltaConfig([insertOf('Account', 0)]),
+    );
+
+    const accounts = result.objectResults[0];
+    expect(accounts.success).toBe(2);
+    expect(accounts.lookupsLeftOut).toEqual([
+      expect.objectContaining({ records: 1, fields: ['ParentId'], reason: 'notSet' }),
+    ]);
+    expect(accounts.delta).toMatchObject({ lookupsOwed: 1 });
+    expect(accounts.delta?.recorded).toBeUndefined();
+    expect(recorded.size).toBe(0);
+  });
+
+  it('keeps the watermark of an object whose lookups a cancel kept from being set', async () => {
+    const stop = new AbortController();
+    const target = targetOrg();
+    const insert = target.insert.getMockImplementation();
+    target.insert.mockImplementation(async (object, records) => {
+      const outcomes = (await insert?.(object, records)) ?? [];
+      if (object === 'Account') stop.abort();
+      return outcomes;
+    });
+    const { recorded, extra } = delta();
+
+    const result = await orchestrator(target, sourceOrg(), {
+      ...extra,
+      signal: stop.signal,
+    }).execute(deltaConfig());
+
+    expect(result.cancelled).toBe(true);
+    expect(result.objectResults[0].delta).toMatchObject({ lookupsOwed: 2 });
+    expect(recorded.size).toBe(0);
   });
 });

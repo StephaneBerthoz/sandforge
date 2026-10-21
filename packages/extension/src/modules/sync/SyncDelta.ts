@@ -582,6 +582,7 @@ export function deltaOutcomeOf(
     error?: string;
   },
   recorded?: string,
+  lookupsOwed = 0,
 ): SyncDeltaOutcome {
   return {
     read: plan.read,
@@ -592,5 +593,6 @@ export function deltaOutcomeOf(
     deleteFailed: deletions?.deleteFailed ?? 0,
     ...(deletions?.error !== undefined ? { deletionError: deletions.error } : {}),
     ...(recorded !== undefined ? { recorded } : {}),
+    ...(lookupsOwed > 0 ? { lookupsOwed } : {}),
   };
 }

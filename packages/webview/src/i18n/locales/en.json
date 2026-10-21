@@ -1467,6 +1467,8 @@
       "recorded": "The next run reads the changes since {{time}}.",
       "kept": "Watermark kept: the next run reads from the same point.",
       "notRecorded": "No watermark recorded: the next run reads everything again.",
+      "lookupsOwed_one": "{{count}} record is still without a lookup this run was to set: the watermark does not move past it, so the next run reads it again.",
+      "lookupsOwed_other": "{{count}} records are still without a lookup this run was to set: the watermark does not move past them, so the next run reads them again.",
       "full": {
         "first_run": "Full read (first run)",
         "reset": "Full read (asked to run in full)",

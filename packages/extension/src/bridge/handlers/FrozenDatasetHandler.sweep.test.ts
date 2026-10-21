@@ -492,6 +492,87 @@ describe('a sweep asked with the removal of a Frozen load', () => {
     );
   });
 
+  describe('of a load killed part way, which the target never dated', () => {
+    /** A process that is not running: the window whose load was killed. */
+    const GONE = 2_147_483_646;
+    /** When the killed load wrote its last batch, by this machine's clock. */
+    const KILLED_AT = '2026-09-20T10:02:05.000Z';
+    /** Half a minute after the load's records were created. */
+    const SOON_AFTER = '2026-09-20T10:02:30.000+0000';
+
+    beforeEach(() => {
+      // No mapping: the load was killed before it wrote one, and left its
+      // journal, which names what it created batch by batch.
+      for (const name of fs.readdirSync(sasDir)) {
+        if (name.startsWith('referenceid-mapping.')) fs.rmSync(path.join(sasDir, name));
+      }
+      const lines = [
+        { journal: { startedAt: FIRST_WRITE, pid: GONE } },
+        {
+          at: '2026-09-20T10:02:01.000Z',
+          object: 'WorkOrder',
+          created: [['WorkOrder-000001', WORK_ORDER]],
+        },
+        {
+          at: KILLED_AT,
+          object: 'ServiceAppointment',
+          created: [['ServiceAppointment-000001', APPOINTMENT]],
+        },
+      ];
+      fs.writeFileSync(
+        path.join(
+          sasDir,
+          `referenceid-mapping.${TARGET_ORG}.load-${Date.parse(FIRST_WRITE)}.ndjson`,
+        ),
+        `${lines.map((line) => JSON.stringify(line)).join('\n')}\n{"at":"2026-09`,
+      );
+      // What the automation hung under the two records, half a minute after
+      // they were created: within the window their dates make.
+      for (const row of org.rows.get('FeedItem') ?? []) {
+        Object.assign(row, { CreatedDate: SOON_AFTER, LastModifiedDate: SOON_AFTER });
+      }
+    });
+
+    it('lists what the automation created while it wrote, dated by the records it created', async () => {
+      // Run for real on the trap: "The target did not date this run's
+      // writes", the flow having opened a task on each contact the load wrote.
+      await handler.handle(
+        buildMsg('frozen:remove:sweep', { targetOrgId: TARGET_ORG, loadedAt: KILLED_AT }),
+      );
+
+      expect(errors('frozen:remove:sweep:error')).toEqual([]);
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'frozen:remove:sweep:response',
+      );
+      expect(response.payload.listing.refusal).toBeUndefined();
+      expect(response.payload.listing.found.map((f) => [f.objectApiName, f.count])).toEqual(
+        expect.arrayContaining([
+          ['FeedItem', 2],
+          ['Task', 1],
+        ]),
+      );
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('sweeps it first, and the load’s records then go', async () => {
+      await remove({ loadedAt: KILLED_AT, sweep: true });
+
+      expect(errors()).toEqual([]);
+      expect(answer()?.sweep).toMatchObject({ status: 'success' });
+      expect(answer()?.sweep?.objects.map((o) => [o.objectApiName, o.deleted])).toEqual(
+        expect.arrayContaining([
+          ['FeedItem', 2],
+          ['Task', 1],
+        ]),
+      );
+      expect(answer()?.status).toBe('success');
+      expect(ids('WorkOrder')).toEqual([]);
+      expect(ids('ServiceAppointment')).toEqual([]);
+      // What the load's user typed hours later is no side effect of the load.
+      expect(ids('Task')).toEqual([id('00T', 2)]);
+    });
+  });
+
   it('refuses to list a sweep for a load other than the one shown', async () => {
     await handler.handle(
       buildMsg('frozen:remove:sweep', {

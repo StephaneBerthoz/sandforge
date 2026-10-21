@@ -350,7 +350,7 @@ describe('SyncOrchestrator — delta runs', () => {
     await orchestrator().execute(deltaConfig());
     orgs.stamp('001S1', '2026-10-13T10:00:00.000Z');
     const dataSync = orgs.dataSync();
-    vi.spyOn(dataSync, 'sync').mockRejectedValueOnce(new WriteCancelledError('Account', []));
+    vi.spyOn(dataSync, 'write').mockRejectedValueOnce(new WriteCancelledError('Account', []));
 
     const result = await orchestrator({ dataSync }).execute(deltaConfig());
 

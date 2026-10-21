@@ -196,6 +196,35 @@ describe('sandforge-sync --remove with a sweep', () => {
     expect(existsSync(join(dir, 'run.removals.json'))).toBe(false);
   });
 
+  it('looks from the run’s first write its summary dates, an update before its first creation', async () => {
+    const created = '2026-10-18T09:02:00.000Z';
+    const firstWrite = '2026-10-18T09:00:10.000Z';
+    const run = summary();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...run,
+        created: { ...(run.created as Record<string, unknown>), firstWrittenAt: firstWrite },
+      }),
+    );
+    // The records as the target dated them, its clock and this machine's agreeing.
+    vi.spyOn(org, 'queryDeleted').mockImplementation(async (soql: string) => ({
+      records: [A1, C1, DOC]
+        .filter((recordId) => soql.includes(recordId))
+        .map((Id) => ({ Id, CreatedDate: created })),
+    }));
+    vi.mocked(listSweep).mockResolvedValue({ looked: [], found: [], unread: [], handWork: [] });
+
+    await main(argv('--remove', file, '--target', 'TGT', '--sweep-list', '--json'));
+
+    const [, input] = vi.mocked(listSweep).mock.calls[0];
+    expect(Date.parse(input.writtenBetween?.first ?? '')).toBeLessThan(Date.parse(created));
+    expect(
+      Math.abs(Date.parse(input.writtenBetween?.first ?? '') - Date.parse(firstWrite)),
+    ).toBeLessThan(5_000);
+    expect(input.writtenBetween?.last).toBe(created);
+  });
+
   it('removes without sweeping unless asked', async () => {
     await main(argv('--remove', file, '--target', 'TGT', '--json'));
 

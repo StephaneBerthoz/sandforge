@@ -112,6 +112,11 @@ export interface LookupsSet {
   set?: Omit<SyncLookupsSetAfter, 'after'>;
   /** The records left without some of them, by why. */
   leftOut: SyncLookupsLeftOut[];
+  /**
+   * How many records `leftOut` names, each once whatever its reasons: those
+   * a delta run reads again, its watermark kept short of them.
+   */
+  unset: number;
   /** Whether the run's cancel stopped the updates before they were all sent. */
   cancelled: boolean;
 }
@@ -134,6 +139,13 @@ export interface WriteAnswer {
    * that object is written. Absent when none.
    */
   lookupsToSet?: PendingLookup[];
+  /**
+   * The records the write's second pass — the lookups at rows of the same
+   * write, set once those rows had copies — left without some of them, each
+   * once: a delta run keeps its watermark short of them, so the next run
+   * reads them again. Absent when none.
+   */
+  lookupsUnset?: number;
 }
 
 /** Dependencies required by DataSync */
@@ -362,6 +374,8 @@ export class DataSync {
     const { writtenWithoutFields } = retried;
     /** The lookups at an object written after this one, of the rows written. */
     const across = pendingOf(prepared.deferredAcross, all);
+    /** The records the second pass left without some of their lookups. */
+    let unset = 0;
     // Every record has been sent once, and keeps its refusal unless it was
     // tried again before the cancel: the run is told all of it, what was
     // dropped to write it, and that it was cancelled.
@@ -384,6 +398,7 @@ export class DataSync {
         false,
       );
       lookupsLeftOut.push(...within.leftOut);
+      unset = within.unset;
       if (within.cancelled) {
         throw new WriteCancelledError(
           config.objectApiName,
@@ -401,6 +416,7 @@ export class DataSync {
       lookupsLeftOut,
       ...(writtenWithoutFields ? { writtenWithoutFields } : {}),
       ...(across.length > 0 ? { lookupsToSet: across } : {}),
+      ...(unset > 0 ? { lookupsUnset: unset } : {}),
     };
   }
 
@@ -484,6 +500,7 @@ export class DataSync {
         else notSet.addRow(row, outcome.errors[0]);
       });
     }
+    const left = [parentRefused, notInTarget, notSet, notReached];
     return {
       ...(set.records > 0 ? { set: { records: set.records, fields: set.fields() } } : {}),
       leftOut: [
@@ -492,6 +509,7 @@ export class DataSync {
         notSet.leftOut('notSet'),
         notReached.leftOut('notReached'),
       ].flatMap((entry) => (entry ? [entry] : [])),
+      unset: new Set(left.flatMap((tally) => [...tally.recordIds])).size,
       cancelled,
     };
   }
@@ -893,6 +911,11 @@ class Tally {
     return this.ids.size;
   }
 
+  /** The records counted, by id. */
+  get recordIds(): ReadonlySet<string> {
+    return this.ids;
+  }
+
   fields(): string[] {
     return [...this.named].sort();
   }
@@ -920,6 +943,11 @@ function pendingOf(
       ? [{ id: row.id, field, parent }]
       : [];
   });
+}
+
+/** How many records lookups waiting to be set are of, each once: `LookupsSet.unset` of a pass never made. */
+export function unsetOf(pending: readonly PendingLookup[]): number {
+  return new Set(pending.map(({ id }) => id)).size;
 }
 
 /**

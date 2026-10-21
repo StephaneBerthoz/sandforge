@@ -51,6 +51,22 @@ describe('SyncDeltaLine', () => {
     expect(lineText(outcome())).toContain('Watermark kept');
   });
 
+  it('says why the watermark was kept when the run left records without a lookup it was to set', () => {
+    // Moved past them, the next run never read them again, and their lookup
+    // stayed unset for good: the line said only "kept".
+    const text = lineText(outcome({ lookupsOwed: 2 }));
+    expect(text).toContain('Watermark kept');
+    expect(screen.getByTestId('line-owed').textContent).toBe(
+      '2 records are still without a lookup this run was to set: the watermark does not move ' +
+        'past them, so the next run reads them again.',
+    );
+  });
+
+  it('says nothing of lookups owed in a simulation, nor when none are', () => {
+    lineText(outcome({ lookupsOwed: 1 }), true);
+    expect(screen.queryByTestId('line-owed')).toBeNull();
+  });
+
   it('says nothing of a watermark where none is ever kept', () => {
     const text = lineText(outcome({ read: 'full', since: undefined, reason: 'not_saved' }));
     expect(text).toContain('not a saved configuration');

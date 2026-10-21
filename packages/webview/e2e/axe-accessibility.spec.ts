@@ -7953,6 +7953,56 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync results of a delta run whose watermark stays for records left without a lookup', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme, { mode: 'delta' });
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+            lookupsLeftOut: [
+              {
+                records: 2,
+                fields: ['ParentId'],
+                reason: 'notSet',
+                refusal: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: locked',
+              },
+            ],
+            delta: {
+              read: 'delta',
+              since: '2026-10-13T09:00:00.000Z',
+              changed: 3,
+              deletionsChecked: false,
+              deleted: 0,
+              deleteFailed: 0,
+              lookupsOwed: 2,
+            },
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 3,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-13T10:00:00.000Z',
+      });
+      await page.getByTestId('sync-result-delta-Account-owed').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
     test('Sync results of prices read in a currency the target lacks, said apart from the refusals', async ({
       page,
     }) => {

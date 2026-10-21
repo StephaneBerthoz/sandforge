@@ -1467,6 +1467,8 @@
       "recorded": "Der nächste Lauf liest die Änderungen seit {{time}}.",
       "kept": "Wasserzeichen beibehalten: Der nächste Lauf liest ab derselben Stelle.",
       "notRecorded": "Kein Wasserzeichen gespeichert: Der nächste Lauf liest wieder alles.",
+      "lookupsOwed_one": "{{count}} Datensatz ist noch ohne einen Verweis, den dieser Lauf setzen sollte: Das Wasserzeichen rückt nicht darüber hinaus, der nächste Lauf liest ihn erneut.",
+      "lookupsOwed_other": "{{count}} Datensätze sind noch ohne einen Verweis, den dieser Lauf setzen sollte: Das Wasserzeichen rückt nicht darüber hinaus, der nächste Lauf liest sie erneut.",
       "full": {
         "first_run": "Vollständig gelesen (erster Lauf)",
         "reset": "Vollständig gelesen (vollständiger Lauf angefordert)",

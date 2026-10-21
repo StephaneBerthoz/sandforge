@@ -1467,6 +1467,8 @@
       "recorded": "La próxima ejecución lee los cambios desde {{time}}.",
       "kept": "Marca conservada: la próxima ejecución lee desde el mismo punto.",
       "notRecorded": "No se guardó ninguna marca: la próxima ejecución vuelve a leerlo todo.",
+      "lookupsOwed_one": "{{count}} registro sigue sin una referencia que esta ejecución debía rellenar: la marca no avanza más allá, así que la próxima ejecución lo vuelve a leer.",
+      "lookupsOwed_other": "{{count}} registros siguen sin una referencia que esta ejecución debía rellenar: la marca no avanza más allá, así que la próxima ejecución los vuelve a leer.",
       "full": {
         "first_run": "Lectura completa (primera ejecución)",
         "reset": "Lectura completa (se pidió ejecutar completo)",

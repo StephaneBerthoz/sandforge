@@ -249,6 +249,19 @@ describe('what the command takes back, and from where', () => {
     expect(kept.lastWrittenAt()).toEqual(expect.any(String));
   });
 
+  it('keeps each id once, whichever length it is noted in and however often', () => {
+    const kept = memoryCreations('run-1');
+    kept.note('Account', [A1, A2]);
+    kept.note('Account', [A1]);
+    kept.note('Account', [A2.slice(0, 15)]);
+    kept.note('Contact', [C1, C1]);
+
+    expect(kept.created()).toEqual([
+      { objectApiName: 'Account', ids: [A1, A2] },
+      { objectApiName: 'Contact', ids: [C1] },
+    ]);
+  });
+
   it('dates its last write by the records it wrote again, adding nothing it created', () => {
     vi.useFakeTimers();
     try {

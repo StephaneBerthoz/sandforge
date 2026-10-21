@@ -523,6 +523,28 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({}))).not.toHaveProperty('cappedObjects');
   });
 
+  it('says, and hands a CI job, the objects a read was cut at the read ceiling, as it says the capped ones', () => {
+    // The help said such an object was said TRUNCATED; the summary named the
+    // objects --max stopped and none of those --max-records-per-object cut.
+    const truncated = summary({ truncatedObjects: ['Contact', 'Task'] });
+
+    const lines = summaryLines(truncated, false, 500);
+    const heading = lines.indexOf(
+      'TRUNCATED at 500 records per object (--max-records-per-object), the source holding ' +
+        'more, which were not cloned (2 object(s)):',
+    );
+    expect(heading).toBeGreaterThan(-1);
+    expect(lines.slice(heading + 1, heading + 3)).toEqual(['  Contact', '  Task']);
+    expect(jsonResult(truncated, 500).truncatedObjects).toEqual({
+      perObject: 500,
+      objects: ['Contact', 'Task'],
+    });
+    expect(summaryLines(summary({}), false, 500).some((line) => line.startsWith('TRUNCATED'))).toBe(
+      false,
+    );
+    expect(jsonResult(summary({}), 500)).not.toHaveProperty('truncatedObjects');
+  });
+
   it('says how many calls the run sent to both orgs, where it counted them', () => {
     const counted = summary({ apiCalls: 64 });
 

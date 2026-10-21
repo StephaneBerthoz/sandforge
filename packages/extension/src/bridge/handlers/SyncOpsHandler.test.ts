@@ -1866,6 +1866,95 @@ describe('SyncOpsHandler', () => {
       expect((kept[1] as { inFlight?: unknown }).inFlight).toBeUndefined();
     });
 
+    it('keeps the id of a Bulk API job once the org has opened it, and whether it upserts', async () => {
+      // A Seed run kept it, a Sync run did not: a window closed while the job
+      // ran left its records in the target, and the run listed none of them.
+      handler.setRunCreations(creations);
+      const JOB = '750000000000001AAA';
+      const kept: unknown[] = [];
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: { creations?: SyncCreationRecorder }) {
+          return {
+            execute: vi.fn(async () => {
+              const { calls } = vi.mocked(BulkDataWriter).mock.calls[0][0];
+              calls?.sending('Account', 'upsert', 300);
+              calls?.opened?.('Account', 'upsert', 300, JOB);
+              await d.creations?.flush();
+              kept.push(await creations.get('sync-job-1'));
+              // An update's job creates nothing of the run's, and is not kept.
+              calls?.answered('Account', 'upsert', []);
+              calls?.sending('Contact', 'update', 300);
+              calls?.opened?.('Contact', 'update', 300, JOB);
+              await d.creations?.flush();
+              kept.push(await creations.get('sync-job-1'));
+              return { status: 'success', objectResults: [] };
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-job-1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      expect(kept[0]).toMatchObject({
+        inFlight: { objectApiName: 'Account', rows: 300, job: JOB, upsert: true },
+      });
+      expect((kept[1] as { inFlight?: unknown }).inFlight).toBeUndefined();
+    });
+
+    it('dates the run’s first write by its first call, an update before anything was created', async () => {
+      // The sweep of its removal starts there: what the target's flows did on
+      // the records it updated first was left out of a window that began at
+      // its first creation.
+      handler.setRunCreations(creations);
+      let updated: string | undefined;
+      let inserting: string | undefined;
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return {
+            execute: vi.fn(async () => {
+              const { calls } = vi.mocked(BulkDataWriter).mock.calls[0][0];
+              updated = new Date().toISOString();
+              calls?.sending('Account', 'update', 3);
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              inserting = new Date().toISOString();
+              calls?.sending('Contact', 'insert', 1);
+              calls?.answered('Contact', 'insert', [{ success: true, id: CREATED, errors: [] }]);
+              return { status: 'success', objectResults: [] };
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-first-1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      const run = await creations.get('sync-first-1');
+      expect(Date.parse(run?.firstWrittenAt ?? '')).toBeGreaterThanOrEqual(
+        Date.parse(updated ?? ''),
+      );
+      expect(Date.parse(run?.firstWrittenAt ?? '')).toBeLessThan(Date.parse(inserting ?? ''));
+      expect(run?.created).toEqual([{ objectApiName: 'Contact', ids: [CREATED] }]);
+    });
+
     it('keeps what a scheduled run and a pipeline run created too', async () => {
       handler.setRunCreations(creations);
       creatingOrchestrator({});

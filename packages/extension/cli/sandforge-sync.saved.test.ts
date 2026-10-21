@@ -323,6 +323,52 @@ describe('sandforge-sync --config-file', () => {
     expect(seen).toEqual([new Map(), new Map([[fakeId('001', 1).slice(0, 15), fakeId('001', 9)]])]);
   });
 
+  it('dates in its summary when the run first wrote, an update before its first creation included', async () => {
+    // The sweep of its removal starts there: the tasks the target's flows
+    // opened on what it updated first were left out of a window that began
+    // at its first creation.
+    const ACCOUNT = fakeId('001', 1);
+    const CONTACT = fakeId('003', 1);
+    vi.mocked(makeConn).mockReturnValue({
+      query: vi.fn(async () => ({ records: [{ Id: '00D000000000002AAA' }], totalSize: 1 })),
+      queryMore: vi.fn(),
+      sobject: () => ({
+        update: vi.fn(async (rows: Array<{ Id: string }>) =>
+          rows.map((row) => ({ id: row.Id, success: true, errors: [] })),
+        ),
+      }),
+    } as unknown as Connection);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      engine.run = async (deps, config) => {
+        vi.setSystemTime(new Date('2026-10-14T08:00:02.000Z'));
+        // The writer's first call: an update of a record the target held.
+        await deps.dataSync.setLookups(
+          { objectApiName: 'Account', batchSize: 200 },
+          [{ id: ACCOUNT, field: 'ParentId', parent: fakeId('001', 2) }],
+          {
+            targetOf: () => fakeId('001', 3),
+            refusedObjectOf: () => undefined,
+          } as unknown as Parameters<typeof deps.dataSync.setLookups>[2],
+          false,
+        );
+        vi.setSystemTime(new Date('2026-10-14T08:00:09.000Z'));
+        deps.creations?.note('Contact', [CONTACT]);
+        return answered(config);
+      };
+
+      await main(argv('--source', 'SRC', '--target', 'TGT', '--object', 'Account', '--json'));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(JSON.parse(stdout).created).toMatchObject({
+      firstWrittenAt: '2026-10-14T08:00:02.000Z',
+      lastWrittenAt: '2026-10-14T08:00:09.000Z',
+      objects: [{ objectApiName: 'Contact', ids: [CONTACT] }],
+    });
+  });
+
   it('keeps nothing for a run of the objects of the line, which is never run again', async () => {
     engine.run = async (_deps, config) => answered(config);
 

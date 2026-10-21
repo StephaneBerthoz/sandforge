@@ -225,9 +225,12 @@ Remove what a run created:
                          run's user, that the run did not write: in the objects
                          whose records it created, tasks, events, feed, email
                          messages, notes, case comments, and the objects the
-                         target's flows create. The window is the records the
-                         run created, read back from the org, from a second
-                         before the first to a minute after the last. Refused
+                         target's flows create. The window runs from a second
+                         before the run's first write — its first call, an
+                         update before anything was created included, which
+                         the summary dates by this machine's clock, read on
+                         the org's — to a minute after the last record it
+                         created, read back from the org. Refused
                          when that user created records in the window on
                          objects neither the run nor the automation reaches
                          (hand work, likely). Records someone changed since
@@ -997,7 +1000,14 @@ export function deltaLine(delta: SyncDeltaOutcome): string {
     delta.recorded !== undefined
       ? '; watermark recorded'
       : '; watermark kept as it was: the next run reads from the same point';
-  return `${read}${deletions}${mark}`;
+  // Why it stayed, when the run left records without a lookup it was to set:
+  // past them, the next run would not read them again, and the lookup stayed
+  // unset for good.
+  const owed =
+    (delta.lookupsOwed ?? 0) > 0
+      ? `, ${delta.lookupsOwed} record(s) left without a lookup this run was to set among them`
+      : '';
+  return `${read}${deletions}${mark}${owed}`;
 }
 
 /** What a run created, kept in memory as it writes it, for its summary. */
@@ -1006,15 +1016,41 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
   created(): Array<{ objectApiName: string; ids: string[] }>;
   /** When the run last wrote something it created. */
   lastWrittenAt(): string | undefined;
+  /**
+   * When the run first wrote to the target: its first call, one that creates
+   * or an update, as the panel's file dates it (`SyncRunKept.firstWrittenAt`).
+   */
+  firstWrittenAt(): string | undefined;
 } {
   const byObject = new Map<string, string[]>();
+  /** The ids kept so far, by their first fifteen characters, as a run's file reads them back. */
+  const seen = new Set<string>();
   let last: string | undefined;
+  let first: string | undefined;
+  /** A call is about to go: the first one dates the run's first write. */
+  const calling = (rows: number): void => {
+    if (rows > 0) first ??= new Date().toISOString();
+  };
   return {
     runId,
+    sending: (_objectApiName, rows) => calling(rows),
+    writing: (_objectApiName, rows) => calling(rows),
     note: (objectApiName, ids) => {
       if (ids.length === 0) return;
-      byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), ...ids]);
+      // Each id once, as the panel's file reads a run back (`readRunFile`):
+      // an id noted twice went into the summary twice, and its removal
+      // counted the second as already gone.
+      const fresh = ids.filter((id) => {
+        const key = id.slice(0, 15);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (fresh.length > 0) {
+        byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), ...fresh]);
+      }
       last = new Date().toISOString();
+      first ??= last;
     },
     // Records it created, written again once the records their lookups name
     // were: when it last wrote, which its removal reads the org's dates against.
@@ -1024,6 +1060,7 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
     flush: async () => undefined,
     created: () => [...byObject].map(([objectApiName, ids]) => ({ objectApiName, ids: [...ids] })),
     lastWrittenAt: () => last,
+    firstWrittenAt: () => first,
   };
 }
 
@@ -1086,6 +1123,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // One describe of the target per object, kept for the run.
   const targetFieldsByObject = new Map<string, TargetWriteFields>();
   const controller = new AbortController();
+  // What a real run creates, for its summary to name and --remove to take back.
+  const kept = memoryCreations(`sandforge-sync-${randomUUID()}`);
   const writer = new BulkDataWriter({
     connection: targetConn,
     bulkExecutor: new BulkApiExecutor(),
@@ -1094,6 +1133,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     signal: controller.signal,
     onProgress: (processed, total, label) => log(`  ${label}: ${processed}/${total}`),
     log,
+    // Each call as it goes, for when the run first wrote: the sweep of its
+    // removal starts there, an update before the first creation included.
+    calls: {
+      sending: (objectName, operation, rows) =>
+        operation === 'insert' || operation === 'upsert'
+          ? kept.sending?.(objectName, rows)
+          : kept.writing?.(objectName, rows),
+      answered: () => undefined,
+    },
   });
 
   // A dry run is the panel's simulation: the same reads, mappings and
@@ -1135,8 +1183,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return answer;
   };
 
-  // What a real run creates, for its summary to name and --remove to take back.
-  const kept = memoryCreations(`sandforge-sync-${randomUUID()}`);
   const startedAt = new Date().toISOString();
 
   // Held, before its first write, to what the target has left of its data
@@ -1350,6 +1396,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const elapsedMs = Date.now() - t0;
   const created = kept.created();
   const lastWrittenAt = kept.lastWrittenAt();
+  const firstWrittenAt = kept.firstWrittenAt();
   // The org's own id, so --remove takes the run back from it and no other,
   // whatever alias names it then.
   const targetOrgId = created.length > 0 ? await organizationIdOf(targetConn) : undefined;
@@ -1371,6 +1418,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           created: {
             runId: kept.runId,
             ...(lastWrittenAt ? { lastWrittenAt } : {}),
+            // When it first wrote, by this machine's clock: where the sweep
+            // of its removal starts looking.
+            ...(firstWrittenAt ? { firstWrittenAt } : {}),
             objects: created,
           },
           elapsedMs,
@@ -1553,6 +1603,7 @@ const runSummarySchema = z
       .object({
         runId: z.string().min(1).max(200),
         lastWrittenAt: z.string().min(1).max(40).optional(),
+        firstWrittenAt: z.string().min(1).max(40).optional(),
         objects: z.array(
           z.object({
             objectApiName: z.string().regex(API_NAME_RE),
@@ -1622,6 +1673,7 @@ export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState)
     startedAt: summary.startedAt ?? finishedAt,
     end: { at: finishedAt, status: summary.result.status },
     ...(created?.lastWrittenAt ? { lastWrittenAt: created.lastWrittenAt } : {}),
+    ...(created?.firstWrittenAt ? { firstWrittenAt: created.firstWrittenAt } : {}),
     created: (created?.objects ?? []).filter((object) => object.ids.length > 0),
     ...(removal ? { removal } : {}),
   };
@@ -1920,11 +1972,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     } catch (err: unknown) {
       automation = { error: err instanceof Error ? err.message : String(err) };
     }
+    const org = removalOrg(conn, 'sandforge-sync --sweep');
+    // From the run's first write, as the panel's sweep looks: an update
+    // before its first creation is the run's too.
     return seedSweepInput(
-      removalOrg(conn, 'sandforge-sync --sweep'),
+      org,
       run.created,
       automation,
       signal,
+      run.firstWrittenAt !== undefined
+        ? { at: run.firstWrittenAt, serverTime: () => org.serverTime() }
+        : undefined,
     );
   };
 

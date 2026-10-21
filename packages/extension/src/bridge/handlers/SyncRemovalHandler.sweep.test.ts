@@ -337,6 +337,56 @@ describe('a sweep asked with the removal of a Sync run', () => {
     expect(ids('Task')).toEqual([FLOW_TASK, TYPED_TASK]);
   });
 
+  it('looks from the run’s first write, an update before its first creation, read on the org’s clock', async () => {
+    // A run that updated the account, then inserted its contact: the task a
+    // flow opened on the account's update came before the contact was
+    // created, and a window begun at the creation left it behind.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // This machine's clock stands five minutes behind the org's.
+      const behind = 5 * 60_000;
+      vi.setSystemTime(new Date(Date.parse('2026-09-20T10:00:10.000Z') - behind));
+      const runs = nodeSyncRunCreations(storage);
+      const recorder = runs.recorder({
+        runId: 'run-update-first',
+        configId: 'cfg-1',
+        configName: 'Accounts then contacts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET_ORG,
+      });
+      recorder.writing?.('Account', 1);
+      vi.setSystemTime(new Date(Date.parse(WRITTEN) - behind));
+      recorder.sending?.('Contact', 1);
+      recorder.answered?.('Contact', [CONTACT]);
+      await recorder.end({ status: 'success' });
+      org.rows.get('Task')?.push(
+        rec(id('00T', 3), 'Account updated', USER, '2026-09-20T10:00:30.000+0000', {
+          WhatId: ACCOUNT,
+        }),
+      );
+      vi.setSystemTime(new Date('2026-10-01T08:00:00.000Z'));
+      org.conn.soap.getServerTimestamp.mockImplementation(async () => ({
+        timestamp: new Date(Date.now() + behind).toISOString(),
+      }));
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-update-first' }));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(errors('sync:remove:sweep:error')).toEqual([]);
+    const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+      'sync:remove:sweep:response',
+    );
+    expect(response.payload.listing.window).toEqual({
+      from: '2026-09-20T10:00:09Z',
+      to: '2026-09-20T10:03:00Z',
+    });
+    expect(response.payload.listing.found).toEqual([
+      expect.objectContaining({ objectApiName: 'Task', count: 2 }),
+    ]);
+  });
+
   it('refuses to list a sweep after a run nothing of which is kept', async () => {
     await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-unknown' }));
 

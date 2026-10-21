@@ -1467,6 +1467,8 @@
       "recorded": "La prochaine exécution lit les modifications depuis le {{time}}.",
       "kept": "Repère conservé : la prochaine exécution relit depuis le même point.",
       "notRecorded": "Aucun repère enregistré : la prochaine exécution relit tout.",
+      "lookupsOwed_one": "{{count}} enregistrement reste sans un champ de référence que cette exécution devait renseigner : le repère n'avance pas au-delà, et la prochaine exécution le relit.",
+      "lookupsOwed_other": "{{count}} enregistrements restent sans un champ de référence que cette exécution devait renseigner : le repère n'avance pas au-delà, et la prochaine exécution les relit.",
       "full": {
         "first_run": "Lecture complète (première exécution)",
         "reset": "Lecture complète (tout relire demandé)",

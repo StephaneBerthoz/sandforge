@@ -181,6 +181,21 @@ const sendingSchema = z.object({
 });
 
 /**
+ * A line for the run's first call to the target when that call creates none
+ * of the run's — an update, a delete — written with the file's first line:
+ * nothing of it is the run's to take back, so it names no call under way, but
+ * it is a write the target's automation answers. The run's first write,
+ * whichever line says it, is where the sweep of its removal starts looking.
+ */
+const writingSchema = z.object({
+  writing: z.object({
+    object: objectSchema,
+    rows: z.number().int().positive(),
+    at: dateSchema,
+  }),
+});
+
+/**
  * A line after the run wrote again records of an object it created — the
  * lookups it left out of them, set once the records they name were written —
  * and when: nothing created, but the latest is when the run last wrote, which
@@ -263,6 +278,14 @@ export interface SyncRunKept extends SyncRunHead {
   /** When the run last wrote something it created, on this machine's clock. */
   lastWrittenAt?: string;
   /**
+   * When the run first wrote to the target, on this machine's clock: its
+   * first call — one that creates, an update, a delete — or what it first
+   * noted created. The sweep of its removal starts there: what the target's
+   * automation did on an update before the first creation is the run's doing
+   * too.
+   */
+  firstWrittenAt?: string;
+  /**
    * The call the run had under way when it stopped, of a run with no end: its
    * object and its rows, some of which may be in the target and not here.
    */
@@ -306,6 +329,14 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
   let head: SyncRunHead | undefined;
   let end: SyncRunKept['end'];
   let lastWrittenAt: string | undefined;
+  let firstWrittenAt: string | undefined;
+  /** The earliest of the dates the run's writes were given. */
+  const wrote = (at: string | undefined): void => {
+    if (at === undefined || !Number.isFinite(Date.parse(at))) return;
+    if (firstWrittenAt === undefined || Date.parse(at) < Date.parse(firstWrittenAt)) {
+      firstWrittenAt = at;
+    }
+  };
   /** The call last sent, until a line of what it created answers it. */
   let inFlight: SyncRunKept['inFlight'];
   const byObject = new Map<string, string[]>();
@@ -318,9 +349,15 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
       if (parsed.success) head = parsed.data.run;
       continue;
     }
+    const writing = writingSchema.safeParse(value);
+    if (writing.success) {
+      wrote(writing.data.writing.at);
+      continue;
+    }
     const sending = sendingSchema.safeParse(value);
     if (sending.success) {
       const { object, rows, at, job, upsert } = sending.data.sending;
+      wrote(at);
       inFlight = {
         objectApiName: object,
         rows,
@@ -333,6 +370,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     const touched = touchedSchema.safeParse(value);
     if (touched.success) {
       const { at } = touched.data.touched;
+      wrote(at);
       if (lastWrittenAt === undefined || Date.parse(at) > Date.parse(lastWrittenAt)) {
         lastWrittenAt = at;
       }
@@ -342,6 +380,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     if (created.success) {
       if (inFlight?.objectApiName === created.data.object) inFlight = undefined;
       const at = created.data.at;
+      if (created.data.created.length > 0) wrote(at);
       // A call that created nothing answers the call; it wrote nothing to date.
       if (
         at !== undefined &&
@@ -368,6 +407,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     ...head,
     ...(end ? { end } : {}),
     ...(lastWrittenAt !== undefined ? { lastWrittenAt } : {}),
+    ...(firstWrittenAt !== undefined ? { firstWrittenAt } : {}),
     ...(!end && inFlight ? { inFlight } : {}),
     created: [...byObject].flatMap(([objectApiName, ids]) =>
       ids.length > 0 ? [{ objectApiName, ids }] : [],
@@ -438,6 +478,13 @@ export interface SyncCreationRecorder {
    */
   answered?(objectApiName: string, ids: readonly string[]): void;
   /**
+   * A call of `rows` rows of `objectApiName` that creates none of the run's
+   * — an update, a delete — is about to go: written at once, dated now, as a
+   * write of the run (`SyncRunKept.firstWrittenAt`), and never a call under
+   * way.
+   */
+  writing?(objectApiName: string, rows: number): void;
+  /**
    * The run has just written again `rows` records of `objectApiName` it
    * created — the lookups it left out of them, set once the records they name
    * were written: written at once, dated now, as when it last wrote.
@@ -507,7 +554,18 @@ export class SyncRunCreations {
     let begun = false;
     let writes: Promise<void> = Promise.resolve();
     let failure: string | undefined;
+    /** Whether a line has gone to the file, or is on its way: the run's first write is dated. */
+    let queued = false;
+    /**
+     * The run's first write, an update or a delete before any line: written
+     * with the file's first line, and never alone — a run that only updates
+     * creates nothing, and leaves no file.
+     */
+    let held: unknown;
     const append = (line: unknown): void => {
+      queued = true;
+      const before = held;
+      held = undefined;
       writes = writes.then(async () => {
         if (failure !== undefined) return;
         try {
@@ -519,6 +577,7 @@ export class SyncRunCreations {
             await this.keepWithinBounds(start.runId).catch(() => undefined);
             await this.deps.appendFile(file, `${JSON.stringify({ run: head })}\n`);
           }
+          if (before !== undefined) await this.deps.appendFile(file, `${JSON.stringify(before)}\n`);
           await this.deps.appendFile(file, `${JSON.stringify(line)}\n`);
         } catch (err: unknown) {
           failure = err instanceof Error ? err.message : String(err);
@@ -549,6 +608,12 @@ export class SyncRunCreations {
         if (!objectSchema.safeParse(objectApiName).success) return;
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
         append({ object: objectApiName, created: valid, at: new Date().toISOString() });
+      },
+      writing: (objectApiName, rows) => {
+        if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
+        // Only the first write is dated by it: any line before it is earlier.
+        if (queued || held !== undefined) return;
+        held = { writing: { object: objectApiName, rows, at: new Date().toISOString() } };
       },
       touched: (objectApiName, rows) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;

@@ -17,6 +17,7 @@ import {
   buildObjectResult,
   linkedRecordOf,
   notReachedOf,
+  unsetOf,
   withCurrencies,
   type DataSync,
   type LookupsSet,
@@ -437,6 +438,12 @@ interface ObjectRead {
   readonly changedSince?: string;
   rows: number;
   cut: boolean;
+  /**
+   * Of the records the object's write wrote, those its second pass — the
+   * lookups at rows of the same write — left without some of them: the
+   * watermark stays short of them, so the next run reads them again.
+   */
+  lookupsUnset?: number;
 }
 
 /** What a deletion pass carried to the target. */
@@ -799,25 +806,72 @@ export class SyncOrchestrator {
         return;
       }
     };
+    /**
+     * The watermarks of the objects of a delta configuration whose records
+     * wait for lookups at an object written after them, in a cycle: recorded
+     * once the lookups are all set, never before. Recorded as the object was
+     * written, a lookup the cycle's pass then failed to set stayed unset for
+     * good: the next run read only what the source changed since, and the
+     * record had not changed.
+     */
+    const marksWaiting = new Map<string, () => string | undefined>();
+    /** An object's result, pushed already, with one more thing said of it. */
+    const amendErrors = (objectApiName: string, said: string): void => {
+      for (let at = objectResults.length - 1; at >= 0; at--) {
+        if (objectResults[at].objectApiName !== objectApiName) continue;
+        objectResults[at] = { ...objectResults[at], errors: [...objectResults[at].errors, said] };
+        return;
+      }
+    };
+    /** An object's result, pushed already, with what became of its watermark. */
+    const amendDelta = (objectApiName: string, owed: number, recorded?: string): void => {
+      for (let at = objectResults.length - 1; at >= 0; at--) {
+        const result = objectResults[at];
+        if (result.objectApiName !== objectApiName) continue;
+        if (!result.delta) return;
+        const lookupsOwed = (result.delta.lookupsOwed ?? 0) + owed;
+        objectResults[at] = {
+          ...result,
+          delta: {
+            ...result.delta,
+            ...(recorded !== undefined ? { recorded } : {}),
+            ...(lookupsOwed > 0 ? { lookupsOwed } : {}),
+          },
+        };
+        return;
+      }
+    };
     /** Set every lookup waiting, now that the records they name are written. */
     const settleCycle = async (): Promise<void> => {
       for (const [name, waiting] of [...pendingLookups]) {
         pendingLookups.delete(name);
         await this.deps.pauseGate?.whilePaused(this.deps.signal);
         const outcome = this.deps.signal?.aborted
-          ? { leftOut: notReachedOf(waiting.pending) }
+          ? { leftOut: notReachedOf(waiting.pending), unset: unsetOf(waiting.pending) }
           : await this.deps.dataSync.setLookups(waiting.objectConfig, waiting.pending, links, true);
         // Written again after the run's last creation, they are no change
         // since the run to its removal.
         if ('set' in outcome && outcome.set) recorder?.touched?.(name, outcome.set.records);
         amend(name, outcome);
+        // Its watermark moves once every lookup it waited for is set; short
+        // of that, the next run reads its records again and sets them.
+        const record = marksWaiting.get(name);
+        marksWaiting.delete(name);
+        if (outcome.unset === 0) {
+          const recorded = record?.();
+          if (recorded !== undefined) amendDelta(name, 0, recorded);
+        } else {
+          amendDelta(name, outcome.unset);
+        }
       }
     };
     /** Said of the lookups still waiting when a cancel or a failure ends the run. */
     const leaveUnset = (): void => {
       for (const [name, waiting] of [...pendingLookups]) {
         pendingLookups.delete(name);
+        marksWaiting.delete(name);
         amend(name, { leftOut: notReachedOf(waiting.pending) });
+        amendDelta(name, unsetOf(waiting.pending));
       }
     };
 
@@ -1069,16 +1123,23 @@ export class SyncOrchestrator {
       }
 
       // The watermark moves only past an object the run finished cleanly:
-      // every record written, every deletion carried, nothing left past a
-      // read bound. Anything else reads again from the same point next time.
+      // every record written, every lookup it was to set set, every deletion
+      // carried, nothing left past a read bound. Anything else reads again
+      // from the same point next time.
+      const lookupsOwed = read.lookupsUnset ?? 0;
       const clean =
         result.failed === 0 &&
         filesComplete &&
         !read.cut &&
+        lookupsOwed === 0 &&
         (deletions === undefined ||
           (deletions.deleteFailed === 0 && deletions.error === undefined && deletions.complete));
-      let recorded: string | undefined;
-      if (plan && mark !== null && clean) {
+      /** The object's watermark, recorded: its value, or nothing when it could not be saved. */
+      const recordMark = (
+        watermark: string,
+        fingerprint: string,
+        onError: (said: string) => void,
+      ): string | undefined => {
         // With the newest file stamp the run's lookups looked at, which the
         // next run's look past.
         const filesSeen = plannedFiles?.filesSeen;
@@ -1087,25 +1148,41 @@ export class SyncOrchestrator {
             sourceOrgId: config.sourceOrgId,
             targetOrgId: config.targetOrgId,
             objectApiName: objectConfig.objectApiName,
-            watermark: mark,
-            fingerprint: plan.fingerprint,
+            watermark,
+            fingerprint,
             recordedAt: new Date().toISOString(),
             ...(filesSeen !== undefined ? { filesSeen } : {}),
           });
-          recorded = mark;
+          return watermark;
         } catch (err: unknown) {
-          result = {
-            ...result,
-            errors: [
-              ...result.errors,
-              `The watermark could not be saved, so the next run reads from the previous one: ` +
-                `${err instanceof Error ? err.message : String(err)}`,
-            ],
-          };
+          onError(
+            `The watermark could not be saved, so the next run reads from the previous one: ` +
+              `${err instanceof Error ? err.message : String(err)}`,
+          );
+          return undefined;
+        }
+      };
+      let recorded: string | undefined;
+      if (plan && mark !== null && clean) {
+        // Its records wait for lookups at an object written after it, in a
+        // cycle: the watermark waits with them (`settleCycle`).
+        const { fingerprint } = plan;
+        const name = objectConfig.objectApiName;
+        if (pendingLookups.has(name)) {
+          marksWaiting.set(name, () =>
+            recordMark(mark, fingerprint, (said) => amendErrors(name, said)),
+          );
+        } else {
+          recorded = recordMark(mark, fingerprint, (said) => {
+            result = { ...result, errors: [...result.errors, said] };
+          });
         }
       }
       if (plan) {
-        result = { ...result, delta: deltaOutcomeOf(plan, read.rows, deletions, recorded) };
+        result = {
+          ...result,
+          delta: deltaOutcomeOf(plan, read.rows, deletions, recorded, lookupsOwed),
+        };
       }
       await push(result);
       // The last object of a cycle is in: the lookups the objects before it
@@ -1938,8 +2015,10 @@ export class SyncOrchestrator {
     // is handed nothing left to apply — as Real-time hands it. Given the
     // object's own mappings, it mapped every record a second time, by source
     // field name, on records that hold target names: a rename, a constant or a
-    // formula found nothing there and wrote its field empty.
-    if (written || onWritten || onLookupsToSet) {
+    // formula found nothing there and wrote its field empty. A delta read
+    // needs what the write's second pass left unset, which keeps its
+    // watermark (`ObjectRead.lookupsUnset`).
+    if (written || onWritten || onLookupsToSet || read) {
       // A run that copies files needs each record the write took, and its id
       // in the target: the files of a record go to its copy there. A run that
       // keeps what it creates needs each record the write created.
@@ -1953,12 +2032,20 @@ export class SyncOrchestrator {
         onWritten?.(outcomes, sourceIds);
       };
       try {
-        const { outcomes, notes, currencies, lookupsLeftOut, writtenWithoutFields, lookupsToSet } =
-          await this.deps.dataSync.write(
-            { ...objectConfig, fieldMappings: [], addOnFields: [] },
-            records,
-            writeRun,
-          );
+        const {
+          outcomes,
+          notes,
+          currencies,
+          lookupsLeftOut,
+          writtenWithoutFields,
+          lookupsToSet,
+          lookupsUnset,
+        } = await this.deps.dataSync.write(
+          { ...objectConfig, fieldMappings: [], addOnFields: [] },
+          records,
+          writeRun,
+        );
+        if (read && lookupsUnset !== undefined) read.lookupsUnset = lookupsUnset;
         note(outcomes);
         linkWhatStoodIn();
         if (lookupsToSet) onLookupsToSet?.(lookupsToSet);
