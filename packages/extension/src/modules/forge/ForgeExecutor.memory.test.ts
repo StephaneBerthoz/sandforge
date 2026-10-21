@@ -68,7 +68,17 @@ function graphOfAccounts(): ForgeGraph {
   };
 }
 
-describe('a run of whole tables read page by page, over a million rows', () => {
+/**
+ * Run as the extension ships, never under Stryker, whose workers it names
+ * (STRYKER_MUTATOR_WORKER): instrumented, the heap holds the counters as
+ * well, and a million rows through counted code took past the five minutes
+ * Stryker gives its initial test run on a CI runner, failing it with no test
+ * failed.
+ */
+const describeShipped =
+  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? describe : describe.skip;
+
+describeShipped('a run of whole tables read page by page, over a million rows', () => {
   it('holds a page of rows at a time, never the table, and writes every row', async () => {
     const flow = { handedOut: 0, written: 0, mostAhead: 0, pagesMade: 0 };
     const deps: ForgeExecutorDeps = {

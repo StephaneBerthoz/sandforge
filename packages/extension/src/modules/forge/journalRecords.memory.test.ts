@@ -86,7 +86,17 @@ function targetOrg(): RemovalOrg & { deleted: number } {
   return org;
 }
 
-describe('the readers of a journal of a million records', () => {
+/**
+ * Run as the extension ships, never under Stryker, whose workers it names
+ * (STRYKER_MUTATOR_WORKER): instrumented, the heap holds the counters as
+ * well, and a million rows through counted code took past the five minutes
+ * Stryker gives its initial test run on a CI runner, failing it with no test
+ * failed.
+ */
+const describeShipped =
+  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? describe : describe.skip;
+
+describeShipped('the readers of a journal of a million records', () => {
   writeTheJournal();
 
   // A million lines through the disk: under a minute here, past two on a
