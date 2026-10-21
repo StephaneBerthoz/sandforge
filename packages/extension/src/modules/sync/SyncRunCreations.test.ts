@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as path from 'node:path';
+import type { Connection } from 'jsforce';
+import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor';
+import type { BulkApiManager } from '../../core/engine/BulkApiManager';
+import { BulkDataWriter, syncWriterCalls } from './BulkDataWriter';
 import {
   SYNC_RUNS_DIR,
   SyncRunCreations,
@@ -11,6 +15,8 @@ import {
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
+const JOB = fakeId('750', 1);
+const JOB2 = fakeId('750', 2);
 
 const STORAGE = path.join(path.sep, 'storage');
 const DIR = path.join(STORAGE, SYNC_RUNS_DIR);
@@ -86,6 +92,7 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
       ...start('run-1'),
       lastWrittenAt: expect.any(String),
       firstWrittenAt: expect.any(String),
+      lastWriteAt: expect.any(String),
       created: [{ objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] }],
     });
   });
@@ -236,7 +243,7 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     ).toEqual(expect.objectContaining({ firstWrittenAt: '2026-10-14T08:00:06.000Z' }));
   });
 
-  it('writes the line of a first write that creates nothing with its file’s first line, and no file for a run that only updates', async () => {
+  it('writes the line of a first write that creates nothing with its file’s first line, each later one as it comes, and no file for a run that only updates', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       const { files, deps } = memoryDisk();
@@ -255,17 +262,23 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
       recorder.sending?.('Contact', 2);
       recorder.answered?.('Contact', [fakeId('003', 1)]);
       vi.setSystemTime(new Date('2026-10-14T08:00:20.000Z'));
-      // Later updates are no first write, and add no line.
+      // An update after the file began is no first write, but it is the
+      // run's last: the sweep of its removal stops a minute after it.
       recorder.writing?.('Contact', 1);
       await recorder.end({ status: 'success' });
 
       const lines = [...files.values()][0].trim().split('\n');
+      // The update before the file began, after the first, is earlier than
+      // the line that began it: not kept.
       expect(lines.filter((line) => line.includes('"writing"'))).toEqual([
         JSON.stringify({ writing: { object: 'Account', rows: 3, at: '2026-10-14T08:00:02.000Z' } }),
+        JSON.stringify({ writing: { object: 'Contact', rows: 1, at: '2026-10-14T08:00:20.000Z' } }),
       ]);
       expect(lines[1]).toContain('"writing"');
       const run = await store.get('run-update-first');
       expect(run?.firstWrittenAt).toBe('2026-10-14T08:00:02.000Z');
+      expect(run?.lastWriteAt).toBe('2026-10-14T08:00:20.000Z');
+      expect(run?.lastWrittenAt).toBe('2026-10-14T08:00:06.000Z');
       expect(run?.created).toEqual([{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }]);
     } finally {
       vi.useRealTimers();
@@ -281,6 +294,167 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     await recorder.end({ status: 'partial', cancelled: true });
 
     expect((await store.get('run-1'))?.inFlight).toBeUndefined();
+  });
+
+  it('keeps the Bulk API job of a write that failed after the org opened it, the run ended in failure', async () => {
+    // The job ran on to its end in the target while the run failed polling
+    // it: the run's end, written all the same, left the job's records with
+    // no line of them and its removal took none of them.
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-failed'));
+    const bulkExecutor = {
+      shouldUseBulkApi: () => true,
+      executeBulk: vi.fn(async (bulk: { onOpened?: (jobId: string) => void }) => {
+        bulk.onOpened?.(JOB);
+        throw new Error('INVALID_SESSION_ID: the poll of the job was refused');
+      }),
+    };
+    const writer = new BulkDataWriter({
+      connection: {} as unknown as Connection,
+      bulkExecutor: bulkExecutor as unknown as BulkApiExecutor,
+      bulkManager: {} as unknown as BulkApiManager,
+      retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+      onProgress: vi.fn(),
+      log: vi.fn(),
+      calls: syncWriterCalls(recorder),
+    });
+    recorder.note('Account', [fakeId('001', 1)]);
+
+    await expect(
+      writer.insert(
+        'Contact',
+        Array.from({ length: 300 }, (_, n) => ({ LastName: `C${n}` })),
+        200,
+      ),
+    ).rejects.toThrow('INVALID_SESSION_ID');
+    await recorder.end({ status: 'failure' });
+
+    const run = await store.get('run-failed');
+    expect(run?.end?.status).toBe('failure');
+    expect(run?.jobs).toEqual([
+      { objectApiName: 'Contact', rows: 300, at: expect.any(String), job: JOB },
+    ]);
+    expect(run?.created).toEqual([{ objectApiName: 'Account', ids: [fakeId('001', 1)] }]);
+  });
+
+  it('keeps every job no line answers, whatever call of the same object came after it', () => {
+    const text = [
+      JSON.stringify({ run: { ...start('run-jobs'), answersNameJobs: true } }),
+      JSON.stringify({ sending: { object: 'Contact', rows: 300, at: '2026-10-14T08:00:01.000Z' } }),
+      JSON.stringify({
+        sending: { object: 'Contact', rows: 300, at: '2026-10-14T08:00:02.000Z', job: JOB },
+      }),
+      // The job failed while it was polled; a REST call of the same object,
+      // and its answer, which answers it and not the job.
+      JSON.stringify({ sending: { object: 'Contact', rows: 2, at: '2026-10-14T08:00:30.000Z' } }),
+      JSON.stringify({
+        object: 'Contact',
+        created: [fakeId('003', 1)],
+        at: '2026-10-14T08:00:31.000Z',
+      }),
+      JSON.stringify({ sending: { object: 'Lead', rows: 400, at: '2026-10-14T08:00:40.000Z' } }),
+      JSON.stringify({
+        sending: { object: 'Lead', rows: 400, at: '2026-10-14T08:00:41.000Z', job: JOB2 },
+      }),
+      JSON.stringify({
+        object: 'Lead',
+        created: [fakeId('00Q', 1)],
+        at: '2026-10-14T08:01:10.000Z',
+        job: JOB2,
+      }),
+      JSON.stringify({ end: { at: '2026-10-14T08:01:11.000Z', status: 'failure' } }),
+    ].join('\n');
+
+    const run = readRunFile(text);
+
+    expect(run?.jobs).toEqual([
+      { objectApiName: 'Contact', rows: 300, at: '2026-10-14T08:00:02.000Z', job: JOB },
+    ]);
+    expect(run?.inFlight).toBeUndefined();
+    expect(run).not.toHaveProperty('answersNameJobs');
+  });
+
+  it('reads a file written before answers named their job: the next line of its object answers it', () => {
+    const text = [
+      JSON.stringify({ run: start('run-before') }),
+      JSON.stringify({
+        sending: { object: 'Contact', rows: 300, at: '2026-10-14T08:00:02.000Z', job: JOB },
+      }),
+      JSON.stringify({
+        object: 'Contact',
+        created: [fakeId('003', 1)],
+        at: '2026-10-14T08:00:31.000Z',
+      }),
+      JSON.stringify({
+        sending: { object: 'Lead', rows: 400, at: '2026-10-14T08:00:41.000Z', job: JOB2 },
+      }),
+      JSON.stringify({ end: { at: '2026-10-14T08:01:11.000Z', status: 'failure' } }),
+    ].join('\n');
+
+    expect(readRunFile(text)?.jobs).toEqual([
+      { objectApiName: 'Lead', rows: 400, at: '2026-10-14T08:00:41.000Z', job: JOB2 },
+    ]);
+  });
+
+  it('names the job an answer answers, and an answer read back from the org answers it', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.sending?.('Contact', 300);
+    recorder.sending?.('Contact', 300, { job: JOB });
+    recorder.answered?.('Contact', [fakeId('003', 1)]);
+    recorder.sending?.('Lead', 400);
+    recorder.sending?.('Lead', 400, { job: JOB2 });
+    await recorder.end({ status: 'failure' });
+
+    const lines = (files.get(path.join(DIR, 'run-1.ndjson')) ?? '').trim().split('\n');
+    expect(JSON.parse(lines[0])).toMatchObject({ run: { answersNameJobs: true } });
+    expect(lines.map((line) => JSON.parse(line) as Record<string, unknown>)).toContainEqual(
+      expect.objectContaining({ object: 'Contact', created: [fakeId('003', 1)], job: JOB }),
+    );
+    expect((await store.get('run-1'))?.jobs?.map((call) => call.job)).toEqual([JOB2]);
+
+    expect(
+      await store.answerInFlight(
+        'run-1',
+        'Lead',
+        [fakeId('00Q', 1)],
+        '2026-10-14T08:02:00.000Z',
+        JOB2,
+      ),
+    ).toBe(true);
+    const run = await store.get('run-1');
+    expect(run?.jobs).toBeUndefined();
+    expect(run?.created).toEqual([
+      { objectApiName: 'Contact', ids: [fakeId('003', 1)] },
+      { objectApiName: 'Lead', ids: [fakeId('00Q', 1)] },
+    ]);
+  });
+
+  it('dates its last write by the latest line, an update or the answer of a call that created nothing included', () => {
+    const text = [
+      JSON.stringify({ run: start('run-last') }),
+      JSON.stringify({ sending: { object: 'Contact', rows: 2, at: '2026-10-14T08:00:06.000Z' } }),
+      JSON.stringify({
+        object: 'Contact',
+        created: [fakeId('003', 1)],
+        at: '2026-10-14T08:00:09.000Z',
+      }),
+      JSON.stringify({ writing: { object: 'Account', rows: 30, at: '2026-10-14T08:03:00.000Z' } }),
+      JSON.stringify({ writing: { object: 'Account', rows: 30, at: '2026-10-14T08:04:30.000Z' } }),
+      // An upsert whose rows all matched: it created nothing, and updated them.
+      JSON.stringify({ sending: { object: 'Lead', rows: 5, at: '2026-10-14T08:05:00.000Z' } }),
+      JSON.stringify({ object: 'Lead', created: [], at: '2026-10-14T08:05:20.000Z' }),
+      JSON.stringify({ end: { at: '2026-10-14T08:09:00.000Z', status: 'success' } }),
+    ].join('\n');
+
+    const run = readRunFile(text);
+
+    expect(run?.lastWriteAt).toBe('2026-10-14T08:05:20.000Z');
+    // What it created, as its removal reads changes since against.
+    expect(run?.lastWrittenAt).toBe('2026-10-14T08:00:09.000Z');
+    expect(run?.firstWrittenAt).toBe('2026-10-14T08:00:06.000Z');
   });
 
   it('leaves out a line a closed window cut short, and reads the rest', () => {

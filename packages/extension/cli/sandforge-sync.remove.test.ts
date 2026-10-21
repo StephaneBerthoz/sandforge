@@ -277,6 +277,25 @@ describe('what the command takes back, and from where', () => {
       vi.useRealTimers();
     }
   });
+
+  it('dates its last write by its latest call, an update or an answer that created nothing included', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-14T08:00:05.000Z'));
+      const kept = memoryCreations('run-1');
+      kept.note('Account', [A1]);
+      vi.setSystemTime(new Date('2026-10-14T08:02:00.000Z'));
+      kept.writing?.('Account', 30);
+      vi.setSystemTime(new Date('2026-10-14T08:03:10.000Z'));
+      kept.answered?.('Contact', []);
+
+      expect(kept.lastWriteAt()).toBe('2026-10-14T08:03:10.000Z');
+      expect(kept.lastWrittenAt()).toBe('2026-10-14T08:00:05.000Z');
+      expect(kept.firstWrittenAt()).toBe('2026-10-14T08:00:05.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('sandforge-sync --remove', () => {

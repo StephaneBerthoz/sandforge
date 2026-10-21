@@ -355,6 +355,31 @@ describe('SyncRemovalHandler', () => {
       ]);
     });
 
+    it('is answered once the run ended too: a job that failed while it was polled ended the run in failure', async () => {
+      // The run's end, written as it failed, read as though nothing were
+      // left under way, and its removal took none of the job's records.
+      const recorder = creations.recorder({
+        runId: 'run-failed',
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      });
+      recorder.sending?.('Contact', 3, { upsert: true });
+      recorder.sending?.('Contact', 3, { job: JOB, upsert: true });
+      await recorder.end({ status: 'failure' });
+
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-failed' }));
+
+      expect(asked).toEqual([JOB]);
+      expect(info()).toMatchObject({ created: 2, left: [{ objectApiName: 'Contact', count: 2 }] });
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-failed' }));
+      expect(answer()?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', planned: 2, deleted: 2 }),
+      ]);
+    });
+
     it('asks nothing of the org for a run this window is still writing', async () => {
       running.add('run-job');
 

@@ -37,6 +37,7 @@ const TARGET_ORG = 'org-dev';
 
 /** The run as the target dated its inserts, and as this machine's clock saw it. */
 const WRITTEN = '2026-09-20T10:02:00.000+0000';
+const WRITTEN_AT = '2026-09-20T10:02:00.000Z';
 const STARTED = '2026-09-20T10:01:50.000Z';
 /** Half a minute after the run's last insert: what a flow on the contact writes. */
 const JUST_AFTER = '2026-09-20T10:02:30.000+0000';
@@ -272,8 +273,10 @@ describe('a sweep asked with the removal of a Sync run', () => {
       targetOrgId: TARGET_ORG,
       startedAt: STARTED,
     });
-    recorder.note('Account', [ACCOUNT]);
-    recorder.note('Contact', [CONTACT]);
+    // Dated by this machine's clock as the target dated them: the two clocks
+    // agree, as the org's clock the sweep reads says.
+    recorder.note('Account', [ACCOUNT], WRITTEN_AT);
+    recorder.note('Contact', [CONTACT], WRITTEN_AT);
     await recorder.end({ status: 'success' });
     handler = new SyncRemovalHandler(deps, { list: () => [] }, () => false);
     handler.setRunCreations(runs);
@@ -381,6 +384,57 @@ describe('a sweep asked with the removal of a Sync run', () => {
     expect(response.payload.listing.window).toEqual({
       from: '2026-09-20T10:00:09Z',
       to: '2026-09-20T10:03:00Z',
+    });
+    expect(response.payload.listing.found).toEqual([
+      expect.objectContaining({ objectApiName: 'Task', count: 2 }),
+    ]);
+  });
+
+  it('looks to the run’s last write, an update after its last creation, read on the org’s clock', async () => {
+    // A run that inserted its contact, then updated the account three
+    // minutes later: the task a flow opened on the update came more than a
+    // minute after the last record the run created, and a window ended there
+    // left it behind.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // This machine's clock stands five minutes behind the org's.
+      const behind = 5 * 60_000;
+      vi.setSystemTime(new Date(Date.parse(WRITTEN) - behind));
+      const runs = nodeSyncRunCreations(storage);
+      const recorder = runs.recorder({
+        runId: 'run-update-last',
+        configId: 'cfg-1',
+        configName: 'Contacts then accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET_ORG,
+      });
+      recorder.sending?.('Contact', 1);
+      recorder.answered?.('Contact', [CONTACT]);
+      vi.setSystemTime(new Date(Date.parse('2026-09-20T10:05:00.000Z') - behind));
+      recorder.writing?.('Account', 1);
+      await recorder.end({ status: 'success' });
+      org.rows.get('Task')?.push(
+        rec(id('00T', 4), 'Account updated', USER, '2026-09-20T10:05:30.000+0000', {
+          WhatId: ACCOUNT,
+        }),
+      );
+      vi.setSystemTime(new Date('2026-10-01T08:00:00.000Z'));
+      org.conn.soap.getServerTimestamp.mockImplementation(async () => ({
+        timestamp: new Date(Date.now() + behind).toISOString(),
+      }));
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-update-last' }));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(errors('sync:remove:sweep:error')).toEqual([]);
+    const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+      'sync:remove:sweep:response',
+    );
+    expect(response.payload.listing.window).toEqual({
+      from: '2026-09-20T10:01:59Z',
+      to: '2026-09-20T10:06:00Z',
     });
     expect(response.payload.listing.found).toEqual([
       expect.objectContaining({ objectApiName: 'Task', count: 2 }),

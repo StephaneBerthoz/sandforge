@@ -206,11 +206,18 @@ export class SeedRunCreations implements SyncRemovalStateStore {
     };
     const note = (objectApiName: ApiName, ids: readonly string[], at?: string): void =>
       inLines(fresh(ids), (line) => recorder.note(objectApiName, line, at));
+    /** The Bulk API job of each object's call under way, until the call answers. */
+    const unanswered = new Map<string, string>();
     return {
       runId: start.runId,
       note: (objectApiName, ids) => note(objectApiName, ids),
-      sending: (objectApiName, rows, call) => recorder.sending?.(objectApiName, rows, call),
+      sending: (objectApiName, rows, call) => {
+        if (call?.job !== undefined) unanswered.set(objectApiName, call.job);
+        else unanswered.delete(objectApiName);
+        recorder.sending?.(objectApiName, rows, call);
+      },
       answered: (objectApiName, ids) => {
+        unanswered.delete(objectApiName);
         const created = fresh(ids);
         // A line however few it created: the call is answered once one follows it.
         recorder.answered?.(objectApiName, created.slice(0, IDS_PER_LINE));
@@ -228,8 +235,10 @@ export class SeedRunCreations implements SyncRemovalStateStore {
         for (const { objectApiName, createdIds } of run.objectResults) {
           note(objectApiName, createdIds, endedAt);
         }
-        if (noted.size === 0) {
+        if (noted.size === 0 && unanswered.size === 0) {
           // Its calls were kept as they went, and it created nothing: no file.
+          // A job the org opened that never answered stays: it ran on, and
+          // its records are read back from it.
           await recorder.flush();
           await this.runs.forget(start.runId);
           return;
@@ -287,16 +296,17 @@ export class SeedRunCreations implements SyncRemovalStateStore {
   }
 
   /**
-   * Answer the call a run had under way when its window closed with what it
-   * created, read back from the org since: see `SyncRunCreations.answerInFlight`.
+   * Answer a Bulk API job of a run that no line answers with what it created,
+   * read back from the org since: see `SyncRunCreations.answerInFlight`.
    */
   answerInFlight(
     runId: string,
     objectApiName: string,
     ids: readonly string[],
     at: string,
+    job?: string,
   ): Promise<boolean> {
-    return this.runs.answerInFlight(runId, objectApiName, ids, at);
+    return this.runs.answerInFlight(runId, objectApiName, ids, at, job);
   }
 
   /** Keep what a removal of a run did, for the next one: see `SyncRemovalStateStore`. */

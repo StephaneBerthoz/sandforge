@@ -20,6 +20,7 @@ import {
 } from '../../core/common/existingRecordMatch.js';
 import type { OperationOutcome } from './DataSync.js';
 import type { PauseGate } from './PauseGate.js';
+import type { SyncCreationRecorder } from './SyncRunCreations.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Record count threshold above which the streaming pipeline is used. */
@@ -164,6 +165,51 @@ function bothCalls(
     answered: (objectName, operation, outcomes) => {
       own.answered(objectName, operation, outcomes);
       more.answered(objectName, operation, outcomes);
+    },
+  };
+}
+
+/**
+ * The calls a Sync run's writer sends, kept by the run's recorder as they go
+ * (`SyncCreationRecorder`), by the panel's run and the command line's alike:
+ * the command line kept none of them, and a run of it killed during a Bulk
+ * API job left no trace of the job.
+ *
+ * What each call that can create writes is kept as it goes and as it
+ * answers: kept once the object's whole write returned, a window closed
+ * during it kept none of the object's records — a Bulk API job of ten
+ * thousand runs on to its end — and its removal left them in the target
+ * without a word. A Bulk API job is said again with its id once the org has
+ * opened it: read back by that id once the run is listed again
+ * (`answerJobsInFlight`), its records are listed and removed with the run.
+ * An upsert says so: only the rows the org created are the run's. An update
+ * or a delete creates nothing of the run's, but it is a write, dated as it
+ * goes and as it answers: the sweep of the run's removal looks from its first
+ * write to its last.
+ */
+export function syncWriterCalls(
+  recorder: Pick<SyncCreationRecorder, 'sending' | 'answered' | 'writing'>,
+): WriterCalls {
+  const creates = (operation: BulkOperation): boolean =>
+    operation === 'insert' || operation === 'upsert';
+  return {
+    sending: (objectName, operation, rows) => {
+      if (creates(operation)) {
+        recorder.sending?.(objectName, rows, operation === 'upsert' ? { upsert: true } : undefined);
+      } else {
+        recorder.writing?.(objectName, rows);
+      }
+    },
+    opened: (objectName, operation, rows, jobId) => {
+      if (!creates(operation)) return;
+      recorder.sending?.(objectName, rows, {
+        job: jobId,
+        ...(operation === 'upsert' ? { upsert: true } : {}),
+      });
+    },
+    answered: (objectName, operation, outcomes) => {
+      if (creates(operation)) recorder.answered?.(objectName, createdIds(operation, outcomes));
+      else if (outcomes.length > 0) recorder.writing?.(objectName, outcomes.length);
     },
   };
 }

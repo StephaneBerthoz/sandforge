@@ -1,13 +1,15 @@
 /**
- * The Bulk API job a run had under way when its window closed, read back from
- * the org by its id.
+ * The Bulk API jobs of a run that no line of its file answers, read back from
+ * the org by their ids.
  *
  * A job goes on to its end on the org's side once it is closed, whatever
  * becomes of the window that sent it: a seed of thousands of contacts whose
  * window closed while its job ran left them all in the org, and its run file
  * named the call and none of its records — the removal took what the earlier
- * calls created and left the job's. The run keeps the job's id as soon as the
- * org has opened it (`SyncCreationRecorder.sending`), and the job's successful
+ * calls created and left the job's. So did a Sync run whose job failed while
+ * it was polled: the run ended in failure, and the job's records were in the
+ * target all the same. The run keeps the job's id as soon as the org has
+ * opened it (`SyncCreationRecorder.sending`), and the job's successful
  * results name every record it wrote, with whether it created it
  * (`sf__Created`), for as long as the org keeps the job: seven days.
  *
@@ -103,23 +105,29 @@ export interface InFlightAnswers {
     objectApiName: string,
     ids: readonly string[],
     at: string,
+    job?: string,
   ): Promise<boolean>;
 }
 
-/** What answering a run's job under way did. */
+/** What answering one of a run's jobs did. */
 export interface JobAnswered {
-  /** The job's state, as read; nothing when the run had no job under way. */
-  read?: JobCreatedRead;
-  /** Whether the run's file now holds the job's answer. */
+  /** The job, by its id. */
+  job: string;
+  /** Its object. */
+  objectApiName: string;
+  /** Its state, as read. */
+  read: JobCreatedRead;
+  /** Whether the run's file now holds its answer. */
   answered: boolean;
 }
 
 /**
- * Answer the Bulk API job a run left under way, when it left one and no
- * window writes the run any more: read back by its id, its records go into
- * the run's file as its answer would have, and the run is listed with them
- * and removed with them. A job still running is left under way, and read
- * again at the next listing; one the org cannot be asked about is said.
+ * Answer the Bulk API jobs of a run that no line answers (`SyncRunKept.jobs`),
+ * once no window writes the run any more, whether it ended or not: each read
+ * back by its id, its records go into the run's file as its answer would
+ * have, naming the job, and the run is listed with them and removed with
+ * them. A job still running is left unanswered, and read again at the next
+ * listing; one the org cannot be asked about is said.
  *
  * Dated by the org's own date of the job — when it last changed state, its
  * records all written by then — set to this machine's clock as the run's
@@ -128,38 +136,83 @@ export interface JobAnswered {
  * read back, a job's records changed since the run would have read as
  * unchanged.
  *
- * @param serverTime - The org's clock now, when it can be read.
+ * @param serverTime - The org's clock now, when it can be read: asked once.
  * @param now - This machine's clock.
+ * @returns What became of each job, in the order the run sent them.
  */
-export async function answerJobInFlight(
+export async function answerJobsInFlight(
   store: InFlightAnswers,
-  run: Pick<SyncRunKept, 'runId' | 'end' | 'inFlight' | 'lastWrittenAt'>,
+  run: Pick<SyncRunKept, 'runId' | 'jobs' | 'lastWrittenAt'>,
   conn: IngestJobReading,
   serverTime?: () => Promise<string>,
   now: () => Date = () => new Date(),
-): Promise<JobAnswered> {
-  const call = run.inFlight;
-  if (run.end || !call?.job) return { answered: false };
-  const read = await readJobCreated(conn, call.job, call.upsert === true);
-  if (read.state === 'running' || read.state === 'unread') return { read, answered: false };
-  let at = now().toISOString();
-  if (read.state === 'ended' && read.at !== undefined && Number.isFinite(Date.parse(read.at))) {
-    let ahead = 0;
-    if (serverTime) {
+): Promise<JobAnswered[]> {
+  /** How far the org's clock stands ahead of this machine's, asked once; 0 untold. */
+  let ahead: Promise<number> | undefined;
+  const aheadOf = (): Promise<number> => {
+    ahead ??= (async () => {
+      if (!serverTime) return 0;
       try {
         const before = now().getTime();
         const orgNow = Date.parse(await serverTime());
-        if (Number.isFinite(orgNow)) ahead = orgNow - (before + now().getTime()) / 2;
+        return Number.isFinite(orgNow) ? orgNow - (before + now().getTime()) / 2 : 0;
       } catch {
         // Untold: the org's date stands for this machine's, give or take the leeway.
+        return 0;
       }
+    })();
+    return ahead;
+  };
+  const done: JobAnswered[] = [];
+  for (const call of run.jobs ?? []) {
+    if (call.job === undefined) continue;
+    const said = { job: call.job, objectApiName: call.objectApiName };
+    const read = await readJobCreated(conn, call.job, call.upsert === true);
+    if (read.state === 'running' || read.state === 'unread') {
+      done.push({ ...said, read, answered: false });
+      continue;
     }
-    at = new Date(Date.parse(read.at) - ahead).toISOString();
-  } else if (run.lastWrittenAt !== undefined) {
-    // A job never closed wrote nothing: the run last wrote when it said it did.
-    at = run.lastWrittenAt;
+    let at = now().toISOString();
+    if (read.state === 'ended' && read.at !== undefined && Number.isFinite(Date.parse(read.at))) {
+      at = new Date(Date.parse(read.at) - (await aheadOf())).toISOString();
+    } else if (run.lastWrittenAt !== undefined) {
+      // A job never closed wrote nothing: the run last wrote when it said it did.
+      at = run.lastWrittenAt;
+    }
+    const created = read.state === 'ended' ? read.created : [];
+    const answered = await store.answerInFlight(
+      run.runId,
+      call.objectApiName,
+      created,
+      at,
+      call.job,
+    );
+    done.push({ ...said, read, answered });
   }
-  const created = read.state === 'ended' ? read.created : [];
-  const answered = await store.answerInFlight(run.runId, call.objectApiName, created, at);
-  return { read, answered };
+  return done;
+}
+
+/**
+ * What answering a run's jobs came to, as the lines the log keeps: one per
+ * job, a job still running or not read said so, to be read again next time.
+ *
+ * @param context - What asked: the removal and its run.
+ */
+export function jobAnsweredLines(context: string, answered: readonly JobAnswered[]): string[] {
+  return answered.map(({ job, read }) => {
+    const of = `${context}, job ${job}`;
+    switch (read.state) {
+      case 'ended':
+        return (
+          `[INFO] ${of}: the job no line of the run answered ended in the org; ` +
+          `${read.created.length} record(s) it created kept with the run`
+        );
+      case 'never-closed':
+        return `[INFO] ${of}: the job was never closed, and wrote nothing`;
+      case 'running':
+        return `[INFO] ${of}: the job is still running in the org; read again later`;
+      default:
+        return `[WARN] ${of}: the job could not be read back: ${read.reason}`;
+    }
+  });
 }

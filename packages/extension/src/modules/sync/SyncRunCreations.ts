@@ -142,6 +142,19 @@ const headSchema = z.object({
      * run names none.
      */
     origin: z.enum(['csv', 'clone']).optional(),
+    /**
+     * The target's own Organization id, for a run whose orgs are named by
+     * the command line's aliases (`sandforge-sync`): its removal is refused
+     * from any other org, whatever org the alias names by then.
+     */
+    targetOrganizationId: idSchema.optional(),
+    /**
+     * Set by every recorder that names, on the answer of a Bulk API job, the
+     * job it answers (`createdSchema.job`). A file without it was written
+     * before answers named their job: there, the answer of a call is the next
+     * line of its object, whatever line that is.
+     */
+    answersNameJobs: z.literal(true).optional(),
   }),
 });
 
@@ -154,6 +167,14 @@ const createdSchema = z.object({
   object: objectSchema,
   created: z.array(idSchema).max(IDS_PER_LINE),
   at: dateSchema.optional(),
+  /**
+   * The Bulk API job the line answers, when it answers one: only that line
+   * answers it. Read as the answer of the call before it, the answer of a
+   * later call of the same object, sent once the job had failed while the
+   * org ran it on, took the job for answered, and its records were never
+   * read back.
+   */
+  job: idSchema.optional(),
 });
 
 /**
@@ -171,8 +192,9 @@ const sendingSchema = z.object({
     /**
      * The Bulk API job the call is, once the org has opened it: a line names
      * the call again with it, before anything of the job is closed. The job
-     * runs on to its end on the org's side whatever becomes of the window,
-     * and its records are read back from it by this id (`readJobCreated`).
+     * runs on to its end on the org's side whatever becomes of the window or
+     * of the run, and until a line naming it answers it, its records are
+     * read back from it by this id (`readJobCreated`).
      */
     job: idSchema.optional(),
     /** Set for a call that upserts: only the rows the org says it created are the run's. */
@@ -181,11 +203,16 @@ const sendingSchema = z.object({
 });
 
 /**
- * A line for the run's first call to the target when that call creates none
- * of the run's — an update, a delete — written with the file's first line:
- * nothing of it is the run's to take back, so it names no call under way, but
- * it is a write the target's automation answers. The run's first write,
- * whichever line says it, is where the sweep of its removal starts looking.
+ * A line for a call to the target that creates none of the run's — an
+ * update, a delete — as it goes and as it answers: nothing of it is the run's
+ * to take back, so it names no call under way, but it is a write the
+ * target's automation answers. The run's first one, before anything it
+ * created, is written with the file's first line, never alone. The run's
+ * first write, whichever line says it, is where the sweep of its removal
+ * starts looking, and its last write, whichever line says it, where the sweep
+ * stops: dated only at the first, the window closed a minute after the last
+ * record the run created, and the tasks the target's flows opened on the
+ * updates after it stayed once the run was removed.
  */
 const writingSchema = z.object({
   writing: z.object({
@@ -271,12 +298,30 @@ export interface SyncRunRemovalState {
 /** The run a file names. */
 export type SyncRunHead = z.infer<typeof headSchema>['run'];
 
+/** A call to the target a run's file names: its object, its rows, and when it went. */
+export interface SyncRunCall {
+  objectApiName: string;
+  rows: number;
+  at: string;
+  /** The Bulk API job it is, once the org opened it: what its records are read back by. */
+  job?: string;
+  /** Set for an upsert: only the rows the org created are the run's. */
+  upsert?: true;
+}
+
 /** What a run kept, read back from its file. */
-export interface SyncRunKept extends SyncRunHead {
+export interface SyncRunKept extends Omit<SyncRunHead, 'answersNameJobs'> {
   /** How the run ended; absent from one a closed window stopped part way. */
   end?: z.infer<typeof endSchema>['end'];
   /** When the run last wrote something it created, on this machine's clock. */
   lastWrittenAt?: string;
+  /**
+   * When the run last wrote to the target, whatever it wrote, on this
+   * machine's clock: the latest line its file dates — a call as it went or
+   * as it answered, an update included, a record written again. Where the
+   * sweep of its removal stops looking, a minute after.
+   */
+  lastWriteAt?: string;
   /**
    * When the run first wrote to the target, on this machine's clock: its
    * first call — one that creates, an update, a delete — or what it first
@@ -289,15 +334,16 @@ export interface SyncRunKept extends SyncRunHead {
    * The call the run had under way when it stopped, of a run with no end: its
    * object and its rows, some of which may be in the target and not here.
    */
-  inFlight?: {
-    objectApiName: string;
-    rows: number;
-    at: string;
-    /** The Bulk API job it is, once the org opened it: what its records are read back by. */
-    job?: string;
-    /** Set for an upsert: only the rows the org created are the run's. */
-    upsert?: true;
-  };
+  inFlight?: SyncRunCall;
+  /**
+   * Every Bulk API job the org opened for the run that no line answers,
+   * whether the run ended or not: the job runs on to its end on the org's
+   * side whatever becomes of the run. A run whose job failed while it was
+   * polled ended in failure, its end written; the job's records were in the
+   * target, and the run named none of them. Read back by their ids
+   * (`answerJobsInFlight`).
+   */
+  jobs?: SyncRunCall[];
   /**
    * What it created, per object in the order it first wrote each, the ids in
    * the order it wrote them — files under `ContentDocument` and `Attachment`.
@@ -330,15 +376,22 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
   let end: SyncRunKept['end'];
   let lastWrittenAt: string | undefined;
   let firstWrittenAt: string | undefined;
-  /** The earliest of the dates the run's writes were given. */
-  const wrote = (at: string | undefined): void => {
+  let lastWriteAt: string | undefined;
+  /**
+   * The earliest and the latest of the dates the run's writes were given;
+   * the latest only, for a line that dates no first write.
+   */
+  const wrote = (at: string | undefined, first = true): void => {
     if (at === undefined || !Number.isFinite(Date.parse(at))) return;
-    if (firstWrittenAt === undefined || Date.parse(at) < Date.parse(firstWrittenAt)) {
+    if (first && (firstWrittenAt === undefined || Date.parse(at) < Date.parse(firstWrittenAt))) {
       firstWrittenAt = at;
     }
+    if (lastWriteAt === undefined || Date.parse(at) > Date.parse(lastWriteAt)) lastWriteAt = at;
   };
   /** The call last sent, until a line of what it created answers it. */
   let inFlight: SyncRunKept['inFlight'];
+  /** The Bulk API jobs the org opened, by id, until a line answers each. */
+  const jobs = new Map<string, SyncRunCall>();
   const byObject = new Map<string, string[]>();
   const seen = new Set<string>();
   for (const line of text.split('\n')) {
@@ -365,6 +418,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
         ...(job !== undefined ? { job } : {}),
         ...(upsert ? { upsert } : {}),
       };
+      if (job !== undefined) jobs.set(job, inFlight);
       continue;
     }
     const touched = touchedSchema.safeParse(value);
@@ -378,10 +432,22 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     }
     const created = createdSchema.safeParse(value);
     if (created.success) {
-      if (inFlight?.objectApiName === created.data.object) inFlight = undefined;
+      const { object, job } = created.data;
+      if (job !== undefined) {
+        // The answer of that job, and of no other call.
+        jobs.delete(job);
+        if (inFlight?.job === job) inFlight = undefined;
+      } else if (inFlight?.objectApiName === object) {
+        // In a file whose answers name no job, the answer of a call is the
+        // next line of its object, a job's included.
+        if (head.answersNameJobs !== true && inFlight.job !== undefined) jobs.delete(inFlight.job);
+        inFlight = undefined;
+      }
       const at = created.data.at;
-      if (created.data.created.length > 0) wrote(at);
-      // A call that created nothing answers the call; it wrote nothing to date.
+      // A call that created nothing answers the call, and dates when the run
+      // last wrote — an upsert that matched every row updated them all — but
+      // no first write: the call's line dated that as it went.
+      wrote(at, created.data.created.length > 0);
       if (
         at !== undefined &&
         created.data.created.length > 0 &&
@@ -403,12 +469,17 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     if (ended.success) end = ended.data.end;
   }
   if (!head) return undefined;
+  // How the file's answers read is no part of the run.
+  const run: Omit<SyncRunHead, 'answersNameJobs'> = { ...head };
+  delete (run as SyncRunHead).answersNameJobs;
   return {
-    ...head,
+    ...run,
     ...(end ? { end } : {}),
     ...(lastWrittenAt !== undefined ? { lastWrittenAt } : {}),
     ...(firstWrittenAt !== undefined ? { firstWrittenAt } : {}),
+    ...(lastWriteAt !== undefined ? { lastWriteAt } : {}),
     ...(!end && inFlight ? { inFlight } : {}),
+    ...(jobs.size > 0 ? { jobs: [...jobs.values()] } : {}),
     created: [...byObject].flatMap(([objectApiName, ids]) =>
       ids.length > 0 ? [{ objectApiName, ids }] : [],
     ),
@@ -474,14 +545,17 @@ export interface SyncCreationRecorder {
   sending?(objectApiName: string, rows: number, call?: SendingCall): void;
   /**
    * The call {@link sending} announced answered: what it created, none
-   * included, written at once.
+   * included, written at once, naming the Bulk API job the call is when the
+   * org opened one.
    */
   answered?(objectApiName: string, ids: readonly string[]): void;
   /**
    * A call of `rows` rows of `objectApiName` that creates none of the run's
-   * — an update, a delete — is about to go: written at once, dated now, as a
-   * write of the run (`SyncRunKept.firstWrittenAt`), and never a call under
-   * way.
+   * — an update, a delete — is about to go, or has just answered: dated now,
+   * as a write of the run (`SyncRunKept.firstWrittenAt`,
+   * `SyncRunKept.lastWriteAt`), and never a call under way. Before anything
+   * the run created, only the first is kept, and written with the file's
+   * first line.
    */
   writing?(objectApiName: string, rows: number): void;
   /**
@@ -506,7 +580,9 @@ export interface SendingCall {
 }
 
 /** What a run's recorder is told of the run when it begins. */
-export type SyncRunStart = Omit<SyncRunHead, 'startedAt'> & { startedAt?: string };
+export type SyncRunStart = Omit<SyncRunHead, 'startedAt' | 'answersNameJobs'> & {
+  startedAt?: string;
+};
 
 /**
  * What every Sync run created, and what the removals of each did: see the
@@ -532,6 +608,11 @@ export class SyncRunCreations {
     return path.join(this.dir, `${fileSegment(runId)}.ndjson`);
   }
 
+  /** The file a run's lines go to, once it writes one: what the command line names. */
+  pathOf(runId: string): string {
+    return this.runPath(runId);
+  }
+
   private removalPath(runId: string): string {
     return path.join(this.dir, `${fileSegment(runId)}.removal.json`);
   }
@@ -550,7 +631,13 @@ export class SyncRunCreations {
     }): Promise<void>;
   } {
     const file = this.runPath(start.runId);
-    const head: SyncRunHead = { ...start, startedAt: start.startedAt ?? new Date().toISOString() };
+    const head: SyncRunHead = {
+      ...start,
+      startedAt: start.startedAt ?? new Date().toISOString(),
+      answersNameJobs: true,
+    };
+    /** The Bulk API job each object's call under way is, once the org opened it. */
+    const jobOf = new Map<string, string>();
     let begun = false;
     let writes: Promise<void> = Promise.resolve();
     let failure: string | undefined;
@@ -594,6 +681,9 @@ export class SyncRunCreations {
       sending: (objectApiName, rows, call) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
         const job = call?.job !== undefined && idSchema.safeParse(call.job).success ? call.job : '';
+        // A call goes, then is said again with its job once the org opened it.
+        if (job !== '') jobOf.set(objectApiName, job);
+        else jobOf.delete(objectApiName);
         append({
           sending: {
             object: objectApiName,
@@ -607,13 +697,23 @@ export class SyncRunCreations {
       answered: (objectApiName, ids) => {
         if (!objectSchema.safeParse(objectApiName).success) return;
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
-        append({ object: objectApiName, created: valid, at: new Date().toISOString() });
+        const job = jobOf.get(objectApiName);
+        jobOf.delete(objectApiName);
+        append({
+          object: objectApiName,
+          created: valid,
+          at: new Date().toISOString(),
+          ...(job !== undefined ? { job } : {}),
+        });
       },
       writing: (objectApiName, rows) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
-        // Only the first write is dated by it: any line before it is earlier.
-        if (queued || held !== undefined) return;
-        held = { writing: { object: objectApiName, rows, at: new Date().toISOString() } };
+        const line = { writing: { object: objectApiName, rows, at: new Date().toISOString() } };
+        // Written as it comes once the file is begun: the last of them is
+        // when the run last wrote. Before it, only the first is held, and a
+        // line that begins the file is later than any after it.
+        if (queued) append(line);
+        else held ??= line;
       },
       touched: (objectApiName, rows) => {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
@@ -703,12 +803,14 @@ export class SyncRunCreations {
   }
 
   /**
-   * Answer the call a run had under way when it stopped (`SyncRunKept.inFlight`)
+   * Answer a Bulk API job of a run that no line answers (`SyncRunKept.jobs`)
    * with what it created, read back from the org since: a line added to the
-   * run's file as the call's own answer would have been, dated `at`, when the
-   * org says the call last wrote. Only for a run no window writes any more:
-   * one still writing adds its own lines.
+   * run's file as the call's own answer would have been, naming the job,
+   * dated `at`, when the org says the job last wrote. Only for a run no
+   * window writes any more: one still writing adds its own lines.
    *
+   * @param job - The job answered; a line naming none answers the call the
+   *   run had under way, as a file written before answers named their job reads.
    * @returns Whether the run's file was there to add to.
    */
   async answerInFlight(
@@ -716,6 +818,7 @@ export class SyncRunCreations {
     objectApiName: string,
     ids: readonly string[],
     at: string,
+    job?: string,
   ): Promise<boolean> {
     if (!objectSchema.safeParse(objectApiName).success) return false;
     const file = this.runPath(runId);
@@ -725,6 +828,7 @@ export class SyncRunCreations {
       return false;
     }
     const valid = ids.filter((id) => idSchema.safeParse(id).success);
+    const named = job !== undefined && idSchema.safeParse(job).success ? { job } : {};
     // As many lines as the ids need, at most what a line holds each.
     const lines: string[] = [];
     for (let from = 0; from === 0 || from < valid.length; from += IDS_PER_LINE) {
@@ -733,6 +837,7 @@ export class SyncRunCreations {
           object: objectApiName,
           created: valid.slice(from, from + IDS_PER_LINE),
           at,
+          ...named,
         }),
       );
     }

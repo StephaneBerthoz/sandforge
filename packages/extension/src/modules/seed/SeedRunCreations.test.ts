@@ -193,11 +193,13 @@ describe('SeedRunCreations', () => {
       'Contact',
       [fakeId('003', 1), fakeId('003', 2)],
       jobEnded,
+      fakeId('750', 7),
     );
 
     expect(answered).toBe(true);
     const kept = await nodeSeedRunCreations(dir).get('op-job');
     expect(kept?.inFlight).toBeUndefined();
+    expect(kept?.jobs).toBeUndefined();
     expect(kept?.lastWrittenAt).toBe(jobEnded);
     expect(syncRemovalPlan(kept!)).toEqual([
       { objectApiName: 'Contact', ids: [fakeId('003', 2), fakeId('003', 1)] },
@@ -240,6 +242,23 @@ describe('SeedRunCreations', () => {
     );
     expect((await runs.get('op-pass'))?.created).toEqual([
       { objectApiName: 'Account', ids: [fakeId('001', 1)] },
+    ]);
+  });
+
+  it('keeps the file of a run whose job the org opened and never answered, though nothing was noted', async () => {
+    // The seed's write failed while its job ran on in the org: the run's file
+    // went with nothing noted, and the job's records stayed with no line of them.
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({ runId: 'op-failed', targetOrgId: 'org-target' });
+    recorder.sending('Contact', 450);
+    recorder.sending('Contact', 450, { job: fakeId('750', 8) });
+
+    await recorder.end({ status: 'failure', objectResults: [] });
+
+    const kept = await runs.get('op-failed');
+    expect(kept?.end?.status).toBe('failure');
+    expect(kept?.jobs).toEqual([
+      { objectApiName: 'Contact', rows: 450, at: expect.any(String), job: fakeId('750', 8) },
     ]);
   });
 

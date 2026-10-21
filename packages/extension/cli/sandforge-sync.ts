@@ -15,10 +15,14 @@
  * offline queue, grappe partitioning. A failure here is a failure of the sync
  * itself and not of the plumbing around it.
  *
- * A run printed with `--json` and saved to a file can be taken back:
- * `--remove` deletes from its target what the run created — the records it
- * inserted, or upserted where the target held none — with the removal the
- * panel runs, from the summary alone.
+ * A run can be taken back: `--remove` deletes from its target what the run
+ * created — the records it inserted, or upserted where the target held none —
+ * with the removal the panel runs, from the summary it printed with `--json`
+ * or from its file, which every run that writes keeps as it goes, as the
+ * panel keeps its runs'. A run killed, stopped by a Ctrl-C or ended by an
+ * error printed no summary: it kept what it created in memory alone, and the
+ * Bulk API job it had under way ran on in the target with nothing left to
+ * name its records.
  *
  * A configuration saved as the panel saves one runs with `--config-file`,
  * kept between runs in the directory `--store` names with its watermarks and
@@ -31,8 +35,8 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --config-file <config.json> --store <dir> --source SRC --target TGT
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
- *     --remove <summary.json> --target TGT [--include-changed] [--store <dir>]
- *     [--sweep | --sweep-list] [--json]
+ *     --remove <summary.json | run file | run id> --target TGT [--include-changed]
+ *     [--store <dir>] [--sweep | --sweep-list] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -40,7 +44,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve as resolvePath } from 'node:path';
 import jsforce from 'jsforce';
 import type { Connection } from 'jsforce';
 import { z } from 'zod';
@@ -82,13 +86,18 @@ import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
 import {
+  nodeSyncRunCreations,
   readRemovalState,
+  readRunFile,
   SYNC_FILE_OBJECTS,
+  SYNC_RUNS_DIR,
   syncRemovalPlan,
   type SyncCreationRecorder,
+  type SyncRunCreations,
   type SyncRunKept,
   type SyncRunRemovalState,
 } from '../src/modules/sync/SyncRunCreations.js';
+import { answerJobsInFlight, type IngestJobReading } from '../src/modules/sync/inFlightJob.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
@@ -116,7 +125,7 @@ import {
   syncCannotCopy,
   syncExecutePayloadSchema,
 } from '../src/bridge/validatePayload.js';
-import { BulkDataWriter } from '../src/modules/sync/BulkDataWriter.js';
+import { BulkDataWriter, syncWriterCalls } from '../src/modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../src/core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { queryAllPages } from '../src/modules/forge/queryAllPages.js';
@@ -138,7 +147,12 @@ import {
   type SyncWriteMeasures,
 } from '../src/modules/sync/SyncRunGate.js';
 import { SyncRunRefused } from '../src/modules/sync/SyncRunFailure.js';
-import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
+import {
+  journalDirOf,
+  sweepLines,
+  sweepListingLines,
+  targetAutomationReader,
+} from './sandforge-clone.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -177,6 +191,8 @@ Options:
   --json                 emit the run summary as JSON      (default: off)
                          Saved to a file, it is what --remove takes the
                          run back from: it names what the run created.
+                         The run's file does too, whatever becomes of the
+                         run (see SANDFORGE_JOURNAL_DIR).
   --help                 this text
 
 Run a saved configuration:
@@ -204,14 +220,20 @@ Run a saved configuration:
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
-    --remove <summary.json> --target <alias> [--include-changed] [--store <dir>]
-    [--sweep | --sweep-list] [--json]
+    --remove <summary.json | run file | run id> --target <alias>
+    [--include-changed] [--store <dir>] [--sweep | --sweep-list] [--json]
 
-  --remove <file>        the summary a run printed with --json, saved to a
-                         file. Deletes from the target what the run created:
-                         the records it inserted, or upserted where the target
-                         held none — never one it updated — the last object
-                         written first, into the target's recycle bin.
+  --remove <file | id>   the summary a run printed with --json, saved to a
+                         file; or the run's file, which it names as it
+                         begins, or its run id. Deletes from the target what
+                         the run created: the records it inserted, or
+                         upserted where the target held none — never one it
+                         updated — the last object written first, into the
+                         target's recycle bin. From its file, a run killed,
+                         stopped or ended by an error is taken back too: a
+                         Bulk API job it had under way, which ran on in the
+                         target, is read back by its id first, and its
+                         records go with the rest.
   --target <alias>       the org the run wrote to, and no other. It must be a
                          sandbox or a Developer Edition org.
   --include-changed      remove also the records changed since the run, which
@@ -229,8 +251,10 @@ Remove what a run created:
                          before the run's first write — its first call, an
                          update before anything was created included, which
                          the summary dates by this machine's clock, read on
-                         the org's — to a minute after the last record it
-                         created, read back from the org. Refused
+                         the org's — to a minute after its last write: the
+                         last record it created, read back from the org, or
+                         a later call, an update included, as the summary
+                         dates it. Refused
                          when that user created records in the window on
                          objects neither the run nor the automation reaches
                          (hand work, likely). Records someone changed since
@@ -240,7 +264,16 @@ Remove what a run created:
   --json                 print the removal as JSON
 
   What the removal left on the run's records is kept beside the summary, in
-  <summary>.removals.json, and the next --remove of that summary reads it.
+  <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
+  and the next --remove of the same summary or file reads it.
+
+Environment:
+  SANDFORGE_JOURNAL_DIR=<dir>
+                         where every run that writes keeps its file, in
+                         <dir>/sync-runs/<run id>.ndjson (default: ~/.sandforge),
+                         said as it begins: what it created, its calls as
+                         they went and answered, a Bulk API job's id once the
+                         org opened it, and how it ended. Ids and dates only.
 
 Before its first write, a run counts the records it writes under each filter,
 and is refused, with nothing written, when they would take more data storage
@@ -251,9 +284,10 @@ are still in the target, and inserts the others.
 
 Exit codes: 0 the run finished (read the summary for per-object failures), or
 the removal took every record it set out to; 1 the run or the removal could
-not be started, or the run was refused before it wrote anything; 2 a bad
-command line, or a summary --remove cannot take a run back from; 3 the removal
-left records of the run in the target.
+not be started, the run was refused before it wrote anything, or it stopped on
+an error (its file keeps what it created); 2 a bad command line, or a summary
+or a file --remove cannot take a run back from; 3 the removal left records of
+the run in the target; 130 a Ctrl-C stopped the run.
 `;
 
 /** One object to sync, as the command line describes it. */
@@ -1021,20 +1055,34 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
    * or an update, as the panel's file dates it (`SyncRunKept.firstWrittenAt`).
    */
   firstWrittenAt(): string | undefined;
+  /**
+   * When the run last wrote to the target, whatever it wrote: a call as it
+   * went or as it answered, as the run's file dates it (`SyncRunKept.lastWriteAt`).
+   */
+  lastWriteAt(): string | undefined;
 } {
   const byObject = new Map<string, string[]>();
   /** The ids kept so far, by their first fifteen characters, as a run's file reads them back. */
   const seen = new Set<string>();
   let last: string | undefined;
   let first: string | undefined;
-  /** A call is about to go: the first one dates the run's first write. */
+  let lastWrite: string | undefined;
+  /** A call goes or answers: the first dates the run's first write, each its last. */
   const calling = (rows: number): void => {
-    if (rows > 0) first ??= new Date().toISOString();
+    if (rows <= 0) return;
+    const now = new Date().toISOString();
+    first ??= now;
+    lastWrite = now;
   };
   return {
     runId,
     sending: (_objectApiName, rows) => calling(rows),
     writing: (_objectApiName, rows) => calling(rows),
+    // An answer dates the run's last write, an upsert that matched every row
+    // included, however few it created.
+    answered: () => {
+      lastWrite = new Date().toISOString();
+    },
     note: (objectApiName, ids) => {
       if (ids.length === 0) return;
       // Each id once, as the panel's file reads a run back (`readRunFile`):
@@ -1051,18 +1099,67 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
       }
       last = new Date().toISOString();
       first ??= last;
+      lastWrite = last;
     },
     // Records it created, written again once the records their lookups name
     // were: when it last wrote, which its removal reads the org's dates against.
     touched: (_objectApiName, rows) => {
-      if (rows > 0) last = new Date().toISOString();
+      if (rows <= 0) return;
+      last = new Date().toISOString();
+      lastWrite = last;
     },
     flush: async () => undefined,
     created: () => [...byObject].map(([objectApiName, ids]) => ({ objectApiName, ids: [...ids] })),
     lastWrittenAt: () => last,
     firstWrittenAt: () => first,
+    lastWriteAt: () => lastWrite,
   };
 }
+
+/**
+ * Each line of a run told to both its recorders: the summary's, in memory,
+ * and the run's file, written as it goes, which a run killed, stopped by a
+ * Ctrl-C or ended by an error leaves behind. The command kept them in memory
+ * alone, printed once the run returned: one that did not return left no
+ * trace of what it created, and the Bulk API job it had under way ran on to
+ * its end in the target. Exported so it can be tested.
+ */
+export function bothRecorders(
+  summary: SyncCreationRecorder,
+  file: SyncCreationRecorder | undefined,
+): SyncCreationRecorder {
+  if (!file) return summary;
+  return {
+    runId: summary.runId,
+    note: (objectApiName, ids, at) => {
+      summary.note(objectApiName, ids, at);
+      file.note(objectApiName, ids, at);
+    },
+    sending: (objectApiName, rows, call) => {
+      summary.sending?.(objectApiName, rows, call);
+      file.sending?.(objectApiName, rows, call);
+    },
+    answered: (objectApiName, ids) => {
+      summary.answered?.(objectApiName, ids);
+      file.answered?.(objectApiName, ids);
+    },
+    writing: (objectApiName, rows) => {
+      summary.writing?.(objectApiName, rows);
+      file.writing?.(objectApiName, rows);
+    },
+    touched: (objectApiName, rows) => {
+      summary.touched?.(objectApiName, rows);
+      file.touched?.(objectApiName, rows);
+    },
+    flush: async () => (await summary.flush()) ?? (await file.flush()),
+  };
+}
+
+/**
+ * What a run of objects named on the line keeps as its configuration in its
+ * file: no saved configuration was, and none is told of its removal.
+ */
+export const LINE_RUN = 'sandforge-sync';
 
 /** The org's own id, or undefined when it does not say. */
 async function organizationIdOf(conn: Connection): Promise<string | undefined> {
@@ -1082,6 +1179,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const args = parseArgs(argv);
   const log = (line: string): void => {
     if (!args.json) process.stdout.write(`${line}\n`);
+  };
+  /** A line said whatever the mode: on stderr with --json, where stdout carries the summary alone. */
+  const say = (line: string): void => {
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
 
   // A saved configuration is read and checked before any org is contacted,
@@ -1123,8 +1224,24 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // One describe of the target per object, kept for the run.
   const targetFieldsByObject = new Map<string, TargetWriteFields>();
   const controller = new AbortController();
-  // What a real run creates, for its summary to name and --remove to take back.
-  const kept = memoryCreations(`sandforge-sync-${randomUUID()}`);
+  // What the target says it is, read once: the gate types it by it, a run
+  // that copies files replaces an attachment by it, and the run's file names
+  // its own id, which --remove takes the run back from and from no other.
+  const typed = await typeTarget(targetConn).catch(() => undefined);
+  // What a real run creates, for its summary to name and --remove to take
+  // back, and in its file as it writes it, whatever becomes of the run.
+  const runId = `sandforge-sync-${randomUUID()}`;
+  const kept = memoryCreations(runId);
+  const runs = args.dryRun ? undefined : nodeSyncRunCreations(journalDirOf());
+  const runFile = runs?.recorder({
+    runId,
+    configId: saved ? config.id : LINE_RUN,
+    configName: saved ? config.name : LINE_RUN,
+    sourceOrgId: args.source,
+    targetOrgId: args.target,
+    ...(typed ? { targetOrganizationId: typed.id } : {}),
+  });
+  const recorder = bothRecorders(kept, runFile);
   const writer = new BulkDataWriter({
     connection: targetConn,
     bulkExecutor: new BulkApiExecutor(),
@@ -1133,15 +1250,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     signal: controller.signal,
     onProgress: (processed, total, label) => log(`  ${label}: ${processed}/${total}`),
     log,
-    // Each call as it goes, for when the run first wrote: the sweep of its
-    // removal starts there, an update before the first creation included.
-    calls: {
-      sending: (objectName, operation, rows) =>
-        operation === 'insert' || operation === 'upsert'
-          ? kept.sending?.(objectName, rows)
-          : kept.writing?.(objectName, rows),
-      answered: () => undefined,
-    },
+    // Each call as it goes and as it answers, a Bulk API job with its id once
+    // the org opened it, as the panel's run keeps them (`syncWriterCalls`).
+    calls: syncWriterCalls(recorder),
   });
 
   // A dry run is the panel's simulation: the same reads, mappings and
@@ -1195,14 +1306,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     readLimits: () => readEmailLimits(targetConn),
     confirmAboveRecords: DEFAULT_CONFIRM_ABOVE_RECORDS,
   };
-  const orgTier = await typeTarget(targetConn).then(
-    (org) =>
-      guardTierOf({
-        orgType: orgTypeOf({ isSandbox: org.sandbox, edition: org.edition }),
-        metadata: { edition: org.edition },
-      }),
-    () => 'production' as const,
-  );
+  const orgTier = typed
+    ? guardTierOf({
+        orgType: orgTypeOf({ isSandbox: typed.sandbox, edition: typed.edition }),
+        metadata: { edition: typed.edition },
+      })
+    : ('production' as const);
   /** What the gate measured of the run, for its summary. */
   let gateCheck: SyncWriteCheck | undefined;
   const writeGate: SyncWriteGate = {
@@ -1229,7 +1338,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // finds the files as the run would, deleting none.
   let fileDeps: SyncFileDeps | undefined;
   if (config.files !== undefined) {
-    const deletes = await typeTarget(targetConn).then(cliAllowsDeletes, () => false);
+    const deletes = typed ? cliAllowsDeletes(typed) : false;
     fileDeps = cliFileDeps(config, sourceConn, targetConn, saved?.fileStore(), deletes);
     if (args.dryRun && fileDeps.deleteFromTarget) {
       fileDeps = {
@@ -1242,7 +1351,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   const orchestrator = new SyncOrchestrator({
-    ...(args.dryRun ? {} : { creations: kept }),
+    ...(args.dryRun ? {} : { creations: recorder }),
+    // The run's cancel, which a Ctrl-C aborts, as the panel's Cancel aborts
+    // its run's: it stops before its next object, its writer before its next call.
+    signal: controller.signal,
     ...(fileDeps ? { files: fileDeps } : {}),
     // A saved configuration's watermarks, kept in its store, and what a delta
     // run asks both orgs beside its reads: the panel's. And which record of
@@ -1366,12 +1478,45 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   log('\nexecuting… (REAL)');
+  // Where what the run creates is kept as it writes it, however the run
+  // ends: said before its first write, on stderr with --json.
+  const runFilePath = runs?.pathOf(runId);
+  if (runFilePath !== undefined) {
+    say(`run file: ${runFilePath} (--remove ${runFilePath} takes back what the run creates)`);
+  }
+  // Ctrl-C stops the run before its next call, as Cancel does in the panel:
+  // what it wrote is kept, its file ended. Again, it ends the command at once,
+  // and the file, without its end, reads as a run stopped part way.
+  let interrupted = false;
+  const interrupt = (): void => {
+    interrupted = true;
+    process.stderr.write(
+      '\ninterrupted: the run stops before its next call, and its file keeps what it created ' +
+        '(Ctrl-C again ends it at once)\n',
+    );
+    controller.abort();
+  };
+  process.once('SIGINT', interrupt);
   let result: Awaited<ReturnType<typeof orchestrator.execute>>;
+  /** How the run ended, as its file's last line says it: a failure unless it returned. */
+  let ending: { status: 'success' | 'partial' | 'failure'; cancelled?: boolean } = {
+    status: 'failure',
+  };
   try {
     result = await orchestrator.execute(config);
+    ending = { status: result.status, ...(result.cancelled ? { cancelled: true } : {}) };
   } catch (err: unknown) {
     // Refused before its first write: nothing was written.
-    if (!(err instanceof SyncRunRefused)) throw err;
+    if (!(err instanceof SyncRunRefused)) {
+      await runFile?.end(ending);
+      if (runFilePath !== undefined && existsSync(runFilePath)) {
+        process.stderr.write(
+          `the run stopped on an error; what it created is kept in ${runFilePath}, and ` +
+            `--remove ${runFilePath} takes it back\n`,
+        );
+      }
+      throw err;
+    }
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify(
@@ -1392,14 +1537,27 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       log(`\nrefused (${err.code}): ${err.message}`);
     }
     process.exit(1);
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
+  await runFile?.end(ending);
+  const unkept = await runFile?.flush();
+  if (unkept !== undefined) {
+    process.stderr.write(
+      `what the run created could not all be written to ${runFilePath ?? 'its file'} ` +
+        `(${unkept}): --remove takes it back from the --json summary\n`,
+    );
   }
   const elapsedMs = Date.now() - t0;
   const created = kept.created();
   const lastWrittenAt = kept.lastWrittenAt();
   const firstWrittenAt = kept.firstWrittenAt();
+  const lastWriteAt = kept.lastWriteAt();
   // The org's own id, so --remove takes the run back from it and no other,
   // whatever alias names it then.
-  const targetOrgId = created.length > 0 ? await organizationIdOf(targetConn) : undefined;
+  const targetOrgId =
+    created.length > 0 ? (typed?.id ?? (await organizationIdOf(targetConn))) : undefined;
+  const keptInFile = runFilePath !== undefined && existsSync(runFilePath) ? runFilePath : undefined;
 
   if (args.json) {
     process.stdout.write(
@@ -1418,9 +1576,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           created: {
             runId: kept.runId,
             ...(lastWrittenAt ? { lastWrittenAt } : {}),
-            // When it first wrote, by this machine's clock: where the sweep
-            // of its removal starts looking.
+            // When it first and last wrote, by this machine's clock: where
+            // the sweep of its removal starts and stops looking.
             ...(firstWrittenAt ? { firstWrittenAt } : {}),
+            ...(lastWriteAt ? { lastWriteAt } : {}),
+            // Its file, which --remove takes it back from too.
+            ...(keptInFile ? { runFile: keptInFile } : {}),
             objects: created,
           },
           elapsedMs,
@@ -1429,6 +1590,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         2,
       )}\n`,
     );
+    if (interrupted) process.exit(INTERRUPTED_EXIT);
     return;
   }
 
@@ -1493,18 +1655,27 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const count = created.reduce((sum, object) => sum + object.ids.length, 0);
   if (count > 0) {
     log(
-      `\ncreated ${count} record(s) and file(s) in ${args.target}: run with --json and save the ` +
-        'summary to a file, and --remove takes them back from it',
+      `\ncreated ${count} record(s) and file(s) in ${args.target}: ` +
+        (keptInFile !== undefined
+          ? `--remove ${keptInFile} takes them back`
+          : 'run with --json and save the summary to a file, and --remove takes them back from it'),
     );
   }
   log(`\ndone in ${elapsedMs}ms`);
+  if (interrupted) process.exit(INTERRUPTED_EXIT);
 }
+
+/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
+const INTERRUPTED_EXIT = 130;
 
 // ─── --remove ────────────────────────────────────────────────────────────────
 
 /** What `--remove` was given. */
 export interface RemoveArgs {
-  /** The summary a run printed with `--json`, saved to a file. */
+  /**
+   * The summary a run printed with `--json`, saved to a file; or the run's
+   * file, or its id, which the command keeps in its directory.
+   */
   summaryPath: string;
   /** sf CLI alias of the org the run wrote to. */
   target: string;
@@ -1562,8 +1733,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
   }
   if (!summaryPath || !target || REMOVE_FLAGS.has(summaryPath) || REMOVE_FLAGS.has(target)) {
     process.stderr.write(
-      '--remove takes the file a run printed its --json summary to, and --target the org the ' +
-        'run wrote to. Run with --help.\n',
+      '--remove takes the file a run printed its --json summary to, or the run file it named ' +
+        'as it began, or its run id, and --target the org the run wrote to. Run with --help.\n',
     );
     process.exit(2);
   }
@@ -1604,6 +1775,7 @@ const runSummarySchema = z
         runId: z.string().min(1).max(200),
         lastWrittenAt: z.string().min(1).max(40).optional(),
         firstWrittenAt: z.string().min(1).max(40).optional(),
+        lastWriteAt: z.string().min(1).max(40).optional(),
         objects: z.array(
           z.object({
             objectApiName: z.string().regex(API_NAME_RE),
@@ -1674,6 +1846,7 @@ export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState)
     end: { at: finishedAt, status: summary.result.status },
     ...(created?.lastWrittenAt ? { lastWrittenAt: created.lastWrittenAt } : {}),
     ...(created?.firstWrittenAt ? { firstWrittenAt: created.firstWrittenAt } : {}),
+    ...(created?.lastWriteAt ? { lastWriteAt: created.lastWriteAt } : {}),
     created: (created?.objects ?? []).filter((object) => object.ids.length > 0),
     ...(removal ? { removal } : {}),
   };
@@ -1796,21 +1969,58 @@ export function configurationToldLines(
 /** The exit code of a removal that left records of the run in the org. */
 const RECORDS_LEFT_EXIT = 3;
 
-/**
- * Remove from its target what a run created, from the summary the run printed
- * with `--json`: the removal the panel runs (`removeSyncRun`). The summary and
- * what earlier removals of it kept beside it are read and checked before any
- * org is contacted; then the target is typed, and refused unless it is a
- * sandbox or a Developer Edition org, and the org the run wrote to.
- */
-export async function removeMain(argv: string[] = process.argv): Promise<void> {
-  const t0 = Date.now();
-  const args = parseRemoveArgs(argv);
-  // In --json mode stdout carries the outcome alone, for a parser to read.
-  const say = (line: string): void => {
-    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
-  };
+/** A run id as `--remove` takes one: what names its file in the command's directory. */
+const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/;
 
+/**
+ * The file of the run `value` names, when it names one: a run's file, whose
+ * first line names its run, or the id of a run whose file is in the command's
+ * own directory (`SANDFORGE_JOURNAL_DIR`, `sync-runs/`). Undefined for
+ * anything else, a summary included. Exported so it can be tested.
+ */
+export function runFileOf(value: string, journalDir: string = journalDirOf()): string | undefined {
+  if (existsSync(value)) {
+    let first: string | undefined;
+    try {
+      first = readFileSync(value, 'utf8')
+        .split('\n')
+        .find((line) => line.trim() !== '');
+    } catch {
+      return undefined;
+    }
+    let head: unknown;
+    try {
+      head = JSON.parse(first ?? '');
+    } catch {
+      return undefined;
+    }
+    return typeof head === 'object' && head !== null && 'run' in head
+      ? resolvePath(value)
+      : undefined;
+  }
+  if (!RUN_ID_RE.test(value)) return undefined;
+  const file = join(journalDir, SYNC_RUNS_DIR, `${value}.ndjson`);
+  return existsSync(file) ? file : undefined;
+}
+
+/** What a removal takes a run back from: the summary it printed, or its file. */
+interface RemovalSubject {
+  /** The run, as the removal reads it, with what earlier removals of it did. */
+  run: SyncRunKept;
+  /** The saved configuration it was of, when it was of one. */
+  configId?: string;
+  /** The Organization id of the org it wrote to, when it says it. */
+  targetOrgId?: string;
+  /** What earlier removals of it did. */
+  earlier?: SyncRunRemovalState;
+  /** Keep what this removal does, for the next one. */
+  updateRemoval: (change: (state: SyncRunRemovalState) => SyncRunRemovalState) => Promise<void>;
+  /** Its file's store, when it is taken back from its file: its jobs are read back into it. */
+  runs?: SyncRunCreations;
+}
+
+/** The run a summary names, and where what its removals did is kept: beside the summary. */
+function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): RemovalSubject {
   let text: string;
   try {
     text = readFileSync(args.summaryPath, 'utf8');
@@ -1832,30 +2042,6 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         `give --target ${summary.target}.\n`,
     );
     process.exit(2);
-  }
-
-  // The store of the configuration the run was of, which the removal tells
-  // what it took: checked before any org is contacted.
-  let configs: SyncConfigStore | undefined;
-  if (args.store !== undefined) {
-    if (summary.configId === undefined) {
-      process.stderr.write(
-        `--store tells the configuration a run was of what its removal took, and ` +
-          `${args.summaryPath} names none: the run was not of a saved configuration ` +
-          '(--config-file).\n',
-      );
-      process.exit(2);
-    }
-    configs = existsSync(join(args.store, 'configStore.json'))
-      ? savedConfigStore(args.store)
-      : undefined;
-    if (!configs?.isSaved(summary.configId)) {
-      process.stderr.write(
-        `${args.store} holds no configuration ${summary.configId}: give the --store the run ` +
-          'was made with.\n',
-      );
-      process.exit(2);
-    }
   }
 
   // What earlier removals of this summary left on the run's records: unread,
@@ -1891,6 +2077,150 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
   }
   const run = runOfSummary(summary, earlier);
+  let state: SyncRunRemovalState = earlier ?? {};
+  return {
+    run,
+    ...(summary.configId !== undefined ? { configId: summary.configId } : {}),
+    ...(summary.targetOrgId !== undefined ? { targetOrgId: summary.targetOrgId } : {}),
+    ...(earlier ? { earlier } : {}),
+    // Kept beside the summary whatever the removal ended on, written whole
+    // through a file renamed over it.
+    updateRemoval: async (change) => {
+      state = change(state);
+      const written = `${removalsFile}.${process.pid}.tmp`;
+      writeFileSync(
+        written,
+        `${JSON.stringify({ version: 1, runId: run.runId, ...state }, null, 2)}\n`,
+      );
+      renameSync(written, removalsFile);
+    },
+  };
+}
+
+/**
+ * The run a file of the command keeps, as its file reads it, with what its
+ * removals did, kept beside it in its directory (`SyncRunCreations`).
+ */
+async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<RemovalSubject> {
+  const runs = nodeSyncRunCreations(dirname(file), '');
+  let read: ReturnType<typeof readRunFile>;
+  try {
+    read = readRunFile(readFileSync(file, 'utf8'));
+  } catch (err: unknown) {
+    process.stderr.write(
+      `--remove ${file} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(2);
+  }
+  if (!read) {
+    process.stderr.write(`--remove ${file} names no run of sandforge-sync.\n`);
+    process.exit(2);
+  }
+  // Read by its run's id, beside what its removals did: under another name,
+  // a removal would not find what the one before it did.
+  if (runs.pathOf(read.runId) !== file) {
+    process.stderr.write(
+      `--remove ${file} is the file of the run ${read.runId} under another name: give it as ` +
+        `${runs.pathOf(read.runId)}, where what its removals did is kept beside it.\n`,
+    );
+    process.exit(2);
+  }
+  const run: SyncRunKept = (await runs.get(read.runId)) ?? read;
+  if (run.targetOrganizationId === undefined && run.targetOrgId !== args.target) {
+    process.stderr.write(
+      `The run wrote to ${run.targetOrgId}, and what it created is removed from that org only: ` +
+        `give --target ${run.targetOrgId}.\n`,
+    );
+    process.exit(2);
+  }
+  return {
+    run,
+    ...(run.configId !== LINE_RUN ? { configId: run.configId } : {}),
+    ...(run.targetOrganizationId !== undefined ? { targetOrgId: run.targetOrganizationId } : {}),
+    ...(run.removal ? { earlier: run.removal } : {}),
+    updateRemoval: (change) => runs.updateRemoval(run.runId, change),
+    runs,
+  };
+}
+
+/**
+ * What reading back a run's Bulk API jobs came to, as the lines the command
+ * prints: each job no line of the run's file answered, read back from the
+ * target by its id. Exported so it can be tested.
+ */
+export function jobLines(
+  answered: ReadonlyArray<Awaited<ReturnType<typeof answerJobsInFlight>>[number]>,
+  target: string,
+): string[] {
+  return answered.map(({ job, objectApiName, read }) => {
+    const of = `  Bulk API job ${job} (${objectApiName})`;
+    switch (read.state) {
+      case 'ended':
+        return (
+          `${of}: the run's file holds no answer of it; it ended in ${target}, and the ` +
+          `${read.created.length} record(s) it created are removed with the rest`
+        );
+      case 'never-closed':
+        return `${of}: never closed, it wrote nothing`;
+      case 'running':
+        return (
+          `${of}: still running in ${target}: what it creates stays, and the next --remove ` +
+          'of the run reads it again'
+        );
+      default:
+        return `${of}: could not be read back (${read.reason}): what it created stays`;
+    }
+  });
+}
+
+/**
+ * Remove from its target what a run created, from the summary the run printed
+ * with `--json`, or from its file — the file's path, or the run's id — which
+ * a run killed, stopped or ended by an error leaves too: the removal the
+ * panel runs (`removeSyncRun`). The summary, or the file, and what earlier
+ * removals of it kept beside it are read and checked before any org is
+ * contacted; then the target is typed, and refused unless it is a sandbox or
+ * a Developer Edition org, and the org the run wrote to. A Bulk API job the
+ * file names that no line of it answers is read back from the target first,
+ * by its id, and its records are removed with the rest.
+ */
+export async function removeMain(argv: string[] = process.argv): Promise<void> {
+  const t0 = Date.now();
+  const args = parseRemoveArgs(argv);
+  // In --json mode stdout carries the outcome alone, for a parser to read.
+  const say = (line: string): void => {
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
+  };
+
+  const runFile = runFileOf(args.summaryPath);
+  const subject =
+    runFile !== undefined ? await subjectOfRunFile(runFile, args) : subjectOfSummary(args, say);
+  const { earlier } = subject;
+
+  // The store of the configuration the run was of, which the removal tells
+  // what it took: checked before any org is contacted.
+  let configs: SyncConfigStore | undefined;
+  if (args.store !== undefined) {
+    if (subject.configId === undefined) {
+      process.stderr.write(
+        `--store tells the configuration a run was of what its removal took, and ` +
+          `${args.summaryPath} names none: the run was not of a saved configuration ` +
+          '(--config-file).\n',
+      );
+      process.exit(2);
+    }
+    configs = existsSync(join(args.store, 'configStore.json'))
+      ? savedConfigStore(args.store)
+      : undefined;
+    if (!configs?.isSaved(subject.configId)) {
+      process.stderr.write(
+        `${args.store} holds no configuration ${subject.configId}: give the --store the run ` +
+          'was made with.\n',
+      );
+      process.exit(2);
+    }
+  }
+  let run = subject.run;
 
   const output = (
     status: ForgeUndoStatus,
@@ -1920,13 +2250,15 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // The sweep ran first, before the run's records went.
     for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
-    for (const line of configurationToldLines(summary.configId, told)) say(line);
+    for (const line of configurationToldLines(subject.configId, told)) say(line);
     say(`\ndone in ${Date.now() - t0}ms`);
   };
 
-  const plan = syncRemovalPlan(run);
-  // A sweep, or its listing, still has the run's window to look in.
-  if (plan.length === 0 && !args.sweep && !args.sweepList) {
+  /** Whether the run's file names a Bulk API job that no line of it answers. */
+  const jobsUnanswered = subject.runs !== undefined && (run.jobs ?? []).length > 0;
+  // A sweep, or its listing, still has the run's window to look in; a job
+  // no line answers, the records it created.
+  if (syncRemovalPlan(run).length === 0 && !jobsUnanswered && !args.sweep && !args.sweepList) {
     say(
       earlier?.undo
         ? `what the run created was removed already, on ${earlier.undo.removedAt}`
@@ -1946,15 +2278,37 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(1);
   }
   if (
-    summary.targetOrgId !== undefined &&
-    summary.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
+    subject.targetOrgId !== undefined &&
+    subject.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
   ) {
     process.stderr.write(
-      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and what it ` +
+      `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
         'created is removed from that org only. Nothing was deleted.\n',
     );
     process.exit(1);
   }
+  // The Bulk API jobs the run's file names that no line of it answers: a
+  // run killed, or ended by an error, while one ran. The job ran on to its
+  // end in the target; read back by its id, what it created goes into the
+  // run's file, and is removed with the rest.
+  if (jobsUnanswered && subject.runs) {
+    const runs = subject.runs;
+    const answered = await answerJobsInFlight(runs, run, conn as unknown as IngestJobReading, () =>
+      removalOrg(conn, 'sandforge-sync --remove').serverTime(),
+    );
+    for (const line of jobLines(answered, args.target)) say(line);
+    if (answered.some((job) => job.answered)) run = (await runs.get(run.runId)) ?? run;
+  }
+  // A call the run had under way when it stopped that no job id names: a
+  // REST call, whose records the org gave no id of before the run stopped.
+  if (!run.end && run.inFlight && run.inFlight.job === undefined) {
+    say(
+      `  the run stopped during a call of ${run.inFlight.rows} ${run.inFlight.objectApiName} ` +
+        `row(s): those ${args.target} took are not in its file, and stay; --sweep-list shows ` +
+        "what the run's user created in the run's window",
+    );
+  }
+  const plan = syncRemovalPlan(run);
   /**
    * What a sweep is told: the records the run created read back for its
    * window, as the panel's sweep reads them, and what the target's flows
@@ -1973,15 +2327,19 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       automation = { error: err instanceof Error ? err.message : String(err) };
     }
     const org = removalOrg(conn, 'sandforge-sync --sweep');
-    // From the run's first write, as the panel's sweep looks: an update
-    // before its first creation is the run's too.
+    // From the run's first write to its last, as the panel's sweep looks: an
+    // update before its first creation or after its last is the run's too.
     return seedSweepInput(
       org,
       run.created,
       automation,
       signal,
       run.firstWrittenAt !== undefined
-        ? { at: run.firstWrittenAt, serverTime: () => org.serverTime() }
+        ? {
+            at: run.firstWrittenAt,
+            ...(run.lastWriteAt !== undefined ? { lastAt: run.lastWriteAt } : {}),
+            serverTime: () => org.serverTime(),
+          }
         : undefined,
     );
   };
@@ -2068,17 +2426,13 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // watermarks and copied files, and which records its runs wrote.
       ...(configs && args.store !== undefined ? { configs, links: nodeSyncIdMap(args.store) } : {}),
       store: {
-        // Kept beside the summary whatever the removal ended on, written
-        // whole through a file renamed over it.
-        updateRemoval: async (_runId, change) => {
-          state = change(state);
-          const written = `${removalsFile}.${process.pid}.tmp`;
-          writeFileSync(
-            written,
-            `${JSON.stringify({ version: 1, runId: run.runId, ...state }, null, 2)}\n`,
-          );
-          renameSync(written, removalsFile);
-        },
+        // Kept beside the summary, or beside the run's file, whatever the
+        // removal ended on.
+        updateRemoval: (_runId, change) =>
+          subject.updateRemoval((kept) => {
+            state = change(kept);
+            return state;
+          }),
       },
     });
   } finally {
@@ -2086,9 +2440,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
   const took = outcome.result.objects.some((o) => o.deleted + o.alreadyGone > 0);
-  if (summary.configId !== undefined && !configs && took) {
+  if (subject.configId !== undefined && !configs && took) {
     process.stderr.write(
-      `The run was of the saved configuration ${summary.configId}, and its store was not given: ` +
+      `The run was of the saved configuration ${subject.configId}, and its store was not given: ` +
         'its next delta run is not told what this removal took, and a later run may point a ' +
         'lookup at a record it deleted. Give --store with the next removal, or run the ' +
         'configuration full next time.\n',

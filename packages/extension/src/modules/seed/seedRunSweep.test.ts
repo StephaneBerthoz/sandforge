@@ -131,6 +131,29 @@ describe('writtenSince', () => {
     ).toEqual({ first: '2026-09-20T10:00:00.000Z', last: WRITTEN.last });
   });
 
+  it('ends the window at the run’s last write when it came after its last record, moved onto the org’s clock', async () => {
+    // The run updated accounts until 10:09 by this machine's clock, 10:14 by
+    // the org's, after the last record it created: the tasks the target's
+    // flows opened on them were outside a window that closed at 10:04.
+    expect(
+      await writtenSince(WRITTEN, {
+        at: '2026-09-20T09:58:00.000Z',
+        lastAt: '2026-09-20T10:09:00.000Z',
+        serverTime: orgClock,
+        now,
+      }),
+    ).toEqual({ first: WRITTEN.first, last: '2026-09-20T10:14:00.000Z' });
+    // A last write before the last record the org dated leaves it.
+    expect(
+      await writtenSince(WRITTEN, {
+        at: '2026-09-20T09:58:00.000Z',
+        lastAt: '2026-09-20T09:57:30.000Z',
+        serverTime: orgClock,
+        now,
+      }),
+    ).toEqual(WRITTEN);
+  });
+
   it('keeps the window of a run whose first write is its first creation', async () => {
     expect(
       await writtenSince(WRITTEN, { at: '2026-09-20T09:58:00.000Z', serverTime: orgClock, now }),
@@ -162,7 +185,7 @@ describe('writtenSince', () => {
     expect(await writtenSince(WRITTEN, undefined)).toEqual(WRITTEN);
   });
 
-  it('hands the sweep the window from the first write', async () => {
+  it('hands the sweep the window from the first write to the last', async () => {
     const { org } = orgDating({ [fakeId('003', 1)]: '2026-09-20T10:02:00.000+0000' });
 
     const input = await seedSweepInput(
@@ -170,12 +193,17 @@ describe('writtenSince', () => {
       [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }],
       { objectsRead: [], objects: [], unread: [] } as unknown as ForgeTargetAutomation,
       undefined,
-      { at: '2026-09-20T09:55:00.000Z', serverTime: orgClock, now },
+      {
+        at: '2026-09-20T09:55:00.000Z',
+        lastAt: '2026-09-20T10:01:00.000Z',
+        serverTime: orgClock,
+        now,
+      },
     );
 
     expect(input.writtenBetween).toEqual({
       first: '2026-09-20T10:00:00.000Z',
-      last: '2026-09-20T10:02:00.000Z',
+      last: '2026-09-20T10:06:00.000Z',
     });
   });
 });

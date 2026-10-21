@@ -49,7 +49,11 @@ import {
   type SyncRunKept,
 } from '../../modules/sync/SyncRunCreations.js';
 import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
-import { answerJobInFlight, type IngestJobReading } from '../../modules/sync/inFlightJob.js';
+import {
+  answerJobsInFlight,
+  jobAnsweredLines,
+  type IngestJobReading,
+} from '../../modules/sync/inFlightJob.js';
 import { seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
   listSweep,
@@ -277,22 +281,24 @@ export class SyncRemovalHandler implements DomainHandler {
   }
 
   /**
-   * A run as it reads once the Bulk API job it left under way is answered:
-   * a run with no end, no window writing it any more, whose last call is a
-   * job the org opened. The job ran on to its end on the org's side, and its
-   * records were in the target with no line of them — a Sync of a few
-   * hundred contacts whose window closed during its job listed none of them,
-   * and its removal left them all. Read back from the job by its id
-   * (`answerJobInFlight`), they go into the run's file, and the run is listed
-   * and removed with them, as a Seed run is. A job still running, or one the
-   * org cannot be asked about, leaves the run as it is, said in the log, and
-   * is asked again next time. Nothing is asked of an org for any other run.
+   * A run as it reads once the Bulk API jobs no line of its file answers are
+   * answered: a run no window writes any more, ended or not, with a job the
+   * org opened. The job ran on to its end on the org's side, and its records
+   * were in the target with no line of them — a Sync of a few hundred
+   * contacts whose window closed during its job listed none of them, and its
+   * removal left them all; so did a run whose job failed while it was
+   * polled, which ended in failure. Read back from each job by its id
+   * (`answerJobsInFlight`), they go into the run's file, and the run is
+   * listed and removed with them, as a Seed run is. A job still running, or
+   * one the org cannot be asked about, leaves the run as it is, said in the
+   * log, and is asked again next time. Nothing is asked of an org for any
+   * other run.
    */
   private async withJobAnswered(run: SyncRunKept): Promise<SyncRunKept> {
     const store = this.creations;
-    if (!store || run.end || !run.inFlight?.job || this.isRunning(run.runId)) return run;
+    if (!store || (run.jobs ?? []).length === 0 || this.isRunning(run.runId)) return run;
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) return run;
-    const context = `sync:removal job ${run.inFlight.job}`;
+    const context = `sync:removal of ${run.runId}`;
     try {
       const answered = await new TimeoutManager(JOB_READ_TIMEOUT_MS).withTimeout(
         context,
@@ -303,25 +309,13 @@ export class SyncRemovalHandler implements DomainHandler {
             this.deps.orgManager,
           );
           const org = removalOrg(conn, context);
-          return answerJobInFlight(store, run, conn as unknown as IngestJobReading, () =>
+          return answerJobsInFlight(store, run, conn as unknown as IngestJobReading, () =>
             org.serverTime(),
           );
         },
       );
-      const read = answered.read;
-      if (read?.state === 'ended') {
-        this.deps.log(
-          `[INFO] ${context}: the job a run left under way ended in the org; ` +
-            `${read.created.length} record(s) it created kept with the run`,
-        );
-      } else if (read?.state === 'never-closed') {
-        this.deps.log(`[INFO] ${context}: the job was never closed, and wrote nothing`);
-      } else if (read?.state === 'running') {
-        this.deps.log(`[INFO] ${context}: the job is still running in the org; read again later`);
-      } else if (read?.state === 'unread') {
-        this.deps.log(`[WARN] ${context}: the job could not be read back: ${read.reason}`);
-      }
-      return answered.answered ? ((await store.get(run.runId)) ?? run) : run;
+      for (const line of jobAnsweredLines(context, answered)) this.deps.log(line);
+      return answered.some((job) => job.answered) ? ((await store.get(run.runId)) ?? run) : run;
     } catch (err: unknown) {
       this.deps.log(
         `[WARN] ${context}: the job could not be read back: ${extractErrorMessage(err)}`,
@@ -367,7 +361,8 @@ export class SyncRemovalHandler implements DomainHandler {
       );
       const runs: SyncRunKept[] = [];
       for (const run of (await this.creations?.list()) ?? []) {
-        // A run the history lists ended, and left no job under way.
+        // A run the history lists is not listed here: a job of it that no
+        // line answers is read back when its removal is asked about (`runOf`).
         runs.push(listed.has(run.runId) ? run : await this.withJobAnswered(run));
       }
       // A run is kept from its first call that can create: one that created
@@ -438,10 +433,11 @@ export class SyncRemovalHandler implements DomainHandler {
   /**
    * What a sweep of a run is told: its window, read back from the records it
    * kept as created, in the org or its recycle bin (`seedSweepInput`, a Seed
-   * run being kept as a Sync run is), from the run's first write — an update
-   * before its first creation is the run's too, and what the target's
-   * automation did on it was left out; and what the target's flows create on
-   * the objects whose records it created, read now.
+   * run being kept as a Sync run is), from the run's first write to its last
+   * — an update before its first creation or after its last is the run's
+   * too, and what the target's automation did on it was left out; and what
+   * the target's flows create on the objects whose records it created, read
+   * now.
    */
   private async sweepInputOf(
     conn: Parameters<typeof removalOrg>[0],
@@ -469,7 +465,11 @@ export class SyncRemovalHandler implements DomainHandler {
       automation,
       signal,
       run.firstWrittenAt !== undefined
-        ? { at: run.firstWrittenAt, serverTime: () => org.serverTime() }
+        ? {
+            at: run.firstWrittenAt,
+            ...(run.lastWriteAt !== undefined ? { lastAt: run.lastWriteAt } : {}),
+            serverTime: () => org.serverTime(),
+          }
         : undefined,
     );
   }

@@ -1,6 +1,6 @@
 import type { Connection } from 'jsforce';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BulkDataWriter } from './BulkDataWriter.js';
+import { BulkDataWriter, syncWriterCalls } from './BulkDataWriter.js';
 import type { BulkDataWriterDeps } from './BulkDataWriter.js';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
@@ -1038,5 +1038,62 @@ describe('BulkDataWriter', () => {
       expect(h.sobject.destroy).toHaveBeenCalledTimes(3);
       expect(outcomes).toHaveLength(ids.length);
     });
+  });
+});
+
+describe('syncWriterCalls', () => {
+  /** What a run's recorder is told, in order. */
+  function told() {
+    const said: string[] = [];
+    return {
+      said,
+      recorder: {
+        sending: (object: string, rows: number, call?: { job?: string; upsert?: boolean }) =>
+          said.push(
+            `sending ${object} ${rows}${call?.job ? ` job ${call.job}` : ''}${call?.upsert ? ' upsert' : ''}`,
+          ),
+        answered: (object: string, ids: readonly string[]) =>
+          said.push(`answered ${object} ${ids.join(',')}`),
+        writing: (object: string, rows: number) => said.push(`writing ${object} ${rows}`),
+      },
+    };
+  }
+
+  it('keeps each call that can create as it goes, a job again with its id, and what it created as it answers', () => {
+    const { said, recorder } = told();
+    const calls = syncWriterCalls(recorder);
+
+    calls.sending('Contact', 'upsert', 3);
+    calls.opened?.('Contact', 'upsert', 3, '750000000000001AAA');
+    calls.answered('Contact', 'upsert', [
+      { id: '003000000000001AAA', success: true, errors: [], created: true },
+      { id: '003000000000002AAA', success: true, errors: [], created: false },
+      { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING'] },
+    ]);
+
+    expect(said).toEqual([
+      'sending Contact 3 upsert',
+      'sending Contact 3 job 750000000000001AAA upsert',
+      'answered Contact 003000000000001AAA',
+    ]);
+  });
+
+  it('dates an update or a delete as it goes and as it answers, keeping nothing of it as created', () => {
+    // The sweep of the run's removal looks to its last write: dated as it
+    // went alone, a Bulk API update of minutes ended the window before the
+    // target's flows had answered it.
+    const { said, recorder } = told();
+    const calls = syncWriterCalls(recorder);
+
+    calls.sending('Account', 'update', 2);
+    calls.opened?.('Account', 'update', 2, '750000000000002AAA');
+    calls.answered('Account', 'update', [
+      { id: '001000000000001AAA', success: true, errors: [] },
+      { id: '001000000000002AAA', success: true, errors: [] },
+    ]);
+    calls.sending('Account', 'delete', 1);
+    calls.answered('Account', 'delete', []);
+
+    expect(said).toEqual(['writing Account 2', 'writing Account 2', 'writing Account 1']);
   });
 });

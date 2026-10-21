@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import jsforce from 'jsforce';
 import {
   fayeTransport,
   SubscriptionRefused,
@@ -141,5 +142,51 @@ describe('fayeTransport', () => {
     const { streaming, disconnect } = fakeStreaming(accept);
     fayeTransport(streaming).disconnect();
     expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the WebSocket transport as its extension is added, before the client chooses one', () => {
+    // As jsforce makes a client: each extension added, Faye telling it of
+    // the client, then the transport chosen.
+    const said: string[] = [];
+    const streaming: StreamingClientFactory = {
+      createClient(extensions) {
+        for (const extension of extensions) {
+          extension.added?.({ disable: (feature) => said.push(`disable ${feature}`) });
+        }
+        said.push('choose a transport');
+        return {
+          subscribe: () => ({ then: () => undefined }),
+          disconnect: vi.fn(),
+        };
+      },
+    };
+
+    fayeTransport(streaming);
+
+    expect(said).toEqual(['disable websocket', 'choose a transport']);
+  });
+
+  it('makes no WebSocket in the client jsforce makes: its refused try left a rejection nobody handled', () => {
+    // The real client, over an org that is never reached: jsforce chooses
+    // long-polling as it makes it, and Faye tried a WebSocket all the same.
+    const conn = new jsforce.Connection({
+      instanceUrl: 'https://org.invalid',
+      accessToken: 'token',
+      version: '62.0',
+    });
+    let made: { _dispatcher: { transports: Record<string, unknown>; _disabled: string[] } } = {
+      _dispatcher: { transports: {}, _disabled: [] },
+    };
+
+    fayeTransport({
+      createClient(extensions) {
+        const client = conn.streaming.createClient(extensions as never);
+        made = client as unknown as typeof made;
+        return client as unknown as ReturnType<StreamingClientFactory['createClient']>;
+      },
+    });
+
+    expect(made._dispatcher._disabled).toContain('websocket');
+    expect(made._dispatcher.transports['websocket']).toBeUndefined();
   });
 });

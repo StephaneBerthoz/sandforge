@@ -19,10 +19,21 @@ export interface BayeuxMessage {
   [key: string]: unknown;
 }
 
+/** What Faye hands an extension as it is added: the client, which it can set. */
+export interface FayeClientSettings {
+  /** Faye's `Client#disable`: a transport, by its connection type, never tried. */
+  disable(feature: string): void;
+}
+
 /** A Faye client extension: sees every message in and out. */
 export interface BayeuxExtension {
   incoming(message: BayeuxMessage, callback: (message: BayeuxMessage) => void): void;
   outgoing(message: BayeuxMessage, callback: (message: BayeuxMessage) => void): void;
+  /**
+   * Called by Faye with the client as the extension is added to it — by
+   * jsforce, before it chooses the client's transport.
+   */
+  added?(client: FayeClientSettings): void;
 }
 
 /** What a Faye subscription exposes: settles once the server answers the subscribe. */
@@ -110,6 +121,19 @@ export function fayeTransport(streaming: StreamingClientFactory): CometdTranspor
   let down = false;
 
   const extension: BayeuxExtension = {
+    /*
+     * The Streaming API answers over long-polling, which jsforce chooses for
+     * the client. Faye tries a WebSocket all the same each time it chooses a
+     * transport, and the org refuses it: each try left a promise rejected
+     * with nobody to handle it, three at every start of a session on a real
+     * org, which a process that stops on an unhandled rejection does. Faye
+     * never tries a transport disabled before its first choice: jsforce adds
+     * the extensions to the client just before it, which Faye tells the
+     * extension of.
+     */
+    added(client) {
+      client.disable('websocket');
+    },
     outgoing(message, callback) {
       if (message.channel === '/meta/subscribe' && message.subscription) {
         const from = replayFrom.get(message.subscription);
