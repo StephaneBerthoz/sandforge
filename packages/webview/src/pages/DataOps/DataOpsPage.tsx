@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
+  BackupDeleteResult,
   BackupExportResult,
   BackupObjectsResponse,
   BackupSummary,
@@ -121,6 +122,12 @@ export const DataOpsPage: React.FC = () => {
     // rows per object, as many as a million: the 30 s default would call an
     // export failed while the host was still writing it.
     timeoutMs: 60 * 60_000,
+  });
+
+  /** Bridge mutation: delete backups of the org from this machine. */
+  const deleteBackupsMutation = useBridgeMutation<BackupDeleteResult['payload']>('backup:delete', {
+    responseType: 'backup:delete:result',
+    errorType: 'dataops:error',
   });
 
   /** Bridge mutation: anonymize data. */
@@ -257,6 +264,7 @@ export const DataOpsPage: React.FC = () => {
       // nothing and the page looked exactly as it does on success.
       rollbackMutation.error ??
       exportMutation.error ??
+      deleteBackupsMutation.error ??
       anonymizeMutation.error ??
       previewMutation.error ??
       templatesQuery.error ??
@@ -275,6 +283,7 @@ export const DataOpsPage: React.FC = () => {
     backupMutation.error,
     rollbackMutation.error,
     exportMutation.error,
+    deleteBackupsMutation.error,
     anonymizeMutation.error,
     previewMutation.error,
     templatesQuery.error,
@@ -382,6 +391,34 @@ export const DataOpsPage: React.FC = () => {
     }
     exportMutation.reset();
   }, [exportMutation, addNotification, t]);
+
+  /**
+   * Delete one backup of the org, or every one, from this machine. A backup
+   * holds the records' values in clear, and nothing in the panel deleted one.
+   */
+  const handleDeleteBackups = (operationIds?: string[]) => {
+    if (!currentOrg) return;
+    setError(null);
+    deleteBackupsMutation.mutate({
+      orgId: currentOrg.id,
+      ...(operationIds ? { operationIds } : {}),
+    });
+  };
+
+  /** Once deleted, the list is asked for again and the deletion said. */
+  useEffect(() => {
+    const outcome = deleteBackupsMutation.data;
+    if (!outcome) return;
+    if (outcome.deleted.includes(selectedBackupId)) setSelectedBackupId('');
+    refetchBackups.current();
+    addNotification({
+      level: 'success',
+      title: t('dataops.title'),
+      message: t('dataops.backupsDeleted', { count: outcome.deleted.length }),
+      autoDismissMs: 4000,
+    });
+    deleteBackupsMutation.reset();
+  }, [deleteBackupsMutation, selectedBackupId, refetchBackups, addNotification, t]);
 
   const handleSaveTemplate = (draft: AnonymizationTemplateDraft) => {
     setError(null);
@@ -567,6 +604,9 @@ export const DataOpsPage: React.FC = () => {
               rewriteAll={rewriteAll}
               onRewriteAllChange={setRewriteAll}
               lastRestore={lastRestore}
+              onDelete={(operationId) => handleDeleteBackups([operationId])}
+              onDeleteAll={() => handleDeleteBackups()}
+              isDeleting={deleteBackupsMutation.loading}
             />
           )}
 

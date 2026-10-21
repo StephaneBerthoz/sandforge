@@ -51,6 +51,7 @@ import {
   dataOpsBackupListPayloadSchema,
   dataOpsBackupObjectsPayloadSchema,
   dataOpsBackupExportPayloadSchema,
+  dataOpsBackupDeletePayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
   dataOpsAnonymizeCoveragePayloadSchema,
@@ -166,6 +167,7 @@ const DATAOPS_TYPES = new Set([
   'backup:list',
   'backup:objects',
   'backup:export',
+  'backup:delete',
   'dataops:rollback',
   'dataops:anonymize',
   'dataops:anonymization-templates',
@@ -243,6 +245,29 @@ const RESTORE_BATCH_SIZE = 200;
  * crashed backup's pages go the next day.
  */
 const ORPHAN_BACKUP_AGE_MS = 24 * 60 * 60_000;
+
+/** One day, in milliseconds. */
+const DAY_MS = 24 * 60 * 60_000;
+
+/**
+ * How many days a backup is kept, when `sandforge.backup.maxAgeDays` says
+ * nothing. A backup holds the records' values as the org held them, personal
+ * data among them, and was kept until ten newer ones of the same org pushed
+ * it out: an org backed up once kept it for good.
+ */
+const BACKUP_MAX_AGE_DAYS_DEFAULT = 30;
+
+/**
+ * When the retention first ran on this machine. A backup taken before is kept
+ * until the user deletes it: it is the safety net of a masking run or an
+ * erasure they made before the retention existed, and deleting it on the
+ * first start after an upgrade would take it away without their asking.
+ * Not under `backup:`, whose keys are backups' metadata.
+ */
+const BACKUP_RETENTION_SINCE_KEY = 'backupRetention:since';
+
+/** The code a deletion refused while a backup or a restore of the org runs carries. */
+const BACKUP_BUSY = 'BACKUP_BUSY';
 
 /** One object of a snapshot as it is read: the rows written so far, and why it stopped short. */
 type BackupObjectRead = BackupObjectHeld & { truncated: boolean };
@@ -997,6 +1022,7 @@ export class DataOpsHandler implements DomainHandler {
    * @param now - The time now, in milliseconds since the epoch.
    */
   async sweepBackupFiles(now: number = Date.now()): Promise<void> {
+    await this.expireBackups(now);
     const store = this.backupRecords;
     if (!store) return;
     try {
@@ -1042,6 +1068,9 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'backup:export':
         await this.handleBackupExport(msg);
+        return true;
+      case 'backup:delete':
+        await this.handleBackupDelete(msg);
         return true;
       case 'dataops:rollback':
         await this.handleRollback(msg);
@@ -1805,6 +1834,136 @@ export class DataOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Remove the backups taken more than `sandforge.backup.maxAgeDays` days ago,
+   * every org's, the files of their records with them; 0 keeps them all. A
+   * backup of an org a backup or a restore is running on is left for the next
+   * sweep, and one whose time is not known is kept.
+   *
+   * Run with the sweep of files left without metadata: as the extension
+   * starts, and after each backup's retention. Housekeeping: a failure is
+   * logged, never reported.
+   */
+  private async expireBackups(now: number): Promise<void> {
+    const asked = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'backup.maxAgeDays',
+      BACKUP_MAX_AGE_DAYS_DEFAULT,
+    );
+    const days = typeof asked === 'number' && Number.isFinite(asked) ? asked : 0;
+    if (days <= 0) return;
+    const takenBefore = now - days * DAY_MS;
+    try {
+      const since = this.retentionSince(now);
+      for (const key of this.backupMetaKeys()) {
+        const meta = this.deps.configStore.get<BackupMeta>(key);
+        const taken = Date.parse(meta?.timestamp ?? '');
+        if (!Number.isFinite(taken) || taken >= takenBefore) continue;
+        if (taken < since) continue;
+        if (meta?.orgId !== undefined && this.backupBusy(meta.orgId)) continue;
+        await this.removeBackup(key);
+        this.deps.log(`[INFO] Removed backup ${key}: taken more than ${days} day(s) ago`);
+      }
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] the backups past their age were not removed: ${extractErrorMessage(err)}`,
+      );
+    }
+  }
+
+  /**
+   * When the retention first ran here, written the first time it runs: the
+   * retention takes only the backups taken since.
+   */
+  private retentionSince(now: number): number {
+    const kept = Date.parse(this.deps.configStore.get<string>(BACKUP_RETENTION_SINCE_KEY) ?? '');
+    if (Number.isFinite(kept)) return kept;
+    this.deps.configStore.set(BACKUP_RETENTION_SINCE_KEY, new Date(now).toISOString());
+    return now;
+  }
+
+  /** The metadata keys of every backup kept: `backup:<id>`, never `backup:<id>:<object>`. */
+  private backupMetaKeys(): string[] {
+    return this.deps.configStore
+      .getKeysByPrefix('backup:')
+      .filter((key) => !key.slice('backup:'.length).includes(':'));
+  }
+
+  /** Whether a backup or a restore of the org is running in this window. */
+  private backupBusy(orgId: string): boolean {
+    return this.activeOrgOperations.has(`backup:${orgId}`);
+  }
+
+  /**
+   * Remove one backup: its metadata and its records in the config store, as
+   * backups were kept before the files, at once; then its record files. A
+   * file left behind has no metadata, and the sweep takes it a day later.
+   *
+   * @param metaKey - Its metadata key, `backup:<operationId>`.
+   */
+  private async removeBackup(metaKey: string): Promise<void> {
+    const meta = this.deps.configStore.get<{ objects?: Array<{ objectApiName: string }> }>(metaKey);
+    const objects = meta?.objects ?? [];
+    for (const obj of objects) this.deps.configStore.delete(`${metaKey}:${obj.objectApiName}`);
+    this.deps.configStore.delete(metaKey);
+    const operationId = metaKey.slice('backup:'.length);
+    for (const obj of objects) await this.backupRecords?.delete(operationId, obj.objectApiName);
+  }
+
+  /**
+   * `backup:delete`: delete the backups of an org the page names, or every one
+   * of them. Nothing in the panel deleted one: a backup taken before a
+   * masking run or a person's erasure kept their values in clear on this
+   * machine until ten newer ones pushed it out, and outlived the org's
+   * disconnection. Refused while a backup or a restore of the org runs, which
+   * reads or writes the files it would delete.
+   */
+  private async handleBackupDelete(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      dataOpsBackupDeletePayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    if (this.backupBusy(parsed.orgId)) {
+      sendHandlerError(
+        this.deps,
+        'backup:delete',
+        'dataops:error',
+        msg,
+        new Error(
+          `A backup or rollback operation is already running for org ${parsed.orgId}. ` +
+            'Delete its backups once it has ended.',
+        ),
+        { code: BACKUP_BUSY },
+      );
+      return;
+    }
+    const named = parsed.operationIds ? new Set(parsed.operationIds) : undefined;
+    const deleted: string[] = [];
+    try {
+      for (const key of this.backupMetaKeys()) {
+        const meta = this.deps.configStore.get<BackupMeta>(key);
+        if (meta?.orgId !== parsed.orgId) continue;
+        const operationId = meta.operationId ?? key.slice('backup:'.length);
+        if (named && !named.has(operationId)) continue;
+        await this.removeBackup(key);
+        deleted.push(operationId);
+      }
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'backup:delete', 'dataops:error', msg, err);
+      return;
+    }
+    this.deps.log(`[INFO] Deleted ${deleted.length} backup(s) of org ${parsed.orgId}`);
+    const response = buildResponse(this.deps, msg, 'backup:delete:result', {
+      orgId: parsed.orgId,
+      deleted,
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id} deleted=${deleted.length}`);
+  }
+
   /** Prune the org's backups past the retention, logging rather than failing a backup kept. */
   private pruneAfterBackup(orgId: string): void {
     try {
@@ -2033,14 +2192,7 @@ export class DataOpsHandler implements DomainHandler {
     if (metas.length <= maxCount) return;
     metas.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     for (const { key } of metas.slice(0, metas.length - maxCount)) {
-      const meta = this.deps.configStore.get<{
-        objects?: Array<{ objectApiName: string }>;
-      }>(key);
-      for (const obj of meta?.objects ?? []) {
-        this.deps.configStore.delete(`${key}:${obj.objectApiName}`);
-        void this.backupRecords?.delete(key.slice('backup:'.length), obj.objectApiName);
-      }
-      this.deps.configStore.delete(key);
+      void this.removeBackup(key);
       this.deps.log(`[INFO] Pruned backup ${key} (retention: ${maxCount} per org)`);
     }
   }

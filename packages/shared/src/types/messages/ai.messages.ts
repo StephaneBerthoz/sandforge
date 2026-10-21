@@ -81,10 +81,59 @@ export interface AIStatusRequest extends BaseMessage {
   type: 'ai:status';
 }
 
-/** Request to persist the AI API key in the secret vault */
+/**
+ * Request to persist the AI API key in the secret vault, and turn AI on.
+ *
+ * `errorResolution` is the answer to whether a failed run may send its error
+ * message for a fix suggestion. The first key saved is asked; with no answer,
+ * a first key sends none. A key saved over another leaves the setting as it
+ * is unless an answer is given.
+ */
 export interface AISaveKeyRequest extends BaseMessage {
   type: 'ai:save-key';
-  payload: { apiKey: string };
+  payload: { apiKey: string; errorResolution?: boolean };
+}
+
+/**
+ * Turn AI on or off (`sandforge.ai.enabled`), or the fix suggestions for
+ * failed runs (`sandforge.ai.errorResolution`), from the Settings page.
+ * Answered on `ai:settings:response`, then with a fresh `ai:status:response`.
+ */
+export interface AISettingsRequest extends BaseMessage {
+  type: 'ai:settings';
+  payload: { enabled?: boolean; errorResolution?: boolean };
+}
+
+/** Response after writing the AI settings. */
+export interface AISettingsResponse extends BaseMessage {
+  type: 'ai:settings:response';
+  payload: { success: boolean; error?: string };
+}
+
+/**
+ * Remove the stored key: AI is turned off, and the conversations kept on this
+ * machine are deleted with it. Answered on `ai:remove-key:response`, then with
+ * a fresh `ai:status:response`.
+ */
+export interface AIRemoveKeyRequest extends BaseMessage {
+  type: 'ai:remove-key';
+}
+
+/** Response after removing the key: how many conversations went with it. */
+export interface AIRemoveKeyResponse extends BaseMessage {
+  type: 'ai:remove-key:response';
+  payload: { success: boolean; conversationsDeleted?: number; error?: string };
+}
+
+/** Request to delete every AI conversation kept on this machine. */
+export interface AIConversationDeleteAllRequest extends BaseMessage {
+  type: 'ai:conversation:delete-all';
+}
+
+/** Response confirming every AI conversation was deleted, and how many there were. */
+export interface AIConversationDeletedAllResponse extends BaseMessage {
+  type: 'ai:conversation:deleted-all';
+  payload: { count: number };
 }
 
 /** Response after saving the AI API key */
@@ -158,6 +207,18 @@ export interface AIStatusResponse extends BaseMessage {
      * is available, so the AI page can fill its gauge as soon as it mounts.
      */
     budget?: AIBudgetStateMessage['payload'];
+    /**
+     * Whether a key is stored, AI on or off: the Settings page offers to turn
+     * AI on, or to remove the key, by it. Absent from the status the host
+     * pushes unasked.
+     */
+    hasKey?: boolean;
+    /**
+     * Whether a failed run sends its error message for a fix suggestion
+     * (`sandforge.ai.errorResolution`). Absent from the status the host pushes
+     * unasked.
+     */
+    errorResolution?: boolean;
   };
 }
 

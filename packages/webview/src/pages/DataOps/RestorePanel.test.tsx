@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
 import { RestorePanel } from './RestorePanel';
 import type { BackupSummary } from '@sandforge/shared';
 
@@ -260,5 +261,53 @@ describe('RestorePanel', () => {
       />,
     );
     expect(screen.queryByTestId('restore-result')).toBeNull();
+  });
+
+  describe('deleting backups from this machine', () => {
+    it('deletes the backup selected only once asked to confirm', () => {
+      const onDelete = vi.fn();
+      render(<RestorePanel backups={backups} selectedBackupId="op-1" onDelete={onDelete} />);
+
+      fireEvent.click(screen.getByTestId('delete-backup-btn-op-1'));
+      expect(onDelete).not.toHaveBeenCalled();
+      expect(screen.getByTestId('delete-backup-question').textContent).toContain(
+        en.dataops.backupDeleteConfirm,
+      );
+      fireEvent.click(screen.getByTestId('delete-backup-cancel'));
+      expect(screen.queryByTestId('delete-backup-question')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('delete-backup-btn-op-1'));
+      fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+      expect(onDelete).toHaveBeenCalledWith('op-1');
+    });
+
+    it('deletes every backup of the org, those it cannot restore included, once asked', () => {
+      const onDeleteAll = vi.fn();
+      render(<RestorePanel backups={backups} onDeleteAll={onDeleteAll} />);
+
+      fireEvent.click(screen.getByTestId('delete-all-backups-btn'));
+      expect(screen.getByTestId('delete-backup-question').textContent).toContain(
+        en.dataops.backupDeleteAllConfirm_other.replace('{{count}}', '2'),
+      );
+      fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+      expect(onDeleteAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers no deletion while a restore is running', () => {
+      render(
+        <RestorePanel
+          backups={backups}
+          selectedBackupId="op-1"
+          onDelete={vi.fn()}
+          onDeleteAll={vi.fn()}
+          isRestoring
+        />,
+      );
+
+      expect((screen.getByTestId('delete-backup-btn-op-1') as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+      expect(screen.queryByTestId('delete-all-backups-btn')).toBeNull();
+    });
   });
 });

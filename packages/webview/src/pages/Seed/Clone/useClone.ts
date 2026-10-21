@@ -9,6 +9,7 @@ import type {
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import { useMessageListener } from '../../../hooks/useMessageBus';
+import { listWords } from '../../../utils/listWords';
 
 /** Clone wizard step identifiers. */
 export type CloneStep = 'source' | 'objects' | 'preview' | 'execute';
@@ -26,7 +27,7 @@ export type CloneExecutionStatus = 'idle' | 'previewing' | 'executing' | 'comple
 
 /** `operation:failed` as the extension posts it; read defensively. */
 type OperationFailedMessage = BaseMessage & {
-  payload?: { operationId?: unknown; error?: unknown; code?: unknown };
+  payload?: { operationId?: unknown; error?: unknown; code?: unknown } & Record<string, unknown>;
 };
 
 /** `seed:clone:error` as the extension posts it; read defensively. */
@@ -43,7 +44,47 @@ const CLONE_ERROR_CODES = [
   'PRODUCTION_CONFIRMATION_DECLINED',
   'PRODUCTION_GUARD_BLOCKED',
   'CLONE_FAILED',
+  'CLONE_EMAILS_EXCEEDED',
 ];
+
+/**
+ * A clone refused for the emails its records would make the target send, in
+ * the interface language, from the figures the host measured; `undefined`
+ * when they are not all there.
+ */
+function emailsRefusal(
+  payload: Record<string, unknown>,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | undefined {
+  const { org, limit, emails, remaining, max, objects, senders } = payload;
+  const names = (value: unknown): string[] | undefined =>
+    Array.isArray(value) && value.every((v) => typeof v === 'string') ? value : undefined;
+  const objectNames = names(objects);
+  const senderNames = names(senders);
+  if (
+    typeof org !== 'string' ||
+    (limit !== 'SingleEmail' && limit !== 'DailyWorkflowEmails') ||
+    typeof emails !== 'number' ||
+    typeof remaining !== 'number' ||
+    typeof max !== 'number' ||
+    !objectNames ||
+    !senderNames
+  ) {
+    return undefined;
+  }
+  const list = (items: readonly string[]): string => listWords(items, (key) => t(key));
+  return t('seed.clone.error.CLONE_EMAILS_EXCEEDED', {
+    org,
+    limit: t(
+      limit === 'SingleEmail' ? 'seed.automation.limit.single' : 'seed.automation.limit.workflow',
+    ),
+    emails,
+    remaining,
+    max,
+    objects: list(objectNames),
+    senders: list(senderNames.map((name) => t('seed.automation.quoted', { name }))),
+  });
+}
 
 /**
  * The codes `seed:clone:error` carries for a request refused before either org
@@ -89,6 +130,14 @@ export interface UseCloneReturn {
   loadingPreview: boolean;
   /** Error message, if any. */
   error: string | null;
+  /**
+   * Whether the run writes the email addresses and phone numbers as the
+   * source holds them; off, every address goes in under `.invalid` and every
+   * phone number as a fictional one.
+   */
+  keepContactPoints: boolean;
+  /** Change {@link UseCloneReturn.keepContactPoints}. */
+  setKeepContactPoints: (keep: boolean) => void;
   /** Handle source org selection -- fetches available objects. */
   handleSourceOrgSelected: (orgId: string) => void;
   /** Toggle an object in the selection. */
@@ -130,6 +179,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
   const [step, setStep] = useState<CloneStep>('source');
   const [error, setError] = useState<string | null>(null);
   const [previewedFor, setPreviewedFor] = useState<PreviewedFor | null>(null);
+  const [keepContactPoints, setKeepContactPoints] = useState(false);
 
   const describeMutation = useBridgeMutation<{
     objects: Array<{ apiName: string; label: string; recordCount: number }>;
@@ -213,6 +263,12 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     executeMutation.reset();
     setExecutionStatus('error');
     const code = typeof failed.code === 'string' ? failed.code : '';
+    // Refused for its emails, the clone says how many against how many left,
+    // and the ways out: from the figures, as a seed refused for them says it.
+    if (code === 'CLONE_EMAILS_EXCEEDED') {
+      setError(emailsRefusal(failed, t) ?? t('seed.clone.error.generic'));
+      return;
+    }
     const known = CLONE_ERROR_CODES.includes(code);
     const headline = known ? t(`seed.clone.error.${code}`) : t('seed.clone.error.generic');
     // The host text is written in English for the logs. It is worth reading
@@ -393,6 +449,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
       targetOrgId: previewedFor.targetOrgId,
       objects: previewedFor.objects,
       previewId,
+      ...(keepContactPoints ? { keepContactPoints: true } : {}),
     });
   }, [
     executionStatus,
@@ -402,6 +459,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     dropPreview,
     executeMutation,
     previewMutation.requestId,
+    keepContactPoints,
     t,
   ]);
 
@@ -424,6 +482,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     setExecutionResult(null);
     setStep('source');
     setError(null);
+    setKeepContactPoints(false);
     describeMutation.reset();
     previewMutation.reset();
     executeMutation.reset();
@@ -441,6 +500,8 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     loadingSource: describeMutation.loading,
     loadingPreview: previewMutation.loading,
     error,
+    keepContactPoints,
+    setKeepContactPoints,
     handleSourceOrgSelected,
     handleObjectToggle,
     handleWhereClauseChange,

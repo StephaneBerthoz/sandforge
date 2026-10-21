@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSettingsPageData } from './useSettingsPageData';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -102,6 +102,78 @@ describe('useSettingsPageData', () => {
     });
 
     expect(result.current.aiApiKey).toBe('sk-test-key');
+  });
+
+  describe('AI on and off, and the key removed', () => {
+    /** The mutate of each request, and the ai:status refetch. */
+    function wire(answers: Record<string, unknown> = {}) {
+      const mutate: Record<string, ReturnType<typeof vi.fn>> = {};
+      const refetch = vi.fn();
+      vi.mocked(useBridgeQuery).mockImplementation(((requestType: string) => ({
+        data: null,
+        loading: false,
+        error: null,
+        refetch: requestType === 'ai:status' ? refetch : vi.fn(),
+      })) as unknown as typeof useBridgeQuery);
+      vi.mocked(useBridgeMutation).mockImplementation(((requestType: string) => {
+        mutate[requestType] ??= vi.fn();
+        return {
+          mutate: mutate[requestType],
+          data: answers[requestType] ?? null,
+          loading: false,
+          error: null,
+          reset: vi.fn(),
+        };
+      }) as unknown as typeof useBridgeMutation);
+      return { mutate, refetch };
+    }
+
+    afterEach(() => {
+      vi.mocked(useBridgeQuery).mockReset();
+      vi.mocked(useBridgeMutation).mockReset();
+      wire();
+    });
+
+    it('sends the first key with the answer to whether failed runs may be sent', () => {
+      const { mutate } = wire();
+      const { result } = renderHook(() => useSettingsPageData());
+
+      act(() => result.current.saveAiKey('sk-test', false));
+      expect(mutate['ai:save-key']).toHaveBeenLastCalledWith({
+        apiKey: 'sk-test',
+        errorResolution: false,
+      });
+      // A key saved over another carries no answer: the setting stays as it is.
+      act(() => result.current.saveAiKey('sk-other'));
+      expect(mutate['ai:save-key']).toHaveBeenLastCalledWith({ apiKey: 'sk-other' });
+    });
+
+    it('writes the AI settings and removes the key through their own requests', () => {
+      const { mutate } = wire();
+      const { result } = renderHook(() => useSettingsPageData());
+
+      act(() => result.current.updateAiSettings({ errorResolution: false }));
+      act(() => result.current.removeAiKey());
+
+      expect(mutate['ai:settings']).toHaveBeenCalledWith({ errorResolution: false });
+      expect(mutate['ai:remove-key']).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks for the status again once the key is removed, and says how many conversations went', () => {
+      const { refetch } = wire({ 'ai:remove-key': { success: true, conversationsDeleted: 3 } });
+      const { result } = renderHook(() => useSettingsPageData());
+
+      expect(refetch).toHaveBeenCalled();
+      expect(result.current.aiKeyRemoved).toBe(3);
+      expect(result.current.aiKeyRemoveError).toBeNull();
+    });
+
+    it('says why a setting was not written', () => {
+      wire({ 'ai:settings': { success: false, error: 'not written' } });
+      const { result } = renderHook(() => useSettingsPageData());
+
+      expect(result.current.aiSettingsError).toBe('not written');
+    });
   });
 
   describe('AI key save → status refresh', () => {

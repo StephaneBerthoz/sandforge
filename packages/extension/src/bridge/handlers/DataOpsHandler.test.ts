@@ -830,8 +830,10 @@ describe('DataOpsHandler', () => {
 
       deps.configStore = configStore as unknown as HandlerDeps['configStore'];
       deps.services = {
+        // The count alone: the age retention would take these dated backups
+        // first (`sandforge.backup.maxAgeDays`, tested with the backup files).
         getSandforgeSetting: (key: string, fallback: unknown) =>
-          key === 'backup.maxCount' ? 2 : fallback,
+          key === 'backup.maxCount' ? 2 : key === 'backup.maxAgeDays' ? 0 : fallback,
       } as unknown as HandlerDeps['services'];
 
       const msg: InboundRequest & {

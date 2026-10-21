@@ -14,6 +14,8 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import type { SeedOrchestratorDependencies } from '../../modules/seed/SeedOrchestrator.js';
 import { LOCALE_DATA } from '../../modules/seed/LocaleData.js';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { AIProvider } from '../../modules/ai/types.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -135,6 +137,34 @@ describe('SeedOpsHandler — storage and locale', () => {
     expect(guardChecks).not.toHaveBeenCalled();
     expect(built).toEqual([]);
     expect(executed).toEqual([]);
+  });
+
+  it('asks the model nothing about its refusal, which names the org', async () => {
+    // Worded by SandForge, with the org's alias in it: the model could only
+    // repeat it, and the alias went to it with the Seed panel open.
+    const provider = vi.fn<AIProvider>(() =>
+      Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+    );
+    deps.errorResolver = new ErrorResolver(provider);
+    const showFixSuggestion = vi.fn();
+    deps.broker = {
+      postToWebview: vi.fn(),
+      panelCount: 1,
+      showFixSuggestion,
+    } as unknown as HandlerDeps['broker'];
+    developerEdition();
+    await execute(SALES_CLOUD_STARTER);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(posted('operation:failed')).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          error: expect.stringContaining('my-dev-org'),
+        }),
+      }),
+    ]);
+    expect(provider).not.toHaveBeenCalled();
+    expect(showFixSuggestion).not.toHaveBeenCalled();
   });
 
   it('lets a template the org has room for run', async () => {

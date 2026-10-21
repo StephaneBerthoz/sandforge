@@ -23,6 +23,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Input } from '../../components/ui/Input';
 import { formatNumber } from '../../utils/formatters';
 import { RemovalOutcomeView, RemovalPlanView, plannedRecords } from './RemovalPlanView';
+import { BackupsBeforeErasure } from './BackupsBeforeErasure';
 
 /**
  * How long an export or an erasure may wait on the host: the Save dialog and
@@ -460,6 +461,12 @@ export const SubjectRequestSection: React.FC<SubjectRequestSectionProps> = ({
           )}
           {erase.data?.outcome && (
             <RemovalOutcomeView mode={erase.data.mode} outcome={erase.data.outcome} />
+          )}
+          {/* Each backup of the org on this machine was taken before the
+              erasure and holds the person's records: a restore brings them
+              back. Offered to be deleted once anything was erased. */}
+          {erase.data?.outcome && !erase.data.dryRun && erase.data.outcome.done > 0 && (
+            <BackupsBeforeErasure orgId={orgId} />
           )}
 
           <DangerConfirm

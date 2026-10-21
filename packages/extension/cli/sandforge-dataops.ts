@@ -28,9 +28,9 @@
  * pnpm build:shared.
  */
 
-import { mkdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
 import { basename, join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
@@ -82,9 +82,10 @@ Options:
   --rewrite-all          with --restore: write every row of the snapshot back,
                          the ones the org already holds as the snapshot does
                          included
-  --store <dir>          where snapshots, saved templates and checkpoints live; the
-                         directory sandforge-backup reads and lists
-                         (default: a temp directory, which the system may clear)
+  --store <dir>          where snapshots, saved templates and checkpoints live, a
+                         folder of your own; the one sandforge-backup reads and
+                         lists (default: ~/.sandforge/backups, under the folder
+                         SANDFORGE_JOURNAL_DIR names when it is set)
   --max-records <n>      most records of the object a snapshot holds, as
                          sandforge.backup.maxRecordsPerObject sets it; a run with
                          more writes nothing  (default: 50000; 100 to 1000000)
@@ -213,7 +214,7 @@ export function parseArgs(argv: string[]): CliArgs {
   const common = {
     org,
     rewriteAll,
-    storeDir: get('--store') ?? join(tmpdir(), 'sandforge-backups'),
+    storeDir: get('--store') ?? defaultBackupStoreOf(),
     ...(maxRecords !== undefined ? { maxRecords: Number(maxRecords) } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
@@ -518,7 +519,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     process.exitCode = 1;
   };
 
-  mkdirSync(args.storeDir, { recursive: true });
+  const refused = openBackupStore(args.storeDir);
+  if (refused !== undefined) {
+    fail(refused);
+    return;
+  }
   const session = await loadOrg(args.org);
   // Typed as the extension types an org it connects (`orgTypeOf`): its
   // `Organization` record, `IsSandbox` and its edition.

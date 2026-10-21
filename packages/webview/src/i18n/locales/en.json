@@ -61,7 +61,8 @@
       "autopilotWriteDeclined": "You cancelled the Autopilot run before it wrote anything. Nothing was written to the target org.",
       "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
-      "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet."
+      "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
+      "backupBusy": "A backup or a restore of this org is running: delete its backups once it has ended."
     },
     "list": {
       "separator": ", ",
@@ -152,7 +153,9 @@
       "titleMany_other": "{{count}} orgs are connected",
       "fill": "Fill {{alias}} with demo data",
       "clone": "Clone from another org"
-    }
+    },
+    "disconnectDeleteBackups_one": "Also delete this org's DataOps backup kept on this machine, which holds its records' values in clear",
+    "disconnectDeleteBackups_other": "Also delete this org's {{count}} DataOps backups kept on this machine, which hold its records' values in clear"
   },
   "monitor": {
     "refresh": "Refresh",
@@ -923,6 +926,7 @@
         "PRODUCTION_CONFIRMATION_DECLINED": "Clone cancelled: the production write was not confirmed.",
         "PRODUCTION_GUARD_BLOCKED": "Production Guard blocked this clone before any record was written.",
         "CLONE_FAILED": "The clone stopped before it finished.",
+        "CLONE_EMAILS_EXCEEDED": "The clone was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Narrow the filters of {{objects}} or leave them out, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
         "INVALID_PAYLOAD": "SandForge refused this request before reading either org. A clone needs a source org, a target org and 1 to 100 objects, and a filter may only select records: no LIMIT, ORDER BY, subquery, semicolon or comment. The SandForge output channel says which part was refused.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge refused this run before writing anything: it was not for the orgs its preview was made for. Preview again, then run the clone.",
         "NOT_PREVIEWED": "SandForge refused this run before reading either org: it named no preview, and a clone runs only from the preview it was made from. Preview again, then run the clone.",
@@ -1806,7 +1810,11 @@
       "confirmTitle_other": "Erase {{formatted}} records?",
       "confirmAnonymize": "The fields listed are overwritten in the org, and this cannot be undone. Take a backup first if you may need them.",
       "confirmDelete": "The records, and what the org deletes along with them, go to the recycle bin, where they stay until it is emptied.",
-      "confirmWord": "erase"
+      "confirmWord": "erase",
+      "backupsBefore_one": "This org has a backup on this machine, taken before this erasure: it holds the person's records in clear, and restoring it brings them back.",
+      "backupsBefore_other": "This org has {{count}} backups on this machine, taken before this erasure: they hold the person's records in clear, and restoring one brings them back.",
+      "deleteBackupsBefore_one": "Delete this backup",
+      "deleteBackupsBefore_other": "Delete these {{count}} backups"
     },
     "dsrLog": {
       "title": "Request log",
@@ -1905,7 +1913,14 @@
       "notRead": "Not read: {{error}}",
       "noRecords": "No records to mask.",
       "fieldsNotFound": "Apply masks nothing in {{fields}}: the org has no such field."
-    }
+    },
+    "backupDelete": "Delete",
+    "backupDeleteConfirm": "Delete this backup? The records' values it holds in clear on this machine are gone for good, and it can no longer be restored.",
+    "backupDeleteAll": "Delete all backups of this org",
+    "backupDeleteAllConfirm_one": "Delete the backup of this org kept on this machine? The records' values it holds in clear are gone for good, and it can no longer be restored.",
+    "backupDeleteAllConfirm_other": "Delete the {{count}} backups of this org kept on this machine? The records' values they hold in clear are gone for good, and none can be restored any more.",
+    "backupsDeleted_one": "{{count}} backup deleted from this machine.",
+    "backupsDeleted_other": "{{count}} backups deleted from this machine."
   },
   "automation": {
     "title": "Automation",
@@ -2182,7 +2197,11 @@
       "transient": "Temporary AI error. Retry available.",
       "unknown": "Unexpected AI error."
     },
-    "conversations": "Conversations"
+    "conversations": "Conversations",
+    "privacyNote": "What you type goes to Anthropic with the conversation so far. Conversations stay on this machine, the 50 most recent.",
+    "deleteAll": "Delete all conversations",
+    "deleteAllConfirm_one": "Delete the conversation kept on this machine? It cannot be brought back.",
+    "deleteAllConfirm_other": "Delete the {{count}} conversations kept on this machine? They cannot be brought back."
   },
   "notifications": {
     "title": "Notifications"
@@ -2395,7 +2414,17 @@
     "aiApiKey": "API key",
     "aiKeyConfigured": "Key configured",
     "aiKeySaved": "Key saved",
-    "aiHint": "The key is stored in the VSCode secret vault and never written to settings or logs."
+    "aiHint": "The key is stored in the VSCode secret vault and never written to settings or logs.",
+    "aiSends": "While AI is on, these go to Anthropic under your key: the chat sends what you type with the conversation so far; NL2SOQL sends your question with the names of the org's objects and fields; a pipeline draft, a custom persona and an AI field rule send their description, or the field's name and its instruction.",
+    "aiSendsFailures": "Fix suggestions for failed runs send a failed run's error message, its Salesforce Ids removed, with nobody pressing anything. An error message can quote record values.",
+    "aiErrorResolution": "Suggest fixes for failed runs, sending their error messages",
+    "aiSaveAndTurnOn": "Save key and turn on AI",
+    "aiTurnOn": "Turn AI on",
+    "aiTurnOff": "Turn AI off",
+    "aiRemoveKey": "Remove key",
+    "aiRemoveKeyConfirm": "Remove the key? AI is turned off, and the conversations kept on this machine are deleted.",
+    "aiKeyRemoved_one": "Key removed: AI is off, and {{count}} conversation was deleted.",
+    "aiKeyRemoved_other": "Key removed: AI is off, and {{count}} conversations were deleted."
   },
   "bridge": {
     "protocolMismatch": {

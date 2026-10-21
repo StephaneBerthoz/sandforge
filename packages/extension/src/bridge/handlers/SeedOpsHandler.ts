@@ -804,7 +804,10 @@ export class SeedOpsHandler implements DomainHandler {
                   org: org?.alias ?? payload.orgId,
                 },
         });
-        sendOperationFailed(this.deps, operationId, storage.refusal, false, { context: failure });
+        sendOperationFailed(this.deps, operationId, storage.refusal, false, {
+          context: failure,
+          authored: true,
+        });
         return;
       }
 
@@ -845,7 +848,10 @@ export class SeedOpsHandler implements DomainHandler {
           retryable: false,
           extraPayload: emails.figures ? { ...emails.figures } : {},
         });
-        sendOperationFailed(this.deps, operationId, emails.refusal, false, { context: failure });
+        sendOperationFailed(this.deps, operationId, emails.refusal, false, {
+          context: failure,
+          authored: true,
+        });
         return;
       }
 

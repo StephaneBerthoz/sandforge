@@ -4,6 +4,8 @@
  * relationship-ordered insertion and ID remapping.
  */
 
+import type { ForgeContactPointsReport } from './forge.types.js';
+
 /**
  * Configuration for a single object to clone.
  * Specifies the object API name and an optional SOQL WHERE filter.
@@ -26,6 +28,13 @@ export interface CloneConfig {
   targetOrgId: string;
   /** Objects to clone with optional filters */
   objects: CloneObjectConfig[];
+  /**
+   * Write the email addresses and phone numbers as the source holds them.
+   * Absent or false, every address goes in under `.invalid` and every phone
+   * number as a fictional one, as Forge, Sync and Autopilot write them: the
+   * target's flows and email alerts then reach no one.
+   */
+  keepContactPoints?: boolean;
 }
 
 /**
@@ -131,6 +140,12 @@ export interface CloneExecutionResult {
    * The objects listed are the ones it reached; its status is never `success`.
    */
   cancelled?: boolean;
+  /**
+   * What the clone did with the email addresses and phone numbers of the
+   * records it wrote: neutralized them, field by field, or kept them as the
+   * source holds them, as it was asked. Absent for older results.
+   */
+  contactPoints?: ForgeContactPointsReport;
 }
 
 /**

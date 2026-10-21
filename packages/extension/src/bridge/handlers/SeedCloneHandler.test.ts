@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, ForgeTargetAutomation } from '@sandforge/shared';
 import { SeedCloneHandler } from './SeedCloneHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
@@ -1662,6 +1662,392 @@ describe('SeedCloneHandler', () => {
           operationId: OPERATION_ID,
           error: 'bulk write exploded',
         });
+      });
+    });
+
+    describe('the email addresses and phone numbers it writes', () => {
+      /** A target whose contacts have an email, a phone and an external id holding an address. */
+      function targetWithContactPoints(): void {
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async () => ({
+            keyPrefix: '003',
+            fields: [
+              { name: 'LastName', type: 'string', createable: true, length: 80 },
+              { name: 'Email', type: 'email', createable: true, length: 80 },
+              { name: 'Phone', type: 'phone', createable: true, length: 40 },
+              { name: 'Ext_Email__c', type: 'email', createable: true, length: 80 },
+            ],
+            recordTypeInfos: [],
+          })),
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+        linker.resolveInsertOrder.mockReturnValue(['Contact']);
+        fetcher.fetchRecords.mockResolvedValue([
+          {
+            Id: '003Fk00000JaNeAIAV',
+            LastName: 'Doe',
+            Email: 'jane@acme.com',
+            Phone: '+1 415 555 0100',
+            Ext_Email__c: 'jane@acme.com',
+          },
+        ]);
+      }
+
+      /** What the inserts of the run sent, every call together. */
+      const inserted = (): Array<Record<string, unknown>> =>
+        writer.insert.mock.calls.flatMap((c) => c[1] as Array<Record<string, unknown>>);
+
+      it('writes every address under .invalid and every phone number as a fictional one, and says so', async () => {
+        // Cloned from production into a sandbox, the contacts' real addresses
+        // went to the sandbox's flows and email alerts as the source held them.
+        targetWithContactPoints();
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        const [row] = inserted();
+        expect(row).toMatchObject({ LastName: 'Doe', Email: 'jane@acme.com.invalid' });
+        expect(row['Phone']).toMatch(/^\+3363998\d{4}$/);
+        expect(row['Ext_Email__c']).toBe('jane@acme.com.invalid');
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect((response.payload as { contactPoints: unknown }).contactPoints).toEqual({
+          neutralized: true,
+          fields: [
+            { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 1 },
+            { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 1 },
+            { objectApiName: 'Contact', field: 'Ext_Email__c', kind: 'email', values: 1 },
+          ],
+          values: 3,
+        });
+      });
+
+      it('writes them as the source holds them when the run is told to keep them', async () => {
+        targetWithContactPoints();
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({ objects: [{ objectApiName: 'Contact' }], keepContactPoints: true }),
+          ),
+        );
+
+        expect(inserted()).toEqual([
+          {
+            LastName: 'Doe',
+            Email: 'jane@acme.com',
+            Phone: '+1 415 555 0100',
+            Ext_Email__c: 'jane@acme.com',
+          },
+        ]);
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect((response.payload as { contactPoints: unknown }).contactPoints).toEqual({
+          neutralized: false,
+          fields: [],
+          values: 0,
+        });
+      });
+
+      it('leaves the address an upsert matches on as read, so it finds the copy it wrote before', async () => {
+        targetWithContactPoints();
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({
+              objects: [{ objectApiName: 'Contact' }],
+              upsert: true,
+              externalIdField: 'Ext_Email__c',
+            }),
+          ),
+        );
+
+        expect(writer.upsert).toHaveBeenCalledWith(
+          'Contact',
+          'Ext_Email__c',
+          [
+            expect.objectContaining({
+              Email: 'jane@acme.com.invalid',
+              Ext_Email__c: 'jane@acme.com',
+            }),
+          ],
+          200,
+        );
+      });
+
+      it('records in the audit trail that they were neutralized', async () => {
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        deps.configStore = store;
+        targetWithContactPoints();
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'seed_clone',
+            details: expect.objectContaining({
+              contactPoints: 'neutralized',
+              contactPointFields: 3,
+              contactPointValues: 3,
+            }),
+          }),
+        ]);
+      });
+
+      it('neutralizes the address of an email held back for its task, as the others', async () => {
+        const CASE = '500Fk00000CaSeAIAV';
+        const EMAIL = '02sFk00000OnCaAIAV';
+        const EMAIL_TASK = '00TFk00000OnCaAIAV';
+        const written: Record<string, string> = {
+          Case: '500Fk00000NeWcAIAV',
+          Task: '00TFk00000NeW1AIAV',
+          EmailMessage: '02sFk00000NeW1AIAV',
+        };
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async (name: string) => ({
+            keyPrefix: { Case: '500', Task: '00T', EmailMessage: '02s' }[name] ?? null,
+            fields:
+              name === 'EmailMessage'
+                ? [
+                    { name: 'Subject', type: 'string' },
+                    { name: 'ToAddress', type: 'email', length: 80 },
+                    { name: 'ParentId', type: 'reference', referenceTo: ['Case'] },
+                    { name: 'ActivityId', type: 'reference', referenceTo: ['Task'] },
+                  ]
+                : name === 'Task'
+                  ? [
+                      { name: 'Subject', type: 'string' },
+                      { name: 'WhatId', type: 'reference', referenceTo: ['Case'] },
+                    ]
+                  : [{ name: 'Subject', type: 'string' }],
+            recordTypeInfos: [],
+          })),
+          query: vi.fn(async () => ({ records: [] })),
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+        writer.insert.mockImplementation(async (name: string, records: unknown[]) =>
+          records.map(() => ({ id: written[name], success: true, errors: [] })),
+        );
+        linker.resolveInsertOrder.mockReturnValue(['Case', 'EmailMessage', 'Task']);
+        fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+          name === 'Case'
+            ? [{ Id: CASE, Subject: 'Broken' }]
+            : name === 'EmailMessage'
+              ? [
+                  {
+                    Id: EMAIL,
+                    Subject: 'It is broken',
+                    ToAddress: 'jane@acme.com',
+                    ParentId: CASE,
+                    ActivityId: EMAIL_TASK,
+                  },
+                ]
+              : [{ Id: EMAIL_TASK, Subject: 'Unread email', WhatId: CASE }],
+        );
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({
+              objects: [
+                { objectApiName: 'Case' },
+                { objectApiName: 'EmailMessage' },
+                { objectApiName: 'Task' },
+              ],
+            }),
+          ),
+        );
+
+        // The email on the case waits for its task: written last, by the
+        // held-back write, which neutralizes it as the object's own write would.
+        const sentEmails = writer.insert.mock.calls
+          .filter((c) => c[0] === 'EmailMessage')
+          .flatMap((c) => c[1] as Array<Record<string, unknown>>);
+        expect(writer.insert.mock.calls.map((c) => c[0]).at(-1)).toBe('EmailMessage');
+        expect(sentEmails).toEqual([
+          expect.objectContaining({ ToAddress: 'jane@acme.com.invalid' }),
+        ]);
+      });
+    });
+
+    describe('the emails its records make the target send', () => {
+      /** A Developer Edition target with `singleLeft` of its 15 single emails left today. */
+      function developerEditionTarget(singleLeft = 15): void {
+        const request = vi.fn(async () => ({
+          SingleEmail: { Max: 15, Remaining: singleLeft },
+          DailyWorkflowEmails: { Max: 8040, Remaining: 8040 },
+        }));
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async () => ({ keyPrefix: '003', fields: [], recordTypeInfos: [] })),
+          request,
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      }
+
+      /** A contact flow that emails each contact created, unless its user holds the bypass. */
+      const contactFlow = (held = false): ForgeTargetAutomation => ({
+        objectsRead: ['Contact'],
+        objects: [
+          {
+            objectApiName: 'Contact',
+            flows: [
+              {
+                apiName: 'Welcome_Email',
+                label: 'Welcome Email',
+                timing: 'afterSave',
+                startsOn: 'create',
+                condition: 'read',
+                permissions: [{ name: 'Trap_Bypass_Flow', bypass: true, held }],
+                paths: [{ kind: 'async' }],
+                messages: [{ kind: 'email', name: 'Send Welcome Email', limit: 'SingleEmail' }],
+              },
+            ],
+            triggers: [],
+            workflowRules: [],
+          },
+        ],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        bypassGrants: held
+          ? []
+          : [
+              {
+                permission: 'Trap_Bypass_Flow',
+                permissionSets: [{ name: 'Trap_Bypass', label: 'Trap Bypass', grants: 1 }],
+              },
+            ],
+        requests: 4,
+      });
+
+      /** Preview the contacts again, counted at `count`: the run follows that preview. */
+      async function previewContacts(count: number): Promise<void> {
+        fetcher.countRecords.mockResolvedValue(count);
+        fetcher.fetchSample.mockResolvedValue([]);
+        linker.resolveInsertOrder.mockReturnValue(['Contact']);
+        await handler.handle(
+          buildMsg('seed:clone:preview', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+        vi.mocked(deps.broker.postToWebview).mockClear();
+      }
+
+      it('refuses a clone past the single emails the target has left, before anything is written', async () => {
+        developerEditionTarget();
+        const read = vi.fn(async () => contactFlow());
+        handler.setTargetAutomation({ read });
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        deps.configStore = store;
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+          alias: 'my-dev-org',
+          orgType: 'Developer',
+        } as never);
+        await previewContacts(40);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(read).toHaveBeenCalledWith('tgt-org', ['Contact']);
+        expect(fetcher.fetchRecords).not.toHaveBeenCalled();
+        expect(writer.insert).not.toHaveBeenCalled();
+        expect(posted(deps, 'operation:started')).toEqual([]);
+        expect(posted(deps, 'operation:failed')).toEqual([
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              code: 'CLONE_EMAILS_EXCEEDED',
+              retryable: false,
+              error: expect.stringMatching(
+                /^The clone was refused before it wrote anything: its records would make my-dev-org send about 40 single emails, 15 of 15 left today\. .*Trap_Bypass.* Nothing was written\.$/,
+              ),
+              org: 'my-dev-org',
+              limit: 'SingleEmail',
+              emails: 40,
+              remaining: 15,
+              max: 15,
+              objects: ['Contact'],
+              senders: ['Welcome Email'],
+            }),
+          }),
+        ]);
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'seed_clone',
+            outcome: 'stopped',
+            details: { code: 'CLONE_EMAILS_EXCEEDED' },
+          }),
+        ]);
+      });
+
+      it('asks the model nothing about that refusal, which names the org and its flows', async () => {
+        const provider = vi.fn<AIProvider>(() =>
+          Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+        );
+        deps.errorResolver = new ErrorResolver(provider);
+        deps.broker = {
+          postToWebview: vi.fn(),
+          panelCount: 1,
+          showFixSuggestion: vi.fn(),
+        } as unknown as HandlerDeps['broker'];
+        developerEditionTarget();
+        handler.setTargetAutomation({ read: vi.fn(async () => contactFlow()) });
+        await previewContacts(40);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(posted(deps, 'operation:failed')).toHaveLength(1);
+        expect(provider).not.toHaveBeenCalled();
+      });
+
+      it('runs once the user holds the bypass that keeps the flow quiet', async () => {
+        developerEditionTarget();
+        handler.setTargetAutomation({ read: vi.fn(async () => contactFlow(true)) });
+        await previewContacts(40);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(writer.insert).toHaveBeenCalled();
+        expect(posted(deps, 'operation:failed')).toEqual([]);
+      });
+
+      it('runs a clone whose target automation could not be read, and says so in the log', async () => {
+        developerEditionTarget(0);
+        handler.setTargetAutomation({
+          read: vi.fn(async () => {
+            throw new Error('INSUFFICIENT_ACCESS');
+          }),
+        });
+        await previewContacts(40);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(writer.insert).toHaveBeenCalled();
+        expect(vi.mocked(deps.log).mock.calls.map(([line]) => line)).toContainEqual(
+          expect.stringContaining('could not be read (INSUFFICIENT_ACCESS)'),
+        );
+      });
+
+      it('reads nothing for a clone whose preview counted no record to write', async () => {
+        developerEditionTarget();
+        const read = vi.fn(async () => contactFlow());
+        handler.setTargetAutomation({ read });
+        await previewContacts(0);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        expect(read).not.toHaveBeenCalled();
       });
     });
   });

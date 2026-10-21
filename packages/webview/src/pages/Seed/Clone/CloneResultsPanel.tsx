@@ -9,6 +9,7 @@ import { Accordion } from '../../../components/ui/Accordion';
 import { DataTable } from '../../../components/ui/DataTable';
 import type { DataTableColumn } from '../../../components/ui/DataTable';
 import { Pagination } from '../../../components/ui/Pagination';
+import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 
 /** Page size for ID mapping tables. */
 const MAPPING_PAGE_SIZE = 25;
@@ -258,6 +259,11 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           </p>
         </div>
       )}
+
+      {/* What the clone did with the email addresses and phone numbers it
+          wrote, said as Forge says it: neutralized field by field, or kept as
+          the source holds them, as the run was asked. */}
+      {result.contactPoints && <ForgeContactPointsResult report={result.contactPoints} />}
 
       {/* The lookups written empty and filled in once the record they point
           at was in: how many were, and why the others were not. */}

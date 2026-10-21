@@ -60,8 +60,24 @@ let mockOpenState = {
   reset: vi.fn(),
 };
 
+/** What `backup:list` answers for the org a disconnection asks about. */
+let mockBackupsListed: { backups: Array<{ operationId: string }> } | null = null;
+
+/** What the page posted straight to the host, without waiting on an answer. */
+const sentToHost = vi.hoisted(() => [] as Array<{ type: string; payload: unknown }>);
+vi.mock('../../bridge/sendBridgeMessage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../bridge/sendBridgeMessage')>()),
+  sendBridgeMessage: (type: string, payload: unknown) => {
+    sentToHost.push({ type, payload });
+    return `sent-${sentToHost.length}`;
+  },
+}));
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => mockQueryState,
+  useBridgeQuery: (type: string) =>
+    type === 'backup:list'
+      ? { data: mockBackupsListed, loading: false, error: null, refetch: vi.fn() }
+      : mockQueryState,
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
@@ -226,6 +242,39 @@ describe('OrgManagerPage', () => {
     fireEvent.click(screen.getByTestId('danger-confirm-btn'));
     expect(useOrgStore.getState().orgs).toHaveLength(0);
     expect(mockDisconnectMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+  });
+
+  describe("the org's backups on this machine", () => {
+    beforeEach(() => {
+      sentToHost.length = 0;
+      mockBackupsListed = { backups: [{ operationId: 'bk-1' }, { operationId: 'bk-2' }] };
+    });
+
+    const disconnect = (): void => {
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Disconnect' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    };
+
+    it('are deleted with the org when the dialog is ticked, before it is forgotten', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+      fireEvent.click(screen.getByText('Disconnect'));
+      fireEvent.click(screen.getByTestId('disconnect-delete-backups'));
+      disconnect();
+
+      expect(sentToHost).toContainEqual({ type: 'backup:delete', payload: { orgId: 'org-1' } });
+      expect(mockDisconnectMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+    });
+
+    it('are kept unless ticked, the way back a backup is', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+      fireEvent.click(screen.getByText('Disconnect'));
+      disconnect();
+
+      expect(sentToHost.filter((m) => m.type === 'backup:delete')).toEqual([]);
+      expect(mockDisconnectMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+    });
   });
 
   it('should keep the org when the confirmation is cancelled', () => {

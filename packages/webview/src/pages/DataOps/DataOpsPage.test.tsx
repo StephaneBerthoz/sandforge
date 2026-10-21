@@ -104,6 +104,15 @@ let mockExportMutationState = {
   reset: vi.fn(),
 };
 
+/** Mutable mutation state for backup:delete. */
+let mockDeleteBackupsMutationState = {
+  mutate: vi.fn(),
+  data: null as { orgId: string; deleted: string[] } | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+};
+
 /** Mutable mutation state for dataops:anonymize:preview. */
 const mockPreviewMutate = vi.fn();
 const mockPreviewReset = vi.fn();
@@ -164,6 +173,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'backup:export') {
       return mockExportMutationState;
+    }
+    if (type === 'backup:delete') {
+      return mockDeleteBackupsMutationState;
     }
     if (type === 'dataops:anonymization-template:save') {
       return mockSaveTemplateMutationState;
@@ -236,6 +248,13 @@ describe('DataOpsPage', () => {
       reset: vi.fn(),
     };
     mockExportMutationState = {
+      mutate: vi.fn(),
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+    mockDeleteBackupsMutationState = {
       mutate: vi.fn(),
       data: null,
       loading: false,
@@ -625,6 +644,62 @@ describe('DataOpsPage', () => {
 
       expect(useNotificationStore.getState().notifications).toEqual([]);
       expect(mockExportMutationState.reset).toHaveBeenCalled();
+    });
+  });
+
+  describe('backups deleted from this machine', () => {
+    const listed = {
+      backups: [
+        {
+          operationId: 'op-1',
+          orgId: 'org-1',
+          timestamp: '2026-10-01T00:00:00Z',
+          status: 'completed',
+          objectResults: [{ objectApiName: 'Contact', recordCount: 3 }],
+          totalRecords: 3,
+          totalSize: 0,
+        },
+      ],
+    };
+
+    it('deletes the backup picked on the Restore tab, and every one of the selected org', () => {
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      mockBackupsQueryState = { ...mockBackupsQueryState, data: listed };
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Restore'));
+
+      fireEvent.click(screen.getByTestId('restore-backup-op-1').querySelector('[role="button"]')!);
+      fireEvent.click(screen.getByTestId('delete-backup-btn-op-1'));
+      fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+      expect(mockDeleteBackupsMutationState.mutate).toHaveBeenLastCalledWith({
+        orgId: 'org-1',
+        operationIds: ['op-1'],
+      });
+
+      fireEvent.click(screen.getByTestId('delete-all-backups-btn'));
+      fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+      expect(mockDeleteBackupsMutationState.mutate).toHaveBeenLastCalledWith({ orgId: 'org-1' });
+    });
+
+    it('asks for the list again once the host deleted them, and says how many', () => {
+      useNotificationStore.setState({ notifications: [] });
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      const { rerender } = render(<DataOpsPage />);
+      const refetch = mockBackupsQueryState.refetch;
+
+      mockDeleteBackupsMutationState = {
+        ...mockDeleteBackupsMutationState,
+        data: { orgId: 'org-1', deleted: ['op-1', 'op-2'] },
+      };
+      rerender(<DataOpsPage />);
+
+      expect(refetch).toHaveBeenCalled();
+      expect(useNotificationStore.getState().notifications).toEqual([
+        expect.objectContaining({
+          level: 'success',
+          message: '2 backups deleted from this machine.',
+        }),
+      ]);
     });
   });
 

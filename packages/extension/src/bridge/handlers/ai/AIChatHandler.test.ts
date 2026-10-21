@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { AIChatHandler } from './AIChatHandler.js';
+import { AIChatHandler, MAX_CONVERSATIONS } from './AIChatHandler.js';
 import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { inboundRequest } from '../../../test/mockFactories.js';
@@ -1269,6 +1269,233 @@ describe('AIChatHandler', () => {
           payload: expect.objectContaining({ enabled: true }),
         }),
       );
+    });
+  });
+
+  describe('what a saved key turns on', () => {
+    /** Settings written, in order, and a vault that holds a key once one is stored. */
+    function withSettings(hadKey: boolean): Array<[string, unknown]> {
+      const written: Array<[string, unknown]> = [];
+      deps.services = {
+        setSandforgeSetting: vi.fn(async (key: string, value: unknown) => {
+          written.push([key, value]);
+        }),
+        getSandforgeSetting: vi.fn((_key: string, fallback: unknown) => fallback),
+        reinitAI: vi.fn(() => Promise.resolve()),
+      } as unknown as HandlerDeps['services'];
+      vi.mocked(deps.secretVault.hasSecret).mockResolvedValue(hadKey);
+      return written;
+    }
+
+    it('sends no failed run to the model after the first key is saved, unless the page was told yes', async () => {
+      // Saved to try the chat, a key turned on the sending of every failed
+      // run's error message too: the setting defaults to true.
+      const written = withSettings(false);
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(written).toEqual([
+        ['ai.errorResolution', false],
+        ['ai.enabled', true],
+      ]);
+    });
+
+    it('turns the fix suggestions on with the first key when the page was told yes', async () => {
+      const written = withSettings(false);
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test', errorResolution: true }));
+
+      expect(written).toEqual([
+        ['ai.errorResolution', true],
+        ['ai.enabled', true],
+      ]);
+    });
+
+    it('leaves the fix suggestions as they are when a key replaces another', async () => {
+      const written = withSettings(true);
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-other' }));
+
+      expect(written).toEqual([['ai.enabled', true]]);
+    });
+  });
+
+  describe('ai:settings', () => {
+    it('turns AI off, rebuilds the stack, and says where AI stands', async () => {
+      const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
+      const reinitAI = vi.fn(() => Promise.resolve());
+      deps.services = {
+        setSandforgeSetting,
+        reinitAI,
+        getSandforgeSetting: vi.fn((_key: string, fallback: unknown) => fallback),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:settings', { enabled: false }));
+
+      expect(setSandforgeSetting).toHaveBeenCalledWith('ai.enabled', false);
+      expect(reinitAI).toHaveBeenCalledTimes(1);
+      const types = vi.mocked(deps.broker.postToWebview).mock.calls.map(([m]) => m.type);
+      expect(types).toEqual(['ai:settings:response', 'ai:status:response']);
+      expect(vi.mocked(deps.broker.postToWebview).mock.calls[0][0]).toMatchObject({
+        correlationId: 'msg-1',
+        payload: { success: true },
+      });
+    });
+
+    it('turns the fix suggestions for failed runs off on their own', async () => {
+      const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
+      deps.services = { setSandforgeSetting } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:settings', { errorResolution: false }));
+
+      expect(setSandforgeSetting).toHaveBeenCalledTimes(1);
+      expect(setSandforgeSetting).toHaveBeenCalledWith('ai.errorResolution', false);
+    });
+
+    it('says the setting was not written when there is nothing to write it with', async () => {
+      await handler.handle(createMsg('ai:settings', { enabled: true }));
+
+      expect(vi.mocked(deps.broker.postToWebview).mock.calls[0][0]).toMatchObject({
+        type: 'ai:settings:response',
+        payload: { success: false },
+      });
+    });
+
+    it('reports whether a key is stored and whether failed runs are sent, in its status', async () => {
+      vi.mocked(deps.secretVault.hasSecret).mockResolvedValue(true);
+      deps.services = {
+        getSandforgeSetting: vi.fn((key: string, fallback: unknown) =>
+          key === 'ai.errorResolution' ? false : fallback,
+        ),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:status'));
+
+      expect(vi.mocked(deps.broker.postToWebview).mock.calls[0][0]).toMatchObject({
+        type: 'ai:status:response',
+        payload: { enabled: false, hasKey: true, errorResolution: false },
+      });
+    });
+  });
+
+  describe('ai:remove-key', () => {
+    it('removes the key, turns AI off, deletes the conversations and rebuilds the stack', async () => {
+      const store = deps.configStore as unknown as { _data: Record<string, unknown> };
+      deps.configStore.set('ai:conversation:c1', { id: 'c1' }, 'ai');
+      deps.configStore.set('ai:conversation:c2', { id: 'c2' }, 'ai');
+      deps.configStore.set(
+        'ai:conversations:index',
+        [
+          { id: 'c1', title: 'one', createdAt: '2026-10-01T00:00:00.000Z', messageCount: 2 },
+          { id: 'c2', title: 'two', createdAt: '2026-10-02T00:00:00.000Z', messageCount: 4 },
+        ],
+        'ai',
+      );
+      const deleteSecret = vi.fn().mockResolvedValue(undefined);
+      (deps.secretVault as unknown as { deleteSecret: typeof deleteSecret }).deleteSecret =
+        deleteSecret;
+      const assistant = createMockAssistant();
+      handler.setAIAssistant(assistant);
+      const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
+      const reinitAI = vi.fn(() => Promise.resolve());
+      deps.services = { setSandforgeSetting, reinitAI } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:remove-key'));
+
+      expect(deleteSecret).toHaveBeenCalledWith('ai.anthropic.key');
+      expect(setSandforgeSetting).toHaveBeenCalledWith('ai.enabled', false);
+      expect(reinitAI).toHaveBeenCalledTimes(1);
+      expect(assistant.deleteConversation).toHaveBeenCalledWith('c1');
+      expect(assistant.deleteConversation).toHaveBeenCalledWith('c2');
+      expect(Object.keys(store._data).filter((k) => k.startsWith('ai:conversation:'))).toEqual([]);
+      expect(deps.configStore.get('ai:conversations:index')).toEqual([]);
+      expect(vi.mocked(deps.broker.postToWebview).mock.calls[0][0]).toMatchObject({
+        type: 'ai:remove-key:response',
+        correlationId: 'msg-1',
+        payload: { success: true, conversationsDeleted: 2 },
+      });
+    });
+
+    it('says it failed when the vault would not let go of the key', async () => {
+      (deps.secretVault as unknown as { deleteSecret: () => Promise<void> }).deleteSecret = vi
+        .fn()
+        .mockRejectedValue(new Error('keychain locked'));
+
+      await handler.handle(createMsg('ai:remove-key'));
+
+      expect(vi.mocked(deps.broker.postToWebview).mock.calls[0][0]).toMatchObject({
+        type: 'ai:remove-key:response',
+        payload: { success: false, error: 'keychain locked' },
+      });
+    });
+  });
+
+  describe('how many conversations are kept', () => {
+    it(`keeps the ${MAX_CONVERSATIONS} written to most recently, and deletes the others whole`, async () => {
+      // Every conversation ever started stayed in VS Code's global state, in
+      // full, AI off or the key gone.
+      const index = Array.from({ length: MAX_CONVERSATIONS }, (_, i) => {
+        const day = String(i + 1).padStart(2, '0');
+        return {
+          id: `old-${i}`,
+          title: `old ${i}`,
+          createdAt: `2026-01-01T00:00:${day.slice(-2)}.000Z`,
+          // The first one was written to last of all: it stays.
+          updatedAt: i === 0 ? '2026-09-30T00:00:00.000Z' : `2026-02-01T00:00:${day}.000Z`,
+          messageCount: 2,
+        };
+      });
+      deps.configStore.set('ai:conversations:index', index, 'ai');
+      for (const entry of index) {
+        deps.configStore.set(`ai:conversation:${entry.id}`, { id: entry.id }, 'ai');
+      }
+      const now = new Date().toISOString();
+      const assistant = createMockAssistant({
+        createConversation: vi.fn().mockReturnValue({
+          id: 'new-1',
+          title: 'New',
+          createdAt: now,
+          updatedAt: now,
+          messages: [],
+          totalTokens: 0,
+        }),
+      });
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:conversation:create', { title: 'New' }));
+
+      const kept = deps.configStore.get<Array<{ id: string }>>('ai:conversations:index') ?? [];
+      expect(kept).toHaveLength(MAX_CONVERSATIONS);
+      expect(kept.map((e) => e.id)).toContain('new-1');
+      expect(kept.map((e) => e.id)).toContain('old-0');
+      // The one written to least recently, the second, is gone, whole.
+      expect(kept.map((e) => e.id)).not.toContain('old-1');
+      expect(deps.configStore.get('ai:conversation:old-1')).toBeUndefined();
+      expect(assistant.deleteConversation).toHaveBeenCalledWith('old-1');
+      expect(deps.configStore.get('ai:conversation:old-2')).toBeDefined();
+    });
+  });
+
+  describe('ai:conversation:delete-all', () => {
+    it('deletes every conversation kept, those the index lost included, and says how many', async () => {
+      deps.configStore.set('ai:conversation:c1', { id: 'c1' }, 'ai');
+      deps.configStore.set('ai:conversation:stray', { id: 'stray' }, 'ai');
+      deps.configStore.set(
+        'ai:conversations:index',
+        [{ id: 'c1', title: 'one', createdAt: '2026-10-01T00:00:00.000Z', messageCount: 2 }],
+        'ai',
+      );
+
+      await handler.handle(createMsg('ai:conversation:delete-all'));
+
+      expect(deps.configStore.get('ai:conversation:c1')).toBeUndefined();
+      expect(deps.configStore.get('ai:conversation:stray')).toBeUndefined();
+      expect(deps.configStore.get('ai:conversations:index')).toEqual([]);
+      expect(vi.mocked(deps.broker.postToWebview).mock.calls[0][0]).toMatchObject({
+        type: 'ai:conversation:deleted-all',
+        correlationId: 'msg-1',
+        payload: { count: 2 },
+      });
     });
   });
 

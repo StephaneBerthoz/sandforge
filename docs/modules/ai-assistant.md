@@ -4,13 +4,14 @@ Chat about your Salesforce work, draft pipelines and SOQL in plain English, and 
 
 ## Quick Start
 
-1. Store your Anthropic API key in the AI tab of the SandForge Settings page. The key is kept in VS Code Secret Storage, never in a settings file
-2. Turn on `sandforge.ai.enabled`
-3. Open **AI Assistant** from the launcher's Modules list and start a conversation
+1. In the AI tab of the SandForge Settings page, read what each feature sends, then store your Anthropic API key with **Save key and turn on AI**. The key is kept in VS Code Secret Storage, never in a settings file. Tick **Suggest fixes for failed runs** beside it only if a failed run may send its error message (see Error resolution)
+2. Open **AI Assistant** from the launcher's Modules list and start a conversation
+
+The same card turns AI off and on again, and **Remove key** takes the key out of Secret Storage, turns AI off and deletes the conversations kept on this machine.
 
 ## Features
 
-- **Chat** -- conversations on the AI Assistant page. A saved chat continues after a restart or an AI setting change, and the model is given its last 20 messages of it
+- **Chat** -- conversations on the AI Assistant page. A saved chat continues after a restart or an AI setting change, and the model is given its last 20 messages of it. The 50 conversations written to most recently are kept, whole, in VS Code's global state; **Delete all conversations** removes them
 - **Pipeline drafts** -- in Automation, the AI Pipeline Generator drafts a pipeline from a description in natural language; its steps are marked when they cannot run (see [Automation](automation.md))
 - **NL2SOQL** -- in Forge's AI tab, describe the records to clone in plain English and get the SOQL query discovery starts from (see [Seed](seed.md))
 - **Custom personas and AI field rules** -- in Seed; an AI field rule is picked by you or set by a built-in persona
@@ -18,7 +19,7 @@ Chat about your Salesforce work, draft pipelines and SOQL in plain English, and 
 
 ## Error resolution
 
-While AI is on, a failed Seed, Sync, DataOps or Automation run sends its error message — every Salesforce Id in it replaced by `<id>` — to the model for a fix suggestion shown as a VS Code notification. A built-in table of common Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing: every module shows its answer under the error, in the interface language, and the notification says it only when the page that ran the operation does not. The failures SandForge writes itself, and any failure raised with no SandForge view open, send nothing either. `sandforge.ai.errorResolution` turns that sending off on its own; turning AI off stops it at once.
+While AI is on, a failed Seed, Sync, DataOps or Automation run sends its error message — every Salesforce Id in it replaced by `<id>` — to the model for a fix suggestion shown as a VS Code notification. A built-in table of common Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing: every module shows its answer under the error, in the interface language, and the notification says it only when the page that ran the operation does not. The failures SandForge writes itself, and any failure raised with no SandForge view open, send nothing either. `sandforge.ai.errorResolution` turns that sending off on its own, and the Settings page's AI card has a switch for it; the first key saved from that card sends no failure unless **Suggest fixes for failed runs** was ticked with it. Turning AI off stops it at once.
 
 What each feature sends, a failed run included, is listed in the FAQ under [Is my data sent to external services?](../faq.md#is-my-data-sent-to-external-services)
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileConfigStore } from './fileConfigStore.js';
@@ -28,6 +28,19 @@ describe('fileConfigStore', () => {
     try {
       const store = fileConfigStore(join(dir, 'nothing-here.json'));
       expect(store.getKeysByPrefix('backup:')).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform !== 'win32')('writes a file its owner alone can read', () => {
+    // A store keeps what a run kept of an org: a masking run's snapshot
+    // metadata, its checkpoints, the templates it saved.
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-cli-test-'));
+    try {
+      const path = join(dir, 'snapshots.json');
+      fileConfigStore(path).set('backup:op-1', { operationId: 'op-1' }, 'backups');
+      expect(statSync(path).mode & 0o777).toBe(0o600);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

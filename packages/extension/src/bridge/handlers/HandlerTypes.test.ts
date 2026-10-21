@@ -661,6 +661,25 @@ describe('sendOperationFailed — fix suggestion', () => {
     await vi.waitFor(() => expect(deps.provider).toHaveBeenCalledTimes(1));
   });
 
+  it('never asks about a failure its call site says SandForge wrote, whatever it says', async () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(deps, 'op-own', 'SOMETHING_WE_HAVE_NEVER_SEEN: worded here', false, {
+      authored: true,
+    });
+    await settle();
+
+    expect(deps.provider).not.toHaveBeenCalled();
+    expect(deps.showFixSuggestion).not.toHaveBeenCalled();
+    // Still posted to the panels, as every failure is.
+    expect(deps.webviews[0].postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'operation:failed',
+        payload: expect.objectContaining({ error: 'SOMETHING_WE_HAVE_NEVER_SEEN: worded here' }),
+      }),
+    );
+  });
+
   it('asks nothing and shows nothing when no SandForge view is open', async () => {
     // A scheduled sync fails with every panel closed: nobody sees the failure,
     // so a model call about it is paid for and thrown away.

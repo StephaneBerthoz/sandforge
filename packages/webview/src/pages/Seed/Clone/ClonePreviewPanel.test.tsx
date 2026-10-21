@@ -219,4 +219,48 @@ describe('ClonePreviewPanel', () => {
     fireEvent.click(screen.getByTestId('clone-preview-back'));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
+
+  describe('the email addresses and phone numbers', () => {
+    it('are neutralized unless the box is ticked, which the hint beside it says', () => {
+      const onChange = vi.fn();
+      render(
+        <ClonePreviewPanel
+          previewResult={mockPreview}
+          onExecute={vi.fn()}
+          onBack={vi.fn()}
+          keepContactPoints={false}
+          onKeepContactPointsChange={onChange}
+        />,
+      );
+
+      const box = screen.getByRole('checkbox', { name: en.forge.keepContactPoints });
+      expect((box as HTMLInputElement).checked).toBe(false);
+      expect(screen.getByText(en.forge.keepContactPointsHint)).toBeDefined();
+      expect(screen.queryByTestId('clone-keep-contact-points-warning')).toBeNull();
+
+      fireEvent.click(box);
+      expect(onChange).toHaveBeenCalledWith(true);
+    });
+
+    it('kept as read, warn that the target org may reach real people', () => {
+      render(
+        <ClonePreviewPanel
+          previewResult={mockPreview}
+          onExecute={vi.fn()}
+          onBack={vi.fn()}
+          keepContactPoints
+          onKeepContactPointsChange={vi.fn()}
+        />,
+      );
+
+      const warning = screen.getByTestId('clone-keep-contact-points-warning');
+      expect(warning.getAttribute('role')).toBe('alert');
+      expect(warning.textContent).toBe(en.forge.keepContactPointsWarning);
+      expect(
+        screen
+          .getByRole('checkbox', { name: en.forge.keepContactPoints })
+          .getAttribute('aria-describedby'),
+      ).toBe(warning.id);
+    });
+  });
 });

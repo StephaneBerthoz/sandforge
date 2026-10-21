@@ -393,6 +393,13 @@
           "maximum": 100,
           "description": "%config.backup.maxCount.description%"
         },
+        "sandforge.backup.maxAgeDays": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 3650,
+          "description": "%config.backup.maxAgeDays.description%"
+        },
         "sandforge.backup.maxRecordsPerObject": {
           "type": "integer",
           "default": 50000,

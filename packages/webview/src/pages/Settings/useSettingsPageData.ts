@@ -33,6 +33,24 @@ interface AIStatusResponse {
   enabled: boolean;
   provider: string;
   model: string;
+  /** Whether a key is stored, AI on or off. Absent from an older host. */
+  hasKey?: boolean;
+  /** Whether a failed run sends its error message for a fix suggestion. */
+  errorResolution?: boolean;
+}
+
+/** What `ai:settings` and `ai:remove-key` answer. */
+interface AIWriteResponse {
+  success: boolean;
+  error?: string;
+  /** For `ai:remove-key`: how many conversations went with the key. */
+  conversationsDeleted?: number;
+}
+
+/** What the Settings page writes through `ai:settings`. */
+export interface AISettingsChange {
+  enabled?: boolean;
+  errorResolution?: boolean;
 }
 
 /** Telemetry status response shape (SettingsHandler.handleTelemetryStatus). */
@@ -88,12 +106,29 @@ export interface SettingsPageData {
   aiKeySaved: boolean;
   /** Set the AI key saved state. */
   setAiKeySaved: (saved: boolean) => void;
-  /** Save an AI API key. */
-  saveAiKey: (apiKey: string) => void;
+  /**
+   * Save an AI API key, which turns AI on. `errorResolution` answers, for the
+   * first key, whether failed runs may send their error message.
+   */
+  saveAiKey: (apiKey: string, errorResolution?: boolean) => void;
   /** Whether the AI key save is in flight. */
   aiKeySaving: boolean;
   /** AI key save error, if any. */
   aiKeyError: string | null;
+  /** Turn AI on or off, or the fix suggestions for failed runs. */
+  updateAiSettings: (change: AISettingsChange) => void;
+  /** Whether an AI settings write is in flight. */
+  aiSettingsSaving: boolean;
+  /** Why the last AI settings write failed, if it did. */
+  aiSettingsError: string | null;
+  /** Remove the stored key: AI goes off, and the conversations kept are deleted. */
+  removeAiKey: () => void;
+  /** Whether the key removal is in flight. */
+  aiKeyRemoving: boolean;
+  /** How many conversations went with the key just removed; null until one is. */
+  aiKeyRemoved: number | null;
+  /** Why the key could not be removed, if it could not. */
+  aiKeyRemoveError: string | null;
   /** Real telemetry status from the extension, null while unknown. */
   telemetryStatus: TelemetryStatusResponse | null;
   /** Whether the telemetry status query is in flight. */
@@ -149,6 +184,16 @@ export function useSettingsPageData(
     responseType: 'ai:save-key:response',
   });
 
+  /** Turn AI or its fix suggestions on or off. */
+  const aiSettingsMutation = useBridgeMutation<AIWriteResponse>('ai:settings', {
+    responseType: 'ai:settings:response',
+  });
+
+  /** Remove the stored key. */
+  const aiRemoveKeyMutation = useBridgeMutation<AIWriteResponse>('ai:remove-key', {
+    responseType: 'ai:remove-key:response',
+  });
+
   /** Telemetry status query: real opt-in state + emitted event count. */
   const telemetryStatusQuery = useBridgeQuery<TelemetryStatusResponse>(
     'telemetry:status',
@@ -172,6 +217,15 @@ export function useSettingsPageData(
     const recheck = setTimeout(() => refetchAiStatus.current(), AI_STATUS_RECHECK_MS);
     return () => clearTimeout(recheck);
   }, [aiSaveKeyMutation.data, refetchAiStatus]);
+
+  /**
+   * After AI or its fix suggestions were switched, or the key removed, the
+   * status says where AI stands now: the host sends one of its own, which the
+   * query does not take, as it answers no request of it.
+   */
+  useEffect(() => {
+    if (aiSettingsMutation.data || aiRemoveKeyMutation.data) refetchAiStatus.current();
+  }, [aiSettingsMutation.data, aiRemoveKeyMutation.data, refetchAiStatus]);
 
   /** When settings are loaded from extension, update local state. */
   useEffect(() => {
@@ -237,9 +291,24 @@ export function useSettingsPageData(
     onReset?.();
   };
 
-  const saveAiKey = (apiKey: string): void => {
-    aiSaveKeyMutation.mutate({ apiKey });
+  const saveAiKey = (apiKey: string, errorResolution?: boolean): void => {
+    aiSaveKeyMutation.mutate({
+      apiKey,
+      ...(errorResolution !== undefined ? { errorResolution } : {}),
+    });
   };
+
+  const updateAiSettings = (change: AISettingsChange): void => {
+    aiSettingsMutation.mutate({ ...change });
+  };
+
+  const removeAiKey = (): void => {
+    aiRemoveKeyMutation.mutate({});
+  };
+
+  /** What a write answered when it says it did not do it. */
+  const refusalOf = (data: AIWriteResponse | null): string | null =>
+    data && !data.success ? (data.error ?? null) : null;
 
   const toggleTelemetry = (): void => {
     telemetryToggleMutation.mutate({ enabled: !(telemetryStatusQuery.data?.enabled ?? false) });
@@ -260,6 +329,15 @@ export function useSettingsPageData(
     saveAiKey,
     aiKeySaving: aiSaveKeyMutation.loading,
     aiKeyError: aiSaveKeyMutation.error,
+    updateAiSettings,
+    aiSettingsSaving: aiSettingsMutation.loading,
+    aiSettingsError: aiSettingsMutation.error ?? refusalOf(aiSettingsMutation.data),
+    removeAiKey,
+    aiKeyRemoving: aiRemoveKeyMutation.loading,
+    aiKeyRemoved: aiRemoveKeyMutation.data?.success
+      ? (aiRemoveKeyMutation.data.conversationsDeleted ?? 0)
+      : null,
+    aiKeyRemoveError: aiRemoveKeyMutation.error ?? refusalOf(aiRemoveKeyMutation.data),
     telemetryStatus: telemetryStatusQuery.data,
     telemetryStatusLoading: telemetryStatusQuery.loading,
     telemetryUnavailable: telemetryStatusQuery.error != null,

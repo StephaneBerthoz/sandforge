@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
 import { AIPage } from './AIPage';
 import { useAppStore } from '../../stores/useAppStore';
 
@@ -171,6 +172,36 @@ describe('AIPage', () => {
     it('should not show the not-configured guidance', () => {
       render(<AIPage />);
       expect(screen.queryByTestId('ai-not-configured')).toBeNull();
+    });
+  });
+
+  describe('what it keeps, and deleting all of it', () => {
+    beforeEach(() => {
+      useAppStore.setState({ aiAvailable: true });
+    });
+
+    it('says what goes to Anthropic and how many conversations stay on this machine', () => {
+      render(<AIPage />);
+      expect(screen.getByTestId('ai-privacy-note').textContent).toBe(en.ai.privacyNote);
+    });
+
+    it('deletes every conversation only once asked to confirm, and empties the page when the host has', () => {
+      render(<AIPage />);
+      listConversations();
+      fireEvent.click(screen.getByTestId('conversation-item-conv-2'));
+      emit('ai:conversation:loaded', {
+        conversation: { id: 'conv-2', title: 'Leads', messages: LEADS },
+      });
+
+      fireEvent.click(screen.getByTestId('delete-all-conversations-btn'));
+      expect(sentOfType('ai:conversation:delete-all')).toEqual([]);
+      fireEvent.click(screen.getByTestId('delete-all-conversations-confirm'));
+      expect(sentOfType('ai:conversation:delete-all')).toEqual([{}]);
+
+      emit('ai:conversation:deleted-all', { count: 2 });
+      expect(screen.getByTestId('no-conversations')).toBeDefined();
+      expect(bubbles('assistant')).toEqual([]);
+      expect(screen.queryByTestId('delete-all-conversations')).toBeNull();
     });
   });
 

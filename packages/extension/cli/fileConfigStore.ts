@@ -21,7 +21,9 @@ export function fileConfigStore(path: string): ConfigStore {
       existsSync(path)
         ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, ConfigEntry>)
         : {},
-    setData: (data) => writeFileSync(path, JSON.stringify(data, null, 2), 'utf8'),
+    // Its owner's alone to read: a store can hold what a run kept of an org.
+    setData: (data) =>
+      writeFileSync(path, JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 }),
   };
   const store = new ConfigStore(backend);
   store.initialize();

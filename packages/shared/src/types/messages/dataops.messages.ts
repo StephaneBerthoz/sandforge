@@ -130,6 +130,26 @@ export interface BackupExportResult extends BaseMessage {
     | { operationId: string; status: 'cancelled' };
 }
 
+/**
+ * Delete backups of an org from this machine: those named, or every one of
+ * the org's when none is. A backup holds the records' values in clear; nothing
+ * else in the panel deletes one.
+ */
+export interface BackupDeleteRequest extends BaseMessage {
+  type: 'backup:delete';
+  payload: { orgId: string; operationIds?: string[] };
+}
+
+/**
+ * Result of `backup:delete`: the backups deleted. A refusal — a backup or a
+ * restore of the org is running — goes out on `dataops:error`, code
+ * `BACKUP_BUSY`.
+ */
+export interface BackupDeleteResult extends BaseMessage {
+  type: 'backup:delete:result';
+  payload: { orgId: string; deleted: string[] };
+}
+
 /** Anonymization templates */
 export interface AnonymizationTemplatesRequest extends BaseMessage {
   type: 'dataops:anonymization-templates';

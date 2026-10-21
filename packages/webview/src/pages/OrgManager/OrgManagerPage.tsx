@@ -35,6 +35,7 @@ import { OrgCard } from './OrgCard';
 import { OrgEditDialog } from './OrgEditDialog';
 import type { OrgEditPayload } from './OrgEditDialog';
 import { DeviceCodePanel } from './DeviceCodePanel';
+import { DisconnectBackups } from './DisconnectBackups';
 import { canFill, orgToFill } from '../../utils/orgToFill';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 
@@ -278,6 +279,8 @@ export const OrgManagerPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [editingOrg, setEditingOrg] = useState<SalesforceOrg | null>(null);
   const [orgPendingDisconnect, setOrgPendingDisconnect] = useState<SalesforceOrg | null>(null);
+  /** Whether the org's backups on this machine go with it: asked in the dialog, off by default. */
+  const [deleteBackupsWithOrg, setDeleteBackupsWithOrg] = useState(false);
 
   // Inline form state
   const [alias, setAlias] = useState('');
@@ -652,6 +655,7 @@ export const OrgManagerPage: React.FC = () => {
   // defaults. Too destructive for a bare click, hence the typed confirmation.
   const handleDisconnect = useCallback(
     (orgId: string) => {
+      setDeleteBackupsWithOrg(false);
       setOrgPendingDisconnect(orgs.find((o) => o.id === orgId) ?? null);
     },
     [orgs],
@@ -659,10 +663,15 @@ export const OrgManagerPage: React.FC = () => {
 
   const confirmDisconnect = useCallback(() => {
     if (!orgPendingDisconnect) return;
+    // Its backups first, while the request still names an org the page knows:
+    // they stayed on this machine, in clear, once nothing listed them.
+    if (deleteBackupsWithOrg) {
+      sendBridgeMessage('backup:delete', { orgId: orgPendingDisconnect.id });
+    }
     disconnectMutate({ orgId: orgPendingDisconnect.id });
     removeOrg(orgPendingDisconnect.id);
     setOrgPendingDisconnect(null);
-  }, [orgPendingDisconnect, disconnectMutate, removeOrg]);
+  }, [orgPendingDisconnect, deleteBackupsWithOrg, disconnectMutate, removeOrg]);
 
   // Filtering only appears once the list stops fitting on screen. The query is
   // ignored while the field is hidden, so disconnecting down to a short list
@@ -1049,7 +1058,15 @@ export const OrgManagerPage: React.FC = () => {
           alias: orgPendingDisconnect?.alias || orgPendingDisconnect?.username || '',
         })}
         confirmText={t('org.disconnect')}
-      />
+      >
+        {orgPendingDisconnect && (
+          <DisconnectBackups
+            orgId={orgPendingDisconnect.id}
+            checked={deleteBackupsWithOrg}
+            onChange={setDeleteBackupsWithOrg}
+          />
+        )}
+      </DangerConfirm>
     </div>
   );
 };

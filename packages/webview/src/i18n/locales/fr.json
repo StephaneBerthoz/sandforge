@@ -61,7 +61,8 @@
       "autopilotWriteDeclined": "Vous avez annulé l'exécution Autopilot avant qu'elle n'écrive quoi que ce soit. Rien n'a été écrit dans l'org cible.",
       "autopilotConfirmationUnavailable": "L'exécution Autopilot a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",
       "seedStorageExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit : ses enregistrements prennent environ {{estimate}} Mo de stockage de données, et il reste {{remaining}} Mo sur {{max}} Mo dans {{org}}. Réduisez le nombre d'enregistrements, choisissez un modèle plus léger, ou libérez du stockage de données dans {{org}}.",
-      "seedEmailsExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Réduisez le nombre d'enregistrements, mettez {{objects}} à 0, désactivez {{senders}}, ou attribuez-vous la permission qui les fait taire."
+      "seedEmailsExceeded": "Le seed a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Réduisez le nombre d'enregistrements, mettez {{objects}} à 0, désactivez {{senders}}, ou attribuez-vous la permission qui les fait taire.",
+      "backupBusy": "Une sauvegarde ou une restauration de cette org est en cours : supprimez ses sauvegardes une fois qu'elle est terminée."
     },
     "list": {
       "separator": ", ",
@@ -152,7 +153,9 @@
       "titleMany_other": "{{count}} orgs sont connectées",
       "fill": "Remplir {{alias}} de données de démonstration",
       "clone": "Cloner depuis une autre org"
-    }
+    },
+    "disconnectDeleteBackups_one": "Supprimer aussi la sauvegarde DataOps de cette org conservée sur cette machine, qui contient en clair les valeurs de ses enregistrements",
+    "disconnectDeleteBackups_other": "Supprimer aussi les {{count}} sauvegardes DataOps de cette org conservées sur cette machine, qui contiennent en clair les valeurs de ses enregistrements"
   },
   "monitor": {
     "refresh": "Actualiser",
@@ -923,6 +926,7 @@
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonage annulé : l'écriture en production n'a pas été confirmée.",
         "PRODUCTION_GUARD_BLOCKED": "La protection production a bloqué ce clonage avant le moindre enregistrement écrit.",
         "CLONE_FAILED": "Le clonage s'est arrêté avant la fin.",
+        "CLONE_EMAILS_EXCEEDED": "Le clonage a été refusé avant d'écrire quoi que ce soit. {{limit}} que ces enregistrements feraient envoyer à {{org}} : environ {{emails}} ; il en reste {{remaining}} sur {{max}} aujourd'hui. Resserrez les filtres de {{objects}} ou retirez-les, désactivez {{senders}}, ou attribuez-vous la permission qui les fait taire.",
         "INVALID_PAYLOAD": "SandForge a refusé cette demande avant de lire l'une ou l'autre org. Un clonage a besoin d'une org source, d'une org cible et de 1 à 100 objets, et un filtre ne peut que sélectionner des enregistrements : ni LIMIT, ni ORDER BY, ni sous-requête, ni point-virgule, ni commentaire. Le canal de sortie SandForge indique la partie refusée.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge a refusé cette exécution avant d'écrire quoi que ce soit : elle ne visait pas les orgs pour lesquelles son aperçu avait été fait. Refaites l'aperçu, puis lancez le clonage.",
         "NOT_PREVIEWED": "SandForge a refusé cette exécution avant de lire l'une ou l'autre org : elle ne désignait aucun aperçu, et un clonage ne part que de l'aperçu pour lequel il a été fait. Refaites l'aperçu, puis lancez le clonage.",
@@ -1806,7 +1810,11 @@
       "confirmTitle_other": "Effacer {{formatted}} enregistrements ?",
       "confirmAnonymize": "Les champs listés sont remplacés dans l'org, et c'est irréversible. Faites d'abord une sauvegarde si vous risquez d'en avoir besoin.",
       "confirmDelete": "Les enregistrements, et ce que l'org supprime en même temps qu'eux, vont dans la corbeille, où ils restent jusqu'à ce qu'elle soit vidée.",
-      "confirmWord": "effacer"
+      "confirmWord": "effacer",
+      "backupsBefore_one": "Cette org a une sauvegarde sur cette machine, prise avant cet effacement : elle conserve en clair les enregistrements de la personne, et la restaurer les fait revenir.",
+      "backupsBefore_other": "Cette org a {{count}} sauvegardes sur cette machine, prises avant cet effacement : elles conservent en clair les enregistrements de la personne, et en restaurer une les fait revenir.",
+      "deleteBackupsBefore_one": "Supprimer cette sauvegarde",
+      "deleteBackupsBefore_other": "Supprimer ces {{count}} sauvegardes"
     },
     "dsrLog": {
       "title": "Journal des demandes",
@@ -1905,7 +1913,14 @@
       "notRead": "Non lu : {{error}}",
       "noRecords": "Aucun enregistrement à masquer.",
       "fieldsNotFound": "Appliquer ne masque rien dans {{fields}} : l'org n'a pas ce champ."
-    }
+    },
+    "backupDelete": "Supprimer",
+    "backupDeleteConfirm": "Supprimer cette sauvegarde ? Les valeurs des enregistrements qu'elle conserve en clair sur cette machine disparaissent définitivement, et elle ne peut plus être restaurée.",
+    "backupDeleteAll": "Supprimer toutes les sauvegardes de cette org",
+    "backupDeleteAllConfirm_one": "Supprimer la sauvegarde de cette org conservée sur cette machine ? Les valeurs des enregistrements qu'elle conserve en clair disparaissent définitivement, et elle ne peut plus être restaurée.",
+    "backupDeleteAllConfirm_other": "Supprimer les {{count}} sauvegardes de cette org conservées sur cette machine ? Les valeurs des enregistrements qu'elles conservent en clair disparaissent définitivement, et aucune ne peut plus être restaurée.",
+    "backupsDeleted_one": "{{count}} sauvegarde supprimée de cette machine.",
+    "backupsDeleted_other": "{{count}} sauvegardes supprimées de cette machine."
   },
   "automation": {
     "title": "Automatisation",
@@ -2182,7 +2197,11 @@
       "transient": "Erreur AI temporaire. Réessayez.",
       "unknown": "Erreur AI inattendue."
     },
-    "conversations": "Conversations"
+    "conversations": "Conversations",
+    "privacyNote": "Ce que vous tapez part chez Anthropic avec la conversation jusque-là. Les conversations restent sur cette machine, les 50 plus récentes.",
+    "deleteAll": "Supprimer toutes les conversations",
+    "deleteAllConfirm_one": "Supprimer la conversation conservée sur cette machine ? Elle ne pourra pas être récupérée.",
+    "deleteAllConfirm_other": "Supprimer les {{count}} conversations conservées sur cette machine ? Elles ne pourront pas être récupérées."
   },
   "notifications": {
     "title": "Notifications"
@@ -2395,7 +2414,17 @@
     "aiApiKey": "Clé API",
     "aiKeyConfigured": "Clé configurée",
     "aiKeySaved": "Clé enregistrée",
-    "aiHint": "La clé est stockée dans le coffre de secrets VSCode et n’est jamais écrite dans les paramètres ni dans les journaux."
+    "aiHint": "La clé est stockée dans le coffre de secrets VSCode et n’est jamais écrite dans les paramètres ni dans les journaux.",
+    "aiSends": "Tant que l'IA est activée, ceci part chez Anthropic, avec votre clé : le chat envoie ce que vous tapez avec la conversation jusque-là ; NL2SOQL envoie votre question avec les noms des objets et des champs de l'org ; un brouillon de pipeline, un persona personnalisé et une règle de champ IA envoient leur description, ou le nom du champ et sa consigne.",
+    "aiSendsFailures": "Les suggestions de correction envoient le message d'erreur d'une exécution en échec, ses Id Salesforce retirés, sans que personne n'appuie sur rien. Un message d'erreur peut citer des valeurs d'enregistrements.",
+    "aiErrorResolution": "Suggérer des corrections pour les exécutions en échec, en envoyant leurs messages d'erreur",
+    "aiSaveAndTurnOn": "Enregistrer la clé et activer l'IA",
+    "aiTurnOn": "Activer l'IA",
+    "aiTurnOff": "Désactiver l'IA",
+    "aiRemoveKey": "Supprimer la clé",
+    "aiRemoveKeyConfirm": "Supprimer la clé ? L'IA est désactivée, et les conversations conservées sur cette machine sont supprimées.",
+    "aiKeyRemoved_one": "Clé supprimée : l'IA est désactivée, et {{count}} conversation a été supprimée.",
+    "aiKeyRemoved_other": "Clé supprimée : l'IA est désactivée, et {{count}} conversations ont été supprimées."
   },
   "bridge": {
     "protocolMismatch": {

@@ -6,6 +6,7 @@ import type {
   CloneObjectResult,
   ClonePreviewResult,
   CloneSecondPass,
+  ForgeContactPointsReport,
 } from '@sandforge/shared';
 import { recordWriteHeaders, guardTierOf } from '@sandforge/shared';
 import type {
@@ -70,6 +71,19 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { contactPointsAudit } from '../../modules/forge/forgeAudit.js';
+import { readEmailLimits } from '../../modules/forge/ForgeRunGate.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import type { FieldInfo } from '../../modules/forge/ForgeExecutor.js';
+import { contactPointsOfRun, neutralizeSyncRows } from '../../modules/sync/syncContactPoints.js';
+import { targetWriteFieldsOf } from '../../modules/sync/targetWriteFields.js';
+import {
+  readSeedAutomation,
+  seedEmailGate,
+  type SeedEmailGate,
+  type SeedEmailRefusalFigures,
+} from '../../modules/seed/seedAutomation.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 
 /** Message types handled by SeedCloneHandler. */
 const SEED_CLONE_TYPES = new Set([
@@ -108,7 +122,17 @@ const CLONE_FAILURE_CODES = {
   confirmationDeclined: 'PRODUCTION_CONFIRMATION_DECLINED',
   guardBlocked: 'PRODUCTION_GUARD_BLOCKED',
   failed: 'CLONE_FAILED',
+  emailsExceeded: 'CLONE_EMAILS_EXCEEDED',
 } as const;
+
+/** How long the read of what the target runs as the records are created may take. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
+
+/**
+ * What a clone that keeps the email addresses and phone numbers as read
+ * reports of them: nothing neutralized, nothing counted.
+ */
+const CONTACT_POINTS_KEPT: ForgeContactPointsReport = { neutralized: false, fields: [], values: 0 };
 
 /**
  * The code `seed:clone:error` carries for a run refused because it is not for
@@ -142,6 +166,12 @@ interface PreviewedOrgs {
   targetOrgId: string;
 }
 
+/** An answered preview: its orgs, and the records it counted per object. */
+interface HeldPreview extends PreviewedOrgs {
+  /** The records the clone sends, per object, as the preview counted them. */
+  recordCounts: ReadonlyMap<string, number>;
+}
+
 /**
  * Domain handler for the record-clone wizard (`seed:clone:*`).
  *
@@ -165,10 +195,69 @@ export class SeedCloneHandler implements DomainHandler {
    * The orgs each preview answered was made for, by the preview's request id:
    * a run that names the preview it follows goes only to those orgs.
    */
-  private readonly previewedOrgs = new Map<string, PreviewedOrgs>();
+  private readonly previewedOrgs = new Map<string, HeldPreview>();
+
+  /**
+   * Reads what the target runs as the records are created: a reader of the
+   * handler's own, over its connections, loaded on its first read, as Seed's.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
+
+  /** Another reader of what the target runs as the records are created than the handler's own. */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** The handler's own reader of the org's automation, as Forge reads it. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
+  }
+
+  /**
+   * The daily email limits the records of a clone hold the target to, as a
+   * seed's: what the target runs as they are created, read with what it has
+   * left today. Nothing is read for a clone that writes no record. Never
+   * throws: a read that fails is said, and holds nothing back.
+   *
+   * @param written - The records the clone sends, per object, as its preview counted them.
+   * @param org - The target, as the panel names it.
+   */
+  private async emailGate(
+    targetOrgId: string,
+    transport: Parameters<typeof readEmailLimits>[0],
+    written: ReadonlyArray<{ objectApiName: string; recordCount: number }>,
+    org: string,
+  ): Promise<SeedEmailGate | undefined> {
+    const sent = written.filter((object) => object.recordCount > 0);
+    if (sent.length === 0) return undefined;
+    const reader = this.targetAutomation;
+    const read = await readSeedAutomation({
+      org,
+      objects: sent.map((object) => object.objectApiName),
+      readAutomation: (names) =>
+        new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('clone automation', () =>
+          reader.read(targetOrgId, names),
+        ),
+      readLimits: () => readEmailLimits(transport),
+    });
+    return seedEmailGate(read, sent, org);
+  }
 
   /**
    * Inject the shared registry so this module's runs are cancellable.
@@ -404,20 +493,29 @@ export class SeedCloneHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
-      this.rememberPreview(msg.id, parsed);
+      this.rememberPreview(
+        msg.id,
+        parsed,
+        new Map(counted.map((object) => [object.objectApiName, object.recordCount])),
+      );
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'seed:clone:preview', 'seed:clone:error', msg, err);
     }
   }
 
   /**
-   * Keep the orgs an answered preview was made for, forgetting the oldest
-   * past {@link PREVIEWS_KEPT}.
+   * Keep the orgs an answered preview was made for, and the records it
+   * counted, forgetting the oldest past {@link PREVIEWS_KEPT}.
    */
-  private rememberPreview(previewId: string, orgs: PreviewedOrgs): void {
+  private rememberPreview(
+    previewId: string,
+    orgs: PreviewedOrgs,
+    recordCounts: ReadonlyMap<string, number>,
+  ): void {
     this.previewedOrgs.set(previewId, {
       sourceOrgId: orgs.sourceOrgId,
       targetOrgId: orgs.targetOrgId,
+      recordCounts,
     });
     for (const oldest of this.previewedOrgs.keys()) {
       if (this.previewedOrgs.size <= PREVIEWS_KEPT) break;
@@ -529,6 +627,19 @@ export class SeedCloneHandler implements DomainHandler {
     const objectResults: CloneObjectResult[] = [];
     /** Whether the clone writes by upsert, as the write below decides it. */
     const upserts = Boolean(parsed.upsert && parsed.externalIdField);
+    /**
+     * What makes the email addresses and phone numbers of the rows unreachable
+     * before they go, as Forge, Sync and Autopilot make them: none when the run
+     * keeps them as read. The clone copied them as the source held them, and a
+     * clone from production into a sandbox gave the sandbox's flows and email
+     * alerts the addresses of real customers.
+     */
+    const contactPoints = contactPointsOfRun(
+      parsed.keepContactPoints === true ? { keepContactPoints: true } : {},
+    );
+    /** What the run says of them, in its result and its audit entry. */
+    const contactPointsReport = (): ForgeContactPointsReport =>
+      contactPoints?.report() ?? CONTACT_POINTS_KEPT;
 
     try {
       // Production guard check on target org (mirror SyncOpsHandler), and no
@@ -592,6 +703,42 @@ export class SeedCloneHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
+
+      // The emails the records make the target send, against what it has left
+      // today, read with what it runs as they are created, before anything is
+      // written: Seed's gate, which a clone of a production org's contacts
+      // into a Developer Edition went past. The records are those the preview
+      // counted. A read that fails is said, and holds nothing back.
+      const targetName = targetOrg?.alias || targetOrg?.username || parsed.targetOrgId;
+      const recordCounts = this.previewedOrgs.get(parsed.previewId ?? '')?.recordCounts;
+      const emails = await this.emailGate(
+        parsed.targetOrgId,
+        targetConn,
+        parsed.objects.map((o) => ({
+          objectApiName: o.objectApiName,
+          recordCount: recordCounts?.get(o.objectApiName) ?? 0,
+        })),
+        targetName,
+      );
+      for (const line of emails?.unknown ?? []) {
+        this.deps.log(`[WARN] seed:clone:execute ${operationId}: ${line}`);
+      }
+      if (emails?.refusal && emails.figures) {
+        const refusal = cloneEmailsRefusal(emails.figures);
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: CLONE_FAILURE_CODES.emailsExceeded,
+        });
+        sendOperationFailed(this.deps, operationId, refusal, false, {
+          context: failure,
+          authored: true,
+          extraPayload: { code: CLONE_FAILURE_CODES.emailsExceeded, ...emails.figures },
+        });
+        settle(new Error(refusal));
+        return;
+      }
 
       sendOperationStarted(
         this.deps,
@@ -664,6 +811,8 @@ export class SeedCloneHandler implements DomainHandler {
       // org, as the preview does: the org's answer names neither.
       const describeMap = new Map<string, DescribeSObjectResultLike>();
       const sourceDescribes = new Map<string, DescribeSObjectResultLike>();
+      /** The target's fields, by object, as the contact points are found in them. */
+      const targetFields = new Map<string, readonly FieldInfo[]>();
       for (const name of objectNames) {
         const [describe, sourceDescribe] = await Promise.all([
           describedIn('target', name, () => targetConn.describe(name)),
@@ -673,6 +822,11 @@ export class SeedCloneHandler implements DomainHandler {
         checkApiLimits(sourceConn.limitInfo, `seed:clone:execute describe ${name} in the source`);
         describeMap.set(name, describe as DescribeSObjectResultLike);
         sourceDescribes.set(name, sourceDescribe as DescribeSObjectResultLike);
+        targetFields.set(
+          name,
+          targetWriteFieldsOf(describe as unknown as Parameters<typeof targetWriteFieldsOf>[0])
+            .fields ?? [],
+        );
         targetObjects.set(name, {
           keyPrefix: describe.keyPrefix ?? null,
           recordTypes: parseRecordTypeInfos(describe.recordTypeInfos),
@@ -724,6 +878,20 @@ export class SeedCloneHandler implements DomainHandler {
         objectApiName: string,
         writeRecords: Record<string, unknown>[],
       ): Promise<{ outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>; stopped: boolean }> => {
+        // Every row's email addresses and phone numbers are made unreachable
+        // as it goes, whatever else held it back or linked it before: the
+        // fields are the target's, whose automation reads them. The field an
+        // upsert matches on is left as read, or it would find no earlier copy.
+        if (contactPoints) {
+          const note = neutralizeSyncRows(
+            contactPoints,
+            objectApiName,
+            targetFields.get(objectApiName) ?? [],
+            writeRecords,
+            upserts ? parsed.externalIdField : undefined,
+          );
+          if (note) this.deps.log(`[INFO] seed:clone ${note}`);
+        }
         try {
           const outcomes =
             parsed.upsert && parsed.externalIdField
@@ -1189,6 +1357,8 @@ export class SeedCloneHandler implements DomainHandler {
       // holds the records without the links between them, which a 'success'
       // in the history and Live Ops hid behind the panel's warning alone.
       const lookupsLeftEmpty = secondPass !== undefined && secondPass.filled < secondPass.owed;
+      /** What the clone did with the email addresses and phone numbers it wrote. */
+      const said = contactPointsReport();
       const result: CloneExecutionResult = {
         // A clone the cancel stopped did not write every object it was for.
         status: (cancelled || lookupsLeftEmpty) && reached === 'success' ? 'partial' : reached,
@@ -1201,9 +1371,10 @@ export class SeedCloneHandler implements DomainHandler {
         ...(secondPass ? { secondPass } : {}),
         durationMs: Date.now() - startedAt,
         ...(cancelled ? { cancelled: true } : {}),
+        contactPoints: said,
       };
       unrecorded = false;
-      recordWriteRun(this.deps, cloneRun(run, result.status, objectResults, upserts));
+      recordWriteRun(this.deps, cloneRun(run, result.status, objectResults, upserts, said));
       /** Why the clone ended failed — it wrote nothing — or nothing when it did not. */
       const cloneFailed =
         !cancelled && result.status === 'failure' ? 'No record could be cloned.' : undefined;
@@ -1244,7 +1415,10 @@ export class SeedCloneHandler implements DomainHandler {
       settle(cloneFailed === undefined ? undefined : new Error(cloneFailed));
     } catch (err: unknown) {
       if (unrecorded) {
-        recordWriteRun(this.deps, cloneRun(run, 'failure', objectResults, upserts));
+        recordWriteRun(
+          this.deps,
+          cloneRun(run, 'failure', objectResults, upserts, contactPointsReport()),
+        );
       }
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
@@ -1266,21 +1440,52 @@ export class SeedCloneHandler implements DomainHandler {
 }
 
 /**
+ * Why a clone was refused before it wrote anything, for the logs: the emails
+ * its records would make the target send past what it has left today, and the
+ * ways out. The page says it from the figures, in its language.
+ */
+function cloneEmailsRefusal(figures: SeedEmailRefusalFigures): string {
+  const limit = figures.limit === 'SingleEmail' ? 'single emails' : 'workflow emails';
+  const ways = [
+    `narrow the filters of ${figures.objects.join(', ')} or leave them out`,
+    `turn off ${figures.senders.map((name) => `"${name}"`).join(', ')}`,
+    ...figures.bypasses.map(
+      (way) =>
+        'give the user the clone writes as ' +
+        (way.permissionSet
+          ? `the permission set ${way.permissionSet}, whose ${way.permission}`
+          : `a permission set holding ${way.permission}, which`) +
+        ' keeps them quiet',
+    ),
+  ];
+  return (
+    `The clone was refused before it wrote anything: its records would make ${figures.org} ` +
+    `send about ${figures.emails} ${limit}, ${figures.remaining} of ${figures.max} left today. ` +
+    'Past what is left, a flow that sends in the save refuses its record ' +
+    "(CANNOT_EXECUTE_FLOW_TRIGGER), and the org's own emails stop for the rest of the day. " +
+    `To clone them, ${ways.join('; or ')}. Nothing was written.`
+  );
+}
+
+/**
  * A clone as the audit trail records it: per object, what it wrote and what the
  * org refused, and — from its own source→target mappings, linked records
  * included — how many records it gave a counterpart in the target.
  *
  * @param upserted - Whether the rows went in by upsert, which says it wrote a
  *   row but not whether it created it.
+ * @param contactPoints - What it did with the email addresses and phone numbers.
  */
 function cloneRun(
   run: WriteRun,
   outcome: AuditOutcome,
   objectResults: readonly CloneObjectResult[],
   upserted: boolean,
+  contactPoints: ForgeContactPointsReport,
 ): WriteRun {
   return {
     ...run,
+    ...contactPointsAudit(contactPoints),
     outcome,
     objects: objectResults.map((result) => ({
       ...emptyCounts(result.objectApiName),

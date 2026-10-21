@@ -91,7 +91,7 @@ interface Harness {
  * @param cap - What `sandforge.backup.maxRecordsPerObject` says, when it says anything.
  */
 function createHarness(
-  options: { withStore?: boolean; cap?: unknown; orgType?: string } = {},
+  options: { withStore?: boolean; cap?: unknown; orgType?: string; maxAgeDays?: unknown } = {},
 ): Harness {
   let idCounter = 0;
   const config = new ConfigStore(new InMemoryConfigStoreBackend());
@@ -108,7 +108,11 @@ function createHarness(
     sfdxBridge: {},
     services: {
       getSandforgeSetting: (key: string, fallback: unknown) =>
-        key === 'backup.maxRecordsPerObject' && 'cap' in options ? options.cap : fallback,
+        key === 'backup.maxRecordsPerObject' && 'cap' in options
+          ? options.cap
+          : key === 'backup.maxAgeDays' && 'maxAgeDays' in options
+            ? options.maxAgeDays
+            : fallback,
     },
     // A restore refuses to write without a Production Guard, and the
     // extension always injects one.
@@ -573,7 +577,7 @@ describe('DataOpsHandler backup record storage', () => {
           orgId: 'org-1',
           objects: [{ objectApiName: 'Contact', recordCount: 1, truncated: false }],
           totalRecords: 1,
-          timestamp: '2026-10-01T10:00:00.000Z',
+          timestamp: new Date(Date.now() - 60 * 60_000).toISOString(),
         },
         'backups',
       );
@@ -645,6 +649,163 @@ describe('DataOpsHandler backup record storage', () => {
     });
   });
 
+  describe('deleting backups', () => {
+    const DAY = 24 * 60 * 60_000;
+
+    /** A backup of Contact, its metadata and its file, taken `ago` ms before now. */
+    async function keep(
+      harness: Harness,
+      operationId: string,
+      orgId = 'org-1',
+      ago = 60 * 60_000,
+    ): Promise<void> {
+      harness.config.set(
+        `backup:${operationId}`,
+        {
+          operationId,
+          orgId,
+          objects: [{ objectApiName: 'Contact', recordCount: 2, truncated: false }],
+          totalRecords: 2,
+          timestamp: new Date(Date.now() - ago).toISOString(),
+        },
+        'backups',
+      );
+      await harness.files.store.begin(operationId, 'Contact');
+      await harness.files.store.append(operationId, 'Contact', contactsOf(2));
+    }
+
+    const deleteMsg = (payload: Record<string, unknown>): InboundRequest =>
+      inboundRequest({
+        id: 'del-1',
+        type: 'backup:delete',
+        timestamp: Date.now(),
+        payload,
+      } as BaseMessage);
+
+    it('deletes the backup named, its metadata and its records, and keeps the others', async () => {
+      // A backup kept the records' values in clear, and nothing in the panel
+      // deleted one: it stayed until ten newer ones of the org pushed it out.
+      const harness = createHarness();
+      await keep(harness, 'bk-old');
+      await keep(harness, 'bk-new');
+
+      await harness.handler.handle(deleteMsg({ orgId: 'org-1', operationIds: ['bk-old'] }));
+
+      expect(harness.config.get('backup:bk-old')).toBeUndefined();
+      expect(harness.config.get('backup:bk-new')).toBeDefined();
+      expect(harness.files.names()).toEqual(['bk-new__Contact.ndjson']);
+      expect(postedOf(harness.deps, 'backup:delete:result')).toEqual([
+        expect.objectContaining({
+          correlationId: 'del-1',
+          payload: { orgId: 'org-1', deleted: ['bk-old'] },
+        }),
+      ]);
+    });
+
+    it('deletes every backup of the org when none is named, and none of another org', async () => {
+      const harness = createHarness();
+      await keep(harness, 'bk-1');
+      await keep(harness, 'bk-2');
+      await keep(harness, 'bk-other', 'org-2');
+
+      await harness.handler.handle(deleteMsg({ orgId: 'org-1' }));
+
+      expect(harness.files.names()).toEqual(['bk-other__Contact.ndjson']);
+      expect(postedOf(harness.deps, 'backup:delete:result')[0].payload).toEqual({
+        orgId: 'org-1',
+        deleted: ['bk-1', 'bk-2'],
+      });
+      await harness.handler.handle(
+        inboundRequest({
+          id: 'list-1',
+          type: 'backup:list',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        } as BaseMessage),
+      );
+      expect(postedOf(harness.deps, 'backup:list:result')[0].payload).toEqual({ backups: [] });
+    });
+
+    it('refuses while a backup of the org is running, which writes the files it would delete', async () => {
+      const harness = createHarness();
+      await keep(harness, 'bk-kept');
+      pagedOrg(contactsOf(1_234), {
+        onPage: (page) => {
+          if (page === 2) void harness.handler.handle(deleteMsg({ orgId: 'org-1' }));
+        },
+      });
+
+      await harness.handler.handle(backupMsg('bk-running'));
+
+      expect(postedOf(harness.deps, 'dataops:error')).toEqual([
+        expect.objectContaining({
+          correlationId: 'del-1',
+          payload: expect.objectContaining({ code: 'BACKUP_BUSY' }),
+        }),
+      ]);
+      expect(harness.config.get('backup:bk-kept')).toBeDefined();
+      expect(harness.files.recordsIn('bk-running', 'Contact')).toHaveLength(1_234);
+    });
+
+    it(`removes, as SandForge starts, the backups taken more than sandforge.backup.maxAgeDays ago`, async () => {
+      const harness = createHarness({ withStore: false });
+      // The retention has been in force on this machine for a year.
+      harness.config.set('backupRetention:since', new Date(Date.now() - 500 * DAY).toISOString());
+      await keep(harness, 'bk-ancient', 'org-1', 31 * DAY);
+      await keep(harness, 'bk-recent', 'org-1', 29 * DAY);
+      await keep(harness, 'bk-gone-org', 'org-9', 400 * DAY);
+
+      harness.handler.setBackupRecordStore(harness.files.store);
+
+      await vi.waitFor(() => expect(harness.files.names()).toEqual(['bk-recent__Contact.ndjson']));
+      expect(harness.config.get('backup:bk-ancient')).toBeUndefined();
+      expect(harness.config.get('backup:bk-gone-org')).toBeUndefined();
+      expect(harness.config.get('backup:bk-recent')).toBeDefined();
+    });
+
+    it('keeps, on the first start with the retention, the backups taken before it, however old, and takes only later ones once they age', async () => {
+      const harness = createHarness({ withStore: false });
+      await keep(harness, 'bk-before-upgrade', 'org-1', 400 * DAY);
+
+      harness.handler.setBackupRecordStore(harness.files.store);
+      await harness.handler.sweepBackupFiles();
+
+      // Kept, and the retention now dates itself from this first start.
+      expect(harness.config.get('backup:bk-before-upgrade')).toBeDefined();
+      expect(harness.files.names()).toEqual(['bk-before-upgrade__Contact.ndjson']);
+      const since = Date.parse(harness.config.get<string>('backupRetention:since') ?? '');
+      expect(Date.now() - since).toBeLessThan(60_000);
+
+      // A backup taken after it, once past its age, goes.
+      harness.config.set('backupRetention:since', new Date(Date.now() - 60 * DAY).toISOString());
+      await keep(harness, 'bk-after-upgrade', 'org-1', 31 * DAY);
+      await harness.handler.sweepBackupFiles();
+      expect(harness.config.get('backup:bk-after-upgrade')).toBeUndefined();
+      expect(harness.config.get('backup:bk-before-upgrade')).toBeDefined();
+    });
+
+    it('keeps every backup, however old, when sandforge.backup.maxAgeDays is 0', async () => {
+      const harness = createHarness({ maxAgeDays: 0 });
+      await keep(harness, 'bk-ancient', 'org-1', 400 * DAY);
+
+      await harness.handler.sweepBackupFiles();
+
+      expect(harness.config.get('backup:bk-ancient')).toBeDefined();
+      expect(harness.files.names()).toEqual(['bk-ancient__Contact.ndjson']);
+    });
+
+    it('goes by the age the setting gives', async () => {
+      const harness = createHarness({ maxAgeDays: 7 });
+      harness.config.set('backupRetention:since', new Date(Date.now() - 60 * DAY).toISOString());
+      await keep(harness, 'bk-week-old', 'org-1', 8 * DAY);
+      await keep(harness, 'bk-fresh', 'org-1', DAY);
+
+      await harness.handler.sweepBackupFiles();
+
+      expect(harness.files.names()).toEqual(['bk-fresh__Contact.ndjson']);
+    });
+  });
+
   describe('a restore', () => {
     /** A connection a restore writes through: the recycle bin, and the upsert. */
     function restoringOrg(deletedIds: string[] = []) {
@@ -691,7 +852,7 @@ describe('DataOpsHandler backup record storage', () => {
           orgId: 'org-1',
           objects,
           totalRecords: objects.reduce((sum, o) => sum + Number(o.recordCount), 0),
-          timestamp: '2026-10-01T10:00:00.000Z',
+          timestamp: new Date(Date.now() - 60 * 60_000).toISOString(),
           ...extra,
         },
         'backups',

@@ -495,6 +495,27 @@ describe('useClone', () => {
       });
     });
 
+    it('neutralizes the emails and phone numbers unless told to keep them, and says it in the run it sends', () => {
+      const { result } = previewed();
+      expect(result.current.keepContactPoints).toBe(false);
+
+      act(() => {
+        result.current.setKeepContactPoints(true);
+      });
+      act(() => {
+        result.current.handleExecute();
+      });
+
+      expect(mockExecuteMutate).toHaveBeenCalledWith(
+        expect.objectContaining({ keepContactPoints: true }),
+      );
+      // Started over, the wizard neutralizes them again.
+      act(() => {
+        result.current.reset();
+      });
+      expect(result.current.keepContactPoints).toBe(false);
+    });
+
     it('sends no run that does not name its preview', () => {
       // The extension refuses a run that names none: the page never sends one.
       const { result, rerender } = previewed();
@@ -925,6 +946,49 @@ describe('useClone', () => {
 
     expect(result.current.error).toBe(fr.seed.clone.error.PRODUCTION_GUARD_BLOCKED);
     expect(result.current.error).not.toContain('Operation blocked');
+  });
+
+  it('says in French, from its figures, why a clone was refused for its emails', async () => {
+    await i18nInstance.changeLanguage('fr');
+    const { result, rerender } = previewed();
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'host-failed',
+            type: 'operation:failed',
+            timestamp: Date.now(),
+            payload: {
+              operationId: 'wv-clone-run',
+              error: 'The clone was refused before it wrote anything: …',
+              retryable: false,
+              code: 'CLONE_EMAILS_EXCEEDED',
+              org: 'my-dev-org',
+              limit: 'SingleEmail',
+              emails: 40,
+              remaining: 15,
+              max: 15,
+              objects: ['Contact'],
+              senders: ['Welcome Email'],
+              bypasses: [],
+            },
+          },
+        }),
+      );
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toContain('Le clonage a été refusé');
+    expect(result.current.error).toContain('my-dev-org');
+    expect(result.current.error).toContain('40');
+    expect(result.current.error).toContain('Welcome Email');
+    expect(result.current.error).not.toContain('The clone was refused');
   });
 
   it('falls back to the translated generic failure on a code it does not know', async () => {

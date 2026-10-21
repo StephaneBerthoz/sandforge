@@ -153,6 +153,8 @@ function guardRefusal(
     return i18n.t('common.refusal.autopilotStorageExceeded');
   }
   if (code === 'AUTOPILOT_WRITE_DECLINED') return i18n.t('common.refusal.autopilotWriteDeclined');
+  // Backups of an org a backup or a restore is running on are not deleted.
+  if (code === 'BACKUP_BUSY') return i18n.t('common.refusal.backupBusy');
   if (code === 'AUTOPILOT_CONFIRMATION_UNAVAILABLE') {
     return i18n.t('common.refusal.autopilotConfirmationUnavailable');
   }

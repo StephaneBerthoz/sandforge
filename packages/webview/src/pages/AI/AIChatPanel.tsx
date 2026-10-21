@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useId, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AIProviderStatusMessage,
@@ -53,6 +53,8 @@ export interface AIChatPanelProps {
   onNewConversation?: (title: string) => void;
   onSelectConversation?: (conversationId: string) => void;
   onDeleteConversation?: (conversationId: string) => void;
+  /** Delete every conversation kept on this machine, once asked to confirm. */
+  onDeleteAllConversations?: () => void;
   /**
    * The composer's text, when the page keeps it: the page puts back a question
    * the host could not answer. Given with {@link onDraftChange}; left out, the
@@ -78,10 +80,14 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
+  onDeleteAllConversations,
   draft,
   onDraftChange,
 }) => {
   const { t } = useTranslation();
+  /** Deleting every conversation cannot be taken back, so it asks first. */
+  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false);
+  const deleteAllQuestionId = useId();
   const [ownDraft, setOwnDraft] = useState('');
   const inputValue = draft ?? ownDraft;
   const setInputValue = onDraftChange ?? setOwnDraft;
@@ -144,6 +150,11 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
         icon="comment-discussion"
       />
+      {/* What leaves the machine and what stays on it, said where the
+          conversations are: nothing on the page said either. */}
+      <p className="text-xs text-text-secondary" data-testid="ai-privacy-note">
+        {t('ai.privacyNote')}
+      </p>
 
       {budgetState && (
         <div className="flex justify-end">
@@ -262,6 +273,49 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
               </div>
             ))}
           </div>
+
+          {onDeleteAllConversations && conversations.length > 0 && (
+            <div className="flex flex-col gap-1" data-testid="delete-all-conversations">
+              {confirmingDeleteAll ? (
+                <>
+                  <p id={deleteAllQuestionId} className="text-xs text-text-primary">
+                    {t('ai.deleteAllConfirm', { count: conversations.length })}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      aria-describedby={deleteAllQuestionId}
+                      onClick={() => {
+                        setConfirmingDeleteAll(false);
+                        onDeleteAllConversations();
+                      }}
+                      data-testid="delete-all-conversations-confirm"
+                    >
+                      {t('common.confirm')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setConfirmingDeleteAll(false)}
+                      data-testid="delete-all-conversations-cancel"
+                    >
+                      {t('common.cancel')}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setConfirmingDeleteAll(true)}
+                  data-testid="delete-all-conversations-btn"
+                >
+                  {t('ai.deleteAll')}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Chat area */}

@@ -628,6 +628,15 @@ export interface OperationFailedOptions {
   extraPayload?: Record<string, unknown>;
   /** What is known about the operation, for the fix suggestion. */
   context?: OperationFailureContext;
+  /**
+   * The message is a refusal SandForge wrote itself, at the call site that
+   * wrote it: never asked about, whatever it says. The list of messages below
+   * caught only the ones a regex was added for, and the refusals Seed words for
+   * its storage and its emails — the org's alias or username, its flows, its
+   * permission sets — went to the model with every panel open, for an answer
+   * that could only repeat them.
+   */
+  authored?: boolean;
 }
 
 /**
@@ -673,6 +682,7 @@ export function sendOperationFailed(
     payload: { operationId, error, retryable, ...options.extraPayload },
   };
   deps.broker.postToWebview(msg);
+  if (options.authored === true) return;
   resolveFailedOperation(deps, error, options.context);
 }
 
@@ -684,6 +694,8 @@ export function sendOperationFailed(
  * of a call, and of the org ids several of them name. Matched here, on the
  * message, because a handler that throws one of them reaches
  * `sendOperationFailed` through a generic `catch` that no call-site flag sees.
+ * A refusal sent where it is written says so instead
+ * (`OperationFailedOptions.authored`), and needs no line here.
  */
 const SANDFORGE_AUTHORED_FAILURES: readonly RegExp[] = [
   // A declined production confirmation (every write path).

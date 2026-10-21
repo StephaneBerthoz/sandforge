@@ -196,6 +196,8 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceO
                 previewResult={clone.previewResult}
                 onExecute={clone.handleExecute}
                 onBack={() => clone.setStep('objects')}
+                keepContactPoints={clone.keepContactPoints}
+                onKeepContactPointsChange={clone.setKeepContactPoints}
               />
             ) : null}
           </>

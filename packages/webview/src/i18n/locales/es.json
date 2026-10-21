@@ -61,7 +61,8 @@
       "autopilotWriteDeclined": "Canceló la ejecución de Autopilot antes de que escribiera nada. No se escribió nada en la org de destino.",
       "autopilotConfirmationUnavailable": "La ejecución de Autopilot se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
       "seedStorageExceeded": "El seed se rechazó antes de escribir nada: sus registros ocupan unos {{estimate}} MB de almacenamiento de datos, y a {{org}} le quedan {{remaining}} MB de {{max}} MB. Reduzca el número de registros, elija una plantilla más ligera o libere almacenamiento de datos en {{org}}.",
-      "seedEmailsExceeded": "El seed se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Reduzca el número de registros, ponga {{objects}} a 0, desactive {{senders}} o asígnese el permiso que los silencia."
+      "seedEmailsExceeded": "El seed se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Reduzca el número de registros, ponga {{objects}} a 0, desactive {{senders}} o asígnese el permiso que los silencia.",
+      "backupBusy": "Hay una copia de seguridad o una restauración de esta org en curso: elimine sus copias de seguridad cuando haya terminado."
     },
     "list": {
       "separator": ", ",
@@ -152,7 +153,9 @@
       "titleMany_other": "{{count}} orgs están conectadas",
       "fill": "Rellenar {{alias}} con datos de demostración",
       "clone": "Clonar desde otra org"
-    }
+    },
+    "disconnectDeleteBackups_one": "Eliminar también la copia de seguridad de DataOps de esta org guardada en este equipo, que contiene en claro los valores de sus registros",
+    "disconnectDeleteBackups_other": "Eliminar también las {{count}} copias de seguridad de DataOps de esta org guardadas en este equipo, que contienen en claro los valores de sus registros"
   },
   "monitor": {
     "refresh": "Actualizar",
@@ -923,6 +926,7 @@
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonación cancelada: no se confirmó la escritura en producción.",
         "PRODUCTION_GUARD_BLOCKED": "La protección de producción bloqueó esta clonación antes de escribir ningún registro.",
         "CLONE_FAILED": "La clonación se detuvo antes de finalizar.",
+        "CLONE_EMAILS_EXCEEDED": "La clonación se rechazó antes de escribir nada. {{limit}} que estos registros harían enviar a {{org}}: unos {{emails}}, con {{remaining}} de {{max}} disponibles hoy. Restrinja los filtros de {{objects}} o quítelos, desactive {{senders}} o asígnese el permiso que los silencia.",
         "INVALID_PAYLOAD": "SandForge rechazó esta solicitud antes de leer ninguna de las dos orgs. Una clonación necesita una org de origen, una org de destino y de 1 a 100 objetos, y un filtro solo puede seleccionar registros: sin LIMIT, ORDER BY, subconsulta, punto y coma ni comentario. El canal de salida de SandForge indica qué parte se rechazó.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge rechazó esta ejecución antes de escribir nada: no era para las orgs para las que se hizo su vista previa. Vuelva a generar la vista previa y luego ejecute la clonación.",
         "NOT_PREVIEWED": "SandForge rechazó esta ejecución antes de leer ninguna de las dos orgs: no indicaba ninguna vista previa, y una clonación solo se ejecuta a partir de la vista previa para la que se hizo. Vuelva a generar la vista previa y luego ejecute la clonación.",
@@ -1806,7 +1810,11 @@
       "confirmTitle_other": "¿Borrar {{formatted}} registros?",
       "confirmAnonymize": "Los campos listados se sobrescriben en la org, y no se puede deshacer. Haga antes un respaldo si puede necesitarlos.",
       "confirmDelete": "Los registros, y lo que la org elimina junto con ellos, van a la papelera, donde quedan hasta que se vacía.",
-      "confirmWord": "borrar"
+      "confirmWord": "borrar",
+      "backupsBefore_one": "Esta org tiene una copia de seguridad en este equipo, hecha antes de este borrado: guarda en claro los registros de la persona, y restaurarla los trae de vuelta.",
+      "backupsBefore_other": "Esta org tiene {{count}} copias de seguridad en este equipo, hechas antes de este borrado: guardan en claro los registros de la persona, y restaurar una los trae de vuelta.",
+      "deleteBackupsBefore_one": "Eliminar esta copia de seguridad",
+      "deleteBackupsBefore_other": "Eliminar estas {{count}} copias de seguridad"
     },
     "dsrLog": {
       "title": "Registro de solicitudes",
@@ -1905,7 +1913,14 @@
       "notRead": "No leído: {{error}}",
       "noRecords": "No hay registros que enmascarar.",
       "fieldsNotFound": "Aplicar no enmascara nada en {{fields}}: la org no tiene ese campo."
-    }
+    },
+    "backupDelete": "Eliminar",
+    "backupDeleteConfirm": "¿Eliminar esta copia de seguridad? Los valores de los registros que guarda en claro en este equipo desaparecen para siempre, y ya no se podrá restaurar.",
+    "backupDeleteAll": "Eliminar todas las copias de seguridad de esta org",
+    "backupDeleteAllConfirm_one": "¿Eliminar la copia de seguridad de esta org guardada en este equipo? Los valores de los registros que guarda en claro desaparecen para siempre, y ya no se podrá restaurar.",
+    "backupDeleteAllConfirm_other": "¿Eliminar las {{count}} copias de seguridad de esta org guardadas en este equipo? Los valores de los registros que guardan en claro desaparecen para siempre, y ninguna se podrá restaurar.",
+    "backupsDeleted_one": "{{count}} copia de seguridad eliminada de este equipo.",
+    "backupsDeleted_other": "{{count}} copias de seguridad eliminadas de este equipo."
   },
   "automation": {
     "title": "Automatización",
@@ -2182,7 +2197,11 @@
       "transient": "Error temporal de IA. Reintento disponible.",
       "unknown": "Error inesperado de IA."
     },
-    "conversations": "Conversaciones"
+    "conversations": "Conversaciones",
+    "privacyNote": "Lo que escribe se envía a Anthropic con la conversación hasta ese momento. Las conversaciones se quedan en este equipo, las 50 más recientes.",
+    "deleteAll": "Eliminar todas las conversaciones",
+    "deleteAllConfirm_one": "¿Eliminar la conversación guardada en este equipo? No se podrá recuperar.",
+    "deleteAllConfirm_other": "¿Eliminar las {{count}} conversaciones guardadas en este equipo? No se podrán recuperar."
   },
   "notifications": {
     "title": "Notificaciones"
@@ -2395,7 +2414,17 @@
     "aiApiKey": "Clave de API",
     "aiKeyConfigured": "Clave configurada",
     "aiKeySaved": "Clave guardada",
-    "aiHint": "La clave se guarda en el almacén de secretos de VSCode y nunca se escribe en la configuración ni en los registros."
+    "aiHint": "La clave se guarda en el almacén de secretos de VSCode y nunca se escribe en la configuración ni en los registros.",
+    "aiSends": "Mientras la IA está activada, esto se envía a Anthropic con su clave: el chat envía lo que escribe con la conversación hasta ese momento; NL2SOQL envía su pregunta con los nombres de los objetos y campos de la org; un borrador de pipeline, una persona personalizada y una regla de campo IA envían su descripción, o el nombre del campo y su instrucción.",
+    "aiSendsFailures": "Las sugerencias de corrección envían el mensaje de error de una ejecución fallida, sin sus Id de Salesforce, sin que nadie pulse nada. Un mensaje de error puede citar valores de registros.",
+    "aiErrorResolution": "Sugerir correcciones para las ejecuciones fallidas, enviando sus mensajes de error",
+    "aiSaveAndTurnOn": "Guardar la clave y activar la IA",
+    "aiTurnOn": "Activar la IA",
+    "aiTurnOff": "Desactivar la IA",
+    "aiRemoveKey": "Eliminar la clave",
+    "aiRemoveKeyConfirm": "¿Eliminar la clave? La IA se desactiva y se eliminan las conversaciones guardadas en este equipo.",
+    "aiKeyRemoved_one": "Clave eliminada: la IA está desactivada y se eliminó {{count}} conversación.",
+    "aiKeyRemoved_other": "Clave eliminada: la IA está desactivada y se eliminaron {{count}} conversaciones."
   },
   "bridge": {
     "protocolMismatch": {

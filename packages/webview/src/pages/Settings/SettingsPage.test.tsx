@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import i18n from '../../i18n';
 import { SettingsPage, defaultSettings } from './SettingsPage';
+import en from '../../i18n/locales/en.json';
 import { dispatchLocaleResponse, stubLocaleBridge } from '../../i18n/testing/mockLocaleBridge';
 
 /* The i18n module posts `i18n:locale` through this api for lazy locales. */
@@ -37,6 +38,24 @@ const mockTelemetryStatus: {
 /** Request types issued through useBridgeQuery, in call order. */
 const bridgeQueryTypes: string[] = [];
 
+/** What `ai:status` answers, set per test. */
+const mockAiStatus: {
+  data: {
+    enabled: boolean;
+    provider: string;
+    model: string;
+    hasKey?: boolean;
+    errorResolution?: boolean;
+  } | null;
+} = { data: null };
+
+/** The mutate of each AI request, by request type. */
+const mockAiMutate: Record<string, ReturnType<typeof vi.fn>> = {
+  'ai:save-key': vi.fn(),
+  'ai:settings': vi.fn(),
+  'ai:remove-key': vi.fn(),
+};
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     bridgeQueryTypes.push(type);
@@ -47,6 +66,9 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
         error: mockTelemetryStatus.error,
         refetch: mockTelemetryRefetch,
       };
+    }
+    if (type === 'ai:status') {
+      return { data: mockAiStatus.data, loading: false, error: null, refetch: vi.fn() };
     }
     return {
       data: null,
@@ -68,6 +90,10 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
         reset: vi.fn(),
       };
     }
+    const aiMutate = mockAiMutate[type];
+    if (aiMutate) {
+      return { mutate: aiMutate, data: null, loading: false, error: null, reset: vi.fn() };
+    }
     return {
       mutate: mockSettingsUpdateMutate,
       data: null,
@@ -85,6 +111,8 @@ describe('SettingsPage', () => {
     mockTelemetryMutate.mockClear();
     mockTelemetryRefetch.mockClear();
     bridgeQueryTypes.length = 0;
+    mockAiStatus.data = null;
+    for (const mutate of Object.values(mockAiMutate)) mutate.mockClear();
     // Auto-answer lazy locale requests with the real bundles.
     stubLocaleBridge(mockPostMessage);
   });
@@ -194,8 +222,10 @@ describe('SettingsPage', () => {
     // button also labelled "Save" dropped the typed key without a word.
     fireEvent.click(screen.getByText('AI'));
     expect(screen.queryByTestId('save-settings-btn')).toBeNull();
-    expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1);
-    expect(screen.getByTestId('ai-save-key-btn')).toBeDefined();
+    // With no key stored yet, it says it turns AI on as well.
+    expect(screen.getAllByRole('button', { name: /^Save/ })).toEqual([
+      screen.getByTestId('ai-save-key-btn'),
+    ]);
 
     for (const tab of ['Advanced', 'Profiles', 'Telemetry']) {
       fireEvent.click(screen.getByText(tab));
@@ -338,5 +368,94 @@ describe('SettingsPage', () => {
     expect(screen.queryByText('Disabled')).toBeNull();
     const toggleBtn = screen.getByTestId('telemetry-toggle-btn') as HTMLButtonElement;
     expect(toggleBtn.disabled).toBe(true);
+  });
+
+  describe('the AI tab', () => {
+    const openAiTab = (): void => {
+      render(<SettingsPage />);
+      fireEvent.click(screen.getByText('AI'));
+    };
+
+    it('says what each feature sends, and to whom, before any key is stored', () => {
+      openAiTab();
+
+      const sent = screen.getByTestId('ai-what-is-sent');
+      expect(sent.textContent).toContain(en.settings.aiSends);
+      expect(sent.textContent).toContain(en.settings.aiSendsFailures);
+      expect(sent.textContent).toContain('Anthropic');
+    });
+
+    it('asks with the first key whether failed runs may be sent, and sends none unless told yes', () => {
+      openAiTab();
+      const box = screen.getByTestId('ai-first-key-error-resolution') as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      fireEvent.change(screen.getByTestId('ai-api-key-input'), {
+        target: { value: 'sk-ant-test' },
+      });
+
+      const save = screen.getByTestId('ai-save-key-btn');
+      expect(save.textContent).toBe(en.settings.aiSaveAndTurnOn);
+      fireEvent.click(save);
+      expect(mockAiMutate['ai:save-key']).toHaveBeenLastCalledWith({
+        apiKey: 'sk-ant-test',
+        errorResolution: false,
+      });
+
+      fireEvent.click(box);
+      fireEvent.click(save);
+      expect(mockAiMutate['ai:save-key']).toHaveBeenLastCalledWith({
+        apiKey: 'sk-ant-test',
+        errorResolution: true,
+      });
+    });
+
+    it('turns the fix suggestions off, and AI off, from the card', () => {
+      mockAiStatus.data = {
+        enabled: true,
+        provider: 'anthropic',
+        model: 'claude',
+        hasKey: true,
+        errorResolution: true,
+      };
+      openAiTab();
+      expect(screen.queryByTestId('ai-first-key-error-resolution')).toBeNull();
+
+      const toggle = screen.getByTestId('ai-error-resolution-toggle') as HTMLInputElement;
+      expect(toggle.checked).toBe(true);
+      fireEvent.click(toggle);
+      expect(mockAiMutate['ai:settings']).toHaveBeenLastCalledWith({ errorResolution: false });
+
+      const onOff = screen.getByTestId('ai-toggle-btn');
+      expect(onOff.textContent).toBe(en.settings.aiTurnOff);
+      fireEvent.click(onOff);
+      expect(mockAiMutate['ai:settings']).toHaveBeenLastCalledWith({ enabled: false });
+    });
+
+    it('turns AI back on with the key it holds', () => {
+      mockAiStatus.data = { enabled: false, provider: 'none', model: '', hasKey: true };
+      openAiTab();
+
+      const onOff = screen.getByTestId('ai-toggle-btn');
+      expect(onOff.textContent).toBe(en.settings.aiTurnOn);
+      fireEvent.click(onOff);
+      expect(mockAiMutate['ai:settings']).toHaveBeenLastCalledWith({ enabled: true });
+    });
+
+    it('removes the key only once asked, saying the conversations go with it', () => {
+      mockAiStatus.data = { enabled: true, provider: 'anthropic', model: 'claude', hasKey: true };
+      openAiTab();
+
+      fireEvent.click(screen.getByTestId('ai-remove-key-btn'));
+      expect(mockAiMutate['ai:remove-key']).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ai-remove-key-question').textContent).toBe(
+        en.settings.aiRemoveKeyConfirm,
+      );
+      fireEvent.click(screen.getByTestId('ai-remove-key-cancel-btn'));
+      expect(screen.queryByTestId('ai-remove-key-question')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('ai-remove-key-btn'));
+      fireEvent.click(screen.getByTestId('ai-remove-key-confirm-btn'));
+      expect(mockAiMutate['ai:remove-key']).toHaveBeenCalledTimes(1);
+    });
   });
 });

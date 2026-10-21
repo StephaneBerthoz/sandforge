@@ -1632,6 +1632,24 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Organizations disconnect asking whether the org’s backups on this machine go with it', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme, orgs: true });
+      await page.getByText('Disconnect').first().click();
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [{ operationId: 'bk-1' }, { operationId: 'bk-2' }],
+      });
+      await expect(page.getByTestId('disconnect-delete-backups')).toBeVisible();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="danger-title"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge page', async ({ page }) => {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       const results = await checkAccessibility(page);
@@ -4173,6 +4191,76 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
+    test('Seed Clone preview neutralizing emails and phone numbers, then keeping them, with the warning it gives', async ({
+      page,
+    }) => {
+      await previewAccountsAndContacts(page);
+      await expect(page.getByTestId('clone-preview-contact-points')).toBeVisible();
+      let results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-preview-contact-points"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('clone-keep-contact-points').check();
+      await expect(page.getByTestId('clone-keep-contact-points-warning')).toBeVisible();
+      results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="clone-keep-contact-points-warning"]',
+        ),
+      ).toBeGreaterThan(0);
+    });
+
+    for (const contactPoints of [
+      {
+        neutralized: true,
+        fields: [
+          { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 18 },
+          { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 12 },
+        ],
+        values: 30,
+      },
+      { neutralized: false, fields: [], values: 0 },
+    ]) {
+      test(`Seed Clone results saying the emails and phone numbers were ${contactPoints.neutralized ? 'neutralized' : 'kept as read'}`, async ({
+        page,
+      }) => {
+        await previewAccountsAndContacts(page);
+        await page.getByTestId('clone-preview-execute').click();
+        await bridge.waitForMessage('seed:clone:execute', { timeout: 10_000 });
+        await answerAll(page, 'seed:clone:execute', 'seed:clone:execute:response', {
+          status: 'success',
+          totalSourceRecords: 18,
+          totalInserted: 18,
+          totalFailed: 0,
+          durationMs: 1800,
+          contactPoints,
+          objectResults: [
+            {
+              objectApiName: 'Contact',
+              sourceCount: 18,
+              insertedCount: 18,
+              failedCount: 0,
+              idMappings: [{ sourceId: fakeId('003', 1), targetId: fakeId('003', 2) }],
+              errors: [],
+            },
+          ],
+        });
+        await page.waitForSelector('[data-testid="forge-results-contact-points"]', {
+          timeout: 10_000,
+        });
+        const results = await checkAccessibility(page);
+        expectNoViolations(results);
+        expect(
+          await contrastMeasuredIn(page, results, '[data-testid="forge-results-contact-points"]'),
+        ).toBeGreaterThan(0);
+      });
+    }
+
     test('Seed Clone with no org selected, saying on both steps why it cannot preview', async ({
       page,
     }) => {
@@ -5390,6 +5478,24 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('AI page saying what it sends and keeps, with Delete all conversations asked', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
+      await createConversation(bridge, page, 'axe-conv-del', 'To delete');
+      await page.getByTestId('delete-all-conversations-btn').click();
+      await expect(page.getByTestId('delete-all-conversations-confirm')).toBeVisible();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="ai-privacy-note"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="delete-all-conversations"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('AI chat with assistant response', async ({ page }) => {
       await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
 
@@ -6117,6 +6223,33 @@ for (const theme of SCANNED_THEMES) {
           `axe measured no text of the ${tab} tab`,
         ).toBeGreaterThan(0);
       }
+    });
+
+    test('Settings AI tab with a key stored and AI on: what is sent, its switches, and the removal of the key asked', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
+      await page.locator('#tab-ai').click();
+      await bridge.waitForMessage('ai:status', { timeout: 10_000 });
+      await answerAll(page, 'ai:status', 'ai:status:response', {
+        enabled: true,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        hasKey: true,
+        errorResolution: true,
+      });
+      await expect(page.getByTestId('ai-error-resolution-toggle')).toBeChecked();
+      await page.getByTestId('ai-remove-key-btn').click();
+      await expect(page.getByTestId('ai-remove-key-question')).toBeVisible();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="ai-what-is-sent"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="ai-key-actions"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Command palette open over a page, with results', async ({ page }) => {
@@ -8148,6 +8281,53 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps Restore deleting a backup, and every backup of the org, each asked first', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [
+          {
+            operationId: 'bk-1',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-01T10:00:00.000Z',
+            totalRecords: 120,
+            totalSize: 0,
+            status: 'completed',
+            objectResults: [{ objectApiName: 'Contact', recordCount: 120, truncated: false }],
+          },
+          {
+            operationId: 'bk-2',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-02T10:00:00.000Z',
+            totalRecords: 80,
+            totalSize: 0,
+            status: 'completed',
+            objectResults: [{ objectApiName: 'Lead', recordCount: 80, truncated: false }],
+          },
+        ],
+      });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-restore').click();
+      await page.getByTestId('restore-backup-bk-1').getByRole('button').first().click();
+      await page.getByTestId('delete-backup-btn-bk-1').click();
+      await expect(page.getByTestId('delete-backup-question')).toBeVisible();
+      await expectReadable(page, theme);
+
+      await page.getByTestId('delete-backup-cancel').click();
+      await page.getByTestId('delete-all-backups-btn').click();
+      await expect(page.getByTestId('delete-backup-question')).toContainText('2 backups');
+      await expectReadable(page, theme);
+    });
+
     test('DataOps Anonymize saying what a restore of the latest backup brings back', async ({
       page,
     }) => {
@@ -9282,6 +9462,146 @@ for (const theme of STATE_THEMES) {
       });
       await expect(page.getByTestId('dsr-log-entries')).toBeVisible({ timeout: 10_000 });
 
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps compliance after an erasure, offering to delete the backups taken before it', async ({
+      page,
+    }) => {
+      const requestId = '5b0a9b8c-4444-4000-8000-000000000000';
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', { backups: [] });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-gdpr').click();
+      await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+        objects: [{ apiName: 'Contact', label: 'Contact' }],
+      });
+      await page.getByTestId('compliance-object-option-Contact').check();
+      await page.getByTestId('inventory-run-btn').click();
+      await bridge.waitForMessage('dataops:pii-inventory', { timeout: 10_000 });
+      await answerAll(page, 'dataops:pii-inventory', 'dataops:pii-inventory:response', {
+        orgId: DEV_SANDBOX.id,
+        scannedAt: '2026-09-23T10:00:00.000Z',
+        sampleSize: 200,
+        objects: [
+          {
+            status: 'scanned',
+            objectApiName: 'Contact',
+            label: 'Contact',
+            sampled: 18,
+            fields: [
+              {
+                fieldApiName: 'Email',
+                label: 'Email',
+                classification: 'PII',
+                detectedBy: 'name',
+                pattern: 'email',
+                filled: 17,
+                searchedFor: 'email',
+              },
+            ],
+            nameField: { fieldApiName: 'Name', label: 'Full Name' },
+          },
+        ],
+      });
+      await page.getByLabel('Email address').fill('jane.doe@example.com');
+      await page.getByTestId('dsr-search-btn').click();
+      await bridge.waitForMessage('dataops:dsr:search', { timeout: 10_000 });
+      await answerAll(page, 'dataops:dsr:search', 'dataops:dsr:search:response', {
+        requestId,
+        orgId: DEV_SANDBOX.id,
+        searchedAt: '2026-09-23T10:01:00.000Z',
+        limit: 200,
+        objects: [
+          {
+            status: 'searched',
+            objectApiName: 'Contact',
+            label: 'Contact',
+            counted: 1,
+            records: [{ id: '003000000000001AAA', name: 'Jane Doe', matchedBy: ['Email'] }],
+            truncated: false,
+            searched: [{ fieldApiName: 'Email', label: 'Email', kind: 'email' }],
+          },
+        ],
+      });
+      await page.getByTestId('dsr-review-btn').click();
+      await bridge.waitForMessage('dataops:dsr:erase', { timeout: 10_000 });
+      await answerAll(page, 'dataops:dsr:erase', 'dataops:dsr:erase:response', {
+        requestId,
+        mode: 'anonymize',
+        dryRun: true,
+        plan: [
+          {
+            objectApiName: 'Contact',
+            label: 'Contact',
+            records: 1,
+            fields: [{ fieldApiName: 'Email', label: 'Email', method: 'fake' }],
+            kept: [],
+          },
+        ],
+      });
+      await page.getByTestId('dsr-erase-btn').click();
+      await page.getByTestId('danger-input').fill('erase');
+      const reviews = (await bridge.getMessages('dataops:dsr:erase')).length;
+      await page.getByTestId('danger-confirm-btn').click();
+      await expect
+        .poll(async () => (await bridge.getMessages('dataops:dsr:erase')).length)
+        .toBeGreaterThan(reviews);
+      const [erasure] = (await bridge.getMessages('dataops:dsr:erase')).slice(-1);
+      await sendExtensionMessage(page, {
+        type: 'dataops:dsr:erase:response',
+        id: 'resp-erasure',
+        correlationId: String(erasure?.id),
+        payload: {
+          requestId,
+          mode: 'anonymize',
+          dryRun: false,
+          plan: [],
+          outcome: {
+            status: 'success',
+            done: 1,
+            failed: 0,
+            objects: [{ objectApiName: 'Contact', done: 1, failed: 0 }],
+            errors: [],
+          },
+        },
+      });
+      await expect(page.getByTestId('removal-outcome')).toBeVisible({ timeout: 10_000 });
+      await expect
+        .poll(async () => (await bridge.getMessages('backup:list')).length)
+        .toBeGreaterThan(1);
+      const [listing] = (await bridge.getMessages('backup:list')).slice(-1);
+      await sendExtensionMessage(page, {
+        type: 'backup:list:result',
+        id: 'resp-listing',
+        correlationId: String(listing?.id),
+        payload: {
+          backups: [
+            {
+              operationId: 'bk-before',
+              orgId: DEV_SANDBOX.id,
+              timestamp: '2026-09-20T10:00:00.000Z',
+              totalRecords: 120,
+              totalSize: 0,
+              status: 'completed',
+              objectResults: [{ objectApiName: 'Contact', recordCount: 120, truncated: false }],
+            },
+          ],
+        },
+      });
+      await expect(page.getByTestId('dsr-backups-before')).toBeVisible({ timeout: 10_000 });
+      await expectReadable(page, theme);
+      await page.getByTestId('dsr-backups-delete').click();
+      await expect(page.getByTestId('dsr-backups-delete-confirm')).toBeVisible();
       await expectReadable(page, theme);
     });
 

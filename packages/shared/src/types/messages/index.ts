@@ -222,6 +222,8 @@ import type {
   BackupObjectsResponse,
   BackupExportRequest,
   BackupExportResult,
+  BackupDeleteRequest,
+  BackupDeleteResult,
   AnonymizationTemplatesRequest,
   AnonymizationTemplatesResponse,
   AnonymizationTemplateSaveRequest,
@@ -389,6 +391,9 @@ import type {
   AIConversationCreateRequest,
   AIConversationLoadRequest,
   AIConversationDeleteRequest,
+  AIConversationDeleteAllRequest,
+  AISettingsRequest,
+  AIRemoveKeyRequest,
   AIConversationListRequest,
   AIStatusRequest,
   AISaveKeyRequest,
@@ -398,6 +403,9 @@ import type {
   AIConversationCreatedResponse,
   AIConversationLoadedResponse,
   AIConversationDeletedResponse,
+  AIConversationDeletedAllResponse,
+  AISettingsResponse,
+  AIRemoveKeyResponse,
   AIConversationListResponse,
   AIErrorResponse,
   AIStatusResponse,
@@ -606,6 +614,7 @@ export type WebViewToExtensionMessage =
   | BackupListRequest
   | BackupObjectsRequest
   | BackupExportRequest
+  | BackupDeleteRequest
   | AnonymizationTemplatesRequest
   | AnonymizationTemplateSaveRequest
   | AnonymizationTemplateDeleteRequest
@@ -682,6 +691,9 @@ export type WebViewToExtensionMessage =
   | AIConversationCreateRequest
   | AIConversationLoadRequest
   | AIConversationDeleteRequest
+  | AIConversationDeleteAllRequest
+  | AISettingsRequest
+  | AIRemoveKeyRequest
   | AIConversationListRequest
   | AIStatusRequest
   | AISaveKeyRequest
@@ -845,6 +857,7 @@ export type ExtensionToWebViewMessage =
   | BackupListResult
   | BackupObjectsResponse
   | BackupExportResult
+  | BackupDeleteResult
   | DataOpsBackupResponse
   | DataOpsRollbackResponse
   | DataOpsAnonymizeResponse
@@ -937,6 +950,9 @@ export type ExtensionToWebViewMessage =
   | AIConversationCreatedResponse
   | AIConversationLoadedResponse
   | AIConversationDeletedResponse
+  | AIConversationDeletedAllResponse
+  | AISettingsResponse
+  | AIRemoveKeyResponse
   | AIConversationListResponse
   | AIErrorResponse
   | AIStatusResponse

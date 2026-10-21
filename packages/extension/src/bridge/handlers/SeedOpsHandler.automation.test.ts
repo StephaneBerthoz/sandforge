@@ -13,6 +13,8 @@ import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { AIProvider } from '../../modules/ai/types.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -256,6 +258,32 @@ describe('SeedOpsHandler — the org automation and the emails', () => {
     expect(posted('operation:failed')).toHaveLength(1);
     expect(guardChecks).not.toHaveBeenCalled();
     expect(executed).toEqual([]);
+  });
+
+  it('asks the model nothing about its refusal, which names the org, its flows and its permission set', async () => {
+    const provider = vi.fn<AIProvider>(() =>
+      Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+    );
+    deps.errorResolver = new ErrorResolver(provider);
+    const showFixSuggestion = vi.fn();
+    deps.broker = {
+      postToWebview: vi.fn(),
+      panelCount: 1,
+      showFixSuggestion,
+    } as unknown as HandlerDeps['broker'];
+    developerEdition();
+    await execute(CRM_STARTER);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(posted('operation:failed')).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          error: expect.stringMatching(/my-dev-org.*"Welcome Email".*Trap_Bypass/),
+        }),
+      }),
+    ]);
+    expect(provider).not.toHaveBeenCalled();
+    expect(showFixSuggestion).not.toHaveBeenCalled();
   });
 
   it('runs the seed once the user holds the bypass that keeps the senders quiet', async () => {

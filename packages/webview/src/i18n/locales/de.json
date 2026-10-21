@@ -61,7 +61,8 @@
       "autopilotWriteDeclined": "Sie haben den Autopilot-Lauf abgebrochen, bevor er etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",
       "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
-      "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält."
+      "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
+      "backupBusy": "Ein Backup oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Backups, sobald der Vorgang beendet ist."
     },
     "list": {
       "separator": ", ",
@@ -152,7 +153,9 @@
       "titleMany_other": "{{count}} Orgs sind verbunden",
       "fill": "{{alias}} mit Demodaten füllen",
       "clone": "Aus einer anderen Org klonen"
-    }
+    },
+    "disconnectDeleteBackups_one": "Auch das auf diesem Rechner gespeicherte DataOps-Backup dieser Org löschen, das die Werte ihrer Datensätze im Klartext enthält",
+    "disconnectDeleteBackups_other": "Auch die {{count}} auf diesem Rechner gespeicherten DataOps-Backups dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthalten"
   },
   "monitor": {
     "refresh": "Aktualisieren",
@@ -923,6 +926,7 @@
         "PRODUCTION_CONFIRMATION_DECLINED": "Klonen abgebrochen: Der Schreibvorgang in der Produktion wurde nicht bestätigt.",
         "PRODUCTION_GUARD_BLOCKED": "Der Produktionsschutz hat diesen Klonvorgang blockiert, bevor ein Datensatz geschrieben wurde.",
         "CLONE_FAILED": "Der Klonvorgang wurde vor dem Abschluss beendet.",
+        "CLONE_EMAILS_EXCEEDED": "Der Klonvorgang wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Schränken Sie die Filter von {{objects}} ein oder lassen Sie sie weg, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
         "INVALID_PAYLOAD": "SandForge hat diese Anfrage abgelehnt, bevor eine der beiden Orgs gelesen wurde. Ein Klonvorgang braucht eine Quell-Org, eine Ziel-Org und 1 bis 100 Objekte, und ein Filter darf nur Datensätze auswählen: kein LIMIT, kein ORDER BY, keine Unterabfrage, kein Semikolon und kein Kommentar. Der SandForge-Ausgabekanal nennt den abgelehnten Teil.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge hat diesen Lauf abgelehnt, bevor etwas geschrieben wurde: Er galt nicht den Orgs, für die seine Vorschau erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "NOT_PREVIEWED": "SandForge hat diesen Lauf abgelehnt, bevor eine der beiden Orgs gelesen wurde: Er nannte keine Vorschau, und ein Klonvorgang läuft nur aus der Vorschau, für die er erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
@@ -1806,7 +1810,11 @@
       "confirmTitle_other": "{{formatted}} Datensätze löschen?",
       "confirmAnonymize": "Die aufgeführten Felder werden in der Org überschrieben, und das ist nicht umkehrbar. Sichern Sie zuerst, falls Sie sie noch brauchen könnten.",
       "confirmDelete": "Die Datensätze und alles, was die Org mit ihnen löscht, kommen in den Papierkorb und bleiben dort, bis er geleert wird.",
-      "confirmWord": "löschen"
+      "confirmWord": "löschen",
+      "backupsBefore_one": "Diese Org hat ein Backup auf diesem Rechner, das vor dieser Löschung erstellt wurde: Es enthält die Datensätze der Person im Klartext, und eine Wiederherstellung bringt sie zurück.",
+      "backupsBefore_other": "Diese Org hat {{count}} Backups auf diesem Rechner, die vor dieser Löschung erstellt wurden: Sie enthalten die Datensätze der Person im Klartext, und die Wiederherstellung eines davon bringt sie zurück.",
+      "deleteBackupsBefore_one": "Dieses Backup löschen",
+      "deleteBackupsBefore_other": "Diese {{count}} Backups löschen"
     },
     "dsrLog": {
       "title": "Anfrageprotokoll",
@@ -1905,7 +1913,14 @@
       "notRead": "Nicht gelesen: {{error}}",
       "noRecords": "Keine Datensätze zu maskieren.",
       "fieldsNotFound": "Anwenden maskiert nichts in {{fields}}: Die Org hat kein solches Feld."
-    }
+    },
+    "backupDelete": "Löschen",
+    "backupDeleteConfirm": "Dieses Backup löschen? Die Werte der Datensätze, die es im Klartext auf diesem Rechner enthält, sind endgültig weg, und es lässt sich nicht mehr wiederherstellen.",
+    "backupDeleteAll": "Alle Backups dieser Org löschen",
+    "backupDeleteAllConfirm_one": "Das auf diesem Rechner gespeicherte Backup dieser Org löschen? Die Werte der Datensätze, die es im Klartext enthält, sind endgültig weg, und es lässt sich nicht mehr wiederherstellen.",
+    "backupDeleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Backups dieser Org löschen? Die Werte der Datensätze, die sie im Klartext enthalten, sind endgültig weg, und keines lässt sich mehr wiederherstellen.",
+    "backupsDeleted_one": "{{count}} Backup von diesem Rechner gelöscht.",
+    "backupsDeleted_other": "{{count}} Backups von diesem Rechner gelöscht."
   },
   "automation": {
     "title": "Automatisierung",
@@ -2182,7 +2197,11 @@
       "transient": "Vorübergehender KI-Fehler. Wiederholung möglich.",
       "unknown": "Unerwarteter KI-Fehler."
     },
-    "conversations": "Unterhaltungen"
+    "conversations": "Unterhaltungen",
+    "privacyNote": "Was Sie eingeben, geht mit dem bisherigen Gesprächsverlauf an Anthropic. Die Unterhaltungen bleiben auf diesem Rechner, die 50 neuesten.",
+    "deleteAll": "Alle Unterhaltungen löschen",
+    "deleteAllConfirm_one": "Die auf diesem Rechner gespeicherte Unterhaltung löschen? Sie lässt sich nicht wiederherstellen.",
+    "deleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Unterhaltungen löschen? Sie lassen sich nicht wiederherstellen."
   },
   "notifications": {
     "title": "Benachrichtigungen"
@@ -2395,7 +2414,17 @@
     "aiApiKey": "API-Schlüssel",
     "aiKeyConfigured": "Schlüssel konfiguriert",
     "aiKeySaved": "Schlüssel gespeichert",
-    "aiHint": "Der Schlüssel wird im VSCode-Secret-Vault gespeichert und nie in Einstellungen oder Logs geschrieben."
+    "aiHint": "Der Schlüssel wird im VSCode-Secret-Vault gespeichert und nie in Einstellungen oder Logs geschrieben.",
+    "aiSends": "Solange KI aktiviert ist, geht Folgendes mit Ihrem Schlüssel an Anthropic: Der Chat sendet, was Sie eingeben, mit dem bisherigen Gesprächsverlauf; NL2SOQL sendet Ihre Frage mit den Namen der Objekte und Felder der Org; ein Pipeline-Entwurf, eine eigene Persona und eine KI-Feldregel senden ihre Beschreibung bzw. den Namen des Felds und seine Anweisung.",
+    "aiSendsFailures": "Korrekturvorschläge für fehlgeschlagene Läufe senden die Fehlermeldung eines fehlgeschlagenen Laufs, ohne Salesforce-IDs, ohne dass jemand etwas anklickt. Eine Fehlermeldung kann Werte von Datensätzen zitieren.",
+    "aiErrorResolution": "Korrekturen für fehlgeschlagene Läufe vorschlagen und dafür ihre Fehlermeldungen senden",
+    "aiSaveAndTurnOn": "Schlüssel speichern und KI aktivieren",
+    "aiTurnOn": "KI aktivieren",
+    "aiTurnOff": "KI deaktivieren",
+    "aiRemoveKey": "Schlüssel entfernen",
+    "aiRemoveKeyConfirm": "Den Schlüssel entfernen? KI wird deaktiviert, und die auf diesem Rechner gespeicherten Unterhaltungen werden gelöscht.",
+    "aiKeyRemoved_one": "Schlüssel entfernt: KI ist deaktiviert, und {{count}} Unterhaltung wurde gelöscht.",
+    "aiKeyRemoved_other": "Schlüssel entfernt: KI ist deaktiviert, und {{count}} Unterhaltungen wurden gelöscht."
   },
   "bridge": {
     "protocolMismatch": {

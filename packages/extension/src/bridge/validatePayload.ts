@@ -625,6 +625,7 @@ export const seedCloneExecutePayloadSchema = z
     upsert: z.boolean().optional(),
     externalIdField: sfApiNameSchema.optional(),
     previewId: opaqueIdSchema.optional(),
+    keepContactPoints: z.boolean().optional(),
   })
   .refine((data) => !data.upsert || data.externalIdField !== undefined, {
     message: 'externalIdField is required when upsert is true',
@@ -672,6 +673,11 @@ export const dataOpsBackupObjectsPayloadSchema = z.object({
 export const dataOpsBackupExportPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: z.string().min(1).max(200),
+});
+/** `backup:delete`: the backups of an org to delete, or every one of them when none is named. */
+export const dataOpsBackupDeletePayloadSchema = z.object({
+  orgId: orgIdSchema,
+  operationIds: z.array(z.string().min(1).max(200)).min(1).max(1000).optional(),
 });
 export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
@@ -1184,6 +1190,11 @@ export const aiConversationCreatePayloadSchema = z.object({
 export const aiConversationIdPayloadSchema = z.object({ conversationId: opaqueIdSchema });
 export const aiSaveKeyPayloadSchema = z.object({
   apiKey: z.string().min(1).max(500),
+  errorResolution: z.boolean().optional(),
+});
+export const aiSettingsPayloadSchema = z.object({
+  enabled: z.boolean().optional(),
+  errorResolution: z.boolean().optional(),
 });
 
 export const aiAnomalyScanPayloadSchema = z.object({

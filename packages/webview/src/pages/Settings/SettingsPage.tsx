@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tabs } from '../../components/ui/Tabs';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
@@ -72,6 +72,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
    * the user leaves the tab.
    */
   const [confirmingReset, setConfirmingReset] = useState(false);
+  /**
+   * Whether a failed run may send its error message, asked with the first key:
+   * off until the box is ticked.
+   */
+  const [resolveFailures, setResolveFailures] = useState(false);
+  /** Removing the key deletes the conversations too, so it asks first. */
+  const [confirmingKeyRemoval, setConfirmingKeyRemoval] = useState(false);
+  const keyRemovalId = useId();
 
   const {
     settings,
@@ -86,6 +94,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     saveAiKey,
     aiKeySaving,
     aiKeyError,
+    updateAiSettings,
+    aiSettingsSaving,
+    aiSettingsError,
+    removeAiKey,
+    aiKeyRemoving,
+    aiKeyRemoved,
+    aiKeyRemoveError,
     telemetryStatus,
     telemetryStatusLoading,
     telemetryUnavailable,
@@ -95,6 +110,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   } = useSettingsPageData(initialSettings, onSave, onReset);
 
   const telemetryEnabled = telemetryStatus?.enabled ?? false;
+  /**
+   * Whether a key is stored. An older host does not say: a working assistant
+   * has one.
+   */
+  const hasKey = aiStatus?.hasKey ?? aiStatus?.enabled === true;
 
   /**
    * Apply a language for real. When its bundle cannot be loaded the UI keeps
@@ -201,6 +221,29 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     </div>
                   )}
 
+                  {/* What each feature sends, and to whom, said where the key is
+                      stored: the card said only where the key is kept. */}
+                  <div className="flex flex-col gap-1" data-testid="ai-what-is-sent">
+                    <p className="text-xs text-text-secondary">{t('settings.aiSends')}</p>
+                    <p className="text-xs text-text-secondary">{t('settings.aiSendsFailures')}</p>
+                  </div>
+
+                  {/* The failures are sent with nobody pressing anything: a switch
+                      of their own, beside the others, while AI is on. */}
+                  {aiStatus?.enabled && (
+                    <label className="flex items-start gap-2 text-xs text-text-primary">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={aiStatus.errorResolution ?? true}
+                        disabled={aiSettingsSaving}
+                        onChange={(e) => updateAiSettings({ errorResolution: e.target.checked })}
+                        data-testid="ai-error-resolution-toggle"
+                      />
+                      <span>{t('settings.aiErrorResolution')}</span>
+                    </label>
+                  )}
+
                   {/* API Key — Input renders and binds its own caption, so the
                       Save button aligns on the bottom edge of the field. */}
                   <div className="flex flex-col gap-1">
@@ -210,9 +253,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                           data-testid="ai-api-key-input"
                           label={t('settings.aiApiKey')}
                           type="password"
-                          placeholder={
-                            aiStatus?.enabled ? t('settings.aiKeyConfigured') : 'sk-ant-...'
-                          }
+                          placeholder={hasKey ? t('settings.aiKeyConfigured') : 'sk-ant-...'}
                           value={aiApiKey}
                           onChange={(e) => {
                             setAiApiKey(e.target.value);
@@ -226,11 +267,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         size="sm"
                         disabled={!aiApiKey.trim()}
                         loading={aiKeySaving}
-                        onClick={() => saveAiKey(aiApiKey.trim())}
+                        onClick={() =>
+                          saveAiKey(aiApiKey.trim(), hasKey ? undefined : resolveFailures)
+                        }
                       >
-                        {t('common.save')}
+                        {hasKey ? t('common.save') : t('settings.aiSaveAndTurnOn')}
                       </Button>
                     </div>
+                    {/* Asked once, with the first key: saving it turned the
+                        sending of failures on with AI, and nothing said so. */}
+                    {!hasKey && (
+                      <label className="flex items-start gap-2 text-xs text-text-primary">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={resolveFailures}
+                          onChange={(e) => setResolveFailures(e.target.checked)}
+                          data-testid="ai-first-key-error-resolution"
+                        />
+                        <span>{t('settings.aiErrorResolution')}</span>
+                      </label>
+                    )}
                     {aiKeySaved && (
                       <span className="text-xs text-status-success" data-testid="ai-key-saved">
                         {t('settings.aiKeySaved')}
@@ -238,6 +295,83 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     )}
                     {aiKeyError && <span className="text-xs text-status-error">{aiKeyError}</span>}
                   </div>
+
+                  {/* Turning AI off, and taking the key back, were only in the
+                      settings editor, and nothing removed the key at all. */}
+                  {hasKey && (
+                    <div className="flex flex-col gap-2" data-testid="ai-key-actions">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          data-testid="ai-toggle-btn"
+                          variant="secondary"
+                          size="sm"
+                          loading={aiSettingsSaving}
+                          disabled={aiKeyRemoving}
+                          onClick={() => updateAiSettings({ enabled: !aiStatus?.enabled })}
+                        >
+                          {aiStatus?.enabled ? t('settings.aiTurnOff') : t('settings.aiTurnOn')}
+                        </Button>
+                        {confirmingKeyRemoval ? (
+                          <>
+                            <Button
+                              data-testid="ai-remove-key-confirm-btn"
+                              variant="danger"
+                              size="sm"
+                              loading={aiKeyRemoving}
+                              aria-describedby={keyRemovalId}
+                              onClick={() => {
+                                setConfirmingKeyRemoval(false);
+                                removeAiKey();
+                              }}
+                            >
+                              {t('common.confirm')}
+                            </Button>
+                            <Button
+                              data-testid="ai-remove-key-cancel-btn"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setConfirmingKeyRemoval(false)}
+                            >
+                              {t('common.cancel')}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            data-testid="ai-remove-key-btn"
+                            variant="secondary"
+                            size="sm"
+                            disabled={aiKeyRemoving || aiSettingsSaving}
+                            onClick={() => setConfirmingKeyRemoval(true)}
+                          >
+                            {t('settings.aiRemoveKey')}
+                          </Button>
+                        )}
+                      </div>
+                      {confirmingKeyRemoval && (
+                        <p
+                          id={keyRemovalId}
+                          className="text-xs text-text-primary"
+                          data-testid="ai-remove-key-question"
+                        >
+                          {t('settings.aiRemoveKeyConfirm')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {aiKeyRemoved !== null && !hasKey && (
+                    <span
+                      className="text-xs text-status-success"
+                      role="status"
+                      data-testid="ai-key-removed"
+                    >
+                      {t('settings.aiKeyRemoved', { count: aiKeyRemoved })}
+                    </span>
+                  )}
+                  {(aiSettingsError || aiKeyRemoveError) && (
+                    <span className="text-xs text-status-error" data-testid="ai-settings-error">
+                      {aiSettingsError ?? aiKeyRemoveError}
+                    </span>
+                  )}
 
                   <p className="text-xs text-text-secondary">{t('settings.aiHint')}</p>
                 </div>

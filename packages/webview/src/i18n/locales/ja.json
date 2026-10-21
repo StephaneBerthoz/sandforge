@@ -54,7 +54,8 @@
       "autopilotWriteDeclined": "何も書き込まれる前に Autopilot の実行をキャンセルしました。ターゲット組織には何も書き込まれていません。",
       "autopilotConfirmationUnavailable": "Autopilot の実行は何も書き込む前に停止しました: 確認が必要でしたが、確認を求めることができませんでした。",
       "seedStorageExceeded": "シードは何も書き込む前に拒否されました: そのレコードは約{{estimate}} MBのデータストレージを使いますが、{{org}}の残りは{{max}} MB中{{remaining}} MBです。レコード数を減らすか、より軽いテンプレートを選ぶか、{{org}}のデータストレージを空けてください。",
-      "seedEmailsExceeded": "シードは何も書き込む前に拒否されました。これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。レコード数を減らすか、{{objects}}を0にするか、{{senders}}を無効にするか、それらを止める権限を自分に割り当ててください。"
+      "seedEmailsExceeded": "シードは何も書き込む前に拒否されました。これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。レコード数を減らすか、{{objects}}を0にするか、{{senders}}を無効にするか、それらを止める権限を自分に割り当ててください。",
+      "backupBusy": "この組織のバックアップまたはリストアが実行中です。終了してからバックアップを削除してください。"
     },
     "list": {
       "separator": "、",
@@ -144,7 +145,8 @@
       "titleMany_other": "{{count}} 個の組織が接続されました",
       "fill": "{{alias}} をデモデータで満たす",
       "clone": "別の組織からクローン"
-    }
+    },
+    "disconnectDeleteBackups_other": "このマシンに保存されているこの組織の DataOps バックアップ {{count}} 件も削除する（レコードの値が平文で保存されています）"
   },
   "monitor": {
     "refresh": "更新",
@@ -865,6 +867,7 @@
         "PRODUCTION_CONFIRMATION_DECLINED": "クローンを中止しました。本番組織への書き込みが承認されませんでした。",
         "PRODUCTION_GUARD_BLOCKED": "本番保護機能により、レコードが書き込まれる前にこのクローンがブロックされました。",
         "CLONE_FAILED": "クローンは完了前に停止しました。",
+        "CLONE_EMAILS_EXCEEDED": "クローンは何も書き込む前に拒否されました。これらのレコードが{{org}}に送信させる{{limit}}：約{{emails}}通（本日の残りは{{max}}通中{{remaining}}通）。{{objects}}のフィルターを絞り込むか除外するか、{{senders}}を無効にするか、それらを止める権限を自分に割り当ててください。",
         "INVALID_PAYLOAD": "SandForge は、どちらの組織も読み取る前にこのリクエストを拒否しました。クローンにはソース組織、ターゲット組織、1～100 個のオブジェクトが必要で、フィルターはレコードの選択にのみ使えます（LIMIT、ORDER BY、サブクエリ、セミコロン、コメントは使えません）。拒否された部分は SandForge の出力チャネルに表示されます。",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge は何も書き込む前にこの実行を拒否しました。プレビューを作成した組織に対する実行ではありませんでした。もう一度プレビューしてから、クローンを実行してください。",
         "NOT_PREVIEWED": "SandForge は、どちらの組織も読み取る前にこの実行を拒否しました。プレビューが指定されていませんでした。クローンは、作成したプレビューからのみ実行されます。もう一度プレビューしてから、クローンを実行してください。",
@@ -1699,7 +1702,9 @@
       "confirmTitle_other": "{{formatted}} 件を消去しますか？",
       "confirmAnonymize": "一覧の項目は組織内で上書きされ、元に戻せません。必要になる可能性があれば、先にバックアップを取ってください。",
       "confirmDelete": "レコードと、組織がそれと一緒に削除するものはごみ箱に移り、ごみ箱が空になるまでそこに残ります。",
-      "confirmWord": "消去"
+      "confirmWord": "消去",
+      "backupsBefore_other": "この組織には、この消去の前に作成されたバックアップがこのマシンに{{count}}件あります。そこには本人のレコードが平文で保存されており、いずれかをリストアするとレコードが元に戻ります。",
+      "deleteBackupsBefore_other": "これら{{count}}件のバックアップを削除"
     },
     "dsrLog": {
       "title": "依頼ログ",
@@ -1783,7 +1788,12 @@
       "notRead": "読み取れませんでした: {{error}}",
       "noRecords": "マスクするレコードはありません。",
       "fieldsNotFound": "{{fields}} では何もマスクされません。組織にその項目がありません。"
-    }
+    },
+    "backupDelete": "削除",
+    "backupDeleteConfirm": "このバックアップを削除しますか？このマシンに平文で保存されているレコードの値は完全に失われ、リストアできなくなります。",
+    "backupDeleteAll": "この組織のバックアップをすべて削除",
+    "backupDeleteAllConfirm_other": "このマシンに保存されているこの組織の{{count}}件のバックアップを削除しますか？平文で保存されているレコードの値は完全に失われ、どれもリストアできなくなります。",
+    "backupsDeleted_other": "このマシンから{{count}}件のバックアップを削除しました。"
   },
   "automation": {
     "title": "自動化",
@@ -2056,7 +2066,10 @@
       "transient": "一時的なAIエラーです。再試行できます。",
       "unknown": "予期しないAIエラーです。"
     },
-    "conversations": "会話"
+    "conversations": "会話",
+    "privacyNote": "入力内容はそれまでの会話とともに Anthropic に送信されます。会話はこのマシンに、最新の 50 件まで保存されます。",
+    "deleteAll": "すべての会話を削除",
+    "deleteAllConfirm_other": "このマシンに保存されている{{count}}件の会話を削除しますか？元に戻すことはできません。"
   },
   "notifications": {
     "title": "通知"
@@ -2252,7 +2265,16 @@
     "aiApiKey": "API キー",
     "aiKeyConfigured": "キー設定済み",
     "aiKeySaved": "キーを保存しました",
-    "aiHint": "キーは VSCode のシークレットボールトに保存され、設定やログには書き込まれません。"
+    "aiHint": "キーは VSCode のシークレットボールトに保存され、設定やログには書き込まれません。",
+    "aiSends": "AI がオンの間、次の内容がお客様のキーで Anthropic に送信されます。チャットは入力内容をそれまでの会話とともに送信し、NL2SOQL は質問を組織のオブジェクト名と項目名とともに送信します。パイプラインの下書き、カスタムペルソナ、AI 項目ルールは、その説明、または項目名と指示を送信します。",
+    "aiSendsFailures": "失敗した実行の修正案は、その実行のエラーメッセージを Salesforce ID を除いて、誰も操作しなくても送信します。エラーメッセージにはレコードの値が含まれることがあります。",
+    "aiErrorResolution": "失敗した実行の修正を提案する（エラーメッセージを送信します）",
+    "aiSaveAndTurnOn": "キーを保存して AI をオンにする",
+    "aiTurnOn": "AI をオンにする",
+    "aiTurnOff": "AI をオフにする",
+    "aiRemoveKey": "キーを削除",
+    "aiRemoveKeyConfirm": "キーを削除しますか？AI はオフになり、このマシンに保存されている会話は削除されます。",
+    "aiKeyRemoved_other": "キーを削除しました。AI はオフになり、{{count}}件の会話が削除されました。"
   },
   "bridge": {
     "protocolMismatch": {

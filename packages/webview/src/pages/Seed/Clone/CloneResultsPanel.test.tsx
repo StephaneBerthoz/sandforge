@@ -446,4 +446,48 @@ describe('CloneResultsPanel', () => {
     expect(within(mappingsTable).getAllByTestId(/^table-row-/)).toHaveLength(25);
     expect(within(mappingsTable).getByText('003src000')).toBeDefined();
   });
+
+  it('says how many email addresses and phone numbers the clone neutralized, field by field', () => {
+    render(
+      <CloneResultsPanel
+        result={{
+          ...mockSuccessResult,
+          contactPoints: {
+            neutralized: true,
+            fields: [
+              { objectApiName: 'Contact', field: 'Email', kind: 'email', values: 150 },
+              { objectApiName: 'Contact', field: 'Phone', kind: 'phone', values: 120 },
+            ],
+            values: 270,
+          },
+        }}
+        onDone={vi.fn()}
+      />,
+    );
+
+    const section = screen.getByTestId('forge-results-contact-points');
+    expect(within(section).getAllByTestId('forge-results-contact-points-row')).toHaveLength(2);
+    expect(section.textContent).toContain('Contact.Email');
+    expect(section.textContent).toContain('270');
+  });
+
+  it('warns when the clone wrote them as the source holds them', () => {
+    render(
+      <CloneResultsPanel
+        result={{
+          ...mockSuccessResult,
+          contactPoints: { neutralized: false, fields: [], values: 0 },
+        }}
+        onDone={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-results-contact-points-kept')).toBeDefined();
+  });
+
+  it('says nothing of them for a result that does not tell', () => {
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
+
+    expect(screen.queryByTestId('forge-results-contact-points')).toBeNull();
+  });
 });

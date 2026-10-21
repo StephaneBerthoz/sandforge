@@ -42,6 +42,14 @@ export interface StoredFile {
 export type BackupRecord = Record<string, unknown>;
 
 /**
+ * What a backup's files and folder are made with: the records' values, as the
+ * org held them, are their owner's alone to read. Made with the process's
+ * umask, they were readable by every user of the machine.
+ */
+const FILE_MODE = 0o600;
+const DIR_MODE = 0o700;
+
+/**
  * The file operations of a store over Node's file system: what the extension
  * gives it under its storage directory, and the CLI under the one it is told.
  *
@@ -51,8 +59,10 @@ export function nodeBackupFiles(storagePath: string): BackupRecordStoreDeps {
   return {
     storagePath,
     readFile: (filePath) => readFile(filePath, 'utf8'),
-    writeFile: (filePath, content) => writeFile(filePath, content, 'utf8'),
-    appendFile: (filePath, content) => appendFile(filePath, content, 'utf8'),
+    writeFile: (filePath, content) =>
+      writeFile(filePath, content, { encoding: 'utf8', mode: FILE_MODE }),
+    appendFile: (filePath, content) =>
+      appendFile(filePath, content, { encoding: 'utf8', mode: FILE_MODE }),
     exists: (filePath) =>
       access(filePath).then(
         () => true,
@@ -60,7 +70,7 @@ export function nodeBackupFiles(storagePath: string): BackupRecordStoreDeps {
       ),
     readLines: (filePath) => linesOf(filePath),
     mkdir: async (dirPath) => {
-      await mkdir(dirPath, { recursive: true });
+      await mkdir(dirPath, { recursive: true, mode: DIR_MODE });
     },
     rm: (filePath) => rm(filePath, { force: true }),
     listFiles: (dirPath) => filesIn(dirPath),

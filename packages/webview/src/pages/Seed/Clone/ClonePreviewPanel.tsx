@@ -20,6 +20,10 @@ export interface ClonePreviewPanelProps {
   onExecute: () => void;
   /** Callback to go back to object selection. */
   onBack: () => void;
+  /** Whether the clone writes the email addresses and phone numbers as the source holds them. */
+  keepContactPoints?: boolean;
+  /** Change {@link ClonePreviewPanelProps.keepContactPoints}. */
+  onKeepContactPointsChange?: (keep: boolean) => void;
 }
 
 /**
@@ -31,15 +35,20 @@ export interface ClonePreviewPanelProps {
  * 3. Sample records per object in expandable accordions
  *
  * and, above Execute, the lookups the target requires that the source does
- * not have, whose records the target will refuse.
+ * not have, whose records the target will refuse, and whether the clone keeps
+ * the email addresses and phone numbers as the source holds them.
  */
 export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
   previewResult,
   onExecute,
   onBack,
+  keepContactPoints = false,
+  onKeepContactPointsChange,
 }) => {
   const { t } = useTranslation();
   const requiredWarningId = useId();
+  const keepHintId = useId();
+  const keepWarningId = useId();
 
   const totalRecords = previewResult.objects.reduce((sum, obj) => sum + obj.recordCount, 0);
   const totalRelationships = previewResult.objects.reduce(
@@ -227,6 +236,40 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Off unless ticked: every email address goes in under .invalid and
+          every phone number as a fictional one, as Forge, Sync and Autopilot
+          write them. The clone used to copy them as read, and the target's
+          flows and email alerts reached the real people behind them. */}
+      {onKeepContactPointsChange && (
+        <div className="flex flex-col gap-1" data-testid="clone-preview-contact-points">
+          <label className="flex items-start gap-2 text-xs text-(--sf-text-primary)">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={keepContactPoints}
+              onChange={(e) => onKeepContactPointsChange(e.target.checked)}
+              aria-describedby={keepContactPoints ? keepWarningId : keepHintId}
+              data-testid="clone-keep-contact-points"
+            />
+            <span>{t('forge.keepContactPoints')}</span>
+          </label>
+          {keepContactPoints ? (
+            <p
+              id={keepWarningId}
+              role="alert"
+              className="rounded-sm border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-(--sf-text-primary)"
+              data-testid="clone-keep-contact-points-warning"
+            >
+              {t('forge.keepContactPointsWarning')}
+            </p>
+          ) : (
+            <p id={keepHintId} className="text-xs text-(--sf-text-secondary)">
+              {t('forge.keepContactPointsHint')}
+            </p>
+          )}
         </div>
       )}
 

@@ -28,9 +28,8 @@
  * pnpm build:shared.
  */
 
-import { mkdirSync } from 'node:fs';
+import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { orgTypeOf } from '@sandforge/shared';
 import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
@@ -54,7 +53,9 @@ One of:
   --restore <id>         upsert a snapshot back into the org by record Id
 
 Options:
-  --store <dir>          where snapshots live      (default: a temp directory)
+  --store <dir>          where snapshots live, a folder of your own
+                         (default: ~/.sandforge/backups, under the folder
+                         SANDFORGE_JOURNAL_DIR names when it is set)
   --max-records <n>      most records of each object a snapshot reads, as
                          sandforge.backup.maxRecordsPerObject sets it
                          (default: 50000; 100 to 1000000)
@@ -153,7 +154,7 @@ export function parseArgs(argv: string[]): CliArgs {
     objects,
     list,
     restoreId,
-    storeDir: get('--store', join(tmpdir(), 'sandforge-backups')) ?? '',
+    storeDir: get('--store', defaultBackupStoreOf()) ?? '',
     ...(cap !== undefined ? { maxRecords: Number(cap) } : {}),
     rewriteAll,
     yes: args.includes('--yes'),
@@ -180,7 +181,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (!args.json) process.stdout.write(`${line}\n`);
   };
 
-  mkdirSync(args.storeDir, { recursive: true });
+  const refused = openBackupStore(args.storeDir);
+  if (refused !== undefined) {
+    process.stderr.write(`${refused}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  // Said first, as the clone command says where its journal goes: the
+  // snapshots hold the records' values, and the user should know where.
+  log(`store: ${args.storeDir}`);
   const org = await loadOrg(args.org);
   const configStore = fileConfigStore(join(args.storeDir, 'snapshots.json'));
 
@@ -332,7 +341,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   const last = posted[posted.length - 1];
   if (last) log(`\nlast message: ${String(last.type)}`);
-  log(`store: ${args.storeDir}`);
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

@@ -7,6 +7,7 @@ import {
   aiConversationCreatePayloadSchema,
   aiConversationIdPayloadSchema,
   aiSaveKeyPayloadSchema,
+  aiSettingsPayloadSchema,
 } from '../../validatePayload.js';
 import type { AIAssistant, ChatRole, Conversation } from '../../../modules/ai/AIAssistant.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
@@ -14,6 +15,19 @@ import { InFlightCalls } from './inFlightCalls.js';
 
 /** Maximum number of messages per conversation before pruning. */
 const MAX_MESSAGES_PER_CONVERSATION = 200;
+
+/**
+ * The most conversations kept, whole, in VS Code's global state: past it, the
+ * one written to least recently goes. Only the messages of each were bounded,
+ * and every conversation ever started stayed, AI off or the key gone.
+ */
+export const MAX_CONVERSATIONS = 50;
+
+/** Read under the `sandforge` section, so without its prefix. */
+const ENABLED_SETTING = 'ai.enabled';
+
+/** Whether a failed run sends its error message for a fix suggestion. */
+const ERROR_RESOLUTION_SETTING = 'ai.errorResolution';
 
 /** ConfigStore key for the conversations index. */
 const INDEX_KEY = 'ai:conversations:index';
@@ -34,6 +48,8 @@ interface ConversationIndexEntry {
   title: string;
   createdAt: string;
   messageCount: number;
+  /** When it was last written to; absent from entries kept before it was recorded. */
+  updatedAt?: string;
 }
 
 /** Persisted conversation data stored per key. */
@@ -58,9 +74,12 @@ const AI_CHAT_TYPES = new Set([
   'ai:conversation:create',
   'ai:conversation:load',
   'ai:conversation:delete',
+  'ai:conversation:delete-all',
   'ai:conversation:list',
   'ai:status',
   'ai:save-key',
+  'ai:settings',
+  'ai:remove-key',
 ]);
 
 /**
@@ -121,11 +140,20 @@ export class AIChatHandler implements DomainHandler {
       case 'ai:conversation:delete':
         this.handleConversationDelete(msg);
         return true;
+      case 'ai:conversation:delete-all':
+        this.handleConversationDeleteAll(msg);
+        return true;
       case 'ai:status':
         await this.handleStatus(msg);
         return true;
       case 'ai:save-key':
         await this.handleSaveKey(msg);
+        return true;
+      case 'ai:settings':
+        await this.handleSettings(msg);
+        return true;
+      case 'ai:remove-key':
+        await this.handleRemoveKey(msg);
         return true;
       default:
         return false;
@@ -186,13 +214,64 @@ export class AIChatHandler implements DomainHandler {
       title: conversation.title,
       createdAt: conversation.createdAt,
       messageCount: conversation.messages.length,
+      updatedAt: conversation.updatedAt,
     };
     if (existing >= 0) {
       index[existing] = entry;
     } else {
       index.push(entry);
     }
-    this.saveIndex(index);
+    this.saveIndex(this.withinTheBound(index, conversation.id));
+  }
+
+  /**
+   * The index held to {@link MAX_CONVERSATIONS}: past it, the conversations
+   * written to least recently are deleted, whole, and left out. The one just
+   * written is never among them.
+   */
+  private withinTheBound(
+    index: ConversationIndexEntry[],
+    written: string,
+  ): ConversationIndexEntry[] {
+    if (index.length <= MAX_CONVERSATIONS) return index;
+    const lastWritten = (e: ConversationIndexEntry): string => e.updatedAt ?? e.createdAt;
+    const dropped = new Set(
+      [...index]
+        .filter((e) => e.id !== written)
+        .sort((a, b) => lastWritten(a).localeCompare(lastWritten(b)))
+        .slice(0, index.length - MAX_CONVERSATIONS)
+        .map((e) => e.id),
+    );
+    for (const id of dropped) this.forgetConversation(id);
+    this.deps.log(
+      `[INFO] ai: ${dropped.size} conversation(s) written to least recently deleted ` +
+        `(${MAX_CONVERSATIONS} are kept).`,
+    );
+    return index.filter((e) => !dropped.has(e.id));
+  }
+
+  /** Delete one conversation, from the store and from the assistant, its question stopped. */
+  private forgetConversation(conversationId: string): void {
+    this.asking.abort(conversationId);
+    this.aiAssistant?.deleteConversation(conversationId);
+    this.deps.configStore.delete(this.conversationKey(conversationId));
+  }
+
+  /**
+   * Delete every conversation kept and the index with them, those the index
+   * no longer names included.
+   *
+   * @returns How many conversations there were.
+   */
+  private deleteAllConversations(): number {
+    const prefix = this.conversationKey('');
+    const ids = new Set(this.loadIndex().map((e) => e.id));
+    for (const key of this.deps.configStore.getKeysByPrefix(prefix)) {
+      ids.add(key.slice(prefix.length));
+    }
+    for (const id of ids) this.forgetConversation(id);
+    this.saveIndex([]);
+    return ids.size;
   }
 
   /**
@@ -477,6 +556,15 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[TX] ai:conversation:deleted id=${payload.conversationId}`);
   }
 
+  /** Delete every conversation kept on this machine, and say how many there were. */
+  private handleConversationDeleteAll(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const count = this.deleteAllConversations();
+    const response = buildResponse(this.deps, msg, 'ai:conversation:deleted-all', { count });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ai:conversation:deleted-all count=${count}`);
+  }
+
   private async handleStatus(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     await this.postStatus(msg);
@@ -507,6 +595,11 @@ export class AIChatHandler implements DomainHandler {
       // One counter for every AI feature, kept for the whole window. The AI
       // page asks for it on mount so its gauge is filled before the next call.
       budget: this.aiAssistant ? this.deps.services?.sessionBudget?.getState() : undefined,
+      // What the Settings page offers by: turn AI on or remove the key, and
+      // whether a failed run sends its error message.
+      hasKey,
+      errorResolution:
+        this.deps.services?.getSandforgeSetting?.<boolean>(ERROR_RESOLUTION_SETTING, true) ?? true,
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ai:status:response`);
@@ -523,14 +616,29 @@ export class AIChatHandler implements DomainHandler {
    * `success: false` would be a lie. They are logged instead.
    */
   private async enableAIFeature(): Promise<void> {
+    await this.writeSetting('ai:save-key', ENABLED_SETTING, true);
+  }
+
+  /**
+   * Write one `sandforge.ai.*` setting, logging rather than throwing: what the
+   * request was for is done, or said in the log, and the status that follows
+   * says where AI stands.
+   *
+   * @returns Whether it was written.
+   */
+  private async writeSetting(context: string, key: string, value: boolean): Promise<boolean> {
     if (!this.deps.services?.setSandforgeSetting) {
-      this.deps.log('[WARN] ai:save-key: no settings backend — sandforge.ai.enabled left as-is.');
-      return;
+      this.deps.log(`[WARN] ${context}: no settings backend — sandforge.${key} left as-is.`);
+      return false;
     }
     try {
-      await this.deps.services.setSandforgeSetting('ai.enabled', true);
+      await this.deps.services.setSandforgeSetting(key, value);
+      return true;
     } catch (err: unknown) {
-      this.deps.log(`[ERR] ai:save-key: enabling sandforge.ai failed: ${extractErrorMessage(err)}`);
+      this.deps.log(
+        `[ERR] ${context}: writing sandforge.${key} failed: ${extractErrorMessage(err)}`,
+      );
+      return false;
     }
   }
 
@@ -542,19 +650,17 @@ export class AIChatHandler implements DomainHandler {
    * could not be corrected. Like that step, a failure is logged and never
    * fails the save.
    */
-  private async rebuildAIStack(): Promise<void> {
+  private async rebuildAIStack(context = 'ai:save-key'): Promise<void> {
     const reinitAI = this.deps.services?.reinitAI;
     if (!reinitAI) {
-      this.deps.log(
-        '[WARN] ai:save-key: no AI rebuild wired — the new key applies after a reload.',
-      );
+      this.deps.log(`[WARN] ${context}: no AI rebuild wired — the change applies after a reload.`);
       return;
     }
     try {
       await reinitAI();
     } catch (err: unknown) {
       this.deps.log(
-        `[ERR] ai:save-key: rebuilding the AI stack failed: ${extractErrorMessage(err)}`,
+        `[ERR] ${context}: rebuilding the AI stack failed: ${extractErrorMessage(err)}`,
       );
     }
   }
@@ -563,9 +669,17 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiSaveKeyPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
-    const { apiKey } = parsed;
+    const { apiKey, errorResolution } = parsed;
     try {
+      const hadKey = await this.deps.secretVault.hasSecret(AI_API_KEY_SECRET);
       await this.deps.secretVault.storeSecret(AI_API_KEY_SECRET, apiKey);
+      // A failed run sends its error message with nobody pressing anything, so
+      // the first key saved does not turn that on by itself: the Settings page
+      // asks, and with no answer nothing is sent. Saving a key turned it on
+      // with AI, its setting defaulting to true, and nothing on the page said so.
+      if (!hadKey || errorResolution !== undefined) {
+        await this.writeSetting('ai:save-key', ERROR_RESOLUTION_SETTING, errorResolution === true);
+      }
       await this.enableAIFeature();
       await this.rebuildAIStack();
       const response = buildResponse(this.deps, msg, 'ai:save-key:response', {
@@ -581,6 +695,70 @@ export class AIChatHandler implements DomainHandler {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] ai:save-key: ${message}`);
       const response = buildResponse(this.deps, msg, 'ai:save-key:response', {
+        success: false,
+        error: message,
+      });
+      this.deps.broker.postToWebview(response);
+    }
+  }
+
+  /**
+   * `ai:settings`: turn AI on or off, or the fix suggestions for failed runs,
+   * from the Settings page, which had no control for either. The stack is
+   * rebuilt before the status is sent, so the status says what the write did.
+   */
+  private async handleSettings(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(aiSettingsPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const writes: Array<[string, boolean]> = [];
+    if (parsed.errorResolution !== undefined) {
+      writes.push([ERROR_RESOLUTION_SETTING, parsed.errorResolution]);
+    }
+    if (parsed.enabled !== undefined) writes.push([ENABLED_SETTING, parsed.enabled]);
+    let written = true;
+    for (const [key, value] of writes) {
+      if (!(await this.writeSetting('ai:settings', key, value))) written = false;
+    }
+    await this.rebuildAIStack('ai:settings');
+    const response = buildResponse(this.deps, msg, 'ai:settings:response', {
+      success: written,
+      ...(written
+        ? {}
+        : { error: 'The setting could not be written: the SandForge log says why.' }),
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ai:settings:response success=${written}`);
+    await this.postStatus(msg);
+  }
+
+  /**
+   * `ai:remove-key`: take the key out of the secret vault, turn AI off and
+   * delete the conversations kept on this machine. Nothing removed the key: a
+   * user who stored one to try the chat could not take it back from the panel,
+   * nor the conversations, which outlived it.
+   */
+  private async handleRemoveKey(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      await this.deps.secretVault.deleteSecret(AI_API_KEY_SECRET);
+      // While the assistant is still there, so it lets go of them too.
+      const conversationsDeleted = this.deleteAllConversations();
+      await this.writeSetting('ai:remove-key', ENABLED_SETTING, false);
+      // Taking the key away raises no configuration event: the stack is
+      // rebuilt here, and finds no key.
+      await this.rebuildAIStack('ai:remove-key');
+      const response = buildResponse(this.deps, msg, 'ai:remove-key:response', {
+        success: true,
+        conversationsDeleted,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ai:remove-key:response conversations=${conversationsDeleted}`);
+      await this.postStatus(msg);
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] ai:remove-key: ${message}`);
+      const response = buildResponse(this.deps, msg, 'ai:remove-key:response', {
         success: false,
         error: message,
       });

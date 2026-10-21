@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -357,6 +357,24 @@ describe('nodeBackupFiles', () => {
     expect(await files.exists(path.join(dir, 'backups', 'wv-crashed__Contact.ndjson'))).toBe(false);
     expect(await files.exists(path.join(dir, 'backups', 'wv-listed__Contact.ndjson'))).toBe(true);
   });
+
+  it.runIf(process.platform !== 'win32')(
+    'writes a backup readable by its owner alone, its folder too',
+    async () => {
+      // The records' values as the org held them, personal data among them:
+      // made with the umask, they were every local user's to read.
+      dir = await mkdtemp(path.join(tmpdir(), 'sandforge-backup-store-'));
+      const store = new BackupRecordStore(nodeBackupFiles(dir));
+
+      await store.begin('op-1', 'Contact');
+      await store.append('op-1', 'Contact', [{ Id: '003a', Email: 'jane@acme.com' }]);
+
+      expect((await stat(path.join(dir, 'backups'))).mode & 0o777).toBe(0o700);
+      expect((await stat(path.join(dir, 'backups', 'op-1__Contact.ndjson'))).mode & 0o777).toBe(
+        0o600,
+      );
+    },
+  );
 
   it('lists no file in a storage no backup has written to yet', async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'sandforge-backup-store-'));

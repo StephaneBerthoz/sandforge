@@ -49,6 +49,15 @@ Take a snapshot of the objects an Anonymize writes over:
   it never reached, which it holds none of -- the Backup and Restore tabs and
   a restore's warning name them -- and says so; one the disk could not take a
   page of keeps nothing
+- A backup holds the records' values in clear, personal data among them, in
+  files only your user can read. It is kept until ten newer ones of the org
+  push it out (`sandforge.backup.maxCount`), or for
+  `sandforge.backup.maxAgeDays` days, 30 unless you set it (0 keeps them),
+  removed as SandForge starts and after each backup. A backup taken before
+  that setting existed is kept until you delete it: the retention counts from
+  the first start that had it, so an upgrade never takes a backup away. The Restore tab deletes
+  one, or every backup of the org; disconnecting an org asks whether its
+  backups go with it, and an erasure offers to delete those taken before it
 
 ### Restore
 
@@ -275,7 +284,8 @@ number, or several, and **Search**. It looks in the objects the inventory read:
   refused on production for a delete, a confirmation where the org's tier
   asks for one. Every erasure is recorded in the audit trail (Reports)
 - A backup taken before the erasure still holds the person's records;
-  restoring it brings them back
+  restoring it brings them back. Once anything was erased, the section says
+  how many backups of the org this machine keeps and offers to delete them
 
 **Request log.** Each request is logged on this machine: when it was opened,
 what its searches found, when it was exported and how it was erased. Counts

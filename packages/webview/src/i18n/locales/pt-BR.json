@@ -61,7 +61,8 @@
       "autopilotWriteDeclined": "Você cancelou a execução do Autopilot antes que ela gravasse qualquer coisa. Nada foi gravado na org de destino.",
       "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",
       "seedStorageExceeded": "O seed foi recusado antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Reduza o número de registros, escolha um modelo mais leve ou libere armazenamento de dados em {{org}}.",
-      "seedEmailsExceeded": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Reduza o número de registros, defina {{objects}} como 0, desative {{senders}} ou atribua a si mesmo a permissão que os silencia."
+      "seedEmailsExceeded": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Reduza o número de registros, defina {{objects}} como 0, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
+      "backupBusy": "Um backup ou uma restauração desta org está em andamento: exclua seus backups quando terminar."
     },
     "list": {
       "separator": ", ",
@@ -152,7 +153,9 @@
       "titleMany_other": "{{count}} orgs estão conectadas",
       "fill": "Preencher {{alias}} com dados de demonstração",
       "clone": "Clonar de outra org"
-    }
+    },
+    "disconnectDeleteBackups_one": "Excluir também o backup do DataOps desta org guardado nesta máquina, que contém em claro os valores dos seus registros",
+    "disconnectDeleteBackups_other": "Excluir também os {{count}} backups do DataOps desta org guardados nesta máquina, que contêm em claro os valores dos seus registros"
   },
   "monitor": {
     "refresh": "Atualizar",
@@ -923,6 +926,7 @@
         "PRODUCTION_CONFIRMATION_DECLINED": "Clonagem cancelada: a gravação em produção não foi confirmada.",
         "PRODUCTION_GUARD_BLOCKED": "A proteção de produção bloqueou esta clonagem antes de gravar qualquer registro.",
         "CLONE_FAILED": "A clonagem parou antes de terminar.",
+        "CLONE_EMAILS_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Restrinja os filtros de {{objects}} ou retire-os, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
         "INVALID_PAYLOAD": "O SandForge recusou esta solicitação antes de ler qualquer uma das orgs. Uma clonagem precisa de uma org de origem, de uma org de destino e de 1 a 100 objetos, e um filtro só pode selecionar registros: sem LIMIT, ORDER BY, subconsulta, ponto e vírgula ou comentário. O canal de saída do SandForge indica qual parte foi recusada.",
         "PREVIEWED_FOR_OTHER_ORGS": "O SandForge recusou esta execução antes de gravar qualquer coisa: ela não era para as orgs para as quais sua pré-visualização foi feita. Refaça a pré-visualização e depois execute a clonagem.",
         "NOT_PREVIEWED": "O SandForge recusou esta execução antes de ler qualquer uma das orgs: ela não indicava nenhuma pré-visualização, e uma clonagem só é executada a partir da pré-visualização para a qual foi feita. Refaça a pré-visualização e depois execute a clonagem.",
@@ -1806,7 +1810,11 @@
       "confirmTitle_other": "Apagar {{formatted}} registros?",
       "confirmAnonymize": "Os campos listados são sobrescritos na org, e isso não pode ser desfeito. Faça um backup antes, caso venha a precisar deles.",
       "confirmDelete": "Os registros, e o que a org exclui junto com eles, vão para a lixeira, onde ficam até que ela seja esvaziada.",
-      "confirmWord": "apagar"
+      "confirmWord": "apagar",
+      "backupsBefore_one": "Esta org tem um backup nesta máquina, feito antes desta exclusão: ele guarda em claro os registros da pessoa, e restaurá-lo os traz de volta.",
+      "backupsBefore_other": "Esta org tem {{count}} backups nesta máquina, feitos antes desta exclusão: eles guardam em claro os registros da pessoa, e restaurar um deles os traz de volta.",
+      "deleteBackupsBefore_one": "Excluir este backup",
+      "deleteBackupsBefore_other": "Excluir estes {{count}} backups"
     },
     "dsrLog": {
       "title": "Log de solicitações",
@@ -1905,7 +1913,14 @@
       "notRead": "Não lido: {{error}}",
       "noRecords": "Nenhum registro para mascarar.",
       "fieldsNotFound": "Aplicar não mascara nada em {{fields}}: a org não tem esse campo."
-    }
+    },
+    "backupDelete": "Excluir",
+    "backupDeleteConfirm": "Excluir este backup? Os valores dos registros que ele guarda em claro nesta máquina somem de vez, e ele não poderá mais ser restaurado.",
+    "backupDeleteAll": "Excluir todos os backups desta org",
+    "backupDeleteAllConfirm_one": "Excluir o backup desta org guardado nesta máquina? Os valores dos registros que ele guarda em claro somem de vez, e ele não poderá mais ser restaurado.",
+    "backupDeleteAllConfirm_other": "Excluir os {{count}} backups desta org guardados nesta máquina? Os valores dos registros que eles guardam em claro somem de vez, e nenhum poderá mais ser restaurado.",
+    "backupsDeleted_one": "{{count}} backup excluído desta máquina.",
+    "backupsDeleted_other": "{{count}} backups excluídos desta máquina."
   },
   "automation": {
     "title": "Automação",
@@ -2182,7 +2197,11 @@
       "transient": "Erro temporário de IA. Nova tentativa disponível.",
       "unknown": "Erro inesperado de IA."
     },
-    "conversations": "Conversas"
+    "conversations": "Conversas",
+    "privacyNote": "O que você digita vai para a Anthropic com a conversa até ali. As conversas ficam nesta máquina, as 50 mais recentes.",
+    "deleteAll": "Excluir todas as conversas",
+    "deleteAllConfirm_one": "Excluir a conversa guardada nesta máquina? Ela não poderá ser recuperada.",
+    "deleteAllConfirm_other": "Excluir as {{count}} conversas guardadas nesta máquina? Elas não poderão ser recuperadas."
   },
   "notifications": {
     "title": "Notificações"
@@ -2395,7 +2414,17 @@
     "aiApiKey": "Chave de API",
     "aiKeyConfigured": "Chave configurada",
     "aiKeySaved": "Chave salva",
-    "aiHint": "A chave é armazenada no cofre de segredos do VSCode e nunca é gravada em configurações ou logs."
+    "aiHint": "A chave é armazenada no cofre de segredos do VSCode e nunca é gravada em configurações ou logs.",
+    "aiSends": "Enquanto a IA está ativada, isto vai para a Anthropic com a sua chave: o chat envia o que você digita com a conversa até ali; o NL2SOQL envia sua pergunta com os nomes dos objetos e campos da org; um rascunho de pipeline, uma persona personalizada e uma regra de campo IA enviam sua descrição, ou o nome do campo e sua instrução.",
+    "aiSendsFailures": "As sugestões de correção enviam a mensagem de erro de uma execução que falhou, sem seus Ids do Salesforce, sem que ninguém clique em nada. Uma mensagem de erro pode citar valores de registros.",
+    "aiErrorResolution": "Sugerir correções para execuções que falharam, enviando suas mensagens de erro",
+    "aiSaveAndTurnOn": "Salvar a chave e ativar a IA",
+    "aiTurnOn": "Ativar a IA",
+    "aiTurnOff": "Desativar a IA",
+    "aiRemoveKey": "Remover a chave",
+    "aiRemoveKeyConfirm": "Remover a chave? A IA é desativada, e as conversas guardadas nesta máquina são excluídas.",
+    "aiKeyRemoved_one": "Chave removida: a IA está desativada, e {{count}} conversa foi excluída.",
+    "aiKeyRemoved_other": "Chave removida: a IA está desativada, e {{count}} conversas foram excluídas."
   },
   "bridge": {
     "protocolMismatch": {

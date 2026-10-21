@@ -9,6 +9,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { useAppStore } from '../../stores/useAppStore';
 import type {
   AIConversationCreatedResponse,
+  AIConversationDeletedAllResponse,
   AIConversationListResponse,
   BaseMessage,
 } from '@sandforge/shared';
@@ -315,6 +316,21 @@ export const AIPage: React.FC = () => {
     [activeConversationId, send],
   );
 
+  // Every conversation the host kept is gone: the list, the thread open and
+  // the notice of an answer given elsewhere go with them. A question still
+  // waiting is stopped by the host, and answers for itself.
+  useMessageListener<AIConversationDeletedAllResponse>('ai:conversation:deleted-all', () => {
+    setConversations((prev) => prev.filter((c) => c.id.startsWith('local-conv-')));
+    setActiveConversationId((active) => (active?.startsWith('local-conv-') ? active : undefined));
+    setMessages([]);
+    setAnsweredElsewhere(undefined);
+    returnedQuestion.current = undefined;
+  });
+
+  const handleDeleteAllConversations = useCallback(() => {
+    send(buildMessage('ai:conversation:delete-all', {}));
+  }, [send]);
+
   // Show guidance when AI is not configured
   if (!aiAvailable) {
     return (
@@ -374,6 +390,7 @@ export const AIPage: React.FC = () => {
       onNewConversation={handleNewConversation}
       onSelectConversation={handleSelectConversation}
       onDeleteConversation={handleDeleteConversation}
+      onDeleteAllConversations={handleDeleteAllConversations}
       draft={draft}
       onDraftChange={setDraft}
     />

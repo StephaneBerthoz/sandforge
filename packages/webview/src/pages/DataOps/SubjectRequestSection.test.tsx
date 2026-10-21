@@ -41,6 +41,13 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/** What `backup:list` answers for the org, once the erasure asks. */
+let backupsListed: { backups: Array<{ operationId: string }> } | null = null;
+
+vi.mock('../../hooks/useBridgeQuery', () => ({
+  useBridgeQuery: () => ({ data: backupsListed, loading: false, error: null, refetch: vi.fn() }),
+}));
+
 const REQUEST = '5b0a9b8c-1111-4000-8000-000000000000';
 
 const found: SubjectSearchResult = {
@@ -74,7 +81,9 @@ beforeEach(() => {
     'dataops:dsr:export': idle(),
     review: idle(),
     erase: idle(),
+    'backup:delete': idle(),
   };
+  backupsListed = null;
 });
 
 function section(objects = ['Contact', 'Account'], onLogged = vi.fn()) {
@@ -250,6 +259,42 @@ describe('SubjectRequestSection', () => {
     section();
 
     expect(screen.getByTestId('removal-outcome').textContent).toBe('2 records deleted.');
+  });
+
+  it('offers, once the erasure is done, to delete the backups that would bring the person back', () => {
+    // A backup taken before the erasure still held the person's records, and
+    // restoring it brought them back: the page said nothing of it.
+    states['dataops:dsr:search'].data = found;
+    states.erase.data = {
+      requestId: REQUEST,
+      mode: 'anonymize',
+      dryRun: false,
+      plan: [],
+      outcome: {
+        status: 'success',
+        done: 2,
+        failed: 0,
+        objects: [{ objectApiName: 'Contact', done: 2, failed: 0 }],
+        errors: [],
+      },
+    };
+    backupsListed = { backups: [{ operationId: 'bk-1' }] };
+    section();
+
+    fireEvent.click(screen.getByTestId('dsr-backups-delete'));
+    fireEvent.click(screen.getByTestId('dsr-backups-delete-confirm'));
+    expect(states['backup:delete'].mutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      operationIds: ['bk-1'],
+    });
+  });
+
+  it('offers nothing of the backups before anything was erased', () => {
+    states['dataops:dsr:search'].data = found;
+    backupsListed = { backups: [{ operationId: 'bk-1' }] };
+    section();
+
+    expect(screen.queryByTestId('dsr-backups-before')).toBeNull();
   });
 
   it('says when more records matched than the ones it can act on', () => {
