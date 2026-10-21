@@ -330,6 +330,21 @@ describe('ForgeInput', () => {
     expect(hint).toMatch(/template/i);
   });
 
+  it('says what Smart applies: no cap to one record, a cap of 100 to a run from a query', () => {
+    // It said "Detected org with N records" of the root object's whole table.
+    render(<ForgeInput />);
+
+    expect(screen.getByTestId('forge-record-limit-smart-hint').textContent).toBe(
+      i18n.t('forge.recordLimitSmartRecord'),
+    );
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    expect(screen.getByTestId('forge-record-limit-smart-hint').textContent).toBe(
+      i18n.t('forge.recordLimitSmartSoql', { limit: 100 }),
+    );
+    fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: '500' } });
+    expect(screen.queryByTestId('forge-record-limit-smart-hint')).toBeNull();
+  });
+
   it('names the SOQL query field, whose placeholder was all a screen reader had', () => {
     render(<ForgeInput />);
     fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
@@ -770,6 +785,10 @@ describe('ForgeInput', () => {
       expect(hint.textContent).toContain('The metadata diff between the two orgs is not run.');
       expect(hint.textContent).toContain(
         'The flows and Apex triggers the target org runs as the records are inserted are still read before the run, and any that fires is put to you first.',
+      );
+      // Review asks about the gaps no decision was taken on; Clone directly reads none.
+      expect(hint.textContent).toContain(
+        'The gaps the target org holds against the rows — a field only it requires, a validation rule, a record type — are not read, and none is decided: the rows they refuse are refused.',
       );
     });
 

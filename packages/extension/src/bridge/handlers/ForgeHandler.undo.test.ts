@@ -975,6 +975,70 @@ describe('forge:undo', () => {
     });
   });
 
+  describe('stopped from the card that asked for it', () => {
+    it('runs under the id of the request, which the card stops it by', async () => {
+      // Under an id of its own, only Live Operations could stop it.
+      const msg = buildMsg('forge:undo', { forgeId: 'forge-1' });
+      const register = vi.spyOn(registry, 'register');
+
+      await handler.handle(msg);
+
+      expect(register.mock.calls.map(([operationId]) => operationId)).toEqual([msg.id]);
+      expect(
+        posted<BaseMessage & { payload: { operationId: string } }>('operation:started').map(
+          (m) => m.payload.operationId,
+        ),
+      ).toEqual([msg.id]);
+      expect(
+        posted<BaseMessage & { payload: { operationId: string } }>('forge:undo:response')[0]
+          ?.payload.operationId,
+      ).toBe(msg.id);
+    });
+
+    it('starts no removal the card stopped while the guard asked', async () => {
+      let answerTheGuard: (yes: boolean) => void = () => {};
+      const confirmIfNeeded = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            answerTheGuard = resolve;
+          }),
+      );
+      deps.infraServices = {
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: true,
+            requiresConfirmation: true,
+            warnings: [],
+            impactSummary: 'DELETE 3 records',
+          }),
+          confirmIfNeeded,
+          canAskForConfirmation: true,
+        },
+        backgroundRegistry: registry,
+      } as unknown as HandlerDeps['infraServices'];
+      const msg = buildMsg('forge:undo', { forgeId: 'forge-1' });
+
+      const removing = handler.handle(msg);
+      await vi.waitFor(() => expect(confirmIfNeeded).toHaveBeenCalled());
+      expect(registry.cancelBeforeStart(msg.id)).toBe(true);
+      answerTheGuard(true);
+      await removing;
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(org.deletes).toEqual([]);
+      expect(answer()).toMatchObject({ forgeId: 'forge-1', status: 'cancelled', objects: [] });
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          guard: 'confirmed',
+          details: { code: 'ABORTED_BEFORE_START' },
+        }),
+      ]);
+      // Nothing marked: the removal is offered again.
+      expect(history()[0].undo).toBeUndefined();
+    });
+  });
+
   describe("the run's dates, by the org's clock", () => {
     /** The account and contacts, created by the org at 10:05:02 and last updated at 10:05:04. */
     function datedByTheOrg(): void {

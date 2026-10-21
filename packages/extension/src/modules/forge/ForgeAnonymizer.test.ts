@@ -233,8 +233,9 @@ describe('ForgeAnonymizer', () => {
       // Redacted, and still an address the email field takes, delivered nowhere.
       expect(row['Email']).toBe('REDACTED@example.invalid');
       // No method given for phones: their default, a mask, which kept the last
-      // four digits of the real number; a fictional one instead.
-      expect(String(row['Phone'])).toMatch(/^\+3363998\d{4}$/);
+      // four digits of the real number; a fictional one instead, in the
+      // layout of the number it replaces.
+      expect(String(row['Phone'])).toMatch(/^063998\d{4}$/);
       expect(String(row['Phone'])).not.toContain('0405');
       expect(row['LastName']).toBe('Source');
     });
@@ -298,8 +299,9 @@ describe('ForgeAnonymizer', () => {
           methods: { phone: method },
         });
 
-        expect(String(rows[0]['Phone'])).toMatch(/^\+3363998\d{4}$/);
-        expect(rows[0]['MobilePhone']).toBe(rows[0]['Phone']);
+        // Each in the layout of the number it replaces, the same number.
+        expect(String(rows[0]['Phone'])).toMatch(/^06 39 98 \d{2} \d{2}$/);
+        expect(rows[0]['MobilePhone']).toBe(String(rows[0]['Phone']).replace(/\D/g, ''));
         // Nothing held, nothing written: `fake` gave an empty field a number.
         expect(rows[1]).toEqual({ Phone: '', MobilePhone: null });
       }

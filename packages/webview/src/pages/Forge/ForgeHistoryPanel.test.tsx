@@ -455,6 +455,20 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     });
   });
 
+  it('stops the removal from under its run, naming the request the extension runs it under', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+    confirmRemoval();
+    const request = sent('forge:undo');
+
+    expect(screen.getByTestId('forge-history-removing').textContent).toBe(
+      'Removing the records this run created…',
+    );
+    fireEvent.click(screen.getByTestId('forge-history-removing-stop'));
+
+    expect(sent('execution:abort')?.payload).toEqual({ operationId: request?.id });
+    expect(screen.getByTestId('forge-history-removing').textContent).toContain('Stopping');
+  });
+
   it('sends a sweep with the removal once it is ticked, and none unticked', () => {
     render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
 

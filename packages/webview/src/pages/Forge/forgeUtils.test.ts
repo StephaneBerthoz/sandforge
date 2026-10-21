@@ -1,36 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
-  smartLimitForCount,
+  SMART_SOQL_CAP,
+  SOQL_UNSCOPED_RECORD_CAP,
   extractRecordId,
   extractSalesforceDomain,
   isPiiField,
 } from './forgeUtils';
 
-describe('smartLimitForCount', () => {
-  it('should return 50 for very large orgs (> 50,000 records)', () => {
-    expect(smartLimitForCount(50_001)).toBe(50);
-    expect(smartLimitForCount(1_000_000)).toBe(50);
-  });
-
-  it('should return 100 for large orgs (> 5,000 records)', () => {
-    expect(smartLimitForCount(50_000)).toBe(100);
-    expect(smartLimitForCount(5_001)).toBe(100);
-  });
-
-  it('should return 500 for medium orgs (> 500 records)', () => {
-    expect(smartLimitForCount(5_000)).toBe(500);
-    expect(smartLimitForCount(501)).toBe(500);
-  });
-
-  it('should return 1000 for small orgs (> 50 records)', () => {
-    expect(smartLimitForCount(500)).toBe(1000);
-    expect(smartLimitForCount(51)).toBe(1000);
-  });
-
-  it('should return 0 (no cap) for tiny orgs (<= 50 records)', () => {
-    expect(smartLimitForCount(50)).toBe(0);
-    expect(smartLimitForCount(1)).toBe(0);
-    expect(smartLimitForCount(0)).toBe(0);
+describe('SMART_SOQL_CAP', () => {
+  it('stays under the cap a SOQL run is held to whatever is chosen', () => {
+    expect(SMART_SOQL_CAP).toBeGreaterThan(0);
+    expect(SMART_SOQL_CAP).toBeLessThanOrEqual(SOQL_UNSCOPED_RECORD_CAP);
   });
 });
 

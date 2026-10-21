@@ -117,6 +117,9 @@ export function forgeRunResult(
     // clone is short by an unknown number of rows, and only the summary
     // can say which objects.
     truncatedObjects: summary.truncatedObjects,
+    // So is a read stopped at the cap on each object: the rows past it are
+    // in the source, and none of them in the clone.
+    ...(summary.cappedObjects ? { cappedObjects: summary.cappedObjects } : {}),
     // Only a run asked to copy files says what became of them.
     ...(summary.files ? { files: summary.files } : {}),
     ...(summary.fileContentFieldsLeftOut

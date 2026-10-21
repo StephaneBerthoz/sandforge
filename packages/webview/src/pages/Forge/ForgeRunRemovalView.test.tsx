@@ -210,6 +210,28 @@ describe('ForgeRunRemovalResult', () => {
     );
 
     expect(screen.queryByTestId('forge-removal-unreachable')).toBeNull();
+    expect(screen.queryByTestId('forge-removal-not-journaled')).toBeNull();
+    expect(screen.queryByTestId('forge-removal-calls-not-looked-for')).toBeNull();
+  });
+
+  it('says why some were never looked for: an upsert its journal does not keep, calls left after an earlier removal', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={{
+          ...result({ objects: [outcome({ deleted: 1 })] }),
+          mayHaveBeenWritten: 3,
+          notLookedFor: { notJournaled: 2, callsAfterRemoval: 1 },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-not-journaled').textContent).toBe(
+      "2 of them went in an upsert, whose calls the run's journal does not keep: they were not looked for in DEV-SANDBOX.",
+    );
+    expect(screen.getByTestId('forge-removal-calls-not-looked-for').textContent).toBe(
+      "1 insert call this run had under way when it stopped was not looked for in DEV-SANDBOX: such calls are looked for before a run's first removal only, and whatever it may have written stays there.",
+    );
   });
 
   it('says nothing of checks when every relationship was read', () => {

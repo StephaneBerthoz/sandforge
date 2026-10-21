@@ -22,6 +22,12 @@
  *   run of 100 numbers had about a 39 % chance of giving two of them the same
  *   fictional one, and a unique field or a duplicate rule that matches on it
  *   then refused one of the records. Past the 10 000, a number is left out.
+ *   It is written in the layout of the number it replaces — its spaces,
+ *   dots, dashes and parentheses where they were, as many digits — wherever
+ *   the fiction can take that many: `+33 1 23 45 67 89` becomes
+ *   `+33 6 39 98 XX XX`, `01.23.45.67.89` becomes `06.39.98.XX.XX`. Written
+ *   `+3363998XXXX` whatever the source, it was refused by a target whose
+ *   validation rule wants `+33 X XX XX XX XX`, a rule the source number met.
  * - A text field whose API name gives it to either (`contactPointOf`) has
  *   each address in its value, or each run of seven digits or more, treated
  *   so, and the rest of the text left as it is: a text that holds neither is
@@ -88,6 +94,37 @@ function isFictional(value: string): boolean {
 /** A number of the range in the one form the run keeps them taken by: `+3363998` and its last four digits. */
 function fictionalKey(value: string): string {
   return `+3363998${value.replace(/\D/g, '').slice(-4)}`;
+}
+
+/** A value made of a number alone: digits, a `+`, and the separators a number is written with. */
+const NUMBER_ONLY = /^[\d\s.()/+-]+$/;
+
+/**
+ * The fictional number `drawn` (`+3363998XXXX`) written in the layout of
+ * `value`, the number it replaces: every digit of `value` replaced in turn,
+ * every other character left where it is. The digits are those of a form of
+ * the fiction as long as `value`'s — national (`0` and nine digits), with the
+ * country code (`33`), with `(0)` after it (`330`), or after `00` — of the
+ * forms a number starting with `+` can be when it does. Null when no form is
+ * that long, or when `value` holds more than a number.
+ */
+function inLayoutOf(value: string, drawn: string): string | null {
+  if (!NUMBER_ONLY.test(value)) return null;
+  const subscriber = drawn.slice(3);
+  const forms = /^[\s(]*\+/.test(value)
+    ? [`33${subscriber}`, `330${subscriber}`]
+    : [
+        `0${subscriber}`,
+        `33${subscriber}`,
+        `330${subscriber}`,
+        `0033${subscriber}`,
+        `00330${subscriber}`,
+      ];
+  const digits = value.replace(/\D/g, '').length;
+  const form = forms.find((candidate) => candidate.length === digits);
+  if (form === undefined) return null;
+  let next = 0;
+  return value.replace(/\d/g, () => form[next++]);
 }
 
 /** One field of an object that holds a contact point, as the run's rows hold it. */
@@ -246,10 +283,12 @@ export class ContactPointNeutralizer {
   }
 
   /**
-   * A phone number, replaced by a fictional one drawn from it: with its
-   * country code (`+3363998XXXX`), or in the national form (`063998XXXX`)
-   * where the field is too short for that. A number already in the range, and
-   * a value with no digit, come back as they are.
+   * A phone number, replaced by a fictional one drawn from it: in the layout
+   * of the number it replaces where the fiction takes as many digits
+   * (`+33 6 39 98 XX XX` for `+33 1 23 45 67 89`); otherwise with its country
+   * code (`+3363998XXXX`), or in the national form (`063998XXXX`) where the
+   * field is too short for that. A number already in the range, and a value
+   * with no digit, come back as they are.
    *
    * @param maxLength - The most characters the field takes; absent, no bound.
    * @returns The number to write, or null when none fits the field.
@@ -319,7 +358,8 @@ export class ContactPointNeutralizer {
   }
 
   /**
-   * A text with every number in it replaced by a fictional one; in the
+   * A text with every number in it replaced by a fictional one, each in the
+   * layout of the number it replaces where it can be; otherwise in the
    * national form when the field cannot hold them with their country code.
    * Left out whole when one of its numbers finds no fictional one left.
    */
@@ -338,7 +378,7 @@ export class ContactPointNeutralizer {
           exhausted = true;
           return run;
         }
-        return national ? `0${drawn.slice(3)}` : drawn;
+        return inLayoutOf(run, drawn) ?? (national ? `0${drawn.slice(3)}` : drawn);
       });
     const international = replaced(false);
     if (exhausted) return null;
@@ -351,6 +391,11 @@ export class ContactPointNeutralizer {
   private fictional(value: string, maxLength: number | undefined): string | null {
     const drawn = this.drawnNumber(value);
     if (drawn === null) return null;
+    // As long as the number it replaces.
+    const laidOut = inLayoutOf(value, drawn);
+    if (laidOut !== null && (maxLength === undefined || laidOut.length <= maxLength)) {
+      return laidOut;
+    }
     if (maxLength === undefined || drawn.length <= maxLength) return drawn;
     const national = `0${drawn.slice(3)}`;
     return national.length <= maxLength ? national : null;

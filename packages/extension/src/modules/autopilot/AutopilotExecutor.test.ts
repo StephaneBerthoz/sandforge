@@ -3559,7 +3559,8 @@ describe('AutopilotExecutor — emails and phone numbers', () => {
     const { sent, contactPoints } = await runContacts();
 
     expect(sent[0].Email).toBe('jane@acme.com.invalid');
-    expect(String(sent[0].Phone)).toMatch(/^\+3363998\d{4}$/);
+    // In the layout of the number it replaces.
+    expect(String(sent[0].Phone)).toMatch(/^\+3 363 998 \d{4}$/);
     expect(sent[0].LastName).toBe('Doe');
     expect(contactPoints).toMatchObject({ neutralized: true, values: 2 });
   });

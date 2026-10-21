@@ -2359,6 +2359,133 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Forge results saying what Records per object stopped, opening the record cloned, a removal under way with its Stop, and what it did not look for', async ({
+      page,
+    }) => {
+      await startForgeRun(bridge, page, theme, FORGE_RUN_GRAPH);
+      const capped = { ...FORGE_REMOVABLE_RUN, forgeId: 'forge-run-capped' };
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          ...capped,
+          readByObject: [{ objectApiName: 'Account', read: 1 }],
+          cappedObjects: { perObject: 100, objects: ['Case', 'Contact'] },
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-results"]', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-capped')).toContainText(
+        'Stopped at 100 per object: Case, Contact.',
+      );
+      await expect(page.getByTestId('forge-results-open-root-btn')).toHaveText(
+        `Open the Account cloned in ${QA_SANDBOX.alias}`,
+      );
+      const shown = await checkAccessibility(page);
+      expectNoViolations(shown);
+      expect(
+        await contrastMeasuredIn(page, shown, '[data-testid="forge-results-capped"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-results-remove').click();
+      await page
+        .getByRole('dialog', { name: `Remove this run's records from ${QA_SANDBOX.alias}` })
+        .waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      const removal = await bridge.waitForMessage('forge:undo', { timeout: 10_000 });
+      await expect(page.getByTestId('forge-results-removing-stop')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+
+      // The removal runs under the request's id, which the Stop names.
+      await page.getByTestId('forge-results-removing-stop').click();
+      const abort = await bridge.waitForMessage('execution:abort', { timeout: 10_000 });
+      expect(abort.payload).toEqual({ operationId: removal.id });
+      await expect(page.getByTestId('forge-results-removing')).toContainText('Stopping');
+      expectNoViolations(await checkAccessibility(page));
+
+      await answerAll(page, 'forge:undo', 'forge:undo:response', {
+        result: {
+          ...FORGE_REMOVAL_RESULT,
+          forgeId: capped.forgeId,
+          status: 'cancelled',
+          mayHaveBeenWritten: 3,
+          notLookedFor: { notJournaled: 2, callsAfterRemoval: 1 },
+        },
+        operationId: String(removal.id),
+      });
+      await expect(page.getByTestId('forge-removal-not-journaled')).toBeVisible();
+      await expect(page.getByTestId('forge-removal-calls-not-looked-for')).toBeVisible();
+      const said = await checkAccessibility(page);
+      expectNoViolations(said);
+      expect(
+        await contrastMeasuredIn(page, said, '[data-testid="forge-removal-calls-not-looked-for"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, said, '[data-testid="forge-removal-not-journaled"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Forge Review of one record’s graph: its counts the source tables’, the gaps no decision answers beside Execute and its question, and anonymization turned on from its tab', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-input-record').fill(fakeId('001', 1));
+      await expect(page.getByTestId('forge-record-limit-smart-hint')).toContainText('no cap');
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: {
+          ...FORGE_TWO_NODE_GRAPH,
+          nodes: FORGE_TWO_NODE_GRAPH.nodes.map((node) =>
+            node.objectApiName === 'Contact' ? { ...node, piiFields: ['Email'] } : node,
+          ),
+        },
+      });
+      await expect(page.getByTestId('stat-source-tables')).toBeVisible();
+      const discovered = await checkAccessibility(page);
+      expectNoViolations(discovered);
+      expect(
+        await contrastMeasuredIn(page, discovered, '[data-testid="stat-source-tables"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-preview-source-tables')).toBeVisible();
+      await page.evaluate(
+        async ({ gaps, storeModule }) => {
+          const store = (await import(storeModule)) as {
+            useForgeStore: { getState: () => { setGaps: (...args: unknown[]) => void } };
+          };
+          store.useForgeStore.getState().setGaps('simulation', gaps, []);
+        },
+        { gaps: [FORGE_GAPS[1]], storeModule: '/src/stores/useForgeStore.ts' },
+      );
+      await expect(page.getByTestId('forge-gaps-undecided')).toContainText(
+        '1 gap will refuse rows',
+      );
+      const undecided = await checkAccessibility(page);
+      expectNoViolations(undecided);
+      expect(
+        await contrastMeasuredIn(page, undecided, '[data-testid="forge-gaps-undecided"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('execute-button').click();
+      await page
+        .getByRole('dialog', { name: '1 gap will refuse rows' })
+        .waitFor({ state: 'visible', timeout: 5000 });
+      expectNoViolations(await checkAccessibility(page));
+      await page.getByTestId('forge-gaps-ask-decide').click();
+      await expect(page.getByTestId('tab-gaps')).toHaveAttribute('aria-selected', 'true');
+      expect(await bridge.getMessages('forge:execute')).toHaveLength(0);
+
+      await page.getByTestId('tab-anonymization').click();
+      await expect(page.getByTestId('anonymization-off')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+      await page.getByTestId('anonymization-switch').check();
+      await expect(page.getByTestId('anonymization-preset-select')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Forge results verifying what the run wrote: asked, read, and the verdict with what it found', async ({
       page,
     }) => {
@@ -4083,7 +4210,7 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
-    test('Seed Clone results saying what the second pass left empty and which fields the target lacks', async ({
+    test('Seed Clone results saying what the second pass left empty, which fields the target lacks, and the owners it does not hold', async ({
       page,
     }) => {
       await previewAccountsAndContacts(page);
@@ -4122,6 +4249,7 @@ for (const theme of SCANNED_THEMES) {
             sourceCount: 18,
             insertedCount: 18,
             failedCount: 0,
+            lookupsNotCarried: [{ field: 'OwnerId', records: 18 }],
             idMappings: [{ sourceId: fakeId('003', 1), targetId: fakeId('003', 2) }],
             errors: [],
           },
@@ -4130,6 +4258,9 @@ for (const theme of SCANNED_THEMES) {
       await page.waitForSelector('[data-testid="clone-results-second-pass"]', {
         timeout: 10_000,
       });
+      await expect(page.getByTestId('clone-results-lookups-not-carried')).toContainText(
+        'Contact — OwnerId on 18 records',
+      );
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(
@@ -4140,6 +4271,13 @@ for (const theme of SCANNED_THEMES) {
           page,
           results,
           '[data-testid="clone-results-fields-not-in-target"]',
+        ),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(
+          page,
+          results,
+          '[data-testid="clone-results-lookups-not-carried"]',
         ),
       ).toBeGreaterThan(0);
     });
@@ -5827,6 +5965,9 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
       await page.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('forge:undo', { timeout: 10_000 });
+      // Under way, under the run, with its Stop.
+      await expect(page.getByTestId('forge-history-removing-stop')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
       await answerAll(page, 'forge:undo', 'forge:undo:response', {
         result: FORGE_REMOVAL_RESULT,
         operationId: 'forge-undo-1',

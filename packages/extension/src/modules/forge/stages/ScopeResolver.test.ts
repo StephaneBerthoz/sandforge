@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildNodeQuery,
   CATALOG_OBJECTS,
@@ -192,7 +192,7 @@ describe('buildNodeQuery', () => {
     expect(result).toEqual({
       kind: 'query',
       statements: [
-        "SELECT Id, Name FROM Account WHERE (Industry = 'X' OR Rating = 'Hot') LIMIT 200",
+        "SELECT Id, Name FROM Account WHERE (Industry = 'X' OR Rating = 'Hot') LIMIT 201",
       ],
       limit: 200,
     });
@@ -213,7 +213,7 @@ describe('buildNodeQuery', () => {
       kind: 'query',
       statements: [
         "SELECT Id, Name FROM Account WHERE (Industry = 'X' OR Rating = 'Hot') AND " +
-          "Id > '001000000000777AAA' ORDER BY Id LIMIT 200",
+          "Id > '001000000000777AAA' ORDER BY Id LIMIT 201",
       ],
       limit: 200,
     });
@@ -253,7 +253,7 @@ describe('buildNodeQuery', () => {
     expect(result).toEqual({ kind: 'query', statements: ['SELECT Id FROM Account'] });
   });
 
-  it('appends a floored LIMIT when maxRecordsPerObject is positive', () => {
+  it('asks for one row past a floored cap when maxRecordsPerObject is positive, to tell a cut read from a whole one', () => {
     const result = buildNodeQuery({
       node: makeNode('Account'),
       edges: [],
@@ -264,7 +264,7 @@ describe('buildNodeQuery', () => {
     });
     expect(result).toEqual({
       kind: 'query',
-      statements: ['SELECT Id, Name FROM Account LIMIT 50'],
+      statements: ['SELECT Id, Name FROM Account LIMIT 51'],
       limit: 50,
     });
   });
@@ -349,7 +349,7 @@ describe('buildNodeQuery', () => {
     expect(result.kind).toBe('query');
     if (result.kind !== 'query') return;
     expect(result.statements).toHaveLength(3);
-    for (const soql of result.statements) expect(soql.endsWith(' LIMIT 25')).toBe(true);
+    for (const soql of result.statements) expect(soql.endsWith(' LIMIT 26')).toBe(true);
     expect(result.limit).toBe(25);
   });
 
@@ -455,6 +455,57 @@ describe('queryNodeRecords', () => {
     );
     expect(records).toHaveLength(3);
     expect(queried).toEqual(['q1', 'q2']);
+  });
+
+  it('says the object holds more than the cap when a row past it comes back, and keeps no row past it', async () => {
+    // Cut at the cap without a word, a clone of an account with 250 cases
+    // took 100 of them and said "Success".
+    const capped = vi.fn();
+    const reached = new Set<string>();
+
+    const records = await queryNodeRecords(
+      { kind: 'query', statements: ['q1'], limit: 2 },
+      async () => [{ Id: '500A' }, { Id: '500B' }, { Id: '500C' }],
+      reached,
+      capped,
+    );
+
+    expect(records.map((r) => r['Id'])).toEqual(['500A', '500B']);
+    expect([...reached]).toEqual(['500A', '500B']);
+    expect(capped).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the object holds more than the cap across chunks, and sends no statement after the row past it', async () => {
+    const capped = vi.fn();
+    const queried: string[] = [];
+
+    const records = await queryNodeRecords(
+      { kind: 'query', statements: ['q1', 'q2', 'q3'], limit: 3 },
+      async (soql) => {
+        queried.push(soql);
+        return [{ Id: `${soql}-1` }, { Id: `${soql}-2` }];
+      },
+      undefined,
+      capped,
+    );
+
+    expect(records).toHaveLength(3);
+    expect(queried).toEqual(['q1', 'q2']);
+    expect(capped).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing of the cap when the object holds exactly as many rows', async () => {
+    const capped = vi.fn();
+
+    const records = await queryNodeRecords(
+      { kind: 'query', statements: ['q1', 'q2'], limit: 3 },
+      async (soql) => (soql === 'q1' ? [{ Id: '500A' }, { Id: '500B' }] : [{ Id: '500C' }]),
+      undefined,
+      capped,
+    );
+
+    expect(records).toHaveLength(3);
+    expect(capped).not.toHaveBeenCalled();
   });
 
   it('returns a single statement result untouched', async () => {

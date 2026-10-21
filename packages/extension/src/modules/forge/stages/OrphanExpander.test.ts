@@ -155,7 +155,7 @@ describe('OrphanExpander', () => {
     expect(vi.mocked(neutralized.insertRecords).mock.calls[0][2]).toEqual([
       {
         Name: 'Acme Insurance',
-        Phone: expect.stringMatching(/^\+3363998\d{4}$/),
+        Phone: expect.stringMatching(/^\+33 6 39 98 \d{2} \d{2}$/),
         Billing_Email__c: 'billing@acme.com.invalid',
       },
     ]);

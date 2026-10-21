@@ -483,18 +483,17 @@ export const ForgeInput: React.FC = () => {
               <option value="1000">{t('forge.recordLimitOpt1000')}</option>
               <option value="all">{t('forge.recordLimitAll')}</option>
             </select>
-            {/* Smart-mode hint — surfaces what the auto cap will be */}
-            {form.recordLimit === 'smart' && form.preview?.estimatedRecordCount != null && (
+            {/* What Smart applies to this run: no cap to one record's graph,
+                a cap to a run from a query. It named the root object's whole
+                table "the org" and sized the cap of a one-record clone by it. */}
+            {form.recordLimit === 'smart' && (
               <div
-                className="mt-1.5 text-[10px] text-text-secondary flex items-center gap-1.5"
+                className="mt-1.5 text-[10px] text-text-secondary"
                 data-testid="forge-record-limit-smart-hint"
               >
-                <span>
-                  {t('forge.smartLimitSuggested', {
-                    count: form.preview.estimatedRecordCount,
-                    limit: form.recordLimitValue ?? t('forge.recordLimitAll'),
-                  })}
-                </span>
+                {form.recordLimitValue === undefined
+                  ? t('forge.recordLimitSmartRecord')
+                  : t('forge.recordLimitSmartSoql', { limit: form.recordLimitValue })}
               </div>
             )}
           </div>

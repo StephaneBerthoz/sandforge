@@ -27,6 +27,17 @@ export const INPUT_MODE_KEYS: Record<ForgeInputMode, string> = {
   ai: 'forge.aiTab',
 };
 
+/**
+ * Whether the run clones one record's graph: it reads only what that record
+ * reaches, where discovery counted whole tables. The counts, sizes and
+ * durations shown before such a run are the source tables', not the clone's.
+ */
+export function clonesOneRecord(
+  config: Pick<ForgeConfig, 'inputMode' | 'recordId'> | null | undefined,
+): boolean {
+  return config?.inputMode === 'record' && Boolean(config.recordId);
+}
+
 /** The part of a stored config that identifies what was cloned. */
 export function configSubject(config: StoredForgeConfig): string | undefined {
   switch (config.inputMode) {

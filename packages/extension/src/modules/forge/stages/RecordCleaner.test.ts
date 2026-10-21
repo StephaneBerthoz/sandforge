@@ -68,7 +68,7 @@ describe('cleanNodeRecords', () => {
       expect(out.cleaned).toEqual({
         Name: 'X',
         Email: 'jane@acme.com.invalid',
-        Phone__c: expect.stringMatching(/^\+3363998\d{4}$/),
+        Phone__c: expect.stringMatching(/^063998\d{4}$/),
       });
       // The row as read stays as read: the payload is what changes.
       expect(out.source).toEqual(row);
@@ -85,7 +85,7 @@ describe('cleanNodeRecords', () => {
         }),
       );
 
-      expect(out.cleaned['Phone']).toMatch(/^\+3363998\d{4}$/);
+      expect(out.cleaned['Phone']).toMatch(/^063998\d{4}$/);
       expect(out.cleaned).not.toHaveProperty('Phone__c');
     });
 

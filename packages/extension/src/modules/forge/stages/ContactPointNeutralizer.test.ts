@@ -19,6 +19,15 @@ const field = (name: string, type: string, length?: number): FieldInfo => ({
 /** A number of the mobile range kept for fiction, with its country code. */
 const FICTIONAL = /^\+3363998\d{4}$/;
 
+/** A number of that range in the national form. */
+const FICTIONAL_NATIONAL = /^063998\d{4}$/;
+
+/** The digits of a number of that range, however it is written. */
+const FICTIONAL_DIGITS = /^(?:(?:00)?330?|0)63998\d{4}$/;
+
+/** The digits of a value, its separators left out. */
+const digitsOf = (value: unknown): string => String(value).replace(/\D/g, '');
+
 /** The rows of one object, neutralized as a run writes them. */
 function neutralized(
   neutralizer: ContactPointNeutralizer,
@@ -122,14 +131,18 @@ describe('ContactPointNeutralizer', () => {
       ],
     );
 
+    // Each in the layout of the number it replaces.
+    expect(String(rows[0]['Phone'])).toMatch(/^06 39 98 \d{2} \d{2}$/);
+    expect(String(rows[0]['MobilePhone'])).toMatch(/^06\.39\.98\.\d{2}\.\d{2}$/);
+    expect(String(rows[1]['Phone'])).toMatch(/^\+33 06 3998 \d{4}$/);
     for (const row of rows) {
-      expect(String(row['Phone'])).toMatch(FICTIONAL);
-      expect(String(row['MobilePhone'])).toMatch(FICTIONAL);
+      expect(digitsOf(row['Phone'])).toMatch(FICTIONAL_DIGITS);
+      expect(digitsOf(row['MobilePhone'])).toMatch(FICTIONAL_DIGITS);
     }
     // Written two ways, the same number is the same fictional one.
-    expect(rows[0]['MobilePhone']).toBe(rows[0]['Phone']);
+    expect(digitsOf(rows[0]['MobilePhone'])).toBe(digitsOf(rows[0]['Phone']));
     expect(rows[1]['MobilePhone']).toBe(rows[0]['Phone']);
-    expect(rows[1]['Phone']).not.toBe(rows[0]['Phone']);
+    expect(digitsOf(rows[1]['Phone']).slice(-4)).not.toBe(digitsOf(rows[0]['Phone']).slice(-4));
   });
 
   it('draws the numbers of each run with a key of its own', () => {
@@ -157,7 +170,7 @@ describe('ContactPointNeutralizer', () => {
     );
 
     const drawn = rows.map((row) => String(row['Phone']));
-    for (const number of drawn) expect(number).toMatch(FICTIONAL);
+    for (const number of drawn) expect(number).toMatch(FICTIONAL_NATIONAL);
     expect(new Set(drawn).size).toBe(2_000);
   });
 
@@ -190,7 +203,7 @@ describe('ContactPointNeutralizer', () => {
     ]);
 
     expect(rows[0]['Phone']).toBe(drawn);
-    expect(String(rows[1]['Phone'])).toMatch(FICTIONAL);
+    expect(String(rows[1]['Phone'])).toMatch(FICTIONAL_NATIONAL);
     expect(rows[1]['Phone']).not.toBe(drawn);
   });
 
@@ -237,6 +250,52 @@ describe('ContactPointNeutralizer', () => {
     );
 
     expect(String(row['SMS_Number__c'])).toMatch(/^063998\d{4}$/);
+  });
+
+  it('writes the fictional number in the layout of the number it replaces, so a format rule the source met is met', () => {
+    const rows = neutralized(
+      new ContactPointNeutralizer('salt'),
+      [field('Phone', 'phone', 40)],
+      [
+        { Phone: '+33 1 23 45 67 89' },
+        { Phone: '01.23.45.67.89' },
+        { Phone: '(415) 555-0100' },
+        { Phone: '0033 1 23 45 67 88' },
+        { Phone: '+33 (0)1 23 45 67 87' },
+        { Phone: ' 01-23-45-67-86 ' },
+      ],
+    );
+
+    // A target rule such as "Phone must be written +33 X XX XX XX XX".
+    expect(String(rows[0]['Phone'])).toMatch(/^\+33 [1-9]( [0-9]{2}){4}$/);
+    expect(String(rows[0]['Phone'])).toMatch(/^\+33 6 39 98 \d{2} \d{2}$/);
+    expect(String(rows[1]['Phone'])).toMatch(/^06\.39\.98\.\d{2}\.\d{2}$/);
+    expect(String(rows[2]['Phone'])).toMatch(/^\(063\) 998-\d{4}$/);
+    expect(String(rows[3]['Phone'])).toMatch(/^0033 6 39 98 \d{2} \d{2}$/);
+    expect(String(rows[4]['Phone'])).toMatch(/^\+33 \(0\)6 39 98 \d{2} \d{2}$/);
+    expect(String(rows[5]['Phone'])).toMatch(/^ 06-39-98-\d{2}-\d{2} $/);
+    for (const row of rows) expect(digitsOf(row['Phone'])).toMatch(FICTIONAL_DIGITS);
+  });
+
+  it('writes the compact fictional number where no form of the fiction has as many digits, or the value holds more than a number', () => {
+    const rows = neutralized(
+      new ContactPointNeutralizer('salt'),
+      [field('Phone', 'phone', 40)],
+      [{ Phone: '555-0100' }, { Phone: 'Tel. 01 23 45 67 89' }, { Phone: '+1 415 555 0100 22' }],
+    );
+
+    for (const row of rows) expect(String(row['Phone'])).toMatch(FICTIONAL);
+  });
+
+  it('keeps a layout it wrote: a number neutralized once is left as it is by the next run', () => {
+    const fields = [field('Phone', 'phone', 40)];
+    const [{ Phone: once }] = neutralized(new ContactPointNeutralizer('first'), fields, [
+      { Phone: '+33 1 23 45 67 89' },
+    ]);
+
+    const [again] = neutralized(new ContactPointNeutralizer('next'), fields, [{ Phone: once }]);
+
+    expect(again['Phone']).toBe(once);
   });
 
   it('leaves a value out when no form of it fits the field, and counts it', () => {
@@ -303,9 +362,9 @@ describe('ContactPointNeutralizer', () => {
       ],
     );
 
-    expect(String(rows[0]['SMS_Number__c'])).toMatch(FICTIONAL);
+    expect(String(rows[0]['SMS_Number__c'])).toMatch(/^\+33 \(0\)6 39 98 \d{2} \d{2}$/);
     expect(String(rows[0]['Phone_Notes__c'])).toMatch(
-      /^Rappeler au \+3363998\d{4} ou au \+3363998\d{4} après 17h$/,
+      /^Rappeler au 06 39 98 \d{2} \d{2} ou au 06 39 98 \d{2} \d{2} après 17h$/,
     );
     // Four digits reach no one.
     expect(rows[0]['Phone_Extension__c']).toBe('1234');

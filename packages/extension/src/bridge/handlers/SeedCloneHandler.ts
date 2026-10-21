@@ -43,6 +43,7 @@ import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenc
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import type { PendingFkUpdate } from '../../modules/forge/stages/BatchWriter.js';
+import { idsTheTargetLacks } from '../../modules/forge/stages/TargetHolds.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isRequiredLookup, isUncopyableObject } from '@sandforge/shared';
 import {
@@ -868,6 +869,60 @@ export class SeedCloneHandler implements DomainHandler {
       let tasksToCome = objectSet.has(TASK);
 
       /**
+       * A read of the target, every page of it. Asked of two hundred events at
+       * a time, the target answers with every relation they hold, and one
+       * page stops at two thousand rows: an event's invitees fill pages, and
+       * a relation past the first was sent again beside the one it held.
+       */
+      const readTarget: SoqlQuery = (soql) => queryAll(targetConn, soql);
+
+      /** Per id a row names in a lookup at a user or a queue, whether the target holds it: asked once a run. */
+      const targetHolds = new Map<string, boolean>();
+      /** Per object and lookup, the records written without it, the target holding no record of the id. */
+      const lookupsNotCarried = new Map<string, Map<string, number>>();
+
+      /**
+       * Take out of the rows the users and queues they name that the target
+       * holds no record of, and count them on the object: the platform fills
+       * the lookup, the owner with the user the clone writes as. The clone
+       * copied the owner as read, and between two orgs that do not share
+       * their users — a Developer Edition and a sandbox — the target refused
+       * every record, INVALID_CROSS_REFERENCE_KEY. Forge's runs of whole
+       * tables ask so (`idsTheTargetLacks`).
+       */
+      const withoutUsersTheTargetLacks = async (
+        objectApiName: string,
+        writeRecords: Record<string, unknown>[],
+      ): Promise<void> => {
+        const lookups = (describeMap.get(objectApiName)?.fields ?? []).filter(
+          (field) => field.type === 'reference',
+        );
+        const lacking = await idsTheTargetLacks({
+          lookups,
+          rows: writeRecords,
+          known: targetHolds,
+          query: readTarget,
+        });
+        if (lacking.size === 0) return;
+        const counted = lookupsNotCarried.get(objectApiName) ?? new Map<string, number>();
+        for (const record of writeRecords) {
+          for (const { name } of lookups) {
+            const value = record[name];
+            if (typeof value !== 'string' || !lacking.has(value)) continue;
+            delete record[name];
+            counted.set(name, (counted.get(name) ?? 0) + 1);
+          }
+        }
+        if (counted.size === 0) return;
+        lookupsNotCarried.set(objectApiName, counted);
+        this.deps.log(
+          `[INFO] seed:clone ${objectApiName}: written without a user or a queue the target does ` +
+            `not hold, which the platform fills (the owner with the user the clone writes as): ` +
+            [...counted].map(([field, records]) => `${field} on ${records}`).join(', '),
+        );
+      };
+
+      /**
        * Write rows of an object: its outcomes, one per row, and whether a
        * cancel stopped the write. An aborted upload wrote none of them, a REST
        * write stopped between two batches wrote the records before, which
@@ -878,6 +933,7 @@ export class SeedCloneHandler implements DomainHandler {
         objectApiName: string,
         writeRecords: Record<string, unknown>[],
       ): Promise<{ outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>; stopped: boolean }> => {
+        await withoutUsersTheTargetLacks(objectApiName, writeRecords);
         // Every row's email addresses and phone numbers are made unreachable
         // as it goes, whatever else held it back or linked it before: the
         // fields are the target's, whose automation reads them. The field an
@@ -960,14 +1016,6 @@ export class SeedCloneHandler implements DomainHandler {
           }
         });
       };
-
-      /**
-       * A read of the target, every page of it. Asked of two hundred events at
-       * a time, the target answers with every relation they hold, and one
-       * page stops at two thousand rows: an event's invitees fill pages, and
-       * a relation past the first was sent again beside the one it held.
-       */
-      const readTarget: SoqlQuery = (soql) => queryAll(targetConn, soql);
 
       /**
        * Of the tasks read, those the platform wrote with an email the clone
@@ -1339,6 +1387,16 @@ export class SeedCloneHandler implements DomainHandler {
         if (abortController.signal.aborted) cancelled = true;
       }
 
+      // Said on the object's line: the records went in, owned by someone else.
+      for (const objectResult of objectResults) {
+        const counted = lookupsNotCarried.get(objectResult.objectApiName);
+        if (counted) {
+          objectResult.lookupsNotCarried = [...counted].map(([field, records]) => ({
+            field,
+            records,
+          }));
+        }
+      }
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
       const totalInserted = objectResults.reduce((sum, r) => sum + r.insertedCount, 0);
       const totalLinked = objectResults.reduce((sum, r) => sum + (r.linkedCount ?? 0), 0);

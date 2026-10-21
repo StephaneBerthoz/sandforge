@@ -828,6 +828,63 @@ describe('a run whose ids are in its journal', () => {
     expect(disk.files.has(file)).toBe(false);
   });
 
+  describe('a window closed as the run answered', () => {
+    /**
+     * What a window opened on the same storage lists, read as the run's
+     * answer is posted: closed then, the window that answered ends nothing
+     * after it.
+     */
+    function listedWhenAnswered(type: string): () => Promise<ForgeExecutionResult[]> {
+      let journals: Array<[string, string]> = [];
+      vi.mocked(deps.broker.postToWebview).mockImplementation((message) => {
+        if ((message as BaseMessage).type !== type) return;
+        journals = [...disk.files]
+          .filter(([file]) => file.includes('forge-runs'))
+          .map(([file, content]) => [file, content.text()]);
+      });
+      return async () => {
+        // Only what was on disk when the answer went: the rest never happened.
+        disk.files.clear();
+        for (const [file, text] of journals) disk.files.set(file, memoryRunFile(text));
+        handler = windowOpened();
+        return (await listed()).history;
+      };
+    }
+
+    it('lists the run once, as it ended, not a second time as interrupted', async () => {
+      // Seen live: a run's entry, and beside it an entry "-1", interrupted,
+      // created 1 200, for the records the first already held.
+      execute.mockImplementation(endsAfter(3));
+      const nextWindow = listedWhenAnswered('forge:execute:response');
+
+      await send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+
+      const history = await nextWindow();
+      expect(history).toHaveLength(1);
+      expect(history[0]).not.toHaveProperty('interrupted');
+    });
+
+    it('lists a run that stopped once, to take up, not a second time as interrupted', async () => {
+      execute.mockImplementation(async (graph: ForgeGraph, _config: ForgeConfig, options) => {
+        const store = (options as ExecuteOptions | undefined)?.stream?.store;
+        writeTheRun(store, 3);
+        if (!store) throw new Error('no store');
+        const error = new ForgeAbortedError('Forge execution was aborted by user request.');
+        keepPartialSummary(error, summaryOf(store, undefined));
+        void graph;
+        throw error;
+      });
+      const nextWindow = listedWhenAnswered('forge:execute:error');
+
+      await send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+
+      const history = await nextWindow();
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({ cancelled: true, resumable: true });
+      expect(history[0]).not.toHaveProperty('interrupted');
+    });
+  });
+
   describe('removed once its window closed while an insert call was under way', () => {
     /** The contact the call sent, as it sent it and as the target holds it once written. */
     const SENT = { LastName: 'Marked', Email: 'marked@example.com.invalid' };
@@ -966,6 +1023,109 @@ describe('a run whose ids are in its journal', () => {
       expect(answerTo('wv-undo', 'forge:undo:response')?.result).toMatchObject({
         mayHaveBeenWritten: 1,
       });
+    });
+
+    it('says, on a removal after one that marked the run, the call still open it did not look for again', async () => {
+      const entry = await closedDuringTheCall(3);
+      // Which of two like records is the call's cannot be told: it stays open.
+      held = [
+        { Id: FOUND, ...SENT },
+        { Id: targetOf('003', 900_002), ...SENT },
+      ];
+      // The org refuses one contact: the first removal leaves it, and marks the run.
+      const refused = new Set([targetOf('003', 1)]);
+      removalAnswer = (plan) => ({
+        objects: plan.map(({ objectApiName, ids }) => ({
+          objectApiName,
+          planned: ids.length,
+          deleted: ids.filter((id) => !refused.has(id)).length,
+          alreadyGone: 0,
+          keptChanged: 0,
+          keptDependents: 0,
+          refused: ids.filter((id) => refused.has(id)).length,
+          heldBy: [],
+          unchecked: [],
+          reasons: [],
+        })),
+        cancelled: false,
+        gone: plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+        left: leftAfter(
+          plan,
+          plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+        ),
+        stamps: {},
+      });
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry.forgeId });
+      refused.clear();
+      await send('wv-undo-again', 'forge:undo', { forgeId: entry.forgeId });
+
+      expect(answerTo('wv-undo', 'forge:undo:response')?.result).not.toHaveProperty('notLookedFor');
+      // Silent before: the second removal read as one that had looked for everything.
+      expect(answerTo('wv-undo-again', 'forge:undo:response')?.result).toMatchObject({
+        notLookedFor: { callsAfterRemoval: 1 },
+      });
+    });
+
+    it('says which of the rows a call may have written went by upsert, which no call of its journal names', async () => {
+      const UPSERTED = sourceOf('003', 900_003);
+      execute.mockImplementation(async (graph: ForgeGraph, _config: ForgeConfig, options) => {
+        const store = (options as ExecuteOptions | undefined)?.stream?.store;
+        writeTheRun(store, 3);
+        if (!store) throw new Error('no store');
+        const fields = fingerprintFields([SENT]);
+        store.sent('Contact', fields, [
+          { sourceId: IN_FLIGHT, fingerprint: rowFingerprint(SENT, fields) },
+        ]);
+        const error = new ForgeAbortedError('Forge execution was aborted by user request.');
+        keepPartialSummary(error, {
+          ...summaryOf(store, undefined),
+          // The insert's row is in a call its journal holds open; the upsert's in none.
+          mayHaveBeenWritten: [{ objectApiName: 'Contact', sourceIds: [IN_FLIGHT, UPSERTED] }],
+        });
+        void graph;
+        throw error;
+      });
+      await send('wv-execute', 'forge:execute', { graph: GRAPH, config: CONFIG });
+      const entry = stored()[0];
+      expect(entry?.mayHaveBeenWritten).toHaveLength(1);
+      // The org refuses one contact: the removal leaves it, and marks the run.
+      const refused = new Set([targetOf('003', 1)]);
+      removalAnswer = (plan) => ({
+        objects: plan.map(({ objectApiName, ids }) => ({
+          objectApiName,
+          planned: ids.length,
+          deleted: ids.filter((id) => !refused.has(id)).length,
+          alreadyGone: 0,
+          keptChanged: 0,
+          keptDependents: 0,
+          refused: ids.filter((id) => refused.has(id)).length,
+          heldBy: [],
+          unchecked: [],
+          reasons: [],
+        })),
+        cancelled: false,
+        gone: plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+        left: leftAfter(
+          plan,
+          plan.flatMap(({ ids }) => ids.filter((id) => !refused.has(id))),
+        ),
+        stamps: {},
+      });
+
+      await send('wv-undo', 'forge:undo', { forgeId: entry?.forgeId });
+      refused.clear();
+      await send('wv-undo-again', 'forge:undo', { forgeId: entry?.forgeId });
+
+      // The insert's row was looked for, and is not there; the upsert's was not.
+      expect(answerTo('wv-undo', 'forge:undo:response')?.result).toMatchObject({
+        mayHaveBeenWritten: 1,
+        notLookedFor: { notJournaled: 1 },
+      });
+      // Of a run a removal marked, what it looked for is not known: no row is called an upsert's.
+      expect(answerTo('wv-undo-again', 'forge:undo:response')?.result).not.toHaveProperty(
+        'notLookedFor',
+      );
     });
 
     it('removes nothing when the target cannot be read for the call', async () => {

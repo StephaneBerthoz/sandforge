@@ -1524,6 +1524,25 @@ describe('forge:execute, the gate before the first write', () => {
       ]);
     });
 
+    it('says in the question the objects that stop at Records per object with more left in the source', async () => {
+      handler.setForgeOrchestrator(
+        orchestratorHanding({
+          ...boundaryOf(2_400),
+          capped: { perObject: 100, objects: ['Case'] },
+        }),
+        { targetAutomation: readerOf(QUIET) },
+      );
+
+      await execute();
+
+      expect(questions).toEqual([
+        expect.objectContaining({
+          stage: 'write',
+          capped: { perObject: 100, objects: ['Case'] },
+        }),
+      ]);
+    });
+
     it('asks nothing below it while the rows fit, and the run goes on', async () => {
       handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(1_999)), {
         targetAutomation: readerOf(QUIET),

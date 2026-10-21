@@ -360,6 +360,43 @@ describe('useForgeStore', () => {
     expect(node?.anonymizeFields).toEqual(['Phone']);
   });
 
+  describe('setAnonymizePII', () => {
+    it('turns anonymization on for the run on Review, selecting the personal fields of a node that selects none', () => {
+      // Discovery selects them only when the run anonymizes: turned on from
+      // Review, the run would have anonymized nothing.
+      getState().setConfig(createMockConfig({ anonymizePII: false }));
+      getState().setGraph(
+        createMockGraph([
+          createMockNode({ objectApiName: 'Account', piiFields: ['Phone'], anonymizeFields: [] }),
+          createMockNode({
+            objectApiName: 'Contact',
+            piiFields: ['Email', 'Phone'],
+            anonymizeFields: ['Email'],
+          }),
+        ]),
+      );
+
+      getState().setAnonymizePII(true);
+
+      expect(getState().config?.anonymizePII).toBe(true);
+      expect(getState().graph?.nodes.map((n) => n.anonymizeFields)).toEqual([['Phone'], ['Email']]);
+    });
+
+    it('turns it off, leaving the selection for when it is turned on again', () => {
+      getState().setConfig(createMockConfig({ anonymizePII: true }));
+      getState().setGraph(
+        createMockGraph([
+          createMockNode({ objectApiName: 'Account', piiFields: ['Phone'], anonymizeFields: [] }),
+        ]),
+      );
+
+      getState().setAnonymizePII(false);
+
+      expect(getState().config?.anonymizePII).toBe(false);
+      expect(getState().graph?.nodes[0].anonymizeFields).toEqual([]);
+    });
+  });
+
   it('should not modify other nodes when toggling anonymizeField', () => {
     getState().setGraph(createMockGraph());
     getState().toggleAnonymizeField('Account', 'Email');

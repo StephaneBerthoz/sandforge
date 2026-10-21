@@ -271,6 +271,11 @@ export interface WriteConfirmation {
    * each may then be there twice. Absent when none.
    */
   mayBeInTarget?: Array<{ objectApiName: string; rows: number }>;
+  /**
+   * The objects whose rows stop at Records per object with more left in the
+   * source, and that cap: the rows past it are not cloned. Absent when none.
+   */
+  capped?: { perObject: number; objects: string[] };
 }
 
 /**

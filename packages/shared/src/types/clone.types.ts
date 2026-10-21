@@ -68,6 +68,13 @@ export interface CloneObjectResult {
    * record. Absent when there are none.
    */
   fieldsNotInTarget?: string[];
+  /**
+   * Per lookup at a user or a queue, the records written without it: the
+   * target holds no record of the one they named, and the platform filled it,
+   * the owner with the user the clone writes as. Sent, the target refused the
+   * record. Absent when there are none.
+   */
+  lookupsNotCarried?: Array<{ field: string; records: number }>;
   /** Mapping of source record IDs to target record IDs, linked records included */
   idMappings: Array<{ sourceId: string; targetId: string }>;
   /** Errors encountered during insertion */

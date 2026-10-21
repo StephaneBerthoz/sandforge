@@ -154,6 +154,22 @@ describe('ForgeExecutor, before the first write', () => {
     expect(summary.successCount).toBe(4);
   });
 
+  it('tells its caller the objects a record clone read to Records per object with more left, and the cap', async () => {
+    // Three contacts under the account; the org answers the row past the cap of two.
+    const { deps, calls } = orgs(3);
+    const { seen, beforeWrite } = watching(calls);
+
+    const summary = await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+      ...ROOTED_AT_THE_ACCOUNT,
+      maxRecordsPerObject: 2,
+      beforeWrite,
+    });
+
+    expect(counted(seen[0])).toEqual({ Account: 1, Contact: 2 });
+    expect(seen[0].capped).toEqual({ perObject: 2, objects: ['Contact'] });
+    expect(summary.cappedObjects).toEqual({ perObject: 2, objects: ['Contact'] });
+  });
+
   it('writes nothing when what it hands them to refuses the run, and the refusal reaches the caller', async () => {
     const { deps } = orgs(3);
     const refusal = new ForgeRunGateError('WRITE_DECLINED', 'cancelled at the confirmation');

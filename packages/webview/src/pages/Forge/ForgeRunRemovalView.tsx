@@ -1,6 +1,7 @@
 import React, { useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import { Square } from 'lucide-react';
 import type {
   ForgeExecutionResult,
   ForgeFileObject,
@@ -17,7 +18,9 @@ import {
 } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
+import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
+import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
 import { ForgeRemovalSweep, ForgeRunSweepResult } from './ForgeRemovalSweep';
 
@@ -306,10 +309,61 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   );
 };
 
+/** Props for {@link ForgeRunRemovalRunning}. */
+export interface ForgeRunRemovalRunningProps {
+  /** The id of the request that started the removal, which the extension runs it under. */
+  requestId: string | null;
+  /** The test id of the line that says it runs; its Stop takes it with `-stop`. */
+  testId: string;
+}
+
+/**
+ * A Forge run's removal under way, from the card that asked for it: that it
+ * runs, and its Stop, as Seed's, Sync's and Frozen's removal cards offer one.
+ * The extension runs it under the request's id, which the Stop names to
+ * `execution:abort`; under an id of its own, only Live Operations could stop
+ * it. Stopped, it ends once the call under way is answered, and says what it
+ * removed by then.
+ */
+export const ForgeRunRemovalRunning: React.FC<ForgeRunRemovalRunningProps> = ({
+  requestId,
+  testId,
+}) => {
+  const { t } = useTranslation();
+  const { requested, cancel } = useOperationCancel(requestId, {
+    title: t('forge.history.stopRefused'),
+    message: t('forge.history.stopRefusedDetail'),
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <p role="status" data-testid={testId} className="text-xs text-text-secondary">
+        {requested ? t('forge.history.stopping') : t('forge.history.removing')}
+      </p>
+      {requestId && (
+        <Button
+          variant="danger"
+          size="sm"
+          icon={<Square size={11} />}
+          disabled={requested}
+          focusableWhenDisabled
+          onClick={cancel}
+          data-testid={`${testId}-stop`}
+          className="text-[11px]"
+        >
+          {t('forge.history.stopRemoval')}
+        </Button>
+      )}
+    </div>
+  );
+};
+
 /** Props for {@link ForgeRunRemovalResult}. */
 export interface ForgeRunRemovalResultProps {
   /** What the removal did, and the removal whose leftovers it took up, if any. */
-  result: Pick<ForgeUndoResult, 'status' | 'objects' | 'leftBy' | 'mayHaveBeenWritten' | 'sweep'>;
+  result: Pick<
+    ForgeUndoResult,
+    'status' | 'objects' | 'leftBy' | 'mayHaveBeenWritten' | 'notLookedFor' | 'sweep'
+  >;
   /** The org it removed from, as the user knows it. */
   org: string;
   /** What it took back: a Forge run unless said. */
@@ -403,6 +457,25 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
           {counted(t, 'forge.history.resultMayHaveBeenWritten', result.mayHaveBeenWritten ?? 0, {
             org,
           })}
+        </p>
+      )}
+      {/* Why some of them were never looked for in the org: counted with the
+          rest, they read as rows the target was searched for. */}
+      {(result.notLookedFor?.notJournaled ?? 0) > 0 && (
+        <p data-testid="forge-removal-not-journaled" className="text-text-secondary">
+          {counted(t, 'forge.history.resultNotJournaled', result.notLookedFor?.notJournaled ?? 0, {
+            org,
+          })}
+        </p>
+      )}
+      {(result.notLookedFor?.callsAfterRemoval ?? 0) > 0 && (
+        <p data-testid="forge-removal-calls-not-looked-for" className="text-status-warning">
+          {counted(
+            t,
+            'forge.history.resultCallsNotLookedFor',
+            result.notLookedFor?.callsAfterRemoval ?? 0,
+            { org },
+          )}
         </p>
       )}
       {result.sweep && <ForgeRunSweepResult result={result.sweep} org={org} />}

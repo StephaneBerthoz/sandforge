@@ -714,6 +714,13 @@ export interface ForgeState {
   setNodesIncluded: (objectNames: readonly string[], included: boolean) => void;
   /** Toggle a field in a node's anonymizeFields list. */
   toggleAnonymizeField: (objectName: string, fieldName: string) => void;
+  /**
+   * Turn anonymization on or off for the run Review shows: its config says
+   * so, and a node that selects no field yet is given its personal fields, as
+   * discovery selects them when the run anonymizes. Turning it on meant going
+   * back to the form and discovering again.
+   */
+  setAnonymizePII: (on: boolean) => void;
   /** Apply a curated anonymization preset (replaces anonymizeFields per object). */
   applyAnonymizationPreset: (
     rules: ReadonlyArray<{ objectApiName: string; fieldNames: readonly string[] }>,
@@ -1233,6 +1240,25 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
           state.config,
           nodes.filter((n: ForgeGraphNode) => names.has(n.objectApiName)),
         ),
+      };
+    });
+  },
+
+  setAnonymizePII(on: boolean): void {
+    set((state) => {
+      if (!state.config) return state;
+      const config = { ...state.config, anonymizePII: on };
+      if (!on || !state.graph) return { config };
+      return {
+        config,
+        graph: {
+          ...state.graph,
+          nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
+            n.anonymizeFields.length > 0 || n.piiFields.length === 0
+              ? n
+              : { ...n, anonymizeFields: [...n.piiFields] },
+          ),
+        },
       };
     });
   },

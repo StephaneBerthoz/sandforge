@@ -21,6 +21,7 @@ import { ForgeNodeDetail } from './ForgeNodeDetail';
 import { ForgeTableView } from './ForgeTableView';
 import { ForgeViewToggle } from './ForgeViewToggle';
 import { sendDiscovery } from './directRun';
+import { clonesOneRecord } from './forgeRunConfig';
 
 import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -48,6 +49,8 @@ export const ForgeDiscovery: React.FC = () => {
   const toggleAnonymizeField = useForgeStore((s) => s.toggleAnonymizeField);
 
   const config = useForgeStore((s) => s.config);
+  /** The counts are the source tables', the clone reading only what its record reaches. */
+  const oneRecord = clonesOneRecord(config);
   const setNodesIncluded = useForgeStore((s) => s.setNodesIncluded);
   /**
    * Whether the discovery the flow waits on, the screen's or a Clone
@@ -425,25 +428,38 @@ export const ForgeDiscovery: React.FC = () => {
         </div>
         <div className="flex items-center gap-1.5 text-sm">
           <Database size={14} className="text-text-secondary" />
-          <span className="text-text-secondary">{t('forge.records')}:</span>
+          <span className="text-text-secondary">
+            {t(oneRecord ? 'forge.recordsInSourceTables' : 'forge.records')}:
+          </span>
           <span className="font-medium text-text-primary" data-testid="stat-records">
             {stats.recordCount}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-sm">
-          <HardDrive size={14} className="text-text-secondary" />
-          <span className="text-text-secondary">{t('forge.estSize')}:</span>
-          <span className="font-medium text-text-primary" data-testid="stat-size">
-            {stats.estSize}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 text-sm">
-          <Clock size={14} className="text-text-secondary" />
-          <span className="text-text-secondary">{t('forge.estDuration')}:</span>
-          <span className="font-medium text-text-primary" data-testid="stat-duration">
-            {stats.estDuration}
-          </span>
-        </div>
+        {/* A clone of one record reads only what the record reaches: a size
+            and a duration reckoned from whole tables said "~40 min" of a
+            clone of one case's graph. */}
+        {oneRecord ? (
+          <p className="text-xs text-text-secondary" data-testid="stat-source-tables">
+            {t('forge.preview.readsWhatTheRecordReaches')}
+          </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5 text-sm">
+              <HardDrive size={14} className="text-text-secondary" />
+              <span className="text-text-secondary">{t('forge.estSize')}:</span>
+              <span className="font-medium text-text-primary" data-testid="stat-size">
+                {stats.estSize}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <Clock size={14} className="text-text-secondary" />
+              <span className="text-text-secondary">{t('forge.estDuration')}:</span>
+              <span className="font-medium text-text-primary" data-testid="stat-duration">
+                {stats.estDuration}
+              </span>
+            </div>
+          </>
+        )}
       </m.div>
 
       {/* Action bar */}

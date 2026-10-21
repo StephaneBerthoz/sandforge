@@ -29,10 +29,13 @@ import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { ForgeRehearseAction } from './ForgeRehearseAction';
 import { startForgeRun } from './startForgeRun';
+import { clonesOneRecord } from './forgeRunConfig';
 import { useForgeGaps } from './useForgeGaps';
 import { ReviewGapsRead } from './ReviewGapsRead';
 import { ReviewControlsTab } from './ReviewControlsTab';
 import { ReviewGraphSearch, graphMatches } from './ReviewGraphSearch';
+import { Button } from '../../components/ui/Button';
+import { Dialog } from '../../components/ui/Dialog';
 
 /** Tabs available in the Review phase right panel. */
 type ReviewTab =
@@ -106,7 +109,6 @@ export const ForgeReview: React.FC = () => {
   const metadataDiffs = useForgeStore((s) => s.metadataDiffs);
 
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
-  const anonymizePII = config?.anonymizePII ?? false;
   // A run that anonymizes waits for the files to be accepted as they are.
   const filesBlocked = useForgeStore(filesBlockExecute);
   const setPlan = useForgeStore((s) => s.setPlan);
@@ -266,9 +268,35 @@ export const ForgeReview: React.FC = () => {
 
   /** The gaps that will refuse rows with no decision taken yet, counted on their tab. */
   const undecidedBlocking = useUndecidedBlockingGaps();
+  /** Execute asked about them, and is waiting for the answer. */
+  const [askingAboutGaps, setAskingAboutGaps] = useState(false);
+  /** Execute anyway was chosen once: the question is not put again. */
+  const [gapsAccepted, setGapsAccepted] = useState(false);
 
-  /** Start the forge run, as Clone directly starts one (see `startForgeRun`). */
+  /**
+   * Start the forge run, as Clone directly starts one (see `startForgeRun`),
+   * once asked about the gaps that will refuse rows still undecided. Said
+   * only by a badge on the sixth of seven tabs, they let a run go out from
+   * the Plan tab and the target refuse rows one decision would have saved.
+   */
   const handleExecute = useCallback(() => {
+    if (undecidedBlocking > 0 && !gapsAccepted) {
+      setAskingAboutGaps(true);
+      return;
+    }
+    startForgeRun();
+  }, [undecidedBlocking, gapsAccepted]);
+
+  /** Open the Gaps tab, where each gap is decided. */
+  const decideOnGaps = useCallback(() => {
+    setAskingAboutGaps(false);
+    setActiveTab('gaps');
+  }, []);
+
+  /** Run with the gaps as they are: the rows they refuse are refused. */
+  const executeAnyway = useCallback(() => {
+    setAskingAboutGaps(false);
+    setGapsAccepted(true);
     startForgeRun();
   }, []);
 
@@ -281,14 +309,15 @@ export const ForgeReview: React.FC = () => {
     id: ReviewTab;
     label: string;
     badge?: number;
-    disabled?: boolean;
   }> = [
     { id: 'plan', label: t('forge.review.planTab', 'Plan') },
+    // Always open: anonymization is turned on there. Disabled with a count of
+    // personal fields and no word why, it sent the user back to the form to
+    // discover the graph again.
     {
       id: 'anonymization',
       label: t('forge.review.anonymizationTab', 'Anonymization'),
       badge: piiFieldCount,
-      disabled: !anonymizePII,
     },
     { id: 'compliance', label: t('forge.review.complianceTab', 'Compliance') },
     {
@@ -320,6 +349,7 @@ export const ForgeReview: React.FC = () => {
           plan={plan}
           cycleCount={plan?.cycleResolutions.length ?? 0}
           truncated={graph.truncated === true}
+          oneRecord={clonesOneRecord(config)}
         />
       )}
       {graph && <ReviewLeftOutCost graph={graph} />}
@@ -378,14 +408,11 @@ export const ForgeReview: React.FC = () => {
                 role="tab"
                 aria-selected={activeTab === tab.id}
                 aria-controls={`tabpanel-${tab.id}`}
-                onClick={() => !tab.disabled && setActiveTab(tab.id)}
-                disabled={tab.disabled}
+                onClick={() => setActiveTab(tab.id)}
                 className={`px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1 ${
                   activeTab === tab.id
                     ? 'text-hue-forge border-b-2 border-forge'
-                    : tab.disabled
-                      ? 'text-text-muted cursor-not-allowed'
-                      : 'text-text-secondary hover:text-text-primary'
+                    : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 {tab.label}
@@ -473,17 +500,67 @@ export const ForgeReview: React.FC = () => {
           >
             {t('forge.simulation.action')}
           </button>
+          {undecidedBlocking > 0 && (
+            <div className="flex items-center gap-2" data-testid="forge-gaps-undecided">
+              <p id="forge-gaps-execute-hint" className="text-xs text-text-primary">
+                {t('forge.review.undecidedGaps', { count: undecidedBlocking })}
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={decideOnGaps}
+                data-testid="forge-gaps-decide"
+              >
+                {t('forge.review.decideOnGaps')}
+              </Button>
+            </div>
+          )}
           <button
             data-testid="execute-button"
             onClick={handleExecute}
             disabled={!graph || !config || filesBlocked}
-            aria-describedby={filesBlocked ? 'forge-files-execute-hint' : undefined}
+            aria-describedby={
+              [
+                filesBlocked ? 'forge-files-execute-hint' : '',
+                undecidedBlocking > 0 ? 'forge-gaps-execute-hint' : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
             className="px-6 py-2 text-sm font-semibold bg-hue-forge text-(--sf-bg-primary) rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t('forge.executeForge', 'Execute Forge')}
           </button>
         </div>
       </div>
+      <Dialog
+        open={askingAboutGaps}
+        onClose={() => setAskingAboutGaps(false)}
+        title={t('forge.review.undecidedGaps', { count: undecidedBlocking })}
+        description={t('forge.review.undecidedGapsQuestion')}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={decideOnGaps}
+              data-testid="forge-gaps-ask-decide"
+            >
+              {t('forge.review.decideOnGaps')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={executeAnyway}
+              data-testid="forge-gaps-ask-execute"
+            >
+              {t('forge.review.executeAnyway')}
+            </Button>
+          </>
+        }
+      >
+        {null}
+      </Dialog>
     </div>
   );
 };

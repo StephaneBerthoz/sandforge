@@ -61,6 +61,7 @@ let mockDiscoveryError: string | null = null;
 const mockAwaitDiscovery = vi.fn();
 let mockConfig: {
   inputMode: string;
+  recordId?: string;
   depth: string;
   sourceOrgId: string;
   targetOrgId: string;
@@ -231,6 +232,30 @@ describe('ForgeDiscovery', () => {
     expect(statsBar).toBeDefined();
     expect(screen.getByTestId('stat-objects').textContent).toBe('2');
     expect(screen.getByTestId('stat-records').textContent).toBe('300');
+    expect(screen.getByTestId('stat-duration')).toBeDefined();
+  });
+
+  it('says of a clone of one record that its records are the source tables’, with no size or duration reckoned from them', () => {
+    mockConfig = {
+      inputMode: 'record',
+      recordId: '500000000000001AAA',
+      depth: 'direct',
+      sourceOrgId: 'src',
+      targetOrgId: 'tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    };
+    render(<ForgeDiscovery />);
+
+    expect(screen.getByTestId('forge-stats-bar').textContent).toContain(
+      'Records in the source tables:300',
+    );
+    expect(screen.getByTestId('stat-source-tables').textContent).toBe(
+      'The clone reads only what its record reaches: these counts are of the source tables, not of what it will write.',
+    );
+    expect(screen.queryByTestId('stat-size')).toBeNull();
+    expect(screen.queryByTestId('stat-duration')).toBeNull();
   });
 
   it('should show loading state while its discovery has yet to answer', () => {

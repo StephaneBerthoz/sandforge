@@ -790,6 +790,40 @@ describe('a run of whole tables read page by page', () => {
       { objectApiName: 'Account', read: 5 },
       { objectApiName: 'Contact', read: 5 },
     ]);
+    // It is said apart: the rows past it are in the source, none in the clone.
+    expect(capped.summary.cappedObjects).toEqual({
+      perObject: 5,
+      objects: ['Account', 'Contact'],
+    });
+    expect(paged.summary.cappedObjects).toBeUndefined();
+  });
+
+  it('says nothing of the cap on each object when a table holds no more rows than it', async () => {
+    const { schema, graph } = selfLookups();
+    const whole = await runOver(schema, graph, { stream: { pageSize: 4 } });
+    const rows = whole.summary.readByObject.find((o) => o.objectApiName === 'Account')?.read ?? 0;
+
+    const atTheCap = await runOver(schema, graph, {
+      maxRecordsPerObject: rows,
+      stream: { pageSize: 4 },
+    });
+
+    expect(atTheCap.summary.readByObject).toContainEqual({ objectApiName: 'Account', read: rows });
+    expect(atTheCap.summary.cappedObjects?.objects ?? []).not.toContain('Account');
+  });
+
+  it('tells the gate, before anything is read, the tables whose count is past the cap on each object', async () => {
+    const { schema, graph } = selfLookups();
+    const orgs = fakeOrgs(schema);
+    const boundaries: ForgeWriteBoundary[] = [];
+
+    await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+      maxRecordsPerObject: 5,
+      beforeWrite: async (boundary) => void boundaries.push(boundary),
+      stream: { pageSize: 4 },
+    });
+
+    expect(boundaries[0]?.capped).toEqual({ perObject: 5, objects: ['Account', 'Contact'] });
   });
 
   it('judges an object failed on all its pages, as a run read whole judges it on its rows', async () => {

@@ -50,6 +50,7 @@ import {
 } from './stages/SimulationGaps.js';
 import {
   buildNodeQuery,
+  cappedQuery,
   CATALOG_OBJECTS,
   CATALOG_READ_ORDER,
   catalogBeyond,
@@ -153,6 +154,7 @@ import {
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
+import { idsTheTargetLacks } from './stages/TargetHolds.js';
 import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
@@ -693,6 +695,12 @@ export interface ForgeWriteBoundary {
      */
     mayAdd?: number;
   }>;
+  /**
+   * The objects whose rows stop at the cap on each object with more left in
+   * the source — read so, or counted so before a run read page by page — and
+   * the cap. Absent when none.
+   */
+  capped?: { perObject: number; objects: string[] };
   /** Whether the run is a dry run, which writes none of them. */
   dryRun: boolean;
 }
@@ -971,6 +979,12 @@ export interface ExecutionSummary {
    */
   truncatedObjects: string[];
   /**
+   * Objects whose read stopped at the cap on each object
+   * (`maxRecordsPerObject`) with rows left: the cap and the objects. Absent
+   * when no read reached it.
+   */
+  cappedObjects?: { perObject: number; objects: string[] };
+  /**
    * Full source→target ID mapping table produced during execution. Lets
    * the caller audit which source-org record became which target-org
    * record (BA need: post-clone reconciliation, CSV export, or a "where
@@ -1228,8 +1242,10 @@ interface NodeCursor {
   taken: number;
   /** Rows of the object read, a run this one resumes included. */
   read: number;
-  /** Rows the ceiling leaves to read; undefined without a ceiling below the cap. */
+  /** Rows the nearer of the ceiling and the cap leaves to read; undefined without either. */
   room?: number;
+  /** Which bound `room` is of: past the cap, the object is capped; past the ceiling, truncated. */
+  cutBy?: 'cap' | 'ceiling';
   /** The id the read resumes after, from a run before this one. */
   readonly resumeAfter?: string;
   /** The id of the last row read. */
@@ -1426,6 +1442,8 @@ interface ExecutionState {
   readonly errors: ExecutionObjectError[];
   /** Objects whose source read hit a bound, in the order they were read. */
   readonly truncatedObjects: Set<string>;
+  /** Objects whose read stopped at the cap on each object with rows left, in the order they were read. */
+  readonly cappedObjects: Set<string>;
   /** Nullified cycle FKs queued for the pass-2 UPDATE. */
   readonly pendingFkUpdates: PendingFkUpdate[];
   /**
@@ -2018,6 +2036,24 @@ function tableRowsToRead(node: ForgeGraphNode, maxRecordsPerObject: number | und
       ? Math.floor(maxRecordsPerObject)
       : 0;
   return cap > 0 ? Math.min(node.recordCount, cap) : node.recordCount;
+}
+
+/** The cap on each object, a whole number above zero, or undefined for none. */
+function capOnEachObject(
+  config: Pick<ForgeStageConfig, 'maxRecordsPerObject'>,
+): number | undefined {
+  const cap = config.maxRecordsPerObject;
+  return cap !== undefined && cap > 0 && Math.floor(cap) > 0 ? Math.floor(cap) : undefined;
+}
+
+/** The summary's `cappedObjects`: the cap, and the objects a read stopped at it with rows left. */
+function cappedObjectsOf(
+  state: Pick<ExecutionState, 'config' | 'cappedObjects'>,
+): Pick<ExecutionSummary, 'cappedObjects'> {
+  const perObject = capOnEachObject(state.config);
+  return perObject !== undefined && state.cappedObjects.size > 0
+    ? { cappedObjects: { perObject, objects: [...state.cappedObjects] } }
+    : {};
 }
 
 /**
@@ -3187,6 +3223,7 @@ export class ForgeExecutor {
       notInTarget: new Set<string>(),
       errors: [],
       truncatedObjects: new Set<string>(),
+      cappedObjects: new Set<string>(),
       pendingFkUpdates: [],
       owedToRowsWrittenBefore: [],
       deferredNodes: [],
@@ -3841,6 +3878,7 @@ export class ForgeExecutor {
       // The prices the write may read besides those in hand, counted with
       // them: see `pricesTheGateCounts`.
       const pricesForLines = await this.pricesTheGateCounts(state);
+      const capped = cappedObjectsOf(state).cappedObjects;
       await config.beforeWrite({
         objects: await Promise.all(
           [...state.preread].map(([objectApiName, read]) =>
@@ -3852,6 +3890,7 @@ export class ForgeExecutor {
             ),
           ),
         ),
+        ...(capped ? { capped } : {}),
         dryRun: config.dryRun,
       });
     }
@@ -4036,6 +4075,8 @@ export class ForgeExecutor {
       counted: ForgeCountedObject;
       leftOut?: ForgeRowsLeftOut;
     }> = [];
+    /** The objects whose count is past the cap on each object: the gate says so. */
+    const pastTheCap: string[] = [];
     for (const node of runOrder) {
       if (this.isAborted) {
         throw new ForgeAbortedError(
@@ -4045,8 +4086,9 @@ export class ForgeExecutor {
       const object = node.objectApiName;
       if (!node.included || !state.writtenObjects.has(object)) continue;
       if (config.referenceDataObjects.has(object)) continue;
-      const { read, counted, leftOut } = await this.countToWrite(state, node);
+      const { read, counted, leftOut, capped } = await this.countToWrite(state, node);
       state.counted.set(object, read);
+      if (capped) pastTheCap.push(object);
       objects.push({ objectApiName: object, rows: [], counted, ...(leftOut ? { leftOut } : {}) });
     }
     if (this.isAborted) {
@@ -4054,7 +4096,14 @@ export class ForgeExecutor {
         'Forge execution was aborted by user request. Remaining objects were not processed.',
       );
     }
-    await beforeWrite({ objects, dryRun: config.dryRun });
+    const perObject = capOnEachObject(config);
+    await beforeWrite({
+      objects,
+      ...(perObject !== undefined && pastTheCap.length > 0
+        ? { capped: { perObject, objects: pastTheCap } }
+        : {}),
+      dryRun: config.dryRun,
+    });
   }
 
   /**
@@ -4066,7 +4115,13 @@ export class ForgeExecutor {
   private async countToWrite(
     state: ExecutionState,
     node: ForgeGraphNode,
-  ): Promise<{ read: number; counted: ForgeCountedObject; leftOut?: ForgeRowsLeftOut }> {
+  ): Promise<{
+    read: number;
+    counted: ForgeCountedObject;
+    leftOut?: ForgeRowsLeftOut;
+    /** The table holds more rows than the cap on each object lets the run read. */
+    capped?: true;
+  }> {
     const object = node.objectApiName;
     const streamed = this.streamsNode(node, state);
     const resumed = streamed ? state.config.stream?.resumeAfter.get(object) : undefined;
@@ -4093,6 +4148,10 @@ export class ForgeExecutor {
     const left = bound === undefined ? undefined : Math.max(0, bound - (resumed?.read ?? 0));
     const total = (await count()) ?? node.recordCount;
     const read = left === undefined ? total : Math.min(total, left);
+    // The cap, not the ceiling, is what stops the read short of the table.
+    const cap = capOnEachObject(state.config);
+    const capLeft = cap === undefined ? undefined : Math.max(0, cap - (resumed?.read ?? 0));
+    const capped = capLeft !== undefined && left === capLeft && total > capLeft;
     // Held back whole before its first page: nothing of it is written.
     const types = streamed ? await this.recordTypesOfTable(state, node) : undefined;
     if (types && types.closed.length > 0) {
@@ -4107,6 +4166,7 @@ export class ForgeExecutor {
       read,
       counted: counted(personAccounts),
       ...(leftOut ? { leftOut } : {}),
+      ...(capped ? { capped: true as const } : {}),
     });
     if (object !== ACCOUNT && object !== CONTACT) return answer();
     const fields = await this.deps
@@ -4136,59 +4196,13 @@ export class ForgeExecutor {
     rows: readonly Record<string, unknown>[],
     carried: (field: string) => boolean,
   ): Promise<ReadonlySet<string>> {
-    const fields = fieldInfos.filter(
-      (field) =>
-        field.isReference &&
-        field.name !== 'RecordTypeId' &&
-        carried(field.name) &&
-        (field.referenceTo ?? []).length > 0 &&
-        (field.referenceTo ?? []).every((target) => isNeverCopied(target)),
-    );
-    const owners = state.config.ownerMappings;
-    /** Per object asked, the ids not yet asked about. */
-    const toAsk = new Map<string, Set<string>>();
-    for (const field of fields) {
-      for (const row of rows) {
-        const id = row[field.name];
-        if (typeof id !== 'string' || !SALESFORCE_ID.test(id) || state.targetHolds.has(id))
-          continue;
-        if (field.name === 'OwnerId' && owners[id] !== undefined) continue;
-        for (const object of field.referenceTo ?? []) {
-          toAsk.set(object, (toAsk.get(object) ?? new Set<string>()).add(id));
-        }
-      }
-    }
-    /** Ids found in an object asked, and ids a query of an object could not settle. */
-    const found = new Set<string>();
-    const unsettled = new Set<string>();
-    for (const [object, ids] of toAsk) {
-      for (const list of idLists([...ids])) {
-        try {
-          const held = await this.deps.queryRecords(
-            state.targetOrgId,
-            `SELECT Id FROM ${assertSoqlIdentifier(object)} WHERE Id IN (${list})`,
-          );
-          for (const record of held) {
-            const id = record['Id'];
-            if (typeof id === 'string') {
-              found.add(id);
-              found.add(id.slice(0, 15));
-            }
-          }
-        } catch {
-          for (const id of ids) unsettled.add(id);
-        }
-      }
-    }
-    for (const ids of toAsk.values()) {
-      for (const id of ids) {
-        if (found.has(id) || found.has(id.slice(0, 15))) state.targetHolds.set(id, true);
-        else if (!unsettled.has(id)) state.targetHolds.set(id, false);
-      }
-    }
-    const lacking = new Set<string>();
-    for (const [id, held] of state.targetHolds) if (!held) lacking.add(id);
-    return lacking;
+    return idsTheTargetLacks({
+      lookups: fieldInfos.filter((field) => field.isReference && carried(field.name)),
+      rows,
+      ownerMappings: state.config.ownerMappings,
+      known: state.targetHolds,
+      query: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+    });
   }
 
   /**
@@ -4477,11 +4491,13 @@ export class ForgeExecutor {
     let page = next.value;
     if (cursor.room !== undefined) {
       if (page.length > cursor.room) {
-        // The statement asks one row past the ceiling: one there means the
+        // The statement asks one row past the bound: one there means the
         // table holds more than the run reads of it.
         page = page.slice(0, cursor.room);
         cursor.ended = true;
-        state.truncatedObjects.add(node.objectApiName);
+        (cursor.cutBy === 'cap' ? state.cappedObjects : state.truncatedObjects).add(
+          node.objectApiName,
+        );
       }
       cursor.room -= page.length;
     }
@@ -4530,15 +4546,17 @@ export class ForgeExecutor {
    * more. Undefined for no bound.
    */
   private pagedLimit(state: ExecutionState, cursor: NodeCursor): number | undefined {
-    const cap = state.config.maxRecordsPerObject;
-    const capped = cap !== undefined && cap > 0 ? Math.floor(cap) - cursor.read : undefined;
+    const cap = capOnEachObject(state.config);
+    const capped = cap === undefined ? undefined : cap - cursor.read;
     const ceiling = state.config.stream?.ceiling;
     const room = ceiling === undefined ? undefined : ceiling - cursor.read;
-    if (room !== undefined && (capped === undefined || room < capped)) {
-      cursor.room = Math.max(0, room);
-      return cursor.room + 1;
-    }
-    return capped === undefined ? undefined : Math.max(1, capped);
+    if (room === undefined && capped === undefined) return undefined;
+    // The nearer bound cuts the read: past the ceiling a truncation, past the
+    // cap a cap, each said apart. `buildNodeQuery` asks for one row more.
+    const ceilingCuts = room !== undefined && (capped === undefined || room < capped);
+    cursor.room = Math.max(0, (ceilingCuts ? room : capped) ?? 0);
+    cursor.cutBy = ceilingCuts ? 'ceiling' : 'cap';
+    return Math.max(1, cursor.room);
   }
 
   /** Tell `onPage` where a node read page by page stands, and what its page created. */
@@ -5846,6 +5864,7 @@ export class ForgeExecutor {
         ...leftToThePlatformReports(state),
       ],
       truncatedObjects: [...state.truncatedObjects],
+      ...cappedObjectsOf(state),
       // BA reconciliation: dump the full source→target ID map so callers
       // can audit, export to CSV, or persist as part of a checkpoint.
       // toJSON returns a plain object (Record) so it serializes cleanly
@@ -6710,7 +6729,11 @@ export class ForgeExecutor {
     // The cap on each object counts what the run holds of it already.
     const cap = config.maxRecordsPerObject ? Math.floor(config.maxRecordsPerObject) : 0;
     const room = cap > 0 ? cap - (state.readByObject.get(parent) ?? 0) : 0;
-    if (cap > 0 && room <= 0) return undefined;
+    // The rows that need these parents go without them: said with the object.
+    if (cap > 0 && room <= 0) {
+      if (wanted.ids.size > 0) state.cappedObjects.add(parent);
+      return undefined;
+    }
     const before = state.preread.get(parent);
     let fields: FieldInfo[];
     let described: FieldInfo[] | undefined;
@@ -6750,14 +6773,13 @@ export class ForgeExecutor {
     let read: Record<string, unknown>[];
     try {
       read = await queryNodeRecords(
-        {
-          kind: 'query',
-          statements: room > 0 ? statements.map((s) => `${s} LIMIT ${room}`) : statements,
-          ...(room > 0 ? { limit: room } : {}),
-          byIdCount: statements.length,
-        },
+        room > 0
+          ? cappedQuery(statements, room, { byIdCount: statements.length })
+          : { kind: 'query', statements, byIdCount: statements.length },
         (soql) =>
           this.deps.queryRecords(state.sourceOrgId, soql, () => state.truncatedObjects.add(parent)),
+        undefined,
+        () => state.cappedObjects.add(parent),
       );
     } catch (err) {
       if (err instanceof ForgeAbortedError) throw err;
@@ -7048,6 +7070,7 @@ export class ForgeExecutor {
             ? this.nextPage(state, node, cursor, soql)
             : this.readWhole(state, node.objectApiName, soql),
         reached,
+        () => state.cappedObjects.add(node.objectApiName),
       );
       // Its statement has no page left: the object is read.
       if (cursor?.ended && records.length === 0 && cursor.taken > 0) return false;
@@ -8717,7 +8740,11 @@ export class ForgeExecutor {
     // The cap on each object counts the rows its first read took.
     const cap = config.maxRecordsPerObject ? Math.floor(config.maxRecordsPerObject) : 0;
     const room = cap > 0 ? cap - (state.readByObject.get(objectApiName) ?? 0) : 0;
-    if (cap > 0 && room <= 0) return [];
+    // Rows asked for past the cap are read no more: said with the object.
+    if (cap > 0 && room <= 0) {
+      if (statements.length > 0) state.cappedObjects.add(objectApiName);
+      return [];
+    }
     const wasRead = cache.isRead(objectApiName);
     /** What the run holds of the object already: the rows its read took. */
     const held = new Set(wasRead ? (cache.scopeOf(objectApiName) ?? []) : []);
@@ -8726,16 +8753,15 @@ export class ForgeExecutor {
     let fresh: Record<string, unknown>[];
     try {
       const rows = await queryNodeRecords(
-        {
-          kind: 'query',
-          statements: room > 0 ? statements.map((s) => `${s} LIMIT ${room}`) : statements,
-          ...(room > 0 ? { limit: room } : {}),
-          byIdCount: statements.length,
-        },
+        room > 0
+          ? cappedQuery(statements, room, { byIdCount: statements.length })
+          : { kind: 'query', statements, byIdCount: statements.length },
         (soql) =>
           this.deps.queryRecords(state.sourceOrgId, soql, () =>
             state.truncatedObjects.add(objectApiName),
           ),
+        undefined,
+        () => state.cappedObjects.add(objectApiName),
       );
       noteIdsRead(state, rows);
       const read = rows.filter(unheld);

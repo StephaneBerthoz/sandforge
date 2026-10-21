@@ -69,6 +69,12 @@ interface ForgePreviewCardProps {
   plan: ForgePlan | null;
   cycleCount: number;
   truncated: boolean;
+  /**
+   * The run clones one record's graph (`clonesOneRecord`): the counts are
+   * the source tables', and the calls and the duration reckoned from them are
+   * left out.
+   */
+  oneRecord?: boolean;
 }
 
 /**
@@ -82,9 +88,21 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
   plan,
   cycleCount,
   truncated,
+  oneRecord = false,
 }) => {
   const { t } = useTranslation();
   const buckets = useMemo(() => categorize(graph), [graph]);
+  /**
+   * Discovery counts each object's whole table: a clone of one case's graph
+   * was told "Will clone 9 objects · 1.2 M records, ~40 min", and read a few
+   * hundred.
+   */
+  const recordsValue = buckets.cloneRecordsUnknown
+    ? t('forge.preview.recordsNotCounted')
+    : t(oneRecord ? 'forge.preview.recordsInSourceTables' : 'common.recordCountFormatted', {
+        count: buckets.cloneRecords,
+        formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
+      });
 
   const tile = (
     icon: React.ReactNode,
@@ -133,14 +151,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         {tile(
           <Database size={13} className="text-status-success" />,
           t('forge.preview.willClone', 'Will clone'),
-          `${t('common.objectCount', { count: buckets.cloneObjects.length })} · ${
-            buckets.cloneRecordsUnknown
-              ? t('forge.preview.recordsNotCounted')
-              : t('common.recordCountFormatted', {
-                  count: buckets.cloneRecords,
-                  formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
-                })
-          }`,
+          `${t('common.objectCount', { count: buckets.cloneObjects.length })} · ${recordsValue}`,
           buckets.cloneObjects,
           'border-status-success/30 bg-status-success/5',
           'forge-preview-clone',
@@ -175,13 +186,19 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           {t('forge.preview.countsComeWithDiscovery')}
         </p>
       )}
-      {plan && (!buckets.cloneRecordsUnknown || cycleCount > 0) && (
+      {oneRecord && !buckets.cloneRecordsUnknown && (
+        <p data-testid="forge-preview-source-tables" className="text-xs text-text-secondary">
+          {t('forge.preview.readsWhatTheRecordReaches')}
+        </p>
+      )}
+      {plan && ((!buckets.cloneRecordsUnknown && !oneRecord) || cycleCount > 0) && (
         <div className="flex items-center gap-4 text-xs text-text-secondary">
           {/* The plan reckons its calls and its duration from the counts: from
               counts nobody took, it said "0 API calls · ~0s" of a run that
               reads every object of the template. From counts taken, its calls
-              are a guess all the same, and are said to be one. */}
-          {!buckets.cloneRecordsUnknown && (
+              are a guess all the same, and are said to be one; of whole
+              tables a clone of one record does not read, they say nothing. */}
+          {!buckets.cloneRecordsUnknown && !oneRecord && (
             <>
               <span className="flex items-center gap-1.5">
                 <Zap size={11} />

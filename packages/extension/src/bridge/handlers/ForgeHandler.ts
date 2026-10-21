@@ -72,6 +72,7 @@ import {
   isTemplateEntry,
 } from '../../core/config/importedForgeTemplates.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
+import type { PendingStart } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
@@ -723,6 +724,8 @@ type RunToRemove = Pick<
   RemovalState & {
     /** Rows a call of the run may have written under ids it never learned. */
     unreachable: number;
+    /** Why some were never looked for in the target: see `ForgeUndoResult.notLookedFor`. */
+    notLookedFor?: ForgeUndoResult['notLookedFor'];
     /**
      * The part of the journal that holds the run's ids, when its entry keeps
      * none: what a removal leaves is kept beside it, and counted on the entry.
@@ -758,6 +761,36 @@ function unreachableAfter(
     0,
   );
   return uncertainRows(reconciled) + notLooked;
+}
+
+/**
+ * Why a removal looked in the target for none of some rows a call of the run
+ * may have written, said with them rather than counted silently: the insert
+ * calls its journal still holds open, of a run an earlier removal marked —
+ * looked for before the first removal only — and the rows no call the journal
+ * holds names, which went by upsert, whose calls it does not keep. Nothing of
+ * a run whose journal was not read.
+ */
+function notLookedForOf(
+  mayHaveBeenWritten: ForgeExecutionResult['mayHaveBeenWritten'],
+  looked: { reconciled?: InFlightReconciliation; callsNotLookedFor?: number; journalRead?: true },
+): ForgeUndoResult['notLookedFor'] {
+  if (!looked.journalRead) return undefined;
+  const calls = looked.callsNotLookedFor ?? 0;
+  // With calls still open, which of the rows they sent is not known.
+  const lookedFor = looked.reconciled?.lookedFor ?? new Set<string>();
+  const upserted =
+    calls > 0
+      ? 0
+      : (mayHaveBeenWritten ?? []).reduce(
+          (sum, { sourceIds }) => sum + sourceIds.filter((id) => !lookedFor.has(id)).length,
+          0,
+        );
+  if (calls === 0 && upserted === 0) return undefined;
+  return {
+    ...(calls > 0 ? { callsAfterRemoval: calls } : {}),
+    ...(upserted > 0 ? { notJournaled: upserted } : {}),
+  };
 }
 
 /** A run's counts per object, the rows found in the target of its calls under way added as created. */
@@ -1994,6 +2027,31 @@ export class ForgeHandler implements DomainHandler {
       { keep: false } | { keep: true; status: ForgeRunPartEndStatus; forgeId: string } = {
       keep: false,
     };
+    /**
+     * End the run's journal as `journalAfter` says, once: before the run's
+     * answer is posted, its history entry kept. Ended after it, a window
+     * closed as the results came left the journal's last part open, and the
+     * next window listed the run a second time, interrupted, for records the
+     * entry it had answered with already held.
+     */
+    let journalEnded = false;
+    const endJournal = async (): Promise<void> => {
+      if (!journalId || journalEnded) return;
+      journalEnded = true;
+      const id = journalId;
+      const after = journalAfter;
+      closeStore();
+      await (
+        after.keep
+          ? this.runJournal?.stop(id, after.status, after.forgeId)
+          : this.runJournal?.end(id)
+      )?.catch((err: unknown) => {
+        logger.warn(
+          `Forge run journal not ${after.keep ? 'kept' : 'dropped'}: ${extractErrorMessage(err)}`,
+        );
+      });
+      this.journalsRunning.delete(id);
+    };
     /** The requests sent for the run before the executor had it: both orgs' record types. */
     const lookup = { requests: 0 };
     /** What the executor's deps had sent when it was handed the run; unknown before, or uncounted. */
@@ -2308,6 +2366,7 @@ export class ForgeHandler implements DomainHandler {
       // going.
       logger.info('Forge execute finished', runLogMeta(result));
 
+      await endJournal();
       const response = buildResponse(this.deps, msg, 'forge:execute:response', {
         result,
         operationId,
@@ -2439,6 +2498,7 @@ export class ForgeHandler implements DomainHandler {
       // had written, which the trail records as cancelled under no code, goes
       // under the cancel's code all the same: under EXECUTE_ERROR, the page
       // said the abort's words as the error it stopped on.
+      await endJournal();
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
         code: code ?? (cancelled ? RUN_CANCELLED : 'EXECUTE_ERROR'),
         retryable: true,
@@ -2468,22 +2528,9 @@ export class ForgeHandler implements DomainHandler {
       if (journalAfter.keep) this.liveTracker?.offerResume(operationId, journalAfter.forgeId);
     } finally {
       // Ended, the run is in the history, or created nothing worth keeping;
-      // stopped part way, its journal says how, for it to be taken up.
-      if (journalId) {
-        const id = journalId;
-        const after = journalAfter;
-        closeStore();
-        await (
-          after.keep
-            ? this.runJournal?.stop(id, after.status, after.forgeId)
-            : this.runJournal?.end(id)
-        )?.catch((err: unknown) => {
-          logger.warn(
-            `Forge run journal not ${after.keep ? 'kept' : 'dropped'}: ${extractErrorMessage(err)}`,
-          );
-        });
-        this.journalsRunning.delete(id);
-      }
+      // stopped part way, its journal says how, for it to be taken up. Ended
+      // already, before the run's answer, unless the answer itself threw.
+      await endJournal();
       releaseRun(runError);
       if (this.executeOperationId === operationId) this.executeOperationId = null;
       this.stops.endRun(msg.id);
@@ -3146,6 +3193,7 @@ export class ForgeHandler implements DomainHandler {
         ...(uncertain.length > 0
           ? { mayBeInTarget: uncertain.map(({ objectApiName, rows }) => ({ objectApiName, rows })) }
           : {}),
+        ...(boundary.capped ? { capped: boundary.capped } : {}),
       });
       if (answer === 'confirmed') {
         run.onConfirmed();
@@ -3394,6 +3442,8 @@ export class ForgeHandler implements DomainHandler {
     // removed from what its journal named alone, a run whose window closed
     // during a call left that call's records in the target.
     let reconciled: InFlightReconciliation | undefined;
+    /** What looking for the calls under way read of the journal, said with the removal. */
+    let lookedFor: { callsNotLookedFor?: number; journalRead?: true } = {};
     const target = entry?.targetOrgId ?? kept?.targetOrgId;
     const journalId = entry ? entry.journalId : kept?.inJournal?.journalId;
     if (target && journalId && (!entry || entry.idRemapCreated)) {
@@ -3414,6 +3464,7 @@ export class ForgeHandler implements DomainHandler {
           return;
         }
         reconciled = looked.reconciled;
+        lookedFor = looked;
         if (reconciled && reconciled.found.length > 0) {
           if (entry) entry = await this.withRowsFoundAfterStop(entry, reconciled.found);
           else if (kept) kept = await this.planWithRowsFoundAfterStop(kept, reconciled.found);
@@ -3439,10 +3490,12 @@ export class ForgeHandler implements DomainHandler {
         entry.remapInJournal && entry.journalId && entry.journalPart !== undefined
           ? { journalId: entry.journalId, part: entry.journalPart }
           : undefined;
+      const notLookedFor = notLookedForOf(entry.mayHaveBeenWritten, { ...lookedFor, reconciled });
       run = {
         ...entry,
         targetOrgId: entry.targetOrgId,
         unreachable: unreachableAfter(entry.mayHaveBeenWritten, reconciled),
+        ...(notLookedFor ? { notLookedFor } : {}),
         ...(inJournal ? { inJournal } : {}),
       };
       if (entry.remapInJournal) {
@@ -3476,6 +3529,10 @@ export class ForgeHandler implements DomainHandler {
           reconciled && reconciled.calls > 0
             ? uncertainRows(reconciled)
             : (kept.mayHaveBeenWritten ?? 0),
+        // A plan names no row a call may have written: what it can say is the calls.
+        ...(lookedFor.callsNotLookedFor
+          ? { notLookedFor: { callsAfterRemoval: lookedFor.callsNotLookedFor } }
+          : {}),
       };
       const { inJournal } = kept;
       if (inJournal && forgeRemovalPlanCountsLeft(kept).length > 0) {
@@ -3515,10 +3572,12 @@ export class ForgeHandler implements DomainHandler {
       // Claimed before Production Guard is consulted: its confirmation waits on
       // a person, and a second click meanwhile would ask, and remove, twice.
       this.removing.add(forgeId);
+      const pending = this.deps.infraServices?.backgroundRegistry?.holdUntilStart(msg.id);
       try {
-        await this.removeRun(msg, run, plan, includeChanged, sweep ? entry : undefined);
+        await this.removeRun(msg, run, plan, includeChanged, sweep ? entry : undefined, pending);
       } finally {
         this.removing.delete(forgeId);
+        pending?.release();
       }
     } finally {
       close();
@@ -3688,22 +3747,34 @@ export class ForgeHandler implements DomainHandler {
    * Only for the run the journal's last part is — a later part's calls are
    * that part's — while no part of it is under way, and before any removal of
    * it: a removal that marked the run took what it planned, and the plans of
-   * a run removed before calls were looked for say so. A journal with no call
-   * left open reads nothing of the target. `unread` when the target could not
-   * be reached: removed without them, the call's records would stay behind.
+   * a run removed before calls were looked for say so. Of a run a removal
+   * marked, the calls still open are counted (`callsNotLookedFor`), for the
+   * removal to say what it did not look for. A journal with no call left open
+   * reads nothing of the target. `journalRead` once the journal is known to be
+   * the run's. `unread` when the target could not be reached: removed without
+   * them, the call's records would stay behind.
    */
   private async callsLookedForBeforeRemoval(run: {
     forgeId: string;
     targetOrgId: string;
     journalId: string;
     removedBefore: boolean;
-  }): Promise<{ reconciled?: InFlightReconciliation } | { unread: string }> {
+  }): Promise<
+    | { reconciled?: InFlightReconciliation; callsNotLookedFor?: number; journalRead?: true }
+    | { unread: string }
+  > {
     const journal = this.runJournal;
     const { forgeId, journalId } = run;
-    if (!journal || run.removedBefore || this.journalsRunning.has(journalId)) return {};
+    if (!journal || this.journalsRunning.has(journalId)) return {};
     try {
       const end = await journal.lastEnd(journalId);
-      if (end?.forgeId !== forgeId || journal.callsInFlight(journalId) === 0) return {};
+      if (end?.forgeId !== forgeId) return {};
+      const calls = journal.callsInFlight(journalId);
+      // Of a run a removal marked, what that removal looked for is not known
+      // here: the calls still open are said, and nothing of the rows.
+      if (run.removedBefore)
+        return calls > 0 ? { journalRead: true, callsNotLookedFor: calls } : {};
+      if (calls === 0) return { journalRead: true };
     } catch {
       // A journal that cannot be read has no call to look for: the removal
       // says so of its records in its turn.
@@ -3720,7 +3791,7 @@ export class ForgeHandler implements DomainHandler {
       for (const line of inFlightLines(reconciled, org, 'removal')) {
         logger.info(`Forge removal: ${line.trim()}`);
       }
-      return { reconciled };
+      return { reconciled, journalRead: true };
     } catch (err: unknown) {
       return {
         unread:
@@ -4510,7 +4581,13 @@ export class ForgeHandler implements DomainHandler {
    * run whose records can be removed: Production Guard, then, when asked,
    * the sweep — alone when nothing of the run is left — then the run itself.
    *
+   * It runs under the request's id, as a Seed or a Sync run's removal does, so
+   * that the card that asked for it can stop it (`execution:abort`), during
+   * the guard's question too (`pending`). Under an id of its own, only Live
+   * Operations could.
+   *
    * @param sweepOf - The run's history entry, when a sweep was asked.
+   * @param pending - The hold on the request's id while the guard asks.
    */
   private async removeRun(
     msg: InboundRequest,
@@ -4518,6 +4595,7 @@ export class ForgeHandler implements DomainHandler {
     plan: ForgeRunObjectRecords[] | RunRecords,
     includeChanged: boolean,
     sweepOf?: ForgeExecutionResult,
+    pending?: PendingStart,
   ): Promise<void> {
     const { forgeId, targetOrgId } = entry;
     const total = recordsIn(plan);
@@ -4582,8 +4660,34 @@ export class ForgeHandler implements DomainHandler {
       }
       return;
     }
+    // The card's Stop came while the guard asked: the removal does not start.
+    if (pending?.signal.aborted) {
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: targetOrgId,
+        outcome: 'stopped',
+        guard: decision,
+        code: ABORTED_BEFORE_START,
+      });
+      const stopped: ForgeUndoResult = {
+        forgeId,
+        status: 'cancelled',
+        includeChanged,
+        objects: [],
+        finishedAt: new Date().toISOString(),
+      };
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'forge:undo:response', {
+          result: stopped,
+          operationId: msg.id,
+        }),
+      );
+      return;
+    }
 
-    const operationId = `forge-undo-${this.deps.nextId()}`;
+    const operationId = msg.id;
     const description =
       total > 0
         ? `Removing ${total} record(s) a Forge run created`
@@ -4695,6 +4799,7 @@ export class ForgeHandler implements DomainHandler {
         finishedAt: new Date().toISOString(),
         ...(leftBy ? { leftBy } : {}),
         ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
+        ...(entry.notLookedFor ? { notLookedFor: entry.notLookedFor } : {}),
       };
 
       // A sweep alone removed none of the run's records: its own entry says what it did.

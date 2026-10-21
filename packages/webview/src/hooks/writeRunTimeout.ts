@@ -12,3 +12,13 @@
  * not take the number away with them.
  */
 export const WRITE_RUN_TIMEOUT_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * How long a card waits for the removal of a run's records it started:
+ * Production Guard may wait on a person, and a large run's removal takes as
+ * long as the org deletes. Forge's cards gave up after ten minutes and said
+ * "Try again" while the removal went on deleting; waited on with
+ * `runOutlivesWait`, the timeout says the removal may still be under way and
+ * that Live Operations shows it. A whole hour, which that message counts in.
+ */
+export const REMOVAL_TIMEOUT_MS = 60 * 60 * 1000;

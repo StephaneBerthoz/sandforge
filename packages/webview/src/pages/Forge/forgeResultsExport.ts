@@ -20,6 +20,36 @@ export function createdTargets(
   return created;
 }
 
+/**
+ * The copy the run created of the record it was asked to clone, `recordId`:
+ * its id in the target and its object. For a run from a query, which names no
+ * record, the first record it created of the root object. Nothing when the
+ * run created none of them, linked to one the target held, or keeps its ids
+ * in its journal. A record id typed with 15 characters finds the 18 the run
+ * read it by.
+ */
+export function rootCopyOf(
+  result: Pick<ForgeExecutionResult, 'idRemapTable' | 'idRemapExisting' | 'idRemapCreated'> & {
+    graph: Pick<ForgeExecutionResult['graph'], 'nodes'>;
+  },
+  recordId: string | undefined,
+): { targetId: string; objectApiName: string } | undefined {
+  const table = result.idRemapTable ?? {};
+  let sourceId: string | undefined;
+  if (recordId) {
+    const prefix = recordId.slice(0, 15);
+    sourceId = Object.keys(table).find((id) => id.slice(0, 15) === prefix);
+  } else {
+    const root = result.graph.nodes.find((node) => node.level === 0)?.objectApiName;
+    sourceId = result.idRemapCreated?.find((o) => o.objectApiName === root)?.sourceIds[0];
+  }
+  const targetId = sourceId === undefined ? undefined : table[sourceId];
+  const objectApiName = targetId === undefined ? undefined : createdTargets(result).get(targetId);
+  return targetId !== undefined && objectApiName !== undefined
+    ? { targetId, objectApiName }
+    : undefined;
+}
+
 /** One object of the results table, as the file takes it. */
 export interface ObjectResultRow {
   objectApiName: string;

@@ -39,7 +39,8 @@ describe('neutralizeSyncRows', () => {
 
     expect(rows[0].Email).toBe('jane@acme.com.invalid');
     expect(rows[1].Email).toBe('john@acme.com.invalid');
-    expect(String(rows[0].Phone)).toMatch(/^\+3363998\d{4}$/);
+    // In the layout of the number it replaces.
+    expect(String(rows[0].Phone)).toMatch(/^\+3 363 998 \d{4}$/);
     expect(rows[0].LastName).toBe('Doe');
     expect(note).toBe(
       '3 email address(es) and phone number(s) of Contact neutralized (Email, Phone): addresses ' +

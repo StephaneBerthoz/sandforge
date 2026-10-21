@@ -561,7 +561,11 @@ export interface NodeQuery {
    * the rows are then merged by `Id`.
    */
   statements: string[];
-  /** Per-object cap, already appended as `LIMIT N` to every statement. */
+  /**
+   * Per-object cap. Every statement asks for one row more (`LIMIT N+1`): one
+   * there means the object holds more than the cap, which the run says
+   * (`queryNodeRecords`'s `capped`), where a read cut at the cap said nothing.
+   */
   limit?: number;
   /**
    * How many statements, from the first, read rows by the ids rows already
@@ -670,16 +674,26 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
   // negatives or NaN that would produce MALFORMED_QUERY.
   if (input.maxRecordsPerObject && input.maxRecordsPerObject > 0) {
     const cap = Math.floor(input.maxRecordsPerObject);
-    if (cap > 0) {
-      return {
-        kind: 'query',
-        statements: statements.map((s) => `${s} LIMIT ${cap}`),
-        limit: cap,
-        ...byId,
-      };
-    }
+    if (cap > 0) return cappedQuery(statements, cap, byId);
   }
   return { kind: 'query', statements, ...byId };
+}
+
+/**
+ * `statements` read under a cap of `cap` rows: each asks for one row more,
+ * which tells a read cut at the cap from one that read every row.
+ */
+export function cappedQuery(
+  statements: readonly string[],
+  cap: number,
+  byId: { byIdCount?: number } = {},
+): NodeQuery {
+  return {
+    kind: 'query',
+    statements: statements.map((s) => `${s} LIMIT ${cap + 1}`),
+    limit: cap,
+    ...byId,
+  };
 }
 
 /**
@@ -735,25 +749,41 @@ export function readsFromAbove(query: NodeQuery): boolean {
  * landed in different statements; inserting both copies would clone the
  * record twice, so rows are kept once per `Id`. The per-object cap sits on
  * each statement, which bounds a single read but not their sum, so it is
- * enforced again here and the remaining statements are not sent once it is
- * reached.
+ * enforced again here and the remaining statements are not sent once a row
+ * past it is read. That row is no row of the run: it says the object holds
+ * more than the cap (`capped`). Cut at the cap without a word, a clone of an
+ * account with 250 cases took 100 of them, read in no order, and said
+ * "Success".
  *
  * @param reached - When given, receives the ids of the rows a statement
  *   after the first `byIdCount` returned: the rows the run reached from
  *   above, including one a read by id returned as well.
+ * @param capped - Told when the object holds more rows than `query.limit`,
+ *   which the run read no more of.
  */
 export async function queryNodeRecords(
   query: NodeQuery,
   queryRecords: (soql: string) => Promise<Record<string, unknown>[]>,
   reached?: Set<string>,
+  capped?: () => void,
 ): Promise<Record<string, unknown>[]> {
   const byIdCount = query.byIdCount ?? 0;
+  const limit = query.limit;
+  /** Drop the row past the cap, out of what was reached too, and say the object holds more. */
+  const cutAtTheCap = (rows: Record<string, unknown>[]): Record<string, unknown>[] => {
+    if (limit === undefined || rows.length <= limit) return rows;
+    for (const row of rows.slice(limit)) {
+      if (typeof row['Id'] === 'string') reached?.delete(row['Id']);
+    }
+    capped?.();
+    return rows.slice(0, limit);
+  };
   if (query.statements.length === 1) {
     const rows = await queryRecords(query.statements[0]);
     if (reached && byIdCount === 0) {
       for (const row of rows) if (typeof row['Id'] === 'string') reached.add(row['Id']);
     }
-    return rows;
+    return cutAtTheCap(rows);
   }
   const records: Record<string, unknown>[] = [];
   const seen = new Set<string>();
@@ -766,7 +796,7 @@ export async function queryNodeRecords(
         seen.add(id);
       }
       records.push(record);
-      if (query.limit !== undefined && records.length >= query.limit) return records;
+      if (limit !== undefined && records.length > limit) return cutAtTheCap(records);
     }
   }
   return records;

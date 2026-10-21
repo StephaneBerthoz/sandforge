@@ -30,6 +30,9 @@ vi.mock('../../stores/useForgeStore', () => {
     setAnonymizationRule: vi.fn(),
     applyAnonymizationPreset: vi.fn(),
     graph: null,
+    // The methods show on a run that anonymizes.
+    config: { anonymizePII: true },
+    setAnonymizePII: vi.fn(),
   });
   const store = Object.assign(
     (selector: (s: Record<string, unknown>) => unknown) => selector(state()),

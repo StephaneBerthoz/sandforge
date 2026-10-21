@@ -1626,6 +1626,34 @@ describe('ForgeResults', () => {
       );
     });
 
+    it('opens, from above the figures, the copy of the record the run cloned', () => {
+      // It was one button among the ids of the Id map, in write order.
+      createdRun();
+      mockConfig = { ...RUN_CONFIG, inputMode: 'record', recordId: '001000000000001SRC' };
+      useOrgStore.setState({
+        orgs: [{ id: 'org-target', alias: 'QA-SANDBOX' } as SalesforceOrg],
+      });
+      render(<ForgeResults />);
+
+      const open = screen.getByTestId('forge-results-open-root-btn');
+      expect(open.textContent).toBe('Open the Account cloned in QA-SANDBOX');
+      fireEvent.click(open);
+
+      expect(sent('forge:open-record')).toEqual([
+        { forgeId: 'forge-created', recordId: '001000000000001AAA' },
+      ]);
+      useOrgStore.setState({ orgs: [] });
+    });
+
+    it('offers no copy to open of a simulation, which created none', () => {
+      createdRun();
+      mockResult = { ...mockResult, dryRun: true } as typeof mockResult;
+      mockConfig = { ...RUN_CONFIG, inputMode: 'record', recordId: '001000000000001SRC' };
+      render(<ForgeResults />);
+
+      expect(screen.queryByTestId('forge-results-open-root')).toBeNull();
+    });
+
     it('offers no link to a record the run linked to rather than created', () => {
       createdRun();
       render(<ForgeResults />);
@@ -2246,6 +2274,20 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
 
     expect(screen.queryByTestId('forge-results-truncated')).toBeNull();
+    expect(screen.queryByTestId('forge-results-capped')).toBeNull();
+  });
+
+  it('says which objects stopped at Records per object, and how to clone the rest', () => {
+    // An account's 250 cases cloned at 100 read as a success with nothing to mark the cut.
+    mockResult = {
+      ...makeMockResult(),
+      cappedObjects: { perObject: 100, objects: ['Case', 'OpportunityLineItem'] },
+    } as typeof mockResult;
+    render(<ForgeResults />);
+
+    expect(screen.getByTestId('forge-results-capped').textContent).toBe(
+      'Stopped at 100 per object: Case, OpportunityLineItem. The source holds more rows than were cloned — raise Records per object to clone them.',
+    );
   });
 
   it("names, per object, the fields the clone left empty because they hold a file's content", () => {

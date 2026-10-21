@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { ForgeExecutionResult } from '@sandforge/shared';
-import { createdTargets, objectResultsCsv, type ObjectResultRow } from './forgeResultsExport';
+import {
+  createdTargets,
+  objectResultsCsv,
+  rootCopyOf,
+  type ObjectResultRow,
+} from './forgeResultsExport';
 
 /** A run: two accounts and a contact created, an account linked to, the standard price book mapped. */
 const RUN: Pick<
@@ -30,6 +35,37 @@ describe('the records a run created, by target id', () => {
       ['001000000000102AAA', 'Account'],
       ['003000000000101AAA', 'Contact'],
     ]);
+  });
+});
+
+describe('the copy of the record the run cloned', () => {
+  /** The run above, rooted at the accounts. */
+  const ROOTED = {
+    ...RUN,
+    graph: {
+      nodes: [
+        { objectApiName: 'Contact', level: 1 },
+        { objectApiName: 'Account', level: 0 },
+      ],
+    },
+  } as unknown as Parameters<typeof rootCopyOf>[0];
+
+  it('finds the record asked for, typed with 15 characters or 18', () => {
+    const copy = { targetId: '001000000000102AAA', objectApiName: 'Account' };
+    expect(rootCopyOf(ROOTED, '001000000000002AAA')).toEqual(copy);
+    expect(rootCopyOf(ROOTED, '001000000000002')).toEqual(copy);
+  });
+
+  it('takes, for a run from a query, the first record it created of the root object', () => {
+    expect(rootCopyOf(ROOTED, undefined)).toEqual({
+      targetId: '001000000000101AAA',
+      objectApiName: 'Account',
+    });
+  });
+
+  it('finds none of a record the target held, which the run linked to', () => {
+    expect(rootCopyOf(ROOTED, '001000000000003AAA')).toBeUndefined();
+    expect(rootCopyOf({ ...ROOTED, idRemapTable: {} }, '001000000000002AAA')).toBeUndefined();
   });
 });
 

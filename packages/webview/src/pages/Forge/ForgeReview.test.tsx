@@ -27,6 +27,7 @@ const mockFillPersonalFields = vi.fn();
 const mockSetMetadataDiffs = vi.fn();
 const mockSetGaps = vi.fn();
 const mockMarkSimulation = vi.fn();
+const mockSetAnonymizePII = vi.fn();
 
 vi.mock('../../bridge/sendBridgeMessage', () => ({
   sendBridgeMessage: (...args: unknown[]) => mockSendBridgeMessage(...args),
@@ -132,6 +133,10 @@ vi.mock('../../stores/useForgeStore', () => {
     setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),
     setGaps: (...args: unknown[]) => mockSetGaps(...args),
     setAnonymizationRule: vi.fn(),
+    setAnonymizePII: (...args: unknown[]) => mockSetAnonymizePII(...args),
+    anonymizationPresetId: '',
+    setAnonymizationPresetId: vi.fn(),
+    applyAnonymizationPreset: vi.fn(),
   };
 
   const store = Object.assign(
@@ -181,6 +186,15 @@ describe('ForgeReview', () => {
     mockFillPersonalFields.mockClear();
     mockMarkSimulation.mockClear();
     mockSetMetadataDiffs.mockClear();
+    mockSetAnonymizePII.mockClear();
+    // jsdom has no modal dialog: what Execute asks opens as one.
+    HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    });
+    HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+      this.dispatchEvent(new Event('close'));
+    });
     mockGraph = defaultGraph;
     mockConfig = { ...defaultConfig };
     mockMetadataDiffs = [];
@@ -948,11 +962,84 @@ describe('ForgeReview', () => {
     });
   });
 
-  it('should disable anonymization tab when anonymizePII is false', () => {
+  it('opens the anonymization tab of a run that does not anonymize, on the switch that turns it on', () => {
+    // Disabled with a count and no word why, it sent the user back to the
+    // form to tick Anonymize PII and discover the graph again.
     mockConfig = { ...defaultConfig, anonymizePII: false };
     render(<ForgeReview />);
     const anonTab = screen.getByTestId('tab-anonymization');
-    expect(anonTab).toHaveProperty('disabled', true);
+    expect(anonTab).toHaveProperty('disabled', false);
+
+    fireEvent.click(anonTab);
+    const toggle = screen.getByTestId('anonymization-switch');
+    expect(toggle).toHaveProperty('checked', false);
+    expect(
+      screen.getByRole('checkbox', { name: 'Anonymize the 3 personal fields discovery found' }),
+    ).toBe(toggle);
+    fireEvent.click(toggle);
+    expect(mockSetAnonymizePII).toHaveBeenCalledWith(true);
+  });
+
+  describe('the gaps that will refuse rows with no decision taken', () => {
+    /** A field only the target requires, on the accounts the run writes. */
+    const undecided = {
+      id: 'gap-region',
+      kind: 'required_field_missing' as const,
+      severity: 'blocking' as const,
+      source: 'metadata' as const,
+      objectApiName: 'Account',
+      field: 'Region__c',
+      rows: 0,
+      decisions: ['set_default' as const],
+    };
+    /** Whether Execute started the run. */
+    const started = (): number =>
+      mockSendBridgeMessage.mock.calls.filter(([type]) => type === 'forge:execute').length;
+
+    beforeEach(() => {
+      mockGaps = { metadata: [undecided], simulation: [], rehearsal: [] };
+    });
+
+    it('says beside Execute how many will refuse rows, and opens the Gaps tab from there', () => {
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('forge-gaps-undecided').textContent).toContain(
+        '1 gap will refuse rows',
+      );
+      expect(screen.getByTestId('execute-button').getAttribute('aria-describedby')).toBe(
+        'forge-gaps-execute-hint',
+      );
+      fireEvent.click(screen.getByTestId('forge-gaps-decide'));
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('asks once on Execute: deciding opens the tab, running anyway runs, and is not asked again', () => {
+      render(<ForgeReview />);
+
+      fireEvent.click(screen.getByTestId('execute-button'));
+      expect(started()).toBe(0);
+      fireEvent.click(screen.getByTestId('forge-gaps-ask-decide'));
+      expect(screen.getByTestId('tab-gaps').getAttribute('aria-selected')).toBe('true');
+      expect(started()).toBe(0);
+
+      fireEvent.click(screen.getByTestId('execute-button'));
+      fireEvent.click(screen.getByTestId('forge-gaps-ask-execute'));
+      expect(started()).toBe(1);
+      fireEvent.click(screen.getByTestId('execute-button'));
+      expect(started()).toBe(2);
+    });
+
+    it('asks nothing, and says nothing, once each is decided', () => {
+      mockConfig = {
+        ...defaultConfig,
+        defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
+      };
+      render(<ForgeReview />);
+
+      expect(screen.queryByTestId('forge-gaps-undecided')).toBeNull();
+      fireEvent.click(screen.getByTestId('execute-button'));
+      expect(started()).toBe(1);
+    });
   });
 
   it('should show PII badge on anonymization tab', () => {

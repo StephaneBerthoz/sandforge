@@ -1665,6 +1665,93 @@ describe('SeedCloneHandler', () => {
       });
     });
 
+    describe('the owner a record names, between two orgs that do not share their users', () => {
+      const SOURCE_USER = '005000000000001AAA';
+      const SHARED_USER = '005000000000002AAA';
+
+      /** Contacts owned by a user the target lacks and by one it holds; `queries` gets each read of the target. */
+      function contactsOwnedBy(queries: string[]): void {
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async () => ({
+            keyPrefix: '003',
+            fields: [
+              { name: 'LastName', type: 'string', createable: true, length: 80 },
+              { name: 'OwnerId', type: 'reference', referenceTo: ['User'], createable: true },
+            ],
+            recordTypeInfos: [],
+          })),
+          query: vi.fn(async (soql: string) => {
+            queries.push(soql);
+            return { records: soql.includes(SHARED_USER) ? [{ Id: SHARED_USER }] : [] };
+          }),
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+        linker.resolveInsertOrder.mockReturnValue(['Contact']);
+        fetcher.fetchRecords.mockResolvedValue([
+          { Id: '003000000000001AAA', LastName: 'Doe', OwnerId: SOURCE_USER },
+          { Id: '003000000000002AAA', LastName: 'Roe', OwnerId: SHARED_USER },
+          { Id: '003000000000003AAA', LastName: 'Poe', OwnerId: SOURCE_USER },
+        ]);
+        writer.insert.mockImplementation(async (_name: string, records: unknown[]) =>
+          records.map((_, i) => ({ id: `003T0000000000${i}AAA`, success: true, errors: [] })),
+        );
+      }
+
+      it('writes a record without an owner the target holds no user of, and says so on its object', async () => {
+        // Copied as read, the source's owner made the target refuse every
+        // record, INVALID_CROSS_REFERENCE_KEY: Developer Edition and sandbox
+        // share no user.
+        const queries: string[] = [];
+        contactsOwnedBy(queries);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        const sent = writer.insert.mock.calls.flatMap(
+          (c) => c[1] as Array<Record<string, unknown>>,
+        );
+        expect(sent).toEqual([
+          { LastName: 'Doe' },
+          { LastName: 'Roe', OwnerId: SHARED_USER },
+          { LastName: 'Poe' },
+        ]);
+        // Each owner asked once.
+        expect(queries.filter((soql) => soql.startsWith('SELECT Id FROM User'))).toHaveLength(1);
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        const result = response.payload as {
+          status: string;
+          objectResults: Array<{ lookupsNotCarried?: unknown }>;
+        };
+        expect(result.status).toBe('success');
+        expect(result.objectResults[0].lookupsNotCarried).toEqual([
+          { field: 'OwnerId', records: 2 },
+        ]);
+      });
+
+      it('carries the owner as read when the target cannot be asked about it', async () => {
+        contactsOwnedBy([]);
+        const conn = await mockGetConn('tgt-org', {} as never, {} as never);
+        vi.mocked((conn as unknown as { query: () => Promise<unknown> }).query).mockRejectedValue(
+          new Error('INVALID_TYPE'),
+        );
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        const sent = writer.insert.mock.calls.flatMap(
+          (c) => c[1] as Array<Record<string, unknown>>,
+        );
+        expect(sent.map((row) => row['OwnerId'])).toEqual([SOURCE_USER, SHARED_USER, SOURCE_USER]);
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect(
+          (response.payload as { objectResults: Array<{ lookupsNotCarried?: unknown }> })
+            .objectResults[0].lookupsNotCarried,
+        ).toBeUndefined();
+      });
+    });
+
     describe('the email addresses and phone numbers it writes', () => {
       /** A target whose contacts have an email, a phone and an external id holding an address. */
       function targetWithContactPoints(): void {
@@ -1708,7 +1795,8 @@ describe('SeedCloneHandler', () => {
 
         const [row] = inserted();
         expect(row).toMatchObject({ LastName: 'Doe', Email: 'jane@acme.com.invalid' });
-        expect(row['Phone']).toMatch(/^\+3363998\d{4}$/);
+        // In the layout of the number it replaces.
+        expect(row['Phone']).toMatch(/^\+3 363 998 \d{4}$/);
         expect(row['Ext_Email__c']).toBe('jane@acme.com.invalid');
         const [response] = posted(deps, 'seed:clone:execute:response');
         expect((response.payload as { contactPoints: unknown }).contactPoints).toEqual({

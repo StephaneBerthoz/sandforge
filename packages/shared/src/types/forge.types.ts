@@ -727,6 +727,16 @@ export interface ForgeUndoResult {
    */
   mayHaveBeenWritten?: number;
   /**
+   * What the removal did not look for in the org before it planned, and why.
+   * `callsAfterRemoval`: insert calls the run's journal still holds open, of
+   * a run an earlier removal marked — the calls under way are looked for
+   * before the first removal only — whatever they may have written staying in
+   * the org. `notJournaled`: of `mayHaveBeenWritten`, the rows no call the
+   * journal holds names, which went by upsert, whose calls it does not keep.
+   * Absent when the removal looked for every one.
+   */
+  notLookedFor?: { callsAfterRemoval?: number; notJournaled?: number };
+  /**
    * What the sweep asked with the removal did: the records the target's
    * automation created during the run, taken back before the run's own.
    * Absent when no sweep was asked.
@@ -1565,6 +1575,13 @@ export interface ForgeExecutionResult {
    * Optional because runs recorded before this field existed do not carry it.
    */
   truncatedObjects?: string[];
+  /**
+   * Objects whose read stopped at Records per object (`maxRecordsPerObject`,
+   * `perObject`) with rows left in the source: those rows were never read nor
+   * cloned. Absent when no read reached the cap, and from runs recorded
+   * before it was kept.
+   */
+  cappedObjects?: { perObject: number; objects: string[] };
   /**
    * What the run did with the files of the records it cloned. Absent from a
    * run that was not asked to copy them. The files it created are counted

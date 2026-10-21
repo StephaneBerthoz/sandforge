@@ -29,7 +29,7 @@ import type { ForgeAIPlanState } from './useForgeAIPlan';
 import {
   extractRecordId,
   extractSalesforceDomain,
-  smartLimitForCount,
+  SMART_SOQL_CAP,
   soqlFilterRefused,
   soqlObjectNameRefused,
   soqlObjectFilters,
@@ -76,9 +76,9 @@ export const RECORD_LIMIT_PRESETS = [10, 50, 100, 500, 1000] as const;
  * Translate a stored `maxRecordsPerObject` back into a dropdown value.
  *
  * `undefined` means "no cap" — the `all` option. Every cap the form can
- * produce is one of {@link RECORD_LIMIT_PRESETS}, a `smartLimitForCount`
- * result (50/100/500/1000) or a builtin template cap (50/100), so the exact
- * value survives the round trip. The one outlier is the SOQL cap of 200,
+ * produce is one of {@link RECORD_LIMIT_PRESETS}, Smart's cap of a SOQL run
+ * (100) or a builtin template cap (50/100), so the exact value survives the
+ * round trip. The one outlier is the SOQL cap of 200,
  * which has no option: it rounds up to the next preset rather than down, so
  * the replay never quietly clones fewer records than the run it repeats —
  * and in SOQL mode `recordLimitValue` clamps it back to 200 anyway.
@@ -241,9 +241,9 @@ export function useForgeForm(): ForgeFormState {
   const [keepContactPoints, setKeepContactPoints] = useState(false);
   /**
    * Per-object record cap, expressed as a string in the dropdown:
-   * 'smart' (auto from preview metrics) | 'all' | '10'..'1000'.
-   * Translated into a number (or undefined) before being sent to the
-   * executor as `maxRecordsPerObject`.
+   * 'smart' (set by the run's input, see `recordLimitValue`) | 'all' |
+   * '10'..'1000'. Translated into a number (or undefined) before being sent
+   * to the executor as `maxRecordsPerObject`.
    */
   const [recordLimit, setRecordLimit] = useState<string>('smart');
   /**
@@ -357,16 +357,19 @@ export function useForgeForm(): ForgeFormState {
     inputMode === 'soql' || inputMode === 'ai' || templateInput?.inputMode === 'soql';
 
   /**
-   * Numeric limit applied to executor (undefined = no cap). When the
-   * dropdown is on `smart`, scales with `preview.estimatedRecordCount`;
-   * before the preview lands, defaults to 100 as a safe-large-org fallback.
+   * Numeric limit applied to executor (undefined = no cap). On `smart`, a
+   * clone of one record's graph has none: it reads only what the record
+   * reaches, each object up to the read ceiling, and the gate asks before a
+   * large write. Smart used to size a cap from the preview's count of the
+   * root object's whole table — 100 above 5 000 rows, 50 above 50 000 — and a
+   * clone of an account with 250 cases took 100 of them, in no order, and
+   * said "Success". A run from a query reads its other objects from their
+   * whole tables, and keeps a cap of 100 (`SMART_SOQL_CAP`).
    */
   const recordLimitValue = useMemo<number | undefined>(() => {
     let base: number | undefined;
     if (recordLimit === 'smart') {
-      const count = preview?.estimatedRecordCount;
-      const auto = count == null ? 100 : smartLimitForCount(count);
-      base = auto === 0 ? undefined : auto;
+      base = runsSoql ? SMART_SOQL_CAP : undefined;
     } else if (recordLimit === 'all') {
       base = undefined;
     } else {
@@ -381,7 +384,7 @@ export function useForgeForm(): ForgeFormState {
       return Math.min(base ?? SOQL_UNSCOPED_RECORD_CAP, SOQL_UNSCOPED_RECORD_CAP);
     }
     return base;
-  }, [recordLimit, preview, runsSoql]);
+  }, [recordLimit, runsSoql]);
 
   /** Whether the current input has enough data to proceed. */
   const hasInput = useCallback((): boolean => {

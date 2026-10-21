@@ -38,19 +38,11 @@ export function isPiiField(fieldName: string): boolean {
 }
 
 /**
- * Pick a per-object record cap proportional to the org's volumetry. The
- * input is the root object's `estimatedRecordCount` from the preview;
- * larger orgs get a tighter cap so big-org clones stay bounded.
- *
- * Returns `0` to mean "no cap" (translates to undefined downstream).
+ * The cap on each object Smart gives a run from a SOQL query, whose objects
+ * past the one after FROM are read from their whole tables. A clone of one
+ * record's graph gets none on Smart: it reads only what the record reaches.
  */
-export function smartLimitForCount(count: number): number {
-  if (count > 50_000) return 50;
-  if (count > 5_000) return 100;
-  if (count > 500) return 500;
-  if (count > 50) return 1000;
-  return 0;
-}
+export const SMART_SOQL_CAP = 100;
 
 /** Extract a Salesforce Record ID from a plain ID or Salesforce URL. */
 export function extractRecordId(input: string): string | null {

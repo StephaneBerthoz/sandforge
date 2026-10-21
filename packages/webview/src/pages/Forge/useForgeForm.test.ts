@@ -453,8 +453,40 @@ describe('useForgeForm run history', () => {
     });
   });
 
+  it('sends a one-record clone on Smart with no cap on each object', () => {
+    // Smart sized a cap from the root object's whole table: a clone of an
+    // account with 250 cases went out at 100 per object, read in no order.
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.handleRecordIdChange('001000000000123AAA');
+    });
+    expect(result.current.recordLimit).toBe('smart');
+    expect(result.current.recordLimitValue).toBeUndefined();
+    act(() => {
+      result.current.handleDiscover();
+    });
+
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config.recordId).toBe('001000000000123AAA');
+    expect(config.maxRecordsPerObject).toBeUndefined();
+  });
+
+  it('keeps a cap of 100 on each object on Smart for a run from a SOQL query', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setInputMode('soql');
+      result.current.setSoqlQuery("SELECT Id FROM Account WHERE Industry = 'X'");
+    });
+
+    expect(result.current.recordLimitValue).toBe(100);
+  });
+
   it('maps a stored record cap back onto a dropdown option', () => {
-    // Every cap the form can produce is a preset, a smartLimitForCount result
+    // Every cap the form can produce is a preset, Smart's cap of a SOQL run
     // or a builtin template cap; the SOQL cap of 200 is the one outlier and
     // rounds up, so the replay never clones less than the run it repeats.
     expect(recordLimitOptionFor(undefined)).toBe('all');

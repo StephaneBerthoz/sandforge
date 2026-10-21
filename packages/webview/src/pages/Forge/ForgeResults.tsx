@@ -63,7 +63,8 @@ import { ForgeResultsRemoval } from './ForgeResultsRemoval';
 import { ForgeResultsVerify } from './ForgeResultsVerify';
 import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { useForgeRunGateStore } from './runGate';
-import { createdTargets, objectResultsCsv } from './forgeResultsExport';
+import { createdTargets, objectResultsCsv, rootCopyOf } from './forgeResultsExport';
+import { useOrgStore } from '../../stores/useOrgStore';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -773,6 +774,21 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** Why the last record asked for did not open, or null. */
   const openFailure =
     opener.error ?? (opener.data?.status === 'error' ? opener.data.message : null);
+  /**
+   * The copy of the record the run cloned, to open from the top of the page:
+   * it was a button among up to 2 000 ids of the Id map, in write order, the
+   * root not marked.
+   */
+  const rootCopy = useMemo(
+    () =>
+      result && !simulated
+        ? rootCopyOf(result, config?.inputMode === 'record' ? config.recordId : undefined)
+        : undefined,
+    [result, simulated, config],
+  );
+  const targetOrgName = useOrgStore(
+    (s) => s.orgs.find((o) => o.id === (config?.targetOrgId ?? result?.targetOrgId))?.alias,
+  );
 
   /** Soft reset: clear result but keep config. */
   const handleForgeAgain = useCallback(() => {
@@ -855,6 +871,29 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           >
             {t('forge.backToReview')}
           </Button>
+        </div>
+      )}
+      {rootCopy && (
+        <div className="flex flex-wrap items-center gap-2" data-testid="forge-results-open-root">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<ExternalLink size={12} aria-hidden="true" />}
+            onClick={() => openRecord(rootCopy.targetId)}
+            data-testid="forge-results-open-root-btn"
+          >
+            {targetOrgName
+              ? t('forge.idMapping.openRoot', {
+                  object: rootCopy.objectApiName,
+                  org: targetOrgName,
+                })
+              : t('forge.idMapping.openRootInTarget', { object: rootCopy.objectApiName })}
+          </Button>
+          {openFailure && (
+            <span role="status" className="text-xs text-status-error">
+              {t('forge.idMapping.openFailed', { message: openFailure })}
+            </span>
+          )}
         </div>
       )}
       {/* KPI row */}
@@ -1289,6 +1328,21 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           data-testid="forge-results-truncated"
         >
           {t('forge.truncatedRead', { objects: result.truncatedObjects.join(', ') })}
+        </div>
+      )}
+      {/* So is a read stopped at Records per object: the count shown for the
+          object is all it took, the rest left in the source. A simulation
+          says it too, before anything is written. */}
+      {result?.cappedObjects && result.cappedObjects.objects.length > 0 && (
+        <div
+          className="rounded-sm border border-(--sf-warning) px-4 py-2 text-xs text-status-warning"
+          role="status"
+          data-testid="forge-results-capped"
+        >
+          {t('forge.cappedRead', {
+            limit: result.cappedObjects.perObject,
+            objects: result.cappedObjects.objects.join(', '),
+          })}
         </div>
       )}
 

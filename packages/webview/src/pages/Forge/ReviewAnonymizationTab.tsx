@@ -43,8 +43,9 @@ const CATEGORY_LABEL_KEYS: Record<ForgeAnonymizationCategory, string> = {
 /**
  * Anonymization tab within the Forge Review phase.
  *
- * Displays a table with one row per PII category and a dropdown
- * to select the anonymization method for each category.
+ * Opens on the switch that anonymizes the fields discovery found personal,
+ * for the run Review shows; on, a table with one row per PII category and a
+ * dropdown to select the anonymization method for each category.
  */
 export const ReviewAnonymizationTab: React.FC = () => {
   const { t } = useTranslation();
@@ -52,8 +53,56 @@ export const ReviewAnonymizationTab: React.FC = () => {
   const setRule = useForgeStore((s) => s.setAnonymizationRule);
   const graph = useForgeStore((s) => s.graph);
   const applyPreset = useForgeStore((s) => s.applyAnonymizationPreset);
+  const anonymizePII = useForgeStore((s) => s.config?.anonymizePII ?? false);
+  const setAnonymizePII = useForgeStore((s) => s.setAnonymizePII);
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
 
+  return (
+    <div data-testid="review-anonymization-tab" className="flex flex-col gap-3">
+      <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer">
+        <input
+          type="checkbox"
+          data-testid="anonymization-switch"
+          checked={anonymizePII}
+          onChange={(e) => setAnonymizePII(e.target.checked)}
+        />
+        <span>{t('forge.review.anonymizeTheseFields', { count: piiFieldCount })}</span>
+      </label>
+      {!anonymizePII && (
+        <p className="text-xs text-text-secondary" data-testid="anonymization-off">
+          {t('forge.review.anonymizationOff')}
+        </p>
+      )}
+      {anonymizePII && (
+        <ReviewAnonymizationMethods
+          piiFieldCount={piiFieldCount}
+          rules={rules}
+          setRule={setRule}
+          applyPreset={applyPreset}
+        />
+      )}
+    </div>
+  );
+};
+
+/** Props of {@link ReviewAnonymizationMethods}. */
+interface ReviewAnonymizationMethodsProps {
+  piiFieldCount: number;
+  rules: Record<ForgeAnonymizationCategory, AnonymizationMethod>;
+  setRule: (category: ForgeAnonymizationCategory, method: AnonymizationMethod) => void;
+  applyPreset: (
+    rules: ReadonlyArray<{ objectApiName: string; fieldNames: readonly string[] }>,
+  ) => void;
+}
+
+/** The methods a run that anonymizes applies, per category, and the preset that sets them. */
+const ReviewAnonymizationMethods: React.FC<ReviewAnonymizationMethodsProps> = ({
+  piiFieldCount,
+  rules,
+  setRule,
+  applyPreset,
+}) => {
+  const { t } = useTranslation();
   // In the store, not in this tab: a run's results save it with the run as a
   // template, and applying the template brings it back.
   const presetId = useForgeStore((s) => s.anonymizationPresetId);
@@ -69,7 +118,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
   );
 
   return (
-    <div data-testid="review-anonymization-tab" className="flex flex-col gap-3">
+    <>
       <p className="text-xs text-text-secondary">
         {t('forge.review.anonymizationDesc', {
           defaultValue:
@@ -157,6 +206,6 @@ export const ReviewAnonymizationTab: React.FC = () => {
           </tbody>
         </table>
       </div>
-    </div>
+    </>
   );
 };

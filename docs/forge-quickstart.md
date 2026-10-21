@@ -42,14 +42,19 @@ The main Forge journey, end to end — from a real record to a populated sandbox
        with no stop on the graph or on Review (see below)
 4. Tune the options:
      • Depth: "Direct only" / "Full tree" / "Custom depth"
-     • "Records per object" — cap rows per object (Smart / 10…1000 / All)
+     • "Records per object" — cap rows per object (Smart / 10…1000 / All);
+       Smart caps nothing of one record's graph and 100 of a SOQL run, and
+       Results, a simulation and the confirmation before the write name
+       the objects a cap stopped with rows left
      • "Anonymize PII" — protect sensitive fields on the way in
      • "Skip empty objects" / "Auto-fetch parents"
      • "Keep emails and phone numbers as they are" — off by default:
        every address goes in under .invalid and every phone number as
        a fictional one (see the reference)
      • (Optional) pick an anonymization preset on the Review screen:
-       GDPR — default, GDPR — strict, Healthcare — PHI, Internal-test — minimal
+       GDPR — default, GDPR — strict, Healthcare — PHI, Internal-test — minimal;
+       its Anonymization tab turns anonymization on or off for the run,
+       with no new discovery
 5. Click "Review & Execute", check the plan, then "Simulate" to see first
    what the run would write and what the target would refuse (see below),
    then "Execute Forge"

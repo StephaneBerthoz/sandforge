@@ -175,11 +175,16 @@ for.
   `.invalid` is left; one the field's length cannot hold with the suffix
   becomes a short address of its own under `example.invalid`.
 - A phone field's number becomes a fictional one of the mobile range kept for
-  fiction, `+3363998XXXX`, drawn as the Frozen dataset draws its numbers: the
-  same number gives the same one throughout the run, another in the next, and
-  two numbers never the same one. A field too short for the country code takes
-  the national form, `063998XXXX`. Past the 10 000 numbers of the range, a
-  number is left out, its field empty, and counted (`numbersExhausted`).
+  fiction, drawn as the Frozen dataset draws its numbers: the same number gives
+  the same one throughout the run, another in the next, and two numbers never
+  the same one. It is written in the layout of the number it replaces — its
+  spaces, dots, dashes and parentheses, as many digits — so that a target's
+  format rule the source number met is met: `+33 1 23 45 67 89` becomes
+  `+33 6 39 98 XX XX`, `01.23.45.67.89` becomes `06.39.98.XX.XX`. A number no
+  form of the fiction is as long as becomes `+3363998XXXX`, or the national
+  form, `063998XXXX`, in a field too short for the country code. Past the
+  10 000 numbers of the range, a number is left out, its field empty, and
+  counted (`numbersExhausted`).
 - A text field whose API name gives it to either — `Notification_Email__c`,
   `SMS_Number__c` — has each address, or each run of seven digits or more, in
   its value treated so; a checkbox or a picklist named like one is left alone.
@@ -371,7 +376,7 @@ and the audit trail records it as a `cleanup_delete` with a `sweep` detail.
 | `dryRun`               | `false`                                  | runs every step except `insertRecords`, used by the recipe                     |
 | `referenceFallback`    | `'nullify'` (scoped) / `'keep'` (legacy) | what to do with FK fields whose value isn't in the IdRemapper (see below)      |
 | `recordTypeMappings`   | built by the extension before each run   | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
-| `maxRecordsPerObject`  | — (no cap)                               | append `LIMIT N` to every scoped query                                         |
+| `maxRecordsPerObject`  | — (no cap)                               | `LIMIT N+1` on every query; a row past N names it in `cappedObjects`           |
 | `referenceDataObjects` | `['BusinessHours', 'OperatingHours']`    | objects to map by Name instead of cloning                                      |
 | `files`                | — (no file read)                         | `{ maxFileBytes, acceptedAsIs }`: copy the files of the cloned records         |
 | `keepContactPoints`    | `false`                                  | write email addresses and phone numbers as read; off, each is neutralized      |

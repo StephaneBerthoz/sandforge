@@ -2,12 +2,22 @@ import { describe, it, expect } from 'vitest';
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import {
   carriedChoices,
+  clonesOneRecord,
   configSubject,
   templateFromRun,
   withCarried,
   withoutOrgs,
 } from './forgeRunConfig';
 import type { RunToSave } from './forgeRunConfig';
+
+describe('clonesOneRecord', () => {
+  it('holds of a run from a record id, and of no run from a query or with no record', () => {
+    expect(clonesOneRecord({ inputMode: 'record', recordId: '001000000000001AAA' })).toBe(true);
+    expect(clonesOneRecord({ inputMode: 'record' })).toBe(false);
+    expect(clonesOneRecord({ inputMode: 'soql', recordId: '001000000000001AAA' })).toBe(false);
+    expect(clonesOneRecord(null)).toBe(false);
+  });
+});
 
 const RECORD_RUN: ForgeConfig = {
   inputMode: 'record',

@@ -14,6 +14,7 @@ import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useForgeStore, type ForgeExecutionResult } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { REMOVAL_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DEPTH_KEYS } from './useForgeForm';
@@ -23,11 +24,9 @@ import {
   ForgeRunRemovalConfirm,
   ForgeRunRemovalMark,
   ForgeRunRemovalResult,
+  ForgeRunRemovalRunning,
 } from './ForgeRunRemovalView';
 import { ForgeRunSweepMark } from './ForgeRemovalSweep';
-
-/** How long a removal may wait on the host: Production Guard may wait on a person. */
-const WAIT_ON_A_PERSON_MS = 600_000;
 
 /** Map a run's outcome to its i18n key. */
 const STATUS_KEYS: Record<ForgeExecutionResult['status'], string> = {
@@ -129,7 +128,8 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   const removal = useBridgeMutation<UndoAnswer>('forge:undo', {
     responseType: 'forge:undo:response',
     errorType: 'forge:undo:error',
-    timeoutMs: WAIT_ON_A_PERSON_MS,
+    timeoutMs: REMOVAL_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
 
   // Once a removal answered, its entry carries the mark: read the history again.
@@ -291,9 +291,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         {swept}
         {action}
         {mine && removal.loading && (
-          <p role="status" className="text-[10px] text-text-secondary">
-            {t('forge.history.removing')}
-          </p>
+          <ForgeRunRemovalRunning requestId={removal.requestId} testId="forge-history-removing" />
         )}
         {mine && removal.error && (
           <ErrorBanner

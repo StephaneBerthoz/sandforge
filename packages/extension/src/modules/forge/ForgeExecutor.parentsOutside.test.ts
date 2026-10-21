@@ -539,7 +539,7 @@ describe('ForgeExecutor, a record whose required parent belongs to an object out
     expect(statementsOf(asked, 'P7__c')).toEqual([]);
   });
 
-  it('holds the cap on the object', async () => {
+  it('holds the cap on the object, asking one row past it to tell whether it cut the read', async () => {
     const { deps, asked, inserted } = orgs();
 
     await new ForgeExecutor(deps).execute(caseGraph(), 'src', 'tgt', () => undefined, {
@@ -547,7 +547,7 @@ describe('ForgeExecutor, a record whose required parent belongs to an object out
       maxRecordsPerObject: 1,
     });
 
-    expect(statementsOf(asked, 'Invoice__c')[0]).toMatch(/ LIMIT 1$/);
+    expect(statementsOf(asked, 'Invoice__c')[0]).toMatch(/ LIMIT 2$/);
     expect(inserted['Invoice__c']).toHaveLength(1);
   });
 

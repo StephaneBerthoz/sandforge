@@ -728,6 +728,19 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('says which objects stop at Records per object with more left in the source, and how to clone the rest', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      capped: { perObject: 100, objects: ['Case', 'OpportunityLineItem'] },
+    }).split('\n');
+
+    expect(lines.slice(-2)).toEqual([
+      'Stopped at 100 records per object for Case, OpportunityLineItem: the source holds more, which are not cloned. Raise Records per object to clone them.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+    expect(runQuestionDetail(write)).not.toContain('records per object');
+  });
+
   it("warns near what is left, of a large volume, and when the target's storage could not be read", () => {
     const near = runQuestionDetail({
       ...write,

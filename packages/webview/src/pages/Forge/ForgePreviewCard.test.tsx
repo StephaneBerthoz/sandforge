@@ -151,6 +151,39 @@ describe('ForgePreviewCard', () => {
     expect(screen.queryByTestId('forge-preview-not-counted')).toBeNull();
   });
 
+  it('says of a clone of one record that its counts are the source tables’, and gives no calls or duration reckoned from them', () => {
+    // A clone of one case's graph was told "Will clone 9 objects · 1.2 M
+    // records, ~40 min", and read a few hundred.
+    const plan: ForgePlan = {
+      waves: [],
+      totalRecords: 1_200_000,
+      totalApiCalls: 6_000,
+      estimatedDurationSeconds: 2_400,
+      cycleResolutions: [],
+    };
+    render(
+      <ForgePreviewCard
+        graph={graphOf([
+          node('Case', { level: 0, recordCount: 200_000 }),
+          node('CaseComment', { recordCount: 1_000_000 }),
+        ])}
+        plan={plan}
+        cycleCount={0}
+        truncated={false}
+        oneRecord
+      />,
+    );
+
+    expect(tile('forge-preview-clone')).toBe(
+      `Will clone2 objects · ${(1_200_000).toLocaleString('en')} records in the source tablesCase, CaseComment`,
+    );
+    expect(screen.getByTestId('forge-preview-source-tables').textContent).toBe(
+      'The clone reads only what its record reaches: these counts are of the source tables, not of what it will write.',
+    );
+    expect(screen.queryByText(/estimated API calls/)).toBeNull();
+    expect(screen.queryByText(/~2400s/)).toBeNull();
+  });
+
   it('still counts an object left in with no record as empty, and the reference data as mapped', () => {
     renderCard([
       node('Opportunity', { level: 0 }),

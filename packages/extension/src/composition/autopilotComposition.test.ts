@@ -249,7 +249,8 @@ describe('autopilotComposition', () => {
 
     const [sent] = target.create.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
     expect(sent.Name).toBe('Acme');
-    expect(String(sent.Phone)).toMatch(/^\+3363998\d{4}$/);
+    // In the layout of the number it replaces: a format rule it met is met.
+    expect(String(sent.Phone)).toMatch(/^\+3 363 998 \d{4}$/);
   });
 
   describe('a record type closed to the running user in the target', () => {

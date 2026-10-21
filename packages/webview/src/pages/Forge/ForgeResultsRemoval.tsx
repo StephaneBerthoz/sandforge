@@ -4,6 +4,7 @@ import { Eraser, Trash2 } from 'lucide-react';
 import { forgeRunCountsLeft, forgeRunCreatedSome } from '@sandforge/shared';
 import type { ForgeExecutionResult, ForgeUndoResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { REMOVAL_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -12,11 +13,9 @@ import {
   ForgeRunRemovalConfirm,
   ForgeRunRemovalMark,
   ForgeRunRemovalResult,
+  ForgeRunRemovalRunning,
 } from './ForgeRunRemovalView';
 import { ForgeRunSweepMark } from './ForgeRemovalSweep';
-
-/** How long a removal may wait on the host: Production Guard may wait on a person. */
-const WAIT_ON_A_PERSON_MS = 600_000;
 
 /** What `forge:undo` answers. */
 interface UndoAnswer {
@@ -63,7 +62,8 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
   const removal = useBridgeMutation<UndoAnswer>('forge:undo', {
     responseType: 'forge:undo:response',
     errorType: 'forge:undo:error',
-    timeoutMs: WAIT_ON_A_PERSON_MS,
+    timeoutMs: REMOVAL_TIMEOUT_MS,
+    runOutlivesWait: true,
   });
   const history = useBridgeMutation<{ history: ForgeExecutionResult[] }>('forge:history:list', {
     responseType: 'forge:history:list:response',
@@ -176,13 +176,7 @@ export const ForgeResultsRemoval: React.FC<ForgeResultsRemovalProps> = ({
       {entry?.sweep && <ForgeRunSweepMark mark={entry.sweep} />}
       {action}
       {removal.loading && (
-        <p
-          role="status"
-          data-testid="forge-results-removing"
-          className="text-xs text-text-secondary"
-        >
-          {t('forge.history.removing')}
-        </p>
+        <ForgeRunRemovalRunning requestId={removal.requestId} testId="forge-results-removing" />
       )}
       {removal.error && (
         <ErrorBanner

@@ -1017,7 +1017,8 @@ describe('ForgeExecutor', () => {
         'one@source.test.invalid',
         'two@source.test.invalid',
       ]);
-      for (const row of rows) expect(String(row['Phone'])).toMatch(/^\+3363998\d{4}$/);
+      // In the layout of the number each replaces, the national form here.
+      for (const row of rows) expect(String(row['Phone'])).toMatch(/^063998\d{4}$/);
       // The rest as the source holds it: nothing is anonymized.
       expect(rows.map((r) => r['LastName'])).toEqual(['Source One', 'Source Two']);
       expect(summary.contactPoints).toEqual({
@@ -1058,7 +1059,7 @@ describe('ForgeExecutor', () => {
 
         const rows = inserted();
         for (const row of rows) {
-          expect(String(row['Phone'])).toMatch(/^\+3363998\d{4}$/);
+          expect(String(row['Phone'])).toMatch(/^063998\d{4}$/);
           expect(String(row['Email'])).toMatch(/@example\.invalid$/);
         }
         // A mask keeping each number's last digits would end both rows with
@@ -1126,7 +1127,7 @@ describe('ForgeExecutor', () => {
         {
           LastName: 'Source One',
           Notification_Email__c: 'one@source.test.invalid',
-          SMS_Number__c: expect.stringMatching(/^\+3363998\d{4}$/),
+          SMS_Number__c: expect.stringMatching(/^\+33 6 39 98 \d{2} \d{2}$/),
           Email_Opt_Out__c: true,
           Phone_Type__c: 'Mobile',
         },
@@ -12410,7 +12411,7 @@ describe('ForgeExecutor', () => {
           .mocked(deps.insertRecords)
           .mock.calls.find((c) => c[1] === 'Account');
         expect(accountInsert?.[2]).toEqual([
-          { Name: 'Parent', Phone: expect.stringMatching(/^\+3363998\d{4}$/) },
+          { Name: 'Parent', Phone: expect.stringMatching(/^063998\d{4}$/) },
         ]);
         expect(summary.contactPoints?.fields).toContainEqual({
           objectApiName: 'Account',
@@ -12461,7 +12462,7 @@ describe('ForgeExecutor', () => {
           .mock.calls.find((c) => c[1] === 'Account');
         // Not redacted: only neutralized, as a field nobody selected is.
         expect(accountInsert?.[2]).toEqual([
-          { Name: 'Parent', Phone: expect.stringMatching(/^\+3363998\d{4}$/) },
+          { Name: 'Parent', Phone: expect.stringMatching(/^063998\d{4}$/) },
         ]);
         expect(phones).not.toHaveBeenCalled();
       });
@@ -12659,7 +12660,7 @@ describe('ForgeExecutor', () => {
   describe('maxRecordsPerObject (sampling cap)', () => {
     const ROOT_ID = '500XX00000000001AAA';
 
-    it('appends LIMIT N to scoped SOQL when maxRecordsPerObject is set', async () => {
+    it('appends LIMIT N+1 to scoped SOQL when maxRecordsPerObject is set: a row past the cap says the object holds more', async () => {
       const graph = makeGraph([makeNode('Case')]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -12669,7 +12670,7 @@ describe('ForgeExecutor', () => {
       });
 
       const queryCalls = vi.mocked(deps.queryRecords).mock.calls;
-      expect(queryCalls[0][1]).toContain('LIMIT 50');
+      expect(queryCalls[0][1]).toContain('LIMIT 51');
     });
 
     it('does not append LIMIT when maxRecordsPerObject is undefined or 0', async () => {
@@ -12691,6 +12692,47 @@ describe('ForgeExecutor', () => {
       });
       const zeroLimitCalls = vi.mocked(deps.queryRecords).mock.calls;
       expect(zeroLimitCalls[0][1]).not.toContain('LIMIT');
+    });
+
+    it('says which objects a read stopped at the cap with rows left, and writes none past it', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      // The org answers the one row past the cap the statement asks for.
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, Name: 'Root' },
+        { Id: '500XX00000000002AAA', Name: 'Second' },
+        { Id: '500XX00000000003AAA', Name: 'Third' },
+      ]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        maxRecordsPerObject: 2,
+      });
+
+      expect(summary.cappedObjects).toEqual({ perObject: 2, objects: ['Case'] });
+      const written = vi.mocked(deps.insertRecords).mock.calls.flatMap((call) => call[2]);
+      expect(written.map((row) => row['Name'])).toEqual(['Root', 'Second']);
+    });
+
+    it('says nothing of the cap when no read reached it', async () => {
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, Name: 'Root' },
+        { Id: '500XX00000000002AAA', Name: 'Second' },
+      ]);
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('Case')]),
+        'src',
+        'tgt',
+        onProgress,
+        {
+          rootRecordId: ROOT_ID,
+          rootObjectApiName: 'Case',
+          maxRecordsPerObject: 2,
+        },
+      );
+
+      expect(summary.cappedObjects).toBeUndefined();
     });
   });
 
@@ -13153,7 +13195,7 @@ describe('ForgeExecutor', () => {
       expect(inserted.sort()).toEqual(['Account', 'Contact']);
       expect(summary.skippedCount).toBe(1);
       // One row of the refused object says the run holds some: no more is read.
-      expect(deps.queryRecords).toHaveBeenCalledWith('src', 'SELECT Id, Name FROM Case LIMIT 1');
+      expect(deps.queryRecords).toHaveBeenCalledWith('src', 'SELECT Id, Name FROM Case LIMIT 2');
     });
 
     /** What jsforce rejects a describe of an object the org does not have with. */
@@ -13452,7 +13494,7 @@ describe('ForgeExecutor', () => {
 
         expect(summary.errors).toEqual([NOT_CREATEABLE]);
         expect(reads.filter((soql) => soql.includes('FROM Case '))).toEqual([
-          `SELECT Id, Name, AccountId FROM Case WHERE AccountId IN ('${ACCOUNT}') LIMIT 1`,
+          `SELECT Id, Name, AccountId FROM Case WHERE AccountId IN ('${ACCOUNT}') LIMIT 2`,
         ]);
         // Never written, the cases bring nothing under them into the clone:
         // the comment is not read, as when the object was not read at all.
@@ -13479,7 +13521,7 @@ describe('ForgeExecutor', () => {
         expect(dry.summary.wouldInsertCount).toBe(1);
         expect(progressEvents.some((e) => e.message.startsWith('[dry-run] Case'))).toBe(false);
         expect(dry.reads.filter((soql) => soql.includes('FROM Case '))).toEqual([
-          `SELECT Id, Name, AccountId FROM Case WHERE AccountId IN ('${ACCOUNT}') LIMIT 1`,
+          `SELECT Id, Name, AccountId FROM Case WHERE AccountId IN ('${ACCOUNT}') LIMIT 2`,
         ]);
         expect(dry.reads.some((soql) => soql.includes('FROM CaseComment'))).toBe(false);
         expect(dry.inserted).toEqual([]);

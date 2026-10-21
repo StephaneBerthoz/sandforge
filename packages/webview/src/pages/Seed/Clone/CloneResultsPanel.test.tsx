@@ -291,6 +291,28 @@ describe('CloneResultsPanel', () => {
     ]);
   });
 
+  it('names, per object, the owners the target holds no user of, which its records went without', () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      objectResults: [
+        mockSuccessResult.objectResults[0],
+        {
+          ...mockSuccessResult.objectResults[1],
+          lookupsNotCarried: [{ field: 'OwnerId', records: 3 }],
+        },
+      ],
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    const owners = screen.getByTestId('clone-results-lookups-not-carried');
+    expect(owners.querySelector('p')?.textContent).toBe(
+      'Written without a user or a queue the target org does not have: the platform filled the field itself, the owner with the user the clone writes as.',
+    );
+    expect([...owners.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Contact — OwnerId on 3 records',
+    ]);
+  });
+
   describe('a clone a cancel stopped', () => {
     /** Cancelled once the accounts were in: the contacts were never read. */
     const cancelled: CloneExecutionResult = {

@@ -21,6 +21,7 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 
 import { ForgeResultsRemoval } from './ForgeResultsRemoval';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { REMOVAL_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
 /*
  * The removal of the run on screen, from its results: the removal and the
@@ -210,6 +211,45 @@ describe('ForgeResultsRemoval', () => {
     expect(screen.getByTestId('forge-results-removing').textContent).toBe(
       'Removing the records this run created…',
     );
+  });
+
+  it('stops the removal from the card, naming the request the extension runs it under', () => {
+    // Before, only Live Operations could stop it: the card said "Removing…" and nothing else.
+    render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+    confirmRemoval();
+    const [request] = sentAll('forge:undo');
+
+    fireEvent.click(screen.getByTestId('forge-results-removing-stop'));
+
+    expect(sentAll('execution:abort').map((message) => message.payload)).toEqual([
+      { operationId: request?.id },
+    ]);
+    expect(screen.getByTestId('forge-results-removing').textContent).toBe(
+      'Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.',
+    );
+  });
+
+  it('waits on the removal past ten minutes, and at its time-out says it may still be deleting', () => {
+    vi.useFakeTimers();
+    try {
+      render(<ForgeResultsRemoval run={RUN} targetOrgId={DEV.id} />);
+      confirmRemoval();
+
+      act(() => {
+        vi.advanceTimersByTime(10 * 60 * 1000 + 1);
+      });
+      expect(screen.getByTestId('forge-results-removing')).toBeDefined();
+      expect(screen.queryByTestId('forge-results-remove-error')).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(REMOVAL_TIMEOUT_MS);
+      });
+      expect(screen.getByTestId('forge-results-remove-error').textContent).toContain(
+        'the run may still be writing',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows what the removal did in place, then offers to remove what it left', () => {

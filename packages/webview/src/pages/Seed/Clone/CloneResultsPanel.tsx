@@ -63,6 +63,11 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
     ({ objectApiName, fieldsNotInTarget: fields = [] }) =>
       fields.length > 0 ? [{ objectApiName, fields }] : [],
   );
+  /** Per object, the lookups at a user or a queue the target lacks, which its records went without. */
+  const lookupsNotCarried = result.objectResults.flatMap(
+    ({ objectApiName, lookupsNotCarried: lookups = [] }) =>
+      lookups.length > 0 ? [{ objectApiName, lookups }] : [],
+  );
 
   /** Get page for a specific object. */
   const getPage = (objectApiName: string): number => objectPages[objectApiName] ?? 1;
@@ -319,6 +324,31 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
               <li key={objectApiName}>
                 <span className="font-mono text-(--sf-text-primary)">{objectApiName}</span>
                 {` — ${fields.join(', ')}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* A user or a queue of the source the target does not have: the
+          records went in without it, owned by the user the clone writes as,
+          where the target refused every one of them. */}
+      {lookupsNotCarried.length > 0 && (
+        <div
+          className="rounded-sm border border-(--sf-border) px-3 py-2 text-xs text-(--sf-text-secondary)"
+          role="status"
+          data-testid="clone-results-lookups-not-carried"
+        >
+          <p>{t('seed.clone.results.lookupsNotCarried')}</p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {lookupsNotCarried.map(({ objectApiName, lookups }) => (
+              <li key={objectApiName}>
+                <span className="font-mono text-(--sf-text-primary)">{objectApiName}</span>
+                {` — ${lookups
+                  .map(({ field, records }) =>
+                    t('seed.clone.results.lookupNotCarried', { field, count: records }),
+                  )
+                  .join(', ')}`}
               </li>
             ))}
           </ul>

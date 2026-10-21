@@ -485,6 +485,17 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
+  // A read stopped at Records per object leaves the rest of the source out:
+  // said before the records go, where the results alone said it before.
+  if (question.capped) {
+    lines.push(
+      vscode.l10n.t(
+        'Stopped at {0} records per object for {1}: the source holds more, which are not cloned. Raise Records per object to clone them.',
+        question.capped.perObject,
+        question.capped.objects.join(', '),
+      ),
+    );
+  }
   lines.push(
     question.counted
       ? vscode.l10n.t('The records have been counted, and nothing has been read or written yet.')

@@ -12,6 +12,9 @@ const mockSetPresetId = vi.fn();
 const mockApplyPreset = vi.fn();
 /** The preset the store holds; a template may have brought it back. */
 const mockPreset = vi.hoisted(() => ({ id: '' }));
+/** Whether the run anonymizes, as its config says. */
+const mockAnonymize = vi.hoisted(() => ({ on: true }));
+const mockSetAnonymizePII = vi.fn();
 
 const defaultRules: Record<ForgeAnonymizationCategory, AnonymizationMethod> = {
   email: 'fake',
@@ -78,6 +81,8 @@ vi.mock('../../stores/useForgeStore', () => {
         anonymizationPresetId: mockPreset.id,
         setAnonymizationPresetId: mockSetPresetId,
         applyAnonymizationPreset: mockApplyPreset,
+        config: { anonymizePII: mockAnonymize.on },
+        setAnonymizePII: mockSetAnonymizePII,
       }),
     {
       getState: () => ({
@@ -93,6 +98,33 @@ vi.mock('../../stores/useForgeStore', () => {
 /* ---- Tests ---- */
 
 describe('ReviewAnonymizationTab', () => {
+  it('opens on the switch, and says of a run that does not anonymize that its fields go as read', () => {
+    mockAnonymize.on = false;
+    try {
+      render(<ReviewAnonymizationTab />);
+
+      const toggle = screen.getByTestId('anonymization-switch');
+      expect(toggle).toHaveProperty('checked', false);
+      expect(screen.getByTestId('anonymization-off').textContent).toBe(
+        'Off: the run writes these fields as the source holds them. Email addresses and phone numbers are neutralized all the same, unless the form keeps them.',
+      );
+      expect(screen.queryByTestId('anonymization-preset-select')).toBeNull();
+      fireEvent.click(toggle);
+      expect(mockSetAnonymizePII).toHaveBeenCalledWith(true);
+    } finally {
+      mockAnonymize.on = true;
+    }
+  });
+
+  it('shows the methods of a run that anonymizes, and turns it off from the switch', () => {
+    render(<ReviewAnonymizationTab />);
+
+    expect(screen.queryByTestId('anonymization-off')).toBeNull();
+    expect(screen.getByTestId('anonymization-preset-select')).toBeDefined();
+    fireEvent.click(screen.getByTestId('anonymization-switch'));
+    expect(mockSetAnonymizePII).toHaveBeenCalledWith(false);
+  });
+
   it('shows the preset the store holds, which a template may have brought back', () => {
     mockPreset.id = 'preset:gdpr-default';
     render(<ReviewAnonymizationTab />);
