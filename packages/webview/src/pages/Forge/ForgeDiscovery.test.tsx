@@ -299,6 +299,13 @@ describe('ForgeDiscovery', () => {
       expect(line.textContent).toContain('134');
       expect(line.textContent).toContain('12');
     });
+    // Said too, through the throttled announcer: the wait can run for minutes.
+    await waitFor(() => {
+      expect(screen.getByTestId('forge-discovery-status').textContent).toBe(
+        'Discovering… 134 objects scanned, 12 queued',
+      );
+    });
+    expect(screen.getByTestId('forge-discovery-status').getAttribute('role')).toBe('status');
   });
 
   it("shows no counters of a discovery the flow no longer waits on, nor of another panel's", async () => {
@@ -334,6 +341,8 @@ describe('ForgeDiscovery', () => {
 
     expect(screen.getByTestId('forge-discovery-empty').textContent).toContain('Discovery failed');
     expect(screen.queryByTestId('forge-discovery-loading')).toBeNull();
+    // An alert, as the failure drawn beside an earlier graph is.
+    expect(screen.getByRole('alert').textContent).toBe('Discovery failed');
   });
 
   it('should not render MetadataDiffBanner placeholder', () => {

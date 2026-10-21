@@ -277,6 +277,11 @@ vi.mock('../../components/ui/VirtualList', () => ({
 vi.mock('./TemplateGallery', () => ({
   TemplateGallery: ({ onSelectTemplate }: { onSelectTemplate: (template: unknown) => void }) => (
     <div data-testid="template-gallery">
+      {/* A card as the real gallery draws one: its button is what the
+          keyboard comes back to. */}
+      <div data-testid="template-card-prebuilt-minimal-demo">
+        <button data-testid="btn-use-template">Use This: Minimal Demo</button>
+      </div>
       <button
         data-testid="mock-template-select"
         onClick={() =>
@@ -682,6 +687,19 @@ describe('SeedPage', () => {
     expect(screen.getAllByRole('button', { name: 'Start Seeding' })).toHaveLength(1);
     expect(screen.queryByTestId('template-gallery')).toBeNull();
   });
+  it('hands the keyboard back to the card a template was picked from, once Back leaves its confirmation', () => {
+    // Back unmounts with the flow, and its focus fell to <body>.
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-2' });
+
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mock-template-select'));
+    const back = screen.getByTestId('btn-quick-seed-back');
+    back.focus();
+    fireEvent.click(back);
+
+    expect(document.activeElement).toBe(screen.getByTestId('btn-use-template'));
+  });
+
   it('saves the template the run was sent when Save as template is clicked on the results', () => {
     quickSeed.forceIdle = true;
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });

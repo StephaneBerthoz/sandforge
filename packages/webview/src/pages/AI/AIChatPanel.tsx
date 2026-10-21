@@ -335,8 +335,17 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
               {/* Messages */}
               <Card className="flex-1 min-h-0 overflow-y-auto mb-(--sf-space-2)">
                 <CardBody>
+                  {/* A log: each reply is said as it arrives, whole (there is no
+                      streaming). It arrived silently, the spinner going with
+                      it. Drawn afresh for each conversation, so that opening
+                      one does not read its whole history out. */}
                   <div
+                    key={activeConversationId}
                     className="flex flex-col gap-(--sf-space-3)"
+                    role="log"
+                    aria-live="polite"
+                    aria-relevant="additions"
+                    aria-label={t('ai.conversationLog')}
                     data-testid="messages-container"
                   >
                     {messages.length === 0 && (
@@ -353,6 +362,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                         className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                         data-testid={`message-${msg.id}`}
                       >
+                        {/* Who says it, in words: alignment and colour told it alone. */}
+                        <span className="sr-only">
+                          {msg.role === 'user' ? t('ai.speakerYou') : t('ai.speakerAssistant')}
+                        </span>
                         <div
                           className={`max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap ${
                             msg.role === 'user'

@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuickSyncFlow } from './useQuickSyncFlow';
 import { QuickSyncOrgStep } from './QuickSyncOrgStep';
 import { QuickSyncObjectStep } from './QuickSyncObjectStep';
 import { QuickSyncPreviewStep } from './QuickSyncPreviewStep';
 import { Badge } from '../../../components/ui/Badge';
+import { ProgressAnnouncer } from '../../../components/ui/ProgressBar';
+import { useFocusOnChange } from '../../../hooks/useFocusOnChange';
 
 /** Props for the QuickSyncFlow component. */
 export interface QuickSyncFlowProps {
@@ -34,8 +36,47 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
   const stepIndex = steps.findIndex((s) => s.id === state.step);
   const activeIndex = state.step === 'executing' || state.step === 'results' ? 2 : stepIndex;
 
+  /*
+   * Each screen is drawn in place of the last, with the button that moved on
+   * (Next, Sync Now): the keyboard goes to the screen, named after what it
+   * shows, as the wizard's steps take it.
+   */
+  const flowRef = useRef<HTMLDivElement>(null);
+  const stepRef = useRef<HTMLDivElement>(null);
+  useFocusOnChange(stepRef, state.step, { scope: flowRef });
+  const stepName: Record<typeof state.step, string> = {
+    orgs: t('quickSync.selectOrgs'),
+    objects: t('quickSync.selectObjects'),
+    preview: t('quickSync.preview'),
+    executing: t('quickSync.executing'),
+    results: t('sync.results'),
+  };
+
+  /*
+   * The run's start and its end, said: the bar has no figure to read out, and
+   * the results replace it in the pass that ends the run.
+   */
+  const { result } = state;
+  const spoken =
+    state.step === 'executing'
+      ? t('quickSync.executing')
+      : result
+        ? t('a11y.runOutcome', {
+            outcome: result.cancelled
+              ? t('home.opStatus.cancelled')
+              : result.status === 'success'
+                ? t('quickSync.complete')
+                : result.status === 'partial'
+                  ? t('sync.partial')
+                  : t('sync.failed'),
+            written: result.totalSuccess,
+            total: result.totalProcessed,
+          })
+        : '';
+
   return (
-    <div className="flex flex-col gap-4" data-testid="quick-sync-flow">
+    <div ref={flowRef} className="flex flex-col gap-4" data-testid="quick-sync-flow">
+      <ProgressAnnouncer message={spoken} immediate testId="quick-sync-status" />
       {/* Back to wizard link */}
       <button
         type="button"
@@ -65,49 +106,58 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
       </div>
 
       {/* Step content */}
-      {state.step === 'orgs' && (
-        <QuickSyncOrgStep
-          sourceOrgId={state.sourceOrgId}
-          targetOrgId={state.targetOrgId}
-          onSourceChange={flow.setSourceOrg}
-          onTargetChange={flow.setTargetOrg}
-          onNext={flow.goToObjects}
-          canGoNext={flow.canGoToObjects}
-        />
-      )}
+      <div
+        ref={stepRef}
+        tabIndex={-1}
+        role="group"
+        aria-label={stepName[state.step]}
+        data-testid="quick-sync-step"
+      >
+        {state.step === 'orgs' && (
+          <QuickSyncOrgStep
+            sourceOrgId={state.sourceOrgId}
+            targetOrgId={state.targetOrgId}
+            onSourceChange={flow.setSourceOrg}
+            onTargetChange={flow.setTargetOrg}
+            onNext={flow.goToObjects}
+            canGoNext={flow.canGoToObjects}
+          />
+        )}
 
-      {state.step === 'objects' && (
-        <QuickSyncObjectStep
-          selectedObjects={state.selectedObjects}
-          parentObjects={state.parentObjects}
-          sourceOrgId={state.sourceOrgId}
-          onAddObject={flow.addObject}
-          onRemoveObject={flow.removeObject}
-          onAddParentObject={flow.addParentObject}
-          onNext={flow.goToPreview}
-          canGoNext={flow.canGoToPreview}
-          onBack={() => flow.reset()}
-        />
-      )}
+        {state.step === 'objects' && (
+          <QuickSyncObjectStep
+            selectedObjects={state.selectedObjects}
+            parentObjects={state.parentObjects}
+            sourceOrgId={state.sourceOrgId}
+            onAddObject={flow.addObject}
+            onRemoveObject={flow.removeObject}
+            onAddParentObject={flow.addParentObject}
+            onNext={flow.goToPreview}
+            canGoNext={flow.canGoToPreview}
+            onBack={() => flow.reset()}
+          />
+        )}
 
-      {(state.step === 'preview' || state.step === 'executing' || state.step === 'results') && (
-        <QuickSyncPreviewStep
-          preview={state.preview}
-          result={state.result}
-          isExecuting={state.isExecuting}
-          runOperationId={state.runOperationId}
-          onExecute={flow.execute}
-          onReset={flow.reset}
-          onBack={() => flow.goToObjects()}
-          sourceOrgId={state.sourceOrgId}
-          targetOrgId={state.targetOrgId}
-          {...(onOpenHistory ? { onOpenHistory } : {})}
-        />
-      )}
+        {(state.step === 'preview' || state.step === 'executing' || state.step === 'results') && (
+          <QuickSyncPreviewStep
+            preview={state.preview}
+            result={state.result}
+            isExecuting={state.isExecuting}
+            runOperationId={state.runOperationId}
+            onExecute={flow.execute}
+            onReset={flow.reset}
+            onBack={() => flow.goToObjects()}
+            sourceOrgId={state.sourceOrgId}
+            targetOrgId={state.targetOrgId}
+            {...(onOpenHistory ? { onOpenHistory } : {})}
+          />
+        )}
+      </div>
 
-      {/* Error display */}
+      {/* Error display: an alert, said when it appears wherever the focus is. */}
       {state.error && (
         <div
+          role="alert"
           className="text-xs text-status-error p-2 rounded-sm bg-(--sf-error-bg)"
           data-testid="quick-sync-error"
         >

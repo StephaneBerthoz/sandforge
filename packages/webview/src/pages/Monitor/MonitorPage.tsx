@@ -407,7 +407,7 @@ export const MonitorPage: React.FC = () => {
             <>
               <span className="h-2.5 w-2.5 rounded-full bg-status-success shrink-0 animate-pulse" />
               {/* The org under observation is what this dashboard is about, so it carries the page's only h1. */}
-              <h1 className="text-base font-semibold text-text-primary truncate">
+              <h1 tabIndex={-1} className="text-base font-semibold text-text-primary truncate">
                 {currentOrg.alias || currentOrg.username}
               </h1>
               <span

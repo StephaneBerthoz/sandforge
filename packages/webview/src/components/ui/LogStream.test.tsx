@@ -166,12 +166,34 @@ describe('LogStream', () => {
     expect(screen.getByTestId('logstream-filter-warn').getAttribute('aria-pressed')).toBe('false');
   });
 
-  /* ---- role=log and aria-live on scroll container ---- */
-  it('should have role="log" and aria-live="polite" on the scroll container', () => {
+  /* ---- role=log, silenced: a run's log is browsed, not read aloud ---- */
+  it('keeps the log a log to browse, but silent: role="log" alone is polite', () => {
+    // Forge appended a line about ten times a second, each read aloud over
+    // the throttled progress announcer.
     render(<LogStream entries={entries} />);
     const logContainer = screen.getByRole('log');
-    expect(logContainer).toBeDefined();
-    expect(logContainer.getAttribute('aria-live')).toBe('polite');
+    expect(logContainer.getAttribute('aria-live')).toBe('off');
+  });
+
+  it('says the errors of a log that grows, with the latest, when asked to', () => {
+    const withErrors: LogEntry[] = [
+      { id: '1', timestamp: Date.now(), level: 'info', message: 'Account: running (10%)' },
+      {
+        id: '2',
+        timestamp: Date.now(),
+        level: 'error',
+        message: 'Contact: REQUIRED_FIELD_MISSING',
+      },
+    ];
+    render(<LogStream entries={withErrors} announceErrors />);
+    const status = screen.getByTestId('logstream-errors-status');
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent).toBe('1 error in the logs. Latest: Contact: REQUIRED_FIELD_MISSING');
+  });
+
+  it('says nothing of a log shown after its run, unless asked to', () => {
+    render(<LogStream entries={entries} />);
+    expect(screen.queryByTestId('logstream-errors-status')).toBeNull();
   });
 
   /* ---- The "all" filter returns all entries without copying ---- */

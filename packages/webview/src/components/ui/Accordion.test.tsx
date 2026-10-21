@@ -54,8 +54,45 @@ describe('Accordion', () => {
   it('should have correct aria-controls linking', () => {
     render(<Accordion items={items} />);
     const button = screen.getByText('Section 1').closest('button')!;
-    const panelId = button.getAttribute('aria-controls');
-    expect(panelId).toBe('accordion-panel-0');
+    const panel = document.getElementById(button.getAttribute('aria-controls') ?? '');
+    expect(panel?.getAttribute('role')).toBe('region');
+    expect(panel?.getAttribute('aria-labelledby')).toBe(button.id);
+  });
+
+  it('links each header to its own panel when two accordions share a page', () => {
+    // Seed's configure step draws two with more than 20 objects: ids by index
+    // alone appeared twice, and the second header pointed at the first panel.
+    render(
+      <>
+        <Accordion items={[{ title: 'Custom', content: <p>custom fields</p> }]} />
+        <Accordion items={[{ title: 'Advanced', content: <p>batch sizes</p> }]} />
+      </>,
+    );
+    const custom = screen.getByRole('button', { name: 'Custom' });
+    const advanced = screen.getByRole('button', { name: 'Advanced' });
+    expect(custom.id).not.toBe(advanced.id);
+    expect(custom.getAttribute('aria-controls')).not.toBe(advanced.getAttribute('aria-controls'));
+    expect(document.getElementById(advanced.getAttribute('aria-controls') ?? '')?.textContent).toBe(
+      'batch sizes',
+    );
+  });
+
+  it('keeps a closed panel out of the Tab order and the accessibility tree, and gives it back on opening', () => {
+    // Drawn at no height, a closed panel's controls still took the focus.
+    render(
+      <Accordion
+        items={[{ title: 'Advanced settings', content: <input aria-label="Batch size" /> }]}
+      />,
+    );
+    const toggle = screen.getByRole('button', { name: 'Advanced settings' });
+    const panel = document.getElementById(toggle.getAttribute('aria-controls') ?? '');
+    expect(panel?.hasAttribute('inert')).toBe(true);
+
+    fireEvent.click(toggle);
+    expect(panel?.hasAttribute('inert')).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(panel?.hasAttribute('inert')).toBe(true);
   });
 
   it('should apply custom className', () => {

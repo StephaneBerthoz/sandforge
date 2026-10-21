@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import { pageTransition } from '../../motion/presets';
@@ -13,6 +13,7 @@ import { ForgeExecution } from './ForgeExecution';
 import { ForgeResults } from './ForgeResults';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
+import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 
 /** Forge phase variants for AnimatePresence transitions. */
 const variants = pageTransition(1);
@@ -32,6 +33,16 @@ export const ForgePage: React.FC = () => {
 
   // Said once: coming back to the page must not repeat the stop.
   useEffect(() => () => setStoppedAt(null), [setStoppedAt]);
+
+  /*
+   * Each phase is drawn in place of the last, and the button that moved on —
+   * Discover, Review & Execute, Execute, Back — goes with it: the keyboard is
+   * handed to the phase, named after it, as the wizard hands it its step. Only
+   * from nowhere or from inside the page: a dialog keeps it.
+   */
+  const pageRef = useRef<HTMLDivElement>(null);
+  const phaseRef = useRef<HTMLDivElement>(null);
+  useFocusOnChange(phaseRef, phase, { scope: pageRef });
 
   if (!selectedOrgId || orgs.length === 0) {
     const noOrgs = orgs.length === 0;
@@ -54,7 +65,7 @@ export const ForgePage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4" data-testid="forge-page">
+    <div ref={pageRef} className="flex flex-col gap-4 p-4" data-testid="forge-page">
       <PageHeader title={t('nav.forge')} subtitle={t('moduleSummary.forge')} icon="flame" />
       {/* A finished run is spoken from the results screen. One an error or an
           abort stopped stays on the execution screen, which the page can
@@ -69,15 +80,23 @@ export const ForgePage: React.FC = () => {
         immediate
         testId="forge-run-stopped-status"
       />
-      <AnimatePresence mode="wait">
-        <m.div key={phase} variants={variants} initial="enter" animate="center" exit="exit">
-          {phase === 'input' && <ForgeInput />}
-          {phase === 'discovery' && <ForgeDiscovery />}
-          {phase === 'review' && <ForgeReview />}
-          {phase === 'execution' && <ForgeExecution />}
-          {phase === 'results' && <ForgeResults />}
-        </m.div>
-      </AnimatePresence>
+      <div
+        ref={phaseRef}
+        role="group"
+        aria-label={t(`forge.phaseName.${phase}`)}
+        tabIndex={-1}
+        data-testid="forge-phase"
+      >
+        <AnimatePresence mode="wait">
+          <m.div key={phase} variants={variants} initial="enter" animate="center" exit="exit">
+            {phase === 'input' && <ForgeInput />}
+            {phase === 'discovery' && <ForgeDiscovery />}
+            {phase === 'review' && <ForgeReview />}
+            {phase === 'execution' && <ForgeExecution />}
+            {phase === 'results' && <ForgeResults />}
+          </m.div>
+        </AnimatePresence>
+      </div>
     </div>
   );
 };

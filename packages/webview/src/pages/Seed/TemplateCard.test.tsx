@@ -45,6 +45,15 @@ describe('TemplateCard', () => {
     expect(screen.getByText('7601 records')).toBeDefined();
   });
 
+  it('names its button after the template, as the visible words start it', () => {
+    // Every card's button read "Use This": a list of buttons could not tell them apart.
+    render(<TemplateCard item={mockItem} onUseThis={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Use This: Sales Cloud Starter' })).toBe(
+      screen.getByTestId('btn-use-template'),
+    );
+  });
+
   it('calls onUseThis with the item when Use This is clicked', () => {
     const onUseThis = vi.fn();
     render(<TemplateCard item={mockItem} onUseThis={onUseThis} />);

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position } from '@xyflow/react';
 import type { Node, NodeProps } from '@xyflow/react';
@@ -119,6 +119,22 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
 
   const showProgress = status === 'scanning' || status === 'running';
 
+  /*
+   * What the node's keyboard stops say besides its name: its status, its
+   * counts and its badges. They were drawn, in an icon and small figures a
+   * screen reader could not reach, so an error in graph view went unheard.
+   */
+  const idBase = useId();
+  const describedBy = [
+    `${idBase}-status`,
+    `${idBase}-counts`,
+    status === 'stopped' ? `${idBase}-stopped` : null,
+    hasPII ? `${idBase}-pii` : null,
+    errorCount > 0 ? `${idBase}-errors` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     // Not a button itself: the card held its own checkbox, and a control
     // inside a control is one a screen reader cannot tell apart (axe
@@ -148,6 +164,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
               onChange={handleCheckboxChange}
               className="h-3 w-3 accent-forge cursor-pointer"
               aria-label={t('a11y.includeObject', { object: objectApiName })}
+              aria-describedby={describedBy}
             />
           )}
           {onSelect ? (
@@ -156,6 +173,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
               data-testid="progress-node-select"
               onClick={handleClick}
               aria-label={t('forge.node.showDetails', { object: objectApiName })}
+              aria-describedby={describedBy}
               className="text-xs font-semibold text-text-primary truncate hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent) rounded-xs"
             >
               {objectApiName}
@@ -181,6 +199,9 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
             </span>
           )}
           <StatusIcon status={status} />
+          <span id={`${idBase}-status`} className="sr-only">
+            {t(`forge.nodeStatus.${status}`)}
+          </span>
         </div>
       </div>
 
@@ -194,7 +215,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
         being cloned at that moment.
       */}
       {fieldCount > 0 ? (
-        <>
+        <div id={`${idBase}-counts`}>
           <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
             <span>
               {t('forge.node.records', { records: recordCount.toLocaleString(uiLocale()) })}
@@ -209,9 +230,13 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
               })}
             </span>
           </div>
-        </>
+        </div>
       ) : (
-        <div className="mt-1 text-[10px] text-text-secondary" data-testid="node-counts-unknown">
+        <div
+          id={`${idBase}-counts`}
+          className="mt-1 text-[10px] text-text-secondary"
+          data-testid="node-counts-unknown"
+        >
           {t('forge.node.notMeasured')}
         </div>
       )}
@@ -233,6 +258,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
           mark and its outline. */}
       {status === 'stopped' && (
         <div
+          id={`${idBase}-stopped`}
           data-testid="node-stopped"
           className="mt-2 text-[10px] font-medium text-status-warning"
         >
@@ -245,6 +271,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
         <div className="flex items-center gap-1">
           {hasPII && (
             <span
+              id={`${idBase}-pii`}
               data-testid="pii-badge"
               className="flex items-center gap-0.5 text-[9px] text-status-warning"
             >
@@ -259,7 +286,11 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
             className="flex items-center gap-0.5 text-[9px] text-status-error"
           >
             <AlertTriangle className="h-2.5 w-2.5" />
-            {errorCount}
+            <span aria-hidden="true">{errorCount}</span>
+            {/* A bare figure beside an icon is no word for a screen reader. */}
+            <span id={`${idBase}-errors`} className="sr-only">
+              {t('forge.node.errors', { count: errorCount })}
+            </span>
           </span>
         )}
       </div>

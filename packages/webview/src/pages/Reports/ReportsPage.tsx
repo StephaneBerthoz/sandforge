@@ -257,7 +257,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       initial="hidden"
       animate="visible"
     >
-      <h1 className="text-lg font-bold text-text-primary">{t('reports.title')}</h1>
+      <h1 tabIndex={-1} className="text-lg font-bold text-text-primary">
+        {t('reports.title')}
+      </h1>
 
       {/* KPI summary row — omitted entirely when nothing feeds it. */}
       {hasMetrics && (

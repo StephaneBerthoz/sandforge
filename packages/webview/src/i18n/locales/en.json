@@ -708,7 +708,8 @@
       "records_other": "{{count}} records",
       "useThis": "Use This",
       "templateMissing": "This saved template no longer exists.",
-      "recommended": "Start here"
+      "recommended": "Start here",
+      "useThisNamed": "Use This: {{name}}"
     },
     "quickSeed": {
       "title": "Quick Seed",
@@ -2280,7 +2281,10 @@
     "privacyNote": "What you type goes to Anthropic with the conversation so far. Conversations stay on this machine, the 50 most recent.",
     "deleteAll": "Delete all conversations",
     "deleteAllConfirm_one": "Delete the conversation kept on this machine? It cannot be brought back.",
-    "deleteAllConfirm_other": "Delete the {{count}} conversations kept on this machine? They cannot be brought back."
+    "deleteAllConfirm_other": "Delete the {{count}} conversations kept on this machine? They cannot be brought back.",
+    "conversationLog": "Conversation",
+    "speakerYou": "You:",
+    "speakerAssistant": "Assistant:"
   },
   "notifications": {
     "title": "Notifications"
@@ -2799,7 +2803,7 @@
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Pseudonymization is deterministic, keyed by a salt you keep out of the repository\n- A four-point check must pass before the dataset is written\n- Load: sandbox targets only, with an optional Pilot on one root folder before the full load, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
     "aiContent": "AI Assistant, with your own Anthropic key:\n- Chat, NL2SOQL in Forge's AI tab, and custom personas and AI field rules in Seed\n- Pipeline drafts in Automation\n- A built-in table of Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing\n- Nothing is sent for a fixed list of SandForge's own messages, such as a declined production confirmation, a duplicate run, or a CRUD, FLS or Production Guard refusal, nor for any failure while no SandForge view is open\n- While AI is on, any other failed Seed, Sync, DataOps or Automation run sends its error message, with its Salesforce Ids replaced by <id>, and the suggestion comes back as a VS Code notification\n- Turn that sending off with sandforge.ai.errorResolution: the rest of the assistant keeps working\n- Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key\n- Configure your API key in Settings > AI",
-    "shortcutsContent": "G + letter — Jump to a module (e.g. G then F for Forge, G then Y for Sync, G then L for Help)\nCtrl+K — Command palette\nEscape — Close modals and dialogs\nTab — Navigate between elements\nEnter/Space — Activate buttons and links",
+    "shortcutsContent": "G + letter — Jump to a module (e.g. G then F for Forge, G then Y for Sync, G then L for Help)\nCtrl+K — Command palette\nAlt+N — Reach the latest notification that stays on screen\nEscape — Close modals and dialogs\nTab — Navigate between elements\nArrow keys — Move between tabs\nEnter/Space — Activate buttons and links",
     "faqContent": "Q: Why is my Health Score low?\nA: Check API limit usage, failed jobs, and storage consumption. The score weighs multiple factors.\n\nQ: How to fix timeout errors?\nA: SandForge has no timeout setting for Salesforce calls. Lower the batch size (sandforge.seed.defaultBatchSize and sandforge.sync.defaultBatchSize in VS Code Settings) and split a large run into smaller ones. Grappe does not make a run faster: it reports progress per partition.\n\nQ: Can I undo a sync operation?\nA: In part. A run's removal, from its results or its history entry, deletes what it created: the records it inserted, or upserted where the target held none, and its files. The records it updated keep their new values. Before a risky run, take a DataOps backup of the target org: it covers the objects the anonymization templates mask, and restores only into that org.\n\nQ: How do I connect a production org safely?\nA: SandForge detects a production org and marks it with the Critical safety tier. Production Guard refuses a delete or a metadata deployment there outright, and asks you to confirm any other write before it runs (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
     "shortcuts": "Keyboard Shortcuts",
@@ -3691,7 +3695,9 @@
       "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)",
       "notMeasured": "Size not measured yet",
       "showDetails": "Show the details of {{object}}",
-      "stopped": "Stopped before its end"
+      "stopped": "Stopped before its end",
+      "errors_one": "{{count}} error",
+      "errors_other": "{{count}} errors"
     },
     "nodeStatus": {
       "idle": "Not started",
@@ -3907,6 +3913,13 @@
       "field": "Field",
       "values": "Values",
       "rows": "Rows"
+    },
+    "phaseName": {
+      "input": "What to clone",
+      "discovery": "Graph discovery",
+      "review": "Review",
+      "execution": "Run",
+      "results": "Results"
     }
   },
   "autopilot": {
@@ -4012,7 +4025,12 @@
         "zoomOut": "Zoom out",
         "fitView": "Fit to view",
         "minimap": "Toggle minimap"
-      }
+      },
+      "nodeLabel": "{{object}}: {{status}}. Written: {{success}} of {{total}}",
+      "nodeFailed_one": "{{count}} record failed",
+      "nodeFailed_other": "{{count}} records failed",
+      "nodeKeys": "Press Enter or Space to show this object's details and pick it for Skip. Escape lets it go.",
+      "minimap": "Minimap"
     },
     "control": {
       "title": "Control Panel",
@@ -4047,7 +4065,8 @@
       "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} record stays a draft, without the status it had in the source.",
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} records stay drafts, without the status they had in the source.",
       "stoppedEmailsHeld_one": "{{count}} email on a case was never sent: it waited for its task to be written, and the run stopped first.",
-      "stoppedEmailsHeld_other": "{{count}} emails on a case were never sent: they waited for their task to be written, and the run stopped first."
+      "stoppedEmailsHeld_other": "{{count}} emails on a case were never sent: they waited for their task to be written, and the run stopped first.",
+      "skipNamed": "Skip {{object}}"
     },
     "report": {
       "title": "Compliance Report",
@@ -4124,6 +4143,12 @@
       "importCount_other": "Import up to {{count}} orgs from the Salesforce CLI",
       "import": "Import from the Salesforce CLI",
       "loginWeb": "Log in with your browser"
+    },
+    "orgStatus": {
+      "connected": "Connected",
+      "expired": "Session expired",
+      "error": "Connection error",
+      "refreshing": "Refreshing"
     }
   },
   "frozen": {
@@ -4550,7 +4575,11 @@
     "urgencySafe": "Safe",
     "runFinished": "{{name}} finished. Written: {{written}} of {{total}}.",
     "runStoppedWritten": "{{name}} stopped before its end. Written: {{written}} of {{total}}.",
-    "runStopped": "{{name}} stopped at {{percent}}%."
+    "runStopped": "{{name}} stopped at {{percent}}%.",
+    "runOutcome": "{{outcome}}. Written: {{written}} of {{total}}.",
+    "logErrors_one": "{{count}} error in the logs. Latest: {{latest}}",
+    "logErrors_other": "{{count}} errors in the logs. Latest: {{latest}}",
+    "toastShortcut": "Press Alt+N to reach it"
   },
   "errors": {
     "guideLink": "{{code}} in the Forge guide",

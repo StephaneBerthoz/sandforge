@@ -192,6 +192,49 @@ describe('ControlPanel', () => {
     });
   });
 
+  describe('its tabs, for the keyboard and a screen reader', () => {
+    it('are tabs with the open one selected, one stop in the Tab order, its panel named after it', () => {
+      // Plain buttons, the open one told by its underline alone.
+      render(<ControlPanel />);
+      const stats = screen.getByRole('tab', { name: 'Live Stats' });
+      const node = screen.getByRole('tab', { name: 'Node Detail' });
+      expect(stats.getAttribute('aria-selected')).toBe('true');
+      expect(node.getAttribute('aria-selected')).toBe('false');
+      expect(stats.tabIndex).toBe(0);
+      expect(node.tabIndex).toBe(-1);
+      expect(screen.getByRole('tabpanel', { name: 'Live Stats' })).toBeDefined();
+    });
+
+    it('walk with the arrows, Home and End, the focus following the tab selected', () => {
+      render(<ControlPanel />);
+      const stats = screen.getByRole('tab', { name: 'Live Stats' });
+      stats.focus();
+      fireEvent.keyDown(stats, { key: 'ArrowRight' });
+      const node = screen.getByRole('tab', { name: 'Node Detail' });
+      expect(node.getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(node);
+      fireEvent.keyDown(node, { key: 'End' });
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Compliance' }));
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Home' });
+      expect(document.activeElement).toBe(stats);
+    });
+
+    it('open on the details of a node picked on the graph', () => {
+      const { rerender } = render(<ControlPanel />);
+      mockStoreState = { ...mockStoreState, selectedNodeName: 'Account' };
+      rerender(<ControlPanel />);
+      expect(screen.getByRole('tab', { name: 'Node Detail' }).getAttribute('aria-selected')).toBe(
+        'true',
+      );
+    });
+  });
+
+  it('says on Skip which node it skips', () => {
+    mockStoreState.selectedNodeName = 'Account';
+    render(<ControlPanel />);
+    expect(screen.getByTestId('control-skip').textContent).toBe('Skip Account');
+  });
+
   it('should post autopilot:skip-node with the selected object when skip is clicked', () => {
     mockStoreState.selectedNodeName = 'Account';
     render(<ControlPanel />);

@@ -141,6 +141,28 @@ body {
   animation: sf-spin 1s linear infinite;
 }
 
+/* ===== INDETERMINATE PROGRESS ===== */
+/* A bar with no value to show: a band that crosses it. Under reduced motion
+   the band stops, and the bar is drawn whole and faint: busy, with no figure. */
+@keyframes sf-indeterminate {
+  from {
+    width: 40%;
+    opacity: 1;
+    transform: translateX(-100%);
+  }
+  to {
+    width: 40%;
+    opacity: 1;
+    transform: translateX(250%);
+  }
+}
+
+.sf-indeterminate {
+  width: 100%;
+  opacity: 0.6;
+  animation: sf-indeterminate 1.4s ease-in-out infinite;
+}
+
 /* ===== FADE IN ===== */
 @keyframes sf-fade-in {
   from {

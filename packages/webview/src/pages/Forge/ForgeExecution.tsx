@@ -505,6 +505,7 @@ export const ForgeExecution: React.FC = () => {
                 entries={logs}
                 filter={logFilter}
                 hideFilterBar
+                announceErrors
                 className="flex-1"
               />
             </div>

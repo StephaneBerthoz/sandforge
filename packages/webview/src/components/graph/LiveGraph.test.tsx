@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
-import { LiveGraph } from './LiveGraph';
+import { LiveGraph, centreToShow } from './LiveGraph';
 import type { ForgeGraph } from '@sandforge/shared';
 
 vi.mock('react-i18next', () => ({
@@ -34,6 +34,20 @@ const received = vi.hoisted(() => ({
   controls: {} as Record<string, unknown>,
   background: {} as Record<string, unknown>,
   fitView: vi.fn(),
+  setCenter: vi.fn(),
+  /** React Flow's store as the graph reads it: the pane, its view, each node's box. */
+  store: {
+    width: 600,
+    height: 300,
+    transform: [0, 0, 1] as [number, number, number],
+    nodeLookup: new Map<
+      string,
+      {
+        internals: { positionAbsolute: { x: number; y: number } };
+        measured: { width?: number; height?: number };
+      }
+    >(),
+  },
 }));
 
 /** Minimal ReactFlow mock that renders nodes with their data. */
@@ -50,8 +64,15 @@ function MockReactFlow(props: {
   return (
     <div data-testid="react-flow-mock">
       {nodes.map((n) => (
-        <div key={n.id} data-testid={`rf-node-${n.id}`} onClick={(e) => onNodeClick?.(e, n)}>
+        <div
+          key={n.id}
+          className="react-flow__node"
+          data-id={n.id}
+          data-testid={`rf-node-${n.id}`}
+          onClick={(e) => onNodeClick?.(e, n)}
+        >
           {n.data.objectApiName}
+          <button data-testid={`rf-node-stop-${n.id}`} aria-label="stop" />
         </div>
       ))}
       {children}
@@ -74,7 +95,8 @@ vi.mock('@xyflow/react', () => ({
     received.background = props;
     return React.createElement('div', { 'data-testid': 'background' });
   },
-  useReactFlow: () => ({ fitView: received.fitView }),
+  useReactFlow: () => ({ fitView: received.fitView, setCenter: received.setCenter }),
+  useStoreApi: () => ({ getState: () => received.store }),
   Handle: () => React.createElement('div'),
   Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
   getBezierPath: () => ['M 0 0', 0, 0] as const,
@@ -230,16 +252,95 @@ describe('LiveGraph', () => {
     expect(screen.getByTestId('live-graph')).toBeDefined();
   });
 
-  it('should have role="application" on the graph container', () => {
+  it('names the graph on React Flow’s own application, not on a second one around it', () => {
+    // React Flow's wrapper is role="application" already: the one this drew
+    // around it, named the same, was read twice.
     render(<LiveGraph graph={makeSampleGraph()} />);
     const container = screen.getByTestId('live-graph');
-    expect(container.getAttribute('role')).toBe('application');
+    expect(container.hasAttribute('role')).toBe(false);
+    expect(container.hasAttribute('aria-label')).toBe(false);
+    expect(received.flow['aria-label']).toBe('Dependency Graph');
   });
 
-  it('should have aria-label on the graph container', () => {
+  it('makes no edge a keyboard stop: picking one does nothing', () => {
     render(<LiveGraph graph={makeSampleGraph()} />);
-    const container = screen.getByTestId('live-graph');
-    expect(container.getAttribute('aria-label')).toBe('Dependency Graph');
+    expect(received.flow.edgesFocusable).toBe(false);
+    expect(received.flow.nodesFocusable).toBe(false);
+  });
+
+  describe('a keyboard stop in a node out of the pane', () => {
+    /** Focus a node's stop as the keyboard does: `:focus-visible` holds. */
+    function focusWithKeyboard(id: string): void {
+      const stop = screen.getByTestId(`rf-node-stop-${id}`);
+      const matches = vi
+        .spyOn(stop, 'matches')
+        .mockImplementation((selector: string) => selector === ':focus-visible');
+      act(() => stop.focus());
+      matches.mockRestore();
+    }
+
+    it('brings the node into view, at the zoom it is drawn at', () => {
+      received.setCenter.mockClear();
+      received.store.transform = [0, 0, 1.5];
+      received.store.nodeLookup = new Map([
+        [
+          'Account',
+          {
+            internals: { positionAbsolute: { x: 0, y: 0 } },
+            measured: { width: 220, height: 140 },
+          },
+        ],
+        [
+          'Contact',
+          {
+            internals: { positionAbsolute: { x: 900, y: 400 } },
+            measured: { width: 220, height: 140 },
+          },
+        ],
+      ]);
+      render(<LiveGraph graph={makeSampleGraph()} onNodeClick={vi.fn()} />);
+
+      focusWithKeyboard('Contact');
+
+      expect(received.setCenter).toHaveBeenCalledWith(1010, 470, { zoom: 1.5 });
+    });
+
+    it('leaves the view alone for a node in it, and for a focus a click gave', () => {
+      received.setCenter.mockClear();
+      received.store.transform = [0, 0, 1];
+      received.store.nodeLookup = new Map([
+        [
+          'Account',
+          {
+            internals: { positionAbsolute: { x: 10, y: 10 } },
+            measured: { width: 220, height: 140 },
+          },
+        ],
+        [
+          'Contact',
+          {
+            internals: { positionAbsolute: { x: 900, y: 400 } },
+            measured: { width: 220, height: 140 },
+          },
+        ],
+      ]);
+      render(<LiveGraph graph={makeSampleGraph()} onNodeClick={vi.fn()} />);
+
+      focusWithKeyboard('Account');
+      act(() => screen.getByTestId('rf-node-stop-Contact').focus());
+
+      expect(received.setCenter).not.toHaveBeenCalled();
+    });
+  });
+
+  it('works out where to centre the view to show a node, or that it is shown', () => {
+    const pane = { width: 600, height: 300 };
+    const box = { x: 100, y: 50, width: 220, height: 140 };
+    expect(centreToShow(box, [0, 0, 1], pane)).toBeNull();
+    // Zoomed in, the node runs past the pane's right edge.
+    expect(centreToShow(box, [0, 0, 2.5], pane)).toEqual({ x: 210, y: 120 });
+    // Panned away to the left of it.
+    expect(centreToShow(box, [-200, 0, 1], pane)).toEqual({ x: 210, y: 120 });
   });
 
   it('marks on its node each object a search matched', () => {

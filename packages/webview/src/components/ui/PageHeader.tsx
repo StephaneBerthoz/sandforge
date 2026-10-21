@@ -80,7 +80,12 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         <div className="flex items-center" style={{ gap: 'var(--sf-space-2)' }}>
           {icon && <Icon name={icon} className="text-lg" label={title} />}
           <div>
+            {/* Focusable from code, never from Tab: the panel hands it the
+                focus when it moves to this page (useRouteFocus), so a screen
+                reader says where the user now is. Its outline shows only on
+                :focus-visible, i.e. after a keyboard action. */}
             <h1
+              tabIndex={-1}
               className="font-semibold"
               style={{
                 fontSize: 'var(--sf-font-size-xl)',

@@ -9,6 +9,7 @@
     "common.itemCount_one",
     "common.recordErrors.group",
     "dataops.frameworks.pci_dss",
+    "forge.node.errors_one",
     "forge.review.automation.flow",
     "forge.soqlPlaceholder",
     "grappe.partitionCount_one",

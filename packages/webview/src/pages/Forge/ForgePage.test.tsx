@@ -226,4 +226,38 @@ describe('ForgePage', () => {
       expect(mockSetStoppedAt).toHaveBeenCalledWith(null);
     });
   });
+
+  describe('from one phase to the next', () => {
+    it('hands the phase drawn the focus the button that moved on dropped, named after it', () => {
+      mockPhase = 'input';
+      const { rerender } = render(<ForgePage />);
+      // The first draw leaves the focus where it was.
+      expect(document.activeElement).toBe(document.body);
+
+      mockPhase = 'discovery';
+      rerender(<ForgePage />);
+      const phase = screen.getByRole('group', { name: 'Graph discovery' });
+      expect(document.activeElement).toBe(phase);
+      expect(phase).toBe(screen.getByTestId('forge-phase'));
+    });
+
+    it('leaves the focus on a control outside the page', () => {
+      mockPhase = 'input';
+      const { rerender } = render(
+        <>
+          <button data-testid="outside">outside</button>
+          <ForgePage />
+        </>,
+      );
+      screen.getByTestId('outside').focus();
+      mockPhase = 'discovery';
+      rerender(
+        <>
+          <button data-testid="outside">outside</button>
+          <ForgePage />
+        </>,
+      );
+      expect(document.activeElement).toBe(screen.getByTestId('outside'));
+    });
+  });
 });

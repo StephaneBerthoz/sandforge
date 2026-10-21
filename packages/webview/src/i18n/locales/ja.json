@@ -658,7 +658,8 @@
       "records_other": "{{count}}件のレコード",
       "useThis": "これを使う",
       "templateMissing": "この保存済みテンプレートはもう存在しません。",
-      "recommended": "ここから開始"
+      "recommended": "ここから開始",
+      "useThisNamed": "これを使う：{{name}}"
     },
     "quickSeed": {
       "title": "クイックSeed",
@@ -2137,7 +2138,10 @@
     "conversations": "会話",
     "privacyNote": "入力内容はそれまでの会話とともに Anthropic に送信されます。会話はこのマシンに、最新の 50 件まで保存されます。",
     "deleteAll": "すべての会話を削除",
-    "deleteAllConfirm_other": "このマシンに保存されている{{count}}件の会話を削除しますか？元に戻すことはできません。"
+    "deleteAllConfirm_other": "このマシンに保存されている{{count}}件の会話を削除しますか？元に戻すことはできません。",
+    "conversationLog": "会話",
+    "speakerYou": "あなた:",
+    "speakerAssistant": "アシスタント:"
   },
   "notifications": {
     "title": "通知"
@@ -2638,7 +2642,7 @@
     "frozenContent": "凍結データセットは、ソース Sandbox からデータセットを一度だけ抽出し、リフレッシュのたびに同じ内容を再投入します：\n- 抽出：カバレッジマトリクスでルートレコードを選び、ボリューム予算内に収めます\n- 仮名化は決定的で、リポジトリの外に保管するソルトを使います\n- データセットを書き込む前に、4項目のチェックに合格する必要があります\n- ロード：ターゲットは Sandbox のみ。本ロードの前に、ルート案件1件だけを対象とする任意のパイロットを実行でき、ロード後に検証します",
     "grappeContent": "Grappe は大きな操作をパーティションに分割し、各パーティションの完了時に進捗を報告します：\n- sandforge.grappe.enabled 設定で有効にします\n- レコードしきい値を超えた Seed の実行は各パーティションを、しきい値を超えた Sync はオブジェクトごとに1パーティションを報告し、Autopilot プランは開始と終了だけを報告します\n- パーティションは1つずつ順に処理されます。Grappe で実行が速くなることはありません",
     "aiContent": "AIアシスタント（ご自身のAnthropicキーが必要）：\n- チャット、Forge の AI タブでの NL2SOQL、Seed でのカスタムペルソナと AI 項目ルール\n- Automation でのパイプライン下書き\n- 組み込みのSalesforceエラーコード一覧が、知っているコードにまず回答します。AI がオンでもオフでも、お使いのマシン上で処理し、何も送信しません\n- SandForge 自身が出す決まったメッセージ（本番環境の確認の拒否、重複実行、CRUD・FLS・Production Guard による拒否など）、および SandForge のビューが開いていないときの失敗については何も送信しません\n- AI がオンの間、それ以外の失敗した Seed、Sync、DataOps、Automation の実行はエラーメッセージを送信し（Salesforce ID を置き換えて <id> にします）、提案は VS Code の通知として返ります\n- この送信は sandforge.ai.errorResolution でオフにできます。アシスタントのほかの機能はそのまま使えます\n- Compare のスキーマ提案と Monitor の異常スキャンはルールベースです。AIをオフにしてもキーがなくても動作します\n- 設定 > AIでAPIキーを構成",
-    "shortcutsContent": "G + キー — モジュールへ移動 (例: G の後に F で Forge、G の後に Y で Sync、G の後に L でヘルプ)\nCtrl+K — コマンドパレット\nEscape — モーダルとダイアログを閉じる\nTab — 要素間の移動\nEnter/Space — ボタンとリンクの有効化",
+    "shortcutsContent": "G + キー — モジュールへ移動 (例: G の後に F で Forge、G の後に Y で Sync、G の後に L でヘルプ)\nCtrl+K — コマンドパレット\nAlt+N — 画面に残っている最新の通知へ移動\nEscape — モーダルとダイアログを閉じる\nTab — 要素間の移動\n矢印キー — タブ間の移動\nEnter/Space — ボタンとリンクの有効化",
     "faqContent": "Q：健全性スコアが低いのはなぜですか？\nA：API制限の使用量、失敗したジョブ、ストレージ消費量を確認してください。スコアは複数の要因を考慮しています。\n\nQ：タイムアウトエラーを修正するには？\nA：SandForge には Salesforce 呼び出しのタイムアウト設定はありません。バッチサイズ（VS Code 設定の sandforge.seed.defaultBatchSize と sandforge.sync.defaultBatchSize）を小さくし、大きな実行を小さな実行に分けてください。Grappe で実行が速くなることはありません。パーティションごとに進捗を報告するだけです。\n\nQ：同期操作を元に戻せますか？\nA：一部は可能です。実行の結果または履歴から実行を削除すると、その実行が作成したもの (挿入したレコード、ターゲットに該当がなく upsert で作成したレコード、ファイル) を削除します。更新したレコードは新しい値のまま残ります。リスクのある実行の前に、DataOps でターゲット組織のバックアップを取ってください。対象は匿名化テンプレートがマスクするオブジェクトで、その組織にのみリストアできます。\n\nQ：本番組織を安全に接続するには？\nA：SandForge は本番組織を検出し、セキュリティレベル「重大」を付けます。Production Guard はそこでの削除とメタデータのデプロイを最初から拒否し、それ以外の書き込みは実行前に確認を求めます（sandforge.safety.requireProdConfirmation）。",
     "faq": "FAQ",
     "shortcuts": "キーボードショートカット",
@@ -3454,7 +3458,8 @@
       "fieldsCloneable": "{{total}} 項目（うち {{cloneable}} 件が複製可能）",
       "notMeasured": "件数は未計測です",
       "showDetails": "{{object}} の詳細を表示",
-      "stopped": "完了前に停止"
+      "stopped": "完了前に停止",
+      "errors_other": "エラー {{count}} 件"
     },
     "nodeStatus": {
       "idle": "未開始",
@@ -3664,6 +3669,13 @@
       "field": "項目",
       "values": "値",
       "rows": "行"
+    },
+    "phaseName": {
+      "input": "クローンする対象",
+      "discovery": "グラフ検出",
+      "review": "確認",
+      "execution": "実行",
+      "results": "結果"
     }
   },
   "autopilot": {
@@ -3769,7 +3781,11 @@
         "zoomOut": "ズームアウト",
         "fitView": "表示に合わせる",
         "minimap": "ミニマップの切り替え"
-      }
+      },
+      "nodeLabel": "{{object}}：{{status}}。書き込み: {{total}} 件中 {{success}} 件",
+      "nodeFailed_other": "{{count}} 件のレコードが失敗しました",
+      "nodeKeys": "Enter キーまたは Space キーでこのオブジェクトの詳細を表示し、スキップの対象に選びます。Esc キーで選択を解除します。",
+      "minimap": "ミニマップ"
     },
     "control": {
       "title": "コントロールパネル",
@@ -3800,7 +3816,8 @@
       "stoppedLeftTitle": "書き込まれたものの、停止により未完了のまま:",
       "stoppedLookupsLeftEmpty_other": "{{object}}：{{count}}件のレコードで、2回目の処理で設定されるはずだった参照項目が空のままです。",
       "stoppedStatusesNotGivenBack_other": "{{object}}：{{count}}件のレコードがドラフトのままで、ソースでの状態に戻っていません。",
-      "stoppedEmailsHeld_other": "ケースのメール {{count}} 件は送信されていません。ToDo の書き込みを待っている間に、実行が停止しました。"
+      "stoppedEmailsHeld_other": "ケースのメール {{count}} 件は送信されていません。ToDo の書き込みを待っている間に、実行が停止しました。",
+      "skipNamed": "{{object}} をスキップ"
     },
     "report": {
       "title": "コンプライアンスレポート",
@@ -3876,6 +3893,12 @@
       "importCount_other": "Salesforce CLI から最大 {{count}} 個の組織をインポート",
       "import": "Salesforce CLI からインポート",
       "loginWeb": "ブラウザでログイン"
+    },
+    "orgStatus": {
+      "connected": "接続済み",
+      "expired": "セッション期限切れ",
+      "error": "接続エラー",
+      "refreshing": "更新中"
     }
   },
   "frozen": {
@@ -4284,7 +4307,10 @@
     "urgencySafe": "安全",
     "runFinished": "{{name}} が完了しました。書き込み: {{total}} 件中 {{written}} 件。",
     "runStoppedWritten": "{{name}} は完了前に停止しました。書き込み: {{total}} 件中 {{written}} 件。",
-    "runStopped": "{{name}} は {{percent}}% で停止しました。"
+    "runStopped": "{{name}} は {{percent}}% で停止しました。",
+    "runOutcome": "{{outcome}}。書き込み: {{total}} 件中 {{written}} 件。",
+    "logErrors_other": "ログにエラーが {{count}} 件あります。最新: {{latest}}",
+    "toastShortcut": "Alt+N キーで移動できます"
   },
   "errors": {
     "guideLink": "Forge ガイドの {{code}}",

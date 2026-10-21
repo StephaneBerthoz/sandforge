@@ -239,4 +239,58 @@ describe('CommandPalette', () => {
       expect(screen.queryByTestId('command-palette-overlay')).toBeNull();
     });
   });
+
+  describe('as the modal it says it is', () => {
+    /** The palette with a control of the page behind it that opened it. */
+    function renderWithOpener(): HTMLElement {
+      render(
+        <>
+          <button data-testid="opener">opener</button>
+          <button data-testid="page-behind">behind</button>
+          <CommandPalette />
+        </>,
+      );
+      const opener = screen.getByTestId('opener');
+      opener.focus();
+      return opener;
+    }
+
+    it('keeps Tab inside it: the page behind the glass is not reached', () => {
+      renderWithOpener();
+      openPalette();
+      const input = screen.getByTestId('command-palette-input');
+      expect(document.activeElement).toBe(input);
+      // The browser's own Tab is held back (false: default prevented), and
+      // the focus wraps inside the dialog.
+      expect(fireEvent.keyDown(input, { key: 'Tab' })).toBe(false);
+      expect(screen.getByTestId('command-palette').contains(document.activeElement)).toBe(true);
+      expect(
+        fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab', shiftKey: true }),
+      ).toBe(false);
+      expect(screen.getByTestId('command-palette').contains(document.activeElement)).toBe(true);
+    });
+
+    it('closes on Escape from anywhere inside it and hands the focus back to its opener', async () => {
+      const opener = renderWithOpener();
+      openPalette();
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+      await waitFor(() => {
+        expect(screen.queryByTestId('command-palette-overlay')).toBeNull();
+      });
+      expect(document.activeElement).toBe(opener);
+    });
+
+    it('leaves the focus to the page a navigation item opens, not to the control it left', async () => {
+      const opener = renderWithOpener();
+      openPalette();
+      fireEvent.click(screen.getByTestId('command-palette-item-nav-monitor'));
+      expect(useAppStore.getState().currentRoute).toBe('monitor');
+      // Let go of at once, while the palette plays its exit.
+      expect(document.activeElement).toBe(document.body);
+      await waitFor(() => {
+        expect(screen.queryByTestId('command-palette-overlay')).toBeNull();
+      });
+      expect(document.activeElement).not.toBe(opener);
+    });
+  });
 });

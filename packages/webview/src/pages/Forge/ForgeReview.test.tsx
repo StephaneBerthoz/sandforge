@@ -246,6 +246,21 @@ describe('ForgeReview', () => {
     expect(screen.getByTestId('live-graph').getAttribute('data-focus')).toBe('Account');
   });
 
+  it('walks its seven tabs with the arrows, one Tab stop, the focus following the selection', () => {
+    // Seven Tab stops, and the arrows the tab pattern promises did nothing.
+    render(<ForgeReview />);
+    const plan = screen.getByTestId('tab-plan');
+    expect(screen.getAllByRole('tab').filter((tab) => tab.tabIndex === 0)).toEqual([plan]);
+    plan.focus();
+    fireEvent.keyDown(plan, { key: 'ArrowLeft' });
+    const controls = screen.getByTestId('tab-controls');
+    expect(controls.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(controls);
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('tab-controls');
+    fireEvent.keyDown(controls, { key: 'Home' });
+    expect(document.activeElement).toBe(screen.getByTestId('tab-plan'));
+  });
+
   it('shows the controls of the run on their own tab', () => {
     render(<ForgeReview />);
     fireEvent.click(screen.getByTestId('tab-controls'));

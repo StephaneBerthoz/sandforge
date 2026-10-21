@@ -14,6 +14,7 @@ import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import type { AutopilotStep } from '../../../stores/useAutopilotStore';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
+import { PageHeader } from '../../../components/ui/PageHeader';
 import { Step1Connect } from './Step1_Connect';
 import { Step2Objects } from './Step2_Objects';
 import { Step4Review } from './Step4_Review';
@@ -352,9 +353,13 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
       className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)"
       data-testid="autopilot-wizard"
     >
-      <h2 className="text-lg font-semibold text-(--sf-text-primary)">
-        {t('autopilot.wizard.title')}
-      </h2>
+      {/* The page's heading, as every module has one: the panel hands it the
+          focus when it moves to Autopilot. */}
+      <PageHeader
+        title={t('autopilot.wizard.title')}
+        subtitle={t('moduleSummary.autopilot')}
+        icon="rocket"
+      />
 
       <SeedWizard
         steps={AUTOPILOT_STEPS}

@@ -530,4 +530,85 @@ describe('QuickSeedFlow', () => {
 
     expect(screen.getByText('Connection failed')).toBeDefined();
   });
+
+  describe('for the keyboard and a screen reader', () => {
+    it('hands the confirmation card its title when the flow opens from the gallery', () => {
+      // "Use This" unmounts with the gallery: its focus fell to <body>.
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+      };
+
+      render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+
+      const title = screen.getByRole('heading', { name: 'Template: Minimal Demo' });
+      expect(document.activeElement).toBe(title);
+    });
+
+    it('hands the run the focus Start dropped, then the results the focus the run held', () => {
+      const confirm: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+      };
+      const { rerender } = render(<QuickSeedFlow quickSeed={confirm} orgs={mockOrgs} />);
+      screen.getByTestId('btn-quick-seed-start').focus();
+
+      rerender(
+        <QuickSeedFlow
+          quickSeed={{ ...confirm, phase: 'executing', isRunning: true }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(document.activeElement).toBe(screen.getByRole('group', { name: 'Seeding data...' }));
+
+      rerender(
+        <QuickSeedFlow
+          quickSeed={{ ...confirm, phase: 'results', executionResult: mockExecutionResult }}
+          orgs={mockOrgs}
+        />,
+      );
+      expect(document.activeElement).toBe(screen.getByTestId('quick-seed-result-summary'));
+      expect(screen.getByRole('group', { name: 'Results' })).toBe(
+        screen.getByTestId('quick-seed-result-summary'),
+      );
+    });
+
+    it('says how the run ended from the results, the execution screen gone with its announcer', async () => {
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'results',
+        selectedTemplate: mockTemplate,
+        executionResult: mockExecutionResult,
+      };
+
+      render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+
+      const status = screen.getByTestId('quick-seed-result-status');
+      expect(status.getAttribute('role')).toBe('status');
+      expect(status.textContent).toBe('Seed Complete. Written: 150 of 150.');
+    });
+
+    it('says a cancelled run stopped, with what it wrote of what it planned', () => {
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'results',
+        selectedTemplate: mockTemplate,
+        executionResult: {
+          ...mockExecutionResult,
+          status: 'partial',
+          cancelled: true,
+          totalRecordsCreated: 20,
+        },
+      };
+
+      render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+
+      expect(screen.getByTestId('quick-seed-result-status').textContent).toBe(
+        'Cancelled. Written: 20 of 150.',
+      );
+    });
+  });
 });

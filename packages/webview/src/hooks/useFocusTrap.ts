@@ -22,6 +22,12 @@ const openTraps: HTMLElement[] = [];
 export interface FocusTrapOptions {
   /** Selector, inside the dialog, of the element to focus when it opens. */
   initialFocus?: string;
+  /**
+   * Read as the dialog closes: false leaves the focus where it is instead of
+   * handing it back to the opener — a palette item that moved the panel to
+   * another page, whose heading takes it.
+   */
+  restoreFocus?: () => boolean;
 }
 
 /**
@@ -59,6 +65,10 @@ export function useFocusTrap(
   }
 
   const initialFocus = options?.initialFocus;
+  const restoreFocusRef = useRef(options?.restoreFocus);
+  useEffect(() => {
+    restoreFocusRef.current = options?.restoreFocus;
+  });
 
   useEffect(() => {
     const container = ref.current;
@@ -117,7 +127,7 @@ export function useFocusTrap(
       document.removeEventListener('keydown', handleKeyDown);
       const index = openTraps.lastIndexOf(container);
       if (index !== -1) openTraps.splice(index, 1);
-      if (opener?.isConnected) opener.focus();
+      if (opener?.isConnected && (restoreFocusRef.current?.() ?? true)) opener.focus();
     };
   }, [ref, initialFocus]);
 }

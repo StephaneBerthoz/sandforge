@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useEffect, useMemo, useCallback, useRef } from 'react';
+import type { RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ReactFlow, MiniMap, Controls, Background, useReactFlow } from '@xyflow/react';
+import { ReactFlow, MiniMap, Controls, Background, useReactFlow, useStoreApi } from '@xyflow/react';
 import type { Dimensions, Node, Edge, FitViewOptions } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
@@ -176,6 +177,78 @@ const FitOnNode: React.FC<{ id: string }> = ({ id }) => {
   return null;
 };
 
+/** A node's box on the graph's plane, and the pane's view of that plane. */
+interface PlaneBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where to centre the view so that a node lying wholly or partly outside the
+ * pane comes into it, at the zoom it is drawn at; null when it is in view.
+ *
+ * @param transform - React Flow's `[x, y, zoom]` of the pane.
+ */
+export function centreToShow(
+  node: PlaneBox,
+  transform: readonly [number, number, number],
+  pane: { width: number; height: number },
+): { x: number; y: number } | null {
+  const [tx, ty, zoom] = transform;
+  const left = node.x * zoom + tx;
+  const top = node.y * zoom + ty;
+  const inView =
+    left >= 0 &&
+    top >= 0 &&
+    left + node.width * zoom <= pane.width &&
+    top + node.height * zoom <= pane.height;
+  return inView ? null : { x: node.x + node.width / 2, y: node.y + node.height / 2 };
+}
+
+/**
+ * Brings into view the node a keyboard focus lands in. The node's name and
+ * its checkbox are the graph's keyboard stops, not the node itself, and React
+ * Flow pans only to a node that takes the focus itself; it also undoes the
+ * scroll a browser makes to show what took the focus. A stop in a node out of
+ * the pane — a wide graph at its smallest zoom, or zoomed in — took the focus
+ * with nothing shown. Rendered inside React Flow, whose store it reads.
+ */
+const PanToFocusedNode: React.FC<{ container: RefObject<HTMLDivElement | null> }> = ({
+  container,
+}) => {
+  const store = useStoreApi();
+  const { setCenter } = useReactFlow();
+  useEffect(() => {
+    const element = container.current;
+    if (!element) return undefined;
+    const onFocusIn = (event: FocusEvent): void => {
+      const target = event.target;
+      // A click focuses the checkbox too: the view moves for the keyboard only.
+      if (!(target instanceof HTMLElement) || !target.matches(':focus-visible')) return;
+      const id = target.closest<HTMLElement>('.react-flow__node')?.dataset.id;
+      const { nodeLookup, transform, width, height } = store.getState();
+      const node = id === undefined ? undefined : nodeLookup.get(id);
+      if (!node) return;
+      const centre = centreToShow(
+        {
+          x: node.internals.positionAbsolute.x,
+          y: node.internals.positionAbsolute.y,
+          width: node.measured.width ?? NODE_WIDTH,
+          height: node.measured.height ?? NODE_HEIGHT,
+        },
+        transform,
+        { width, height },
+      );
+      if (centre) void setCenter(centre.x, centre.y, { zoom: transform[2] });
+    };
+    element.addEventListener('focusin', onFocusIn);
+    return () => element.removeEventListener('focusin', onFocusIn);
+  }, [container, store, setCenter]);
+  return null;
+};
+
 /**
  * Wrapper component that converts a ForgeGraph into an interactive
  * React Flow visualisation with custom nodes, animated edges,
@@ -224,14 +297,14 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
     [onNodeClick],
   );
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
   return (
-    <div
-      data-testid="live-graph"
-      className={cn('h-full w-full', className)}
-      role="application"
-      aria-label={t('seed.graph.title', 'Dependency Graph')}
-    >
+    <div ref={containerRef} data-testid="live-graph" className={cn('h-full w-full', className)}>
+      {/* React Flow's own wrapper is the graph's one application, named here:
+          a second one around it, named the same, was read twice. */}
       <ReactFlow
+        aria-label={t('seed.graph.title', 'Dependency Graph')}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -242,6 +315,9 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         // card, whose own controls then sat inside it: the name and the
         // checkbox are the node's keyboard stops.
         nodesFocusable={false}
+        // An edge does nothing when it is picked: each one was a Tab stop
+        // told, in English, that Delete removed it.
+        edgesFocusable={false}
         fitView
         fitViewOptions={FIT_CLEAR_OF_MINIMAP}
         proOptions={{ hideAttribution: true }}
@@ -252,6 +328,7 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         <MiniMap style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }} />
         <Controls fitViewOptions={FIT_CLEAR_OF_MINIMAP} />
         {focus ? <FitOnNode id={focus} /> : null}
+        <PanToFocusedNode container={containerRef} />
         {/* Its dots in the theme's border colour, as the Autopilot graph draws
             its own: a white at 5% was drawn on a white pane in a light theme,
             and the grid was gone. */}

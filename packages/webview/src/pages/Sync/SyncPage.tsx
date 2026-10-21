@@ -50,6 +50,7 @@ import { SyncPricebookLine } from './SyncPricebookLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
+import { handleTabListKeyDown } from '../../components/ui/tabListKeys';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
@@ -398,6 +399,14 @@ export const SyncPage: React.FC = () => {
             type="button"
             role="tab"
             aria-selected={activeTab === tab}
+            // One stop in the Tab order, the arrows between the tabs, as
+            // every tab bar of the panel has them.
+            tabIndex={activeTab === tab ? 0 : -1}
+            onKeyDown={(event) =>
+              handleTabListKeyDown(event, OFFERED_SYNC_TABS, activeTab, (id) =>
+                setActiveTab(id as SyncTab),
+              )
+            }
             className={`text-xs px-4 py-2 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === tab
                 ? 'border-(--sf-accent) text-text-primary font-semibold'

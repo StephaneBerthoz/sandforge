@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
@@ -97,6 +98,45 @@ describe('PersonaPreviewPopover', () => {
 
     fireEvent.mouseDown(screen.getByTestId('outside'));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a modal that takes the focus on its close button, keeps Tab in, and gives the focus back', () => {
+    // Over a dimmed gallery, it took no focus and Tab walked the gallery behind it.
+    function Gallery(): React.ReactElement {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button data-testid="preview-btn" onClick={() => setOpen(true)}>
+            Preview
+          </button>
+          {open && (
+            <PersonaPreviewPopover
+              persona={mockPersona}
+              sampleRecords={sampleRecords}
+              onClose={() => setOpen(false)}
+            />
+          )}
+        </>
+      );
+    }
+    render(<Gallery />);
+    const opener = screen.getByTestId('preview-btn');
+    opener.focus();
+    fireEvent.click(opener);
+
+    const dialog = screen.getByRole('dialog', { name: 'Persona Preview' });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(document.activeElement).toBe(screen.getByTestId('preview-close-btn'));
+    // Shift+Tab from its first control wraps to its last, held back from the gallery.
+    expect(
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab', shiftKey: true }),
+    ).toBe(false);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(screen.getByTestId('preview-close-btn'));
+
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 
   it('shows empty state when no sample records', () => {

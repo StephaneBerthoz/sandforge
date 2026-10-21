@@ -16,6 +16,16 @@ describe('ProgressBar', () => {
     expect(bar.getAttribute('aria-valuemax')).toBe('100');
   });
 
+  it('gives a bar with no value no value to read out, and draws it moving', () => {
+    // Quick Sync drew value={50}: read as "50%" from its first second to its last.
+    render(<ProgressBar indeterminate label="Syncing..." showPercent />);
+    const bar = screen.getByRole('progressbar', { name: 'Syncing...' });
+    expect(bar.hasAttribute('aria-valuenow')).toBe(false);
+    expect(bar.hasAttribute('aria-valuetext')).toBe(false);
+    expect(screen.queryByText('0%')).toBeNull();
+    expect(screen.getByTestId('progress-indeterminate').className).toContain('sf-indeterminate');
+  });
+
   it('names the progressbar after its visible label', () => {
     render(<ProgressBar value={50} label="Uploading" />);
     expect(screen.getByRole('progressbar', { name: 'Uploading' })).toBeDefined();

@@ -708,7 +708,8 @@
       "records_other": "{{count}} enregistrements",
       "useThis": "Utiliser",
       "templateMissing": "Ce modèle enregistré n'existe plus.",
-      "recommended": "Commencez ici"
+      "recommended": "Commencez ici",
+      "useThisNamed": "Utiliser : {{name}}"
     },
     "quickSeed": {
       "title": "Seed rapide",
@@ -2280,7 +2281,10 @@
     "privacyNote": "Ce que vous tapez part chez Anthropic avec la conversation jusque-là. Les conversations restent sur cette machine, les 50 plus récentes.",
     "deleteAll": "Supprimer toutes les conversations",
     "deleteAllConfirm_one": "Supprimer la conversation conservée sur cette machine ? Elle ne pourra pas être récupérée.",
-    "deleteAllConfirm_other": "Supprimer les {{count}} conversations conservées sur cette machine ? Elles ne pourront pas être récupérées."
+    "deleteAllConfirm_other": "Supprimer les {{count}} conversations conservées sur cette machine ? Elles ne pourront pas être récupérées.",
+    "conversationLog": "Conversation",
+    "speakerYou": "Vous :",
+    "speakerAssistant": "Assistant :"
   },
   "notifications": {
     "title": "Notifications"
@@ -2799,7 +2803,7 @@
     "frozenContent": "Le jeu figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Pseudonymisation déterministe, avec un sel conservé hors du dépôt\n- Un contrôle en quatre points doit réussir avant que le jeu soit écrit\n- Chargement : cibles sandbox uniquement, avec un Pilote facultatif sur un seul dossier racine avant le chargement complet, et une vérification après le chargement",
     "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
     "aiContent": "L'Assistant IA, avec votre propre clé Anthropic :\n- Chat, NL2SOQL dans l'onglet IA de Forge, et personas personnalisés et règles de champ IA dans Seed\n- Brouillons de pipeline dans Automation\n- Une table intégrée de codes d'erreur Salesforce répond d'abord aux codes qu'elle connaît, sur votre machine, que l'IA soit activée ou non, et n'envoie rien\n- Rien n'est envoyé pour une liste fixe de messages propres à SandForge, comme une confirmation de production refusée, une exécution en double ou un refus CRUD, FLS ou Production Guard, ni pour un échec survenu sans vue SandForge ouverte\n- Quand l'IA est activée, toute autre exécution Seed, Sync, DataOps ou Automation en échec envoie son message d'erreur, avec ses Id Salesforce remplacés par <id>, et la suggestion revient en notification VS Code\n- Désactivez cet envoi avec sandforge.ai.errorResolution : le reste de l'assistant continue de fonctionner\n- Les conseils de schéma de Compare et le scan d'anomalies de Monitor reposent sur des règles : ils fonctionnent avec l'IA désactivée et sans clé\n- Configurez votre clé API dans Paramètres > IA",
-    "shortcutsContent": "G + lettre — Accéder à un module (ex. G puis F pour Forge, G puis Y pour Sync, G puis L pour l'Aide)\nCtrl+K — Palette de commandes\nEscape — Fermer les modales et dialogues\nTab — Naviguer entre les éléments\nEntrée/Espace — Activer les boutons et liens",
+    "shortcutsContent": "G + lettre — Accéder à un module (ex. G puis F pour Forge, G puis Y pour Sync, G puis L pour l'Aide)\nCtrl+K — Palette de commandes\nAlt+N — Atteindre la dernière notification restée à l'écran\nEscape — Fermer les modales et dialogues\nTab — Naviguer entre les éléments\nFlèches — Passer d'un onglet à l'autre\nEntrée/Espace — Activer les boutons et liens",
     "faqContent": "Q : Pourquoi mon Score de Santé est-il bas ?\nR : Vérifiez l'utilisation des limites API, les jobs échoués et la consommation de stockage.\n\nQ : Comment corriger les erreurs de timeout ?\nR : SandForge n'a aucun réglage de délai pour les appels Salesforce. Réduisez la taille de lot (sandforge.seed.defaultBatchSize et sandforge.sync.defaultBatchSize dans les paramètres de VS Code) et découpez une grosse exécution en plusieurs petites. Grappe ne rend pas une exécution plus rapide : il signale la progression partition par partition.\n\nQ : Puis-je annuler une opération de sync ?\nR : En partie. Le retrait d'une exécution, depuis ses résultats ou son entrée d'historique, supprime ce qu'elle a créé : les enregistrements qu'elle a insérés, ou écrits par upsert là où la cible n'en avait aucun, et ses fichiers. Les enregistrements qu'elle a mis à jour gardent leurs nouvelles valeurs. Avant une exécution risquée, faites une sauvegarde DataOps de l'org cible : elle couvre les objets que masquent les modèles d’anonymisation, et ne se restaure que dans cette org.\n\nQ : Comment connecter une org de production en sécurité ?\nR : SandForge détecte une org de production et la marque du niveau de sécurité Critique. Production Guard y refuse d'emblée une suppression ou un déploiement de métadonnées, et vous demande de confirmer toute autre écriture avant qu'elle ne s'exécute (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
     "shortcuts": "Raccourcis clavier",
@@ -3691,7 +3695,9 @@
       "fieldsCloneable": "{{total}} champs ({{cloneable}} clonables)",
       "notMeasured": "Volume pas encore mesuré",
       "showDetails": "Afficher le détail de {{object}}",
-      "stopped": "Arrêté avant sa fin"
+      "stopped": "Arrêté avant sa fin",
+      "errors_one": "{{count}} erreur",
+      "errors_other": "{{count}} erreurs"
     },
     "nodeStatus": {
       "idle": "Non démarré",
@@ -3907,6 +3913,13 @@
       "field": "Champ",
       "values": "Valeurs",
       "rows": "Lignes"
+    },
+    "phaseName": {
+      "input": "Ce qu'il faut cloner",
+      "discovery": "Découverte du graphe",
+      "review": "Revue",
+      "execution": "Exécution",
+      "results": "Résultats"
     }
   },
   "autopilot": {
@@ -4012,7 +4025,12 @@
         "zoomOut": "Zoom arriere",
         "fitView": "Ajuster à la vue",
         "minimap": "Afficher/masquer la minimap"
-      }
+      },
+      "nodeLabel": "{{object}} : {{status}}. Écrits : {{success}} sur {{total}}",
+      "nodeFailed_one": "{{count}} enregistrement en échec",
+      "nodeFailed_other": "{{count}} enregistrements en échec",
+      "nodeKeys": "Appuyez sur Entrée ou Espace pour afficher le détail de cet objet et le choisir pour Ignorer. Échap annule la sélection.",
+      "minimap": "Minimap"
     },
     "control": {
       "title": "Panneau de Contrôle",
@@ -4047,7 +4065,8 @@
       "stoppedStatusesNotGivenBack_one": "{{object}} : {{count}} enregistrement reste en brouillon, sans le statut qu'il avait dans la source.",
       "stoppedStatusesNotGivenBack_other": "{{object}} : {{count}} enregistrements restent en brouillon, sans le statut qu'ils avaient dans la source.",
       "stoppedEmailsHeld_one": "{{count}} e-mail d'une requête n'a jamais été envoyé : il attendait que sa tâche soit écrite, et l'exécution s'est arrêtée avant.",
-      "stoppedEmailsHeld_other": "{{count}} e-mails de requêtes n'ont jamais été envoyés : ils attendaient que leur tâche soit écrite, et l'exécution s'est arrêtée avant."
+      "stoppedEmailsHeld_other": "{{count}} e-mails de requêtes n'ont jamais été envoyés : ils attendaient que leur tâche soit écrite, et l'exécution s'est arrêtée avant.",
+      "skipNamed": "Ignorer {{object}}"
     },
     "report": {
       "title": "Rapport de Conformité",
@@ -4124,6 +4143,12 @@
       "importCount_other": "Importer jusqu'à {{count}} orgs depuis la Salesforce CLI",
       "import": "Importer depuis la Salesforce CLI",
       "loginWeb": "Se connecter dans le navigateur"
+    },
+    "orgStatus": {
+      "connected": "Connectée",
+      "expired": "Session expirée",
+      "error": "Erreur de connexion",
+      "refreshing": "Actualisation"
     }
   },
   "frozen": {
@@ -4550,7 +4575,11 @@
     "urgencySafe": "Sans risque",
     "runFinished": "{{name}} terminé. Écrits : {{written}} sur {{total}}.",
     "runStoppedWritten": "{{name}} arrêté avant sa fin. Écrits : {{written}} sur {{total}}.",
-    "runStopped": "{{name}} arrêté à {{percent}} %."
+    "runStopped": "{{name}} arrêté à {{percent}} %.",
+    "runOutcome": "{{outcome}}. Écrits : {{written}} sur {{total}}.",
+    "logErrors_one": "{{count}} erreur dans les logs. Dernière : {{latest}}",
+    "logErrors_other": "{{count}} erreurs dans les logs. Dernière : {{latest}}",
+    "toastShortcut": "Appuyez sur Alt+N pour y accéder"
   },
   "errors": {
     "guideLink": "{{code}} dans le guide Forge",

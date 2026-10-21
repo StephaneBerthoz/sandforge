@@ -1252,6 +1252,25 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
   });
 
+  it('walks its tabs with the arrows, one Tab stop, the focus following the selection', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    const sync = screen.getByTestId('tab-sync');
+    expect(
+      within(screen.getByTestId('sync-tabs'))
+        .getAllByRole('tab')
+        .filter((tab) => tab.tabIndex === 0),
+    ).toEqual([sync]);
+    sync.focus();
+    fireEvent.keyDown(sync, { key: 'ArrowRight' });
+    const history = screen.getByTestId('tab-history');
+    expect(history.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(history);
+    expect(screen.getByTestId('sync-history-panel')).toBeDefined();
+    fireEvent.keyDown(history, { key: 'End' });
+    expect(document.activeElement).toBe(screen.getByTestId('tab-conflicts'));
+  });
+
   it('counts the changes held for a decision on the Conflicts tab', () => {
     const conflict: UIConflict = {
       id: 'Account:001:1',

@@ -12,6 +12,7 @@ import type { WelcomePageHandle } from './pages/Welcome/WelcomePage';
 import { PanelRouter } from './PanelRouter';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { useFocusTrap } from './hooks/useFocusTrap';
+import { useRouteFocus } from './hooks/useRouteFocus';
 import { useKonamiCode } from './hooks/useKonamiCode';
 import { useSendMessage } from './hooks/useMessageBus';
 import { buildMessage } from './bridge/messageHelpers';
@@ -90,6 +91,10 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
       }
     });
   }, [moduleId]);
+
+  // A page change remounts the page and drops the focus with the control that
+  // navigated: the new page's heading takes it, and the title names the page.
+  useRouteFocus(route);
 
   /*
    * Global keyboard shortcuts (Ctrl+1..9/0, G+key chords) — mounted here

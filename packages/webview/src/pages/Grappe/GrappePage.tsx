@@ -44,7 +44,9 @@ export const GrappePage: React.FC = () => {
             <Network className="w-6 h-6 text-hue-indigo" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-text-primary">{t('nav.grappe', 'Grappe')}</h1>
+            <h1 tabIndex={-1} className="text-lg font-bold text-text-primary">
+              {t('nav.grappe', 'Grappe')}
+            </h1>
             <p className="text-xs text-text-secondary">
               {t('grappe.subtitle', 'Per-partition progress for large-scale data operations')}
             </p>

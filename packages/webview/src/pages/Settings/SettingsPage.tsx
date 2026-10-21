@@ -142,7 +142,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div data-testid="settings-page" className="flex flex-col gap-3 p-4">
-      <h1 className="text-lg font-bold text-text-primary">{t('settings.title')}</h1>
+      <h1 tabIndex={-1} className="text-lg font-bold text-text-primary">
+        {t('settings.title')}
+      </h1>
 
       <Tabs
         tabs={tabs}

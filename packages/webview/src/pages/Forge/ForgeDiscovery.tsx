@@ -24,6 +24,7 @@ import { sendDiscovery } from './directRun';
 import { clonesOneRecord } from './forgeRunConfig';
 
 import { Button } from '../../components/ui/Button';
+import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useForgeObjectsView } from '../../stores/useForgeViewStore';
 import type { ForgeGraphNode } from '../../stores/useForgeStore';
@@ -248,8 +249,21 @@ export const ForgeDiscovery: React.FC = () => {
         data-testid="forge-discovery-loading"
         className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary"
       >
-        <Loader2 size={32} className="animate-spin text-hue-forge" />
+        <Loader2 size={32} className="animate-spin text-hue-forge" aria-hidden="true" />
         <p>{t('forge.discovery')}</p>
+        {/* The wait can run for minutes: its counters are said, at most one
+            sentence every few seconds, as a run's progress is. */}
+        <ProgressAnnouncer
+          message={
+            discoveryProgress
+              ? t('forge.discoveryProgress', {
+                  discovered: discoveryProgress.discoveredCount,
+                  queued: discoveryProgress.queueRemaining,
+                })
+              : ''
+          }
+          testId="forge-discovery-status"
+        />
         {directRunPending && (
           <p data-testid="forge-discovery-direct" className="text-xs text-text-secondary">
             {t('forge.direct.discovering')}
@@ -287,7 +301,15 @@ export const ForgeDiscovery: React.FC = () => {
         data-testid="forge-discovery-empty"
         className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary"
       >
-        <p>{shownError ?? t('common.noData')}</p>
+        {/* A discovery that failed with no earlier graph to show: said at once,
+            as the failure beside an earlier graph is. */}
+        {shownError ? (
+          <p role="alert" data-testid="forge-discovery-empty-error">
+            {shownError}
+          </p>
+        ) : (
+          <p>{t('common.noData')}</p>
+        )}
         <div className="flex gap-2">
           <Button variant="secondary" onClick={handleBack} icon={<ArrowLeft size={14} />}>
             {t('common.back')}

@@ -102,6 +102,26 @@ describe('AIChatPanel', () => {
     expect(assistantBubbles[0].textContent).toBe('You can use the Seed wizard.');
   });
 
+  it('keeps the messages in a log that says each one added, the speaker named in words', () => {
+    // No live region: a reply arrived silently. Told apart by alignment and colour alone.
+    render(<AIChatPanel activeConversationId="conv-1" messages={messages} />);
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    expect(log).toBe(screen.getByTestId('messages-container'));
+    expect(log.getAttribute('aria-live')).toBe('polite');
+    expect(log.getAttribute('aria-relevant')).toBe('additions');
+    expect(screen.getByTestId('message-msg-1').textContent).toBe('You:How do I seed Account?');
+    expect(screen.getByTestId('message-msg-2').textContent).toBe(
+      'Assistant:You can use the Seed wizard.',
+    );
+  });
+
+  it('draws the log afresh for another conversation, so its history is not read out', () => {
+    const { rerender } = render(<AIChatPanel activeConversationId="conv-1" messages={messages} />);
+    const first = screen.getByRole('log');
+    rerender(<AIChatPanel activeConversationId="conv-2" messages={messages} />);
+    expect(screen.getByRole('log')).not.toBe(first);
+  });
+
   it('should show no-messages when conversation has no messages', () => {
     render(<AIChatPanel activeConversationId="conv-1" messages={[]} />);
     expect(screen.getByTestId('no-messages')).toBeDefined();

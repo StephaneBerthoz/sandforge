@@ -8,6 +8,8 @@ import { SidePanel } from './SidePanel';
 import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
+import { OrgSafetyTier } from '@sandforge/shared';
+import type { SalesforceOrg } from '@sandforge/shared';
 
 const mockPostMessage = vi.fn();
 const mockSyncLanguage = vi.fn();
@@ -234,5 +236,96 @@ describe('SidePanel first org import', () => {
     expect(screen.getByTestId('sidepanel-first-org-import').textContent).toBe(
       "Importer jusqu'à 1 org depuis la Salesforce CLI",
     );
+  });
+});
+
+/**
+ * The org switcher: a disclosure over the launcher. It announced a listbox,
+ * told the connection and the org picked by colour alone, and dropped the
+ * focus with the option picked.
+ */
+describe('SidePanel org switcher', () => {
+  const org = (id: string, alias: string, status: SalesforceOrg['status']): SalesforceOrg => ({
+    id,
+    alias,
+    username: `${id}@example.com`,
+    instanceUrl: 'https://example.my.salesforce.com',
+    orgId: '00D000000000000',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#000000', icon: '', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer', features: [] },
+    status,
+    lastConnected: '2026-03-07T00:00:00.000Z',
+    tags: [],
+  });
+
+  const renderEn = async (): Promise<void> => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng: 'en',
+      resources: { en: { translation: en } },
+      interpolation: { escapeValue: false },
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SidePanel />
+        <button data-testid="after-switcher">after</button>
+      </I18nextProvider>,
+    );
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useRecentOpsStore.setState({ ops: [] });
+    useFavoritesStore.setState({ favorites: [] });
+    useOrgStore.setState({
+      orgs: [org('org-a', 'Alpha', 'connected'), org('org-b', 'Beta', 'expired')],
+      selectedOrgId: 'org-a',
+    });
+  });
+
+  it('says the selected org’s connection in words, and opens a list it controls, not a listbox', async () => {
+    await renderEn();
+    const trigger = screen.getByTestId('sidepanel-org');
+    expect(trigger.hasAttribute('aria-haspopup')).toBe(false);
+    expect(trigger.textContent).toContain('Connected');
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-controls')).toBe(
+      screen.getByTestId('sidepanel-org-dropdown').id,
+    );
+    const beta = screen.getByTestId('sidepanel-org-option-org-b');
+    expect(beta.textContent).toContain('Session expired');
+    expect(screen.getByTestId('sidepanel-org-option-org-a').getAttribute('aria-current')).toBe(
+      'true',
+    );
+    expect(beta.hasAttribute('aria-current')).toBe(false);
+  });
+
+  it('hands the focus back to the trigger after a pick and after Escape', async () => {
+    await renderEn();
+    const trigger = screen.getByTestId('sidepanel-org');
+    fireEvent.click(trigger);
+    const beta = screen.getByTestId('sidepanel-org-option-org-b');
+    beta.focus();
+    fireEvent.click(beta);
+    expect(screen.queryByTestId('sidepanel-org-dropdown')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    screen.getByTestId('sidepanel-org-option-org-a').focus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByTestId('sidepanel-org-dropdown')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes once the focus leaves it', async () => {
+    await renderEn();
+    fireEvent.click(screen.getByTestId('sidepanel-org'));
+    fireEvent.blur(screen.getByTestId('sidepanel-org-option-org-b'), {
+      relatedTarget: screen.getByTestId('after-switcher'),
+    });
+    expect(screen.queryByTestId('sidepanel-org-dropdown')).toBeNull();
   });
 });

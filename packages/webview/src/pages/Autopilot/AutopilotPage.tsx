@@ -281,7 +281,9 @@ export const AutopilotPage: React.FC = () => {
           >
             {t('common.back')}
           </button>
-          <h2 className="text-sm font-semibold text-text-primary">{t('autopilot.report.title')}</h2>
+          <h1 tabIndex={-1} className="text-sm font-semibold text-text-primary">
+            {t('autopilot.report.title')}
+          </h1>
         </div>
         <div className="flex-1 overflow-y-auto">
           <ComplianceReport />
@@ -310,15 +312,16 @@ export const AutopilotPage: React.FC = () => {
   if (isExecutionStep) {
     return (
       <div className="flex flex-col h-full" data-testid="autopilot-page">
-        {/* Header with title and optional report button */}
+        {/* Header with title and optional report button. The page's heading:
+            the panel's focus on a page change lands on it as Execute's does. */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-(--sf-border)">
-          <h2
+          <h1
             ref={executionHeading}
             tabIndex={-1}
             className="text-sm font-semibold text-text-primary"
           >
             {t('autopilot.title')}
-          </h2>
+          </h1>
           {step === 'completed' && (
             <button
               className="px-3 py-1.5 text-xs font-medium rounded-sm bg-(--sf-button-bg) text-(--sf-button-fg) hover:bg-(--sf-button-hover) transition-colors"

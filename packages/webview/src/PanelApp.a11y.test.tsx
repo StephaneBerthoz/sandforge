@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { PanelApp } from './PanelApp';
 import { useAppStore } from './stores/useAppStore';
 
@@ -32,7 +32,12 @@ vi.mock('./components/ui/FloatingToasts', () => ({
 
 vi.mock('./PanelRouter', () => ({
   PanelRouter: ({ moduleId }: { moduleId: string }) => (
-    <div data-testid="panel-router">{moduleId}</div>
+    <div data-testid="panel-router">
+      <h1 tabIndex={-1} data-testid={`page-heading-${moduleId}`}>
+        {moduleId}
+      </h1>
+      <button data-testid={`page-cta-${moduleId}`}>go</button>
+    </div>
   ),
 }));
 
@@ -77,5 +82,17 @@ describe('PanelApp landmarks', () => {
     fireEvent.click(screen.getByRole('link', { name: /skip to main content/i }));
 
     expect(document.activeElement).toBe(main);
+  });
+
+  it('hands the next page its heading when a call to action navigates, and names it in the title', async () => {
+    render(<PanelApp moduleId="orgs" />);
+    // The control that navigates unmounts with its page: the focus it held
+    // used to fall to <body>, and the next Tab started over at the skip link.
+    screen.getByTestId('page-cta-orgs').focus();
+    act(() => useAppStore.getState().navigate('seed'));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId('page-heading-seed')),
+    );
+    expect(document.title).toBe('SandForge: Seed');
   });
 });

@@ -52,10 +52,13 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({ item, onUseThis }) =
             </Badge>
           </div>
 
+          {/* Named after its template: every card's button read "Use This",
+              and a screen reader's list of buttons could not tell them apart. */}
           <Button
             variant="primary"
             size="sm"
             onClick={() => onUseThis(item)}
+            aria-label={t('seed.gallery.useThisNamed', { name: displayName })}
             data-testid="btn-use-template"
           >
             {t('seed.gallery.useThis')}

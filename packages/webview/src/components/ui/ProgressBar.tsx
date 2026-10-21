@@ -1,9 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../../theme';
 
-/** ProgressBar component props. */
-export interface ProgressBarProps {
-  value: number;
+/** What every progress bar takes, with or without a value. */
+interface ProgressBarCommonProps {
   max?: number;
   /** Visible label; the bar is named by pointing at it. */
   label?: string;
@@ -24,6 +23,15 @@ export interface ProgressBarProps {
   barClassName?: string;
 }
 
+/**
+ * ProgressBar component props: a value, or none at all. A run that reports no
+ * figure is drawn `indeterminate` — a bar that moves, and no `aria-valuenow`,
+ * so a screen reader hears it is busy. It used to be given a value of 50, and
+ * was read out as half done from its first second to its last.
+ */
+export type ProgressBarProps = ProgressBarCommonProps &
+  ({ value: number; indeterminate?: false } | { value?: undefined; indeterminate: true });
+
 const barVariants: Record<string, string> = {
   default: 'bg-(--vscode-progressBar-background,#0e70c0)',
   success: 'bg-status-success',
@@ -33,7 +41,8 @@ const barVariants: Record<string, string> = {
 
 /** Progress bar matching VSCode theme. */
 export const ProgressBar: React.FC<ProgressBarProps> = ({
-  value,
+  value = 0,
+  indeterminate = false,
   max = 100,
   label,
   ariaLabel,
@@ -58,14 +67,14 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
 
   return (
     <div className={cn('w-full', className)}>
-      {(label || showPercent) && (
+      {(label || (showPercent && !indeterminate)) && (
         <div className="flex justify-between items-center mb-1">
           {label && (
             <span id={labelId} className="text-xs text-(--vscode-editor-foreground,#d4d4d4)">
               {label}
             </span>
           )}
-          {showPercent && (
+          {showPercent && !indeterminate && (
             <span className="text-xs text-(--vscode-descriptionForeground,#868686)">
               {Math.round(percent)}%
             </span>
@@ -81,18 +90,24 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
         role="progressbar"
         aria-labelledby={ariaLabelledBy ?? (label && !ariaLabel ? labelId : undefined)}
         aria-label={ariaLabelledBy ? undefined : ariaLabel}
-        aria-valuenow={value}
-        aria-valuemin={0}
-        aria-valuemax={max}
-        aria-valuetext={valueText ?? `${Math.round(percent)}%`}
+        {...(indeterminate
+          ? {}
+          : {
+              'aria-valuenow': value,
+              'aria-valuemin': 0,
+              'aria-valuemax': max,
+              'aria-valuetext': valueText ?? `${Math.round(percent)}%`,
+            })}
       >
         <div
           className={cn(
-            'h-full rounded-full transition-all duration-300',
+            'h-full rounded-full',
+            indeterminate ? 'sf-indeterminate' : 'transition-all duration-300',
             barVariants[variant],
             barClassName,
           )}
-          style={{ width: `${percent}%` }}
+          style={indeterminate ? undefined : { width: `${percent}%` }}
+          data-testid={indeterminate ? 'progress-indeterminate' : undefined}
         />
       </div>
     </div>

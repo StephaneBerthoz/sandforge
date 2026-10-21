@@ -163,7 +163,11 @@ export const HelpPage: React.FC = () => {
 
   return (
     <div className="flex flex-col p-6 max-w-3xl mx-auto" data-testid="help-page">
-      <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--sf-text-primary)' }}>
+      <h1
+        tabIndex={-1}
+        className="text-2xl font-bold mb-1"
+        style={{ color: 'var(--sf-text-primary)' }}
+      >
         {t('help.title')}
       </h1>
       <p className="text-sm mb-4" style={{ color: 'var(--sf-text-secondary, #868686)' }}>

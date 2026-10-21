@@ -1,6 +1,8 @@
 import React, { useMemo, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { ReactFlow, Background, MiniMap, ReactFlowProvider } from '@xyflow/react';
-import type { Dimensions, Node, Edge, FitViewOptions } from '@xyflow/react';
+import type { Dimensions, Node, Edge, FitViewOptions, OnNodesChange } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type {
   AutopilotNode as AutopilotNodeType,
@@ -88,10 +90,32 @@ function toReactFlowNode(
   indexInLevel: number,
   selectedNodeName: string | null,
   size: Dimensions | undefined,
+  t: TFunction,
 ): Node<ObjectNodeData> {
+  const selected = node.objectApiName === selectedNodeName;
   return {
     id: node.objectApiName,
     type: 'objectNode',
+    // React Flow's own selection is the store's: Enter and Space select the
+    // focused node through it, and Escape lets it go.
+    selected,
+    // What a screen reader hears on the node: its card's name, status and
+    // counts are drawn, not read. A button that Enter presses, pressed while
+    // its details are shown.
+    ariaRole: 'button',
+    ariaLabel: [
+      t('autopilot.graph.nodeLabel', {
+        object: node.objectApiName,
+        status: t(`autopilot.graph.${node.status}`, { defaultValue: node.status }),
+        success: node.successCount,
+        total: node.recordCount,
+      }),
+      node.failureCount > 0 ? t('autopilot.graph.nodeFailed', { count: node.failureCount }) : '',
+      node.piiFields.length > 0 ? t('autopilot.graph.piiDetected') : '',
+    ]
+      .filter(Boolean)
+      .join('. '),
+    domAttributes: { 'aria-pressed': selected },
     position: {
       x: indexInLevel * NODE_X_SPACING,
       y: node.level * LEVEL_Y_SPACING,
@@ -109,7 +133,7 @@ function toReactFlowNode(
       elapsedMs: node.elapsedMs,
       apiCallsUsed: node.apiCallsUsed,
       hasPii: node.piiFields.length > 0,
-      isSelected: node.objectApiName === selectedNodeName,
+      isSelected: selected,
     },
   };
 }
@@ -149,6 +173,7 @@ function toReactFlowEdge(
  * Reads graph data from the autopilot Zustand store.
  */
 export const AutopilotGraph: React.FC = () => {
+  const { t } = useTranslation();
   const graph = useAutopilotStore((s) => s.graph);
   const selectedNodeName = useAutopilotStore((s) => s.selectedNodeName);
   const selectNode = useAutopilotStore((s) => s.selectNode);
@@ -172,11 +197,11 @@ export const AutopilotGraph: React.FC = () => {
     const result: Node<ObjectNodeData>[] = [];
     for (const [, nodesAtLevel] of levelMap) {
       nodesAtLevel.forEach((node, idx) => {
-        result.push(toReactFlowNode(node, idx, selectedNodeName, sizes.get(node.objectApiName)));
+        result.push(toReactFlowNode(node, idx, selectedNodeName, sizes.get(node.objectApiName), t));
       });
     }
     return result;
-  }, [graph, selectedNodeName, sizes]);
+  }, [graph, selectedNodeName, sizes, t]);
 
   /** Convert store edges to ReactFlow edges. */
   const rfEdges = useMemo<Edge<RelationEdgeData>[]>(() => {
@@ -192,6 +217,39 @@ export const AutopilotGraph: React.FC = () => {
     [selectNode, selectedNodeName],
   );
 
+  /*
+   * Enter or Space on a focused node selects it through React Flow's own
+   * selection, which never calls onNodeClick: the pick arrives as a 'select'
+   * change, and the sizes kept for the minimap were all this graph read of
+   * those changes. Node detail stayed empty and Skip disabled for anyone
+   * without a mouse.
+   */
+  const handleNodesChange = useCallback<OnNodesChange<Node<ObjectNodeData>>>(
+    (changes) => {
+      onNodesChange(changes);
+      for (const change of changes) {
+        if (change.type !== 'select') continue;
+        if (change.selected) selectNode(change.id);
+        else if (useAutopilotStore.getState().selectedNodeName === change.id) selectNode(null);
+      }
+    },
+    [onNodesChange, selectNode],
+  );
+
+  /*
+   * React Flow tells each focused node, in English whatever the panel's
+   * language, that Delete removes it and the arrows move it: neither does
+   * anything here. Said in the panel's language, it says what Enter does.
+   */
+  const ariaLabelConfig = useMemo(
+    () => ({
+      'node.a11yDescription.default': t('autopilot.graph.nodeKeys'),
+      'node.a11yDescription.keyboardDisabled': t('autopilot.graph.nodeKeys'),
+      'minimap.ariaLabel': t('autopilot.graph.minimap'),
+    }),
+    [t],
+  );
+
   const handleToggleMinimap = useCallback(() => {
     setMinimapVisible((prev) => !prev);
   }, []);
@@ -205,7 +263,13 @@ export const AutopilotGraph: React.FC = () => {
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={handleNodeClick}
-          onNodesChange={onNodesChange}
+          onNodesChange={handleNodesChange}
+          // A node is not moved, removed nor an edge picked: the graph shows
+          // the plan, and its only keyboard action is to open a node.
+          nodesDraggable={false}
+          deleteKeyCode={null}
+          edgesFocusable={false}
+          ariaLabelConfig={ariaLabelConfig}
           fitView
           fitViewOptions={FIT_CLEAR_OF_OVERLAYS}
           minZoom={0.2}

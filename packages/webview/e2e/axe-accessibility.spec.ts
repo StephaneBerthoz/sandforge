@@ -9430,6 +9430,191 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="quick-seed-results"]');
     });
 
+    test('A page heading handed the focus by the call to action that opened its page', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'forge', theme);
+      await bridge.seedOrgs([]);
+      await page.getByTestId('empty-action-button').focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('heading', { level: 1, name: 'Organizations' })).toBeFocused();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Quick Sync running: a bar that is busy with no figure, beside its Pause and Cancel', async ({
+      page,
+    }) => {
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.addInitScript(
+        (args: { source: string; target: string }) => {
+          const host = window as unknown as {
+            acquireVsCodeApi: () => { setState: (state: unknown) => void };
+            __SANDFORGE_MODULE__?: string;
+          };
+          host.acquireVsCodeApi().setState({
+            quickSyncDraft: {
+              sourceOrgId: args.source,
+              targetOrgId: args.target,
+              selectedObjects: ['Contact'],
+              parentObjects: [],
+            },
+            quickSyncStep: 'preview',
+            quickSyncPreview: {
+              objects: [
+                {
+                  objectApiName: 'Contact',
+                  recordCount: 30,
+                  estimatedApiCalls: 1,
+                  isParentDependency: false,
+                },
+              ],
+              totalRecords: 30,
+              totalApiCalls: 1,
+              estimatedDurationSec: 2,
+            },
+          });
+          host.__SANDFORGE_MODULE__ = 'sync';
+        },
+        { source: DEV_SANDBOX.id, target: QA_SANDBOX.id },
+      );
+      await page.goto('/');
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('quick-sync-start-btn').click();
+      await page.getByTestId('quick-sync-go-btn').click();
+      const bar = page.getByTestId('quick-sync-executing').getByRole('progressbar');
+      await expect(bar).toBeVisible();
+      await expect(bar).not.toHaveAttribute('aria-valuenow');
+      await expect(page.getByTestId('quick-sync-status')).toHaveText('Syncing...');
+
+      await expectReadable(page, theme, '[data-testid="quick-sync-flow"]');
+    });
+
+    test('Forge target picker open from the keyboard, the current org marked and focused', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'forge', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('forge-page').waitFor({ timeout: 10_000 });
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-target-org').focus();
+      await page.keyboard.press('ArrowDown');
+      const current = page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`);
+      await expect(current).toBeFocused();
+      await expect(current).toHaveAttribute('aria-current', 'true');
+
+      await expectReadable(page, theme, '[data-testid="forge-target-org-panel"]');
+    });
+
+    test('A notification error reached with Alt+N, its Dismiss focused', async ({ page }) => {
+      await openPanel(bridge, page, 'home', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('home-page').waitFor({ timeout: 10_000 });
+      await sendExtensionMessage(page, {
+        type: 'notification',
+        id: 'axe-toast',
+        payload: { level: 'error', title: 'Sync failed', message: 'The session expired.' },
+      });
+      await page.keyboard.press('Alt+n');
+      await expect(
+        page.getByTestId('floating-toasts').getByRole('button', { name: 'Dismiss' }),
+      ).toBeFocused();
+
+      await expectReadable(page, theme, '[data-testid="floating-toasts"]');
+    });
+
+    test('Seed persona preview open over the gallery, its close button focused', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'seed', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('mode-card-generate').click();
+      await page.getByTestId('seed-persona-choice').locator('summary').click();
+      await bridge.waitForMessage('seed:list-personas', { timeout: 10_000 });
+      await answerAll(page, 'seed:list-personas', 'seed:list-personas:response', {
+        personas: [
+          {
+            id: 'axe-insurer',
+            name: 'Insurer',
+            description: 'Policies and claims',
+            industry: 'Insurance',
+            locale: 'en-US',
+            dataPatterns: {
+              Name: { fieldType: 'string', generator: 'faker', examples: ['Acme Mutual'] },
+              Premium__c: { fieldType: 'currency', generator: 'range', examples: ['450'] },
+            },
+          },
+        ],
+      });
+      await page.getByTestId('persona-preview-axe-insurer').click();
+      const dialog = page.getByRole('dialog', { name: 'Persona Preview' });
+      await expect(dialog).toHaveAttribute('aria-modal', 'true');
+      await expect(page.getByTestId('preview-close-btn')).toBeFocused();
+
+      await expectReadable(page, theme, '[data-testid="persona-preview-popover"]');
+    });
+
+    test('Forge discovery waiting, its counters said and its phase focused', async ({ page }) => {
+      await openPanel(bridge, page, 'forge', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('forge-page').waitFor({ timeout: 10_000 });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill('SELECT Id FROM Account');
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').focus();
+      await page.keyboard.press('Enter');
+      const discover = await bridge.waitForMessage('forge:discover', { timeout: 10_000 });
+      await page.getByTestId('forge-discovery-loading').waitFor({ timeout: 10_000 });
+      await sendExtensionMessage(page, {
+        type: 'forge:discover:progress',
+        id: 'axe-progress',
+        timestamp: Date.now(),
+        correlationId: String(discover.id),
+        payload: {
+          phase: 'object',
+          objectApiName: 'Account',
+          discoveredCount: 42,
+          queueRemaining: 7,
+        },
+      });
+      await expect(page.getByTestId('forge-discovery-progress')).toBeVisible();
+      await expect(page.getByRole('group', { name: 'Graph discovery' })).toBeFocused();
+
+      await expectReadable(page, theme, '[data-testid="forge-page"]');
+    });
+
+    test('Autopilot node picked with Enter: its details open, Skip naming it', async ({ page }) => {
+      await openPanel(bridge, page, 'autopilot', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: MOCK_PLAN,
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('execute-button').click();
+      await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
+      // Drawn hidden until React Flow has measured it, and not focusable till then.
+      const account = page.getByTestId('rf__node-Account');
+      await account.waitFor({ state: 'visible', timeout: 10_000 });
+      await account.focus();
+      await expect(account).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('control-skip')).toHaveText('Skip Account');
+
+      await expectReadable(page, theme);
+    });
+
     test("Seed select step: the common objects pinned, a contact's account offered, the persona an option", async ({
       page,
     }) => {

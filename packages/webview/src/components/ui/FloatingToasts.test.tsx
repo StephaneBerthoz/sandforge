@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
+import '../../i18n';
 import '@testing-library/jest-dom/vitest';
 import { FloatingToasts } from './FloatingToasts';
 import { useNotificationStore, resetNotificationCounter } from '../../stores/useNotificationStore';
@@ -125,16 +126,74 @@ describe('FloatingToasts', () => {
     expect(screen.getByText('Something broke')).toBeInTheDocument();
   });
 
-  it('should have aria-live="polite" on the toast container', () => {
+  it('keeps the toasts out of any live region: each new one is said once, apart from them', () => {
+    // An atomic polite container around status toasts: every new toast read
+    // out again the errors still on screen.
     const { container } = render(<FloatingToasts />);
     const toastContainer = container.querySelector('[data-testid="floating-toasts"]');
-    expect(toastContainer?.getAttribute('aria-live')).toBe('polite');
+    expect(toastContainer?.hasAttribute('aria-live')).toBe(false);
+    expect(toastContainer?.hasAttribute('aria-atomic')).toBe(false);
   });
 
-  it('should have aria-atomic="true" on the toast container', () => {
-    const { container } = render(<FloatingToasts />);
-    const toastContainer = container.querySelector('[data-testid="floating-toasts"]');
-    expect(toastContainer?.getAttribute('aria-atomic')).toBe('true');
+  it('says an error assertively, once, and a later toast without reading the error again', () => {
+    render(<FloatingToasts />);
+    act(() => {
+      useNotificationStore.getState().addNotification({
+        level: 'error',
+        title: 'Forge failed',
+        message: 'The target refused the run.',
+      });
+    });
+    const errors = screen.getByTestId('toasts-said-errors');
+    expect(errors.getAttribute('aria-live')).toBe('assertive');
+    expect(errors.textContent).toBe(
+      'Forge failed. The target refused the run. Press Alt+N to reach it.',
+    );
+
+    act(() => {
+      useNotificationStore.getState().addNotification({
+        level: 'success',
+        title: 'Saved',
+        message: 'Template saved',
+        autoDismissMs: 5000,
+      });
+    });
+    const polite = screen.getByTestId('toasts-said');
+    expect(polite.getAttribute('aria-live')).toBe('polite');
+    expect(polite.textContent).toBe('Saved. Template saved.');
+    // The error still on screen is not said again with it.
+    expect(polite.textContent).not.toContain('Forge failed');
+    expect(errors.textContent).toBe(
+      'Forge failed. The target refused the run. Press Alt+N to reach it.',
+    );
+  });
+
+  it('takes the focus to the newest toast that stays up on Alt+N, and gives it back on dismiss', () => {
+    render(
+      <>
+        <button data-testid="page-control">page</button>
+        <FloatingToasts />
+      </>,
+    );
+    act(() => {
+      useNotificationStore.getState().addNotification({
+        level: 'error',
+        title: 'Sync failed',
+        message: 'Session expired',
+      });
+    });
+    const pageControl = screen.getByTestId('page-control');
+    pageControl.focus();
+
+    fireEvent.keyDown(window, { key: 'n', altKey: true });
+    const dismiss = screen.getByRole('button', { name: 'Dismiss' });
+    expect(document.activeElement).toBe(dismiss);
+
+    act(() => {
+      fireEvent.click(dismiss);
+    });
+    expect(screen.queryByText('Sync failed')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(pageControl);
   });
 
   it('renders an action that carries a URL as a link to that page', () => {
@@ -164,7 +223,9 @@ describe('FloatingToasts', () => {
     );
   });
 
-  it('should have role="status" on individual toast items', () => {
+  it('gives no toast a live role of its own, nor the regions that say them a role of the page', () => {
+    // An always-mounted role="alert" read as an alert of the page that was
+    // empty, and stood beside the page's own alerts.
     render(<FloatingToasts />);
 
     act(() => {
@@ -175,7 +236,12 @@ describe('FloatingToasts', () => {
       });
     });
 
-    const statusElements = screen.getAllByRole('status');
-    expect(statusElements.length).toBeGreaterThanOrEqual(1);
+    const toast = screen.getByText('A notification').closest('[data-toast-id]');
+    expect(toast?.hasAttribute('role')).toBe(false);
+    expect(screen.queryAllByRole('status')).toEqual([]);
+    expect(screen.queryAllByRole('alert')).toEqual([]);
+    expect(screen.getByTestId('toasts-said').textContent).toBe(
+      'Test. A notification. Press Alt+N to reach it.',
+    );
   });
 });

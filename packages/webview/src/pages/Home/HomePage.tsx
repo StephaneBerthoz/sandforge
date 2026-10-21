@@ -245,7 +245,9 @@ export const HomePage: React.FC = () => {
           <div className="flex flex-col h-full" data-testid="forge-hero-card">
             <div className="flex items-center gap-2 mb-3">
               <Flame className="w-6 h-6 text-hue-forge" />
-              <h1 className="text-lg font-semibold text-text-primary">{t('home.forgeASandbox')}</h1>
+              <h1 tabIndex={-1} className="text-lg font-semibold text-text-primary">
+                {t('home.forgeASandbox')}
+              </h1>
             </div>
             {/* The one sentence every surface says Forge in: the side panel,
                 Home, its empty state and Help. */}

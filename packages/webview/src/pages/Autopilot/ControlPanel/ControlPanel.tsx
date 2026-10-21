@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AutopilotStopLeftover } from '@sandforge/shared';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { useSendMessage } from '../../../hooks/useMessageBus';
 import { buildMessage } from '../../../bridge/messageHelpers';
+import { handleTabListKeyDown } from '../../../components/ui/tabListKeys';
 import { LiveStats } from './LiveStats';
 import { NodeDetail } from './NodeDetail';
 import { AnonymizationPreview } from './AnonymizationPreview';
@@ -59,6 +60,16 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     { id: 'anonymization', label: t('autopilot.control.anonymization') },
     { id: 'compliance', label: t('autopilot.control.compliance') },
   ];
+  const tabIds = tabs.map((tab) => tab.id);
+
+  // A node picked on the graph, by a click or by Enter, opens on its details:
+  // what the node's own description says Enter does.
+  const pickedBefore = useRef(selectedNodeName);
+  useEffect(() => {
+    const before = pickedBefore.current;
+    pickedBefore.current = selectedNodeName;
+    if (selectedNodeName !== null && selectedNodeName !== before) setActiveTab('node');
+  }, [selectedNodeName]);
 
   /** Pause/resume — fire-and-forget bridge commands, optimistic local status. */
   const handlePauseResume = (): void => {
@@ -97,17 +108,32 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <h3 className="text-sm font-semibold text-text-primary">{t('autopilot.control.title')}</h3>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-(--sf-border)" data-testid="control-tabs">
+      {/* Tabs: the tab pattern, as every tab bar of the panel has it. They
+          were plain buttons, the open one told by its underline alone. */}
+      <div
+        className="flex border-b border-(--sf-border)"
+        role="tablist"
+        aria-label={t('autopilot.control.title')}
+        data-testid="control-tabs"
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            type="button"
+            role="tab"
+            id={`control-tab-${tab.id}`}
+            aria-selected={activeTab === tab.id}
+            aria-controls={`control-tabpanel-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
             className={`flex-1 px-2 py-1.5 text-[10px] font-medium transition-colors ${
               activeTab === tab.id
                 ? 'text-text-primary border-b-2 border-(--sf-accent)'
                 : 'text-text-secondary hover:text-text-primary'
             }`}
             onClick={() => setActiveTab(tab.id)}
+            onKeyDown={(event) =>
+              handleTabListKeyDown(event, tabIds, activeTab, (id) => setActiveTab(id as ControlTab))
+            }
             data-testid={`control-tab-${tab.id}`}
           >
             {tab.label}
@@ -168,8 +194,15 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         </div>
       )}
 
-      {/* Tab Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      {/* Tab Content: focusable, a panel that scrolls and may hold no control. */}
+      <div
+        className="flex-1 overflow-y-auto p-4"
+        role="tabpanel"
+        id={`control-tabpanel-${activeTab}`}
+        aria-labelledby={`control-tab-${activeTab}`}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the panel scrolls, and Live stats holds no control to reach it by: it takes the focus itself so the keyboard can scroll it, as the tab pattern gives a panel with no control (axe scrollable-region-focusable).
+        tabIndex={0}
+      >
         {activeTab === 'stats' && <LiveStats />}
         {activeTab === 'node' && <NodeDetail />}
         {activeTab === 'anonymization' && <AnonymizationPreview />}
@@ -195,7 +228,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             disabled={!selectedNodeName}
             data-testid="control-skip"
           >
-            {t('autopilot.control.skip')}
+            {/* Which node it skips, said on the button: the pick is on the graph. */}
+            {selectedNodeName
+              ? t('autopilot.control.skipNamed', { object: selectedNodeName })
+              : t('autopilot.control.skip')}
           </button>
           {runOperationId && (
             <button

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { Select } from '../../components/ui/Select';
@@ -8,6 +8,8 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Input } from '../../components/ui/Input';
+import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
+import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
@@ -75,8 +77,40 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
   );
   const refused = refusedForEmails(automation, records);
 
+  /*
+   * Each phase is drawn in place of the last, and the button that moved on —
+   * Use This, Start, Seed again, the Cancel's confirmation — goes with it:
+   * the keyboard is handed to what the new phase shows, its card's title, the
+   * run, then its results. Opened from the gallery, the flow takes it at once.
+   */
+  const flowRef = useRef<HTMLDivElement>(null);
+  const phaseTarget = useRef<HTMLElement | null>(null);
+  const showsPhase = useCallback((element: HTMLElement | null) => {
+    phaseTarget.current = element;
+  }, []);
+  useFocusOnChange(phaseTarget, quickSeed.phase, { scope: flowRef, onMount: true });
+
+  const result = quickSeed.executionResult;
+  /*
+   * The run's end, said from the results: the execution screen's announcer
+   * unmounts in the pass that draws them, and its last word was a percentage.
+   */
+  const outcomeSpoken = result
+    ? t('a11y.runOutcome', {
+        outcome: result.cancelled
+          ? t('home.opStatus.cancelled')
+          : result.status === 'success'
+            ? t('seed.complete')
+            : result.status === 'partial'
+              ? t('seed.partial')
+              : t('seed.failed'),
+        written: result.totalRecordsCreated,
+        total: Math.max(totalRecords, result.totalRecordsCreated + result.totalRecordsFailed),
+      })
+    : '';
+
   return (
-    <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-flow">
+    <div ref={flowRef} className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-flow">
       {quickSeed.error && (
         <ErrorBanner
           message={quickSeed.error}
@@ -91,6 +125,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
       {quickSeed.phase === 'confirm' && template && (
         <Card data-testid="quick-seed-confirm">
           <CardHeader
+            titleRef={showsPhase}
             title={t('seed.quickSeed.templateSelected', { name: templateName })}
             action={
               <Badge variant="default">{t('seed.gallery.records', { count: totalRecords })}</Badge>
@@ -174,7 +209,14 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
 
       {/* ----- EXECUTING PHASE ----- */}
       {quickSeed.phase === 'executing' && (
-        <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-executing">
+        <div
+          ref={showsPhase}
+          tabIndex={-1}
+          role="group"
+          aria-label={t('seed.running')}
+          className="flex flex-col gap-(--sf-space-3)"
+          data-testid="quick-seed-executing"
+        >
           <Step7Execute
             isRunning={quickSeed.isRunning}
             objectProgress={quickSeed.objectProgress}
@@ -201,9 +243,14 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
       {/* ----- RESULTS PHASE ----- */}
       {quickSeed.phase === 'results' && (
         <div className="flex flex-col gap-(--sf-space-3)" data-testid="quick-seed-results">
+          <ProgressAnnouncer message={outcomeSpoken} immediate testId="quick-seed-result-status" />
           {quickSeed.executionResult ? (
             <>
               <div
+                ref={showsPhase}
+                tabIndex={-1}
+                role="group"
+                aria-label={t('seed.stepResults')}
                 className="flex items-center gap-3 text-xs"
                 data-testid="quick-seed-result-summary"
               >

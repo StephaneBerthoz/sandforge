@@ -36,6 +36,7 @@ import { ReviewControlsTab } from './ReviewControlsTab';
 import { ReviewGraphSearch, graphMatches } from './ReviewGraphSearch';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
+import { handleTabListKeyDown } from '../../components/ui/tabListKeys';
 
 /** Tabs available in the Review phase right panel. */
 type ReviewTab =
@@ -408,6 +409,17 @@ export const ForgeReview: React.FC = () => {
                 role="tab"
                 aria-selected={activeTab === tab.id}
                 aria-controls={`tabpanel-${tab.id}`}
+                // Seven tabs were seven Tab stops, and the arrows the tab
+                // pattern promises did nothing: one stop, the arrows between.
+                tabIndex={activeTab === tab.id ? 0 : -1}
+                onKeyDown={(event) =>
+                  handleTabListKeyDown(
+                    event,
+                    tabs.map((each) => each.id),
+                    activeTab,
+                    (id) => setActiveTab(id as ReviewTab),
+                  )
+                }
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1 ${
                   activeTab === tab.id

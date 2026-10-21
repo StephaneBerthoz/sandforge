@@ -30,6 +30,11 @@ export interface CardHeaderProps {
   subtitle?: string;
   action?: React.ReactNode;
   className?: string;
+  /**
+   * Given, the title can take the focus from code (never from Tab): a screen
+   * that opens on this card hands it the keyboard, and its name is read.
+   */
+  titleRef?: React.Ref<HTMLHeadingElement>;
 }
 
 /** Content card matching VSCode theme. */
@@ -62,7 +67,13 @@ export const Card: React.FC<CardProps> = ({ children, className, onClick, hovera
 };
 
 /** Card header with title, optional subtitle and action. */
-export const CardHeader: React.FC<CardHeaderProps> = ({ title, subtitle, action, className }) => {
+export const CardHeader: React.FC<CardHeaderProps> = ({
+  title,
+  subtitle,
+  action,
+  className,
+  titleRef,
+}) => {
   return (
     <div
       className={cn(
@@ -71,7 +82,13 @@ export const CardHeader: React.FC<CardHeaderProps> = ({ title, subtitle, action,
       )}
     >
       <div>
-        <h3 className="text-sm font-semibold text-(--vscode-editor-foreground,#d4d4d4)">{title}</h3>
+        <h3
+          ref={titleRef}
+          tabIndex={titleRef ? -1 : undefined}
+          className="text-sm font-semibold text-(--vscode-editor-foreground,#d4d4d4)"
+        >
+          {title}
+        </h3>
         {subtitle && (
           <p className="text-xs text-(--vscode-descriptionForeground,#868686) mt-0.5">{subtitle}</p>
         )}

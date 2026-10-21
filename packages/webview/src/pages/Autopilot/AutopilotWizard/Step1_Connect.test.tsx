@@ -82,6 +82,34 @@ describe('Step1_Connect', () => {
     expect(screen.queryByTestId('autopilot-seed-instead')).toBeNull();
   });
 
+  it('says which org each list has picked, and whether it is connected, with no colour to read', () => {
+    // A tint and a dot: a screen reader heard two identical lists of names.
+    const withExpired = [mockOrgs[0], { ...mockOrgs[1], status: 'expired' as const }];
+    render(
+      <Step1Connect
+        orgs={withExpired}
+        sourceOrgId="org-1"
+        targetOrgId="org-2"
+        onSourceSelect={vi.fn()}
+        onTargetSelect={vi.fn()}
+      />,
+    );
+
+    const source = screen.getByRole('group', { name: 'Source Org' });
+    const target = screen.getByRole('group', { name: 'Target Org' });
+    expect(source.contains(screen.getByTestId('source-org-org-1'))).toBe(true);
+    expect(screen.getByTestId('source-org-org-1').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('target-org-org-1').getAttribute('aria-pressed')).toBe('false');
+    expect(target.contains(screen.getByTestId('target-org-org-2'))).toBe(true);
+    expect(screen.getByTestId('target-org-org-2').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('target-org-org-2').textContent).toContain(
+      'Connection status: Session Expired',
+    );
+    expect(screen.getByTestId('source-org-org-1').textContent).toContain(
+      'Connection status: Connected',
+    );
+  });
+
   it('should render without crashing', () => {
     render(
       <Step1Connect

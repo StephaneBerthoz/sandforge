@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useCallback, useEffect } from 'react';
+import React, { Suspense, useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles, Upload, Copy, ArrowLeft } from 'lucide-react';
 import type { SeedTemplate } from '@sandforge/shared';
@@ -10,6 +10,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Card, CardBody } from '../../components/ui/Card';
 import { TemplateGallery } from './TemplateGallery';
 import { useQuickSeed } from './useQuickSeed';
+import { focusWhenDrawn } from '../../utils/focusWhenDrawn';
 import {
   CloneWizard,
   CsvUploadWizard,
@@ -81,12 +82,42 @@ export const SeedPage: React.FC = () => {
   }, [seedMode]);
 
   const startQuickSeed = quickSeed.startQuickSeed;
+  /** The gallery card a template's run was started from. */
+  const pickedTemplate = useRef<string | null>(null);
   const handleSelectTemplate = useCallback(
     (template: SeedTemplate) => {
+      pickedTemplate.current = template.id;
       startQuickSeed(template);
     },
     [startQuickSeed],
   );
+  /*
+   * Back from a template's run — its Back, or Back to the gallery on its
+   * results — the gallery is drawn in place of the flow, and the button
+   * pressed went with it: the keyboard goes back to the card it was picked
+   * from, not to the top of the panel.
+   */
+  const pageRef = useRef<HTMLDivElement>(null);
+  const quickSeedPhase = quickSeed.phase;
+  const phaseBefore = useRef(quickSeedPhase);
+  useEffect(() => {
+    const before = phaseBefore.current;
+    phaseBefore.current = quickSeedPhase;
+    const page = pageRef.current;
+    const picked = pickedTemplate.current;
+    if (quickSeedPhase !== 'idle' || before === 'idle' || picked === null || !page) {
+      return undefined;
+    }
+    // The gallery asks for its templates again: its card is drawn once they are in.
+    const cardId = `template-card-${picked}`;
+    return focusWhenDrawn(
+      page,
+      () =>
+        Array.from(page.querySelectorAll<HTMLElement>('[data-testid^="template-card-"]'))
+          .find((card) => card.dataset.testid === cardId)
+          ?.querySelector<HTMLElement>('[data-testid="btn-use-template"]') ?? null,
+    );
+  }, [quickSeedPhase]);
   const backToStart = useCallback(() => setSeedMode('start'), []);
   /**
    * Whether the CSV import or the clone is running: its way back is hidden
@@ -122,7 +153,11 @@ export const SeedPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)" data-testid="seed-page">
+    <div
+      ref={pageRef}
+      className="flex flex-col gap-(--sf-space-4) p-(--sf-space-4)"
+      data-testid="seed-page"
+    >
       {/* The wizard has a header of its own, which says its step and org. */}
       {seedMode !== 'generate' && (
         <PageHeader title={t('seed.title')} subtitle={getPageSubtitle()} icon="database" />

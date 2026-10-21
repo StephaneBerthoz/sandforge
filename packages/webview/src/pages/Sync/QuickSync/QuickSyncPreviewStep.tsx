@@ -71,13 +71,9 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   if (isExecuting) {
     return (
       <div className="flex flex-col gap-4 py-4" data-testid="quick-sync-executing">
-        <ProgressBar
-          value={50}
-          max={100}
-          label={t('quickSync.executing')}
-          showPercent={false}
-          variant="default"
-        />
+        {/* Quick Sync hears no figure until the run ends: the bar says it is
+            busy, not a percentage. */}
+        <ProgressBar indeterminate label={t('quickSync.executing')} variant="default" />
         <SyncRunControls operationId={runOperationId} kind="run" />
       </div>
     );

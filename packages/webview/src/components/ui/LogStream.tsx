@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Copy, Download } from 'lucide-react';
 import { cn } from '../../theme';
+import { ProgressAnnouncer } from './ProgressBar';
 
 /** Single log entry. */
 export interface LogEntry {
@@ -31,6 +32,11 @@ export interface LogStreamProps {
    * `useFileSave` — so the page that owns a bridge connection passes it down.
    */
   onExport?: (filename: string, text: string) => void;
+  /**
+   * Say the errors as they come, at most one sentence every few seconds, for
+   * a log that grows while it is on screen. The log itself is not read out.
+   */
+  announceErrors?: boolean;
   className?: string;
 }
 
@@ -87,6 +93,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
   autoScroll = true,
   hideFilterBar = false,
   onExport,
+  announceErrors = false,
   className,
 }) => {
   const { t } = useTranslation();
@@ -106,6 +113,9 @@ export const LogStream: React.FC<LogStreamProps> = ({
     () => filterEntries(trimmedEntries, activeFilter),
     [trimmedEntries, activeFilter],
   );
+
+  const errorEntries = useMemo(() => entries.filter((e) => e.level === 'error'), [entries]);
+  const latestError = errorEntries[errorEntries.length - 1];
 
   /** Detect when user scrolls away from bottom. */
   const handleScroll = useCallback(() => {
@@ -209,12 +219,28 @@ export const LogStream: React.FC<LogStreamProps> = ({
         </div>
       )}
 
-      {/* Log entries */}
+      {/* What a screen reader hears of the log: its errors, throttled as the
+          progress is. */}
+      {announceErrors && (
+        <ProgressAnnouncer
+          message={
+            latestError
+              ? t('a11y.logErrors', { count: errorEntries.length, latest: latestError.message })
+              : ''
+          }
+          testId="logstream-errors-status"
+        />
+      )}
+
+      {/* Log entries. A log, to be browsed, but silent: role="log" is polite
+          by default, and a run's log gained a line about ten times a second,
+          each read aloud over the progress announcer that exists to throttle
+          them. */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
         role="log"
-        aria-live="polite"
+        aria-live="off"
         className="overflow-y-auto flex-1 min-h-0 p-2 font-mono text-xs"
       >
         {visibleEntries.length === 0 ? (

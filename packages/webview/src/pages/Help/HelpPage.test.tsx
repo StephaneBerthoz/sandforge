@@ -135,6 +135,18 @@ describe('HelpPage', () => {
     expect(en.moduleSummary.seed).toBe('Fill an org with realistic fake data');
   });
 
+  it('lists Alt+N, which reaches the notification that stays up, and the arrows between tabs, in every language', () => {
+    // A toast is drawn after the page, last in the Tab order: Alt+N is the way to it.
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      const lines = bundle.help.shortcutsContent.split('\n');
+      expect(
+        lines.some((line) => line.startsWith('Alt+N — ')),
+        lng,
+      ).toBe(true);
+      expect(lines, lng).toHaveLength(7);
+    }
+  });
+
   it('says Reports shows the audit trail and the lineage it renders, not that they are coming', () => {
     for (const [lng, bundle] of Object.entries(LOCALES)) {
       expect(bundle.help.reportsContent, lng).toContain(bundle.reports.audit);

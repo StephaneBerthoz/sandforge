@@ -1,10 +1,11 @@
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useCallback, useMemo, useRef } from 'react';
 import { Command } from 'cmdk';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import { Search } from 'lucide-react';
 import { cn } from '../../theme';
 import { useLatestRef } from '../../hooks/useLatestRef';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { fadeIn } from '../../motion/presets';
 import { useCommandStore } from '../../stores/useCommandStore';
 import { useAppStore, ALL_ROUTES } from '../../stores/useAppStore';
@@ -82,6 +83,67 @@ const dialogVariants = {
   hidden: { opacity: 0, scale: 0.95 },
   visible: { opacity: 1, scale: 1, transition: { duration: 0.15 } },
   exit: { opacity: 0, scale: 0.95, transition: { duration: 0.1 } },
+};
+
+/** Props for PaletteDialog. */
+interface PaletteDialogProps {
+  label: string;
+  /** Close the palette: Escape, a click on the glass, or Tab can no longer leave it. */
+  onClose: () => void;
+  /** Read as it closes: false once an item moved the panel to another page. */
+  restoreFocus: () => boolean;
+  children: React.ReactNode;
+}
+
+/**
+ * The palette's glass and its dialog, mounted only while the palette is open,
+ * so that the focus trap set up when it mounts holds while it is up. It said
+ * it was modal and kept nothing in: Tab from the search box walked onto the
+ * page behind the glass, Escape no longer closed it from there, and closing it
+ * dropped the focus on `<body>`. The trap records the opener before the search
+ * box takes the focus, and hands the focus back to it, unless an item moved the
+ * panel to another page, whose heading takes it.
+ */
+const PaletteDialog: React.FC<PaletteDialogProps> = ({
+  label,
+  onClose,
+  restoreFocus,
+  children,
+}) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, onClose, { restoreFocus });
+  return (
+    <>
+      {/* Overlay backdrop */}
+      <m.div
+        className={cn('fixed inset-0 z-200 glass-overlay')}
+        variants={fadeIn}
+        initial="hidden"
+        animate="visible"
+        exit="hidden"
+        onClick={onClose}
+        data-testid="command-palette-overlay"
+      />
+
+      {/* Dialog container — cmdk exposes combobox/listbox roles but never a
+          dialog, so the modal semantics live on this wrapper. */}
+      <m.div
+        ref={dialogRef}
+        className="fixed top-[15vh] left-1/2 -translate-x-1/2 z-201 w-full max-w-lg"
+        variants={dialogVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        data-testid="command-palette"
+      >
+        {children}
+      </m.div>
+    </>
+  );
 };
 
 /**
@@ -190,6 +252,17 @@ export const CommandPalette: React.FC = () => {
     [t],
   );
 
+  /** Whether the palette hands the focus back to its opener as it closes. */
+  const restoreOnClose = useRef(true);
+  const restoreFocus = useCallback(() => restoreOnClose.current, []);
+
+  /** Close the palette, the focus going back where it came from. */
+  const close = useCallback(() => {
+    restoreOnClose.current = true;
+    setOpen(false);
+    setSearch('');
+  }, [setOpen]);
+
   /** Handle item selection: save to recent, execute action, close palette. */
   const handleSelect = useCallback(
     (item: CommandItem) => {
@@ -201,9 +274,19 @@ export const CommandPalette: React.FC = () => {
         setRecentSearches(updated);
         saveRecentSearches(updated);
       }
+      const routeBefore = useAppStore.getState().currentRoute;
       setOpen(false);
       setSearch('');
       item.action();
+      // An item that moved the panel to another page lets that page's heading
+      // take the focus: the palette lets go of it at once, rather than while
+      // its exit plays, and does not hand it back to a control of the page it
+      // left.
+      const navigated = useAppStore.getState().currentRoute !== routeBefore;
+      restoreOnClose.current = !navigated;
+      if (navigated && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     },
     [search, recentSearches, setOpen],
   );
@@ -226,142 +309,116 @@ export const CommandPalette: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, [toggle]);
 
-  /** Reset search when palette opens. */
+  /** Reset search when palette opens, and hand the focus back when it closes, unless told otherwise. */
   useEffect(() => {
     if (open) {
       setSearch('');
+      restoreOnClose.current = true;
     }
   }, [open]);
 
   return (
     <AnimatePresence>
       {open && (
-        <>
-          {/* Overlay backdrop */}
-          <m.div
-            className={cn('fixed inset-0 z-200 glass-overlay')}
-            variants={fadeIn}
-            initial="hidden"
-            animate="visible"
-            exit="hidden"
-            onClick={() => setOpen(false)}
-            data-testid="command-palette-overlay"
-          />
-
-          {/* Dialog container — cmdk exposes combobox/listbox roles but never a
-              dialog, so the modal semantics live on this wrapper. */}
-          <m.div
-            className="fixed top-[15vh] left-1/2 -translate-x-1/2 z-201 w-full max-w-lg"
-            variants={dialogVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('commandPalette.placeholder')}
-            data-testid="command-palette"
+        <PaletteDialog
+          key="command-palette"
+          label={t('commandPalette.placeholder')}
+          onClose={close}
+          restoreFocus={restoreFocus}
+        >
+          {/* Escape is the focus trap's: it closes the palette wherever the
+                focus is inside it. */}
+          <Command
+            className="bg-surface-1 rounded-xl border border-subtle shadow-2xl overflow-hidden"
+            label={t('commandPalette.placeholder')}
+            loop
           >
-            <Command
-              className="bg-surface-1 rounded-xl border border-subtle shadow-2xl overflow-hidden"
-              label={t('commandPalette.placeholder')}
-              loop
-              onKeyDown={(e: React.KeyboardEvent) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  setOpen(false);
-                  setSearch('');
-                }
-              }}
-            >
-              {/* Search input */}
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
-                <Search className="h-4 w-4 shrink-0 text-text-secondary" />
-                {/* Autofocus is safe here: the palette only mounts on an
+            {/* Search input */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
+              <Search className="h-4 w-4 shrink-0 text-text-secondary" />
+              {/* Autofocus is safe here: the palette only mounts on an
                     explicit Ctrl+K, so typing is what the user just asked for. */}
-                <Command.Input
-                  // eslint-disable-next-line jsx-a11y/no-autofocus -- the palette only mounts on an explicit Ctrl+K, so the caret landing in its search box is exactly what was asked for.
-                  autoFocus
-                  value={search}
-                  onValueChange={setSearch}
-                  className="flex-1 bg-transparent text-sm text-text-primary placeholder-(--sf-text-secondary) outline-hidden"
-                  placeholder={t('commandPalette.placeholder')}
-                  data-testid="command-palette-input"
-                />
-              </div>
+              <Command.Input
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- the palette only mounts on an explicit Ctrl+K, so the caret landing in its search box is exactly what was asked for.
+                autoFocus
+                value={search}
+                onValueChange={setSearch}
+                className="flex-1 bg-transparent text-sm text-text-primary placeholder-(--sf-text-secondary) outline-hidden"
+                placeholder={t('commandPalette.placeholder')}
+                data-testid="command-palette-input"
+              />
+            </div>
 
-              {/* Results list */}
-              <Command.List
-                className="max-h-[300px] overflow-y-auto"
-                data-testid="command-palette-results"
+            {/* Results list */}
+            <Command.List
+              className="max-h-[300px] overflow-y-auto"
+              data-testid="command-palette-results"
+            >
+              <Command.Empty
+                className="px-4 py-6 text-center text-sm text-text-secondary"
+                data-testid="command-palette-no-results"
               >
-                <Command.Empty
-                  className="px-4 py-6 text-center text-sm text-text-secondary"
-                  data-testid="command-palette-no-results"
-                >
-                  {t('commandPalette.noResults')}
-                </Command.Empty>
+                {t('commandPalette.noResults')}
+              </Command.Empty>
 
-                {Array.from(grouped.entries()).map(([group, items]) => (
-                  <Command.Group
-                    key={group}
-                    heading={groupHeading(group)}
-                    className="**:[[cmdk-group-heading]]:px-4 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[10px] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:tracking-wider **:[[cmdk-group-heading]]:text-text-secondary"
-                  >
-                    {items.map((item) => (
-                      <Command.Item
-                        key={item.id}
-                        value={item.label}
-                        keywords={item.keywords}
-                        onSelect={() => handleSelect(item)}
-                        className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-text-primary data-[selected=true]:bg-(--sf-bg-hover) data-[selected=true]:shadow-[inset_2px_0_0_var(--sf-accent)] hover:bg-(--sf-bg-hover)"
-                        data-testid={`command-palette-item-${item.id}`}
-                      >
-                        {item.icon && <Icon name={item.icon} />}
-                        <span className="flex-1">{item.label}</span>
-                        <span className="text-xs text-text-primary">
-                          {groupHeading(item.group)}
-                        </span>
-                      </Command.Item>
-                    ))}
-                  </Command.Group>
-                ))}
-              </Command.List>
-
-              {/* Recent searches footer */}
-              {!search.trim() && recentSearches.length > 0 && (
-                <div
-                  className="border-t border-subtle px-4 py-2"
-                  data-testid="command-palette-recent"
+              {Array.from(grouped.entries()).map(([group, items]) => (
+                <Command.Group
+                  key={group}
+                  heading={groupHeading(group)}
+                  className="**:[[cmdk-group-heading]]:px-4 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[10px] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:tracking-wider **:[[cmdk-group-heading]]:text-text-secondary"
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
-                      {t('commandPalette.recentSearches')}
-                    </span>
-                    <button
-                      className="text-[10px] text-(--sf-text-link) hover:underline"
-                      onClick={clearRecentSearches}
-                      data-testid="clear-recent-btn"
+                  {items.map((item) => (
+                    <Command.Item
+                      key={item.id}
+                      value={item.label}
+                      keywords={item.keywords}
+                      onSelect={() => handleSelect(item)}
+                      className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-text-primary data-[selected=true]:bg-(--sf-bg-hover) data-[selected=true]:shadow-[inset_2px_0_0_var(--sf-accent)] hover:bg-(--sf-bg-hover)"
+                      data-testid={`command-palette-item-${item.id}`}
                     >
-                      {t('commandPalette.clearRecent')}
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {recentSearches.map((rs) => (
-                      <button
-                        key={rs}
-                        className="px-2 py-0.5 text-xs rounded-sm bg-(--sf-badge-bg) text-(--sf-badge-fg) hover:underline"
-                        onClick={() => setSearch(rs)}
-                        data-testid="recent-search-item"
-                      >
-                        {rs}
-                      </button>
-                    ))}
-                  </div>
+                      {item.icon && <Icon name={item.icon} />}
+                      <span className="flex-1">{item.label}</span>
+                      <span className="text-xs text-text-primary">{groupHeading(item.group)}</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              ))}
+            </Command.List>
+
+            {/* Recent searches footer */}
+            {!search.trim() && recentSearches.length > 0 && (
+              <div
+                className="border-t border-subtle px-4 py-2"
+                data-testid="command-palette-recent"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+                    {t('commandPalette.recentSearches')}
+                  </span>
+                  <button
+                    className="text-[10px] text-(--sf-text-link) hover:underline"
+                    onClick={clearRecentSearches}
+                    data-testid="clear-recent-btn"
+                  >
+                    {t('commandPalette.clearRecent')}
+                  </button>
                 </div>
-              )}
-            </Command>
-          </m.div>
-        </>
+                <div className="flex flex-wrap gap-1">
+                  {recentSearches.map((rs) => (
+                    <button
+                      key={rs}
+                      className="px-2 py-0.5 text-xs rounded-sm bg-(--sf-badge-bg) text-(--sf-badge-fg) hover:underline"
+                      onClick={() => setSearch(rs)}
+                      data-testid="recent-search-item"
+                    >
+                      {rs}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Command>
+        </PaletteDialog>
       )}
     </AnimatePresence>
   );

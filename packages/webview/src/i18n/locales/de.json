@@ -708,7 +708,8 @@
       "records_other": "{{count}} Datensätze",
       "useThis": "Diese verwenden",
       "templateMissing": "Diese gespeicherte Vorlage existiert nicht mehr.",
-      "recommended": "Hier beginnen"
+      "recommended": "Hier beginnen",
+      "useThisNamed": "Diese verwenden: {{name}}"
     },
     "quickSeed": {
       "title": "Schnell-Seed",
@@ -2280,7 +2281,10 @@
     "privacyNote": "Was Sie eingeben, geht mit dem bisherigen Gesprächsverlauf an Anthropic. Die Unterhaltungen bleiben auf diesem Rechner, die 50 neuesten.",
     "deleteAll": "Alle Unterhaltungen löschen",
     "deleteAllConfirm_one": "Die auf diesem Rechner gespeicherte Unterhaltung löschen? Sie lässt sich nicht wiederherstellen.",
-    "deleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Unterhaltungen löschen? Sie lassen sich nicht wiederherstellen."
+    "deleteAllConfirm_other": "Die {{count}} auf diesem Rechner gespeicherten Unterhaltungen löschen? Sie lassen sich nicht wiederherstellen.",
+    "conversationLog": "Unterhaltung",
+    "speakerYou": "Sie:",
+    "speakerAssistant": "Assistent:"
   },
   "notifications": {
     "title": "Benachrichtigungen"
@@ -2799,7 +2803,7 @@
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
     "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat, NL2SOQL im KI-Tab von Forge sowie eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in Automation\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automation-Lauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Die Schema-Empfehlungen von Compare und der Anomalie-Scan von Monitor sind regelbasiert: Sie laufen mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
-    "shortcutsContent": "G + Taste — Zu einem Modul springen (z. B. G dann F für Forge, G dann Y für Sync, G dann L für Hilfe)\nStrg+K — Befehlspalette\nEscape — Modale und Dialoge schließen\nTab — Zwischen Elementen navigieren\nEnter/Leertaste — Schaltflächen und Links aktivieren",
+    "shortcutsContent": "G + Taste — Zu einem Modul springen (z. B. G dann F für Forge, G dann Y für Sync, G dann L für Hilfe)\nStrg+K — Befehlspalette\nAlt+N — Zur letzten Benachrichtigung springen, die angezeigt bleibt\nEscape — Modale und Dialoge schließen\nTab — Zwischen Elementen navigieren\nPfeiltasten — Zwischen Registerkarten wechseln\nEnter/Leertaste — Schaltflächen und Links aktivieren",
     "faqContent": "F: Warum ist mein Gesundheitswert niedrig?\nA: Prüfen Sie die API-Limit-Nutzung, fehlgeschlagene Jobs und den Speicherverbrauch. Der Wert gewichtet mehrere Faktoren.\n\nF: Wie behebe ich Timeout-Fehler?\nA: SandForge hat keine Timeout-Einstellung für Salesforce-Aufrufe. Verringern Sie die Stapelgröße (sandforge.seed.defaultBatchSize und sandforge.sync.defaultBatchSize in den VS Code-Einstellungen) und teilen Sie einen großen Lauf in kleinere auf. Grappe macht einen Lauf nicht schneller: Es meldet den Fortschritt je Partition.\n\nF: Kann ich eine Sync-Operation rückgängig machen?\nA: Teilweise. Das Entfernen eines Laufs, aus seinen Ergebnissen oder seinem Verlaufseintrag, löscht, was er erstellt hat: die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo das Ziel keinen hatte, und seine Dateien. Die Datensätze, die er aktualisiert hat, behalten ihre neuen Werte. Erstellen Sie vor einem riskanten Lauf eine DataOps-Sicherung der Ziel-Org: Sie umfasst die Objekte, die die Anonymisierungsvorlagen maskieren, und lässt sich nur in diese Org zurückspielen.\n\nF: Wie verbinde ich eine Produktions-Org sicher?\nA: SandForge erkennt eine Produktions-Org und markiert sie mit der kritischen Sicherheitsstufe. Production Guard lehnt dort ein Löschen oder eine Metadaten-Bereitstellung von vornherein ab und lässt Sie jeden anderen Schreibvorgang bestätigen, bevor er läuft (sandforge.safety.requireProdConfirmation).",
     "faq": "FAQ",
     "shortcuts": "Tastenkürzel",
@@ -3691,7 +3695,9 @@
       "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)",
       "notMeasured": "Umfang noch nicht ermittelt",
       "showDetails": "Details zu {{object}} anzeigen",
-      "stopped": "Vor seinem Ende angehalten"
+      "stopped": "Vor seinem Ende angehalten",
+      "errors_one": "{{count}} Fehler",
+      "errors_other": "{{count}} Fehler"
     },
     "nodeStatus": {
       "idle": "Nicht gestartet",
@@ -3907,6 +3913,13 @@
       "field": "Feld",
       "values": "Werte",
       "rows": "Zeilen"
+    },
+    "phaseName": {
+      "input": "Was geklont wird",
+      "discovery": "Graph-Ermittlung",
+      "review": "Überprüfung",
+      "execution": "Ausführung",
+      "results": "Ergebnisse"
     }
   },
   "autopilot": {
@@ -4012,7 +4025,12 @@
         "zoomOut": "Verkleinern",
         "fitView": "An Ansicht anpassen",
         "minimap": "Minimap umschalten"
-      }
+      },
+      "nodeLabel": "{{object}}: {{status}}. Geschrieben: {{success}} von {{total}}",
+      "nodeFailed_one": "{{count}} Datensatz fehlgeschlagen",
+      "nodeFailed_other": "{{count}} Datensätze fehlgeschlagen",
+      "nodeKeys": "Drücken Sie die Eingabe- oder Leertaste, um die Details dieses Objekts anzuzeigen und es zum Überspringen auszuwählen. Esc hebt die Auswahl auf.",
+      "minimap": "Minimap"
     },
     "control": {
       "title": "Steuerung",
@@ -4047,7 +4065,8 @@
       "stoppedStatusesNotGivenBack_one": "{{object}}: {{count}} Datensatz bleibt ein Entwurf, ohne den Status, den er in der Quelle hatte.",
       "stoppedStatusesNotGivenBack_other": "{{object}}: {{count}} Datensätze bleiben Entwürfe, ohne den Status, den sie in der Quelle hatten.",
       "stoppedEmailsHeld_one": "{{count}} E-Mail zu einem Kundenvorgang wurde nie gesendet: Sie wartete darauf, dass ihre Aufgabe geschrieben wird, und der Lauf wurde vorher gestoppt.",
-      "stoppedEmailsHeld_other": "{{count}} E-Mails zu Kundenvorgängen wurden nie gesendet: Sie warteten darauf, dass ihre Aufgabe geschrieben wird, und der Lauf wurde vorher gestoppt."
+      "stoppedEmailsHeld_other": "{{count}} E-Mails zu Kundenvorgängen wurden nie gesendet: Sie warteten darauf, dass ihre Aufgabe geschrieben wird, und der Lauf wurde vorher gestoppt.",
+      "skipNamed": "{{object}} überspringen"
     },
     "report": {
       "title": "Compliance-Bericht",
@@ -4124,6 +4143,12 @@
       "importCount_other": "Bis zu {{count}} Orgs aus der Salesforce CLI importieren",
       "import": "Aus der Salesforce CLI importieren",
       "loginWeb": "Im Browser anmelden"
+    },
+    "orgStatus": {
+      "connected": "Verbunden",
+      "expired": "Sitzung abgelaufen",
+      "error": "Verbindungsfehler",
+      "refreshing": "Aktualisierung"
     }
   },
   "frozen": {
@@ -4550,7 +4575,11 @@
     "urgencySafe": "Unkritisch",
     "runFinished": "{{name}} abgeschlossen. Geschrieben: {{written}} von {{total}}.",
     "runStoppedWritten": "{{name}} vor dem Ende angehalten. Geschrieben: {{written}} von {{total}}.",
-    "runStopped": "{{name}} bei {{percent}} % angehalten."
+    "runStopped": "{{name}} bei {{percent}} % angehalten.",
+    "runOutcome": "{{outcome}}. Geschrieben: {{written}} von {{total}}.",
+    "logErrors_one": "{{count}} Fehler in den Protokollen. Zuletzt: {{latest}}",
+    "logErrors_other": "{{count}} Fehler in den Protokollen. Zuletzt: {{latest}}",
+    "toastShortcut": "Mit Alt+N erreichbar"
   },
   "errors": {
     "guideLink": "{{code}} im Forge-Leitfaden",

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { cn } from '../../theme';
 
 /** A single accordion section. */
@@ -21,8 +21,10 @@ const AccordionPanel: React.FC<{
   item: AccordionItem;
   isOpen: boolean;
   onToggle: () => void;
-  index: number;
-}> = ({ item, isOpen, onToggle, index }) => {
+  /** Ids of the header and of the panel it opens: unique on the page. */
+  headerId: string;
+  panelId: string;
+}> = ({ item, isOpen, onToggle, headerId, panelId }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | undefined>(undefined);
 
@@ -37,8 +39,8 @@ const AccordionPanel: React.FC<{
       <button
         type="button"
         aria-expanded={isOpen}
-        aria-controls={`accordion-panel-${index}`}
-        id={`accordion-header-${index}`}
+        aria-controls={panelId}
+        id={headerId}
         className={cn(
           'flex items-center justify-between w-full py-2.5 px-3 text-sm text-left font-medium',
           'text-(--vscode-editor-foreground,#d4d4d4)',
@@ -61,10 +63,15 @@ const AccordionPanel: React.FC<{
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+      {/* Closed, the panel is drawn at no height, and was still there for
+          the keyboard and a screen reader: Seed's collapsed Advanced settings
+          held a Tab stop per object. Inert from the moment it closes, and no
+          longer once it opens: the height still slides either way. */}
       <div
-        id={`accordion-panel-${index}`}
+        id={panelId}
         role="region"
-        aria-labelledby={`accordion-header-${index}`}
+        aria-labelledby={headerId}
+        inert={!isOpen}
         className="overflow-hidden transition-[max-height] duration-200 ease-in-out"
         style={{ maxHeight: isOpen ? height : 0 }}
       >
@@ -81,6 +88,10 @@ const AccordionPanel: React.FC<{
 
 /** Collapsible accordion sections with CSS transitions. */
 export const Accordion: React.FC<AccordionProps> = ({ items, single = false, className }) => {
+  // Ids by index alone were shared by two accordions on one page (Seed's
+  // configure step with more than 20 objects draws two), and each header
+  // pointed at the other's panel.
+  const idPrefix = useId();
   const [openIndices, setOpenIndices] = useState<Set<number>>(() => {
     const initial = new Set<number>();
     items.forEach((item, index) => {
@@ -116,7 +127,8 @@ export const Accordion: React.FC<AccordionProps> = ({ items, single = false, cla
         <AccordionPanel
           key={index}
           item={item}
-          index={index}
+          headerId={`${idPrefix}-header-${index}`}
+          panelId={`${idPrefix}-panel-${index}`}
           isOpen={openIndices.has(index)}
           onToggle={() => handleToggle(index)}
         />

@@ -5,6 +5,7 @@ import type { PersonaMsg } from '@sandforge/shared';
 import { DataTable } from '../../../components/ui/DataTable';
 import type { DataTableColumn } from '../../../components/ui/DataTable';
 import { personaName } from './personaText';
+import { useFocusTrap } from '../../../hooks/useFocusTrap';
 
 /** Props for the PersonaPreviewPopover component. */
 export interface PersonaPreviewPopoverProps {
@@ -20,6 +21,11 @@ export interface PersonaPreviewPopoverProps {
  * An absolutely positioned popover that displays a DataTable with
  * 5 sample records generated from a persona's data patterns.
  * Closes on outside click or Escape key.
+ *
+ * A modal over the gallery, which its backdrop dims: it takes the focus on
+ * its close button, keeps Tab inside it, and gives the focus back to the
+ * preview button that opened it. It took none of that: a screen reader was
+ * not told it opened, and Tab walked the gallery behind it.
  */
 export const PersonaPreviewPopover: React.FC<PersonaPreviewPopoverProps> = ({
   persona,
@@ -39,24 +45,15 @@ export const PersonaPreviewPopover: React.FC<PersonaPreviewPopoverProps> = ({
     [onClose],
   );
 
-  /** Close on Escape key. */
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    },
-    [onClose],
-  );
+  // Escape is the trap's.
+  useFocusTrap(popoverRef, onClose, { initialFocus: '[data-testid="preview-close-btn"]' });
 
   useEffect(() => {
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleClickOutside, handleKeyDown]);
+  }, [handleClickOutside]);
 
   const fieldNames = Object.keys(persona.dataPatterns);
 
@@ -72,7 +69,9 @@ export const PersonaPreviewPopover: React.FC<PersonaPreviewPopoverProps> = ({
       className="absolute z-50 max-w-[400px] rounded-sm border shadow-lg bg-(--sf-bg-card) border-(--sf-border-subtle) text-(--sf-text-primary)"
       data-testid="persona-preview-popover"
       role="dialog"
+      aria-modal="true"
       aria-label={t('seed.persona.preview.title')}
+      tabIndex={-1}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-(--sf-border-subtle)">

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
@@ -40,7 +40,14 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
   onTargetSelect,
 }) => {
   const { t } = useTranslation();
+  const idBase = useId();
 
+  /*
+   * Which org is picked, and which is connected, were told by a tint and a
+   * dot: a screen reader heard two identical lists of org names, and could
+   * not tell which org would be written to. Each list is a group named by its
+   * label, each org a button pressed when picked, its status said.
+   */
   const renderOrgSelector = (
     label: string,
     selectedId: string,
@@ -49,8 +56,17 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
     testIdPrefix: string,
   ): React.ReactNode => (
     <div className="flex flex-col gap-(--sf-space-2)" data-testid={`${testIdPrefix}-selector`}>
-      <span className="text-sm font-medium text-text-primary">{label}</span>
-      <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
+      <span
+        id={`${idBase}-${testIdPrefix}-label`}
+        className="text-sm font-medium text-text-primary"
+      >
+        {label}
+      </span>
+      <div
+        role="group"
+        aria-labelledby={`${idBase}-${testIdPrefix}-label`}
+        className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto"
+      >
         {orgs.map((org) => {
           const isSelected = org.id === selectedId;
           const isDisabled = org.id === disabledId;
@@ -68,9 +84,11 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
               )}
               onClick={() => !isDisabled && onSelect(org.id)}
               disabled={isDisabled}
+              aria-pressed={isSelected}
               data-testid={`${testIdPrefix}-org-${org.id}`}
             >
               <div
+                aria-hidden="true"
                 className={cn(
                   'w-2.5 h-2.5 rounded-full shrink-0',
                   org.status === 'connected' ? 'bg-status-success' : 'bg-text-secondary',
@@ -79,6 +97,9 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
               <div className="flex flex-col min-w-0">
                 <span className="text-sm font-medium text-text-primary truncate">
                   {org.alias || org.username}
+                </span>
+                <span className="sr-only">
+                  {t('a11y.orgStatus', { status: t(`org.status_${org.status}`) })}
                 </span>
                 <span className="text-xs text-text-primary truncate">{org.instanceUrl}</span>
               </div>

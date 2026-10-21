@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '../../theme';
@@ -66,7 +66,14 @@ const StatusDot: React.FC<{ status: string; testId?: string }> = ({ status, test
 /**
  * Custom styled dropdown for org selection.
  * Shows the selected org with status dot, alias, and username.
- * Opens a dropdown list on click with keyboard and click-outside support.
+ *
+ * A disclosure: the trigger opens a panel of buttons, one per org, the
+ * current one marked `aria-current`. It announced a listbox it was not,
+ * without a listbox's keys; a pick unmounted the focused option and the focus
+ * fell to the top of the panel, and tabbing out left the panel open over the
+ * fields below. Now the arrows, Home and End walk the options, a pick or
+ * Escape hands the focus back to the trigger, and the panel closes when the
+ * focus leaves it.
  */
 export const OrgDropdown: React.FC<OrgDropdownProps> = ({
   value,
@@ -79,6 +86,9 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
 
   const selectedOrg = orgs.find((o) => o.id === value);
 
@@ -101,30 +111,78 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  /** Close dropdown on Escape key. */
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape' && open) {
-        setOpen(false);
-      }
-    },
-    [open],
-  );
+  /** The options drawn in the panel, in order. */
+  const options = (): HTMLButtonElement[] =>
+    Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? []);
 
-  /** Select an org and close. */
+  /** Open the panel and put the focus on the current org, or the first option. */
+  const openOnOption = (): void => {
+    setOpen(true);
+    requestAnimationFrame(() => {
+      // A key pressed in the meantime has moved the focus already.
+      if (document.activeElement !== triggerRef.current) return;
+      const all = options();
+      (all.find((option) => option.getAttribute('aria-current') === 'true') ?? all[0])?.focus();
+    });
+  };
+
+  /** Escape closes and hands the focus back; the arrows, Home and End walk the options. */
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Escape' && open) {
+      e.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    if (!open) {
+      if (e.target === triggerRef.current && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        e.preventDefault();
+        openOnOption();
+      }
+      return;
+    }
+    const all = options();
+    if (all.length === 0) return;
+    e.preventDefault();
+    const at = all.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? all.length - 1
+          : e.key === 'ArrowDown'
+            ? (at + 1) % all.length
+            : (at - 1 + all.length) % all.length;
+    all[next]?.focus();
+  };
+
+  /** Close once the focus has left the dropdown, by Tab or otherwise. */
+  const handleBlur = (e: React.FocusEvent): void => {
+    if (open && !containerRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+  };
+
+  /** Select an org, close, and hand the focus back to the trigger the option leaves for. */
   const handleSelect = useCallback(
     (orgId: string) => {
       onChange(orgId);
       setOpen(false);
+      triggerRef.current?.focus();
     },
     [onChange],
   );
 
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- a keyboard-only listener on a wrapper whose children are real buttons: it delegates Escape and the arrows to them, and adds no mouse behaviour of its own.
-    <div ref={containerRef} className={cn('relative', className)} onKeyDown={handleKeyDown}>
+    <div
+      ref={containerRef}
+      className={cn('relative', className)}
+      onKeyDown={handleKeyDown}
+      onBlur={handleBlur}
+    >
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         type="button"
         data-testid={testId}
         aria-label={
@@ -137,7 +195,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
             : ariaLabel
         }
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-controls={open ? panelId : undefined}
         onClick={() => setOpen(!open)}
         className={cn(
           'w-full flex items-center gap-2 text-sm font-semibold cursor-pointer',
@@ -158,6 +216,8 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
       {/* Dropdown panel */}
       {open && (
         <div
+          ref={panelRef}
+          id={panelId}
           className={cn(
             'absolute z-50 top-full left-0 right-0 mt-1',
             'rounded-md border border-subtle bg-surface-1 shadow-lg',
@@ -179,6 +239,8 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
               key={org.id}
               type="button"
               data-testid={`${testId}-option-${org.id}`}
+              // The current org, said as well as tinted.
+              aria-current={org.id === value ? 'true' : undefined}
               onClick={() => handleSelect(org.id)}
               className={cn(
                 'w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors',

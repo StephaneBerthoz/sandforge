@@ -706,7 +706,9 @@ export const OrgManagerPage: React.FC = () => {
         <div className="flex items-center gap-3 px-4 py-3">
           <Plug className="w-5 h-5 text-text-secondary shrink-0" />
           <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-semibold text-text-primary">{t('org.title')}</h1>
+            <h1 tabIndex={-1} className="text-sm font-semibold text-text-primary">
+              {t('org.title')}
+            </h1>
             <p className="text-xs text-text-secondary mt-0.5">
               {orgs.length > 0
                 ? t('org.bannerConnected', { count: connectedOrgs.length, total: orgs.length })

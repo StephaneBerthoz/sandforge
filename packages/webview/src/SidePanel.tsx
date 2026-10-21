@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { syncLanguageFromSettings } from './i18n';
 import {
@@ -342,6 +342,9 @@ export const SidePanel: React.FC = () => {
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
   const selectedOrg = orgs.find((o) => o.id === selectedOrgId);
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
+  /** The switcher's trigger: the focus comes back to it once the list closes under it. */
+  const orgTriggerRef = useRef<HTMLButtonElement>(null);
+  const orgSwitcherRef = useRef<HTMLDivElement>(null);
   /**
    * Whether the extension has answered with the org list yet.
    *
@@ -403,18 +406,29 @@ export const SidePanel: React.FC = () => {
   useEffect(() => {
     if (!orgDropdownOpen) return;
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOrgDropdownOpen(false);
+      if (e.key !== 'Escape') return;
+      setOrgDropdownOpen(false);
+      // Closed from inside the list, the focus would fall with it.
+      if (document.activeElement?.closest('[data-org-switcher]')) orgTriggerRef.current?.focus();
     };
     const onPointerDown = (e: MouseEvent): void => {
       const target = e.target as HTMLElement | null;
       if (target?.closest('[data-org-switcher]')) return;
       setOrgDropdownOpen(false);
     };
+    // Tabbing out left the list open over the launcher: it closes once the
+    // focus has left the switcher.
+    const switcher = orgSwitcherRef.current;
+    const onFocusOut = (e: FocusEvent): void => {
+      if (!switcher?.contains(e.relatedTarget as Node | null)) setOrgDropdownOpen(false);
+    };
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('mousedown', onPointerDown);
+    switcher?.addEventListener('focusout', onFocusOut);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('mousedown', onPointerDown);
+      switcher?.removeEventListener('focusout', onFocusOut);
     };
   }, [orgDropdownOpen]);
 
@@ -546,8 +560,9 @@ export const SidePanel: React.FC = () => {
       </div>
 
       {/* Org Switcher */}
-      <div className="px-3 pt-3 relative" data-org-switcher>
+      <div ref={orgSwitcherRef} className="px-3 pt-3 relative" data-org-switcher>
         <button
+          ref={orgTriggerRef}
           className={cn(
             'w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5',
             'bg-surface-1 border border-subtle',
@@ -558,7 +573,7 @@ export const SidePanel: React.FC = () => {
           )}
           onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
           aria-expanded={orgDropdownOpen}
-          aria-haspopup="listbox"
+          aria-controls={orgDropdownOpen ? 'sidepanel-org-dropdown' : undefined}
           data-testid="sidepanel-org"
         >
           <span
@@ -585,6 +600,10 @@ export const SidePanel: React.FC = () => {
                     ? t('sidePanel.selectOrg', 'Select an org')
                     : t('sidePanel.noOrg', 'No org connected')}
             </span>
+            {/* Its connection, said: the dot's colour told it alone. */}
+            {selectedOrg && (
+              <span className="sr-only">{t(`sidePanel.orgStatus.${selectedOrg.status}`)}</span>
+            )}
           </div>
           {selectedOrg && (
             <span
@@ -607,6 +626,7 @@ export const SidePanel: React.FC = () => {
         {/* Org dropdown */}
         {orgDropdownOpen && (
           <div
+            id="sidepanel-org-dropdown"
             className="absolute left-3 right-3 top-full mt-1 z-50 rounded-lg bg-surface-1 border border-subtle shadow-lg overflow-hidden"
             data-testid="sidepanel-org-dropdown"
           >
@@ -630,14 +650,18 @@ export const SidePanel: React.FC = () => {
                         onClick={() => {
                           selectOrg(org.id);
                           setOrgDropdownOpen(false);
+                          // The option goes with the list: the focus goes back to the trigger.
+                          orgTriggerRef.current?.focus();
                           vscodeApi.postMessage({
                             type: 'sidebar:selectOrg',
                             payload: { orgId: org.id },
                           });
                         }}
+                        aria-current={org.id === selectedOrgId ? 'true' : undefined}
                         data-testid={`sidepanel-org-option-${org.id}`}
                       >
                         <span
+                          aria-hidden="true"
                           className={cn(
                             'h-1.5 w-1.5 rounded-full shrink-0',
                             isOrgConnected ? 'bg-status-success' : 'bg-text-secondary',
@@ -645,6 +669,7 @@ export const SidePanel: React.FC = () => {
                         />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{org.alias || org.username}</div>
+                          <span className="sr-only">{t(`sidePanel.orgStatus.${org.status}`)}</span>
                           <div className="text-[10px] text-text-secondary truncate">
                             {org.username}
                           </div>
