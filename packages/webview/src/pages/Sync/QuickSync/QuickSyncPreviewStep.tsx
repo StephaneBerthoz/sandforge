@@ -11,6 +11,7 @@ import { RecordErrorGroups } from '../../../components/ui/RecordErrorGroups';
 import { SyncPricebookLine } from '../SyncPricebookLine';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
+import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
 
 /** Props for the QuickSyncPreviewStep component. */
 export interface QuickSyncPreviewStepProps {
@@ -28,6 +29,9 @@ export interface QuickSyncPreviewStepProps {
   onReset: () => void;
   /** Callback to go back to previous step. */
   onBack: () => void;
+  /** The orgs the sync goes between: what the last run between them left in the target is said. */
+  sourceOrgId?: string;
+  targetOrgId?: string;
 }
 
 const statusVariant: Record<string, BadgeVariant> = {
@@ -52,6 +56,8 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   onExecute,
   onReset,
   onBack,
+  sourceOrgId = '',
+  targetOrgId = '',
 }) => {
   const { t } = useTranslation();
 
@@ -204,6 +210,19 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             ))}
           </div>
         </>
+      )}
+
+      {/* Quick Sync inserts every record, every time: what the last run
+          between these orgs created that is still in the target is said
+          before it inserts it again. */}
+      {preview && (
+        <SyncEarlierCopiesNotice
+          sourceOrgId={sourceOrgId}
+          targetOrgId={targetOrgId}
+          objects={preview.objects.map((obj) => obj.objectApiName)}
+          context="quickSync"
+          testId="quick-sync-earlier-copies"
+        />
       )}
 
       {/* Navigation */}

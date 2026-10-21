@@ -521,6 +521,27 @@ describe('the connection errors a panel words by their code', () => {
     expect(panelWordingOf(null)).toBeUndefined();
   });
 
+  it("words a Sync run its write gate refused before its first write in place of the host's English", () => {
+    expect(panelWordingOf('SYNC_STORAGE_EXCEEDED')).toEqual({
+      explanationKey: 'errors.syncStorageExceeded.explanation',
+      actionKey: 'errors.syncStorageExceeded.action',
+    });
+    expect(panelWordingOf('SYNC_EMAILS_EXCEEDED')?.explanationKey).toBe(
+      'errors.syncEmailsExceeded.explanation',
+    );
+    expect(panelWordingOf('SYNC_WRITE_DECLINED')?.actionKey).toBe(
+      'errors.syncWriteDeclined.action',
+    );
+    expect(panelWordingOf('SYNC_CONFIRMATION_UNAVAILABLE')?.explanationKey).toBe(
+      'errors.syncConfirmationUnavailable.explanation',
+    );
+    expect(panelWordingOf('SYNC_EARLIER_UNREAD')?.explanationKey).toBe(
+      'errors.syncEarlierUnread.explanation',
+    );
+    // Its own codes: no search of Salesforce Help is linked for them.
+    expect(translateError('', { code: 'SYNC_STORAGE_EXCEEDED' })?.docUrl).toBeUndefined();
+  });
+
   it('says no hint under a banner whose message the panel already worded by that code', () => {
     expect(bannerHintOf('The session with this org has expired.', 'ORG_AUTH_EXPIRED')).toBeNull();
     // Forge shows the host's message as it came: the hint says it there.

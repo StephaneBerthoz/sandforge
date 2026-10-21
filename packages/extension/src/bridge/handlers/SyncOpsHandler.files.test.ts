@@ -122,6 +122,11 @@ function mockOrgs() {
     const source = orgId === 'src-org';
     const query = vi.fn(async (soql: string) => {
       asked[orgId].push(soql);
+      // What the run counts before its first write: its one account, no
+      // person account among them.
+      if (source && soql.startsWith('SELECT COUNT() FROM Account')) {
+        return { done: true, totalSize: soql.includes('IsPersonAccount') ? 0 : 1, records: [] };
+      }
       if (source && soql.startsWith('SELECT FIELDS(ALL) FROM Account')) {
         return {
           done: true,
@@ -166,7 +171,12 @@ function mockOrgs() {
         url: req.url,
         ...(req.body ? { body: JSON.parse(req.body) } : {}),
       });
-      if (req.url === '/limits') return { FileStorageMB: { Max: 20, Remaining: 20 } };
+      if (req.url === '/limits') {
+        return {
+          FileStorageMB: { Max: 20, Remaining: 20 },
+          DataStorageMB: { Max: 5, Remaining: 4 },
+        };
+      }
       if (req.method === 'GET' && req.url.endsWith('/VersionData')) return CONTENT;
       if (req.method === 'POST') return { id: TARGET_VERSION, success: true, errors: [] };
       throw new Error(`unexpected request ${req.method} ${req.url}`);
@@ -189,6 +199,18 @@ function mockOrgs() {
   });
   return { asked, requests };
 }
+
+/** A target whose automation runs nothing on the objects written. */
+const QUIET_TARGET = {
+  read: async () => ({
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  }),
+};
 
 function posted(deps: HandlerDeps, type: string): Array<BaseMessage & { payload: unknown }> {
   return vi
@@ -213,6 +235,7 @@ describe('a saved configuration that copies files', () => {
     clearDescribeCache();
     deps = createDeps();
     handler = new SyncOpsHandler(deps);
+    handler.setTargetAutomation(QUIET_TARGET);
     store = new SyncConfigStore(deps.configStore);
     store.save(savedConfig());
   });
@@ -228,7 +251,9 @@ describe('a saved configuration that copies files', () => {
     expect(result.objectResults[0].files).toMatchObject({ copied: 1, bytes: 10 });
     // The ids of the records the read returns, asked for alone with the same filter.
     expect(orgs.asked['src-org']).toContain('SELECT Id FROM Account');
+    // The target's file storage, then its data storage, read before the first write.
     expect(orgs.requests).toEqual([
+      { orgId: 'tgt-org', method: 'GET', url: '/limits' },
       { orgId: 'tgt-org', method: 'GET', url: '/limits' },
       { orgId: 'src-org', method: 'GET', url: `/sobjects/ContentVersion/${VERSION}/VersionData` },
       {
@@ -265,7 +290,11 @@ describe('a saved configuration that copies files', () => {
     const simulation = response.payload as SyncSimulationResult;
     expect(simulation.objects[0].files).toMatchObject({ copied: 1, bytes: 10 });
     expect(simulation.files).toEqual({ remainingBytes: 20 * 1_048_576, plannedBytes: 10 });
-    expect(orgs.requests).toEqual([{ orgId: 'tgt-org', method: 'GET', url: '/limits' }]);
+    // Its file storage and its data storage, read as the run reads them.
+    expect(orgs.requests).toEqual([
+      { orgId: 'tgt-org', method: 'GET', url: '/limits' },
+      { orgId: 'tgt-org', method: 'GET', url: '/limits' },
+    ]);
     expect(store.loadFiles('cfg-files')).toEqual({ kind: 'none' });
   });
 

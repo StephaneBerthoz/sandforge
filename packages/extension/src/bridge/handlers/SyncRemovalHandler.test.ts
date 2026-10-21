@@ -435,4 +435,49 @@ describe('SyncRemovalHandler', () => {
       expect(org.all('Account')).toEqual([]);
     });
   });
+  describe('sync:earlier-copies', () => {
+    const copies = () =>
+      posted<BaseMessage & { payload: { copies: unknown } }>('sync:earlier-copies:response')[0]
+        ?.payload.copies;
+
+    it('counts what the last run between the two orgs created that the target still holds', async () => {
+      const query = vi.fn(async (soql: string) => ({
+        totalSize: soql.includes(A1) && soql.includes(A2) ? 1 : 0,
+      }));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({ query } as never);
+
+      await handler.handle(
+        buildMsg('sync:earlier-copies', {
+          sourceOrgId: 'org-source',
+          targetOrgId: TARGET,
+          objects: ['Account'],
+        }),
+      );
+
+      expect(copies()).toEqual({
+        leftAsIs: false,
+        run: expect.objectContaining({ runId: 'run-1', configName: 'Accounts' }),
+        objects: [{ objectApiName: 'Account', count: 1 }],
+      });
+      expect(query).toHaveBeenCalledWith(
+        `SELECT COUNT() FROM Account WHERE Id IN ('${A2}', '${A1}')`,
+      );
+    });
+
+    it('says a run of a saved configuration leaves what earlier runs of it copied as it is', async () => {
+      new SyncConfigStore(store).save(deltaConfig());
+
+      await handler.handle(
+        buildMsg('sync:earlier-copies', {
+          sourceOrgId: 'org-source',
+          targetOrgId: TARGET,
+          objects: ['Account'],
+          configId: 'cfg-1',
+        }),
+      );
+
+      expect(copies()).toEqual({ leftAsIs: true, objects: [] });
+    });
+  });
 });

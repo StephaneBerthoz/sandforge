@@ -158,10 +158,16 @@ const savedConfigList = vi.hoisted(() => ({
   value: [] as Array<{ id: string; name: string; description: string; updatedAt: string }>,
 }));
 
+/** What `sync:write-order` answers: the order a run writes the objects in. */
+const writeOrderAnswer = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'sync:describe-global') {
       return mockObjectsQueryState;
+    }
+    if (type === 'sync:write-order') {
+      return { data: writeOrderAnswer.value, loading: false, error: null, refetch: vi.fn() };
     }
     if (type === 'sync:config:list') {
       return {
@@ -1053,6 +1059,59 @@ describe('SyncPage', () => {
     });
   });
 
+  it('says on the results what an object left as an earlier run of the configuration copied it', () => {
+    draft.value = {
+      currentStep: 5,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          externalIdField: '',
+          batchSize: 200,
+          where: '',
+        },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    mockExecuteMutationState.data = {
+      configId: 'cfg',
+      operationId: 'op',
+      status: 'success',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          processed: 1,
+          success: 1,
+          failed: 0,
+          skipped: 2,
+          conflictCount: 0,
+          errors: [],
+          alreadyCopied: 2,
+        },
+      ],
+      totalProcessed: 1,
+      totalSuccess: 1,
+      totalFailed: 0,
+      totalSkipped: 2,
+      duration: 1,
+      timestamp: '2026-10-21T10:00:01.000Z',
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    expect(screen.getByTestId('sync-result-copied-Account').textContent).toBe(
+      '2 records already copied by an earlier run of this configuration, left as they were.',
+    );
+    mockExecuteMutationState.data = null;
+  });
+
   it('should show 6 step indicators', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
@@ -1225,6 +1284,53 @@ describe('SyncPage', () => {
       'newest_wins',
       'merge',
     ]);
+  });
+
+  it('lists on Review what each object does, in the order the run writes them', () => {
+    draft.value = {
+      currentStep: 3,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Case',
+          operation: 'insert',
+          externalIdField: '',
+          batchSize: 200,
+          where: '',
+        },
+        {
+          objectApiName: 'Contact',
+          operation: 'insert',
+          externalIdField: '',
+          batchSize: 200,
+          where: '',
+        },
+      ],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    writeOrderAnswer.value = {
+      order: {
+        objects: ['Contact', 'Case'],
+        moved: [{ objectApiName: 'Case', after: 'Contact', field: 'ContactId' }],
+        cycles: [],
+      },
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const objects = within(screen.getByTestId('sync-review-objects')).getAllByRole('listitem');
+    expect(objects.map((li) => li.getAttribute('data-testid'))).toEqual([
+      'sync-review-object-Contact',
+      'sync-review-object-Case',
+    ]);
+    expect(objects[1].textContent).toContain('Written after Contact, which its ContactId names.');
+    expect(screen.getByTestId('sync-review-inserts').textContent).toContain('Not saved');
+    writeOrderAnswer.value = null;
   });
 
   it('saves the reviewed configuration under the two orgs it runs between', () => {

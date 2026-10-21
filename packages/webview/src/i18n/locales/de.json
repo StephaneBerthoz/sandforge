@@ -1039,6 +1039,19 @@
     "transforms": "Transformationen",
     "review": "Überprüfen",
     "reviewDesc": "Sync-Konfiguration vor Ausführung überprüfen",
+    "reviewObjects": {
+      "title": "Was jedes Objekt tut, in der Reihenfolge, in der der Lauf sie schreibt",
+      "insert": "Einfügen: Jeder gelesene Datensatz wird im Ziel angelegt.",
+      "upsert": "Upsert über {{key}}: Ein darüber gefundener Datensatz wird aktualisiert, jeder andere angelegt.",
+      "update": "Aktualisieren per Id: Der Datensatz des Ziels mit der Id des Quelldatensatzes wird überschrieben.",
+      "delete": "Löschen per Id: Der Datensatz des Ziels mit der Id des Quelldatensatzes wird gelöscht.",
+      "after": "Nach {{parent}} geschrieben, worauf sein Feld {{field}} verweist.",
+      "cycle": "{{objects}} verweisen aufeinander: Sie werden in dieser Reihenfolge geschrieben, und das Lookup-Feld auf das später geschriebene bleibt leer.",
+      "orderLoading": "Die Lookup-Felder jedes Objekts werden in der Ziel-Org gelesen…",
+      "orderUnread": "Die Reihenfolge konnte nicht aus der Ziel-Org gelesen werden: Der Lauf berechnet sie vor dem Schreiben erneut.",
+      "insertsSaved": "Gespeichert: Jeder Lauf dieser Konfiguration lässt die Datensätze, die ein früherer Lauf kopiert hat, wie sie sind, und fügt die anderen ein.",
+      "insertsUnsaved": "Nicht gespeichert: Jeder Lauf fügt jeden gelesenen Datensatz erneut ein. Speichern Sie die Konfiguration, dann lassen ihre Läufe, was ein früherer Lauf kopiert hat, wie es ist."
+    },
     "configSaved": "Konfiguration gespeichert. Ein Zeitplan kann sie jetzt ausführen.",
     "execute": "Ausführen",
     "executeDesc": "Synchronisierungsoperation starten",
@@ -1108,6 +1121,8 @@
     "totalSuccess": "Gesamt erfolgreich",
     "totalFailed": "Gesamt fehlgeschlagen",
     "totalSkipped": "Gesamt übersprungen",
+    "alreadyCopied_one": "{{count}} Datensatz, bereits von einem früheren Lauf dieser Konfiguration kopiert, blieb, wie er war.",
+    "alreadyCopied_other": "{{count}} Datensätze, bereits von einem früheren Lauf dieser Konfiguration kopiert, blieben, wie sie waren.",
     "running": "Synchronisierung läuft...",
     "complete": "Sync abgeschlossen",
     "partial": "Teilweise abgeschlossen",
@@ -1366,7 +1381,37 @@
       "validationRules_other": "{{count}} aktive Validierungsregeln des Ziels, die eine Simulation nicht auswerten kann: Ein Datensatz, den eine von ihnen ablehnt, wird als geschrieben gezählt.",
       "validationRulesUnread": "Die Validierungsregeln des Ziels konnten nicht aufgelistet werden ({{reason}}): Jede von ihnen kann einen als geschrieben gezählten Datensatz ablehnen.",
       "stoppedAt": "Die Simulation hat bei {{object}} angehalten: {{error}}. Ein Lauf würde dort ebenfalls anhalten.",
-      "runNow": "Synchronisierung jetzt starten"
+      "runNow": "Synchronisierung jetzt starten",
+      "alreadyCopied_one": "{{count}} bereits von einem früheren Lauf dieser Konfiguration kopiert, bleibt, wie er ist.",
+      "alreadyCopied_other": "{{count}} bereits von einem früheren Lauf dieser Konfiguration kopiert, bleiben, wie sie sind."
+    },
+    "writeCheck": {
+      "title": "Bevor der Lauf schreibt",
+      "order": "In dieser Reihenfolge geschrieben: {{objects}}.",
+      "records_one": "{{count}} Datensatz zu schreiben",
+      "records_other": "{{count}} Datensätze zu schreiben",
+      "alreadyCopied_one": "Nicht gezählt: {{count}} Datensatz, den ein früherer Lauf dieser Konfiguration kopiert hat, noch im Ziel, bleibt, wie er ist.",
+      "alreadyCopied_other": "Nicht gezählt: {{count}} Datensätze, die ein früherer Lauf dieser Konfiguration kopiert hat, noch im Ziel, bleiben, wie sie sind.",
+      "storage": {
+        "fits": "Datenspeicher: etwa {{estimate}} MB, von den {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",
+        "near": "Datenspeicher: etwa {{estimate}} MB, mehr als 80 % der {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",
+        "exceeds": "Datenspeicher: etwa {{estimate}} MB, mehr als die {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",
+        "unread": "Datenspeicher: etwa {{estimate}} MB. Was der Ziel-Org bleibt, konnte nicht gelesen werden ({{reason}})."
+      },
+      "emails": {
+        "fits": "{{limit}}: etwa {{emails}}, die die Automatisierung der Ziel-Org beim Einfügen dieser Datensätze sendet, {{remaining}} von {{max}} heute übrig.",
+        "exceeds": "{{limit}}: etwa {{emails}}, die die Automatisierung der Ziel-Org beim Einfügen dieser Datensätze sendet, mehr als die {{remaining}} von {{max}}, die heute übrig sind. Darüber hinaus wird ein Datensatz abgelehnt, dessen Flow beim Speichern fehlschlägt.",
+        "unread": "{{limit}}: etwa {{emails}}, die die Automatisierung der Ziel-Org beim Einfügen dieser Datensätze sendet. Was heute übrig ist, konnte nicht gelesen werden ({{reason}}).",
+        "alertsCounted": "Die Ziel-Org zählt ihre E-Mail-Benachrichtigungen zu ihren Einzel-E-Mails, wie eine Developer Edition: Sie sind darunter."
+      },
+      "emailsUnread": "Die Automatisierung der Ziel-Org konnte nicht gelesen werden ({{reason}}): Ihre E-Mails werden nicht gezählt.",
+      "aboveRecords": "Mehr als {{threshold}} Datensätze, ab denen die Einstellung sandforge.safety.confirmAboveRecords nachfragt.",
+      "verdict": {
+        "writes": "Der Lauf schreibt, ohne zu fragen.",
+        "asks": "Der Lauf fragt Sie, bevor er schreibt.",
+        "refused": "Der Lauf wird abgelehnt, bevor er etwas schreibt."
+      },
+      "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können."
     },
     "runControls": {
       "pause": "Pausieren",
@@ -1493,6 +1538,12 @@
       "unfinishedTitle": "Nie beendete Läufe",
       "unfinishedNote": "Während dieser Läufe wurde ein Fenster geschlossen, oder der Verlauf führt sie nicht mehr. Was sie erstellt haben, wird aufbewahrt und kann entfernt werden.",
       "unfinishedRun": "{{config}}, gestartet am {{date}}"
+    },
+    "earlierCopies": {
+      "leftAsIs": "Ein Lauf dieser gespeicherten Konfiguration lässt die Datensätze, die ihre früheren Läufe kopiert haben, wie sie sind, und fügt die anderen ein.",
+      "quickSync": "Die letzte Synchronisierung zwischen diesen Orgs am {{date}} hat Datensätze angelegt, die noch im Ziel sind: {{objects}}. Schnell-Sync fügt jeden Datensatz erneut ein: Entfernen Sie diesen Lauf zuerst aus dem Sync-Verlauf, damit keine zweite Kopie entsteht.",
+      "runAgain": "Die letzte Synchronisierung zwischen diesen Orgs am {{date}} hat Datensätze angelegt, die noch im Ziel sind: {{objects}}. Erneut ausführen fügt jeden Datensatz erneut ein: Entfernen Sie diesen Lauf zuerst, damit keine zweite Kopie entsteht.",
+      "unread": "Gezählt nach dem, was dieser Lauf aufbewahrt hat: Die Ziel-Org konnte nicht gefragt werden ({{reason}})."
     },
     "noCustomMapping": "Keine eigene Zuordnung: Felder mit demselben API-Namen werden kopiert."
   },
@@ -4838,6 +4889,26 @@
     "abortedBeforeStart": {
       "explanation": "Sie haben den Lauf gestoppt, bevor er begann. Es wurde nichts geschrieben.",
       "action": "Starten Sie ihn erneut aus der Überprüfung, wenn Sie bereit sind."
+    },
+    "syncStorageExceeded": {
+      "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze brauchen mehr Datenspeicher, als in der Ziel-Org übrig ist.",
+      "action": "Simulieren Sie sie, um die Zahlen zu sehen, und lassen Sie dann Objekte weg, grenzen Sie ihre Filter ein oder geben Sie Datenspeicher in der Ziel-Org frei."
+    },
+    "syncEmailsExceeded": {
+      "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze würden die Automatisierung der Ziel-Org mehr E-Mails senden lassen, als ihr heute bleiben, und jeder Datensatz darüber hinaus würde abgelehnt.",
+      "action": "Simulieren Sie sie, um die Zahlen zu sehen, und geben Sie dann dem ausführenden Benutzer eine Umgehung, die diese Flows stumm hält, schreiben Sie weniger Datensätze oder führen Sie sie morgen erneut aus."
+    },
+    "syncWriteDeclined": {
+      "explanation": "Sie haben die Synchronisierung abgebrochen, bevor sie etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",
+      "action": "Simulieren Sie sie, um zu sehen, was sie schreiben würde, und führen Sie sie erneut aus, wenn Sie bereit sind."
+    },
+    "syncConfirmationUnavailable": {
+      "explanation": "Die Synchronisierung wurde angehalten, bevor sie etwas geschrieben hat: Sie brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
+      "action": "Starten Sie sie auf der Sync-Seite, wo Sie sie bestätigen können."
+    },
+    "syncEarlierUnread": {
+      "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Was frühere Läufe dieser Konfiguration kopiert haben, konnte nicht gelesen werden, und ihre Einfügungen würden diese Datensätze ein zweites Mal kopieren.",
+      "action": "Prüfen Sie, ob SandForge seinen Speicherordner lesen kann, und führen Sie sie dann erneut aus."
     }
   },
   "moduleSummary": {

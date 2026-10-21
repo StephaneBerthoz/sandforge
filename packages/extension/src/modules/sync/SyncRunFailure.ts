@@ -26,3 +26,20 @@ export class SyncRunFailure extends Error {
     this.name = 'SyncRunFailure';
   }
 }
+
+/**
+ * A sync run refused before its first write, by the code the page words the
+ * refusal with: its write gate's (`SyncRunGate`), or the refusal of an
+ * insert that could not tell what earlier runs of its configuration copied.
+ * Nothing was written; the handler records it as stopped, never as a run.
+ */
+export class SyncRunRefused extends SyncRunFailure {
+  constructor(
+    message: string,
+    result: SyncExecutionResult,
+    readonly code: string,
+  ) {
+    super(message, result);
+    this.name = 'SyncRunRefused';
+  }
+}

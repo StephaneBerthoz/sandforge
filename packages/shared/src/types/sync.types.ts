@@ -475,6 +475,92 @@ export interface SyncObjectResult {
    * and history. Absent when the run wrote no price book of its own.
    */
   standardPricebookMatched?: true;
+  /**
+   * Of the records an insert of a saved configuration read, those an earlier
+   * run of it copied whose copy is still in the target: left as they are,
+   * not inserted a second time, and counted among `skipped`. Absent when none.
+   */
+  alreadyCopied?: number;
+}
+
+/**
+ * An object a run writes later than its configuration lists it: after the
+ * parent one of its lookups names, which the run writes first so that the
+ * lookup names the parent's copy rather than an id the target does not hold.
+ */
+export interface SyncWriteOrderMove {
+  objectApiName: ApiName;
+  /** The object written before it, which `field` names. */
+  after: ApiName;
+  /** The lookup of `objectApiName` at `after`. */
+  field: string;
+}
+
+/**
+ * The order a run writes its objects in, computed from the target's describe
+ * of each before the first write: every parent a lookup names before the
+ * object holding the lookup, the configuration's order kept otherwise.
+ */
+export interface SyncWriteOrder {
+  /** Every object of the run, in the order it writes them. */
+  objects: ApiName[];
+  /** The objects written later than the configuration lists them, and the lookup why. */
+  moved: SyncWriteOrderMove[];
+  /**
+   * Objects whose lookups name each other, which no order puts each after
+   * the other: written in the configuration's order, the lookup at the one
+   * written later is left empty. Empty when there are none.
+   */
+  cycles: ApiName[][];
+}
+
+/**
+ * What a run is held to before its first write, as the run and a simulation
+ * of it measure it: the records it writes, counted object by object under
+ * each filter, the data storage they take against what the target has left,
+ * and the daily emails the target's automation sends as they go in, as
+ * Forge, Seed and Autopilot hold their runs.
+ */
+export interface SyncWriteCheck {
+  /** Records the run writes, per object, the most first. */
+  objects: Array<{ objectApiName: ApiName; rows: number }>;
+  total: number;
+  /** Of the records read, those an earlier run of the configuration copied, left as they are. */
+  alreadyCopied: number;
+  /** The `sandforge.safety.confirmAboveRecords` value `total` is past; absent when it is not. */
+  aboveRecords?: number;
+  /** The data storage the records it creates take, against what the target has left. */
+  storage: {
+    verdict: 'fits' | 'near' | 'exceeds' | 'unread';
+    estimateMB: number;
+    maxMB?: number;
+    remainingMB?: number;
+    /** Why the target did not say what it has left. */
+    unread?: string;
+  };
+  /** Per daily email limit the target's automation sends against as the records go in. */
+  emails: Array<{
+    limit: 'SingleEmail' | 'DailyWorkflowEmails';
+    emails: number;
+    verdict: 'fits' | 'exceeds' | 'unread';
+    remaining?: number;
+    max?: number;
+    /** Set where the target counts its email alerts against its single emails, as a Developer Edition does. */
+    alertsCounted?: true;
+    objects: Array<{ objectApiName: ApiName; perRecord: number }>;
+    /** Why the limit could not be read. */
+    unread?: string;
+  }>;
+  /** Why the target's automation could not be read, so no email was counted; absent when it was. */
+  emailsUnread?: string;
+  /**
+   * What the run comes to before it writes, asked from the page: it writes,
+   * it asks first — past the setting's volume, near the storage, when the
+   * storage could not be read, or past a daily email limit — or it is
+   * refused, past the storage. A run nobody watches is refused past a daily
+   * email limit too, and the command line past either.
+   */
+  verdict: 'writes' | 'asks' | 'refused';
 }
 
 /**
@@ -536,6 +622,12 @@ export interface SyncObjectSimulation {
    * could not be read (`SyncSimulationResult.validationRulesUnread`).
    */
   validationRules?: SyncValidationRule[];
+  /**
+   * Of the records an insert of a saved configuration would read, those an
+   * earlier run of it copied whose copy is still in the target, which a run
+   * leaves as they are: counted among `skipped`. Absent when none.
+   */
+  alreadyCopied?: number;
 }
 
 /** What a sync run would do, object by object, as a simulation found it. */
@@ -561,6 +653,32 @@ export interface SyncSimulationResult {
    * refused to say: any of them may still refuse a record counted as written.
    */
   validationRulesUnread?: string;
+  /** The order a run writes the objects in, as `objects` lists them; absent when it could not be computed. */
+  writeOrder?: SyncWriteOrder;
+  /** What a run would be held to before its first write; absent when it could not be measured. */
+  writeCheck?: SyncWriteCheck;
+  /** Why the records could not be counted before the first write, when they could not. */
+  writeCheckUnread?: string;
+}
+
+/**
+ * What earlier runs between two orgs left in the target, as a re-run or a
+ * Quick Sync of the same objects would meet it: a run of a saved
+ * configuration leaves what earlier runs of it copied as it is; any other
+ * insert writes every record again.
+ */
+export interface SyncEarlierCopies {
+  /** Whether the configuration is saved, so its runs leave what earlier runs of it copied as it is. */
+  leftAsIs: boolean;
+  /** The last run kept between these orgs that created records of the objects asked about. */
+  run?: { runId: string; configName: string; startedAt: ISODateString };
+  /** Of what that run created, per object asked about, the records still in the target. */
+  objects: Array<{ objectApiName: ApiName; count: number }>;
+  /**
+   * Why the target could not be asked which are still there: the counts are
+   * then what the run created less what its removals took.
+   */
+  unread?: string;
 }
 
 /** Conflict record needing resolution */

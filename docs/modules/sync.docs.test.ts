@@ -319,13 +319,18 @@ describe('docs/modules/sync.md', () => {
     );
   });
 
-  it('says the Grappe count costs one API request per object', () => {
+  it('says the count taken before the first write costs one API request per object, Grappe on or off', () => {
     // Positive control: the count the sentence is about, as the handler sends
-    // it before the run.
+    // it before the run, and the write gate that takes it whatever Grappe's
+    // setting says.
     expect(SYNC_HANDLER).toContain('`SELECT COUNT() FROM ${safeObj}`');
+    expect(SYNC_ORCHESTRATOR).toContain(
+      'if ((!gated && !this.deps.grappeConfig?.enabled) || !count) return { none: true };',
+    );
 
     expect(DOC).toContain('`SELECT COUNT()` per object');
-    expect(DOC).toContain("counts against the org's daily API request limit");
-    expect(DOC).toContain('`sandforge.grappe.enabled`');
+    expect(DOC).toContain("counts against\n  the org's daily API request limit");
+    expect(DOC).toContain('whether `sandforge.grappe.enabled` is on or\n  off');
+    expect(DOC).not.toContain('With the setting off, no count is sent.');
   });
 });

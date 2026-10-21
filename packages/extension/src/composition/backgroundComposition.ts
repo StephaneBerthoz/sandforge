@@ -336,11 +336,17 @@ function writeQuestion(question: WriteConfirmation): string[] {
           question.total,
           question.org,
         )
-      : vscode.l10n.t(
-          'This clone is about to write {0} records to {1}:',
-          question.total,
-          question.org,
-        ),
+      : question.module === 'sync'
+        ? vscode.l10n.t(
+            'This sync is about to write {0} records to {1}:',
+            question.total,
+            question.org,
+          )
+        : vscode.l10n.t(
+            'This clone is about to write {0} records to {1}:',
+            question.total,
+            question.org,
+          ),
   ];
   // Names and counts alone: nothing in them to translate.
   for (const { objectApiName, rows } of question.objects.slice(0, LISTED_IN_A_QUESTION)) {
@@ -371,6 +377,14 @@ function writeQuestion(question: WriteConfirmation): string[] {
         'Not counted: {0}, {1} records, held back whole for a record type closed to the user the run writes as.',
         objectApiName,
         rows,
+      ),
+    );
+  }
+  if (question.alreadyCopied !== undefined && question.alreadyCopied > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Not counted: {0} records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.',
+        question.alreadyCopied,
       ),
     );
   }
@@ -588,7 +602,9 @@ export async function confirmRun(question: RunConfirmation): Promise<boolean> {
       ? vscode.l10n.t('SandForge: confirm this rehearsal')
       : question.stage === 'write' && question.module === 'autopilot'
         ? vscode.l10n.t('SandForge: confirm this Autopilot run')
-        : vscode.l10n.t('SandForge: confirm this clone'),
+        : question.stage === 'write' && question.module === 'sync'
+          ? vscode.l10n.t('SandForge: confirm this sync')
+          : vscode.l10n.t('SandForge: confirm this clone'),
     { modal: true, detail: runQuestionDetail(question) },
     ...(commands.length > 0 ? [go, copy] : [go]),
   );

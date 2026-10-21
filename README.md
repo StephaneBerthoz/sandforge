@@ -239,31 +239,31 @@ In-app, press `Ctrl+K` for the command palette and `G` + a letter to jump betwee
 
 ## Configuration
 
-| Setting                                    | Description                                                                                                                          | Default           |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
-| `sandforge.showWhatsNew`                   | Show what a new minor version brings the first time a SandForge panel opens after an upgrade. A patch version never shows it.        | `true`            |
-| `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                                                     | `false`           |
-| `sandforge.orgs.validateOnStartup`         | Validate registered orgs when SandForge first opens a view in a window, and auto-refresh expired sessions via the sf CLI             | `true`            |
-| `sandforge.forge.graphView`                | Forge's discovery, Review and execution screens: `auto` shows a table past 25 objects, a graph below; `graph` or `table` always      | `auto`            |
-| `sandforge.forge.maxRecordsPerObject`      | Most records of one object a Forge clone reads: a clone of whole tables reads and writes them a page at a time; past it, truncated   | `50000`           |
-| `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                                                          | `200`             |
-| `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                                                          | `200`             |
-| `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                                                                   | `3`               |
-| `sandforge.ai.enabled`                     | Enable the AI Assistant (requires an API key)                                                                                        | `false`           |
-| `sandforge.ai.provider`                    | AI provider (only `anthropic` is implemented)                                                                                        | `anthropic`       |
-| `sandforge.ai.model`                       | AI model used by every AI feature (chat, NL2SOQL, pipeline drafts, error resolution, Seed)                                           | `claude-sonnet-5` |
-| `sandforge.ai.errorResolution`             | Send a failed run's error message to the model for a fix suggestion (Salesforce Ids removed first)                                   | `true`            |
-| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                                                       | `200000`          |
-| `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                                                           | `10`              |
-| `sandforge.backup.maxAgeDays`              | Days a DataOps backup, which holds records' values in clear, is kept before it is deleted; 0 keeps it until deleted by hand          | `30`              |
-| `sandforge.backup.maxRecordsPerObject`     | Most records of each object a DataOps backup reads; an object holding more is backed up in part, and the backup says so              | `50000`           |
-| `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                      | `300000`          |
-| `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                   | `true`            |
-| `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                    | `true`            |
-| `sandforge.safety.confirmAboveRecords`     | Ask before a Forge clone writes more than this many records (0: never); one near the target org's data storage is asked about too    | `2000`            |
-| `sandforge.grappe.enabled`                 | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential | `false`           |
-| `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                     | `10000`           |
-| `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                         | `5000`            |
+| Setting                                    | Description                                                                                                                                                   | Default           |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `sandforge.showWhatsNew`                   | Show what a new minor version brings the first time a SandForge panel opens after an upgrade. A patch version never shows it.                                 | `true`            |
+| `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                                                                              | `false`           |
+| `sandforge.orgs.validateOnStartup`         | Validate registered orgs when SandForge first opens a view in a window, and auto-refresh expired sessions via the sf CLI                                      | `true`            |
+| `sandforge.forge.graphView`                | Forge's discovery, Review and execution screens: `auto` shows a table past 25 objects, a graph below; `graph` or `table` always                               | `auto`            |
+| `sandforge.forge.maxRecordsPerObject`      | Most records of one object a Forge clone reads: a clone of whole tables reads and writes them a page at a time; past it, truncated                            | `50000`           |
+| `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                                                                                   | `200`             |
+| `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                                                                                   | `200`             |
+| `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                                                                                            | `3`               |
+| `sandforge.ai.enabled`                     | Enable the AI Assistant (requires an API key)                                                                                                                 | `false`           |
+| `sandforge.ai.provider`                    | AI provider (only `anthropic` is implemented)                                                                                                                 | `anthropic`       |
+| `sandforge.ai.model`                       | AI model used by every AI feature (chat, NL2SOQL, pipeline drafts, error resolution, Seed)                                                                    | `claude-sonnet-5` |
+| `sandforge.ai.errorResolution`             | Send a failed run's error message to the model for a fix suggestion (Salesforce Ids removed first)                                                            | `true`            |
+| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                                                                                | `200000`          |
+| `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                                                                                    | `10`              |
+| `sandforge.backup.maxAgeDays`              | Days a DataOps backup, which holds records' values in clear, is kept before it is deleted; 0 keeps it until deleted by hand                                   | `30`              |
+| `sandforge.backup.maxRecordsPerObject`     | Most records of each object a DataOps backup reads; an object holding more is backed up in part, and the backup says so                                       | `50000`           |
+| `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                                               | `300000`          |
+| `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                                            | `true`            |
+| `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                                             | `true`            |
+| `sandforge.safety.confirmAboveRecords`     | Ask before a Forge clone, an Autopilot run or a Sync writes more than this many records (0: never); one near the target org's data storage is asked about too | `2000`            |
+| `sandforge.grappe.enabled`                 | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential                          | `false`           |
+| `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                                              | `10000`           |
+| `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                                                  | `5000`            |
 
 See the full list of settings in the VSCode Settings UI under "SandForge".
 

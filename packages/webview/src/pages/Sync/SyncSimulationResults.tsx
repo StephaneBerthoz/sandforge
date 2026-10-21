@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncFilesLine, SyncFilesStorageLine } from './SyncFilesLine';
+import { SyncAlreadyCopiedLine, SyncWriteCheckCard } from './SyncWriteCheck';
 
 /** Props for {@link SyncSimulationResults}. */
 export interface SyncSimulationResultsProps {
@@ -82,6 +83,12 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         )}
       </div>
       <p className="text-xs text-text-secondary">{t('sync.simulation.nothingWritten')}</p>
+      {/* What a run would meet before its first write, as its gate measures it. */}
+      <SyncWriteCheckCard
+        check={simulation.writeCheck}
+        unread={simulation.writeCheckUnread}
+        order={simulation.writeOrder}
+      />
       {simulation.files && (
         <SyncFilesStorageLine storage={simulation.files} testId="sync-simulation-files-storage" />
       )}
@@ -151,6 +158,15 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                 </li>
               )}
             </ul>
+            {o.alreadyCopied !== undefined && o.alreadyCopied > 0 && (
+              <div className="mt-2">
+                <SyncAlreadyCopiedLine
+                  count={o.alreadyCopied}
+                  simulated
+                  testId={`sync-simulation-copied-${o.objectApiName}`}
+                />
+              </div>
+            )}
             {o.files && (
               <div className="mt-2">
                 <SyncFilesLine

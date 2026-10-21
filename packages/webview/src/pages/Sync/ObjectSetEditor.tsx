@@ -26,7 +26,17 @@ export interface ObjectSetEditorProps {
   className?: string;
 }
 
-const OPERATIONS: SyncOperation[] = ['insert', 'update', 'upsert', 'delete'];
+/**
+ * The operations a row offers. Delete is not one: it deletes in the target
+ * the records that hold the ids the source read, which between two sandboxes
+ * refreshed from one production are the target's own records — set by
+ * mistake, or to clear earlier copies, it deleted them without a question on
+ * a sandbox or a Developer Edition. A delta configuration carries the
+ * source's deletions where they are meant. A row that comes with it, from a
+ * saved configuration or an import, still shows it, and Review says what it
+ * does.
+ */
+const OPERATIONS: SyncOperation[] = ['insert', 'update', 'upsert'];
 
 /**
  * Every row repeats the same four controls, so a bare field label ("Operation")
@@ -53,7 +63,11 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
   const objectOptions = availableObjects
     .filter((o) => !usedObjects.has(o))
     .map((o) => ({ value: o, label: o }));
-  const opOptions = OPERATIONS.map((op) => ({ value: op, label: t(`sync.operations.${op}`) }));
+  const opOptionsOf = (current: SyncOperation) =>
+    (OPERATIONS.includes(current) ? OPERATIONS : [...OPERATIONS, current]).map((op) => ({
+      value: op,
+      label: t(`sync.operations.${op}`),
+    }));
 
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="object-set-editor">
@@ -73,7 +87,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
           >
             <Badge variant="default">{entry.objectApiName}</Badge>
             <Select
-              options={opOptions}
+              options={opOptionsOf(entry.operation)}
               value={entry.operation}
               onChange={(e) => onChange(i, 'operation', e.target.value)}
               className="w-24"

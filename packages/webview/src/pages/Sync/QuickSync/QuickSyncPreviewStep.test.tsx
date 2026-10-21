@@ -2,6 +2,21 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
 import type { QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
+
+const mockPostMessage = vi.fn();
+
+/** Stable identity so useSendMessage's useCallback does not re-fire. */
+const stableApi = {
+  postMessage: (...args: unknown[]) => mockPostMessage(...args),
+  getState: () => undefined,
+  setState: () => undefined,
+};
+
+vi.mock('../../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => stableApi,
+  getVscodeApi: () => stableApi,
+}));
+
 import { QuickSyncPreviewStep } from './QuickSyncPreviewStep';
 
 const mockPreview: QuickSyncPreview = {
@@ -57,6 +72,29 @@ describe('QuickSyncPreviewStep', () => {
     onReset: vi.fn(),
     onBack: vi.fn(),
   };
+
+  it('asks what the last run between the two orgs left of the objects before it inserts them again', () => {
+    mockPostMessage.mockClear();
+    render(
+      <QuickSyncPreviewStep
+        preview={mockPreview}
+        result={null}
+        isExecuting={false}
+        onExecute={vi.fn()}
+        onReset={vi.fn()}
+        onBack={vi.fn()}
+        sourceOrgId="org-src"
+        targetOrgId="org-tgt"
+      />,
+    );
+
+    const asked = mockPostMessage.mock.calls
+      .map((call) => (call[0] as { payload: { type: string; payload: unknown } }).payload)
+      .filter((message) => message.type === 'sync:earlier-copies');
+    expect(asked.map((message) => message.payload)).toEqual([
+      { sourceOrgId: 'org-src', targetOrgId: 'org-tgt', objects: ['Account', 'Contact'] },
+    ]);
+  });
 
   it('renders preview data with object count and record totals', () => {
     render(<QuickSyncPreviewStep {...defaultProps} />);

@@ -14,13 +14,25 @@ vi.mock('../../stores/useNotificationStore', () => ({
     selector({ addNotification: vi.fn() }),
 }));
 
+/** Every query the hook asked, as it asked it on its last render. */
+const queries = vi.hoisted(
+  () => new Map<string, { payload?: Record<string, unknown>; options?: { skip?: boolean } }>(),
+);
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({
-    data: null,
-    loading: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
+  useBridgeQuery: (
+    requestType: string,
+    payload?: Record<string, unknown>,
+    options?: { skip?: boolean },
+  ) => {
+    queries.set(requestType, { payload, options });
+    return {
+      data: null,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+  },
 }));
 
 /**
@@ -652,6 +664,35 @@ describe('useSyncPageData', () => {
       sourceOrgId: 'org-src',
       targetOrgId: 'org-tgt',
       objectApiName: 'Account',
+    });
+  });
+
+  it('asks the order a run writes the objects in on Review only, without the dates that change each render', () => {
+    const { result } = renderHook(() => useSyncPageData());
+    act(() => {
+      result.current.handleSourceOrgChange('org-src');
+      result.current.handleTargetOrgChange('org-tgt');
+      result.current.handleAddObject('Case');
+      result.current.handleAddObject('Contact');
+    });
+    expect(queries.get('sync:write-order')?.options?.skip).toBe(true);
+
+    act(() => {
+      result.current.setCurrentStep(3);
+    });
+
+    const asked = queries.get('sync:write-order');
+    expect(asked?.options?.skip).toBe(false);
+    const config = asked?.payload?.config as Record<string, unknown>;
+    expect(config.createdAt).toBeUndefined();
+    expect(config.updatedAt).toBeUndefined();
+    expect(config).toMatchObject({
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      objects: [
+        expect.objectContaining({ objectApiName: 'Case', insertOrder: 0 }),
+        expect.objectContaining({ objectApiName: 'Contact', insertOrder: 1 }),
+      ],
     });
   });
 

@@ -162,6 +162,8 @@ function mockOrgs(
       // The rules' formulas, five a Tooling composite.
       version: '66.0',
       request: vi.fn(async (request: { url: string; body: string }) => {
+        // The limits the run's gate reads: room for every record.
+        if (request.url === '/limits') return { DataStorageMB: { Max: 5, Remaining: 4 } };
         tooling.push(`${orgId} ${request.url}`);
         const asked = (JSON.parse(request.body) as { compositeRequest: Array<{ url: string }> })
           .compositeRequest;
@@ -184,6 +186,18 @@ function mockOrgs(
   });
   return { queries, writes, tooling };
 }
+
+/** A target whose automation runs nothing on the objects written. */
+const QUIET_TARGET = {
+  read: async () => ({
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  }),
+};
 
 /** Every message the handler posted, of one type. */
 function posted(
@@ -218,6 +232,7 @@ describe('sync:simulate', () => {
     clearDescribeCache();
     deps = createDeps();
     handler = new SyncOpsHandler(deps);
+    handler.setTargetAutomation(QUIET_TARGET);
   });
 
   it('says per object what the run would insert and update, and writes nothing', async () => {

@@ -7900,6 +7900,315 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync review listing each object in the order the run writes it, a delete among them, of a configuration not saved', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(
+        bridge,
+        page,
+        theme,
+        {
+          currentStep: 3,
+          direction: 'source_to_target',
+          conflictStrategy: 'source_wins',
+          objectEntries: [
+            {
+              objectApiName: 'Case',
+              operation: 'insert',
+              externalIdField: '',
+              batchSize: 200,
+              where: '',
+            },
+            {
+              objectApiName: 'Contact',
+              operation: 'upsert',
+              externalIdField: 'Legacy_Key__c',
+              batchSize: 200,
+              where: '',
+            },
+            {
+              objectApiName: 'Lead',
+              operation: 'delete',
+              externalIdField: '',
+              batchSize: 200,
+              where: '',
+            },
+          ],
+        },
+        'sync-step-review',
+      );
+      await bridge.waitForMessage('sync:write-order', { timeout: 10_000 });
+      await answerAll(page, 'sync:write-order', 'sync:write-order:response', {
+        order: {
+          objects: ['Contact', 'Case', 'Lead'],
+          moved: [{ objectApiName: 'Case', after: 'Contact', field: 'ContactId' }],
+          cycles: [],
+        },
+      });
+      await expect(page.getByTestId('sync-review-object-Case')).toContainText(
+        'Written after Contact, which its ContactId names.',
+      );
+      await expect(page.getByTestId('sync-review-inserts')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync results of a simulation measured before its first write, past the daily emails, with records an earlier run copied', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-simulate').click();
+      await bridge.respondToNext('sync:simulate', 'sync:simulate:response', {
+        configId: 'cfg-axe',
+        operationId: 'sim-axe',
+        direction: 'source_to_target',
+        conflictStrategy: 'source_wins',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'insert',
+            read: 5,
+            insert: 3,
+            update: 0,
+            delete: 0,
+            skipped: 2,
+            refused: 0,
+            conflicts: 0,
+            conflictFields: [],
+            notes: [],
+            alreadyCopied: 2,
+          },
+          {
+            objectApiName: 'Contact',
+            operation: 'insert',
+            read: 30,
+            insert: 30,
+            update: 0,
+            delete: 0,
+            skipped: 0,
+            refused: 0,
+            conflicts: 0,
+            conflictFields: [],
+            notes: [],
+          },
+        ],
+        duration: 840,
+        timestamp: '2026-10-21T09:00:00.000Z',
+        writeOrder: {
+          objects: ['Account', 'Contact'],
+          moved: [{ objectApiName: 'Contact', after: 'Account', field: 'AccountId' }],
+          cycles: [],
+        },
+        writeCheck: {
+          objects: [
+            { objectApiName: 'Contact', rows: 30 },
+            { objectApiName: 'Account', rows: 3 },
+          ],
+          total: 33,
+          alreadyCopied: 2,
+          storage: { verdict: 'near', estimateMB: 0.07, maxMB: 5, remainingMB: 0.08 },
+          emails: [
+            {
+              limit: 'SingleEmail',
+              emails: 90,
+              verdict: 'exceeds',
+              remaining: 15,
+              max: 15,
+              alertsCounted: true,
+              objects: [{ objectApiName: 'Contact', perRecord: 3 }],
+            },
+          ],
+          verdict: 'asks',
+        },
+      });
+      await page.getByTestId('sync-write-check').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-simulation-copied-Account')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync results of a run that left records an earlier run of its configuration copied', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            processed: 1,
+            success: 1,
+            failed: 0,
+            skipped: 2,
+            conflictCount: 0,
+            errors: [],
+            alreadyCopied: 2,
+          },
+        ],
+        totalProcessed: 1,
+        totalSuccess: 1,
+        totalFailed: 0,
+        totalSkipped: 2,
+        duration: 900,
+        timestamp: '2026-10-21T10:00:00.000Z',
+      });
+      await page.getByTestId('sync-result-copied-Account').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Quick Sync preview saying what the last sync between the two orgs left in the target', async ({
+      page,
+    }) => {
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.addInitScript(
+        (args: { source: string; target: string }) => {
+          const host = window as unknown as {
+            acquireVsCodeApi: () => { setState: (state: unknown) => void };
+            __SANDFORGE_MODULE__?: string;
+          };
+          host.acquireVsCodeApi().setState({
+            quickSyncDraft: {
+              sourceOrgId: args.source,
+              targetOrgId: args.target,
+              selectedObjects: ['Contact'],
+              parentObjects: ['Account'],
+            },
+            quickSyncStep: 'preview',
+            quickSyncPreview: {
+              objects: [
+                {
+                  objectApiName: 'Account',
+                  recordCount: 2,
+                  estimatedApiCalls: 1,
+                  isParentDependency: true,
+                },
+                {
+                  objectApiName: 'Contact',
+                  recordCount: 30,
+                  estimatedApiCalls: 1,
+                  isParentDependency: false,
+                },
+              ],
+              totalRecords: 32,
+              totalApiCalls: 2,
+              estimatedDurationSec: 2,
+            },
+          });
+          host.__SANDFORGE_MODULE__ = 'sync';
+        },
+        { source: DEV_SANDBOX.id, target: QA_SANDBOX.id },
+      );
+      await page.goto('/');
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('quick-sync-start-btn').click();
+      await bridge.waitForMessage('sync:earlier-copies', { timeout: 10_000 });
+      await answerAll(page, 'sync:earlier-copies', 'sync:earlier-copies:response', {
+        copies: {
+          leftAsIs: false,
+          run: {
+            runId: 'run-axe',
+            configName: 'Quick Sync',
+            startedAt: '2026-10-14T08:00:00.000Z',
+          },
+          objects: [
+            { objectApiName: 'Account', count: 2 },
+            { objectApiName: 'Contact', count: 30 },
+          ],
+        },
+      });
+      await page.getByTestId('quick-sync-earlier-copies').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync history detail saying, before Run again, what the last run between the orgs left', async ({
+      page,
+    }) => {
+      const result = {
+        configId: 'cfg-axe-unsaved',
+        operationId: 'run-axe',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'insert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 2,
+            conflictCount: 0,
+            errors: [],
+            alreadyCopied: 2,
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 3,
+        totalFailed: 0,
+        totalSkipped: 2,
+        duration: 900,
+        timestamp: '2026-10-21T10:00:00.000Z',
+      };
+      const entry = {
+        id: 'h-axe-copies',
+        configSnapshot: {
+          id: 'cfg-axe-unsaved',
+          name: 'Accounts',
+          sourceOrgId: DEV_SANDBOX.id,
+          targetOrgId: QA_SANDBOX.id,
+          direction: 'source_to_target',
+          mode: 'full',
+          conflictStrategy: 'source_wins',
+          objects: [
+            {
+              objectApiName: 'Account',
+              operation: 'insert',
+              fieldMappings: [],
+              transformRules: [],
+              excludedFields: [],
+              addOnFields: [],
+              batchSize: 200,
+              insertOrder: 0,
+            },
+          ],
+          enableRollback: false,
+          createdAt: '2026-10-21T09:00:00.000Z',
+          updatedAt: '2026-10-21T09:00:00.000Z',
+        },
+        result,
+        startTime: '2026-10-21T09:59:59.000Z',
+        endTime: '2026-10-21T10:00:00.000Z',
+        triggeredBy: 'manual',
+      };
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('tab-history').click();
+      await bridge.respondToNext('sync:history:list', 'sync:history:list:response', {
+        entries: [entry],
+      });
+      await page.getByTestId('table-row-0').click();
+      await bridge.respondToNext('sync:history:detail', 'sync:history:detail:response', {
+        entry,
+      });
+      await bridge.waitForMessage('sync:earlier-copies', { timeout: 10_000 });
+      await answerAll(page, 'sync:earlier-copies', 'sync:earlier-copies:response', {
+        copies: {
+          leftAsIs: false,
+          run: { runId: 'run-axe', configName: 'Accounts', startedAt: '2026-10-21T09:59:59.000Z' },
+          objects: [{ objectApiName: 'Account', count: 3 }],
+          unread: 'INVALID_SESSION_ID',
+        },
+      });
+      await page.getByTestId('history-earlier-copies').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('history-copied-Account')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Sync first step copying files, with its two caps', async ({ page }) => {
       await openSyncExecuteStep(
         bridge,

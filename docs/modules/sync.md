@@ -29,6 +29,8 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 - **Emails and phone numbers neutralized** -- unless the configuration says otherwise, every email address a run writes goes in under `.invalid` and every phone number as a fictional one, as Forge writes them, so the target's flows and automation reach no one; each object's result says how many it neutralized and in which fields. The field a write matches on (its external id) is kept as read, so an upsert still finds the copy an earlier run wrote. Untick **Neutralize emails and phone numbers** on the Select Orgs & Objects step to copy them as the source holds them (`keepContactPoints` in a saved configuration, `--keep-contact-points` on the command line)
 - **The fields the target takes** -- each record goes with the fields the target lets the running user write, read from its describe once a run. An account goes with the fields of its kind, as Forge sends it: a business account without the fields only a person account holds (`FirstName`, `LastName`, `Salutation`, the `Person…` fields, the `__pc` fields), a person account without the `Name` the platform computes, and a person account the target takes as a business one -- it has no person accounts, or the record type it gets there is a business account's -- with its name and without the person fields
 - **Record types** -- a record's `RecordTypeId` is mapped to the target's record type of the same object and API name, from both orgs' active record types, read once a run before the first object whose records carry one. A record whose type has no active counterpart in the target, or one the running user may not use there, is held back with the reason (`RECORD_TYPE_UNMAPPED`, `RECORD_TYPE_UNAVAILABLE`), as Forge holds them back: written without it, it would take the running user's default, a business account's type for a person account
+- **Parents first** -- a run writes its objects in an order read from the target's describe of each: every object a lookup of another names -- the lookups its write carries, those of its mappings and add-ons when it has any -- before that other, and the configuration's order wherever no lookup decides. A case added before the contact it names is written after it, and its `ContactId` names the contact's copy. Objects whose lookups name each other keep the configuration's order among themselves, and the lookup at the one written later goes as below. The page's run, a re-run, a saved, scheduled or pipeline run, a Quick Sync, a simulation and the command line all write in this order; Review lists it, and the simulation says it
+- **Records an earlier run copied** -- an insert of a saved configuration leaves as they are the records an earlier run of it copied whose copy is still in the target, found before the first write by the configuration's record of which copy each source record became, and the target asked by those ids: each run of it inserts only what the earlier ones did not copy. A copy deleted from the target since is inserted again. The results, the history and the simulation say per object how many it left so, counted as skipped. A run whose configuration's record cannot be read, with an object it inserts, is refused before it writes, since it would insert a second copy. An upsert finds its record by its key, and an update or a delete by the source record's id; a Quick Sync, which keeps no configuration, and a run of one that is not saved insert every record they read, and Quick Sync's preview and a history entry's **Run again** say first how many the last run between the same two orgs created that are still in the target
 - **Lookups at records the run wrote** -- a lookup at a record an earlier object of the run wrote names its copy in the target. A record whose lookup names a record the run set out to create -- an insert, or an upsert -- and the target refused, or the run held back, is held back too, counted and said once per lookup ("`PARENT_REFUSED`: 1 260 Contact records held back, not sent: the Account record their AccountId names was refused in this run"), never written without its parent; its own children are held back in turn. A record an update did not reach is the target's already, and its children name it as they did. Held-back records count as failed, and removing the run has nothing of them to remove
 - **Lookups within one object** -- a lookup at another record of the same write -- an account's `ParentId`, any lookup of an object at itself -- is left out of the write that creates both and set by a second write once the record it names has its copy, as Forge's second pass sets it; two records that name each other are each given the other's copy. A record whose record there was held back is held back with it; one whose record the target refused stays without the lookup, and the results say how many, as they say an update the target refused
 - **Lookups at records earlier runs wrote** -- a saved configuration keeps which record of the target each source record its runs inserted, upserted or linked became, between the same two orgs, and a later run -- a delta run, or any other -- points a lookup at that copy: contacts synced after their accounts, by another run, go under the accounts' copies rather than with the source's ids. A record the run refuses is not taken for refused while an earlier run's copy of it is in the target. Kept on disk beside the runs' creations, one file per configuration (200 000 records at most, the oldest going first), never in the settings VS Code saves whole; removing a run forgets the records it took, a delta run forgets the records it deleted as the source had deleted theirs -- neither a later object of the run nor a later run points a lookup at them -- and deleting the configuration forgets them all
@@ -59,6 +61,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 ### Object Set Editor
 
 - Add/remove objects to the sync scope
+- An operation per object: insert, update by Id, or upsert on an External ID. Delete is not offered: it deleted in the target the records holding the ids the source read, which between two sandboxes refreshed from one production are the target's own; a delta configuration carries the source's deletions instead. A row that comes with a delete, from a saved configuration or an SFDMU import, still shows it, and Review says what it does
 - Configure batch size per object
 - Available objects are loaded from the source org schema, without the objects no copy writes -- the list Forge and Autopilot read: users and their access, metadata, files and the links to them, a record's history, feed or sharing rows, the platform's jobs and logs. A configuration naming one is refused before it runs. A managed package's objects, such as Vlocity's, which Forge's discovery does not walk into, are offered: a sync copies only the objects it is given
 - A per-object WHERE filter may only filter: a clause carrying `LIMIT`, `OFFSET`, `ORDER BY`, `FOR UPDATE`, a subquery, a comment or a semicolon is refused, including one imported from an SFDMU `export.json`
@@ -90,6 +93,7 @@ Before execution, the Review step shows:
 
 - Summary badges for direction and conflict strategy
 - Object count, field mapping count, and transform count
+- Each object, in the order the run writes it, with what it does -- insert, upsert on its key, update or delete by the source record's Id -- and why one is written later than listed ("Written after Contact, which its ContactId names"); and, when an object inserts, whether each run inserts every record again (a configuration not saved) or leaves what an earlier run copied as it is (a saved one)
 - PII warnings if sensitive fields are detected in the sync scope
 - A **Sankey Flow Diagram** visualizing data flow from source objects through mappings to target objects
 - A **Save** button, which stores the reviewed configuration under the two orgs it
@@ -273,6 +277,11 @@ Before execution, the Review step shows:
   only inserts, and a note names it; an update or an upsert meets it, and it
   stays listed there, as does a rule whose formula cannot be read. A rule on the running user's profile or on a
   registration number's format refuses rows a simulation counts as written.
+- It says what a run would meet before its first write, as the run measures
+  it: the order it writes the objects in, the records it writes, counted, those
+  an earlier run copied that it leaves as they are, the data storage they take
+  and the emails the target's automation sends for them against what the
+  target has left, and whether the run writes, asks first or is refused.
 - It writes nothing to the target, to the audit trail or to the sync history.
   Like a run it is listed in Live Operations, and its Cancel -- or the page's
   -- stops it before its next object. Each lookup is an API request: about one
@@ -284,6 +293,7 @@ Before execution, the Review step shows:
 ### Execution and Results
 
 - Before anything is written, both orgs are described and every field a mapping copies unchanged is compared (the same-named fields when the object has no mapping). A field that cannot hold the other's type -- text onto a date, a number onto a checkbox -- stops the run with the list of mismatched pairs, and nothing is written. A mapping whose value a transform rewrites is not judged on its source type
+- **Checked before its first write**, as Forge, Seed and Autopilot check theirs: the records each object's read returns are counted under its filter (`SELECT COUNT()`, a delta read from its watermark, the person accounts of an account or contact apart), less those an earlier run copied, and held to what the target has left. Past its data storage (`/limits`, a record at 2 KB, a person account at 4 KB) the run is refused with nothing written. Past `sandforge.safety.confirmAboveRecords` records, near that storage, when the storage cannot be read, or past a daily email limit the target's automation -- read as Forge reads it -- would send against, a run started from the page, a re-run or a Quick Sync asks first, naming the records per object, the storage and the emails; cancelled, or with nobody to ask, nothing is written. A scheduled or pipeline run, which nobody watches, is refused past a daily email limit -- each record past it would be refused by the Flow that sends -- and goes on otherwise; the command line is refused past either limit. A refusal is recorded in the audit trail as stopped, with its code, and is no run of the history
 - Real-time progress bar with elapsed time
 - **Pause** and **Cancel run** on the Execute step, and on Quick Sync's run.
   Cancel means what Live Operations' Cancel means: the run stops before its
@@ -297,10 +307,13 @@ Before execution, the Review step shows:
   counted before the run, at or above `sandforge.grappe.autoActivateThreshold`,
   the run reports progress one partition per object over that same sequential
   loop -- nothing is split and nothing runs concurrently.
-- That count costs API calls. With `sandforge.grappe.enabled` on, Sync sends one
-  `SELECT COUNT()` per object of the run before anything is written, and each of
-  those queries counts against the org's daily API request limit, production
-  included. With the setting off, no count is sent.
+- That count costs API calls: one `SELECT COUNT()` per object of the run --
+  two for an account or a contact, whose person accounts are counted apart --
+  sent before anything is written, whether `sandforge.grappe.enabled` is on or
+  off: Grappe's threshold is measured on the same count. Each counts against
+  the org's daily API request limit, production included. An insert of a saved configuration that earlier runs wrote reads
+  the ids its filter returns, and asks the target which of their copies it
+  still holds, a request per two hundred.
 - Per-object result breakdown: processed, succeeded, and failed counts
 - A write of more than 200 records goes in one Bulk API 2.0 job, its rows
   with every field any of them carries. A field a row does not carry goes

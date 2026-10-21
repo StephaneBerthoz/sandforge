@@ -206,9 +206,15 @@ export interface WriteConfirmation {
   stage: 'write';
   /**
    * The module whose run asks: a Forge clone unless said. An Autopilot run
-   * asks the same question of its plan.
+   * asks the same question of its plan, and a Sync run of the records it
+   * counted under each object's filter.
    */
-  module?: 'autopilot';
+  module?: 'autopilot' | 'sync';
+  /**
+   * Of a Sync run of a saved configuration: the records an earlier run of it
+   * copied, which this one leaves as they are and does not count. Absent when none.
+   */
+  alreadyCopied?: number;
   /** The org the run writes to, as the user knows it. */
   org: string;
   orgTier: SafetyTier;

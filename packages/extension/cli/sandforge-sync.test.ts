@@ -11,6 +11,7 @@ import {
   objectPriceLines,
   readSavedConfig,
   simulationLines,
+  writeCheckLines,
 } from './sandforge-sync.js';
 
 describe('what a run prints of an object', () => {
@@ -700,5 +701,95 @@ describe('what a dry run prints', () => {
     );
     expect(lines).toContain('      differ on: Phone');
     expect(lines).toContain('  stopped at Case: INVALID_TYPE');
+  });
+});
+
+describe('what a run says before its first write', () => {
+  it('lists the records per object, those left as an earlier run copied them, the storage and the emails', () => {
+    expect(
+      writeCheckLines(
+        {
+          objects: [
+            { objectApiName: 'Contact', rows: 30 },
+            { objectApiName: 'Account', rows: 2 },
+          ],
+          total: 32,
+          alreadyCopied: 40,
+          storage: { verdict: 'fits', estimateMB: 0.0625, maxMB: 5, remainingMB: 3 },
+          emails: [
+            {
+              limit: 'SingleEmail',
+              emails: 60,
+              verdict: 'exceeds',
+              remaining: 15,
+              max: 15,
+              objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+            },
+          ],
+          verdict: 'asks',
+        },
+        'TRAP',
+      ),
+    ).toEqual([
+      'write gate: 32 record(s) to write to TRAP, about 0.07 MB of data storage',
+      '  Contact                                         30',
+      '  Account                                          2',
+      '  not counted: 40 record(s) an earlier run of this configuration copied, still in the ' +
+        'target, left as they are',
+      '  data storage of TRAP: 3 MB left of 5 MB',
+      '  emails: these records make TRAP send about 60 single emails (2 per Contact), more than ' +
+        'the 15 of 15 it has left today',
+    ]);
+  });
+
+  it('says a dry run of a run past the storage would be refused, with the write order and what an earlier run copied', () => {
+    const lines = simulationLines(
+      {
+        configId: 'cfg-1',
+        operationId: 'sync-simulation-1',
+        direction: 'source_to_target',
+        conflictStrategy: 'source_wins',
+        objects: [
+          {
+            objectApiName: 'Account',
+            operation: 'insert',
+            read: 3,
+            insert: 1,
+            update: 0,
+            delete: 0,
+            skipped: 2,
+            refused: 0,
+            conflicts: 0,
+            conflictFields: [],
+            notes: [],
+            alreadyCopied: 2,
+          },
+        ],
+        duration: 5,
+        timestamp: '2026-10-21T00:00:00.000Z',
+        writeOrder: {
+          objects: ['Account', 'Contact'],
+          moved: [{ objectApiName: 'Contact', after: 'Account', field: 'AccountId' }],
+          cycles: [],
+        },
+        writeCheck: {
+          objects: [{ objectApiName: 'Account', rows: 3_000 }],
+          total: 3_000,
+          alreadyCopied: 2,
+          storage: { verdict: 'exceeds', estimateMB: 5.86, maxMB: 5, remainingMB: 4 },
+          emails: [],
+          verdict: 'refused',
+        },
+      },
+      'TRAP',
+    );
+
+    expect(lines).toContain('  write order: Account, Contact');
+    expect(lines).toContain('    Contact after Account: its AccountId names one');
+    expect(lines).toContain('    data storage of TRAP: 4 MB left of 5 MB: the records do not fit');
+    expect(lines).toContain('    a run would be refused before it writes: the records do not fit');
+    expect(lines).toContain(
+      '      2 already copied by an earlier run of this configuration, left as they are',
+    );
   });
 });

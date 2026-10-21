@@ -25,6 +25,7 @@ import {
   assignPermsetCommand,
   bypassAssignmentsOf,
   bypassesOfWrites,
+  emailsPerInsertOf,
   firedOnRemovalOf,
   firedOnWriteOf,
   heldBypassPermissionsOf,
@@ -56,6 +57,7 @@ import type {
   WriteConfirmationStorage,
 } from '../../core/precheck/ProductionGuard.js';
 import type { ForgeWriteBoundary } from './ForgeExecutor.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { ordersTheWrite } from './stages/ScopeResolver.js';
 import { objectsTheRunWrites } from './TargetAutomationReader.js';
 
@@ -529,6 +531,47 @@ export function countedEmailChecksOf(
         check.limit === 'SingleEmail' ? { ...check, alertsCounted: true as const } : check,
       )
     : checks;
+}
+
+/** The emails a run's records make the target send, per daily limit, or why they could not be said. */
+export interface TargetEmails {
+  /** One per daily limit the target's automation sends against as the records go in. */
+  checks: EmailCheck[];
+  /** Why the target's automation, or its limits, could not be read; absent when they were. */
+  unread?: string;
+}
+
+/**
+ * The emails the target's automation sends as a run inserts the records of a
+ * plan counted before it reads them, against the daily limits the target has
+ * left ({@link countedEmailChecksOf}): what runs on the objects it writes,
+ * read as Forge reads it, and the limits only when something sends. Autopilot
+ * and Sync count their emails so.
+ *
+ * @param input.readAutomation - What the target runs on the given objects.
+ * @param input.readLimits - The target's daily email limits, as `/limits` say them.
+ */
+export async function countedTargetEmails(input: {
+  plan: WritePlan;
+  objects: readonly string[];
+  readAutomation: (objects: readonly string[]) => Promise<ForgeTargetAutomation>;
+  readLimits: () => Promise<Partial<Record<ForgeEmailLimit, EmailLimit>>>;
+}): Promise<TargetEmails> {
+  if (input.plan.totalRows === 0 || input.objects.length === 0) return { checks: [] };
+  let automation: ForgeTargetAutomation;
+  try {
+    automation = await input.readAutomation(input.objects);
+  } catch (err: unknown) {
+    return { checks: [], unread: `the target's automation: ${extractErrorMessage(err)}` };
+  }
+  const sending = emailsPerInsertOf(automation);
+  if (sending.length === 0) return { checks: [] };
+  const limits = await input
+    .readLimits()
+    .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+  // Counted as the target counts them: a Developer Edition's email alerts
+  // against its single emails too, as Seed counts them.
+  return { checks: countedEmailChecksOf(input.plan, sending, limits) };
 }
 
 /** A limit the emails go past, as a run's question names it. */

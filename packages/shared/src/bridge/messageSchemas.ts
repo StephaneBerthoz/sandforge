@@ -132,6 +132,9 @@ const SyncMessages = [
   // a running sync before its next object or batch.
   msg('sync:simulate'),
   msg('sync:simulate:response'),
+  // The order a run writes its objects in, shown on Review before it runs.
+  msg('sync:write-order'),
+  msg('sync:write-order:response'),
   msg('sync:pause'),
   msg('sync:pause:response'),
   msg('sync:resume'),
@@ -162,6 +165,9 @@ const SyncMessages = [
   // What a run created, read from what it kept, and its removal.
   msg('sync:removal:info'),
   msg('sync:removal:info:response'),
+  // What earlier runs between two orgs left in the target, before a re-run inserts again.
+  msg('sync:earlier-copies'),
+  msg('sync:earlier-copies:response'),
   msg('sync:removal:list'),
   msg('sync:removal:list:response'),
   msg('sync:remove'),

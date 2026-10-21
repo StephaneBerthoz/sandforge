@@ -10,6 +10,8 @@ import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncPricebookLine } from './SyncPricebookLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
 import { SyncRunRemoval } from './SyncRunRemoval';
+import { SyncAlreadyCopiedLine } from './SyncWriteCheck';
+import { SyncEarlierCopiesNotice } from './SyncEarlierCopies';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
@@ -181,6 +183,15 @@ export const SyncHistoryDetail: React.FC = () => {
                   <SyncDeltaLine delta={obj.delta} testId={`history-delta-${obj.objectApiName}`} />
                 </div>
               )}
+              {/* Not inserted a second time: an earlier run copied them. */}
+              {obj.alreadyCopied !== undefined && obj.alreadyCopied > 0 && (
+                <div className="mt-1">
+                  <SyncAlreadyCopiedLine
+                    count={obj.alreadyCopied}
+                    testId={`history-copied-${obj.objectApiName}`}
+                  />
+                </div>
+              )}
               {obj.files && (
                 <div className="mt-1">
                   <SyncFilesLine files={obj.files} testId={`history-files-${obj.objectApiName}`} />
@@ -237,6 +248,20 @@ export const SyncHistoryDetail: React.FC = () => {
           </span>
         </div>
       </div>
+
+      {/* Before Run again: a run of a saved configuration leaves what its
+          earlier runs copied as it is; any other inserts every record again,
+          and is told how many the last run created that the target holds. */}
+      <SyncEarlierCopiesNotice
+        sourceOrgId={configSnapshot.sourceOrgId}
+        targetOrgId={configSnapshot.targetOrgId}
+        objects={configSnapshot.objects
+          .filter((o) => o.operation === 'insert')
+          .map((o) => o.objectApiName)}
+        configId={configSnapshot.id}
+        context="runAgain"
+        testId="history-earlier-copies"
+      />
 
       {/* Run Again button */}
       <div className="flex justify-end">

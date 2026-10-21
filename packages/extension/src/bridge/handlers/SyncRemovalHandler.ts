@@ -1,5 +1,5 @@
 import type { GuardDecision, SyncRemovalResult, SyncRunRemovalInfo } from '@sandforge/shared';
-import { guardTierOf } from '@sandforge/shared';
+import { guardTierOf, sanitizeSoqlObjectName } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import {
   ABORTED_BEFORE_START,
@@ -13,9 +13,12 @@ import {
 } from './HandlerTypes.js';
 import {
   validatePayload,
+  syncEarlierCopiesPayloadSchema,
   syncRemovalInfoPayloadSchema,
   syncRemovePayloadSchema,
 } from '../validatePayload.js';
+import { idLists, isRecordId } from '../../modules/dataops/RecordRemoval.js';
+import { earlierCopiesOf } from '../../modules/sync/syncEarlierCopies.js';
 import type {
   BackgroundOperationRegistry,
   PendingStart,
@@ -39,7 +42,12 @@ import {
 import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
 
 /** Message types handled by SyncRemovalHandler. */
-const SYNC_REMOVAL_TYPES = new Set(['sync:removal:info', 'sync:removal:list', 'sync:remove']);
+const SYNC_REMOVAL_TYPES = new Set([
+  'sync:removal:info',
+  'sync:removal:list',
+  'sync:remove',
+  'sync:earlier-copies',
+]);
 
 /**
  * The removal of what a Sync run created, and what the page reads before it
@@ -105,6 +113,9 @@ export class SyncRemovalHandler implements DomainHandler {
         return true;
       case 'sync:remove':
         await this.handleRemove(msg);
+        return true;
+      case 'sync:earlier-copies':
+        await this.handleEarlierCopies(msg);
         return true;
       default:
         return false;
@@ -222,6 +233,51 @@ export class SyncRemovalHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id} count=${unlisted.length}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'sync:removal:list', 'sync:remove:error', msg, err);
+    }
+  }
+
+  /**
+   * `sync:earlier-copies`: what the last run kept between two orgs created
+   * of these objects that is still in the target (`syncEarlierCopies`), or
+   * that a run of the saved configuration named leaves as it is. The target
+   * is asked by the ids the run kept, nothing written.
+   */
+  private async handleEarlierCopies(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      syncEarlierCopiesPayloadSchema,
+      msg,
+      'sync:remove:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const creations = this.creations;
+      const copies = await earlierCopiesOf(parsed, {
+        runs: async () => (await creations?.list()) ?? [],
+        isSaved: (configId) => this.configs.isSaved(configId),
+        countInTarget: async (objectApiName, ids) => {
+          const conn = await getJsforceConnection(
+            parsed.targetOrgId,
+            this.deps.orgRegistry,
+            this.deps.orgManager,
+          );
+          const object = sanitizeSoqlObjectName(objectApiName);
+          let held = 0;
+          for (const list of idLists(ids.filter(isRecordId))) {
+            held += (await conn.query(`SELECT COUNT() FROM ${object} WHERE Id IN (${list})`))
+              .totalSize;
+          }
+          return held;
+        },
+      });
+      const response = buildResponse(this.deps, msg, 'sync:earlier-copies:response', {
+        copies: copies as unknown as Record<string, unknown>,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'sync:earlier-copies', 'sync:remove:error', msg, err);
     }
   }
 

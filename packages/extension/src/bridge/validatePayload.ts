@@ -438,6 +438,13 @@ export const syncHistoryEntryIdPayloadSchema = z.object({ entryId: opaqueIdSchem
 // ── sync:removal:* / sync:remove payload schemas ────────────────────────────
 // The run is named, never its records: what is removed is what the run kept.
 export const syncRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });
+// What the last run between two orgs left of these objects, before a run inserts them again.
+export const syncEarlierCopiesPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  targetOrgId: orgIdSchema,
+  objects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST),
+  configId: opaqueIdSchema.optional(),
+});
 export const syncRemovePayloadSchema = z.object({
   runId: opaqueIdSchema,
   includeChanged: z.boolean().optional(),

@@ -191,4 +191,38 @@ describe('ObjectSetEditor accessible names', () => {
     expect(whereInput.placeholder).not.toBe('undefined');
     expect(whereInput.placeholder).not.toBe('automation.stepConfigWhere');
   });
+  it('offers no delete: one row set to it deleted the target records holding the source ids', () => {
+    render(
+      <ObjectSetEditor
+        entries={entries}
+        availableObjects={['Lead']}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+    const operation = screen.getByLabelText('Operation \u2014 Contact');
+    const offered = [...operation.querySelectorAll('option')].map((o) => o.getAttribute('value'));
+    expect(offered).toEqual(['insert', 'update', 'upsert']);
+  });
+
+  it('still shows delete on a row that came with it, from a saved configuration or an import', () => {
+    render(
+      <ObjectSetEditor
+        entries={[{ ...entries[1], operation: 'delete' }]}
+        availableObjects={['Lead']}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+    const operation = screen.getByLabelText('Operation \u2014 Contact') as HTMLSelectElement;
+    expect(operation.value).toBe('delete');
+    expect([...operation.querySelectorAll('option')].map((o) => o.getAttribute('value'))).toEqual([
+      'insert',
+      'update',
+      'upsert',
+      'delete',
+    ]);
+  });
 });

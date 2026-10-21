@@ -19,6 +19,7 @@ import type {
   SyncConfigLoadResponse,
   SyncSimulationResult,
   SyncFileCopyOption,
+  SyncWriteOrder,
 } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
 import {
@@ -208,6 +209,12 @@ export interface SyncPageData {
   savedRunStarting: boolean;
   /** Whether the configuration on screen is the one the host last confirmed saving. */
   configSaved: boolean;
+  /** The order a run writes the objects in, read on Review; null until the extension answers. */
+  writeOrder: SyncWriteOrder | null;
+  /** Whether that order is being read. */
+  writeOrderLoading: boolean;
+  /** Whether that order could not be read. */
+  writeOrderUnread: boolean;
   /**
    * Whether the configuration on screen copies files and is not saved: the
    * extension refuses a run and a simulation of it, so neither is sent.
@@ -841,6 +848,26 @@ export function useSyncPageData(): SyncPageData {
     updatedAt: new Date().toISOString(),
   });
 
+  /*
+   * The order a run writes the objects in, as the extension computes it from
+   * the target's describes, asked on Review: the parents a lookup names
+   * first. The configuration goes without its dates, which change with every
+   * render, so the question is asked again only when the objects change.
+   */
+  const writeOrderConfig = {
+    ...buildConfig('write-order', 'write-order', ''),
+    createdAt: undefined,
+    updatedAt: undefined,
+  };
+  const writeOrderQuery = useBridgeQuery<{ order: SyncWriteOrder }>(
+    'sync:write-order',
+    { config: writeOrderConfig },
+    {
+      errorType: 'sync:error',
+      skip: currentStep !== 3 || !sourceOrgId || !targetOrgId || objectEntries.length === 0,
+    },
+  );
+
   /**
    * The id the configuration on screen is saved under, while it is the one
    * the host last confirmed saving; null otherwise. A run of it is then a run
@@ -1049,6 +1076,9 @@ export function useSyncPageData(): SyncPageData {
     savedRunStarting: loadConfigMutation.loading,
     // Only while the configuration on screen is the one the host confirmed.
     configSaved: savedIdOnScreen !== null,
+    writeOrder: writeOrderQuery.data?.order ?? null,
+    writeOrderLoading: writeOrderQuery.loading,
+    writeOrderUnread: writeOrderQuery.error !== null,
     filesNeedSave,
     handleApplyTemplate,
     canGoNext,

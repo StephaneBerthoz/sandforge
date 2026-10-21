@@ -650,6 +650,7 @@ export class ExtensionHandlers {
       [
         'sync:execute',
         'sync:simulate',
+        'sync:write-order',
         'sync:pause',
         'sync:resume',
         'sync:describe-global',
@@ -670,7 +671,10 @@ export class ExtensionHandlers {
     );
 
     // What a Sync run created, and its removal
-    route(['sync:removal:info', 'sync:removal:list', 'sync:remove'], this.syncRemovalHandler);
+    route(
+      ['sync:removal:info', 'sync:removal:list', 'sync:remove', 'sync:earlier-copies'],
+      this.syncRemovalHandler,
+    );
     route(
       [
         'seed:removal:info',

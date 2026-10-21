@@ -178,6 +178,15 @@ function mockOrgs(source: SourceRow[]) {
         .filter((r) => (scanAll ? r.IsDeleted === true : !r.IsDeleted))
         .filter((r) => !bound || r.SystemModstamp > bound)
         .filter((r) => !soql.includes("Type = 'Customer'") || r.Type === 'Customer');
+      // What the run counts before its first write: the rows its read
+      // returns; the org holds no person account.
+      if (soql.startsWith('SELECT COUNT()')) {
+        return {
+          done: true,
+          totalSize: soql.includes('IsPersonAccount') ? 0 : rows.length,
+          records: [],
+        };
+      }
       if (soql.startsWith('SELECT Ext_Id__c FROM Account WHERE Ext_Id__c IN')) {
         const keys = [...soql.matchAll(/'([^']+)'/g)].map((m) => m[1]);
         return {
@@ -192,11 +201,28 @@ function mockOrgs(source: SourceRow[]) {
       queryMore: vi.fn(),
       describe: vi.fn(async () => ({ fields: ACCOUNT_FIELDS })),
       sobject: vi.fn(() => ({ upsert, destroy, create: vi.fn(), update: vi.fn() })),
+      // The limits the run's gate reads: room for every record.
+      request: vi.fn(async () => ({ DataStorageMB: { Max: 5, Remaining: 4 } })),
       limitInfo: undefined,
     } as never;
   });
-  return { asked, target, upsert, destroy };
+  /** What the source was asked beside the counts the run's gate takes. */
+  const reads = (orgId: string): Array<{ soql: string; scanAll: boolean }> =>
+    asked[orgId].filter((q) => !q.soql.startsWith('SELECT COUNT()'));
+  return { asked, reads, target, upsert, destroy };
 }
+
+/** A target whose automation runs nothing on the objects written. */
+const QUIET_TARGET = {
+  read: async () => ({
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+  }),
+};
 
 /** Every message the handler posted, of one type. */
 function posted(
@@ -262,6 +288,7 @@ describe('sync:execute of a saved delta configuration', () => {
     clearDescribeCache();
     deps = createDeps();
     handler = new SyncOpsHandler(deps);
+    handler.setTargetAutomation(QUIET_TARGET);
     new SyncConfigStore(deps.configStore).save(deltaConfig());
   });
 
@@ -279,8 +306,12 @@ describe('sync:execute of a saved delta configuration', () => {
       changed: 3,
       recorded: '2026-10-13T09:00:00.000Z',
     });
-    // The stamp asked before the read; the read carries the filter alone.
-    const firstReads = orgs.asked['src-org'].map((q) => q.soql);
+    // Counted before the first write, under the filter alone; the stamp
+    // asked before the read; the read carries the filter alone.
+    expect(orgs.asked['src-org'][0]?.soql).toBe(
+      "SELECT COUNT() FROM Account WHERE Type = 'Customer'",
+    );
+    const firstReads = orgs.reads('src-org').map((q) => q.soql);
     expect(firstReads[0]).toBe(
       'SELECT SystemModstamp FROM Account ORDER BY SystemModstamp DESC LIMIT 1',
     );
@@ -297,7 +328,11 @@ describe('sync:execute of a saved delta configuration', () => {
     await run(handler, 'run-2', deltaConfig());
 
     const second = lastResult(deps);
-    expect(orgs.asked['src-org']).toEqual([
+    // Counted from the watermark, as it is read.
+    expect(orgs.asked['src-org'][0]?.soql).toBe(
+      "SELECT COUNT() FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z AND (Type = 'Customer')",
+    );
+    expect(orgs.reads('src-org')).toEqual([
       {
         soql: 'SELECT SystemModstamp FROM Account ORDER BY SystemModstamp DESC LIMIT 1',
         scanAll: false,

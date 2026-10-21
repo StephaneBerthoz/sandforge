@@ -1039,6 +1039,19 @@
     "transforms": "Transforms",
     "review": "Review",
     "reviewDesc": "Review sync configuration before execution",
+    "reviewObjects": {
+      "title": "What each object does, in the order the run writes them",
+      "insert": "Insert: each record read is created in the target.",
+      "upsert": "Upsert on {{key}}: a record found by it is updated, any other is created.",
+      "update": "Update by Id: the target record holding the source record's Id is overwritten.",
+      "delete": "Delete by Id: the target record holding the source record's Id is deleted.",
+      "after": "Written after {{parent}}, which its {{field}} names.",
+      "cycle": "{{objects}} name each other: they are written in this order, and the lookup at the one written later is left empty.",
+      "orderLoading": "Reading the lookups of each object in the target org…",
+      "orderUnread": "The order could not be read from the target org: the run computes it again before it writes.",
+      "insertsSaved": "Saved: each run of this configuration leaves as they are the records an earlier run copied, and inserts the others.",
+      "insertsUnsaved": "Not saved: each run inserts every record it reads again. Save the configuration, and its runs leave what an earlier run copied as it is."
+    },
     "configSaved": "Configuration saved. A schedule can now run it.",
     "execute": "Execute",
     "executeDesc": "Run the sync operation",
@@ -1108,6 +1121,8 @@
     "totalSuccess": "Total Success",
     "totalFailed": "Total Failed",
     "totalSkipped": "Total Skipped",
+    "alreadyCopied_one": "{{count}} record already copied by an earlier run of this configuration, left as it was.",
+    "alreadyCopied_other": "{{count}} records already copied by an earlier run of this configuration, left as they were.",
     "running": "Syncing data...",
     "complete": "Sync Complete",
     "partial": "Partially Complete",
@@ -1366,7 +1381,37 @@
       "validationRules_other": "{{count}} active validation rules of the target, which a simulation cannot evaluate: a record one of them refuses is counted as written.",
       "validationRulesUnread": "The target's validation rules could not be listed ({{reason}}): any of them may refuse a record counted as written.",
       "stoppedAt": "The simulation stopped at {{object}}: {{error}}. A run would stop there too.",
-      "runNow": "Run the sync now"
+      "runNow": "Run the sync now",
+      "alreadyCopied_one": "{{count}} already copied by an earlier run of this configuration, left as it is.",
+      "alreadyCopied_other": "{{count}} already copied by an earlier run of this configuration, left as they are."
+    },
+    "writeCheck": {
+      "title": "Before the run writes",
+      "order": "Written in this order: {{objects}}.",
+      "records_one": "{{count}} record to write",
+      "records_other": "{{count}} records to write",
+      "alreadyCopied_one": "Not counted: {{count}} record an earlier run of this configuration copied, still in the target, left as it is.",
+      "alreadyCopied_other": "Not counted: {{count}} records an earlier run of this configuration copied, still in the target, left as they are.",
+      "storage": {
+        "fits": "Data storage: about {{estimate}} MB, of the {{remaining}} MB the target org has left out of {{max}} MB.",
+        "near": "Data storage: about {{estimate}} MB, more than 80% of the {{remaining}} MB the target org has left out of {{max}} MB.",
+        "exceeds": "Data storage: about {{estimate}} MB, more than the {{remaining}} MB the target org has left out of {{max}} MB.",
+        "unread": "Data storage: about {{estimate}} MB. What the target org has left could not be read ({{reason}})."
+      },
+      "emails": {
+        "fits": "{{limit}}: about {{emails}} sent by the target org's automation as these records go in, {{remaining}} of {{max}} left today.",
+        "exceeds": "{{limit}}: about {{emails}} sent by the target org's automation as these records go in, more than the {{remaining}} of {{max}} left today. Past them, a record whose Flow fails in the save is refused.",
+        "unread": "{{limit}}: about {{emails}} sent by the target org's automation as these records go in. What is left today could not be read ({{reason}}).",
+        "alertsCounted": "The target org counts its email alerts against its single emails, as a Developer Edition does: they are among them."
+      },
+      "emailsUnread": "The target org's automation could not be read ({{reason}}): its emails are not counted.",
+      "aboveRecords": "More than {{threshold}} records, past which the sandforge.safety.confirmAboveRecords setting asks.",
+      "verdict": {
+        "writes": "The run writes without asking.",
+        "asks": "The run asks you before it writes.",
+        "refused": "The run is refused before it writes anything."
+      },
+      "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be."
     },
     "runControls": {
       "pause": "Pause",
@@ -1493,6 +1538,12 @@
       "unfinishedTitle": "Runs that never ended",
       "unfinishedNote": "A window closed under these runs, or the history no longer lists them. What they created is kept, and can be removed.",
       "unfinishedRun": "{{config}}, started {{date}}"
+    },
+    "earlierCopies": {
+      "leftAsIs": "A run of this saved configuration leaves as they are the records its earlier runs copied, and inserts the others.",
+      "quickSync": "The last sync between these orgs, on {{date}}, created records still in the target: {{objects}}. Quick Sync inserts every record again: remove that run from the Sync history first to leave no second copy.",
+      "runAgain": "The last sync between these orgs, on {{date}}, created records still in the target: {{objects}}. Run again inserts every record again: remove that run first to leave no second copy.",
+      "unread": "Counted from what that run kept: the target org could not be asked ({{reason}})."
     },
     "noCustomMapping": "No custom mapping: fields with the same API name are copied."
   },
@@ -4838,6 +4889,26 @@
     "abortedBeforeStart": {
       "explanation": "You stopped the run before it started. Nothing was written.",
       "action": "Run it again from Review when you are ready."
+    },
+    "syncStorageExceeded": {
+      "explanation": "The sync was refused before it wrote anything: its records take more data storage than the target org has left.",
+      "action": "Simulate it to see the figures, then leave objects out, narrow their filters, or free data storage in the target org."
+    },
+    "syncEmailsExceeded": {
+      "explanation": "The sync was refused before it wrote anything: its records would make the target org's automation send more emails than it has left today, and each record past them would be refused.",
+      "action": "Simulate it to see the figures, then give the running user a bypass that keeps those Flows quiet, write fewer records, or run it again tomorrow."
+    },
+    "syncWriteDeclined": {
+      "explanation": "You cancelled the sync before it wrote anything. Nothing was written to the target org.",
+      "action": "Simulate it to see what it would write, then run it again when you are ready."
+    },
+    "syncConfirmationUnavailable": {
+      "explanation": "The sync was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
+      "action": "Run it from the Sync page, where you can confirm it."
+    },
+    "syncEarlierUnread": {
+      "explanation": "The sync was refused before it wrote anything: what earlier runs of this configuration copied could not be read, so its inserts would copy those records a second time.",
+      "action": "Check that SandForge can read its storage folder, then run it again."
     }
   },
   "moduleSummary": {

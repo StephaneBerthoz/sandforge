@@ -123,6 +123,10 @@ import type {
   SyncExecuteRequest,
   SyncSimulateRequest,
   SyncSimulateResponse,
+  SyncWriteOrderRequest,
+  SyncWriteOrderResponse,
+  SyncEarlierCopiesRequest,
+  SyncEarlierCopiesResponse,
   SyncPauseRequest,
   SyncPauseResponse,
   SyncResumeRequest,
@@ -569,6 +573,8 @@ export type WebViewToExtensionMessage =
   // Sync
   | SyncExecuteRequest
   | SyncSimulateRequest
+  | SyncWriteOrderRequest
+  | SyncEarlierCopiesRequest
   | SyncPauseRequest
   | SyncResumeRequest
   | SyncDescribeGlobalRequest
@@ -818,6 +824,8 @@ export type ExtensionToWebViewMessage =
   | SyncScheduleDeleteResponse
   | SyncExecuteResponse
   | SyncSimulateResponse
+  | SyncWriteOrderResponse
+  | SyncEarlierCopiesResponse
   | SyncPauseResponse
   | SyncResumeResponse
   | SyncDescribeGlobalResponse

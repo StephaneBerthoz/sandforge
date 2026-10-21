@@ -8,6 +8,8 @@ import type {
   SyncObjectSimulation,
   SyncSimulationResult,
   SyncValidationRule,
+  SyncWriteCheck,
+  SyncWriteOrder,
   GrappeConfig,
 } from '@sandforge/shared';
 import { PRICEBOOK_ENTRY_OBJECT, sanitizeSoqlObjectName } from '@sandforge/shared';
@@ -25,8 +27,10 @@ import type { TransformPipeline } from './TransformPipeline';
 import type { CoreServices } from '../../services.js';
 import type { PauseGate } from './PauseGate.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
-import { SyncRunFailure } from './SyncRunFailure.js';
+import { SyncRunFailure, SyncRunRefused } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
+import type { SyncCountedObject, SyncWriteGate } from './SyncRunGate.js';
+import { lookupsOf, orderSyncObjects, type WriteLookup } from './syncWriteOrder.js';
 import {
   REFUSED_BY_THE_TARGET,
   refusedOnTheirFields,
@@ -143,13 +147,36 @@ export interface SyncOrchestratorDeps {
   grappeConfig?: GrappeConfig;
   onGrappeEvent?: (event: SyncGrappeEvent) => void;
   /**
-   * Counts the source records of an object before anything is read, so a run
-   * is held to `grappeConfig.autoActivateThreshold` like Seed and Autopilot.
-   * Only called while grappe is enabled. Without it, or when a count fails,
-   * the run stays sequential and reports nothing to the Grappe view: the
-   * threshold cannot be checked, and grappe mode must never turn itself on.
+   * Counts the source records of an object before anything is read: what a
+   * run is held to before its first write (`writeGate`), and to
+   * `grappeConfig.autoActivateThreshold` like Seed and Autopilot. Without it,
+   * neither is measured; with no gate, a count that fails leaves the run
+   * sequential, reporting nothing to the Grappe view — grappe mode must never
+   * turn itself on.
    */
   countSource?: OrchestratorCountFn;
+  /**
+   * Of an account's or a contact's records under the object's filter, those
+   * of person accounts: what their data storage is sized by, at 4 KB an
+   * account and nothing a contact. None in an org without person accounts.
+   */
+  countPersonAccounts?: (objectConfig: SyncObjectConfig, read?: SourceRead) => Promise<number>;
+  /**
+   * The ids the read of an object returns, asked for alone, under the same
+   * filter: what finds, before the first write, the records an insert of a
+   * saved configuration leaves as they are, because an earlier run of it
+   * copied them (`idMap`). Without it, or `findInTarget`, an insert writes
+   * every record it reads.
+   */
+  readSourceIds?: (objectConfig: SyncObjectConfig) => Promise<string[]>;
+  /**
+   * What a run is held to before its first write: the records it writes,
+   * counted under each filter (`countSource`), against the data storage the
+   * target has left, its daily emails and the volume past which the user is
+   * asked (`SyncRunGate`). A simulation is measured by it and asks nobody.
+   * Without it, or `countSource`, nothing is measured.
+   */
+  writeGate?: SyncWriteGate;
   /**
    * The run's cancel: Live Operations' Cancel, through the registry the run
    * is listed in. Honoured before each object and between an object's reads
@@ -166,12 +193,18 @@ export interface SyncOrchestratorDeps {
    * or job it opens; a cancel ends the wait. See {@link PauseGate}.
    */
   pauseGate?: PauseGate;
-  /** For {@link SyncOrchestrator.simulate}: what the target holds. Required there. */
+  /**
+   * What the target holds: what a simulation asks in place of the write
+   * (required there), and what a run asks of the copies an earlier run of a
+   * saved configuration made, before it leaves their records as they are.
+   */
   findInTarget?: OrchestratorFindFn;
   /**
-   * For {@link SyncOrchestrator.simulate}: what the target lets a write carry,
-   * the describe the write reads too. Without it every field the records
-   * carry is taken as written.
+   * What the target lets a write carry, the describe the write reads too: the
+   * lookups of each object, which the run and a simulation write the parents
+   * of first (`syncWriteOrder`), and for a simulation the fields a write
+   * would carry. Without it the objects go in the configuration's order, and
+   * a simulation takes every field the records carry as written.
    */
   describeTargetFields?: (objectApiName: string) => Promise<TargetWriteFields>;
   /** For {@link SyncOrchestrator.simulate}: called before each object is read. */
@@ -394,6 +427,73 @@ interface PreparedObject {
   unsettled: Record<string, unknown>[];
   /** The field the conflicts were matched on. */
   matchField: string;
+  /** Rows read that an earlier run of the configuration copied, left out as they are. */
+  alreadyCopied: number;
+}
+
+/**
+ * Per object an insert of a saved configuration writes, the source records an
+ * earlier run of it copied whose copy is still in the target, by the first
+ * fifteen characters of their id: left as they are.
+ */
+type AlreadyCopied = ReadonlyMap<string, ReadonlySet<string>>;
+
+/** An id by its first fifteen characters: the case-sensitive id both forms share. */
+function idKeyOf(id: string): string {
+  return id.slice(0, 15);
+}
+
+/**
+ * An object's result with the records an earlier run copied, which it left as
+ * they are, counted as skipped and said apart.
+ */
+function withAlreadyCopied(result: SyncObjectResult, alreadyCopied: number): SyncObjectResult {
+  if (alreadyCopied === 0) return result;
+  return { ...result, skipped: result.skipped + alreadyCopied, alreadyCopied };
+}
+
+/**
+ * Why a run is refused when what earlier runs of its saved configuration
+ * copied cannot be read and an object of it inserts: it would copy those
+ * records a second time.
+ */
+function earlierUnreadRefusal(unread: string, inserts: readonly SyncObjectConfig[]): string {
+  return (
+    `What earlier runs of this configuration copied could not be read (${unread}), and ` +
+    `${inserts.map((o) => o.objectApiName).join(', ')} ${inserts.length === 1 ? 'is' : 'are'} ` +
+    'inserted: the records they copied would be copied a second time. Nothing was written.'
+  );
+}
+
+/** The code a run is refused with when what earlier runs copied cannot be read. */
+export const SYNC_EARLIER_UNREAD = 'SYNC_EARLIER_UNREAD';
+
+/** The objects whose records may be person accounts', which take storage of their own size. */
+const PERSON_ACCOUNT_OBJECTS: ReadonlySet<string> = new Set(['Account', 'Contact']);
+
+/**
+ * What the run writes, as its gate measures it: each object's records as
+ * counted, less those an earlier run copied, which an insert leaves as they are.
+ */
+function countedWriteOf(
+  objects: readonly SyncObjectConfig[],
+  counted: ReadonlyMap<string, { rows: number; personAccounts?: number }>,
+  copied: AlreadyCopied,
+): { objects: SyncCountedObject[]; alreadyCopied: number } {
+  let alreadyCopied = 0;
+  const measured = objects.map((objectConfig): SyncCountedObject => {
+    const name = objectConfig.objectApiName;
+    const count = counted.get(name) ?? { rows: 0 };
+    const left = copied.get(name)?.size ?? 0;
+    alreadyCopied += Math.min(left, count.rows);
+    return {
+      objectApiName: name,
+      operation: objectConfig.operation,
+      rows: Math.max(0, count.rows - left),
+      ...(count.personAccounts !== undefined ? { personAccounts: count.personAccounts } : {}),
+    };
+  });
+  return { objects: measured, alreadyCopied };
 }
 
 /**
@@ -424,7 +524,12 @@ export class SyncOrchestrator {
 
   /**
    * Execute a full sync based on the provided configuration.
-   * Coordinates all services in sequence for each object, sorted by insertOrder.
+   *
+   * Coordinates all services in sequence for each object, the parents its
+   * lookups name first (`syncWriteOrder`). Before the first write, the
+   * records an insert of a saved configuration's earlier runs copied are found
+   * and left as they are, and the records the run writes are counted and held
+   * to its write gate (`writeGate`): refused there, nothing is written.
    * Activates grappe mode when the source records counted before the run reach
    * the configured threshold.
    */
@@ -433,8 +538,15 @@ export class SyncOrchestrator {
     const operationId = `sync-${Date.now()}`;
     const objectResults: SyncObjectResult[] = [];
 
-    const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
+    const { ordered: sortedObjects } = await this.writeOrderOf(config.objects);
     const deltaLoad = this.deltaLoadOf(config);
+    /** The run refused before its first write, with nothing written. */
+    const refuse = (message: string, code: string): SyncRunRefused =>
+      new SyncRunRefused(
+        message,
+        { ...buildResult(config.id, operationId, [], startTime, 'failure'), error: message },
+        code,
+      );
 
     // The files of every object, found and measured before the first write: a
     // run whose files would not fit in the target is refused with nothing
@@ -462,6 +574,46 @@ export class SyncOrchestrator {
     // configuration wrote. Both orgs' record types are read once, before the
     // first object whose records carry one is written.
     const earlier = await this.earlierLinks(config);
+    // An insert that cannot tell what earlier runs copied would copy it a
+    // second time: every re-run of a configuration inserted every record again.
+    const inserts = sortedObjects.filter((o) => o.operation === 'insert');
+    if (earlier.unread !== undefined && inserts.length > 0) {
+      throw refuse(earlierUnreadRefusal(earlier.unread, inserts), SYNC_EARLIER_UNREAD);
+    }
+    // The records an earlier run copied whose copy is still in the target,
+    // left as they are; then what the run writes, counted, held to its gate.
+    let copied: AlreadyCopied;
+    try {
+      copied = await this.alreadyCopiedOf(config, sortedObjects, earlier.links);
+    } catch (err: unknown) {
+      const message =
+        `What earlier runs of this configuration copied could not be looked up in the target ` +
+        `(${err instanceof Error ? err.message : String(err)}), so nothing was written.`;
+      throw new SyncRunFailure(
+        message,
+        { ...buildResult(config.id, operationId, [], startTime, 'failure'), error: message },
+        err,
+      );
+    }
+    const counts = await this.countRun(
+      config,
+      sortedObjects,
+      deltaLoad,
+      this.deps.writeGate !== undefined,
+    );
+    if (this.deps.writeGate && 'unread' in counts) {
+      const message = `The records to write could not be counted (${counts.unread}), so nothing was written.`;
+      throw new SyncRunFailure(message, {
+        ...buildResult(config.id, operationId, [], startTime, 'failure'),
+        error: message,
+      });
+    }
+    if (this.deps.writeGate && 'counted' in counts) {
+      const { answer } = await this.deps.writeGate.hold(
+        countedWriteOf(sortedObjects, counts.counted, copied),
+      );
+      if (!answer.go) throw refuse(answer.message, answer.code);
+    }
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
     const currencies = this.currenciesOnce();
@@ -592,7 +744,10 @@ export class SyncOrchestrator {
       };
     };
 
-    const totalRecords = await this.countForGrappe(config, sortedObjects, deltaLoad);
+    const totalRecords =
+      'counted' in counts
+        ? [...counts.counted.values()].reduce((sum, { rows }) => sum + rows, 0)
+        : undefined;
     const grappeActive = this.isGrappeActive(totalRecords);
     if (grappeActive) {
       this.deps.onGrappeEvent?.({
@@ -681,6 +836,7 @@ export class SyncOrchestrator {
                 noteLinks(objectConfig, outcomes, sourceIds);
               }
             : undefined,
+          copied.get(objectConfig.objectApiName),
         );
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
@@ -1091,34 +1247,133 @@ export class SyncOrchestrator {
   }
 
   /**
-   * The source records the run will read, counted before the first write, or
-   * `undefined` when grappe is off or the count is unavailable. A delta read
-   * is counted from its watermark.
+   * The source records each object's read returns, counted before the first
+   * write — a delta read from its watermark — with, of an account's or a
+   * contact's, those of person accounts: what the write gate measures and
+   * the Grappe threshold is held to. Nothing is counted when neither asks,
+   * or when the run was given no count; a count the org refuses says why.
+   *
+   * @param gated - Whether the run is held to a write gate, which counts.
    */
-  private async countForGrappe(
+  private async countRun(
     config: SyncConfig,
     objects: readonly SyncObjectConfig[],
     load: SyncDeltaLoad | null | undefined,
-  ): Promise<number | undefined> {
+    gated: boolean,
+  ): Promise<
+    | { counted: ReadonlyMap<string, { rows: number; personAccounts?: number }> }
+    | { unread: string }
+    | { none: true }
+  > {
     const count = this.deps.countSource;
-    if (!this.deps.grappeConfig?.enabled || !count) return undefined;
-    let total = 0;
+    if ((!gated && !this.deps.grappeConfig?.enabled) || !count) return { none: true };
+    const counted = new Map<string, { rows: number; personAccounts?: number }>();
     try {
       for (const objectConfig of objects) {
         const plan = load === undefined ? null : planObjectRead(config, objectConfig, load);
-        total +=
-          plan?.read === 'delta'
-            ? await count(config.sourceOrgId, objectConfig, {
-                changedSince: changedSinceLiteral(plan.since),
-              })
-            : await count(config.sourceOrgId, objectConfig);
+        const read: SourceRead | undefined =
+          plan?.read === 'delta' ? { changedSince: changedSinceLiteral(plan.since) } : undefined;
+        const rows = read
+          ? await count(config.sourceOrgId, objectConfig, read)
+          : await count(config.sourceOrgId, objectConfig);
+        if (!Number.isFinite(rows) || rows < 0) {
+          throw new Error(`the source answered no count of ${objectConfig.objectApiName}`);
+        }
+        const persons =
+          gated &&
+          rows > 0 &&
+          this.deps.countPersonAccounts &&
+          PERSON_ACCOUNT_OBJECTS.has(objectConfig.objectApiName)
+            ? await this.deps.countPersonAccounts(objectConfig, read)
+            : undefined;
+        counted.set(objectConfig.objectApiName, {
+          rows,
+          ...(persons !== undefined && persons > 0 ? { personAccounts: persons } : {}),
+        });
       }
-    } catch {
-      // Grappe only changes what the Grappe view is told; a count the org
-      // refuses must not stop a sync that would otherwise run.
-      return undefined;
+    } catch (err: unknown) {
+      // Grappe only changes what the Grappe view is told: without a gate, a
+      // count the org refuses must not stop a sync that would otherwise run.
+      return { unread: err instanceof Error ? err.message : String(err) };
     }
-    return total;
+    return { counted };
+  }
+
+  /**
+   * The source records an earlier run of a saved configuration copied that
+   * each insert of this run reads, whose copy is still in the target: left
+   * as they are, as Forge links a record a run it retries wrote.
+   *
+   * Every re-run inserted every record again — Run again, a schedule, a saved
+   * configuration run a second time — and the configuration's pairs of source
+   * and target records (`idMap`) were read only to point lookups at earlier
+   * copies. A copy deleted from the target since stands for nothing: its
+   * record is inserted again. An upsert matches on its key, and an update or
+   * a delete on the record's id; only an insert is told apart.
+   *
+   * @param earlier - The pairs earlier runs of the configuration kept, by the
+   *   first fifteen characters of each source id.
+   */
+  private async alreadyCopiedOf(
+    config: SyncConfig,
+    objects: readonly SyncObjectConfig[],
+    earlier: ReadonlyMap<string, string> | undefined,
+  ): Promise<AlreadyCopied> {
+    const copied = new Map<string, Set<string>>();
+    const readIds = this.deps.readSourceIds;
+    const find = this.deps.findInTarget;
+    if (!earlier || earlier.size === 0 || !readIds || !find) return copied;
+    for (const objectConfig of objects) {
+      if (objectConfig.operation !== 'insert') continue;
+      if (this.deps.signal?.aborted) break;
+      /** The copy each source record the read returns has, by its source id's key. */
+      const copies = new Map<string, string>();
+      for (const id of await readIds(objectConfig)) {
+        const copy = earlier.get(idKeyOf(id));
+        if (copy !== undefined) copies.set(idKeyOf(id), copy);
+      }
+      if (copies.size === 0) continue;
+      // Asked of the target by id: an id read back is compared by its
+      // first fifteen characters, as the configuration's pairs keep them.
+      const held = await find(config.targetOrgId, objectConfig, 'Id', [
+        ...new Set(copies.values()),
+      ]);
+      const standing = new Set([...held.keys()].map((key) => key.slice(0, 15)));
+      const left = new Set<string>();
+      for (const [source, copy] of copies) {
+        if (standing.has(copy.slice(0, 15).toLowerCase())) left.add(source);
+      }
+      if (left.size > 0) copied.set(objectConfig.objectApiName, left);
+    }
+    return copied;
+  }
+
+  /**
+   * The objects in the order the run writes them (`syncWriteOrder`): the
+   * parents a lookup of an object names before it, read from the target's
+   * describe of each. An object whose describe fails keeps its place: its
+   * write describes it again, and says why it cannot.
+   */
+  private async writeOrderOf(
+    objects: readonly SyncObjectConfig[],
+  ): Promise<{ ordered: SyncObjectConfig[]; order?: SyncWriteOrder }> {
+    const describe = this.deps.describeTargetFields;
+    if (!describe) {
+      return { ordered: [...objects].sort((a, b) => a.insertOrder - b.insertOrder) };
+    }
+    const lookups = new Map<string, WriteLookup[]>();
+    for (const objectConfig of objects) {
+      if (objectConfig.operation === 'delete') continue;
+      try {
+        lookups.set(
+          objectConfig.objectApiName,
+          lookupsOf(objectConfig, await describe(objectConfig.objectApiName)),
+        );
+      } catch {
+        // Ordered without its lookups.
+      }
+    }
+    return orderSyncObjects(objects, lookups);
   }
 
   /** Check whether grappe mode should activate based on the counted records and config. */
@@ -1144,8 +1399,11 @@ export class SyncOrchestrator {
   async simulate(config: SyncConfig): Promise<SyncSimulationResult> {
     const startTime = Date.now();
     const objects: SyncObjectSimulation[] = [];
-    const ordered = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
+    // In the order the run writes them, said with the simulation.
+    const { ordered, order: writeOrder } = await this.writeOrderOf(config.objects);
     let filePlan: SyncFilePlan | undefined;
+    let writeCheck: SyncWriteCheck | undefined;
+    let writeCheckUnread: string | undefined;
     // What the simulation cannot evaluate, said beside what it predicts: the
     // target's validation rules on each object the run writes. Run against a
     // real target, a simulation predicted 652 accounts written and the run
@@ -1162,6 +1420,9 @@ export class SyncOrchestrator {
       timestamp: new Date().toISOString(),
       ...(filePlan ? { files: filePlan.storage } : {}),
       ...(validation.unread !== undefined ? { validationRulesUnread: validation.unread } : {}),
+      ...(writeOrder ? { writeOrder } : {}),
+      ...(writeCheck ? { writeCheck } : {}),
+      ...(writeCheckUnread !== undefined ? { writeCheckUnread } : {}),
       ...ending,
     });
 
@@ -1180,6 +1441,31 @@ export class SyncOrchestrator {
     // types are mapped as the run maps them, from the same read, and a lookup
     // at a record an earlier run wrote names its copy, as the run names it.
     const earlier = await this.earlierLinks(config);
+    // Refused by the run, as the run refuses it: an insert that cannot tell
+    // what earlier runs copied would copy it a second time.
+    const inserts = ordered.filter((o) => o.operation === 'insert');
+    if (earlier.unread !== undefined && inserts.length > 0) {
+      return answer({ error: earlierUnreadRefusal(earlier.unread, inserts) });
+    }
+    // The records an earlier run copied, which the run leaves as they are,
+    // and what it writes, counted and measured as its gate measures them.
+    let copied: AlreadyCopied;
+    try {
+      copied = await this.alreadyCopiedOf(config, ordered, earlier.links);
+    } catch (err: unknown) {
+      if (this.deps.signal?.aborted) return answer({ cancelled: true });
+      return answer({ error: err instanceof Error ? err.message : String(err) });
+    }
+    const gate = this.deps.writeGate;
+    const counts = gate ? await this.countRun(config, ordered, deltaLoad, true) : undefined;
+    if (gate && counts && 'unread' in counts) writeCheckUnread = counts.unread;
+    if (gate && counts && 'counted' in counts) {
+      try {
+        writeCheck = await gate.measure(countedWriteOf(ordered, counts.counted, copied));
+      } catch (err: unknown) {
+        writeCheckUnread = err instanceof Error ? err.message : String(err);
+      }
+    }
     const run: RunContext = {
       links: new SyncRunLinks(earlier.links),
       recordTypes: this.recordTypesOnce(),
@@ -1191,7 +1477,13 @@ export class SyncOrchestrator {
       if (this.deps.signal?.aborted) return answer({ cancelled: true });
       this.deps.onSimulationProgress?.(index, ordered.length, objectConfig.objectApiName);
       try {
-        const simulated = await this.simulateObject(config, objectConfig, deltaLoad, run);
+        const simulated = await this.simulateObject(
+          config,
+          objectConfig,
+          deltaLoad,
+          run,
+          copied.get(objectConfig.objectApiName),
+        );
         const files = filePlan?.objects.get(objectConfig.objectApiName);
         const { rules, onChange } = rulesFor(
           objectConfig.operation,
@@ -1258,12 +1550,15 @@ export class SyncOrchestrator {
    *
    * @param run - What the simulation found the run would write and refuse
    *   before this object, and both orgs' record types.
+   * @param copied - The source records an earlier run copied, which the run
+   *   leaves as they are, by the first fifteen characters of their id.
    */
   private async simulateObject(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
     deltaLoad: SyncDeltaLoad | null | undefined,
     run: RunContext,
+    copied?: ReadonlySet<string>,
   ): Promise<SyncObjectSimulation> {
     const find = this.deps.findInTarget;
     if (!find) throw new Error('A simulation needs to look records up in the target org.');
@@ -1274,7 +1569,13 @@ export class SyncOrchestrator {
       rows: 0,
       cut: false,
     };
-    const asRead = await this.prepare(config, objectConfig, leftOut, plan ? read : undefined);
+    const asRead = await this.prepare(
+      config,
+      objectConfig,
+      leftOut,
+      plan ? read : undefined,
+      copied,
+    );
     // The price books and prices as the run writes them: see `pricesSettled`.
     const settled =
       asRead.records.length > 0 ? await this.pricesSettled(objectConfig, asRead, run) : undefined;
@@ -1409,7 +1710,8 @@ export class SyncOrchestrator {
 
     const withHeld: SyncObjectSimulation = {
       ...outcome,
-      skipped: outcome.skipped + linkedAt.size,
+      skipped: outcome.skipped + linkedAt.size + prepared.alreadyCopied,
+      ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
       refused: outcome.refused + rows.held.length + refusedAt.size,
       notes: [
         ...(settled?.standardMatched ? [STANDARD_PRICEBOOK_MATCHED_NOTE] : []),
@@ -1463,6 +1765,8 @@ export class SyncOrchestrator {
    * @param onWritten - Told what the write did, record by record, once it
    *   answers — also the records it wrote before a cancel stopped it — with
    *   the source id of each record.
+   * @param copied - The source records an earlier run copied, left as they
+   *   are, by the first fifteen characters of their id.
    */
   private async syncObject(
     config: SyncConfig,
@@ -1475,15 +1779,20 @@ export class SyncOrchestrator {
       outcomes: readonly OperationOutcome[],
       sourceIds: ReadonlyArray<string | undefined>,
     ) => void,
+    copied?: ReadonlySet<string>,
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
-    const prepared = await this.prepare(config, objectConfig, leftOut, read);
+    const prepared = await this.prepare(config, objectConfig, leftOut, read, copied);
+    const asCopied = (result: SyncObjectResult): SyncObjectResult =>
+      withAlreadyCopied(result, prepared.alreadyCopied);
     if (prepared.records.length === 0) {
-      return withRowsLeftOut(createEmptyResult(objectConfig), leftOut);
+      return asCopied(withRowsLeftOut(createEmptyResult(objectConfig), leftOut));
     }
     const settled = await this.pricesSettled(objectConfig, prepared, run);
     const { records, sourceIds, sources } = settled;
     if (records.length === 0) {
-      return withRowsLeftOut(withPricesSettled(createEmptyResult(objectConfig), settled), leftOut);
+      return asCopied(
+        withRowsLeftOut(withPricesSettled(createEmptyResult(objectConfig), settled), leftOut),
+      );
     }
     const writeRun: SyncWriteRun = {
       ...(await writeRunOf(run, records, sources)),
@@ -1529,20 +1838,22 @@ export class SyncOrchestrator {
         );
         note(outcomes);
         linkWhatStoodIn();
-        return withRowsLeftOut(
-          withPricesSettled(
-            withCurrencies(
-              buildObjectResult(
-                objectConfig.objectApiName,
-                objectConfig.operation,
-                outcomes,
-                notes,
+        return asCopied(
+          withRowsLeftOut(
+            withPricesSettled(
+              withCurrencies(
+                buildObjectResult(
+                  objectConfig.objectApiName,
+                  objectConfig.operation,
+                  outcomes,
+                  notes,
+                ),
+                currencies,
               ),
-              currencies,
+              settled,
             ),
-            settled,
+            leftOut,
           ),
-          leftOut,
         );
       } catch (err: unknown) {
         if (err instanceof WriteCancelledError) note(err.written);
@@ -1555,7 +1866,7 @@ export class SyncOrchestrator {
       writeRun,
     );
     linkWhatStoodIn();
-    return withRowsLeftOut(withPricesSettled(synced, settled), leftOut);
+    return asCopied(withRowsLeftOut(withPricesSettled(synced, settled), leftOut));
   }
 
   /**
@@ -1569,12 +1880,15 @@ export class SyncOrchestrator {
    *   with the rows the read returned and whether a bound cut it short. The
    *   target of a bidirectional run is read whole: a conflict is a record both
    *   orgs hold, whenever either changed it.
+   * @param copied - The source records an earlier run copied, which an insert
+   *   leaves as they are, by the first fifteen characters of their id.
    */
   private async prepare(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
     leftOut: RowsLeftToThePlatform,
     asked?: ObjectRead,
+    copied?: ReadonlySet<string>,
   ): Promise<PreparedObject> {
     const read = asked
       ? await this.deps.querySource(config.sourceOrgId, objectConfig, {
@@ -1594,7 +1908,16 @@ export class SyncOrchestrator {
     // it. What hangs from one is left to the write: a sync copies ids as it
     // reads them, and the target may hold the change a comment answers.
     const creates = objectConfig.operation === 'insert' || objectConfig.operation === 'upsert';
-    const sourceRecords = creates ? leftOut.keep(objectConfig.objectApiName, read) : read;
+    const kept = creates ? leftOut.keep(objectConfig.objectApiName, read) : read;
+    // What an earlier run copied stays as it is: inserted again, it was a
+    // second copy of every record each time the configuration ran.
+    const sourceRecords =
+      copied && copied.size > 0 && objectConfig.operation === 'insert'
+        ? kept.filter(
+            (record) => !(typeof record.Id === 'string' && copied.has(idKeyOf(record.Id))),
+          )
+        : kept;
+    const alreadyCopied = kept.length - sourceRecords.length;
 
     if (sourceRecords.length === 0) {
       return {
@@ -1605,6 +1928,7 @@ export class SyncOrchestrator {
         conflicts: [],
         unsettled: [],
         matchField,
+        alreadyCopied,
       };
     }
 
@@ -1662,6 +1986,7 @@ export class SyncOrchestrator {
       conflicts,
       unsettled: recordsWithAddOns,
       matchField,
+      alreadyCopied,
     };
   }
 

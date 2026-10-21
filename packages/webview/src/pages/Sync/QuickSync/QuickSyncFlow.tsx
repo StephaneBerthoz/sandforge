@@ -97,6 +97,8 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
           onExecute={flow.execute}
           onReset={flow.reset}
           onBack={() => flow.goToObjects()}
+          sourceOrgId={state.sourceOrgId}
+          targetOrgId={state.targetOrgId}
         />
       )}
 

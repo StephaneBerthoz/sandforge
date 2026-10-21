@@ -9,6 +9,7 @@ import type {
   SyncConfigSummary,
   SyncExecutionResult,
   SyncHistoryEntry,
+  SyncObjectConfig,
   SyncObjectResult,
   SyncOperation,
   SyncRunControlAnswer,
@@ -69,7 +70,7 @@ import {
   syncCannotCopy,
 } from '../validatePayload.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
-import { SyncRunFailure } from '../../modules/sync/SyncRunFailure.js';
+import { SyncRunFailure, SyncRunRefused } from '../../modules/sync/SyncRunFailure.js';
 import { describeCached } from '../../core/connection/describeCache.js';
 import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
@@ -115,6 +116,29 @@ import { savedConfigIdMap, type SyncIdMapStore } from '../../modules/sync/SyncId
 import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 import type { RunCurrencies } from '../../core/common/recordCurrencies.js';
 import type { StandardPricebooks } from '../../modules/sync/syncPrices.js';
+import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
+import {
+  DEFAULT_CONFIRM_ABOVE_RECORDS,
+  readDataStorage,
+  readEmailLimits,
+} from '../../modules/forge/ForgeRunGate.js';
+import {
+  syncWriteGate,
+  type SyncGatePolicy,
+  type SyncWriteGate,
+} from '../../modules/sync/SyncRunGate.js';
+import {
+  lookupsOf,
+  orderSyncObjects,
+  type WriteLookup,
+} from '../../modules/sync/syncWriteOrder.js';
+
+/** How long the read of the target's data storage and email limits may take. */
+const LIMITS_TIMEOUT_MS = 30_000;
+
+/** How long the read of the target's automation may take, as Forge's may. */
+const AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
 export type UnattendedSyncOrigin = Extract<
@@ -126,6 +150,7 @@ export type UnattendedSyncOrigin = Extract<
 const SYNC_TYPES = new Set([
   'sync:execute',
   'sync:simulate',
+  'sync:write-order',
   'sync:pause',
   'sync:resume',
   'sync:describe-global',
@@ -299,6 +324,10 @@ interface SyncReaders {
   /** Both orgs' standard price books, matched by the run: see `readStandardPricebooks`. */
   standardPricebooks: () => Promise<StandardPricebooks | undefined>;
   findInTarget: OrchestratorFindFn;
+  /** The ids an object's read returns, asked for alone: see `SyncOrchestratorDeps.readSourceIds`. */
+  readSourceIds: (objectConfig: SyncObjectConfig) => Promise<string[]>;
+  /** Of an account's or a contact's records, those of person accounts: see `SyncOrchestratorDeps.countPersonAccounts`. */
+  countPersonAccounts: (objectConfig: SyncObjectConfig, read?: SourceRead) => Promise<number>;
   /** What a delta configuration asks both orgs: see `SyncDelta`. */
   deltaReads: SyncDeltaReads;
   /** What a configuration that copies files reads and writes: see `SyncFiles`. */
@@ -345,9 +374,94 @@ export class SyncOpsHandler implements DomainHandler {
   /** Where every run keeps what it creates, for its removal. */
   private runCreations?: SyncRunCreations;
 
+  /**
+   * What reads the target's automation for a run's write gate: the handler's
+   * own reader, as Forge reads it, loaded the first time a run needs it,
+   * unless another is set.
+   */
+  private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
+    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+  };
+  /** The reader {@link targetAutomation} reads through, once loaded. */
+  private reader?: Promise<TargetAutomationReader>;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.syncConfigStore = new SyncConfigStore(deps.configStore);
+  }
+
+  /**
+   * Another reader of the target's automation than the handler's own: a run's
+   * write gate counts the emails the target's flows send as its records go in.
+   */
+  setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
+    this.targetAutomation = reader;
+  }
+
+  /** The handler's own reader of the target's automation, as Forge reads it, off the activation path. */
+  private ownReader(): Promise<TargetAutomationReader> {
+    this.reader ??= import('../../modules/forge/TargetAutomationReader.js').then(
+      ({ TargetAutomationReader, targetAutomationQueries }) =>
+        new TargetAutomationReader(
+          targetAutomationQueries((orgId) =>
+            getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+          ),
+        ),
+    );
+    return this.reader;
+  }
+
+  /** `sandforge.safety.confirmAboveRecords`: the volume past which a run asks before it writes; 0 never asks. */
+  private confirmAboveRecords(): number {
+    const value = this.deps.services?.getSandforgeSetting?.<unknown>(
+      'safety.confirmAboveRecords',
+      DEFAULT_CONFIRM_ABOVE_RECORDS,
+    );
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : DEFAULT_CONFIRM_ABOVE_RECORDS;
+  }
+
+  /**
+   * What a run of `config` is held to before its first write, and a
+   * simulation of it measured by (`SyncRunGate`): its records against the
+   * target's data storage, its daily emails and the setting's volume, asked
+   * of the user through Production Guard's confirmation when someone started
+   * it, and refused past the emails when nobody watches it.
+   *
+   * @param policy - Who answers for the run (`SyncGatePolicy`).
+   */
+  private writeGateFor(
+    config: SyncConfig,
+    targetConn: Awaited<ReturnType<typeof getJsforceConnection>>,
+    policy: SyncGatePolicy,
+  ): SyncWriteGate {
+    const target = this.deps.orgManager.getOrg(config.targetOrgId);
+    const reader = this.targetAutomation;
+    const guard = this.deps.infraServices?.productionGuard;
+    return syncWriteGate(
+      {
+        readStorage: () =>
+          new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('sync:limits', () =>
+            readDataStorage(targetConn),
+          ),
+        readAutomation: (objects) =>
+          new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('sync:automation', () =>
+            reader.read(config.targetOrgId, objects),
+          ),
+        readLimits: () =>
+          new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('sync:limits', () =>
+            readEmailLimits(targetConn),
+          ),
+        confirmAboveRecords: this.confirmAboveRecords(),
+      },
+      {
+        policy,
+        org: target?.alias ?? config.targetOrgId,
+        orgTier: guardTierOf(target),
+        ...(guard ? { confirm: (question: WriteConfirmation) => guard.confirmRun(question) } : {}),
+      },
+    );
   }
 
   /**
@@ -421,6 +535,9 @@ export class SyncOpsHandler implements DomainHandler {
         return true;
       case 'sync:simulate':
         await this.handleSimulate(msg);
+        return true;
+      case 'sync:write-order':
+        await this.handleWriteOrder(msg);
         return true;
       case 'sync:pause':
         await this.handleRunControl(msg, 'pause');
@@ -827,6 +944,49 @@ export class SyncOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * `sync:write-order`: the order a run of this configuration writes its
+   * objects in, as the run computes it before its first write
+   * (`syncWriteOrder`), from the target's describe of each object — the
+   * describes the run reads again, cached. What Review shows before anything
+   * runs: a run used to write the objects in the order they were added.
+   */
+  private async handleWriteOrder(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncSimulatePayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
+    const config = parsed.config as unknown as SyncConfig;
+    try {
+      const targetConn = await getJsforceConnection(
+        config.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const timeoutMs = robustnessConfigOf(this.deps).timeouts.describe;
+      const lookups = new Map<string, WriteLookup[]>();
+      for (const object of config.objects) {
+        if (object.operation === 'delete') continue;
+        const name = object.objectApiName;
+        try {
+          const described = await new TimeoutManager(timeoutMs).withTimeout(
+            `describe-target-${name}`,
+            () => describeCached(config.targetOrgId, name, () => targetConn.describe(name)),
+          );
+          lookups.set(name, lookupsOf(object, targetWriteFieldsOf(described)));
+        } catch {
+          // Ordered without its lookups, as the run orders it: its write
+          // describes it again, and says why it cannot.
+        }
+      }
+      const { order } = orderSyncObjects(config.objects, lookups);
+      const response = buildResponse(this.deps, msg, 'sync:write-order:response', { order });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'sync:write-order', 'sync:error', msg, err);
+    }
+  }
+
   private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
@@ -928,6 +1088,13 @@ export class SyncOpsHandler implements DomainHandler {
         signal: abortController.signal,
         findInTarget: readers.findInTarget,
         describeTargetFields: readers.describeTargetFields,
+        // What the run leaves as earlier runs copied it, found as the run
+        // finds it; and what it writes, counted and measured as its gate
+        // measures it, asking nobody.
+        readSourceIds: readers.readSourceIds,
+        countSource: readers.countSource,
+        countPersonAccounts: readers.countPersonAccounts,
+        writeGate: this.writeGateFor(config, readers.targetConn, 'ask'),
         // Mapped as the run maps them.
         recordTypes: readers.recordTypes,
         // A currency the target does not hold active replaced, and the
@@ -1244,6 +1411,23 @@ export class SyncOpsHandler implements DomainHandler {
         tier === 'production' ? limits.defaultQueryLimit : FORGE_QUERY_MAX_RECORDS,
       );
     };
+    // Of an account's or a contact's records under the filter, the person
+    // accounts': an org without them has no such field, and holds none.
+    const countPersonAccounts = async (
+      objectConfig: import('@sandforge/shared').SyncObjectConfig,
+      read?: SourceRead,
+    ): Promise<number> => {
+      const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
+      const where = sourceReadWhere(objectConfig.where, read?.changedSince);
+      const soql =
+        `SELECT COUNT() FROM ${safeObj} WHERE IsPersonAccount = true` +
+        (where ? ` AND (${where})` : '');
+      try {
+        return (await sourceConn.query(soql)).totalSize;
+      } catch {
+        return 0;
+      }
+    };
 
     // One describe of the target per object, kept for the run. Without it a
     // sync with no field mappings sends every field it read — see
@@ -1389,6 +1573,8 @@ export class SyncOpsHandler implements DomainHandler {
       currencies,
       standardPricebooks,
       findInTarget,
+      readSourceIds: (objectConfig) => sourceIds(objectConfig),
+      countPersonAccounts,
       deltaReads,
       files,
     };
@@ -1845,6 +2031,22 @@ export class SyncOpsHandler implements DomainHandler {
         grappeConfig: readGrappeConfig(this.deps.services),
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
         countSource: readers.countSource,
+        countPersonAccounts: readers.countPersonAccounts,
+        // The parents its objects' lookups name written first, from the
+        // describe each write reads too.
+        describeTargetFields: readers.describeTargetFields,
+        // What an earlier run of a saved configuration copied, still in the
+        // target, left as it is: found by the ids each insert reads.
+        readSourceIds: readers.readSourceIds,
+        findInTarget: readers.findInTarget,
+        // Held, before its first write, to the target's data storage, its
+        // daily emails and the setting's volume: asked of the user who
+        // started it, refused past the emails when nobody watches it.
+        writeGate: this.writeGateFor(
+          config,
+          targetConn,
+          triggeredBy === 'schedule' || triggeredBy === 'pipeline' ? 'unattended' : 'ask',
+        ),
         // Both orgs' record types, a record's mapped to the target's.
         recordTypes: readers.recordTypes,
         // Both orgs' currencies: a row in one the target does not hold active
@@ -1932,6 +2134,39 @@ export class SyncOpsHandler implements DomainHandler {
       await creations?.end({ status: 'failure' });
       this.dmlTracker.markFailed(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      // Refused before its first write — by its write gate, or for an insert
+      // that could not tell what earlier runs copied: nothing was written, so
+      // it is recorded as stopped, under its code, as a run Production Guard
+      // stopped is, and the history keeps no run of it. The page words the
+      // refusal by its code.
+      if (err instanceof SyncRunRefused) {
+        recordWriteRun(this.deps, {
+          action: 'sync_execute',
+          module: 'sync',
+          operationId,
+          orgId: config.targetOrgId,
+          outcome: 'stopped',
+          guard: guardDecision,
+          code: err.code,
+          details: { triggeredBy },
+        });
+        sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err, { code: err.code });
+        sendOperationFailed(this.deps, operationId, err.message, false, {
+          context: {
+            module: 'sync',
+            operation: msg.type,
+            ...objectsFailureContext(config.objects),
+          },
+        });
+        return {
+          ...err.result,
+          configId: config.id,
+          operationId,
+          status: 'failure',
+          timestamp: new Date().toISOString(),
+          error: err.message,
+        };
+      }
       // Transport-level failure: the org was unreachable — queue the config so
       // OfflineManager replays it when connectivity returns.
       // Guard on `triggeredBy`: a replay (`rerun`) that fails again is NOT

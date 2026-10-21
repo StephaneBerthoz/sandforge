@@ -45,6 +45,35 @@ function simulation(overrides: Partial<SyncSimulationResult> = {}): SyncSimulati
 }
 
 describe('SyncSimulationResults', () => {
+  it('says what a run would meet before its first write, and what an earlier run copied', () => {
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        simulation={{
+          ...base,
+          objects: [{ ...base.objects[1], read: 5, skipped: 2, alreadyCopied: 2 }],
+          writeOrder: { objects: ['Contact'], moved: [], cycles: [] },
+          writeCheck: {
+            objects: [{ objectApiName: 'Contact', rows: 3 }],
+            total: 3,
+            alreadyCopied: 2,
+            storage: { verdict: 'exceeds', estimateMB: 0.01, maxMB: 5, remainingMB: 0 },
+            emails: [],
+            verdict: 'refused',
+          },
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-verdict').textContent).toBe(
+      'The run is refused before it writes anything.',
+    );
+    expect(screen.getByTestId('sync-simulation-copied-Contact').textContent).toBe(
+      '2 already copied by an earlier run of this configuration, left as they are.',
+    );
+  });
+
   it("lists beside an object the target's validation rules, which a simulation cannot evaluate", () => {
     const base = simulation();
     render(

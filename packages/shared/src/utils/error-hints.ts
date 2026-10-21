@@ -445,6 +445,45 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     wordsTheMessage: true,
     keys: ['errors.noCliOrgs.explanation', 'errors.noCliOrgs.action'],
   },
+  // A Sync run its write gate stopped before its first write, past what the
+  // target has left of its data storage or of today's emails, declined by the
+  // user or with nobody to ask; and an insert that could not tell what
+  // earlier runs of its configuration copied. The host says each in English
+  // with its figures; the panel words it in place of that, and the
+  // simulation shows the figures.
+  SYNC_STORAGE_EXCEEDED: {
+    severity: 'error',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.syncStorageExceeded.explanation', 'errors.syncStorageExceeded.action'],
+  },
+  SYNC_EMAILS_EXCEEDED: {
+    severity: 'error',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.syncEmailsExceeded.explanation', 'errors.syncEmailsExceeded.action'],
+  },
+  SYNC_WRITE_DECLINED: {
+    severity: 'info',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.syncWriteDeclined.explanation', 'errors.syncWriteDeclined.action'],
+  },
+  SYNC_CONFIRMATION_UNAVAILABLE: {
+    severity: 'warning',
+    own: true,
+    wordsTheMessage: true,
+    keys: [
+      'errors.syncConfirmationUnavailable.explanation',
+      'errors.syncConfirmationUnavailable.action',
+    ],
+  },
+  SYNC_EARLIER_UNREAD: {
+    severity: 'error',
+    own: true,
+    wordsTheMessage: true,
+    keys: ['errors.syncEarlierUnread.explanation', 'errors.syncEarlierUnread.action'],
+  },
 };
 
 /**

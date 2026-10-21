@@ -616,6 +616,33 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(call[0]).toBe('SandForge: confirm this Autopilot run');
   });
 
+  it("asks a Sync run's question as its own, naming what an earlier run copied and it leaves as it is", async () => {
+    const sync: WriteConfirmation = {
+      ...write,
+      module: 'sync',
+      counted: true,
+      alreadyCopied: 40,
+    };
+    expect(runQuestionDetail(sync).split('\n')).toEqual([
+      'This sync is about to write 2401 records to DEV:',
+      '• Contact: 2400',
+      '• Account: 1',
+      'Not counted: 40 records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.',
+      'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Execute' as never);
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+    await expect(productionGuard.confirmRun(sync)).resolves.toBe('confirmed');
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as unknown[];
+    expect(call[0]).toBe('SandForge: confirm this sync');
+  });
+
   it('says what it does not count, and that rows only counted have not been read yet', () => {
     expect(
       runQuestionDetail({

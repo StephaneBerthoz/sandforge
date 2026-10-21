@@ -1039,6 +1039,19 @@
     "transforms": "Transformaciones",
     "review": "Revisar",
     "reviewDesc": "Revise la configuración de sync antes de la ejecución",
+    "reviewObjects": {
+      "title": "Lo que hace cada objeto, en el orden en que la ejecución los escribe",
+      "insert": "Inserción: cada registro leído se crea en el destino.",
+      "upsert": "Upsert sobre {{key}}: un registro encontrado por esa clave se actualiza, cualquier otro se crea.",
+      "update": "Actualización por Id: se sobrescribe el registro del destino que lleva el Id del registro de origen.",
+      "delete": "Eliminación por Id: se elimina el registro del destino que lleva el Id del registro de origen.",
+      "after": "Escrito después de {{parent}}, al que apunta su campo {{field}}.",
+      "cycle": "{{objects}} se apuntan entre sí: se escriben en este orden, y el campo de búsqueda hacia el que se escribe después queda vacío.",
+      "orderLoading": "Leyendo los campos de búsqueda de cada objeto en la org de destino…",
+      "orderUnread": "No se pudo leer el orden en la org de destino: la ejecución lo vuelve a calcular antes de escribir.",
+      "insertsSaved": "Guardada: cada ejecución de esta configuración deja como están los registros que copió una ejecución anterior e inserta los demás.",
+      "insertsUnsaved": "Sin guardar: cada ejecución vuelve a insertar cada registro que lee. Guarde la configuración, y sus ejecuciones dejarán como está lo que copió una ejecución anterior."
+    },
     "configSaved": "Configuración guardada. Ya puede ejecutarla una programación.",
     "execute": "Ejecutar",
     "executeDesc": "Ejecutar la operación de sincronización",
@@ -1108,6 +1121,8 @@
     "totalSuccess": "Total exitosos",
     "totalFailed": "Total fallidos",
     "totalSkipped": "Total omitidos",
+    "alreadyCopied_one": "{{count}} registro ya copiado por una ejecución anterior de esta configuración, se dejó como estaba.",
+    "alreadyCopied_other": "{{count}} registros ya copiados por una ejecución anterior de esta configuración, se dejaron como estaban.",
     "running": "Sincronizando datos...",
     "complete": "Sync completado",
     "partial": "Parcialmente completado",
@@ -1366,7 +1381,37 @@
       "validationRules_other": "{{count}} reglas de validación activas del destino, que una simulación no puede evaluar: un registro que una de ellas rechace se cuenta como escrito.",
       "validationRulesUnread": "No se pudieron listar las reglas de validación del destino ({{reason}}): cualquiera de ellas puede rechazar un registro contado como escrito.",
       "stoppedAt": "La simulación se detuvo en {{object}}: {{error}}. Una ejecución también se detendría ahí.",
-      "runNow": "Ejecutar la sincronización ahora"
+      "runNow": "Ejecutar la sincronización ahora",
+      "alreadyCopied_one": "{{count}} ya copiado por una ejecución anterior de esta configuración, se deja como está.",
+      "alreadyCopied_other": "{{count}} ya copiados por una ejecución anterior de esta configuración, se dejan como están."
+    },
+    "writeCheck": {
+      "title": "Antes de que la ejecución escriba",
+      "order": "Escritos en este orden: {{objects}}.",
+      "records_one": "{{count}} registro por escribir",
+      "records_other": "{{count}} registros por escribir",
+      "alreadyCopied_one": "No contado: {{count}} registro que copió una ejecución anterior de esta configuración, todavía en el destino, se deja como está.",
+      "alreadyCopied_other": "No contados: {{count}} registros que copió una ejecución anterior de esta configuración, todavía en el destino, se dejan como están.",
+      "storage": {
+        "fits": "Almacenamiento de datos: unos {{estimate}} MB, de los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",
+        "near": "Almacenamiento de datos: unos {{estimate}} MB, más del 80 % de los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",
+        "exceeds": "Almacenamiento de datos: unos {{estimate}} MB, más que los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",
+        "unread": "Almacenamiento de datos: unos {{estimate}} MB. No se pudo leer lo que le queda a la org de destino ({{reason}})."
+      },
+      "emails": {
+        "fits": "{{limit}}: unos {{emails}} enviados por la automatización de la org de destino al entrar estos registros, quedan {{remaining}} de {{max}} hoy.",
+        "exceeds": "{{limit}}: unos {{emails}} enviados por la automatización de la org de destino al entrar estos registros, más que los {{remaining}} de {{max}} que quedan hoy. Pasado ese límite, se rechaza un registro cuyo Flow falla al guardarse.",
+        "unread": "{{limit}}: unos {{emails}} enviados por la automatización de la org de destino al entrar estos registros. No se pudo leer lo que queda hoy ({{reason}}).",
+        "alertsCounted": "La org de destino cuenta sus alertas por correo electrónico entre sus correos individuales, como una Developer Edition: están entre ellos."
+      },
+      "emailsUnread": "No se pudo leer la automatización de la org de destino ({{reason}}): sus correos no se cuentan.",
+      "aboveRecords": "Más de {{threshold}} registros, a partir de los cuales el ajuste sandforge.safety.confirmAboveRecords pide confirmación.",
+      "verdict": {
+        "writes": "La ejecución escribe sin preguntar.",
+        "asks": "La ejecución le pregunta antes de escribir.",
+        "refused": "La ejecución se rechaza antes de escribir nada."
+      },
+      "unread": "No se pudieron contar los registros por escribir ({{reason}}): una ejecución se rechaza mientras no se puedan contar."
     },
     "runControls": {
       "pause": "Pausar",
@@ -1493,6 +1538,12 @@
       "unfinishedTitle": "Ejecuciones que nunca terminaron",
       "unfinishedNote": "Una ventana se cerró durante estas ejecuciones, o el historial ya no las lista. Lo que crearon se conserva, y se puede quitar.",
       "unfinishedRun": "{{config}}, iniciada el {{date}}"
+    },
+    "earlierCopies": {
+      "leftAsIs": "Una ejecución de esta configuración guardada deja como están los registros que copiaron sus ejecuciones anteriores e inserta los demás.",
+      "quickSync": "La última sincronización entre estas orgs, el {{date}}, creó registros que siguen en el destino: {{objects}}. Sync rápido vuelve a insertar cada registro: quite antes esa ejecución desde el historial de Sync para no dejar una segunda copia.",
+      "runAgain": "La última sincronización entre estas orgs, el {{date}}, creó registros que siguen en el destino: {{objects}}. Ejecutar de nuevo vuelve a insertar cada registro: quite antes esa ejecución para no dejar una segunda copia.",
+      "unread": "Contado según lo que conservó esa ejecución: no se pudo consultar la org de destino ({{reason}})."
     },
     "noCustomMapping": "Sin asignación personalizada: se copian los campos con el mismo nombre de API."
   },
@@ -4838,6 +4889,26 @@
     "abortedBeforeStart": {
       "explanation": "Detuvo la ejecución antes de que empezara. No se escribió nada.",
       "action": "Vuelva a ejecutarla desde la revisión cuando esté listo."
+    },
+    "syncStorageExceeded": {
+      "explanation": "La sincronización se rechazó antes de escribir nada: sus registros ocupan más almacenamiento de datos del que le queda a la org de destino.",
+      "action": "Simúlela para ver las cifras y luego quite objetos, restrinja sus filtros o libere almacenamiento de datos en la org de destino."
+    },
+    "syncEmailsExceeded": {
+      "explanation": "La sincronización se rechazó antes de escribir nada: sus registros harían que la automatización de la org de destino enviara más correos de los que le quedan hoy, y cada registro pasado ese límite se rechazaría.",
+      "action": "Simúlela para ver las cifras y luego dé al usuario que la ejecuta una omisión que silencie esos Flows, escriba menos registros o vuelva a ejecutarla mañana."
+    },
+    "syncWriteDeclined": {
+      "explanation": "Canceló la sincronización antes de que escribiera nada. No se escribió nada en la org de destino.",
+      "action": "Simúlela para ver lo que escribiría y vuelva a ejecutarla cuando esté listo."
+    },
+    "syncConfirmationUnavailable": {
+      "explanation": "La sincronización se detuvo antes de escribir nada: necesitaba su confirmación y no se pudo pedir.",
+      "action": "Ejecútela desde la página Sync, donde puede confirmarla."
+    },
+    "syncEarlierUnread": {
+      "explanation": "La sincronización se rechazó antes de escribir nada: no se pudo leer lo que copiaron las ejecuciones anteriores de esta configuración, y sus inserciones copiarían esos registros por segunda vez.",
+      "action": "Compruebe que SandForge puede leer su carpeta de almacenamiento y vuelva a ejecutarla."
     }
   },
   "moduleSummary": {

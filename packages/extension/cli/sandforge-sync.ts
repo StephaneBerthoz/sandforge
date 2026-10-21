@@ -53,8 +53,9 @@ import type {
   SyncObjectConfig,
   SyncRemovalResult,
   SyncSimulationResult,
+  SyncWriteCheck,
 } from '@sandforge/shared';
-import { isDeveloperEdition, orgTypeOf, recordWriteHeaders } from '@sandforge/shared';
+import { guardTierOf, isDeveloperEdition, orgTypeOf, recordWriteHeaders } from '@sandforge/shared';
 import {
   orgFileCopyDeps,
   targetAllowsDeletes,
@@ -114,6 +115,20 @@ import {
   toolingValidationRules,
 } from '../src/modules/forge/TargetGapReader.js';
 import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReader.js';
+import {
+  DEFAULT_CONFIRM_ABOVE_RECORDS,
+  formatMB,
+  readDataStorage,
+  readEmailLimits,
+} from '../src/modules/forge/ForgeRunGate.js';
+import {
+  gateSyncWrite,
+  measureSyncWrite,
+  type SyncWriteGate,
+  type SyncWriteMeasures,
+} from '../src/modules/sync/SyncRunGate.js';
+import { SyncRunRefused } from '../src/modules/sync/SyncRunFailure.js';
+import { targetAutomationReader } from './sandforge-clone.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -124,7 +139,9 @@ Usage:
 Required:
   --source <alias>       sf CLI alias of the source org
   --target <alias>       sf CLI alias of the target org
-  --object <ApiName>     object to sync; repeat for more, in insert order
+  --object <ApiName>     object to sync; repeat for more. The run writes the
+                         parents their lookups name first, and keeps the
+                         order given otherwise.
                          Append ":<Field>" to match on an external Id, which
                          turns that object's operation into an upsert.
 
@@ -197,10 +214,18 @@ Remove what a run created:
   What the removal left on the run's records is kept beside the summary, in
   <summary>.removals.json, and the next --remove of that summary reads it.
 
+Before its first write, a run counts the records it writes under each filter,
+and is refused, with nothing written, when they would take more data storage
+than the target has left, or make the target's automation send more emails
+than it has left today; --dry-run says what it would meet. A run of a saved
+configuration leaves as they are the records an earlier run of it copied that
+are still in the target, and inserts the others.
+
 Exit codes: 0 the run finished (read the summary for per-object failures), or
 the removal took every record it set out to; 1 the run or the removal could
-not be started; 2 a bad command line, or a summary --remove cannot take a run
-back from; 3 the removal left records of the run in the target.
+not be started, or the run was refused before it wrote anything; 2 a bad
+command line, or a summary --remove cannot take a run back from; 3 the removal
+left records of the run in the target.
 `;
 
 /** One object to sync, as the command line describes it. */
@@ -592,15 +617,177 @@ export function buildQueryFn(conn: Connection) {
   };
 }
 
+/**
+ * What the records each object's read returns are counted with before the
+ * first write, as the panel counts them: `COUNT()` under the same filter,
+ * and on a delta read the same bound.
+ */
+export function cliCountFn(conn: Connection) {
+  return async (
+    _orgId: string,
+    objectConfig: SyncObjectConfig,
+    read?: SourceRead,
+  ): Promise<number> => {
+    const object = objectConfig.objectApiName;
+    if (!API_NAME_RE.test(object)) throw new Error(`Not an SObject API name: ${object}`);
+    const clause = sourceReadWhere(objectConfig.where, read?.changedSince);
+    return (await conn.query(`SELECT COUNT() FROM ${object}${clause ? ` WHERE ${clause}` : ''}`))
+      .totalSize;
+  };
+}
+
+/**
+ * Of an account's or a contact's records under the filter, those of person
+ * accounts, as the panel counts them: none in an org without them.
+ */
+export function cliPersonAccountsFn(conn: Connection) {
+  return async (objectConfig: SyncObjectConfig, read?: SourceRead): Promise<number> => {
+    const object = objectConfig.objectApiName;
+    if (!API_NAME_RE.test(object)) return 0;
+    const clause = sourceReadWhere(objectConfig.where, read?.changedSince);
+    try {
+      return (
+        await conn.query(
+          `SELECT COUNT() FROM ${object} WHERE IsPersonAccount = true` +
+            (clause ? ` AND (${clause})` : ''),
+        )
+      ).totalSize;
+    } catch {
+      return 0;
+    }
+  };
+}
+
+/** The ids an object's read returns, asked for alone under the same filter, as the panel asks them. */
+export function cliSourceIdsFn(conn: Connection) {
+  return async (objectConfig: SyncObjectConfig): Promise<string[]> => {
+    const object = objectConfig.objectApiName;
+    if (!API_NAME_RE.test(object)) throw new Error(`Not an SObject API name: ${object}`);
+    const clause = sourceReadWhere(objectConfig.where, undefined);
+    const { records } = await queryAllPages(
+      {
+        query: async (q: string) => conn.query<Record<string, unknown>>(q),
+        queryMore: async (url: string) => conn.queryMore<Record<string, unknown>>(url),
+      },
+      `SELECT Id FROM ${object}${clause ? ` WHERE ${clause}` : ''}`,
+    );
+    return records.flatMap((row) => (typeof row.Id === 'string' ? [row.Id] : []));
+  };
+}
+
+/** How each daily email limit is said. */
+const EMAIL_LIMIT_WORDS: Readonly<Record<SyncWriteCheck['emails'][number]['limit'], string>> = {
+  SingleEmail: 'single emails',
+  DailyWorkflowEmails: 'workflow emails',
+};
+
+/**
+ * What the command says of the records a run writes, before its first write
+ * or in a simulation: how many per object, the records an earlier run copied
+ * left as they are, the data storage they take, and the emails the target's
+ * automation sends for them, against what the target has left.
+ */
+export function writeCheckLines(check: SyncWriteCheck, target: string): string[] {
+  const lines = [
+    `write gate: ${check.total} record(s) to write to ${target}, about ` +
+      `${formatMB(check.storage.estimateMB)} MB of data storage`,
+  ];
+  for (const object of check.objects) {
+    lines.push(`  ${object.objectApiName.padEnd(42)}${String(object.rows).padStart(8)}`);
+  }
+  if (check.alreadyCopied > 0) {
+    lines.push(
+      `  not counted: ${check.alreadyCopied} record(s) an earlier run of this configuration ` +
+        'copied, still in the target, left as they are',
+    );
+  }
+  const { storage } = check;
+  if (storage.verdict === 'unread') {
+    lines.push(
+      `  the data storage ${target} has left could not be read (${storage.unread ?? ''}): ` +
+        'whether the records fit is not known',
+    );
+  } else if (storage.remainingMB !== undefined && storage.maxMB !== undefined) {
+    lines.push(
+      `  data storage of ${target}: ${storage.remainingMB} MB left of ${storage.maxMB} MB` +
+        (storage.verdict === 'exceeds'
+          ? ': the records do not fit'
+          : storage.verdict === 'near'
+            ? ': the records take more than 80 % of it'
+            : ''),
+    );
+  }
+  for (const email of check.emails) {
+    const per = email.objects.map((o) => `${o.perRecord} per ${o.objectApiName}`).join('; ');
+    const sent =
+      `  emails: these records make ${target} send about ${email.emails} ` +
+      `${EMAIL_LIMIT_WORDS[email.limit]} (${per})` +
+      (email.alertsCounted
+        ? ', its email alerts among them, as a Developer Edition counts them'
+        : '');
+    lines.push(
+      email.verdict === 'unread'
+        ? `${sent}; what it has left today could not be read (${email.unread ?? ''})`
+        : email.verdict === 'fits'
+          ? `${sent}; it has ${email.remaining ?? '?'} of ${email.max ?? '?'} left today`
+          : `${sent}, more than the ${email.remaining ?? '?'} of ${email.max ?? '?'} it has left today`,
+    );
+  }
+  if (check.emailsUnread !== undefined) {
+    lines.push(`  emails: not counted, ${check.emailsUnread} could not be read`);
+  }
+  if (check.aboveRecords !== undefined) {
+    lines.push(
+      `  more than ${check.aboveRecords} records: the panel asks before it writes ` +
+        '(sandforge.safety.confirmAboveRecords)',
+    );
+  }
+  return lines;
+}
+
 /** What a simulation found, as the lines the command prints. */
-export function simulationLines(simulation: SyncSimulationResult): string[] {
+export function simulationLines(simulation: SyncSimulationResult, target = 'the target'): string[] {
   const lines = [`\nsimulation: ${simulation.objects.length} object(s), nothing written`];
+  // The order the run writes the objects in, and what moved.
+  if (simulation.writeOrder) {
+    lines.push(`  write order: ${simulation.writeOrder.objects.join(', ')}`);
+    for (const moved of simulation.writeOrder.moved) {
+      lines.push(`    ${moved.objectApiName} after ${moved.after}: its ${moved.field} names one`);
+    }
+    for (const cycle of simulation.writeOrder.cycles) {
+      lines.push(
+        `    ${cycle.join(', ')} name each other: in this order, the lookup at the one ` +
+          'written later is left empty',
+      );
+    }
+  }
+  if (simulation.writeCheck) {
+    for (const line of writeCheckLines(simulation.writeCheck, target)) lines.push(`  ${line}`);
+    if (simulation.writeCheck.verdict === 'refused') {
+      lines.push('    a run would be refused before it writes: the records do not fit');
+    }
+    const over = simulation.writeCheck.emails.some((email) => email.verdict === 'exceeds');
+    if (simulation.writeCheck.verdict !== 'refused' && over) {
+      lines.push(
+        '    a run of the command would be refused before it writes: past a daily email limit',
+      );
+    }
+  }
+  if (simulation.writeCheckUnread !== undefined) {
+    lines.push(`  the records to write could not be counted: ${simulation.writeCheckUnread}`);
+  }
   for (const o of simulation.objects) {
     lines.push(
       `  ${o.objectApiName} (${o.operation}): ${o.read} read, would insert ${o.insert}, ` +
         `update ${o.update}, delete ${o.delete}, skip ${o.skipped}, refuse ${o.refused}` +
         (simulation.direction === 'bidirectional' ? `, ${o.conflicts} in conflict` : ''),
     );
+    if (o.alreadyCopied !== undefined) {
+      lines.push(
+        `      ${o.alreadyCopied} already copied by an earlier run of this configuration, ` +
+          'left as they are',
+      );
+    }
     if (o.conflictFields.length > 0) lines.push(`      differ on: ${o.conflictFields.join(', ')}`);
     if (o.files) {
       lines.push(
@@ -827,6 +1014,44 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const kept = memoryCreations(`sandforge-sync-${randomUUID()}`);
   const startedAt = new Date().toISOString();
 
+  // Held, before its first write, to what the target has left of its data
+  // storage and of its daily emails, as a clone is: refused past either, with
+  // nothing written. Sync wrote until the target refused its records one by
+  // one; a dry run says what the run would meet.
+  const measures: SyncWriteMeasures = {
+    readStorage: () => readDataStorage(targetConn),
+    readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
+    readLimits: () => readEmailLimits(targetConn),
+    confirmAboveRecords: DEFAULT_CONFIRM_ABOVE_RECORDS,
+  };
+  const orgTier = await typeTarget(targetConn).then(
+    (org) =>
+      guardTierOf({
+        orgType: orgTypeOf({ isSandbox: org.sandbox, edition: org.edition }),
+        metadata: { edition: org.edition },
+      }),
+    () => 'production' as const,
+  );
+  /** What the gate measured of the run, for its summary. */
+  let gateCheck: SyncWriteCheck | undefined;
+  const writeGate: SyncWriteGate = {
+    measure: async (counted) => (await measureSyncWrite(counted, measures)).check,
+    hold: async (counted) => {
+      const measured = await measureSyncWrite(counted, measures);
+      gateCheck = measured.check;
+      log('');
+      for (const line of writeCheckLines(measured.check, args.target)) log(line);
+      return {
+        check: measured.check,
+        answer: await gateSyncWrite(measured, {
+          policy: 'refuse',
+          org: args.target,
+          orgTier,
+        }),
+      };
+    },
+  };
+
   // A configuration that copies files replaces a changed attachment where
   // Production Guard lets Sync delete in the target, as the panel's run does:
   // judged on what the org says it is, nowhere when it will not say. A dry run
@@ -891,7 +1116,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       query: async (q) => targetConn.query<Record<string, unknown>>(q),
       queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
     }),
+    // The parents its objects' lookups name written first.
     describeTargetFields,
+    // What it writes, counted before the first write and held to the gate,
+    // and what an earlier run of a saved configuration copied, left as it is.
+    countSource: cliCountFn(sourceConn),
+    countPersonAccounts: cliPersonAccountsFn(sourceConn),
+    readSourceIds: cliSourceIdsFn(sourceConn),
+    writeGate,
     // What a simulation cannot evaluate, listed beside what it predicts: the
     // target's validation rules, as the panel reads them, each with its field
     // read back from the label a French org answers, and its formula, so an
@@ -957,13 +1189,39 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       );
       return;
     }
-    for (const line of simulationLines(simulation)) log(line);
+    for (const line of simulationLines(simulation, args.target)) log(line);
     log(`\ndone in ${elapsed}ms`);
     return;
   }
 
   log('\nexecuting… (REAL)');
-  const result = await orchestrator.execute(config);
+  let result: Awaited<ReturnType<typeof orchestrator.execute>>;
+  try {
+    result = await orchestrator.execute(config);
+  } catch (err: unknown) {
+    // Refused before its first write: nothing was written.
+    if (!(err instanceof SyncRunRefused)) throw err;
+    if (args.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            tool: 'sandforge-sync',
+            source: args.source,
+            target: args.target,
+            dryRun: false,
+            refused: { code: err.code, message: err.message },
+            ...(gateCheck ? { writeCheck: gateCheck } : {}),
+            elapsedMs: Date.now() - t0,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      log(`\nrefused (${err.code}): ${err.message}`);
+    }
+    process.exit(1);
+  }
   const elapsedMs = Date.now() - t0;
   const created = kept.created();
   const lastWrittenAt = kept.lastWrittenAt();
@@ -1008,6 +1266,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         `${String(entry.success ?? 0)} succeeded, ${failed} failed, ` +
         `${String(entry.skipped ?? 0)} skipped`,
     );
+    // Not inserted a second time: an earlier run of the configuration copied them.
+    if (typeof entry.alreadyCopied === 'number') {
+      log(
+        `      ${entry.alreadyCopied} already copied by an earlier run of this configuration, ` +
+          'left as they are',
+      );
+    }
     // `errors` is a list of strings on SyncObjectResult, not of objects: the
     // first refusals, and every line on what the run held back or wrote
     // without a field, which a refusal per record would push out of sight.

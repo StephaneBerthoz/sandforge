@@ -1039,6 +1039,19 @@
     "transforms": "Transformations",
     "review": "Vérification",
     "reviewDesc": "Vérifiez la configuration de sync avant exécution",
+    "reviewObjects": {
+      "title": "Ce que fait chaque objet, dans l'ordre où l'exécution les écrit",
+      "insert": "Insertion : chaque enregistrement lu est créé dans la cible.",
+      "upsert": "Upsert sur {{key}} : un enregistrement trouvé par cette clé est mis à jour, tout autre est créé.",
+      "update": "Mise à jour par Id : l'enregistrement de la cible qui porte l'Id de l'enregistrement source est écrasé.",
+      "delete": "Suppression par Id : l'enregistrement de la cible qui porte l'Id de l'enregistrement source est supprimé.",
+      "after": "Écrit après {{parent}}, que désigne son champ {{field}}.",
+      "cycle": "{{objects}} se désignent l'un l'autre : ils sont écrits dans cet ordre, et le champ de référence vers celui écrit en dernier reste vide.",
+      "orderLoading": "Lecture des champs de référence de chaque objet dans l'org cible…",
+      "orderUnread": "L'ordre n'a pas pu être lu dans l'org cible : l'exécution le calcule de nouveau avant d'écrire.",
+      "insertsSaved": "Enregistrée : chaque exécution de cette configuration laisse tels quels les enregistrements qu'une exécution précédente a copiés, et insère les autres.",
+      "insertsUnsaved": "Non enregistrée : chaque exécution insère de nouveau chaque enregistrement qu'elle lit. Enregistrez la configuration, et ses exécutions laissent tel quel ce qu'une exécution précédente a copié."
+    },
     "configSaved": "Configuration enregistrée. Une planification peut désormais l'exécuter.",
     "execute": "Exécuter",
     "executeDesc": "Lancer l'opération de synchronisation",
@@ -1108,6 +1121,8 @@
     "totalSuccess": "Total réussi",
     "totalFailed": "Total échoué",
     "totalSkipped": "Total ignoré",
+    "alreadyCopied_one": "{{count}} enregistrement déjà copié par une exécution précédente de cette configuration, laissé tel quel.",
+    "alreadyCopied_other": "{{count}} enregistrements déjà copiés par une exécution précédente de cette configuration, laissés tels quels.",
     "running": "Synchronisation en cours...",
     "complete": "Sync terminée",
     "partial": "Partiellement terminée",
@@ -1366,7 +1381,37 @@
       "validationRules_other": "{{count}} règles de validation actives de la cible, qu'une simulation ne peut pas évaluer : un enregistrement que l'une d'elles refuse est compté comme écrit.",
       "validationRulesUnread": "Les règles de validation de la cible n'ont pas pu être listées ({{reason}}) : chacune peut refuser un enregistrement compté comme écrit.",
       "stoppedAt": "La simulation s'est arrêtée sur {{object}} : {{error}}. Une exécution s'y arrêterait aussi.",
-      "runNow": "Lancer la synchronisation maintenant"
+      "runNow": "Lancer la synchronisation maintenant",
+      "alreadyCopied_one": "{{count}} déjà copié par une exécution précédente de cette configuration, laissé tel quel.",
+      "alreadyCopied_other": "{{count}} déjà copiés par une exécution précédente de cette configuration, laissés tels quels."
+    },
+    "writeCheck": {
+      "title": "Avant que l'exécution n'écrive",
+      "order": "Écrits dans cet ordre : {{objects}}.",
+      "records_one": "{{count}} enregistrement à écrire",
+      "records_other": "{{count}} enregistrements à écrire",
+      "alreadyCopied_one": "Non compté : {{count}} enregistrement qu'une exécution précédente de cette configuration a copié, toujours dans la cible, laissé tel quel.",
+      "alreadyCopied_other": "Non comptés : {{count}} enregistrements qu'une exécution précédente de cette configuration a copiés, toujours dans la cible, laissés tels quels.",
+      "storage": {
+        "fits": "Stockage de données : environ {{estimate}} Mo, sur les {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",
+        "near": "Stockage de données : environ {{estimate}} Mo, plus de 80 % des {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",
+        "exceeds": "Stockage de données : environ {{estimate}} Mo, plus que les {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",
+        "unread": "Stockage de données : environ {{estimate}} Mo. Ce qu'il reste à l'org cible n'a pas pu être lu ({{reason}})."
+      },
+      "emails": {
+        "fits": "{{limit}} : environ {{emails}} envoyés par l'automatisation de l'org cible à l'arrivée de ces enregistrements, {{remaining}} sur {{max}} restants aujourd'hui.",
+        "exceeds": "{{limit}} : environ {{emails}} envoyés par l'automatisation de l'org cible à l'arrivée de ces enregistrements, plus que les {{remaining}} sur {{max}} restants aujourd'hui. Au-delà, un enregistrement dont le Flow échoue à l'enregistrement est refusé.",
+        "unread": "{{limit}} : environ {{emails}} envoyés par l'automatisation de l'org cible à l'arrivée de ces enregistrements. Ce qu'il reste aujourd'hui n'a pas pu être lu ({{reason}}).",
+        "alertsCounted": "L'org cible compte ses alertes par e-mail parmi ses e-mails individuels, comme une Developer Edition : elles en font partie."
+      },
+      "emailsUnread": "L'automatisation de l'org cible n'a pas pu être lue ({{reason}}) : ses e-mails ne sont pas comptés.",
+      "aboveRecords": "Plus de {{threshold}} enregistrements, au-delà desquels le paramètre sandforge.safety.confirmAboveRecords demande confirmation.",
+      "verdict": {
+        "writes": "L'exécution écrit sans demander.",
+        "asks": "L'exécution vous demande confirmation avant d'écrire.",
+        "refused": "L'exécution est refusée avant d'écrire quoi que ce soit."
+      },
+      "unread": "Les enregistrements à écrire n'ont pas pu être comptés ({{reason}}) : une exécution est refusée tant qu'ils ne peuvent pas l'être."
     },
     "runControls": {
       "pause": "Mettre en pause",
@@ -1493,6 +1538,12 @@
       "unfinishedTitle": "Exécutions jamais terminées",
       "unfinishedNote": "Une fenêtre s'est fermée pendant ces exécutions, ou l'historique ne les liste plus. Ce qu'elles ont créé est conservé, et peut être retiré.",
       "unfinishedRun": "{{config}}, lancée le {{date}}"
+    },
+    "earlierCopies": {
+      "leftAsIs": "Une exécution de cette configuration enregistrée laisse tels quels les enregistrements que ses exécutions précédentes ont copiés, et insère les autres.",
+      "quickSync": "La dernière synchronisation entre ces orgs, le {{date}}, a créé des enregistrements toujours dans la cible : {{objects}}. Sync Rapide insère de nouveau chaque enregistrement : retirez d'abord cette exécution depuis l'historique de Sync pour ne laisser aucune seconde copie.",
+      "runAgain": "La dernière synchronisation entre ces orgs, le {{date}}, a créé des enregistrements toujours dans la cible : {{objects}}. Relancer insère de nouveau chaque enregistrement : retirez d'abord cette exécution pour ne laisser aucune seconde copie.",
+      "unread": "Compté d'après ce que cette exécution a conservé : l'org cible n'a pas pu être interrogée ({{reason}})."
     },
     "noCustomMapping": "Aucune correspondance personnalisée : les champs de même nom d'API sont copiés."
   },
@@ -4838,6 +4889,26 @@
     "abortedBeforeStart": {
       "explanation": "Vous avez arrêté l'exécution avant qu'elle ne démarre. Rien n'a été écrit.",
       "action": "Relancez-la depuis la revue quand vous êtes prêt."
+    },
+    "syncStorageExceeded": {
+      "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements prennent plus de stockage de données qu'il n'en reste dans l'org cible.",
+      "action": "Simulez-la pour voir les chiffres, puis retirez des objets, resserrez leurs filtres, ou libérez du stockage de données dans l'org cible."
+    },
+    "syncEmailsExceeded": {
+      "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ses enregistrements feraient envoyer à l'automatisation de l'org cible plus d'e-mails qu'il ne lui en reste aujourd'hui, et chaque enregistrement au-delà serait refusé.",
+      "action": "Simulez-la pour voir les chiffres, puis donnez à l'utilisateur qui l'exécute un contournement qui fait taire ces Flows, écrivez moins d'enregistrements, ou relancez-la demain."
+    },
+    "syncWriteDeclined": {
+      "explanation": "Vous avez annulé la synchronisation avant qu'elle n'écrive quoi que ce soit. Rien n'a été écrit dans l'org cible.",
+      "action": "Simulez-la pour voir ce qu'elle écrirait, puis relancez-la quand vous serez prêt."
+    },
+    "syncConfirmationUnavailable": {
+      "explanation": "La synchronisation a été arrêtée avant d'écrire quoi que ce soit : elle avait besoin de votre confirmation, et aucune n'a pu être demandée.",
+      "action": "Lancez-la depuis la page Sync, où vous pouvez la confirmer."
+    },
+    "syncEarlierUnread": {
+      "explanation": "La synchronisation a été refusée avant d'écrire quoi que ce soit : ce que les exécutions précédentes de cette configuration ont copié n'a pas pu être lu, et ses insertions copieraient ces enregistrements une seconde fois.",
+      "action": "Vérifiez que SandForge peut lire son dossier de stockage, puis relancez-la."
     }
   },
   "moduleSummary": {

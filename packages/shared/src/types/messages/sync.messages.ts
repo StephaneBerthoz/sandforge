@@ -1,5 +1,6 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
+  SyncEarlierCopies,
   SyncExecutionResult,
   SyncHistoryEntry,
   SyncMode,
@@ -7,6 +8,7 @@ import type {
   SyncRunRemovalInfo,
   SyncScheduleEntry,
   SyncSimulationResult,
+  SyncWriteOrder,
 } from '../sync.types.js';
 import type { ExportFormat } from '../reporting.types.js';
 
@@ -37,6 +39,23 @@ export interface SyncSimulateRequest extends BaseMessage {
 export interface SyncSimulateResponse extends BaseMessage {
   type: 'sync:simulate:response';
   payload: SyncSimulationResult;
+}
+
+/**
+ * `sync:write-order`. WebView -> Extension. The order a run of this
+ * configuration writes its objects in, as the run computes it from the
+ * target's describe of each: what the Review step shows before anything runs.
+ * Checked as a run's configuration is; errors on `sync:error`.
+ */
+export interface SyncWriteOrderRequest extends BaseMessage {
+  type: 'sync:write-order';
+  payload: { config: Record<string, unknown> };
+}
+
+/** `sync:write-order:response`. Extension -> WebView. */
+export interface SyncWriteOrderResponse extends BaseMessage {
+  type: 'sync:write-order:response';
+  payload: { order: SyncWriteOrder };
 }
 
 /** Pause a running sync before its next object or batch, by the id of the request that started it. */
@@ -294,6 +313,31 @@ export interface SyncRemoveResponse extends BaseMessage {
 export interface SyncRemoveErrorResponse extends BaseMessage {
   type: 'sync:remove:error';
   payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `sync:earlier-copies`. WebView -> Extension. What the last run kept between
+ * these orgs created of these objects that is still in the target, and
+ * whether a run of the configuration named leaves it as it is: what Quick
+ * Sync's preview and a history entry's Run again say before they insert
+ * again. Errors on `sync:remove:error`.
+ */
+export interface SyncEarlierCopiesRequest extends BaseMessage {
+  type: 'sync:earlier-copies';
+  payload: {
+    sourceOrgId: string;
+    targetOrgId: string;
+    /** The objects the run inserts without a key. */
+    objects: string[];
+    /** The configuration the run is of, when it is one that may be saved. */
+    configId?: string;
+  };
+}
+
+/** `sync:earlier-copies:response`. Extension -> WebView. */
+export interface SyncEarlierCopiesResponse extends BaseMessage {
+  type: 'sync:earlier-copies:response';
+  payload: { copies: SyncEarlierCopies };
 }
 
 // ─── Sync Schedule Messages ──────────────────────────────────────────────────

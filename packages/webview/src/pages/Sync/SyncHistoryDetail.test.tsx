@@ -1,6 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+
+const mockPostMessage = vi.fn();
+
+/** Stable identity so useSendMessage's useCallback does not re-fire. */
+const stableApi = {
+  postMessage: (...args: unknown[]) => mockPostMessage(...args),
+  getState: () => undefined,
+  setState: () => undefined,
+};
+
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => stableApi,
+  getVscodeApi: () => stableApi,
+}));
+
 import { SyncHistoryDetail } from './SyncHistoryDetail';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import type { SyncHistoryEntry } from '@sandforge/shared';
@@ -78,6 +93,30 @@ describe('SyncHistoryDetail', () => {
       loading: false,
       error: null,
     });
+  });
+
+  it('asks, before Run again, what the last run between the orgs left of the objects it inserts', () => {
+    mockPostMessage.mockClear();
+    useSyncHistoryStore.setState({ selectedEntry: makeMockEntry() });
+    render(<SyncHistoryDetail />);
+
+    const asked = mockPostMessage.mock.calls
+      .map((call) => (call[0] as { payload: { type: string; payload: unknown } }).payload)
+      .filter((message) => message.type === 'sync:earlier-copies');
+    expect(asked.map((message) => message.payload)).toEqual([
+      { sourceOrgId: 'org-1', targetOrgId: 'org-2', objects: ['Account'], configId: 'cfg-1' },
+    ]);
+  });
+
+  it('says what an object left as an earlier run of the configuration copied it', () => {
+    const entry = makeMockEntry();
+    entry.result.objectResults[0] = { ...entry.result.objectResults[0], alreadyCopied: 2 };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    expect(screen.getByTestId('history-copied-Account').textContent).toBe(
+      '2 records already copied by an earlier run of this configuration, left as they were.',
+    );
   });
 
   it('should render nothing when no entry is selected', () => {

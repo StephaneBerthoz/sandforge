@@ -47,6 +47,8 @@ import { SplitView } from '../../components/ui/SplitView';
 import { Button } from '../../components/ui/Button';
 import { SyncRunControls } from './SyncRunControls';
 import { SyncSimulationResults } from './SyncSimulationResults';
+import { SyncReviewObjects } from './SyncReviewObjects';
+import { SyncAlreadyCopiedLine } from './SyncWriteCheck';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncPricebookLine } from './SyncPricebookLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
@@ -287,6 +289,9 @@ export const SyncPage: React.FC = () => {
     savedRunLabel,
     savedRunStarting,
     configSaved,
+    writeOrder,
+    writeOrderLoading,
+    writeOrderUnread,
     filesNeedSave,
     handleApplyTemplate,
     canGoNext,
@@ -820,6 +825,13 @@ export const SyncPage: React.FC = () => {
                   {t('sync.transformCount', { count: transforms.length })}
                 </span>
               </div>
+              <SyncReviewObjects
+                entries={objectEntries}
+                order={writeOrder}
+                orderLoading={writeOrderLoading}
+                orderUnread={writeOrderUnread}
+                saved={configSaved}
+              />
               <SankeyFlow
                 nodes={buildSankeyNodes(objectEntries, mappings)}
                 links={buildSankeyLinks(objectEntries, mappings)}
@@ -1009,6 +1021,7 @@ export const SyncPage: React.FC = () => {
                       {(obj.errors.length > 0 ||
                         obj.delta ||
                         obj.files ||
+                        (obj.alreadyCopied ?? 0) > 0 ||
                         obj.standardPricebookMatched ||
                         (obj.currenciesReplaced?.length ?? 0) > 0 ||
                         (obj.pricesSettled?.length ?? 0) > 0) && (
@@ -1023,6 +1036,13 @@ export const SyncPage: React.FC = () => {
                             <SyncDeltaLine
                               delta={obj.delta}
                               testId={`sync-result-delta-${obj.objectApiName}`}
+                            />
+                          )}
+                          {/* Not inserted a second time: an earlier run copied them. */}
+                          {obj.alreadyCopied !== undefined && obj.alreadyCopied > 0 && (
+                            <SyncAlreadyCopiedLine
+                              count={obj.alreadyCopied}
+                              testId={`sync-result-copied-${obj.objectApiName}`}
                             />
                           )}
                           {obj.files && (
