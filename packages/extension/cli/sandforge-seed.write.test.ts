@@ -20,7 +20,7 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   removalOrg: vi.fn(),
 }));
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
@@ -274,10 +274,16 @@ describe('a seed from the command line', () => {
     const org = fakeOrg(async () => {
       if (org.restCalls.length !== 1) return;
       // The second call is under way, the org taking its time: what is on
-      // disk by then is what a kill here would have left.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      file = /run file: (\S+)/.exec(stderr.join(''))?.[1];
-      atKill = file ? readFileSync(file, 'utf8') : undefined;
+      // disk once the first call's answer is written is what a kill here
+      // would have left. Waited for, not timed: after 50 ms a Windows
+      // runner's disk had not taken the line yet.
+      const until = Date.now() + 5_000;
+      do {
+        file = /run file: (\S+)/.exec(stderr.join(''))?.[1];
+        atKill = file && existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+        if ((readRunFile(atKill ?? '')?.created.length ?? 0) > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      } while (Date.now() < until);
     });
 
     await main(argv(100, '--batch-size', '50', '--json'));
