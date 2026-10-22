@@ -1,7 +1,7 @@
 /**
  * The removal tests' org in miniature (`MemoryRemovalOrg`) whose updates are
- * made: each record's fields set, its modified date moved to now, as
- * modified by the session's user, and every
+ * made: each record's fields set, its `SystemModstamp` and `LastModifiedDate`
+ * moved to now, to the second, as modified by the session's user, and every
  * update kept in order — what giving back the values a run wrote over sends.
  * A record a test names in `refuseUpdate` is refused with the answer given.
  *
@@ -27,8 +27,8 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
     objectApiName: string,
     records: Array<Record<string, unknown>>,
   ): Promise<unknown> {
+    this.requests++;
     this.updates.push({ objectApiName, records: records.map((record) => ({ ...record })) });
-    const at = new Date().toISOString();
     return records.map((record) => {
       const id = String(record.Id);
       const refusal = this.refuseUpdate.get(id);
@@ -47,7 +47,7 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
           })),
         };
       }
-      const row = this.all(objectApiName).find((held) => held.Id === id);
+      const row = this.liveRow(objectApiName, id);
       if (!row) {
         return {
           id,
@@ -55,7 +55,9 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
           errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted' }],
         };
       }
-      Object.assign(row, record, { LastModifiedDate: at, LastModifiedById: MEMORY_ORG_USER });
+      // The record keeps its id, whichever length the update named it by.
+      Object.assign(row, record, { Id: row.Id });
+      this.restamp(row, MEMORY_ORG_USER);
       return { id, success: true, errors: [] };
     });
   }

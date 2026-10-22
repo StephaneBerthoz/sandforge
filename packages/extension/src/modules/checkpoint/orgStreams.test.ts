@@ -10,6 +10,7 @@ import {
   type FakeOrgCall,
   type FakeOrgRow,
 } from '../../test/compositeOrg.js';
+import { MemoryRemovalOrg, orgStamp } from '../../test/memoryRemovalOrg.js';
 import { FORGE_QUERY_MAX_RECORDS } from '../forge/queryAllPages.js';
 import { OrgReadStopped, compositeReader, type OrgRow } from './compositeQueries.js';
 import {
@@ -537,5 +538,48 @@ describe('readChanges', () => {
     await expect(readFile(join(folder, 'Account.live.ndjson'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+
+  it('reads the memory org the later bricks run on as it reads this one: what was made, changed and deleted since, and nothing a record deleted and brought back before the checkpoint left behind', async () => {
+    let clock = Date.parse('2026-10-22T09:00:00.000Z');
+    const org = new MemoryRemovalOrg({}, { now: () => clock });
+    org.add('Account', { Id: '001000000000001AAA', Name: 'kept' });
+    org.add('Account', { Id: '001000000000002AAA', Name: 'edited' });
+    org.add('Account', { Id: '001000000000003AAA', Name: 'deleted since' });
+    org.add('Account', { Id: '001000000000004AAA', Name: 'back before' });
+    org.trash('Account', '001000000000004AAA');
+    org.untrash('001000000000004AAA');
+    clock = Date.parse('2026-10-22T10:00:00.400Z');
+    const t0 = orgStamp(clock);
+    clock += 60_000;
+    org.add('Account', { Id: '001000000000005AAA', Name: 'made since' });
+    org.edit('Account', '001000000000002AAA', { Name: 'edited since' });
+    org.trash('Account', '001000000000003AAA');
+
+    const changes = await readChanges(
+      compositeReader(org),
+      [{ objectApiName: 'Account', readMode: 'query', held: true }],
+      t0,
+      folder,
+    );
+
+    expect(changes).toEqual([
+      {
+        objectApiName: 'Account',
+        latest: orgStamp(clock),
+        moved: true,
+        live: { file: join(folder, 'Account.live.ndjson'), rows: 2 },
+        deleted: { file: join(folder, 'Account.deleted.ndjson'), rows: 1 },
+        count: 4,
+      },
+    ]);
+    expect((await rowsIn(join(folder, 'Account.live.ndjson'))).map((row) => row.Id).sort()).toEqual(
+      ['001000000000002AAA', '001000000000005AAA'],
+    );
+    expect((await rowsIn(join(folder, 'Account.deleted.ndjson'))).map((row) => row.Id)).toEqual([
+      '001000000000003AAA',
+    ]);
+    // A pre-check, L and D, a count: three composites, three requests.
+    expect(org.requests).toBe(3);
   });
 });

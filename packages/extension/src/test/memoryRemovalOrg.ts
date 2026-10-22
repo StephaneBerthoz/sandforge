@@ -1,17 +1,54 @@
 /**
- * A target org in miniature for removal tests: rows per object, dated as the
- * org dates them, the child relationships each object lists, a recycle bin,
- * and deletes that take along what cascades from a record — what Forge's
- * removal reads and deletes, and nothing it does not.
+ * A target org in miniature for removal, checkpoint and rewind tests: rows
+ * per object, dated as the org dates them, the child relationships each
+ * object lists, a recycle bin read by `queryAll`, deletes that take along
+ * what cascades from a record and undeletes that bring it back, paged
+ * queries behind cursors, and the data API's composite call with its limits.
  *
- * It reads `SELECT <columns> FROM <Object> WHERE <Field> IN ('a', …)` with an
- * optional `AND IsDeleted = true` and `LIMIT`; anything else throws, so a
- * statement it cannot read never passes for one that selects nothing.
+ * Where the org's behaviour was an open question, the fake does what the
+ * checkpoint's live probes saw (tour 0, on a scratch org): each such fact is
+ * one switch of {@link MemoryOrgFacts}, so a test can hold a run to the other
+ * answer as well. What it does by default:
+ *
+ * - The org dates what it writes to the second, truncated: an undelete
+ *   started at :26.731 was stamped :26.000. A delete stamps `SystemModstamp`
+ *   and `LastModifiedDate` to its second and makes the deleting user the last
+ *   modifier, on the record and on what cascades from it; an undelete does
+ *   the same as the undeleting user, children included.
+ * - A child deleted in cascade comes back with its parent; one deleted on its
+ *   own before stays in the bin, and a record's stamp never moves there,
+ *   whatever happens to its parent.
+ * - Deleting a record clears a lookup to it that does not cascade (a
+ *   contact's `ReportsToId`) and restamps the child; undeleting the record
+ *   puts the lookup back and restamps the child again.
+ * - A delete of several objects in one call deletes the parents first: a
+ *   child listed before its parent answers `ENTITY_IS_DELETED`, gone with it.
+ * - A plain query leaves out deleted records and archived activities; one
+ *   that reads the recycle bin (`queryAll`, `scanAll`) returns both.
+ * - A person account's contact is deleted and brought back with its account,
+ *   never on its own.
+ * - A `/composite` call holds 25 subrequests at most (26 are refused whole,
+ *   `LIMIT_EXCEEDED`), of which 5 at most may be a query, a `queryAll` or a
+ *   cursor's next page: the sixth is halted (`PROCESSING_HALTED`) while the
+ *   call answers. Describes do not count toward the five.
+ * - A cursor keeps its rows until it is read to the end; there is no limit to
+ *   how many stay open (a REST org kept 150 open, the oldest still readable).
+ *   One released or expired fails its next read. A test may set a limit past
+ *   which the oldest is released.
+ *
+ * Two facts the probes could not settle: no user of the test orgs could
+ * hard-delete, so a hard-deleted record shows nowhere unless told, and a
+ * child deleted in cascade is refused an undelete of its own while its parent
+ * is in the bin unless told.
+ *
+ * A statement it cannot read throws (`memorySoql.ts`), so one it cannot read
+ * never passes for one that selects nothing.
  *
  * Lives under `src/test/`: a helper, not a suite.
  */
 
 import type { RemovalOrg } from '../modules/forge/ForgeRunRemoval.js';
+import { parseSoql, selectFrom } from './memorySoql.js';
 
 /** A row of the fake org. */
 export type MemoryRow = Record<string, unknown> & { Id: string };
@@ -22,17 +59,247 @@ export interface MemoryChild {
   field: string;
   /** Whether a delete of the parent takes the child along. */
   cascadeDelete?: boolean;
+  /** Whether the org refuses to delete a parent a live child still names. */
+  restrictedDelete?: boolean;
 }
 
 /** The user the session writes as. */
 export const MEMORY_ORG_USER = '005000000000001AAA';
 
+/**
+ * What the fake org does where Salesforce's behaviour was a question; each as
+ * the checkpoint's live probes answered it by default (see the module's
+ * comment), and switchable to the other answer.
+ */
+export interface MemoryOrgFacts {
+  /**
+   * A delete stamps `SystemModstamp` and `LastModifiedDate` to its second and
+   * makes the deleting user the last modifier, on the record and on what
+   * cascades from it. Off: they go to the bin with the stamps they had.
+   */
+  deleteStamps: boolean;
+  /**
+   * A child deleted on its own before its parent stays in the bin when the
+   * parent comes back. Off: it comes back with the parent.
+   */
+  childDeletedAloneStays: boolean;
+  /**
+   * An undelete makes the undeleting user the last modifier, of the record
+   * and of the children that come back with it. Off: the last modifier stays
+   * who it was. The dates move either way, as shipped code saw on live runs.
+   */
+  undeleterIsLastModifier: boolean;
+  /**
+   * Deleting a record that a lookup names clears the lookup and restamps the
+   * child, as the deleting user. Off: the lookup is cleared, the child's
+   * stamps stay.
+   */
+  clearedLookupRestamps: boolean;
+  /**
+   * Undeleting the record puts back the lookups its delete cleared, and
+   * restamps their children as the undeleting user. Off: they stay cleared.
+   */
+  undeleteRestoresLookups: boolean;
+  /**
+   * A hard-deleted record still shows, deleted, in `queryAll`. Unknown: no
+   * user of the test orgs could hard-delete. Off: it shows nowhere.
+   */
+  hardDeleteInQueryAll: boolean;
+  /**
+   * A delete of several objects in one call deletes the parents of the call
+   * first. Off: in the order the ids were listed.
+   */
+  parentsDeletedFirst: boolean;
+  /**
+   * A child deleted in cascade may be undeleted while its parent is still
+   * deleted. Unknown, to probe; off: refused until the parent is back.
+   */
+  cascadeChildComesBackAlone: boolean;
+}
+
+/**
+ * The facts as the live probes saw them; the two they could not see, a hard
+ * delete and a cascade child undeleted alone, as the answer that brings back
+ * less.
+ */
+export const MEMORY_ORG_FACTS: Readonly<MemoryOrgFacts> = Object.freeze({
+  deleteStamps: true,
+  childDeletedAloneStays: true,
+  undeleterIsLastModifier: true,
+  clearedLookupRestamps: true,
+  undeleteRestoresLookups: true,
+  hardDeleteInQueryAll: false,
+  parentsDeletedFirst: true,
+  cascadeChildComesBackAlone: false,
+});
+
+/**
+ * Every combination of the facts `names`, the others as the probes saw them:
+ * what a test runs a scenario under to hold it to every hypothesis at once.
+ * The probes' own answers come first.
+ */
+export function factCombinations(
+  names: ReadonlyArray<keyof MemoryOrgFacts> = Object.keys(MEMORY_ORG_FACTS) as Array<
+    keyof MemoryOrgFacts
+  >,
+): MemoryOrgFacts[] {
+  return names.reduce<MemoryOrgFacts[]>(
+    (combinations, name) =>
+      combinations.flatMap((facts) =>
+        [facts[name], !facts[name]].map((value) => ({ ...facts, [name]: value })),
+      ),
+    [{ ...MEMORY_ORG_FACTS }],
+  );
+}
+
+/** How a fake org is set up, beside its relationships. */
+export interface MemoryOrgOptions {
+  /** The facts that differ from {@link MEMORY_ORG_FACTS}. */
+  facts?: Partial<MemoryOrgFacts>;
+  /** The org's clock, in ms since the epoch: this machine's unless given. */
+  now?: () => number;
+  /**
+   * The rows of each page a query answers: 2,000 unless given, or by the
+   * page's place from 0, since an org's pages are not all the same size.
+   */
+  pageSize?: number | ((page: number) => number);
+  /** Open cursors past which a new one releases the oldest: none unless given. */
+  cursorLimit?: number;
+}
+
+/** A page of a query, as jsforce answers it. */
+export interface MemoryQueryPage {
+  totalSize: number;
+  done: boolean;
+  records: MemoryRow[];
+  nextRecordsUrl?: string;
+}
+
+/** A request sent through the connection, as jsforce's `conn.request` takes it. */
+export interface MemoryOrgRequest {
+  method: string;
+  url: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+}
+
+/** One subrequest of a composite's answer. */
+export interface MemorySubAnswer {
+  body: unknown;
+  httpHeaders: Record<string, string>;
+  httpStatusCode: number;
+  referenceId: string;
+}
+
+/** The API version the fake org answers under. */
+const API_VERSION = '66.0';
+const API_PATH = `/services/data/v${API_VERSION}`;
+
+/** Subrequests one composite holds. */
+const COMPOSITE_SUBREQUESTS = 25;
+
+/** Queries, `queryAll`s and next pages one composite runs; past them, halted. */
+const COMPOSITE_QUERIES = 5;
+
+/** The rows of a page unless the org is told otherwise. */
+const PAGE_SIZE = 2_000;
+
+/** The prefix of a cursor's locator in a next page's address. */
+const LOCATOR_PREFIX = '01gMEM';
+
+/** The key the org knows a record by: its id's first fifteen characters. */
+function keyOf(id: string): string {
+  return id.slice(0, 15);
+}
+
+/** Whether `value` names the record keyed `key`. */
+function names(value: unknown, key: string): boolean {
+  return typeof value === 'string' && value.length >= 15 && keyOf(value) === key;
+}
+
+/** `ms` as the org dates a write: to the second, truncated. */
+export function orgStamp(ms: number): string {
+  return new Date(Math.floor(ms / 1000) * 1000).toISOString();
+}
+
+/**
+ * The error jsforce rejects with when the org refuses a request: its
+ * `errorCode` as the error's name.
+ */
+export function orgError(errorCode: string, message: string): Error {
+  return Object.assign(new Error(message), {
+    name: errorCode,
+    errorCode,
+    data: { errorCode, message },
+  });
+}
+
+/** One record's answer to a delete or an undelete. */
+type WriteAnswer =
+  | { id: string; success: true; errors: [] }
+  | { id?: string; success: false; errors: Array<{ statusCode: string; message: string }> };
+
+/** A record in the recycle bin. */
+interface Binned {
+  objectApiName: string;
+  /** The row as the delete left it. */
+  row: MemoryRow;
+  /** The record whose delete took this one along; none when it was deleted on its own. */
+  deletedWith?: string;
+  /** Hard-deleted: never to come back. */
+  hard?: boolean;
+}
+
+/** A lookup a delete cleared, to put back when the record comes back. */
+interface ClearedLookup {
+  objectApiName: string;
+  id: string;
+  field: string;
+  value: string;
+}
+
+/** An open cursor: the rows it read, and the pages it has answered. */
+interface Cursor {
+  rows: MemoryRow[];
+  pages: number;
+}
+
+/** The answer of one read of a request, before it is sent back. */
+interface ReadAnswer {
+  status: number;
+  body: unknown;
+}
+
+/** The person account's flag, on its account and on its contact. */
+const PERSON_ACCOUNT = 'IsPersonAccount';
+
+/** The org's answer when a person account's contact is created or deleted on its own. */
+const PERSON_CONTACT_REFUSAL = {
+  // A code of the API's own list; the case is documented, not seen live.
+  statusCode: 'INVALID_PERSON_ACCOUNT_OPERATION',
+  message:
+    "You can't create or delete a person contact on its own: delete or modify the account instead.",
+};
+
 /** See the module's comment. */
 export class MemoryRemovalOrg implements RemovalOrg {
-  private readonly rows = new Map<string, MemoryRow[]>();
-  private readonly bin = new Set<string>();
-  /** The rows in the recycle bin, by key, with their object: what an undelete puts back. */
-  private readonly binned = new Map<string, { objectApiName: string; row: MemoryRow }>();
+  /** The API version, as `conn.version` gives it. */
+  readonly version = API_VERSION;
+  /** The facts this org holds to: see {@link MemoryOrgFacts}. */
+  readonly facts: MemoryOrgFacts;
+  /** The live rows of each object, by key, in the order they came in. */
+  private readonly rows = new Map<string, Map<string, MemoryRow>>();
+  /** The rows in the recycle bin, by key: what an undelete puts back. */
+  private readonly binned = new Map<string, Binned>();
+  /** By the key of a deleted record, the lookups its delete cleared. */
+  private readonly cleared = new Map<string, ClearedLookup[]>();
+  /** By object, when its schema last changed and its fields since: what a describe answers. */
+  private readonly schemaChanged = new Map<string, { at: number; fields: unknown[] }>();
+  private readonly cursors = new Map<string, Cursor>();
+  private cursorsOpened = 0;
+  private readonly now: () => number;
+  private readonly pageSize: (page: number) => number;
+  private readonly cursorLimit: number;
   /** Records whose delete the org refuses, with its answer. */
   readonly refuse = new Map<string, string>();
   /** Every delete asked, object and ids, in order. */
@@ -41,45 +308,151 @@ export class MemoryRemovalOrg implements RemovalOrg {
   beforeDelete?: () => void;
   /** Objects whose describe says the session's user may not delete their records. */
   readonly undeletable = new Set<string>();
+  /**
+   * Objects whose describe says a record does not come back from the recycle
+   * bin on its own (`undeletable: false`): an opportunity's products, a
+   * campaign's members. They come back with their parent only.
+   */
+  readonly comesBackOnlyWithParent = new Set<string>();
+  /** Objects the org refuses to read, with its answer: one it will not read whole. */
+  readonly refuseRead = new Map<string, { errorCode: string; message: string }>();
+  /** REST requests answered: a composite is one, whatever it holds. */
+  requests = 0;
+  /** SOAP calls answered (the clock, the user, undeletes), which a count of REST requests misses. */
+  soapCalls = 0;
 
-  /** @param children - Per object, the child relationships its describe lists. */
-  constructor(private readonly children: Readonly<Record<string, readonly MemoryChild[]>> = {}) {}
+  /**
+   * @param children - Per object, the child relationships its describe lists.
+   * @param options - The facts, the clock, the pages and the cursors.
+   */
+  constructor(
+    private readonly children: Readonly<Record<string, readonly MemoryChild[]>> = {},
+    options: MemoryOrgOptions = {},
+  ) {
+    this.facts = { ...MEMORY_ORG_FACTS, ...options.facts };
+    this.now = options.now ?? Date.now;
+    const pageSize = options.pageSize ?? PAGE_SIZE;
+    this.pageSize = typeof pageSize === 'number' ? () => pageSize : pageSize;
+    this.cursorLimit = options.cursorLimit ?? Number.POSITIVE_INFINITY;
+  }
 
-  /** Put a row in, dated `at` unless it carries its own dates. */
-  add(objectApiName: string, row: MemoryRow, at = new Date().toISOString()): void {
-    this.rows.set(objectApiName, [
-      ...this.all(objectApiName),
-      { CreatedDate: at, LastModifiedDate: at, ...row },
-    ]);
+  /** The live rows of an object, by key. */
+  private table(objectApiName: string): Map<string, MemoryRow> {
+    let table = this.rows.get(objectApiName);
+    if (!table) {
+      table = new Map();
+      this.rows.set(objectApiName, table);
+    }
+    return table;
+  }
+
+  /** A live row of an object, by either length of its id. */
+  protected liveRow(objectApiName: string, id: string): MemoryRow | undefined {
+    return this.rows.get(objectApiName)?.get(keyOf(id));
+  }
+
+  /** Stamp a row as written now by `by`, to the second. */
+  protected restamp(row: MemoryRow, by: string): void {
+    const at = orgStamp(this.now());
+    row.SystemModstamp = at;
+    row.LastModifiedDate = at;
+    row.LastModifiedById = by;
+  }
+
+  /** Put a row in, dated `at` unless it carries its own dates; now, to the second, by default. */
+  add(objectApiName: string, row: MemoryRow, at = orgStamp(this.now())): void {
+    const added: MemoryRow = { CreatedDate: at, LastModifiedDate: at, ...row, IsDeleted: false };
+    added.SystemModstamp ??= added.LastModifiedDate;
+    this.table(objectApiName).set(keyOf(row.Id), added);
+  }
+
+  /**
+   * Put a person account in: the account and the contact the platform makes
+   * with it, each flagged, the account naming its contact.
+   */
+  addPersonAccount(account: MemoryRow, contactId: string, at = orgStamp(this.now())): void {
+    this.add('Account', { ...account, [PERSON_ACCOUNT]: true, PersonContactId: contactId }, at);
+    this.add('Contact', { Id: contactId, AccountId: account.Id, [PERSON_ACCOUNT]: true }, at);
   }
 
   /** The rows of an object still in the org. */
   all(objectApiName: string): MemoryRow[] {
-    return this.rows.get(objectApiName) ?? [];
+    return [...(this.rows.get(objectApiName)?.values() ?? [])];
   }
 
-  /** Change a row, as someone does after the run: its modified date moves. */
+  /** The rows of an object in the recycle bin, as the delete left them. */
+  inBin(objectApiName: string): MemoryRow[] {
+    return [...this.binned.values()]
+      .filter((held) => held.objectApiName === objectApiName && !held.hard)
+      .map((held) => held.row);
+  }
+
+  /** Change a row, as someone does after the run: its modified dates move to `at`. */
   touch(objectApiName: string, id: string, at: string): void {
-    for (const row of this.all(objectApiName)) {
-      if (row.Id === id) row.LastModifiedDate = at;
-    }
+    const row = this.liveRow(objectApiName, id);
+    if (!row) return;
+    row.LastModifiedDate = at;
+    row.SystemModstamp = at;
   }
 
-  async describe(objectApiName: string): Promise<unknown> {
+  /** Change a row's values now, as `by` does in the org: stamped to the second. */
+  edit(
+    objectApiName: string,
+    id: string,
+    values: Record<string, unknown>,
+    by = MEMORY_ORG_USER,
+  ): void {
+    const row = this.liveRow(objectApiName, id);
+    if (!row) throw new Error(`The fake org holds no live ${objectApiName} ${id}`);
+    Object.assign(row, values);
+    this.restamp(row, by);
+  }
+
+  /** Archive an activity, as the org does a year on: plain queries no longer see it. */
+  archive(objectApiName: string, id: string): void {
+    const row = this.liveRow(objectApiName, id);
+    if (!row) throw new Error(`The fake org holds no live ${objectApiName} ${id}`);
+    row.IsArchived = true;
+  }
+
+  /** Change an object's fields, as someone does in Setup: its describe answers them, dated now. */
+  changeSchema(objectApiName: string, fields: unknown[]): void {
+    this.schemaChanged.set(objectApiName, { at: this.now(), fields });
+  }
+
+  /** Release every open cursor, as the org does with cursors left unread. */
+  expireCursors(): void {
+    this.cursors.clear();
+  }
+
+  /** The cursors still open. */
+  get openCursors(): number {
+    return this.cursors.size;
+  }
+
+  private describeOf(objectApiName: string): Record<string, unknown> {
     return {
       name: objectApiName,
       label: objectApiName,
       ...(this.undeletable.has(objectApiName) ? { deletable: false } : {}),
-      fields: [],
+      undeletable: !this.comesBackOnlyWithParent.has(objectApiName),
+      fields: this.schemaChanged.get(objectApiName)?.fields ?? [],
       childRelationships: (this.children[objectApiName] ?? []).map((child) => ({
         childSObject: child.childSObject,
         field: child.field,
         cascadeDelete: child.cascadeDelete ?? false,
+        ...(child.restrictedDelete ? { restrictedDelete: true } : {}),
       })),
     };
   }
 
+  async describe(objectApiName: string): Promise<unknown> {
+    this.requests++;
+    return this.describeOf(objectApiName);
+  }
+
   async describeGlobal(): Promise<unknown> {
+    this.requests++;
     const names = new Set([
       ...this.rows.keys(),
       ...Object.keys(this.children),
@@ -96,110 +469,474 @@ export class MemoryRemovalOrg implements RemovalOrg {
     };
   }
 
-  private select(soql: string, deleted: boolean): MemoryRow[] {
-    const match =
-      /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*?)\)( AND IsDeleted = true)?(?: LIMIT \d+)?$/.exec(
-        soql,
-      );
-    if (!match) throw new Error(`Not a statement the fake org reads: ${soql}`);
-    const [, columns, object, field, list, binned] = match;
-    const wanted = new Set(list.split(', ').map((quoted) => quoted.slice(1, -1).slice(0, 15)));
-    if (binned !== undefined || deleted) {
-      return [...this.bin].filter((key) => wanted.has(key)).map((key) => ({ Id: `${key}AAA` }));
+  /**
+   * The rows a read sees: the live ones but archived activities; reading the
+   * recycle bin too, those as well, and the deleted ones.
+   */
+  private visible(objectApiName: string, scanAll: boolean): MemoryRow[] {
+    const live = this.all(objectApiName);
+    if (!scanAll) return live.filter((row) => row.IsArchived !== true);
+    for (const held of this.binned.values()) {
+      if (held.objectApiName !== objectApiName) continue;
+      if (!held.hard || this.facts.hardDeleteInQueryAll) live.push(held.row);
     }
-    return this.all(object)
-      .filter((row) => wanted.has(String(row[field]).slice(0, 15)))
-      .map(
-        (row) =>
-          Object.fromEntries(
-            columns.split(', ').map((column) => [column, row[column]]),
-          ) as MemoryRow,
-      );
+    return live;
   }
 
-  async query(soql: string): Promise<{ totalSize: number; records: unknown[] }> {
-    const records = this.select(soql, false);
-    return { totalSize: records.length, records };
+  /** The first page of what `soql` selects, a cursor kept for the rest. */
+  private run(soql: string, scanAll: boolean): MemoryQueryPage {
+    const statement = parseSoql(soql);
+    const refusal = this.refuseRead.get(statement.object);
+    if (refusal) throw orgError(refusal.errorCode, refusal.message);
+    const selected = selectFrom(this.visible(statement.object, scanAll), statement);
+    const columns = statement.columns;
+    if (columns === null) return { totalSize: selected.length, done: true, records: [] };
+    const rows = selected.map(
+      (row) => Object.fromEntries(columns.map((column) => [column, row[column]])) as MemoryRow,
+    );
+    const first = this.pageSize(0);
+    if (rows.length <= first) return { totalSize: rows.length, done: true, records: rows };
+    for (const oldest of this.cursors.keys()) {
+      if (this.cursors.size < this.cursorLimit) break;
+      this.cursors.delete(oldest);
+    }
+    const locator = `${LOCATOR_PREFIX}${++this.cursorsOpened}`;
+    this.cursors.set(locator, { rows, pages: 1 });
+    return {
+      totalSize: rows.length,
+      done: false,
+      records: rows.slice(0, first),
+      nextRecordsUrl: `${API_PATH}/query/${locator}-${first}`,
+    };
+  }
+
+  /** The page a cursor's next address names; refused for a cursor the org no longer holds. */
+  private nextPage(nextRecordsUrl: string): MemoryQueryPage {
+    const address = /\/query(?:All)?\/(\w+)-(\d+)$/.exec(nextRecordsUrl);
+    if (!address) throw new Error(`Not a next page the fake org answers: ${nextRecordsUrl}`);
+    const [, locator, offset] = address;
+    const cursor = this.cursors.get(locator);
+    if (!cursor) throw orgError('INVALID_QUERY_LOCATOR', 'invalid query locator');
+    const from = Number(offset);
+    const to = from + this.pageSize(cursor.pages);
+    cursor.pages++;
+    const records = cursor.rows.slice(from, to);
+    if (to >= cursor.rows.length) {
+      this.cursors.delete(locator);
+      return { totalSize: cursor.rows.length, done: true, records };
+    }
+    return {
+      totalSize: cursor.rows.length,
+      done: false,
+      records,
+      nextRecordsUrl: `${API_PATH}/query/${locator}-${to}`,
+    };
+  }
+
+  async query(soql: string, options?: { scanAll?: boolean }): Promise<MemoryQueryPage> {
+    this.requests++;
+    return this.run(soql, options?.scanAll === true);
+  }
+
+  /** A query that reads the recycle bin too, as `conn.queryAll` does. */
+  async queryAll(soql: string): Promise<MemoryQueryPage> {
+    this.requests++;
+    return this.run(soql, true);
+  }
+
+  async queryMore(nextRecordsUrl: string): Promise<MemoryQueryPage> {
+    this.requests++;
+    return this.nextPage(nextRecordsUrl);
   }
 
   async queryDeleted(soql: string): Promise<{ records: unknown[] }> {
-    return { records: this.select(soql, true) };
+    this.requests++;
+    return { records: this.run(soql, true).records };
+  }
+
+  /**
+   * A read by its address, of a request or of a composite's subrequest: a
+   * query, a `queryAll`, a cursor's next page or a describe; the org's
+   * refusal as its answer.
+   */
+  private read(url: string, headers: Record<string, string> = {}): ReadAnswer {
+    const path = url.replace(/^\/services\/data\/v\d+\.\d+/, '');
+    const answered = (page: () => MemoryQueryPage): ReadAnswer => {
+      try {
+        return { status: 200, body: page() };
+      } catch (err: unknown) {
+        const code = (err as { errorCode?: unknown }).errorCode;
+        if (typeof code !== 'string') throw err;
+        return { status: 400, body: [{ errorCode: code, message: (err as Error).message }] };
+      }
+    };
+    const search = /^\/(query|queryAll)\/?\?q=(.*)$/.exec(path);
+    if (search) {
+      const soql = new URLSearchParams(`q=${search[2]}`).get('q') ?? '';
+      return answered(() => this.run(soql, search[1] === 'queryAll'));
+    }
+    if (/^\/(query|queryAll)\/\w+-\d+$/.test(path)) return answered(() => this.nextPage(path));
+    const described = /^\/sobjects\/(\w+)\/describe\/?$/.exec(path);
+    if (described) {
+      const since = headers['If-Modified-Since'];
+      const changedAt = this.schemaChanged.get(described[1])?.at ?? 0;
+      if (since !== undefined && changedAt <= Date.parse(since)) return { status: 304, body: null };
+      return { status: 200, body: this.describeOf(described[1]) };
+    }
+    throw new Error(`Not a request the fake org answers: ${url}`);
+  }
+
+  /**
+   * A request as `conn.request` sends it: a `POST /composite`, or a read (a
+   * query, a `queryAll`, a next page, a describe), refused as jsforce
+   * rejects a refusal.
+   */
+  async request(request: MemoryOrgRequest): Promise<unknown> {
+    this.requests++;
+    const path = request.url.replace(/^\/services\/data\/v\d+\.\d+/, '');
+    const method = request.method.toUpperCase();
+    if (method === 'POST' && path === '/composite') return this.composite(request.body);
+    if (method !== 'GET') throw new Error(`Not a request the fake org answers: ${method} ${path}`);
+    const answer = this.read(request.url, request.headers);
+    if (answer.status >= 400) {
+      const [first] = answer.body as Array<{ errorCode: string; message: string }>;
+      throw orgError(first.errorCode, first.message);
+    }
+    return answer.body;
+  }
+
+  /** A composite's answer, each subrequest's in turn, under the org's limits. */
+  private composite(raw: unknown): { compositeResponse: MemorySubAnswer[] } {
+    const body = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
+      compositeRequest?: Array<{
+        method: string;
+        url: string;
+        referenceId: string;
+        httpHeaders?: Record<string, string>;
+      }>;
+    };
+    const subrequests = body.compositeRequest ?? [];
+    if (subrequests.length > COMPOSITE_SUBREQUESTS) {
+      throw orgError('LIMIT_EXCEEDED', 'The request can’t contain more than 25 operations.');
+    }
+    let queries = 0;
+    return {
+      compositeResponse: subrequests.map((sub) => {
+        if (sub.method.toUpperCase() !== 'GET' || sub.url.includes('@{')) {
+          throw new Error(`Not a subrequest the fake org answers: ${sub.method} ${sub.url}`);
+        }
+        const query = /\/(query|queryAll)(\/|\?)/.test(sub.url);
+        const answer: ReadAnswer =
+          query && ++queries > COMPOSITE_QUERIES
+            ? {
+                status: 400,
+                body: [
+                  {
+                    errorCode: 'PROCESSING_HALTED',
+                    message: 'Limit number of query or Collections in Rest Operations reached.',
+                  },
+                ],
+              }
+            : this.read(sub.url, sub.httpHeaders);
+        return {
+          body: answer.body,
+          httpHeaders: {},
+          httpStatusCode: answer.status,
+          referenceId: sub.referenceId,
+        };
+      }),
+    };
   }
 
   async update(_objectApiName: string, _records: Array<Record<string, unknown>>): Promise<unknown> {
+    this.requests++;
     return [];
   }
 
   async serverTime(): Promise<string> {
-    return new Date().toISOString();
+    this.soapCalls++;
+    return new Date(this.now()).toISOString();
   }
 
   async userId(): Promise<string> {
+    this.soapCalls++;
     return MEMORY_ORG_USER;
   }
 
+  /**
+   * Delete records by id, as a REST collection delete does: the object of the
+   * call names none of them, so ids of several objects go in one call (see
+   * {@link MemoryOrgFacts.parentsDeletedFirst}). One answer per id, in their
+   * order.
+   */
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
+    this.requests++;
     this.beforeDelete?.();
     this.deletes.push({ objectApiName, ids: [...ids] });
-    return ids.map((id) => {
-      const refusal = this.refuse.get(id);
-      if (refusal)
-        return { success: false, errors: [{ statusCode: 'DELETE_FAILED', message: refusal }] };
-      if (!this.all(objectApiName).some((row) => row.Id === id)) {
-        return { success: false, errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'gone' }] };
-      }
-      this.remove(objectApiName, id);
-      return { id, success: true, errors: [] };
-    });
+    return this.deleteAs(ids, MEMORY_ORG_USER);
   }
 
   /** Delete a row to the recycle bin, as someone, or a run, did. */
-  trash(objectApiName: string, id: string): void {
-    this.remove(objectApiName, id);
+  trash(objectApiName: string, id: string, by = MEMORY_ORG_USER): void {
+    if (this.liveRow(objectApiName, id)) this.remove(objectApiName, id, by);
+  }
+
+  /** Delete a row for good, past the recycle bin, as a Bulk `hardDelete` does. */
+  hardDelete(objectApiName: string, id: string, by = MEMORY_ORG_USER): void {
+    this.trash(objectApiName, id, by);
+    for (const [key, held] of this.binned) {
+      if (key === keyOf(id) || held.deletedWith === keyOf(id)) held.hard = true;
+    }
   }
 
   /** Empty a row from the recycle bin: gone for good. */
   purge(id: string): void {
-    this.bin.delete(id.slice(0, 15));
-    this.binned.delete(id.slice(0, 15));
+    this.binned.delete(keyOf(id));
   }
 
   /** Take rows out of the recycle bin, as `conn.soap.undelete` does: one answer per id. */
   async undelete(ids: string[]): Promise<unknown> {
-    return ids.map((id) => {
-      const held = this.binned.get(id.slice(0, 15));
-      if (!held) {
+    this.soapCalls++;
+    return this.undeleteAs(ids, MEMORY_ORG_USER);
+  }
+
+  /** Take a row out of the recycle bin, as someone does in the org. */
+  untrash(id: string, by = MEMORY_ORG_USER): void {
+    const [answer] = this.undeleteAs([id], by);
+    if (!answer.success) throw new Error(answer.errors[0]?.message ?? 'not undeleted');
+  }
+
+  /** The object a live record is of, or none. */
+  private objectOf(id: string): string | undefined {
+    for (const [objectApiName, table] of this.rows) {
+      if (table.has(keyOf(id))) return objectApiName;
+    }
+    return undefined;
+  }
+
+  /** Whether a delete of a `parent` record takes records of `child` along, through any number of objects. */
+  private cascadesTo(parent: string, child: string, seen = new Set<string>()): boolean {
+    if (seen.has(parent)) return false;
+    seen.add(parent);
+    return (this.children[parent] ?? []).some(
+      (relation) =>
+        relation.cascadeDelete === true &&
+        (relation.childSObject === child || this.cascadesTo(relation.childSObject, child, seen)),
+    );
+  }
+
+  /** The live records a delete of `id` takes along, the record first. */
+  private cascadeOf(
+    objectApiName: string,
+    id: string,
+  ): Array<{ objectApiName: string; row: MemoryRow }> {
+    const taken = new Map<string, { objectApiName: string; row: MemoryRow }>();
+    const take = (object: string, takenId: string): void => {
+      const row = this.liveRow(object, takenId);
+      const key = keyOf(takenId);
+      if (!row || taken.has(key)) return;
+      taken.set(key, { objectApiName: object, row });
+      if (object === 'Account' && row[PERSON_ACCOUNT] === true) {
+        for (const contact of this.all('Contact')) {
+          if (contact[PERSON_ACCOUNT] === true && names(contact.AccountId, key)) {
+            take('Contact', contact.Id);
+          }
+        }
+      }
+      for (const child of this.children[object] ?? []) {
+        if (!child.cascadeDelete) continue;
+        for (const held of this.all(child.childSObject)) {
+          if (names(held[child.field], key)) take(child.childSObject, held.Id);
+        }
+      }
+    };
+    take(objectApiName, id);
+    return [...taken.values()];
+  }
+
+  /** Why the org refuses to delete `id`, or nothing. */
+  private refusalOf(
+    objectApiName: string,
+    id: string,
+  ): { statusCode: string; message: string } | undefined {
+    const refusal = this.refuse.get(id);
+    if (refusal) return { statusCode: 'DELETE_FAILED', message: refusal };
+    if (objectApiName === 'Contact' && this.liveRow(objectApiName, id)?.[PERSON_ACCOUNT] === true) {
+      return PERSON_CONTACT_REFUSAL;
+    }
+    const taken = this.cascadeOf(objectApiName, id);
+    const goes = new Set(taken.map((held) => keyOf(held.row.Id)));
+    for (const held of taken) {
+      for (const child of this.children[held.objectApiName] ?? []) {
+        if (!child.restrictedDelete) continue;
+        const holding = this.all(child.childSObject).find(
+          (row) => names(row[child.field], keyOf(held.row.Id)) && !goes.has(keyOf(row.Id)),
+        );
+        if (holding) {
+          return {
+            statusCode: 'DELETE_FAILED',
+            message: `${child.childSObject} ${holding.Id} still names it in ${child.field}`,
+          };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** Delete `ids` as `by`, the parents of the call first unless the facts say otherwise. */
+  private deleteAs(ids: readonly string[], by: string): WriteAnswer[] {
+    const objects = ids.map((id) => this.objectOf(id));
+    const called = [...new Set(objects)].filter((object): object is string => object !== undefined);
+    /** How many objects of the call take records of `object` along: none, for a parent's. */
+    const depth = (object: string | undefined): number =>
+      object === undefined
+        ? 0
+        : called.filter((other) => other !== object && this.cascadesTo(other, object)).length;
+    const order = ids.map((_, place) => place);
+    if (this.facts.parentsDeletedFirst) order.sort((a, b) => depth(objects[a]) - depth(objects[b]));
+    const answers: WriteAnswer[] = [];
+    for (const place of order) {
+      const id = ids[place];
+      const objectApiName = this.objectOf(id);
+      const told = this.refuse.get(id);
+      const refusal =
+        objectApiName === undefined
+          ? told
+            ? { statusCode: 'DELETE_FAILED', message: told }
+            : { statusCode: 'ENTITY_IS_DELETED', message: 'gone' }
+          : this.refusalOf(objectApiName, id);
+      if (refusal || objectApiName === undefined) {
+        answers[place] = {
+          success: false,
+          errors: [refusal ?? { statusCode: 'ENTITY_IS_DELETED', message: 'gone' }],
+        };
+        continue;
+      }
+      this.remove(objectApiName, id, by);
+      answers[place] = { id, success: true, errors: [] };
+    }
+    return answers;
+  }
+
+  /**
+   * Send a live record to the recycle bin with what cascades from it, as
+   * `by`, and clear the lookups that name them: see {@link MemoryOrgFacts}.
+   */
+  private remove(objectApiName: string, id: string, by: string): void {
+    const root = keyOf(id);
+    const taken = this.cascadeOf(objectApiName, id);
+    const goes = new Set(taken.map((held) => keyOf(held.row.Id)));
+    for (const { objectApiName: object, row } of taken) {
+      const key = keyOf(row.Id);
+      this.table(object).delete(key);
+      row.IsDeleted = true;
+      if (this.facts.deleteStamps) this.restamp(row, by);
+      this.binned.set(key, {
+        objectApiName: object,
+        row,
+        ...(key === root ? {} : { deletedWith: root }),
+      });
+      for (const child of this.children[object] ?? []) {
+        if (child.cascadeDelete || child.restrictedDelete) continue;
+        for (const held of this.all(child.childSObject)) {
+          if (goes.has(keyOf(held.Id)) || !names(held[child.field], key)) continue;
+          const value = String(held[child.field]);
+          held[child.field] = null;
+          if (this.facts.clearedLookupRestamps) this.restamp(held, by);
+          this.cleared.set(key, [
+            ...(this.cleared.get(key) ?? []),
+            { objectApiName: child.childSObject, id: held.Id, field: child.field, value },
+          ]);
+        }
+      }
+    }
+  }
+
+  /** Why the org refuses to bring a record back from the bin, or nothing. */
+  private undeleteRefusalOf(held: Binned | undefined): string | undefined {
+    if (!held || held.hard) return 'Entity is not in the recycle bin';
+    if (held.objectApiName === 'Contact' && held.row[PERSON_ACCOUNT] === true) {
+      return PERSON_CONTACT_REFUSAL.message;
+    }
+    if (this.comesBackOnlyWithParent.has(held.objectApiName)) {
+      return `${held.objectApiName} records come back from the recycle bin with their parent only`;
+    }
+    if (
+      held.deletedWith !== undefined &&
+      !this.facts.cascadeChildComesBackAlone &&
+      this.binned.has(held.deletedWith)
+    ) {
+      return 'Its parent is in the recycle bin: undelete the parent first';
+    }
+    return undefined;
+  }
+
+  /** The children of `parent` deleted on their own before it, through a relationship that cascades. */
+  private deletedAloneUnder(parent: Binned): Array<[string, Binned]> {
+    const key = keyOf(parent.row.Id);
+    const cascades = (this.children[parent.objectApiName] ?? []).filter(
+      (child) => child.cascadeDelete,
+    );
+    return [...this.binned].filter(
+      ([, held]) =>
+        !held.hard &&
+        held.deletedWith === undefined &&
+        cascades.some(
+          (child) => child.childSObject === held.objectApiName && names(held.row[child.field], key),
+        ),
+    );
+  }
+
+  /** Bring back `ids` as `by`, each with what was deleted with it: see {@link MemoryOrgFacts}. */
+  private undeleteAs(ids: readonly string[], by: string): WriteAnswer[] {
+    return ids.map((id): WriteAnswer => {
+      const key = keyOf(id);
+      const held = this.binned.get(key);
+      const refusal = this.undeleteRefusalOf(held);
+      if (refusal !== undefined || held === undefined) {
         return {
           id,
           success: false,
-          errors: [{ statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' }],
+          errors: [
+            {
+              statusCode: 'UNDELETE_FAILED',
+              message: refusal ?? 'Entity is not in the recycle bin',
+            },
+          ],
         };
       }
-      this.purge(id);
-      // Dated anew, as modified by the session's user: what a removal's stamps read.
-      const row = {
-        ...held.row,
-        LastModifiedDate: new Date().toISOString(),
-        LastModifiedById: MEMORY_ORG_USER,
-      };
-      this.rows.set(held.objectApiName, [...this.all(held.objectApiName), row]);
+      const back = [...this.binned].filter(
+        ([other, entry]) => other === key || (!entry.hard && entry.deletedWith === key),
+      );
+      if (!this.facts.childDeletedAloneStays) back.push(...this.deletedAloneUnder(held));
+      const at = orgStamp(this.now());
+      for (const [other, entry] of back) {
+        this.binned.delete(other);
+        const row = entry.row;
+        row.IsDeleted = false;
+        row.SystemModstamp = at;
+        row.LastModifiedDate = at;
+        if (this.facts.undeleterIsLastModifier) row.LastModifiedById = by;
+        this.table(entry.objectApiName).set(other, row);
+      }
+      if (this.facts.undeleteRestoresLookups) {
+        for (const [other] of back) this.restoreLookups(other, by);
+      }
       return { id, success: true, errors: [] };
     });
   }
 
-  private remove(objectApiName: string, id: string): void {
-    const deleted = this.all(objectApiName).find((held) => held.Id === id);
-    if (deleted) this.binned.set(id.slice(0, 15), { objectApiName, row: deleted });
-    this.rows.set(
-      objectApiName,
-      this.all(objectApiName).filter((row) => row.Id !== id),
-    );
-    this.bin.add(id.slice(0, 15));
-    for (const child of this.children[objectApiName] ?? []) {
-      if (!child.cascadeDelete) continue;
-      for (const row of this.all(child.childSObject)) {
-        if (row[child.field] === id) this.remove(child.childSObject, row.Id);
-      }
+  /**
+   * Put back the lookups a delete of the record keyed `key` cleared, on the
+   * children still live whose lookup is still empty.
+   */
+  private restoreLookups(key: string, by: string): void {
+    for (const lookup of this.cleared.get(key) ?? []) {
+      const row = this.liveRow(lookup.objectApiName, lookup.id);
+      if (!row || (row[lookup.field] !== null && row[lookup.field] !== undefined)) continue;
+      row[lookup.field] = lookup.value;
+      this.restamp(row, by);
     }
+    this.cleared.delete(key);
   }
 }
