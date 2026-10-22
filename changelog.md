@@ -5,6 +5,32 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.64.0] - 2026-10-22
+
+What a Sync update writes over can now be taken back, a Sync run from the command line can be removed even when it was killed, and every page opens under 900 kB.
+
+### Added
+
+- **Sync**: what an update, or an upsert that found the record, writes over is kept first; removing the run gives the records their values back, a record changed since left as it is unless you include it. The confirmation, the dry run and the results count the records written over.
+- **Command line**: `sandforge-sync` keeps a run file, so a run killed, stopped with Ctrl-C or failed part way can be removed with `--remove <run file or id>`.
+- **DataOps Restore**: a backup a Sync run kept is labelled as such.
+
+### Changed
+
+- **Pages**: each opens under 900 kB; Forge's later steps, its graphs, Reports' analytics and lineage, Monitor's charts and Sync's schedules load when they are shown.
+- **Sync removal sweep**: its window runs to the run's last write, and a run that only wrote over records is swept too.
+- **DataOps**: keeps its panels drawn while it reads again.
+- **Translations**: Spanish names the pre-check step one way; None and Custom are translated.
+
+### Fixed
+
+- **Sync**: a Bulk job that failed after the org opened it stays with its run and is removed with it.
+- **Forge**: removing a resumed run part by part also removes the parent record one part wrote for the other.
+- **Real-Time**: starting a session no longer leaves unhandled errors behind.
+- **Keyboard**: Seed's Read again, the Retry buttons, Monitor's Refresh and DataOps' Delete keep the focus.
+- **Command line**: `sandforge-seed` names its templates.
+- **DataOps Restore**: restoring a Sync run's backup no longer sends a record twice.
+
 ## [1.63.0] - 2026-10-21
 
 Every run that writes can be taken back, CSV imports and clones included, even when its window closed in the middle of a write; Sync keeps the lookups between objects that point at each other, and every page loads lighter.

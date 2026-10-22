@@ -2602,6 +2602,8 @@
       "saferCopies1620Desc": "O Sync agora grava primeiro os registros pai, nunca copia de novo o que uma execução anterior copiou e verifica volume, armazenamento e os e-mails do dia antes de gravar. A clonagem de outra org do Seed funciona entre quaisquer duas orgs e oculta e-mails e telefones reais. Toda execução que grava aparece em Live Operations com um botão de parar, os backups do DataOps podem ser excluídos, e com teclado e leitor de tela é possível seguir cada fluxo.",
       "takeBack1630": "Toda execução pode ser desfeita",
       "takeBack1630Desc": "O que o Upload CSV e o Clonar de Org criam aparece em Seeds anteriores e pode ser removido, e uma execução cuja janela foi fechada durante um job Bulk ainda remove os registros desse job. O Sync agora define as pesquisas entre objetos que apontam um para o outro, a remoção pode limpar o que a automação do destino criou, e cada página carrega mais leve.",
+      "undoOverwrites1640": "Atualizações podem ser desfeitas",
+      "undoOverwrites1640Desc": "O que uma atualização do Sync sobrescreve no destino é guardado antes, e remover a execução devolve aos registros os valores anteriores. Uma execução do Sync pela linha de comando pode ser removida mesmo se foi interrompida, e cada página abre abaixo de 900 kB.",
       "exactResume1530": "Retomar exatamente de onde parou",
       "exactResume1530Desc": "Uma execução do Forge retomada agora copia os arquivos que faltam, nunca devolve um status duas vezes e não é mais recusada quando uma tabela vazia mudou nesse meio-tempo. Remover uma execução grande lê seu diário página por página.",
       "undoSync1520": "Desfazer o que uma execução do Sync criou",
