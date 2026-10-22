@@ -2,7 +2,12 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { defaultBackupStoreOf, openBackupStore, type StoreFolderFs } from './backupStore.js';
+import {
+  defaultBackupStoreOf,
+  openBackupStore,
+  toolStoreOf,
+  type StoreFolderFs,
+} from './backupStore.js';
 import { parseArgs as parseBackupArgs } from './sandforge-backup.js';
 import { parseArgs as parseDataOpsArgs } from './sandforge-dataops.js';
 
@@ -24,6 +29,15 @@ describe('defaultBackupStoreOf', () => {
     expect(defaultBackupStoreOf({ SANDFORGE_JOURNAL_DIR: '  ' })).toBe(
       join(homedir(), '.sandforge', 'backups'),
     );
+  });
+
+  it('keeps the state of Compare and Monitor beside it, each in a folder of its own', () => {
+    // Both kept it in a fixed folder of the system's temp directory.
+    expect(toolStoreOf('compare', {})).toBe(join(homedir(), '.sandforge', 'compare'));
+    expect(toolStoreOf('monitor', { SANDFORGE_JOURNAL_DIR: '/srv/runner/sandforge' })).toBe(
+      join(resolve('/srv/runner/sandforge'), 'monitor'),
+    );
+    expect(toolStoreOf('compare', {})).not.toContain(tmpdir());
   });
 
   it('is where both command lines put their snapshots when they are told no folder', () => {

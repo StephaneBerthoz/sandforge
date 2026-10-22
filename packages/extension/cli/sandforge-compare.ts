@@ -26,9 +26,6 @@
  * pnpm build:shared.
  */
 
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
   DEPLOYABLE_COMPONENT_TYPES,
   DEPLOY_TEST_LEVELS,
@@ -45,6 +42,9 @@ import type {
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
 import type { PanelAnswer } from './panelHost.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { openBackupStore, toolStoreOf } from './backupStore.js';
+import { DONE_EXIT, endWith, FAILED_EXIT, PARTIAL_EXIT } from './exitCodes.js';
 
 const HELP = `sandforge-compare — compare two orgs the way the Compare page does, without the editor.
 
@@ -69,17 +69,25 @@ Options:
   --tests <level>        the Apex tests the validation runs: NoTestRun |
                          RunLocalTests | RunSpecifiedTests (default: NoTestRun)
   --run-test <Class>     a test class RunSpecifiedTests runs; repeat for more
-  --store <dir>          where the host keeps its config store (default: a temp directory)
+  --store <dir>          where the host keeps its config store, a folder of your
+                         own (default: ~/.sandforge/compare, under the folder
+                         SANDFORGE_JOURNAL_DIR names when it is set)
   --wait <seconds>       how long to keep waiting for an answer     (default: 300)
-  --json                 emit what the page would receive
+  --fail-on-drift        exit 3 when a diff (execute) finds a component added,
+                         removed or modified                         (default: off)
+  --json                 emit what the page would receive, every other line on
+                         stderr
   --help                 this text
 
 Nothing is written to either org. A validation deploys check-only: the
 target compiles the components and runs the tests, keeps none of them, and
 lists the validation in Setup › Deployment Status. This tool never deploys.
 
-Exit codes: 0 the run finished (read the answers), 1 it could not start,
-2 a bad command line.
+Exit codes: 0 every request was answered, and every validation succeeded (a
+diff is read, whatever it found, unless --fail-on-drift); 1 it could not
+start, or a request failed, was refused or was not answered in time; 2 a bad
+command line; 3 a validation came back with no success, a component error or
+a failed test, or --fail-on-drift and a diff found differences.
 `;
 
 /**
@@ -143,7 +151,25 @@ interface CliArgs {
   storeDir: string;
   waitMs: number;
   json: boolean;
+  /** Exit 3 when a diff finds a component added, removed or modified. */
+  failOnDrift: boolean;
 }
+
+/** What the line reads. */
+const FLAGS: CommandFlags = {
+  switches: ['--all-types', '--exclude-managed', '--json', '--fail-on-drift'],
+  values: [
+    '--source',
+    '--target',
+    '--op',
+    '--type',
+    '--validate',
+    '--tests',
+    '--run-test',
+    '--store',
+    '--wait',
+  ],
+};
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -152,6 +178,8 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stdout.write(HELP);
     process.exit(0);
   }
+  // A misspelt flag, or `--validate=ApexClass:A`, was dropped without a word.
+  refuseUnreadArguments(args, FLAGS);
   const get = (flag: string, fallback?: string): string | undefined => {
     const at = args.indexOf(flag);
     return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -221,9 +249,10 @@ export function parseArgs(argv: string[]): CliArgs {
     types,
     includeManaged: !args.includes('--exclude-managed'),
     validation,
-    storeDir: get('--store', join(tmpdir(), 'sandforge-compare')) ?? '',
+    storeDir: get('--store') ?? toolStoreOf('compare'),
     waitMs: waitSeconds * 1000,
     json: args.includes('--json'),
+    failOnDrift: args.includes('--fail-on-drift'),
   };
 }
 
@@ -440,14 +469,60 @@ export function describeAnswer(op: Operation, answer: PanelAnswer): string[] {
   ];
 }
 
+/**
+ * The exit code of a run, from its answers: 1 when a request was not answered
+ * — it failed, was refused, or nothing came back in time —; 3 when a
+ * validation came back with no success, a component error or a failed test,
+ * or, with `--fail-on-drift`, when a diff found a component added, removed or
+ * modified; 0 otherwise. A diff is read, and said, whatever it found.
+ *
+ * The run exited 0 whatever it received: a check-only deployment that failed
+ * to compile, or whose tests failed, passed the pipeline it was to gate.
+ * Exported so it can be tested.
+ */
+export function compareExitCode(
+  results: ReadonlyArray<{ op: Operation; answer: PanelAnswer }>,
+  failOnDrift = false,
+): number {
+  if (results.some(({ answer }) => answer.outcome !== 'answered')) return FAILED_EXIT;
+  const payloadOf = (answer: PanelAnswer): Record<string, unknown> =>
+    (answer.message?.payload ?? {}) as Record<string, unknown>;
+  const failedValidation = results.some(({ op, answer }) => {
+    if (op !== 'validate-deployment') return false;
+    const report = payloadOf(answer).report as DeploymentReport | undefined;
+    return (
+      report === undefined ||
+      !report.success ||
+      report.counts.componentErrors > 0 ||
+      report.counts.testErrors > 0
+    );
+  });
+  if (failedValidation) return PARTIAL_EXIT;
+  const drifted = results.some(({ op, answer }) => {
+    if (op !== 'execute') return false;
+    const summary = (payloadOf(answer) as unknown as Partial<CompareResult>).summary;
+    return summary !== undefined && summary.added + summary.removed + summary.modified > 0;
+  });
+  return failOnDrift && drifted ? PARTIAL_EXIT : DONE_EXIT;
+}
+
 /** Run the page's requests; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const args = parseArgs(argv);
+  // On stderr with --json, where stdout carries the JSON alone.
   const log = (line: string): void => {
-    if (!args.json) process.stdout.write(`${line}\n`);
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
 
-  mkdirSync(args.storeDir, { recursive: true });
+  // The host's folder, its owner's alone: a fixed folder of the system's
+  // temp directory was every user's of a shared runner to make first, and two
+  // jobs there wrote over each other's store.
+  const refused = openBackupStore(args.storeDir);
+  if (refused !== undefined) {
+    process.stderr.write(`${refused}\n`);
+    process.exitCode = FAILED_EXIT;
+    return;
+  }
   const host = createPanelHost({
     storeDir: args.storeDir,
     // The extension's own warnings and failures, not its routine traffic.
@@ -493,12 +568,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       `${JSON.stringify({ tool: 'sandforge-compare', results, posted: host.posted }, null, 2)}\n`,
     );
   }
+  endWith(compareExitCode(results, args.failOnDrift));
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-compare')) {
   main()
-    .then(() => process.exit(0))
+    .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
       process.exit(1);

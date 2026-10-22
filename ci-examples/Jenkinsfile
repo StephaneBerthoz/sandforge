@@ -3,7 +3,8 @@
 // Honest example built on what actually exists in this repo:
 //   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 //   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx, its
-//                        JSON summary saved to clone-summary.json
+//                        JSON summary written to clone-summary.json as it goes,
+//                        its journal kept under sandforge-journal/
 //   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
 //                        back what that clone created, and nothing else
 //   4. VSIX package    — pnpm package, archived as an artifact
@@ -44,6 +45,11 @@ pipeline {
             defaultValue: false,
             description: 'Clone for real although flows or Apex triggers of the target fire as the records are inserted'
         )
+        booleanParam(
+            name: 'ACCEPT_REMOVAL_AUTOMATION',
+            defaultValue: false,
+            description: 'Remove all the same although flows or Apex triggers of the target fire as the records are deleted'
+        )
         string(
             name: 'SF_CLONE_RECORD_ID',
             defaultValue: '',
@@ -83,6 +89,12 @@ pipeline {
             when {
                 expression { return env.SANDFORGE_SF_ORGS == 'true' && params.SF_CLONE_RECORD_ID?.trim() }
             }
+            environment {
+                // The clone's journal, line by line as it writes, ids only:
+                // what --remove takes a run back from however it ended — an
+                // abort or the timeout included — archived with the report.
+                SANDFORGE_JOURNAL_DIR = "${env.WORKSPACE}/sandforge-journal"
+            }
             steps {
                 withCredentials([
                     string(credentialsId: 'sfdx-auth-url-source', variable: 'SFDX_AUTH_URL_SOURCE'),
@@ -106,6 +118,11 @@ pipeline {
                     script {
                         def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
                         def automationFlag = params.ACCEPT_AUTOMATION ? '--accept-automation' : ''
+                        // --summary writes the summary as the run goes, after
+                        // each object it ends: a clone that fails part way, or
+                        // an aborted build (SIGTERM, which the clone stops on
+                        // as on Ctrl-C), keeps there what it created, where its
+                        // stdout carries nothing. stdout is kept beside it.
                         sh """
                             pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
                                 --record "${params.SF_CLONE_RECORD_ID}" \\
@@ -115,9 +132,10 @@ pipeline {
                                 ${dryRunFlag} \\
                                 ${automationFlag} \\
                                 --json \\
+                                --summary clone-summary.json \\
                                 --remap-csv remap.csv \\
                                 --audit clone-audit.json \\
-                                > clone-summary.json
+                                > clone-output.json
                         """
                         // Your checks against the cloned records go here.
 
@@ -132,23 +150,27 @@ pipeline {
                         // an earlier build left. What the removal wrote to the
                         // records it kept goes to clone-summary.removals.json,
                         // which a later --remove of the same summary reads:
-                        // both are archived.
+                        // both are archived. It deletes nothing and exits 1
+                        // when the target's flows or triggers fire as the
+                        // records are deleted, unless ACCEPT_REMOVAL_AUTOMATION.
                         if (!params.DRY_RUN && params.REMOVE_AFTER) {
-                            sh '''
+                            def removalAutomationFlag = params.ACCEPT_REMOVAL_AUTOMATION ? '--accept-automation' : ''
+                            sh """
                                 pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
                                     --remove clone-summary.json \\
                                     --target ci-target \\
+                                    ${removalAutomationFlag} \\
                                     --json \\
                                     --audit clone-audit.json \\
                                     > clone-removal.json
-                            '''
+                            """
                         }
                     }
                 }
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'clone-summary.json, clone-summary.removals.json, clone-removal.json, clone-audit.json, remap.csv', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'clone-summary.json, clone-output.json, clone-summary.removals.json, clone-removal.json, clone-audit.json, remap.csv, sandforge-journal/forge-runs/**', allowEmptyArchive: true
                 }
             }
         }

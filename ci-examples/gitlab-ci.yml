@@ -3,7 +3,8 @@
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx, its
-#                        JSON summary saved to clone-summary.json
+#                        JSON summary written to clone-summary.json as it goes,
+#                        its journal kept under sandforge-journal/
 #   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
 #                        back what that clone created, and nothing else
 #   4. VSIX package    — pnpm package, uploaded as an artifact
@@ -38,6 +39,9 @@ variables:
   # "true" clones for real although flows or Apex triggers of the target fire
   # as the records are inserted: without it, such a clone writes nothing.
   ACCEPT_AUTOMATION: 'false'
+  # "true" removes all the same although flows or Apex triggers of the target
+  # fire as the records are deleted: without it, such a removal deletes nothing.
+  ACCEPT_REMOVAL_AUTOMATION: 'false'
 
 stages:
   - quality
@@ -66,6 +70,12 @@ quality:
 # ── Forge clone + removal (real CLI, dry-run default) ────────
 clone:
   stage: clone
+  variables:
+    # The clone's journal, line by line as it writes, ids only: what --remove
+    # takes a run back from however it ended — killed at the job's timeout
+    # included — kept in the project directory and with the artifacts. In the
+    # runner's home it went away with the runner.
+    SANDFORGE_JOURNAL_DIR: '$CI_PROJECT_DIR/sandforge-journal'
   script:
     - corepack enable
     - npm install -g @salesforce/cli
@@ -90,6 +100,9 @@ clone:
       [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
       AUTOMATION_FLAG=""
       [ "$ACCEPT_AUTOMATION" = "true" ] && AUTOMATION_FLAG="--accept-automation"
+      # --summary writes the summary as the run goes, after each object it
+      # ends: a clone that fails part way keeps there what it created, where
+      # its stdout carries nothing. stdout is kept beside it.
       pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
         --record "$SF_CLONE_RECORD_ID" \
         --source ci-source \
@@ -98,9 +111,10 @@ clone:
         $DRY_FLAG \
         $AUTOMATION_FLAG \
         --json \
+        --summary clone-summary.json \
         --remap-csv remap.csv \
         --audit clone-audit.json \
-        > clone-summary.json
+        > clone-output.json
     # Your checks against the cloned records go here.
     #
     # Takes back what the clone created, from the summary it saved: never a
@@ -109,12 +123,17 @@ clone:
     # nothing and its summary is refused, so this runs after a real clone only.
     # What the removal wrote to the records it kept goes to
     # clone-summary.removals.json, which a later --remove of the same summary
-    # reads: both are kept with the artifacts.
+    # reads: both are kept with the artifacts. It deletes nothing and exits 1
+    # when the target's flows or triggers fire as the records are deleted,
+    # unless ACCEPT_REMOVAL_AUTOMATION says to go on.
     - |
       if [ "$DRY_RUN" != "true" ] && [ "$REMOVE_AFTER" = "true" ]; then
+        REMOVAL_AUTOMATION_FLAG=""
+        [ "$ACCEPT_REMOVAL_AUTOMATION" = "true" ] && REMOVAL_AUTOMATION_FLAG="--accept-automation"
         pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
           --remove clone-summary.json \
           --target ci-target \
+          $REMOVAL_AUTOMATION_FLAG \
           --json \
           --audit clone-audit.json \
           > clone-removal.json
@@ -122,10 +141,12 @@ clone:
   artifacts:
     paths:
       - clone-summary.json
+      - clone-output.json
       - clone-summary.removals.json
       - clone-removal.json
       - clone-audit.json
       - remap.csv
+      - sandforge-journal/forge-runs
     expire_in: 30 days
     when: always
   rules:

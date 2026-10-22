@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { parseArgs, pageRequest, describeAnswer } from './sandforge-monitor.js';
+import { join } from 'node:path';
+import { parseArgs, pageRequest, describeAnswer, monitorExitCode } from './sandforge-monitor.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -238,5 +239,30 @@ describe('describeAnswer', () => {
       late: true,
     });
     expect(head).toContain('the page dropped it');
+  });
+});
+
+describe('the exit code of a read', () => {
+  it('exits 1 when a read failed, was refused or was not answered, where it exited 0', () => {
+    const read = (outcome: 'answered' | 'failed' | 'refused' | 'unanswered') => ({
+      outcome,
+      elapsedMs: 10,
+      late: false,
+    });
+    expect(monitorExitCode([read('answered'), read('answered')])).toBe(0);
+    expect(monitorExitCode([read('answered'), read('failed')])).toBe(1);
+    expect(monitorExitCode([read('refused')])).toBe(1);
+    expect(monitorExitCode([read('unanswered')])).toBe(1);
+  });
+
+  it('keeps its store in the folder SANDFORGE_JOURNAL_DIR names, where it was a shared temp folder', () => {
+    expect(parseArgs(argv('--org', 'TGT')).storeDir).toBe(
+      join(String(process.env['SANDFORGE_JOURNAL_DIR']), 'monitor'),
+    );
+  });
+
+  it('refuses --org=TGT, which it dropped, and a misspelt flag', () => {
+    expect(refuse('--org=TGT').code).toBe(2);
+    expect(refuse('--org', 'TGT', '--jsn').code).toBe(2);
   });
 });

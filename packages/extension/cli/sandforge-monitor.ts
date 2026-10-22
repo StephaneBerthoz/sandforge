@@ -27,12 +27,12 @@
  * pnpm build:shared.
  */
 
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
 import type { PanelAnswer, PanelRequest } from './panelHost.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { openBackupStore, toolStoreOf } from './backupStore.js';
+import { endWith, FAILED_EXIT } from './exitCodes.js';
 
 const HELP = `sandforge-monitor — read an org the way the Monitor page does, without the editor.
 
@@ -50,15 +50,19 @@ Options:
   --dismiss <id>         dismiss an alert (extension state only)
   --repeat <n>           send the set n times in the same host   (default: 1)
   --pause <seconds>      wait between two passes                 (default: 0)
-  --store <dir>          where the host keeps its config store (default: a temp directory)
+  --store <dir>          where the host keeps its config store, a folder of your
+                         own (default: ~/.sandforge/monitor, under the folder
+                         SANDFORGE_JOURNAL_DIR names when it is set)
   --wait <seconds>       how long to keep waiting for an answer  (default: 300)
-  --json                 emit what the page would receive
+  --json                 emit what the page would receive, every other line on
+                         stderr
   --help                 this text
 
 Nothing is written to the org.
 
-Exit codes: 0 the run finished (read the answers), 1 it could not start,
-2 a bad command line.
+Exit codes: 0 every request was answered (read the answers); 1 it could not
+start, or a request failed, was refused or was not answered in time; 2 a bad
+command line.
 `;
 
 /** The page's read requests, in the order the page mounts them. */
@@ -89,6 +93,21 @@ interface CliArgs {
   json: boolean;
 }
 
+/** What the line reads. */
+const FLAGS: CommandFlags = {
+  switches: ['--json'],
+  values: [
+    '--org',
+    '--op',
+    '--acknowledge',
+    '--dismiss',
+    '--repeat',
+    '--pause',
+    '--store',
+    '--wait',
+  ],
+};
+
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
@@ -96,6 +115,8 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stdout.write(HELP);
     process.exit(0);
   }
+  // A misspelt flag, or `--org=ALIAS`, was dropped without a word.
+  refuseUnreadArguments(args, FLAGS);
   const get = (flag: string, fallback?: string): string | undefined => {
     const at = args.indexOf(flag);
     return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -147,7 +168,7 @@ export function parseArgs(argv: string[]): CliArgs {
     dismiss,
     repeat: wholeNumber('--repeat', '1', 1),
     pauseMs: wholeNumber('--pause', '0', 0) * 1000,
-    storeDir: get('--store', join(tmpdir(), 'sandforge-monitor')) ?? '',
+    storeDir: get('--store') ?? toolStoreOf('monitor'),
     waitMs: wholeNumber('--wait', '300', 1) * 1000,
     json: args.includes('--json'),
   };
@@ -355,11 +376,19 @@ export function describeAnswer(
 /** Run the page's requests; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const args = parseArgs(argv);
+  // On stderr with --json, where stdout carries the JSON alone.
   const log = (line: string): void => {
-    if (!args.json) process.stdout.write(`${line}\n`);
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
 
-  mkdirSync(args.storeDir, { recursive: true });
+  // The host's folder, its owner's alone: a fixed folder of the system's
+  // temp directory was every user's of a shared runner to make first.
+  const refused = openBackupStore(args.storeDir);
+  if (refused !== undefined) {
+    process.stderr.write(`${refused}\n`);
+    process.exitCode = FAILED_EXIT;
+    return;
+  }
   const host = createPanelHost({
     storeDir: args.storeDir,
     // The extension's own warnings, failures and alerts, not its routine traffic.
@@ -407,12 +436,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       `${JSON.stringify({ tool: 'sandforge-monitor', results, posted: host.posted }, null, 2)}\n`,
     );
   }
+  endWith(monitorExitCode(results.map(({ answer }) => answer)));
+}
+
+/**
+ * The exit code of a run, from its answers: 1 when a read was not answered —
+ * it failed, was refused, or nothing came back in time —, 0 otherwise. A
+ * failed read exited 0, as one that came back. Exported so it can be tested.
+ */
+export function monitorExitCode(answers: readonly PanelAnswer[]): number {
+  return answers.some((answer) => answer.outcome !== 'answered') ? FAILED_EXIT : 0;
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-monitor')) {
   main()
-    .then(() => process.exit(0))
+    .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
       process.exit(1);

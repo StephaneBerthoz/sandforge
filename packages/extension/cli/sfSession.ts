@@ -74,8 +74,13 @@ export async function loadOrg(
   }
   const live = await readToken(alias);
   if (!isUsableAccessToken(live.accessToken)) {
+    // A CI job has no browser for `sf org login web`, which was the one way
+    // the message named: it signs in with a JWT or an auth URL.
     throw new Error(
-      `The Salesforce CLI showed no usable access token for alias '${alias}'. Sign in again with "sf org login web --alias ${alias}".`,
+      `The Salesforce CLI showed no usable access token for alias '${alias}'. Sign in again ` +
+        `with "sf org login web --alias ${alias}" where a browser opens; in a CI job, with ` +
+        `"sf org login jwt --alias ${alias}" (a client id, a key file and a username) or ` +
+        `"sf org login sfdxurl --alias ${alias} --sfdx-url-file <file>" (see ci-examples/README.md).`,
     );
   }
   return {

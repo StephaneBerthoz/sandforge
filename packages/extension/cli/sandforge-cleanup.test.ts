@@ -12,7 +12,7 @@ vi.mock('./sfSession.js', async (importOriginal) => {
 import type { Connection } from 'jsforce';
 import { execFileSync } from 'node:child_process';
 import { loadOrg, makeConn } from './sfSession.js';
-import { main } from './sandforge-cleanup';
+import { cleanupExitCode, cleanupSoql, main, sinceClause } from './sandforge-cleanup';
 
 const mockExecFileSync = vi.mocked(execFileSync);
 
@@ -181,7 +181,13 @@ describe('sandforge-cleanup', () => {
         Promise.resolve(
           soql.includes(' FROM User ')
             ? { records: [{ Id: '005000000000001AAA' }], done: true, totalSize: 1 }
-            : { records: ids.map((Id) => ({ Id })), done: true, totalSize: ids.length },
+            : soql.includes(' FROM Organization ')
+              ? {
+                  records: [{ Id: '00D000000000001AAA', IsSandbox: true }],
+                  done: true,
+                  totalSize: 1,
+                }
+              : { records: ids.map((Id) => ({ Id })), done: true, totalSize: ids.length },
         )) as never);
       const deletes: number[] = [];
       vi.spyOn(conn, 'request').mockImplementation(((request: { method: string; url: string }) => {
@@ -209,5 +215,169 @@ describe('sandforge-cleanup', () => {
       expect(deletes).toEqual([200, 200, 50]);
       expect(printed).toContain(`  ${'Case'.padEnd(40)} 450  deleted 450`);
     });
+
+    /**
+     * An org whose Organization record says `kind`, holding `cases` the user
+     * created, deleting them as `destroy` answers, and what it was asked.
+     */
+    function org(
+      kind: Record<string, unknown>,
+      destroy: (ids: string[]) => unknown = (ids) =>
+        ids.map((id) => ({ id, success: true, errors: [] })),
+      cases: string[] = ['500000000000001AAA', '500000000000002AAA'],
+    ) {
+      const asked: string[] = [];
+      const destroyed = vi.fn(async (ids: string[]) => destroy(ids));
+      const conn = {
+        query: vi.fn(async (soql: string) => {
+          asked.push(soql);
+          if (soql.includes(' FROM User ')) return { records: [{ Id: '005000000000001AAA' }] };
+          if (soql.includes('FROM Organization')) {
+            return { records: [{ Id: '00D000000000001AAA', ...kind }] };
+          }
+          if (soql.includes('FROM Lead')) throw new Error("INVALID_TYPE: sObject type 'Lead'");
+          if (soql.includes('FROM Asset')) throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests');
+          return { records: cases.map((Id) => ({ Id })), done: true };
+        }),
+        queryMore: vi.fn(),
+        sobject: () => ({ destroy: destroyed }),
+      };
+      vi.mocked(loadOrg).mockResolvedValue({
+        alias: 'TGT',
+        username: 'user@example.com',
+        instanceUrl: 'https://tgt.example.com',
+        accessToken: 'token',
+      });
+      vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
+      return { asked, destroyed };
+    }
+
+    it('deletes nothing in a production org, refused before a record is read, and exits 1', async () => {
+      // The cleanup called destroy on whatever --target named.
+      const { asked, destroyed } = org({
+        IsSandbox: false,
+        OrganizationType: 'Enterprise Edition',
+      });
+
+      expect(await run(argv('--objects', 'Case'))).toBe(1);
+
+      expect(destroyed).not.toHaveBeenCalled();
+      expect(asked.filter((soql) => !soql.includes('FROM Organization'))).toEqual([]);
+      expect(stderr).toContain(
+        'TGT is a production org (its Organization record says IsSandbox false, edition ' +
+          'Enterprise Edition): sandforge-cleanup deletes from sandboxes and Developer Edition ' +
+          'orgs only. Nothing was deleted; --dry-run, which only reads, runs against it.',
+      );
+    });
+
+    it('counts in a production org with --dry-run, which only reads', async () => {
+      const { destroyed } = org({ IsSandbox: false, OrganizationType: 'Enterprise Edition' });
+
+      expect(await run(argv('--objects', 'Case', '--dry-run'))).toBeUndefined();
+
+      expect(destroyed).not.toHaveBeenCalled();
+      expect(printed).toContain(`  ${'Case'.padEnd(40)} 2  [dry-run]`);
+    });
+
+    it('selects the records created since the start of the day named, an ISO date at midnight UTC', async () => {
+      // `= YESTERDAY` took yesterday's records and none of today's, and an ISO
+      // date compared as a date with a dateTime field failed on every object.
+      const { asked } = org({ IsSandbox: true });
+
+      await run(argv('--objects', 'Case', '--since', '2026-10-01', '--dry-run'));
+      await run(argv('--objects', 'Case', '--since', 'yesterday', '--dry-run'));
+
+      const reads = asked.filter((soql) => soql.startsWith('SELECT Id FROM Case'));
+      expect(reads).toEqual([
+        "SELECT Id FROM Case WHERE CreatedDate >= 2026-10-01T00:00:00Z AND CreatedById = '005000000000001AAA' LIMIT 200",
+        "SELECT Id FROM Case WHERE CreatedDate >= YESTERDAY AND CreatedById = '005000000000001AAA' LIMIT 200",
+      ]);
+    });
+
+    it('exits 1 when an object could not be read, and passes over one the target does not have', async () => {
+      // It printed a red line and exited 0, its records left where they were.
+      org({ IsSandbox: true });
+
+      expect(await run(argv('--objects', 'Lead,Case'))).toBeUndefined();
+      expect(printed).toContain(`  ${'Lead'.padEnd(40)} -  (object not present on target)`);
+
+      expect(await run(argv('--objects', 'Asset,Case'))).toBeUndefined();
+      expect(process.exitCode).toBe(1);
+      process.exitCode = undefined;
+    });
+
+    it('exits 3 when the target refused some deletes, and says per object what it found, deleted and refused with --json', async () => {
+      org({ IsSandbox: true }, (ids) =>
+        ids.map((id, i) =>
+          i === 0
+            ? { id, success: true, errors: [] }
+            : { id, success: false, errors: [{ message: 'ENTITY_IS_LOCKED: locked' }] },
+        ),
+      );
+
+      await run(argv('--objects', 'Case', '--json'));
+
+      expect(process.exitCode).toBe(3);
+      process.exitCode = undefined;
+      expect(JSON.parse(stdout)).toMatchObject({
+        tool: 'sandforge-cleanup',
+        condition: 'CreatedDate >= TODAY',
+        objects: [
+          {
+            objectApiName: 'Case',
+            found: 2,
+            deleted: 1,
+            failed: 1,
+            reasons: ['ENTITY_IS_LOCKED: locked'],
+          },
+        ],
+        found: 2,
+        deleted: 1,
+        failed: 1,
+      });
+    });
+  });
+
+  it('refuses --dry-run=true, the way a pipeline writes --dry-run=$DRY_RUN, before the org is loaded', async () => {
+    // Dropped without a word, it deleted for real.
+    expect(await run(argv('--dry-run=true'))).toBe(2);
+    expect(await run(argv('--dryrun'))).toBe(2);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(stderr).toContain('"--dry-run=true" is not read: --dry-run takes no value');
+  });
+});
+
+describe('what --since selects', () => {
+  it('reads each period from its start, this week as this week', () => {
+    expect(sinceClause('today')).toBe('TODAY');
+    expect(sinceClause('YESTERDAY')).toBe('YESTERDAY');
+    expect(sinceClause('this_week')).toBe('THIS_WEEK');
+    expect(sinceClause('last_week')).toBe('LAST_WEEK');
+    expect(sinceClause('last_n_days:7')).toBe('LAST_N_DAYS:7');
+    expect(sinceClause('2026-10-01')).toBe('2026-10-01T00:00:00Z');
+  });
+
+  it('refuses a day the calendar has not, and anything that is not a period it names', () => {
+    for (const since of ['2026-02-30', '2026-13-01', 'last_n_days:1.5', 'TODAY OR Id != null']) {
+      expect(() => sinceClause(since)).toThrow(/Invalid --since/);
+    }
+  });
+
+  it('builds the query on CreatedDate from that start', () => {
+    expect(cleanupSoql('Case', 'THIS_WEEK', '005000000000001AAA', 50)).toBe(
+      "SELECT Id FROM Case WHERE CreatedDate >= THIS_WEEK AND CreatedById = '005000000000001AAA' LIMIT 50",
+    );
+  });
+
+  it('ends on the worst of its objects: one not read, then deletes refused', () => {
+    const done = { objectApiName: 'Case', found: 1, deleted: 1, failed: 0 };
+    expect(cleanupExitCode([done])).toBe(0);
+    expect(cleanupExitCode([done, { ...done, failed: 1 }])).toBe(3);
+    expect(
+      cleanupExitCode([
+        { ...done, failed: 1 },
+        { ...done, error: 'boom' },
+      ]),
+    ).toBe(1);
   });
 });

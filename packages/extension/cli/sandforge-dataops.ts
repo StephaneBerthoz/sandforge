@@ -32,6 +32,10 @@ import { readFileSync } from 'node:fs';
 import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
 import { basename, join } from 'node:path';
 import { loadOrg } from './sfSession.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { confirm } from './prompt.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import { endWith, FAILED_EXIT, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { anonymizationTemplateSavePayloadSchema } from '../src/bridge/validatePayload.js';
@@ -91,9 +95,11 @@ Options:
   --max-records <n>      most records of the object a snapshot holds, as
                          sandforge.backup.maxRecordsPerObject sets it; a run with
                          more writes nothing  (default: 50000; 100 to 1000000)
-  --yes                  do not ask before writing
-  --json                 emit what the panel would receive; a preview's original
-                         values are left out
+  --yes                  do not ask before writing. Without it, a command with no
+                         terminal to answer the question — a CI step — stops
+                         there, exit 2, and writes nothing
+  --json                 emit what the panel would receive, every other line on
+                         stderr; a preview's original values are left out
   --help                 this text
 
 A run takes a snapshot of the records it masks, their masked fields as they are,
@@ -104,11 +110,16 @@ Ctrl-C stops a run as the panel's Cancel does: before its next page, what it
 masked recorded in the audit trail of the store, and --resume masks only what it
 left. It stops a --restore before its next batch, what it put back recorded the
 same way, and the same --restore puts back the rest. Ctrl-C again ends the
-process at once.
+process at once. A SIGTERM — a CI job cancelled or timed out — or a SIGHUP
+stops it the same way.
 
-Exit codes: 0 the run finished (read the summary for records left unmasked),
-1 it could not start, was refused or failed, 2 a bad command line, 130 Ctrl-C
-stopped the run.
+Exit codes: 0 the run masked every record it counted, or the restore put back
+every value; 1 it could not start, was refused or failed; 2 a bad command line,
+or a question with no terminal to answer it (give --yes); 3 the run left
+records unmasked, their personal data still in the org (--resume masks what
+it left), or the restore left values as they are (rows the org refused, or a
+snapshot that holds part of the records); 130 Ctrl-C stopped the run, 143 a
+SIGTERM, 129 a SIGHUP.
 `;
 
 /** What the run does. */
@@ -143,6 +154,22 @@ const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
 /** SF alias = letters/digits/underscore/dash/dot. */
 const ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
+
+/** What the line reads after its command. */
+const FLAGS: CommandFlags = {
+  words: 1,
+  switches: ['--dry-run', '--resume', '--rewrite-all', '--yes', '--json'],
+  values: [
+    '--org',
+    '--object',
+    '--template',
+    '--rules',
+    '--where',
+    '--restore',
+    '--store',
+    '--max-records',
+  ],
+};
 
 /** Say why the line cannot be read, and stop. */
 function refuseLine(message: string): never {
@@ -189,6 +216,8 @@ export function parseArgs(argv: string[]): CliArgs {
   if (args[0] !== 'anonymize') {
     refuseLine('The command is anonymize: sandforge-dataops.ts anonymize --org … Run with --help.');
   }
+  // `--dry-run=true` or `--dryrun` dropped without a word masked for real.
+  refuseUnreadArguments(args, FLAGS);
   const get = (flag: string): string | undefined => {
     const at = args.indexOf(flag);
     const value = at >= 0 ? args[at + 1] : undefined;
@@ -267,18 +296,6 @@ export function parseArgs(argv: string[]): CliArgs {
     ...(rulesFile !== undefined ? { rules: readRulesFile(rulesFile) } : {}),
     ...(where !== undefined ? { where } : {}),
   };
-}
-
-/** Ask on the terminal, unless the answer was given on the command line. */
-async function confirm(question: string): Promise<boolean> {
-  process.stdout.write(`${question} [y/N] `);
-  return new Promise((resolve) => {
-    process.stdin.once('data', (chunk) => {
-      resolve(/^y(es)?$/i.test(String(chunk).trim()));
-      process.stdin.pause();
-    });
-    process.stdin.resume();
-  });
 }
 
 /** A message as the handler posts it to the panel. */
@@ -465,9 +482,6 @@ export function dryRunLines(
   return lines;
 }
 
-/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
-const INTERRUPTED_EXIT = 130;
-
 /**
  * What a restore Ctrl-C stopped says last: the line that puts back the rest.
  * Exported so it can be tested.
@@ -512,8 +526,10 @@ function withoutOriginals(posted: readonly Posted[]): Posted[] {
 /** Run one DataOps masking operation; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const args = parseArgs(argv);
+  // On stderr with --json, where stdout carries the JSON alone: dropped there,
+  // the guard's refusal said nothing at all.
   const log = (line: string): void => {
-    if (!args.json) process.stdout.write(`${line}\n`);
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
   /** End the run as failed, saying why. */
   const fail = (message: string): void => {
@@ -680,17 +696,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // Ctrl-C stops the restore as the panel's Cancel does, through the
     // registry it is listed in: before its next batch, with what it restored
     // kept in the audit trail. It used to end the process part way. A second
-    // Ctrl-C ends the process at once.
-    let restoreInterrupted = false;
-    const interruptRestore = (): void => {
-      restoreInterrupted = true;
+    // Ctrl-C ends the process at once. A SIGTERM or a SIGHUP stops it the same way.
+    let restoreInterrupted: StopSignal | undefined;
+    const interruptRestore = (signal: StopSignal): void => {
+      restoreInterrupted = signal;
       process.stderr.write(
         '\ninterrupted: the restore stops before its next batch, and says what it restored ' +
           '(Ctrl-C again ends it at once)\n',
       );
       for (const operation of registry.getRunning()) registry.abort(operation.operationId);
     };
-    process.once('SIGINT', interruptRestore);
+    const releaseStop = onStopSignal(interruptRestore);
     let answer: Posted;
     try {
       answer = await send('dataops:rollback', {
@@ -699,7 +715,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         ...(args.rewriteAll ? { rewriteAll: true } : {}),
       });
     } finally {
-      process.off('SIGINT', interruptRestore);
+      releaseStop();
     }
     emit('restore');
     if (failed(answer)) {
@@ -709,8 +725,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     log(String(answer.payload?.message ?? ''));
     if (restoreInterrupted) {
       process.stderr.write(`${restoreInterruptedLine(restoreLine(restoreId))}\n`);
-      process.exitCode = INTERRUPTED_EXIT;
+      process.exitCode = stopExitCode(restoreInterrupted);
+      return;
     }
+    // A restore the org refused rows of, or of a snapshot holding part of the
+    // records, left values masked: it exited 0 as one that put them all back.
+    endWith(restoreExitCode(answer.payload ?? {}));
     return;
   }
 
@@ -830,17 +850,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Ctrl-C stops the run as the panel's Cancel does, through the registry
   // the run is listed in: before its next page, with what it masked kept in
   // the audit trail and the checkpoint a resume carries on from. Killed
-  // outright, it left neither. A second Ctrl-C ends the process at once.
-  let interrupted = false;
-  const interrupt = (): void => {
-    interrupted = true;
+  // outright, it left neither. A second Ctrl-C ends the process at once. A
+  // SIGTERM — a CI job cancelled or timed out — or a SIGHUP stops it the same way.
+  let interrupted: StopSignal | undefined;
+  const interrupt = (signal: StopSignal): void => {
+    interrupted = signal;
     process.stderr.write(
       '\ninterrupted: the masking stops before its next page, and says what it masked ' +
         '(Ctrl-C again ends it at once)\n',
     );
     for (const operation of registry.getRunning()) registry.abort(operation.operationId);
   };
-  process.once('SIGINT', interrupt);
+  const releaseStop = onStopSignal(interrupt);
   let answer: Posted;
   try {
     answer = await send('dataops:anonymize', {
@@ -848,17 +869,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       ...(args.mode === 'resume' ? { resumeFrom: checkpoint!.id } : { snapshot: true }),
     });
   } finally {
-    process.off('SIGINT', interrupt);
+    releaseStop();
   }
   emit(args.mode);
   for (const line of resultLines(answer.payload ?? {}, restoreLine)) log(line);
   if (interrupted) {
     process.stderr.write(`${maskingInterruptedLine()}\n`);
-    process.exitCode = INTERRUPTED_EXIT;
+    process.exitCode = stopExitCode(interrupted);
     return;
   }
   if (failed(answer)) {
-    process.exitCode = 1;
+    process.exitCode = FAILED_EXIT;
     return;
   }
   const left = Number(answer.payload?.recordsNotMasked ?? 0);
@@ -867,6 +888,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       'A resume masks only what this run left: the same line with --resume, in place of the ' +
         'snapshot it does not take again.',
     );
+    // Personal data stays in the org: a pipeline that masks after a refresh
+    // went on as if it had masked everything.
+    process.exitCode = PARTIAL_EXIT;
   }
 }
 

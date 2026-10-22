@@ -42,4 +42,4 @@ The review says, above **Execute Autopilot**, that SandForge cannot remove what 
 
 ## From the command line
 
-`sandforge-autopilot --source <alias> --target <alias> --object <ApiName>` runs the same copy without the editor, with `--plan-only` to scan and plan without writing, `--compliance <name>` for a framework, `--keep-contact-points` to copy emails and phone numbers as read, and `--max-total <n>` for the most records it may write (10,000 by default). See [Command line & CI](../../ci-examples/README.md).
+`sandforge-autopilot --source <alias> --target <alias> --object <ApiName>` runs the same copy without the editor, into a sandbox or a Developer Edition org -- a production target is refused before the scan --, with `--plan-only` to scan and plan without writing, `--compliance <name>` for a framework, `--keep-contact-points` to copy emails and phone numbers as read, and `--max-total <n>` for the most records it may write (10,000 by default). See [Command line & CI](../../ci-examples/README.md).

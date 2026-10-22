@@ -96,7 +96,10 @@ describe('sandforge-sync --config-file', () => {
     engine.deps = [];
     vi.mocked(makeConn).mockClear();
     vi.mocked(makeConn).mockReturnValue({
-      query: vi.fn(async () => ({ records: [{ Id: '00D000000000002AAA' }], totalSize: 1 })),
+      query: vi.fn(async () => ({
+        records: [{ Id: '00D000000000002AAA', IsSandbox: true }],
+        totalSize: 1,
+      })),
       queryMore: vi.fn(),
     } as unknown as Connection);
     stdout = '';
@@ -217,14 +220,30 @@ describe('sandforge-sync --config-file', () => {
     expect(engine.deps[0].files?.deleteFromTarget).toBeDefined();
   });
 
-  it('deletes nothing in a production org', async () => {
+  it('writes nothing to a production org, refused before its run reaches the engine, as the clone is', async () => {
+    // The gate's policy for a command line never read the type it was
+    // handed: a production target took the run's inserts and updates, and
+    // --remove, which refuses such an org, could not take them back.
     orgSays({ IsSandbox: false, OrganizationType: 'Enterprise Edition' });
     engine.run = async (_deps, config) => answered(config);
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      stderr += chunk;
+      return true;
+    }) as never);
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
 
-    await run();
+    await expect(run()).rejects.toThrow('exit 1');
 
-    expect(engine.deps[0].files).toBeDefined();
-    expect(engine.deps[0].files?.deleteFromTarget).toBeUndefined();
+    expect(engine.deps).toEqual([]);
+    expect(stderr).toContain(
+      'TGT is a production org (its Organization record says IsSandbox false, edition ' +
+        'Enterprise Edition): sandforge-sync writes to sandboxes and Developer Edition orgs only. ' +
+        'Nothing was written',
+    );
+    expect(stdout).toBe('');
   });
 
   it("lists a French target's validation rules with their field by its API name, as the panel does", async () => {
@@ -244,7 +263,10 @@ describe('sandforge-sync --config-file', () => {
           ],
     }));
     vi.mocked(makeConn).mockReturnValue({
-      query: vi.fn(async () => ({ records: [{ Id: '00D000000000002AAA' }], totalSize: 1 })),
+      query: vi.fn(async () => ({
+        records: [{ Id: '00D000000000002AAA', IsSandbox: true }],
+        totalSize: 1,
+      })),
       queryMore: vi.fn(),
       tooling: { query: tooling, queryMore: vi.fn() },
     } as unknown as Connection);
@@ -264,7 +286,10 @@ describe('sandforge-sync --config-file', () => {
 
   it('reads each rule formula on the target, and marks a rule that refuses only a change', async () => {
     vi.mocked(makeConn).mockReturnValue({
-      query: vi.fn(async () => ({ records: [{ Id: '00D000000000002AAA' }], totalSize: 1 })),
+      query: vi.fn(async () => ({
+        records: [{ Id: '00D000000000002AAA', IsSandbox: true }],
+        totalSize: 1,
+      })),
       queryMore: vi.fn(),
       version: '66.0',
       request: vi.fn(async () => ({
@@ -330,7 +355,10 @@ describe('sandforge-sync --config-file', () => {
     const ACCOUNT = fakeId('001', 1);
     const CONTACT = fakeId('003', 1);
     vi.mocked(makeConn).mockReturnValue({
-      query: vi.fn(async () => ({ records: [{ Id: '00D000000000002AAA' }], totalSize: 1 })),
+      query: vi.fn(async () => ({
+        records: [{ Id: '00D000000000002AAA', IsSandbox: true }],
+        totalSize: 1,
+      })),
       queryMore: vi.fn(),
       sobject: () => ({
         update: vi.fn(async (rows: Array<{ Id: string }>) =>

@@ -72,6 +72,29 @@ const REMOVAL_SWITCH: Record<string, { off: RegExp; gate: RegExp }> = {
   },
 };
 
+/**
+ * Per pipeline, how the switch that lets the removal through the target's
+ * automation is declared off, and what its removal call is handed for it.
+ */
+const REMOVAL_AUTOMATION: Record<string, { off: RegExp; flag: RegExp }> = {
+  'github-actions.yml': {
+    off: /accept_removal_automation:\n(?:[ \t]+[^\n]*\n)*?[ \t]+default: 'false'/,
+    flag: /\$REMOVAL_AUTOMATION_FLAG\b/,
+  },
+  'gitlab-ci.yml': {
+    off: /^ {2}ACCEPT_REMOVAL_AUTOMATION: 'false'$/m,
+    flag: /\$REMOVAL_AUTOMATION_FLAG\b/,
+  },
+  Jenkinsfile: {
+    off: /booleanParam\(\s*name: 'ACCEPT_REMOVAL_AUTOMATION',\s*defaultValue: false/,
+    flag: /\$\{removalAutomationFlag\}/,
+  },
+  'azure-pipelines.yml': {
+    off: /- name: acceptRemovalAutomation\n(?:[ \t]+[^\n]*\n)*?[ \t]+default: false/,
+    flag: /\$\(removalAutomationFlag\)/,
+  },
+};
+
 describe('ci-examples quality stage', () => {
   describe.each(PIPELINES)('%s', (pipeline) => {
     it('runs the quality gates through pnpm validate', () => {
@@ -136,10 +159,36 @@ describe('ci-examples quality stage', () => {
       const removal = calls.findIndex((call) => /\s--remove\s/.test(call));
 
       expect(clone).toBeGreaterThan(-1);
-      expect(calls[clone]).toMatch(/\s--json\b[\s\S]*> clone-summary\.json/);
+      // Written by --summary as the run goes: a clone that failed part way
+      // printed no summary on stdout, and `> clone-summary.json` kept nothing.
+      expect(calls[clone]).toMatch(/\s--summary clone-summary\.json\b/);
+      expect(calls[clone]).toMatch(/\s--json\b[\s\S]*> clone-output\.json/);
       expect(removal).toBeGreaterThan(clone);
       expect(calls[removal]).toMatch(/\s--remove clone-summary\.json\b/);
       expect(calls[removal]).toMatch(/\s--target ci-target\b/);
+    });
+
+    it("keeps the clone's journal in the workspace, with the report", () => {
+      // In the runner's home, its default, the journal went with a hosted
+      // runner, and with it what --remove takes a killed run back from.
+      const lines = commandLines(read(pipeline));
+
+      // Its value on the next line, as an Azure variable gives it.
+      expect(lines.join('\n')).toMatch(/SANDFORGE_JOURNAL_DIR\b.*(?:\n.*)?sandforge-journal/);
+      expect(lines.some((line) => line.includes('sandforge-journal/forge-runs'))).toBe(true);
+    });
+
+    it("can let the removal through the target's automation, off unless asked", () => {
+      // Without it, a removal whose deletes fire automation exits 1 and
+      // deletes nothing, and the pipeline had no way to say go on.
+      const source = read(pipeline);
+      const { off, flag } = REMOVAL_AUTOMATION[pipeline];
+      const removal = scriptCalls(source, 'sandforge-clone').find((call) =>
+        /\s--remove\s/.test(call),
+      );
+
+      expect(source).toMatch(off);
+      expect(removal).toMatch(flag);
     });
 
     it('removes only after a real clone, and only when asked', () => {
@@ -155,7 +204,8 @@ describe('ci-examples quality stage', () => {
       expect(removal).toBeGreaterThan(-1);
       expect(guarded).not.toBeNull();
       expect(guarded?.index ?? Infinity).toBeLessThan(removal);
-      expect(source.lastIndexOf('> clone-summary.json', removal)).toBeLessThan(
+      expect(source.lastIndexOf('--summary clone-summary.json', removal)).toBeGreaterThan(-1);
+      expect(source.lastIndexOf('--summary clone-summary.json', removal)).toBeLessThan(
         guarded?.index ?? -1,
       );
     });

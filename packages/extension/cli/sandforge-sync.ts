@@ -107,6 +107,10 @@ import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/Backu
 import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
 import { answerJobsInFlight, type IngestJobReading } from '../src/modules/sync/inFlightJob.js';
 import { loadOrg, makeConn } from './sfSession.js';
+import { refuseProductionTarget, typeTarget, type TypedTarget } from './targetKind.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import { endWith, runExitCode } from './exitCodes.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
 import { DataSync } from '../src/modules/sync/DataSync.js';
@@ -201,6 +205,8 @@ Options:
                          run back from: it names what the run created.
                          The run's file does too, whatever becomes of the
                          run (see SANDFORGE_JOURNAL_DIR).
+  --fail-on-partial      exit 3, not 0, when the run wrote some records and
+                         the target refused others        (default: off)
   --help                 this text
 
 Run a saved configuration:
@@ -304,12 +310,16 @@ than it has left today; --dry-run says what it would meet. A run of a saved
 configuration leaves as they are the records an earlier run of it copied that
 are still in the target, and inserts the others.
 
-Exit codes: 0 the run finished (read the summary for per-object failures), or
-the removal took every record it set out to; 1 the run or the removal could
-not be started, the run was refused before it wrote anything, or it stopped on
-an error (its file keeps what it created); 2 a bad command line, or a summary
-or a file --remove cannot take a run back from; 3 the removal left records of
-the run in the target; 130 a Ctrl-C stopped the run.
+Exit codes: 0 the run finished, some of its records refused included (read
+the summary for per-object failures), or the removal took every record it set
+out to; 1 the run or the removal could not be started, the run was refused
+before it wrote anything — a production target among the reasons — or it
+produced only failures, or it stopped on an error (its file keeps what it
+created); 2 a bad command line, or a summary or a file --remove cannot take a
+run back from; 3 the removal left records of the run in the target, or the
+run was partial and --fail-on-partial was given; 130 a Ctrl-C stopped the
+run, 143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file
+keeps what it created.
 `;
 
 /** One object to sync, as the command line describes it. */
@@ -332,6 +342,8 @@ interface CliArgs {
   /** Write emails and phone numbers as read rather than neutralized. */
   keepContactPoints: boolean;
   json: boolean;
+  /** Exit 3, not 0, when the run wrote some records and the target refused others. */
+  failOnPartial: boolean;
   /** A saved configuration to run instead of the objects of the line. */
   configFile?: string;
   /** Where that configuration is kept between runs. */
@@ -351,6 +363,21 @@ const CONFIG_FILE_SETTINGS: readonly string[] = [
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
+/** What the line of a run reads; a removal's reads its own (`REMOVE_FLAGS`). */
+const RUN_FLAGS: CommandFlags = {
+  switches: ['--dry-run', '--files', '--keep-contact-points', '--json', '--fail-on-partial'],
+  values: [
+    '--source',
+    '--target',
+    '--object',
+    '--operation',
+    '--where',
+    '--batch-size',
+    '--config-file',
+    '--store',
+  ],
+};
+
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
@@ -358,6 +385,8 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stdout.write(HELP);
     process.exit(0);
   }
+  // `--dry-run=true` or `--dryrun` dropped without a word ran for real.
+  refuseUnreadArguments(args, RUN_FLAGS);
   const get = (flag: string, fallback?: string): string | undefined => {
     const at = args.indexOf(flag);
     return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -403,6 +432,7 @@ export function parseArgs(argv: string[]): CliArgs {
       files: false,
       keepContactPoints: false,
       json: has('--json'),
+      failOnPartial: has('--fail-on-partial'),
       configFile,
       store,
     };
@@ -476,6 +506,7 @@ export function parseArgs(argv: string[]): CliArgs {
     files: has('--files'),
     keepContactPoints: has('--keep-contact-points'),
     json: has('--json'),
+    failOnPartial: has('--fail-on-partial'),
   };
 }
 
@@ -1279,8 +1310,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const controller = new AbortController();
   // What the target says it is, read once: the gate types it by it, a run
   // that copies files replaces an attachment by it, and the run's file names
-  // its own id, which --remove takes the run back from and from no other.
-  const typed = await typeTarget(targetConn).catch(() => undefined);
+  // its own id, which --remove takes the run back from and from no other. A
+  // run that writes is refused first on a production org, or on one that
+  // will not say what it is, as the clone is: the gate's policy for a command
+  // line never read the type, and --remove refuses such an org, so a run
+  // written there could not be taken back. A dry run only reads.
+  const typed = args.dryRun
+    ? await typeTarget(targetConn).catch(() => undefined)
+    : await refuseProductionTarget(targetConn, args.target, {
+        tool: 'sandforge-sync',
+        action: 'write',
+        readOnly: '--dry-run',
+      });
   // What a real run creates, for its summary to name and --remove to take
   // back, and in its file as it writes it, whatever becomes of the run.
   const runId = `sandforge-sync-${randomUUID()}`;
@@ -1581,17 +1622,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   // Ctrl-C stops the run before its next call, as Cancel does in the panel:
   // what it wrote is kept, its file ended. Again, it ends the command at once,
-  // and the file, without its end, reads as a run stopped part way.
-  let interrupted = false;
-  const interrupt = (): void => {
-    interrupted = true;
+  // and the file, without its end, reads as a run stopped part way. A SIGTERM
+  // — a CI job cancelled or timed out — or a SIGHUP stops it the same way.
+  let interrupted: StopSignal | undefined;
+  const interrupt = (signal: StopSignal): void => {
+    interrupted = signal;
     process.stderr.write(
       '\ninterrupted: the run stops before its next call, and its file keeps what it created ' +
         '(Ctrl-C again ends it at once)\n',
     );
     controller.abort();
   };
-  process.once('SIGINT', interrupt);
+  const releaseStop = onStopSignal(interrupt);
   let result: Awaited<ReturnType<typeof orchestrator.execute>>;
   /** How the run ended, as its file's last line says it: a failure unless it returned. */
   let ending: { status: 'success' | 'partial' | 'failure'; cancelled?: boolean } = {
@@ -1634,7 +1676,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     }
     process.exit(1);
   } finally {
-    process.off('SIGINT', interrupt);
+    releaseStop();
   }
   await runFile?.end(ending);
   overwrites?.close();
@@ -1692,7 +1734,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         2,
       )}\n`,
     );
-    if (interrupted) process.exit(INTERRUPTED_EXIT);
+    if (interrupted) process.exit(stopExitCode(interrupted));
+    endWith(runExitCode(result.status, args.failOnPartial));
     return;
   }
 
@@ -1772,11 +1815,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
   }
   log(`\ndone in ${elapsedMs}ms`);
-  if (interrupted) process.exit(INTERRUPTED_EXIT);
+  if (interrupted) process.exit(stopExitCode(interrupted));
+  // A run whose every record the target refused exited 0, as one that wrote them all.
+  endWith(runExitCode(result.status, args.failOnPartial));
 }
-
-/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
-const INTERRUPTED_EXIT = 130;
 
 // ─── --remove ────────────────────────────────────────────────────────────────
 
@@ -1974,36 +2016,6 @@ export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState)
   };
 }
 
-/** An org as the removal types it: a sandbox, or not and its edition. */
-export interface TypedTarget {
-  id: string;
-  sandbox: boolean;
-  edition?: string;
-}
-
-/** What the org says it is. `IsSandbox` false and no edition is a production org's. */
-export async function typeTarget(conn: Connection): Promise<TypedTarget> {
-  const answer = await conn.query<{ Id?: string; IsSandbox?: boolean }>(
-    'SELECT Id, IsSandbox FROM Organization LIMIT 1',
-  );
-  const row = answer.records[0];
-  if (typeof row?.Id !== 'string') {
-    throw new Error('The org gave no Organization record: whether it is a sandbox cannot be told.');
-  }
-  if (row.IsSandbox === true) return { id: row.Id, sandbox: true };
-  try {
-    const typed = await conn.query<{ OrganizationType?: string }>(
-      'SELECT OrganizationType FROM Organization LIMIT 1',
-    );
-    const edition = typed.records[0]?.OrganizationType;
-    return typeof edition === 'string' && edition !== ''
-      ? { id: row.Id, sandbox: false, edition }
-      : { id: row.Id, sandbox: false };
-  } catch {
-    return { id: row.Id, sandbox: false };
-  }
-}
-
 /**
  * Why the command will not delete from an org: it is a production org. A
  * sandbox, or a Developer Edition org — which says IsSandbox false and holds
@@ -2122,9 +2134,16 @@ const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/;
  * The file of the run `value` names, when it names one: a run's file, whose
  * first line names its run, or the id of a run whose file is in the command's
  * own directory (`SANDFORGE_JOURNAL_DIR`, `sync-runs/`). Undefined for
- * anything else, a summary included. Exported so it can be tested.
+ * anything else, a summary included. Exported so it can be tested, and for
+ * the seed command, whose runs keep the same files under `seed-runs/`.
+ *
+ * @param runsDir - The folder of the command's runs, under `journalDir`.
  */
-export function runFileOf(value: string, journalDir: string = journalDirOf()): string | undefined {
+export function runFileOf(
+  value: string,
+  journalDir: string = journalDirOf(),
+  runsDir: string = SYNC_RUNS_DIR,
+): string | undefined {
   if (existsSync(value)) {
     let first: string | undefined;
     try {
@@ -2145,7 +2164,7 @@ export function runFileOf(value: string, journalDir: string = journalDirOf()): s
       : undefined;
   }
   if (!RUN_ID_RE.test(value)) return undefined;
-  const file = join(journalDir, SYNC_RUNS_DIR, `${value}.ndjson`);
+  const file = join(journalDir, runsDir, `${value}.ndjson`);
   return existsSync(file) ? file : undefined;
 }
 
@@ -2564,10 +2583,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   }
 
   // Ctrl-C stops the removal before its next call to the org, as Cancel does
-  // in the panel.
+  // in the panel; a SIGTERM or a SIGHUP does too.
   const stop = new AbortController();
-  const interrupt = (): void => stop.abort();
-  process.once('SIGINT', interrupt);
+  const releaseStop = onStopSignal(() => stop.abort());
   let state: SyncRunRemovalState = earlier ?? {};
   // The sweep comes before the run's records go, as the panel's does: a task
   // the target's automation opened on one of them would otherwise stay. The
@@ -2615,7 +2633,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       },
     });
   } finally {
-    process.off('SIGINT', interrupt);
+    releaseStop();
   }
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
   const took = outcome.result.objects.some((o) => o.deleted + o.alreadyGone > 0);

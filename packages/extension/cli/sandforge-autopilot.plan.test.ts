@@ -14,7 +14,12 @@ vi.mock('./sandforge-clone.js', async (importOriginal) => ({
 
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
-import { autopilotInterruptedLine, main, parseArgs } from './sandforge-autopilot';
+import {
+  autopilotInterruptedLine,
+  autopilotRunStatus,
+  main,
+  parseArgs,
+} from './sandforge-autopilot';
 import { countingConnection, largeOrg } from '../src/test/largeOrg';
 
 /** What the target runs on the objects a plan writes. */
@@ -43,16 +48,33 @@ const argv = (...rest: string[]) => [
 /**
  * A source and a target over the same large org, the target with
  * `remainingMB` of storage and `singleEmailsLeft` of its fifteen single emails.
+ * The target says it is `kind`: a sandbox unless a test says otherwise.
  */
-function orgs(remainingMB: number, singleEmailsLeft = 15) {
+function orgs(
+  remainingMB: number,
+  singleEmailsLeft = 15,
+  kind: Record<string, unknown> = { IsSandbox: true },
+) {
   const org = largeOrg();
   const source = countingConnection(org);
   const target = countingConnection(org);
-  const create = vi.fn(async (records: unknown[]) =>
-    records.map((_, i) => ({ id: `new-${i}`, success: true, errors: [] })),
+  const create = vi.fn(
+    async (
+      records: unknown[],
+    ): Promise<Array<{ id?: string; success: boolean; errors: unknown[] }>> =>
+      records.map((_, i) => ({ id: `new-${i}`, success: true, errors: [] })),
   );
   const conn = {
     ...target.conn,
+    // What the target says it is, which the run is refused on before its scan.
+    query: async (soql: string) =>
+      soql.includes('FROM Organization')
+        ? {
+            records: [{ Id: '00D000000000001AAA', ...kind }],
+            totalSize: 1,
+            done: true as const,
+          }
+        : target.conn.query(soql),
     request: vi.fn(async () => ({
       DataStorageMB: { Max: 200, Remaining: remainingMB },
       SingleEmail: { Max: 15, Remaining: singleEmailsLeft },
@@ -300,5 +322,127 @@ describe('sandforge-autopilot — a run Ctrl-C stops', () => {
     );
     expect(process.exitCode).toBe(130);
     expect(process.listenerCount('SIGINT')).toBe(0);
+  });
+});
+
+describe('sandforge-autopilot — what the command line refuses, and how a run ends', () => {
+  let out: string[];
+  let err: string[];
+
+  beforeEach(() => {
+    out = [];
+    err = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      out.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      err.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    readAutomation.mockReset();
+    readAutomation.mockResolvedValue(automationOf([]));
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('writes nothing to a production org, refused before the scan reads either org, and exits 1', async () => {
+    // Nothing keeps what an Autopilot run creates, and its gate held it to
+    // volumes alone: a CI alias left on a production org took the run.
+    const { source, create } = orgs(150, 15, {
+      IsSandbox: false,
+      OrganizationType: 'Enterprise Edition',
+    });
+
+    await expect(main(argv('--object', 'Lead'))).rejects.toThrow('exit 1');
+
+    expect(create).not.toHaveBeenCalled();
+    expect(source.total()).toBe(0);
+    expect(err.join('')).toContain(
+      'TGT is a production org (its Organization record says IsSandbox false, edition ' +
+        'Enterprise Edition): sandforge-autopilot writes to sandboxes and Developer Edition ' +
+        'orgs only. Nothing was written; --plan-only, which only reads, runs against it.',
+    );
+  });
+
+  it('plans against a production org all the same with --plan-only, which only reads', async () => {
+    orgs(150, 15, { IsSandbox: false, OrganizationType: 'Enterprise Edition' });
+
+    await main(argv('--object', 'Lead', '--plan-only'));
+
+    expect(out.join('')).toContain('plan: ');
+  });
+
+  it('refuses --plan-only=true, which it dropped and ran for real, before any org is reached', () => {
+    orgs(150);
+    vi.mocked(loadOrg).mockClear();
+
+    expect(() => parseArgs(argv('--object', 'Lead', '--plan-only=true'))).toThrow('exit 2');
+    expect(() => parseArgs(argv('--object', 'Lead', '--planonly'))).toThrow('exit 2');
+    expect(err.join('')).toContain('"--plan-only=true" is not read');
+    expect(err.join('')).toContain('"--planonly" is not a flag this command reads');
+    expect(loadOrg).not.toHaveBeenCalled();
+  });
+
+  it('exits 1 when the target refused every record, and 3 for a partial run with --fail-on-partial', async () => {
+    // Every record refused, the run exited 0 as one that wrote them all.
+    const refused = orgs(150);
+    refused.create.mockImplementation(async (records: unknown[]) =>
+      records.map(() => ({ success: false, errors: [{ statusCode: 'X', message: 'no' }] })),
+    );
+    await main(argv('--object', 'Lead', '--json'));
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = undefined;
+    let calls = 0;
+    const partly = vi.fn(async (records: unknown[]) =>
+      records.map((_, i) =>
+        calls++ === 0
+          ? { success: false, errors: [{ statusCode: 'X', message: 'no' }] }
+          : { id: `new-${i}`, success: true, errors: [] },
+      ),
+    );
+    orgs(150).create.mockImplementation(partly);
+    await main(argv('--object', 'Lead', '--json'));
+    expect(process.exitCode).toBeUndefined();
+    calls = 0;
+    orgs(150).create.mockImplementation(partly);
+    await main(argv('--object', 'Lead', '--json', '--fail-on-partial'));
+    expect(process.exitCode).toBe(3);
+  });
+
+  it('stops at a SIGTERM, as Jenkins sends on abort or timeout, as at Ctrl-C, and exits 143', async () => {
+    const { create } = orgs(150);
+    create.mockImplementationOnce(async (records: unknown[]) => {
+      process.emit('SIGTERM');
+      return records.map((_, i) => ({ id: `new-${i}`, success: true, errors: [] }));
+    });
+
+    await main(argv('--object', 'Lead', '--object', 'Obj004__c', '--json'));
+
+    const printed = JSON.parse(out.join('')) as {
+      interrupted?: boolean;
+      created: Record<string, string[]>;
+    };
+    expect(printed.interrupted).toBe(true);
+    expect(Object.values(printed.created).flat().length).toBeGreaterThan(0);
+    expect(process.exitCode).toBe(143);
+    expect(process.listenerCount('SIGTERM')).toBe(0);
+    expect(process.listenerCount('SIGINT')).toBe(0);
+  });
+
+  it('takes a run that died, or wrote nothing it was sent, for a failure, and one the target refused part of for partial', () => {
+    const run = { totalSuccess: 3, totalFailure: 0, failedObjects: [] };
+    expect(autopilotRunStatus(run)).toBe('success');
+    expect(autopilotRunStatus({ ...run, totalFailure: 1 })).toBe('partial');
+    expect(autopilotRunStatus({ ...run, totalSuccess: 0, totalFailure: 2 })).toBe('failure');
+    expect(autopilotRunStatus({ ...run, fatalError: 'INVALID_SESSION_ID' })).toBe('failure');
+    expect(autopilotRunStatus({ ...run, failedObjects: ['Lead'] })).toBe('partial');
   });
 });

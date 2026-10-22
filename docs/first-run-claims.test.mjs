@@ -479,6 +479,26 @@ test("ci-examples names every refusal of a real clone before it writes, the emai
   assert.match(refusals, /more emails than it has left today/);
 });
 
+/**
+ * `sf org display --verbose --json` prints the auth URL as "[REDACTED] Use 'sf
+ * org auth show-sfdx-auth-url' to view": the secret the guide had users store
+ * was that sentence. The repository's own canary logs in with a JWT.
+ */
+test('the CI guide gets an auth URL from the command that prints it, and documents the JWT login', () => {
+  const guide = read('ci-examples', 'README.md');
+  const setup = section(guide, '### 1. Configure credentials');
+  assert.match(setup, /sf org auth show-sfdx-auth-url --target-org <alias> --json/);
+  assert.match(setup, /result\.sfdxAuthUrl/);
+  assert.doesNotMatch(setup, /obtained via `sf org display/);
+  assert.match(setup, /sf org login jwt --client-id/);
+  assert.match(setup, /https:\/\/test\.salesforce\.com/);
+  assert.match(
+    read('.github', 'workflows', 'canary.yml'),
+    /sf org login jwt/,
+    'the canary no longer logs in with a JWT — re-read the guide',
+  );
+});
+
 // ── DataOps backs up what an anonymization overwrites ─────────────────────
 
 test('both READMEs sell the DataOps snapshot as what it is', () => {

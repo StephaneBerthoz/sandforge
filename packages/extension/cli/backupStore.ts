@@ -24,10 +24,28 @@ export const STORE_DIR_MODE = 0o700;
  * own, or in `.sandforge` in the home directory.
  */
 export function defaultBackupStoreOf(env: NodeJS.ProcessEnv = process.env): string {
+  return toolStoreOf('backups', env);
+}
+
+/**
+ * The folder a command keeps its state in when the command line names none:
+ * `<name>/` in the folder `SANDFORGE_JOURNAL_DIR` names, or in `.sandforge`
+ * in the home directory, opened with {@link openBackupStore}.
+ *
+ * Compare and Monitor kept their host's store in a fixed folder of the
+ * system's temp directory, `sandforge-compare` and `sandforge-monitor`, the
+ * shared default the backups had left: on a self-hosted runner, a second user
+ * failed on a folder the first had made, and two jobs of one user wrote over
+ * each other's store. They keep it beside the other commands' state now,
+ * their owner's alone.
+ *
+ * @param name - The command's folder: `backups`, `compare`, `monitor`.
+ */
+export function toolStoreOf(name: string, env: NodeJS.ProcessEnv = process.env): string {
   const dir = env['SANDFORGE_JOURNAL_DIR'];
   const home =
     dir !== undefined && dir.trim() !== '' ? resolve(dir) : join(homedir(), '.sandforge');
-  return join(home, 'backups');
+  return join(home, name);
 }
 
 /** What {@link openBackupStore} reads of the file system, so it can be tested. */

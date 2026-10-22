@@ -79,6 +79,17 @@ describe('loadOrg', () => {
     );
   });
 
+  it('names the sign-ins a CI job can run, which has no browser for a web login', async () => {
+    const readToken = vi.fn().mockResolvedValue({ accessToken: PLACEHOLDER });
+
+    const refusal = loadOrg('CI-TARGET', readToken);
+
+    await expect(refusal).rejects.toThrow(/sf org login jwt --alias CI-TARGET/);
+    await expect(refusal).rejects.toThrow(
+      /sf org login sfdxurl --alias CI-TARGET --sfdx-url-file <file>/,
+    );
+  });
+
   it('reads the token as the extension does when no reader is given', async () => {
     vi.mocked(refreshTokenViaCli).mockResolvedValue({ accessToken: LIVE_TOKEN });
 

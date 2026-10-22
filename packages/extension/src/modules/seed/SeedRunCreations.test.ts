@@ -299,6 +299,26 @@ describe('SeedRunCreations', () => {
     });
   });
 
+  it("keeps the org's own id of a command line's run, whose target is an alias, in the file it names", async () => {
+    // Read by its removal, which refuses any other org whatever the alias names by then.
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({
+      runId: 'sandforge-seed-1',
+      targetOrgId: 'TGT',
+      targetOrganizationId: '00D000000000001AAA',
+    });
+    recorder.note('Account', [fakeId('001', 1)]);
+    await recorder.end({ status: 'success', objectResults: [] });
+
+    expect(runs.pathOf('sandforge-seed-1')).toBe(
+      join(dir, SEED_RUNS_DIR, 'sandforge-seed-1.ndjson'),
+    );
+    expect(await nodeSeedRunCreations(dir).get('sandforge-seed-1')).toMatchObject({
+      targetOrgId: 'TGT',
+      targetOrganizationId: '00D000000000001AAA',
+    });
+  });
+
   it('keeps what a removal did on the run, for the next removal to read after a reload', async () => {
     const runs = nodeSeedRunCreations(dir);
     await runs.record(run('op-1'));

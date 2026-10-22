@@ -38,6 +38,9 @@ import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/Backu
 import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
 import { journalDirOf } from './sandforge-clone.js';
 import { commandLineGuard } from './commandLineGuard.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { confirm } from './prompt.js';
+import { endWith, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 
@@ -64,8 +67,11 @@ Options:
   --rewrite-all          with --restore: write every row of the snapshot back,
                          the ones the org already holds as the snapshot does
                          included
-  --yes                  do not ask before a restore writes
-  --json                 emit what the panel would receive
+  --yes                  do not ask before a restore writes. Without it, a
+                         command with no terminal to answer the question — a
+                         CI step — stops there, exit 2, and writes nothing
+  --json                 emit what the panel would receive, or with --list the
+                         snapshots, every other line on stderr
   --help                 this text
 
 A restore never deletes: it upserts on Id, so it overwrites the fields of
@@ -78,8 +84,15 @@ read against the run's file in SANDFORGE_JOURNAL_DIR — are left as they are
 and counted, as removing the run with sandforge-sync leaves them unless it
 is told to include them.
 
-Exit codes: 0 the run finished, 1 it could not start, or the snapshot or the
-restore failed or was refused, 2 a bad command line.
+A snapshot says its id, which --restore takes, and what it holds short of the
+org: an object stopped at --max-records, or never reached.
+
+Exit codes: 0 the run finished: the snapshot holds every record of its objects,
+or the restore put back every value; 1 it could not start, or the snapshot or
+the restore failed or was refused; 2 a bad command line, or a question with no
+terminal to answer it (give --yes); 3 the snapshot holds part of an object's
+records, or the restore left values as they are (rows the org refused, or a
+snapshot that holds part of the records).
 `;
 
 /** Everything the command line settled. */
@@ -100,6 +113,12 @@ interface CliArgs {
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
+/** What the line reads. */
+const FLAGS: CommandFlags = {
+  switches: ['--list', '--rewrite-all', '--yes', '--json'],
+  values: ['--org', '--object', '--restore', '--store', '--max-records'],
+};
+
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
@@ -107,6 +126,8 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stdout.write(HELP);
     process.exit(0);
   }
+  // A flag it does not read, `--yes=true` or a misspelt one, was dropped without a word.
+  refuseUnreadArguments(args, FLAGS);
   const get = (flag: string, fallback?: string): string | undefined => {
     const at = args.indexOf(flag);
     return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -168,23 +189,13 @@ export function parseArgs(argv: string[]): CliArgs {
   };
 }
 
-/** Ask on the terminal, unless the answer was given on the command line. */
-async function confirm(question: string): Promise<boolean> {
-  process.stdout.write(`${question} [y/N] `);
-  return new Promise((resolve) => {
-    process.stdin.once('data', (chunk) => {
-      resolve(/^y(es)?$/i.test(String(chunk).trim()));
-      process.stdin.pause();
-    });
-    process.stdin.resume();
-  });
-}
-
 /** Run one DataOps operation; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const args = parseArgs(argv);
+  // On stderr with --json, where stdout carries the JSON alone: dropped there,
+  // the guard's refusal said nothing at all.
   const log = (line: string): void => {
-    if (!args.json) process.stdout.write(`${line}\n`);
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
 
   const refused = openBackupStore(args.storeDir);
@@ -200,32 +211,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const configStore = fileConfigStore(join(args.storeDir, 'snapshots.json'));
 
   if (args.list) {
-    const keys = configStore.getKeysByPrefix('backup:');
-    if (keys.length === 0) log('No snapshot in this store.');
-    for (const key of keys) {
-      const meta = configStore.get(key) as {
-        operationId: string;
-        timestamp: string;
-        totalRecords: number;
-        status?: string;
-        objects: Array<{
-          objectApiName: string;
-          recordCount: number;
-          orgCount?: number;
-          stoppedAt?: string;
-        }>;
-      };
-      // Each object as `Contact:500/1234(cap)` when the snapshot holds part of it.
-      const held = meta.objects.map(
-        (o) =>
-          `${o.objectApiName}:${o.recordCount}` +
-          (o.stoppedAt !== undefined ? `/${o.orgCount ?? '?'}(${o.stoppedAt})` : ''),
-      );
-      log(
-        `${meta.operationId}  ${meta.timestamp}  ${meta.totalRecords} record(s)` +
-          `${meta.status === 'failed' ? ' failed part-way' : ''}  ${held.join(' ')}`,
-      );
+    const snapshots = configStore
+      .getKeysByPrefix('backup:')
+      .map((key) => configStore.get(key) as ListedSnapshot);
+    // Printed before the JSON did: `--list --json` printed nothing at all, and
+    // a pipeline could not read which snapshot to restore.
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify(snapshotListing(snapshots), null, 2)}\n`);
+      return;
     }
+    if (snapshots.length === 0) log('No snapshot in this store.');
+    for (const line of snapshots.map(snapshotLine)) log(line);
     return;
   }
 
@@ -333,8 +329,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     } as never);
     // What the restore wrote, refused and found unchanged, as the panel hears it.
     const answer = posted.find((message) => message.type === 'dataops:rollback:response');
-    const said = (answer?.payload as { message?: unknown } | undefined)?.message;
-    if (typeof said === 'string') log(said);
+    const payload = (answer?.payload ?? {}) as Record<string, unknown>;
+    if (typeof payload.message === 'string') log(payload.message);
+    // Rows the org refused, or a snapshot holding part of the records, left
+    // values as they are: the restore exited 0 as one that put them all back.
+    if (answer) endWith(restoreExitCode(payload));
   } else {
     log(`snapshot ${args.org}: ${args.objects.join(', ')}`);
     await handler.handle({
@@ -342,6 +341,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       type: 'backup:execute',
       payload: { orgId: args.org, objects: args.objects },
     } as never);
+    // The snapshot's id, which --restore takes, and what it holds short of
+    // the org: a snapshot cut at --max-records said only the type of the last
+    // message, and exited 0.
+    const answer = posted.find((message) => message.type === 'dataops:backup:response');
+    if (answer) {
+      const taken = snapshotTaken((answer.payload ?? {}) as TakenSnapshot);
+      log(taken.line);
+      endWith(taken.exitCode);
+    }
   }
 
   if (args.json) {
@@ -350,6 +358,88 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   const last = posted[posted.length - 1];
   if (last) log(`\nlast message: ${String(last.type)}`);
+}
+
+/** A snapshot as the store lists it. */
+interface ListedSnapshot {
+  operationId: string;
+  timestamp: string;
+  totalRecords: number;
+  status?: string;
+  objects: Array<{
+    objectApiName: string;
+    recordCount: number;
+    orgCount?: number;
+    stoppedAt?: string;
+  }>;
+}
+
+/** One snapshot of the listing, as a line; `Contact:500/1234(cap)` for an object it holds part of. */
+function snapshotLine(meta: ListedSnapshot): string {
+  const held = meta.objects.map(
+    (o) =>
+      `${o.objectApiName}:${o.recordCount}` +
+      (o.stoppedAt !== undefined ? `/${o.orgCount ?? '?'}(${o.stoppedAt})` : ''),
+  );
+  return (
+    `${meta.operationId}  ${meta.timestamp}  ${meta.totalRecords} record(s)` +
+    `${meta.status === 'failed' ? ' failed part-way' : ''}  ${held.join(' ')}`
+  );
+}
+
+/** The listing as `--list --json` prints it. Exported so it can be tested. */
+export function snapshotListing(snapshots: readonly ListedSnapshot[]): {
+  tool: 'sandforge-backup';
+  snapshots: ListedSnapshot[];
+} {
+  return {
+    tool: 'sandforge-backup',
+    snapshots: snapshots.map((meta) => ({
+      operationId: meta.operationId,
+      timestamp: meta.timestamp,
+      totalRecords: meta.totalRecords,
+      ...(meta.status !== undefined ? { status: meta.status } : {}),
+      objects: meta.objects,
+    })),
+  };
+}
+
+/** A snapshot as the handler answers it once taken. */
+interface TakenSnapshot {
+  operationId?: unknown;
+  totalRecords?: unknown;
+  partial?: unknown;
+  objects?: Array<{
+    objectApiName: string;
+    recordCount: number;
+    truncated?: boolean;
+    orgCount?: number;
+    stoppedAt?: string;
+  }>;
+}
+
+/**
+ * What a snapshot taken says, and the code it leaves: 3 when it holds fewer
+ * records of an object than the org has — stopped at --max-records, or before
+ * the object — since a restore of it puts back only those. Exported so it can
+ * be tested.
+ */
+export function snapshotTaken(payload: TakenSnapshot): { line: string; exitCode: number } {
+  const id = String(payload.operationId ?? '?');
+  const short = (payload.objects ?? []).filter((o) => o.truncated === true);
+  const head = `snapshot ${id}: ${String(payload.totalRecords ?? 0)} record(s)`;
+  if (payload.partial !== true && short.length === 0) {
+    return { line: `${head} (--restore ${id} puts them back)`, exitCode: 0 };
+  }
+  const objects = short.map(
+    (o) =>
+      `${o.objectApiName} ${o.recordCount} of ${o.orgCount ?? '?'}` +
+      (o.stoppedAt !== undefined ? ` (${o.stoppedAt})` : ''),
+  );
+  return {
+    line: `${head} (partial: ${objects.join(', ') || 'an object holds fewer records than the org'})`,
+    exitCode: PARTIAL_EXIT,
+  };
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

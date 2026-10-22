@@ -343,6 +343,94 @@ describe('sandforge-clone --summary', () => {
     ]);
   });
 
+  it('stops on a SIGTERM, as Jenkins sends on abort or timeout, as on Ctrl-C, and exits 143', async () => {
+    // Killed outright, the clone printed no summary, and the journal alone
+    // said what it had created.
+    const once = vi.spyOn(process, 'once');
+    const listening = process.listenerCount('SIGTERM');
+    withOrgs(
+      fakeOrg([], (name) => {
+        if (name !== 'Account') return;
+        const stop = once.mock.calls.find(([event]) => event === 'SIGTERM')?.[1];
+        (stop as () => void)();
+      }),
+    );
+    const path = join(dir, 'clone-summary.json');
+
+    expect(await run(argv('--summary', path))).toBe(143);
+
+    expect(orgs.TGT.written).toEqual(['Account']);
+    const kept = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    expect(kept.interrupted).toBe(true);
+    expect(createdIn(kept)).toEqual(['Account']);
+    expect(process.listenerCount('SIGTERM')).toBe(listening);
+  });
+
+  it('refuses --dry-run=true, the way a pipeline writes --dry-run=$DRY_RUN, before any org is reached', async () => {
+    // Dropped without a word, the clone wrote for real.
+    withOrgs();
+    vi.mocked(loadOrg).mockClear();
+
+    expect(await run(argv('--dry-run=true'))).toBe(2);
+    expect(await run(argv('--dryrun'))).toBe(2);
+
+    expect(loadOrg).not.toHaveBeenCalled();
+    expect(stderr).toContain('"--dry-run=true" is not read: --dry-run takes no value');
+  });
+
+  describe('--remap-csv', () => {
+    it('refuses a file already there, outside the working directory or not a .csv, before any org is reached', async () => {
+      // Checked once every record was written: the run wrote, then failed
+      // without its summary on stdout.
+      withOrgs();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      vi.mocked(loadOrg).mockClear();
+      const existing = join(dir, 'remap.csv');
+      writeFileSync(existing, 'sourceId,targetId\n', 'utf8');
+
+      expect(await run(argv('--remap-csv', existing))).toBe(2);
+      expect(stderr).toContain(`--remap-csv refuses to overwrite existing file: "${existing}"`);
+      expect(await run(argv('--remap-csv', join(dir, '..', 'escape.csv')))).toBe(2);
+      expect(stderr).toContain('--remap-csv must stay inside cwd');
+      expect(await run(argv('--remap-csv', join(dir, 'remap.txt')))).toBe(2);
+      expect(stderr).toContain('--remap-csv must use a .csv extension');
+
+      expect(loadOrg).not.toHaveBeenCalled();
+      expect(orgs.TGT.written).toEqual([]);
+    });
+
+    it('keeps the summary before the table is written, and says so when a file took its place meanwhile', async () => {
+      const csv = join(dir, 'remap.csv');
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      // A file made at the table's path while the run wrote.
+      withOrgs(
+        fakeOrg([], (name) => {
+          if (name === 'Contact') writeFileSync(csv, 'theirs\n', 'utf8');
+        }),
+      );
+      const path = join(dir, 'clone-summary.json');
+
+      expect(await run(argv('--summary', path, '--remap-csv', csv, '--json'))).toBe(1);
+
+      expect(readFileSync(csv, 'utf8')).toBe('theirs\n');
+      const kept = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+      expect(kept.running).toBeUndefined();
+      expect(createdIn(kept)).toEqual(['Account', 'Contact']);
+      expect(JSON.parse(stdout)).toEqual(kept);
+      expect(stderr).toContain('--remap-csv refuses to overwrite existing file');
+    });
+
+    it('writes the table of the ids the run gave', async () => {
+      const csv = join(dir, 'remap.csv');
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      withOrgs();
+
+      expect(await run(argv('--remap-csv', csv))).toBeUndefined();
+
+      expect(readFileSync(csv, 'utf8')).toContain(`"${ACCOUNT}","001000000000900AAA"`);
+    });
+  });
+
   it('prints what an interrupted run created as the --json summary, which --remove reads without --summary', async () => {
     const once = vi.spyOn(process, 'once');
     withOrgs(

@@ -14,8 +14,17 @@ vi.mock('./sandforge-clone.js', async (original) => ({
     read: async () => ({ objectsRead: [], objects: [], unread: [] }),
   })),
 }));
+// The removal is Forge's, tested with it: here, what it is handed from a run's file.
+vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
+  ...(await original<typeof import('../src/modules/forge/ForgeRunRemoval.js')>()),
+  removalOrg: vi.fn(),
+}));
 
+import { readFileSync, writeFileSync } from 'node:fs';
 import { makeConn } from './sfSession.js';
+import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { readRunFile } from '../src/modules/sync/SyncRunCreations.js';
 import { main, seedInterruptedLine, seedWritePathOf } from './sandforge-seed.js';
 import type { BulkJobHandle } from '../src/core/engine/BulkApiExecutor.js';
 
@@ -33,9 +42,13 @@ const ASSET = {
 /**
  * An org that takes every Asset it is sent, through REST or a Bulk API job,
  * and runs nothing as they are created. `onCreate` is told of each REST call
- * before it is answered.
+ * before it is answered. It says it is a sandbox, unless `kind` says otherwise.
  */
-function fakeOrg(onCreate: () => void = () => {}) {
+function fakeOrg(
+  onCreate: () => void | Promise<void> = () => {},
+  kind: Record<string, unknown> = { IsSandbox: true },
+  refusedFrom = Infinity,
+) {
   const restCalls: number[] = [];
   const jobs: number[] = [];
   let made = 0;
@@ -45,15 +58,20 @@ function fakeOrg(onCreate: () => void = () => {}) {
     sobject: () => ({
       describe: async () => ASSET,
       create: async (sent: unknown[]) => {
-        onCreate();
+        await onCreate();
         restCalls.push(sent.length);
-        return sent.map(() => ({ success: true, id: id() }));
+        // The records of a call from `refusedFrom` on are refused.
+        return sent.map((_, i) =>
+          i >= refusedFrom
+            ? { success: false, errors: [{ statusCode: 'X', message: 'refused' }] }
+            : { success: true, id: id() },
+        );
       },
     }),
     describe: async () => ASSET,
     describeGlobal: async () => ({ sobjects: [{ name: 'Asset', createable: true }] }),
     query: async (soql: string) =>
-      soql.includes('FROM Organization') ? page([{ Id: '00D000000000002AAA' }]) : page([]),
+      soql.includes('FROM Organization') ? page([{ Id: '00D000000000002AAA', ...kind }]) : page([]),
     tooling: { query: async () => page([]) },
     request: async () => ({}),
     bulk2: {
@@ -166,12 +184,126 @@ describe('a seed from the command line', () => {
     expect(org.restCalls).toEqual([50]);
     const summary = JSON.parse(stdout.join('')) as {
       interrupted?: boolean;
+      runFile?: string;
       result: { objectResults: Array<{ createdIds: string[] }> };
     };
     expect(summary.interrupted).toBe(true);
     expect(summary.result.objectResults[0].createdIds).toHaveLength(50);
-    expect(stderr.join('')).toContain(seedInterruptedLine());
+    expect(summary.runFile).toBeDefined();
+    expect(stderr.join('')).toContain(seedInterruptedLine(summary.runFile));
     expect(process.exitCode).toBe(130);
     expect(process.listenerCount('SIGINT')).toBe(0);
+  });
+
+  it('stops at a SIGTERM, as Jenkins sends on abort or timeout, as at Ctrl-C, and exits 143', async () => {
+    const org = fakeOrg(() => {
+      if (org.restCalls.length === 0) process.emit('SIGTERM');
+    });
+
+    await main(argv(150, '--batch-size', '50', '--json'));
+
+    expect(org.restCalls).toEqual([50]);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({ interrupted: true });
+    expect(process.exitCode).toBe(143);
+    expect(process.listenerCount('SIGTERM')).toBe(0);
+    expect(process.listenerCount('SIGHUP')).toBe(0);
+  });
+
+  it('writes nothing to a production org, refused before anything is read, and exits 1', async () => {
+    // The seed went from the session to its writes: its own --remove refuses
+    // such an org, so what it wrote there stayed.
+    const org = fakeOrg(undefined, { IsSandbox: false, OrganizationType: 'Enterprise Edition' });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+
+    await expect(main(argv(10))).rejects.toThrow('exit 1');
+
+    expect(org.restCalls).toEqual([]);
+    expect(stderr.join('')).toContain(
+      'TGT is a production org (its Organization record says IsSandbox false, edition ' +
+        'Enterprise Edition): sandforge-seed writes to sandboxes and Developer Edition orgs ' +
+        'only. Nothing was written; --dry-run, which only reads, runs against it.',
+    );
+  });
+
+  it('dry-runs against a production org all the same, which only reads', async () => {
+    const org = fakeOrg(undefined, { IsSandbox: false, OrganizationType: 'Enterprise Edition' });
+
+    await main(argv(10, '--dry-run'));
+
+    expect(org.restCalls).toEqual([]);
+    expect(stdout.join('')).toContain('[dry-run] Asset: 10 record(s) (REST)');
+  });
+
+  it('exits 1 when the org refused every record, and 3 for a partial run with --fail-on-partial', async () => {
+    // Every record refused, the seed exited 0 as one that wrote them all.
+    fakeOrg(undefined, undefined, 0);
+    await main(argv(4, '--json'));
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = undefined;
+    fakeOrg(undefined, undefined, 2);
+    await main(argv(4, '--json'));
+    expect(process.exitCode).toBeUndefined();
+    await main(argv(4, '--json', '--fail-on-partial'));
+    expect(process.exitCode).toBe(3);
+  });
+
+  it('refuses --dry-run=true, the way a pipeline writes --dry-run=$DRY_RUN, before any org is reached', async () => {
+    // Dropped without a word, it seeded for real.
+    const org = fakeOrg();
+    vi.mocked(makeConn).mockClear();
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+
+    await expect(main(argv(10, '--dry-run=true'))).rejects.toThrow('exit 2');
+
+    expect(makeConn).not.toHaveBeenCalled();
+    expect(org.restCalls).toEqual([]);
+    expect(stderr.join('')).toContain('"--dry-run=true" is not read');
+  });
+
+  it('keeps what it creates in its file insert by insert, and --remove takes back a run killed before it printed its summary', async () => {
+    // The ids were in memory alone until the run printed its summary: a kill
+    // by the job's timeout, an OOM, or an error thrown out of the run left
+    // its records in the org with nothing --remove could read.
+    let file: string | undefined;
+    let atKill: string | undefined;
+    const org = fakeOrg(async () => {
+      if (org.restCalls.length !== 1) return;
+      // The second call is under way, the org taking its time: what is on
+      // disk by then is what a kill here would have left.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      file = /run file: (\S+)/.exec(stderr.join(''))?.[1];
+      atKill = file ? readFileSync(file, 'utf8') : undefined;
+    });
+
+    await main(argv(100, '--batch-size', '50', '--json'));
+
+    expect(file).toBeDefined();
+    expect(readRunFile(atKill ?? '')?.created).toEqual([
+      { objectApiName: 'Asset', ids: expect.arrayContaining([expect.any(String)]) },
+    ]);
+    const firstCall = readRunFile(atKill ?? '')?.created[0]?.ids ?? [];
+    expect(firstCall).toHaveLength(50);
+    expect(readRunFile(atKill ?? '')?.end).toBeUndefined();
+
+    // Killed there: the file as it stood, its records in the org.
+    writeFileSync(file as string, atKill as string);
+    const memory = new MemoryRemovalOrg();
+    for (const id of firstCall)
+      memory.add('Asset', { Id: id }, new Date(Date.now() - 60_000).toISOString());
+    vi.mocked(removalOrg).mockReturnValue(memory);
+    const runId = readRunFile(atKill ?? '')?.runId ?? '';
+    stdout.length = 0;
+
+    await main(['node', 'sandforge-seed.ts', '--remove', runId, '--target', 'TGT', '--json']);
+
+    expect(memory.all('Asset')).toEqual([]);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      result: { status: 'success', planned: 50 },
+    });
   });
 });

@@ -19,7 +19,11 @@ vi.mock('./sfSession.js', () => ({
 }));
 
 /** What the load the fake handler runs saw: whether its run was stopped through the registry. */
-const seen = vi.hoisted(() => ({ aborted: false, registered: false }));
+const seen = vi.hoisted(() => ({
+  aborted: false,
+  registered: false,
+  signal: 'SIGINT' as 'SIGINT' | 'SIGTERM',
+}));
 
 // The handler's load, as the registry sees it: registered under the request's
 // id with its controller, going on until that controller is aborted — a
@@ -45,7 +49,7 @@ vi.mock('../src/bridge/handlers/FrozenDatasetHandler.js', () => ({
       );
       this.registry?.register(msg.id, 'frozen', 'Loading', stopped, controller);
       seen.registered = this.registry !== undefined;
-      process.emit('SIGINT');
+      process.emit(seen.signal);
       await stopped;
       seen.aborted = controller.signal.aborted;
       this.deps.broker.postToWebview({
@@ -86,6 +90,7 @@ beforeEach(() => {
   }) as never);
   seen.aborted = false;
   seen.registered = false;
+  seen.signal = 'SIGINT';
   process.exitCode = undefined;
 });
 
@@ -101,10 +106,21 @@ describe('sandforge-frozen at Ctrl-C', () => {
     // and no record of them in the sas.
     await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes'));
 
-    expect(seen).toEqual({ registered: true, aborted: true });
+    expect(seen).toMatchObject({ registered: true, aborted: true });
     expect(errors.join('')).toContain(frozenInterruptedLine('load'));
     expect(frozenInterruptedLine('load')).toContain('`remove` takes it back');
     expect(process.exitCode).toBe(130);
     expect(process.listenerCount('SIGINT')).toBe(0);
+  });
+
+  it('stops the load the same way at a SIGTERM, as Jenkins sends on abort or timeout, and exits 143', async () => {
+    seen.signal = 'SIGTERM';
+
+    await main(argv('load', '--config', configPath, '--target', 'TGT', '--yes'));
+
+    expect(seen).toMatchObject({ registered: true, aborted: true });
+    expect(errors.join('')).toContain(frozenInterruptedLine('load'));
+    expect(process.exitCode).toBe(143);
+    expect(process.listenerCount('SIGTERM')).toBe(0);
   });
 });

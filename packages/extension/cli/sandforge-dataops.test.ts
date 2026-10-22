@@ -688,6 +688,79 @@ describe('sandforge-dataops', () => {
       expect(stderr).toContain('--rewrite-all goes with --restore.');
     });
 
+    it('exits 3 when it left records unmasked, their personal data still in the org', async () => {
+      // It exited 0 "read the summary for records left unmasked": a pipeline
+      // that masks after a refresh went on as if it had masked everything.
+      orgIs('Developer Edition');
+      const rows = contactsOf(5, 5);
+      const { update } = orgOf(rows);
+      update.mockImplementation(async (batch: Array<Record<string, unknown>>) =>
+        batch.map((sent, i) => {
+          if (i === 0) {
+            return {
+              success: false,
+              id: sent.Id,
+              errors: [{ statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'no' }],
+            };
+          }
+          Object.assign(rows.find((r) => r.Id === sent.Id) ?? {}, sent);
+          return { success: true, id: sent.Id };
+        }),
+      );
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--yes',
+      );
+
+      expect(code).toBe(3);
+      expect(stdout).toContain('A resume masks only what this run left');
+    });
+
+    it('stops a run asked without --yes and with no terminal to answer: exit 2, nothing masked', async () => {
+      // Its question waited for a terminal a CI step does not have.
+      orgIs('Developer Edition');
+      const rows = contactsOf(5, 5);
+      const before = rows.map((r) => ({ ...r }));
+      const { update } = orgOf(rows);
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+      );
+
+      expect(code).toBe(2);
+      expect(update).not.toHaveBeenCalled();
+      expect(rows).toEqual(before);
+      expect(stderr).toContain('no terminal to answer: give --yes');
+      expect(stdout).not.toContain('Mask 5 record(s)');
+    });
+
+    it('refuses --dry-run=true, which it dropped and masked for real, before any org is reached', () => {
+      const { code, message } = refuse(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--template',
+        'tpl-gdpr-standard',
+        '--dry-run=true',
+      );
+      expect(code).toBe(2);
+      expect(message).toContain('"--dry-run=true" is not read');
+      expect(loadOrg).not.toHaveBeenCalled();
+    });
+
     it('refuses a production org, and neither writes nor keeps a snapshot', async () => {
       orgIs('Enterprise Edition');
       const rows = contactsOf(5, 5);

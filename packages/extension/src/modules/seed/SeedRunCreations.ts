@@ -39,7 +39,9 @@
  *
  * A run the command line made is taken back from the summary it printed
  * (`sandforge-seed --remove`), which builds the run the same way
- * (`seedRunKept`).
+ * (`seedRunKept`), or from the file it keeps here as it writes, under the
+ * folder `SANDFORGE_JOURNAL_DIR` names: a run killed before it printed its
+ * summary kept what it created in memory alone.
  */
 
 import type { ApiName } from '@sandforge/shared';
@@ -78,6 +80,12 @@ export interface SeedRunStart {
   sourceOrgId?: string;
   /** Which way wrote the run, when not the generator. */
   origin?: 'csv' | 'clone';
+  /**
+   * The target's own Organization id, for a run of the command line, whose
+   * `targetOrgId` is an alias: its removal is refused from any other org,
+   * whatever org the alias names by then.
+   */
+  targetOrganizationId?: string;
 }
 
 /** A Seed run as its result says it ended: what `seedRunKept` reads. */
@@ -189,6 +197,9 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       targetOrgId: start.targetOrgId,
       ...(start.startedAt !== undefined ? { startedAt: start.startedAt } : {}),
       ...(start.origin !== undefined ? { origin: start.origin } : {}),
+      ...(start.targetOrganizationId !== undefined
+        ? { targetOrganizationId: start.targetOrganizationId }
+        : {}),
     });
     /** The ids noted so far, by their first fifteen characters, as the file reads them back. */
     const noted = new Set<string>();
@@ -283,6 +294,11 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       await this.runs.forget(run.runId);
       over--;
     }
+  }
+
+  /** The file a run's lines go to, once it writes one: what the command line names. */
+  pathOf(runId: string): string {
+    return this.runs.pathOf(runId);
   }
 
   /** What a run kept, with what its removals did; undefined when nothing of it is kept. */

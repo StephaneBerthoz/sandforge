@@ -215,6 +215,81 @@ describe('the file a run of sandforge-sync keeps', () => {
     expect(stderr).toContain('interrupted: the run stops before its next call');
   });
 
+  it('stops at a SIGTERM, as Jenkins sends on abort or timeout, as at Ctrl-C, and exits 143', async () => {
+    engine.run = async (deps, config) => {
+      deps.creations?.note('Account', [A1]);
+      process.emit('SIGTERM');
+      expect(deps.signal?.aborted).toBe(true);
+      return answered(config, { status: 'partial', cancelled: true });
+    };
+
+    await expect(run()).rejects.toThrow('exit 143');
+
+    const [name] = runFiles();
+    expect(readRunFile(readFileSync(join(runsDir(), name), 'utf8'))?.end).toMatchObject({
+      cancelled: true,
+    });
+    expect(process.listenerCount('SIGTERM')).toBe(0);
+    expect(process.listenerCount('SIGINT')).toBe(0);
+  });
+
+  it('writes nothing to a production org: refused before its run file is begun, and exits 1', async () => {
+    // Typed, and the type handed to a gate whose command-line policy never
+    // read it: a production target took the run's inserts and updates.
+    vi.mocked(makeConn).mockReturnValue({
+      query: vi.fn(async (soql: string) =>
+        soql.startsWith('SELECT OrganizationType')
+          ? { records: [{ OrganizationType: 'Enterprise Edition' }], totalSize: 1 }
+          : { records: [{ Id: ORG_ID, IsSandbox: false }], totalSize: 1 },
+      ),
+    } as unknown as Connection);
+    engine.run = async (_deps, config) => answered(config);
+
+    await expect(run()).rejects.toThrow('exit 1');
+
+    expect(runFiles()).toEqual([]);
+    expect(stdout).toBe('');
+    expect(stderr).toContain(
+      'TGT is a production org (its Organization record says IsSandbox false, edition ' +
+        'Enterprise Edition): sandforge-sync writes to sandboxes and Developer Edition orgs ' +
+        'only. Nothing was written; --dry-run, which only reads, runs against it.',
+    );
+  });
+
+  it('exits 1 when the target refused every record, and 3 for a partial run with --fail-on-partial', async () => {
+    // A run whose records were all refused exited 0, as one that wrote them all.
+    engine.run = async (_deps, config) => answered(config, { status: 'failure' });
+    await run();
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = undefined;
+    engine.run = async (_deps, config) => answered(config, { status: 'partial' });
+    await run();
+    expect(process.exitCode).toBeUndefined();
+    await main(
+      argv('--source', 'SRC', '--target', 'TGT', '--object', 'Account', '--fail-on-partial'),
+    );
+    expect(process.exitCode).toBe(3);
+    process.exitCode = undefined;
+  });
+
+  it('refuses --dry-run=true, the way a pipeline writes --dry-run=$DRY_RUN, before any org is reached', async () => {
+    // Dropped without a word, it ran for real.
+    vi.mocked(makeConn).mockClear();
+    engine.run = async (_deps, config) => answered(config);
+
+    await expect(
+      main(argv('--source', 'SRC', '--target', 'TGT', '--object', 'Account', '--dry-run=true')),
+    ).rejects.toThrow('exit 2');
+    await expect(
+      main(argv('--source', 'SRC', '--target', 'TGT', '--object', 'Account', '--dryrun')),
+    ).rejects.toThrow('exit 2');
+
+    expect(makeConn).not.toHaveBeenCalled();
+    expect(runFiles()).toEqual([]);
+    expect(stderr).toContain('"--dry-run=true" is not read: --dry-run takes no value');
+  });
+
   describe('a run killed during a Bulk API job', () => {
     const runId = 'sandforge-sync-killed';
     let file: string;

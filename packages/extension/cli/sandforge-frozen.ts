@@ -60,6 +60,17 @@ import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import { commandLineGuard } from './commandLineGuard.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { confirm, typed } from './prompt.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import {
+  DONE_EXIT,
+  endWith,
+  FAILED_EXIT,
+  PARTIAL_EXIT,
+  UNSTABLE_EXIT,
+  worstExit,
+} from './exitCodes.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { commandLineSaltKeeper } from '../src/modules/frozendataset/FrozenSalt.js';
 
@@ -107,8 +118,13 @@ Options:
                          of the load's records as records that stay (off otherwise)
   --sweep-list           with remove: list what --sweep would delete, per object
                          with a few names, and delete nothing
-  --yes                  do not ask before a load writes or a removal deletes
-  --json                 emit what the panel would receive
+  --yes                  do not ask before a load writes or a removal deletes.
+                         Without it, a step with no terminal to answer the
+                         question — a CI step — stops there, exit 2, and
+                         writes nothing
+  --json                 emit what the panel would receive, every other line on
+                         stderr; a step that ends before its request, refused or
+                         with nothing to do, says "ended": true
   --help                 this text
 
 The salt that makes pseudonyms repeatable is read from SANDFORGE_FROZEN_SALT,
@@ -121,8 +137,18 @@ The graph a selection or an extraction discovers is kept in the sas
 changed and a day has not gone by: each says "graph reused from <step>" or
 "rediscovered: <why>".
 
-Exit codes: 0 the step finished — a removal with nothing to take included —, 1 it
-failed or could not start, 2 a bad command line.
+Ctrl-C stops a step after the call under way, a load recorded in the sas with
+what it wrote, which remove takes back; a SIGTERM — a CI job cancelled or timed
+out — or a SIGHUP stops it the same way. Ctrl-C again ends it at once.
+
+Exit codes: 0 the step finished — a removal with nothing to take included —,
+and verify's verdict is PASSED; 1 it failed or could not start, or verify's
+verdict is FAILED; 2 a bad command line, or a question with no terminal to
+answer it (give --yes); 3 verify's verdict is PARTIAL, a load completed with
+errors, or a removal left records of the load; 4 verify's verdict is UNSTABLE:
+no two readings agreed; 130 Ctrl-C stopped the step, 143 a SIGTERM, 129 a
+SIGHUP. A load is judged by its own report: the verification it runs after it
+is said, and the verify step gives it a code.
 `;
 
 const STEPS = ['select', 'extract', 'load', 'verify', 'remove', 'status'] as const;
@@ -151,6 +177,22 @@ interface CliArgs {
   json: boolean;
 }
 
+/** What the line reads after its step. */
+const FLAGS: CommandFlags = {
+  words: 1,
+  switches: [
+    '--pilot',
+    '--reload',
+    '--dry-run',
+    '--include-changed',
+    '--sweep',
+    '--sweep-list',
+    '--yes',
+    '--json',
+  ],
+  values: ['--config', '--source', '--target', '--author', '--salt-file', '--store'],
+};
+
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
@@ -168,6 +210,8 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write(`The first word is the step: ${STEPS.join(', ')} — not "${args[0]}".\n`);
     process.exit(2);
   }
+  // `--dry-run=true` or `--dryrun` dropped without a word loaded for real.
+  refuseUnreadArguments(args, FLAGS);
   const configPath = get('--config');
   if (!configPath) {
     process.stderr.write('Missing --config. Run with --help.\n');
@@ -292,30 +336,6 @@ async function registerOrg(
   });
   conns?.set(typed.id, conn);
   return typed.id;
-}
-
-/** Ask on the terminal, unless the answer was given on the command line. */
-async function confirm(question: string): Promise<boolean> {
-  process.stdout.write(`${question} [y/N] `);
-  return new Promise((resolve) => {
-    process.stdin.once('data', (chunk) => {
-      resolve(/^y(es)?$/i.test(String(chunk).trim()));
-      process.stdin.pause();
-    });
-    process.stdin.resume();
-  });
-}
-
-/** Ask on the terminal for a word to be typed, and hand back what was. */
-async function typed(question: string): Promise<string> {
-  process.stdout.write(`${question} `);
-  return new Promise((resolve) => {
-    process.stdin.once('data', (chunk) => {
-      resolve(String(chunk).trim());
-      process.stdin.pause();
-    });
-    process.stdin.resume();
-  });
 }
 
 type Posted = { type?: unknown; payload?: Record<string, unknown> } & Record<string, unknown>;
@@ -514,6 +534,46 @@ export function failsTheStep(message: Posted): boolean {
   if (!type.endsWith(':error')) return false;
   return !(
     type === 'frozen:remove:error' && NOTHING_TO_REMOVE_CODES.has(String(message.payload?.code))
+  );
+}
+
+/** The exit code of each verdict of a verification, as `sandforge-clone --verify` gives it. */
+const VERDICT_EXIT: Readonly<Record<string, number>> = {
+  passed: DONE_EXIT,
+  partial: PARTIAL_EXIT,
+  unstable: UNSTABLE_EXIT,
+  failed: FAILED_EXIT,
+};
+
+/**
+ * The exit code of a step that ran through, from what it posted: `verify` by
+ * its verdict — FAILED 1, PARTIAL 3, UNSTABLE 4 —, `load` 3 when it completed
+ * with errors, `remove` 3 when it left records of the load. A load is judged
+ * by its own report: the verification it runs after it is said, and `verify`
+ * gives its verdict a code. Exported so it can be tested.
+ */
+export function frozenStepExit(step: string, posted: readonly Posted[]): number {
+  return worstExit(
+    posted.map((message) => {
+      const p = message.payload ?? {};
+      if (step === 'verify' && message.type === 'frozen:verify:result') {
+        const status = String((p.verdict as { status?: unknown } | undefined)?.status ?? '');
+        return Object.prototype.hasOwnProperty.call(VERDICT_EXIT, status)
+          ? VERDICT_EXIT[status]
+          : FAILED_EXIT;
+      }
+      if (step === 'load' && message.type === 'frozen:load:response') {
+        return (p.report as { status?: unknown } | undefined)?.status === 'completed'
+          ? DONE_EXIT
+          : PARTIAL_EXIT;
+      }
+      if (step === 'remove' && message.type === 'frozen:remove:response') {
+        return (p.result as { status?: unknown } | undefined)?.status === 'success'
+          ? DONE_EXIT
+          : PARTIAL_EXIT;
+      }
+      return DONE_EXIT;
+    }),
   );
 }
 
@@ -1010,8 +1070,11 @@ export function messageLines(message: Posted): string[] {
 export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
   const args = parseArgs(argv);
+  // On stderr with --json, where stdout carries the JSON alone. Dropped there,
+  // a configuration the schema refused, and the guard's refusal, exited 1
+  // with nothing said on either.
   const log = (line: string): void => {
-    if (!args.json) process.stdout.write(`${line}\n`);
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
 
   const config = JSON.parse(readFileSync(args.configPath, 'utf8')) as Record<string, unknown>;
@@ -1063,14 +1126,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // the extension: what Ctrl-C stops them through, as the panel's Cancel does.
   // A load stopped so is recorded in the sas with what it wrote, which
   // `remove` takes back; killed outright, it left the records it had written
-  // and no record of them. A second Ctrl-C ends the process at once.
+  // and no record of them. A second Ctrl-C ends the process at once. A
+  // SIGTERM — a CI job cancelled or timed out — or a SIGHUP stops it the same way.
   const registry = new BackgroundOperationRegistry();
   handler.setRegistry(registry);
   /** The request the handler has, which a Ctrl-C before its run started cancels. */
   let underWay: string | undefined;
-  let interrupted = false;
-  const interrupt = (): void => {
-    interrupted = true;
+  let interrupted: StopSignal | undefined;
+  const interrupt = (signal: StopSignal): void => {
+    interrupted = signal;
     process.stderr.write(
       `\ninterrupted: the ${args.step} stops after the call under way, and says what it wrote ` +
         '(Ctrl-C again ends it at once)\n',
@@ -1078,9 +1142,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     for (const operation of registry.getRunning()) registry.abort(operation.operationId);
     if (underWay) registry.cancelBeforeStart(underWay);
     // Nothing under way — a question on the terminal: nothing was written.
-    if (!underWay) process.exit(INTERRUPTED_EXIT);
+    if (!underWay) process.exit(stopExitCode(signal));
   };
-  process.once('SIGINT', interrupt);
+  const releaseStop = onStopSignal(interrupt);
+  /** What a step prints on stdout with --json: what the panel would have received. */
+  const emit = (ended?: true): void => {
+    if (!args.json) return;
+    process.stdout.write(
+      `${JSON.stringify({ tool: 'sandforge-frozen', posted, ...(ended ? { ended } : {}) }, null, 2)}\n`,
+    );
+  };
 
   const send = async (type: string, payload: Record<string, unknown>): Promise<boolean> => {
     const id = `cli-${type}-${Date.now()}`;
@@ -1095,25 +1166,27 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   try {
     ran = await runStep();
   } finally {
-    process.off('SIGINT', interrupt);
+    releaseStop();
   }
   if (ran === 'ended' && !interrupted) {
     // The configuration refused, a load or a removal declined, nothing to
-    // remove: said already, and nothing more is.
-    if (failed) process.exitCode = 1;
+    // remove: said already, and nothing more is — but on stdout with --json,
+    // which printed nothing a parser could read.
+    if (failed) process.exitCode = FAILED_EXIT;
+    emit(true);
     return;
   }
   if (interrupted) {
-    if (args.json) {
-      process.stdout.write(`${JSON.stringify({ tool: 'sandforge-frozen', posted }, null, 2)}\n`);
-    }
+    emit();
     process.stderr.write(`${frozenInterruptedLine(args.step)}\n`);
-    process.exitCode = INTERRUPTED_EXIT;
+    process.exitCode = stopExitCode(interrupted);
     return;
   }
-  if (failed) process.exitCode = 1;
+  // A verification FAILED, PARTIAL or UNSTABLE, and a load that completed
+  // with errors, exited 0: only an error message failed the step.
+  endWith(failed ? FAILED_EXIT : frozenStepExit(args.step, posted));
   if (args.json) {
-    process.stdout.write(`${JSON.stringify({ tool: 'sandforge-frozen', posted }, null, 2)}\n`);
+    emit();
     return;
   }
   log(`done in ${Date.now() - t0}ms`);
@@ -1223,9 +1296,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     return 'through';
   }
 }
-
-/** The exit code of a step Ctrl-C stopped, as a shell gives a process SIGINT ended. */
-const INTERRUPTED_EXIT = 130;
 
 /**
  * What a step Ctrl-C stopped says last: what was kept of it, and what takes

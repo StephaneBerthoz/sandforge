@@ -21,7 +21,7 @@ const validateConnection = vi.hoisted(() => vi.fn());
 
 import { loadOrg } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
-import { main, parseArgs } from './sandforge-backup.js';
+import { main, parseArgs, snapshotListing, snapshotTaken } from './sandforge-backup.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -367,6 +367,140 @@ describe('against an org', () => {
       expect(restore.posted.find((m) => m.type === 'dataops:error')?.payload).toMatchObject({
         code: 'GUARD_DECLINED',
       });
+    });
+  });
+
+  it('stops a restore asked without --yes and with no terminal to answer: exit 2, nothing written', async () => {
+    // Its question waited for a terminal a CI step does not have: the job
+    // hung until its timeout, or exited 0 having written nothing.
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(2);
+      const { upsert } = orgOf(rows);
+      const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+      let stderr = '';
+      vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+        stderr += chunk;
+        return true;
+      }) as never);
+      vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+        throw new Error(`exit ${code}`);
+      }) as never);
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      await expect(
+        main(argv('--org', 'ORG', '--restore', snapshotOf(backup.posted), '--store', store)),
+      ).rejects.toThrow('exit 2');
+
+      expect(upsert).not.toHaveBeenCalled();
+      expect(stderr).toContain('no terminal to answer: give --yes');
+      // The question goes to stderr, never ahead of what stdout carries.
+      expect(stdout.mock.calls.join('')).not.toContain('Upsert snapshot');
+    });
+  });
+
+  it('lists the snapshots as JSON with --json, where it printed nothing', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      orgOf(contactsOf(2));
+      const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+      let out = '';
+      vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        out += String(chunk);
+        return true;
+      });
+      vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      await main(argv('--org', 'ORG', '--list', '--store', store, '--json'));
+
+      expect(JSON.parse(out)).toMatchObject({
+        tool: 'sandforge-backup',
+        snapshots: [
+          {
+            operationId: snapshotOf(backup.posted),
+            totalRecords: 2,
+            objects: [{ objectApiName: 'Contact', recordCount: 2 }],
+          },
+        ],
+      });
+    });
+  });
+
+  it('names the snapshot it took, and exits 3 for one cut at --max-records', async () => {
+    // Cut at the cap, it said only the type of its last message, exited 0,
+    // and a restore of it put back part of the records.
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      orgOf(contactsOf(150));
+      const whole = await run(store, '--org', 'ORG', '--object', 'Contact');
+      expect(whole.code).toBeUndefined();
+
+      const cut = await run(store, '--org', 'ORG', '--object', 'Contact', '--max-records', '100');
+
+      expect(cut.code).toBe(3);
+      expect(cut.posted.find((m) => m.type === 'dataops:backup:response')?.payload).toMatchObject({
+        partial: true,
+      });
+    });
+  });
+
+  it('refuses --yes=true, which it dropped, before any org is reached', () => {
+    vi.mocked(loadOrg).mockClear();
+    expect(refuse('--org', 'T', '--restore', 'op-1', '--yes=true').code).toBe(2);
+    expect(loadOrg).not.toHaveBeenCalled();
+  });
+});
+
+describe('what a snapshot taken says', () => {
+  it('names its id and the restore that takes it, or what it holds short of the org', () => {
+    expect(
+      snapshotTaken({
+        operationId: 'op-1',
+        totalRecords: 4,
+        objects: [{ objectApiName: 'Contact', recordCount: 4, truncated: false }],
+      }),
+    ).toEqual({ line: 'snapshot op-1: 4 record(s) (--restore op-1 puts them back)', exitCode: 0 });
+    expect(
+      snapshotTaken({
+        operationId: 'op-2',
+        totalRecords: 100,
+        partial: true,
+        objects: [
+          {
+            objectApiName: 'Contact',
+            recordCount: 100,
+            truncated: true,
+            orgCount: 150,
+            stoppedAt: 'cap',
+          },
+        ],
+      }),
+    ).toEqual({
+      line: 'snapshot op-2: 100 record(s) (partial: Contact 100 of 150 (cap))',
+      exitCode: 3,
+    });
+  });
+
+  it('lists each snapshot with what it holds', () => {
+    expect(
+      snapshotListing([
+        {
+          operationId: 'op-1',
+          timestamp: '2026-10-22T08:00:00.000Z',
+          totalRecords: 2,
+          objects: [{ objectApiName: 'Contact', recordCount: 2 }],
+        },
+      ]),
+    ).toEqual({
+      tool: 'sandforge-backup',
+      snapshots: [
+        {
+          operationId: 'op-1',
+          timestamp: '2026-10-22T08:00:00.000Z',
+          totalRecords: 2,
+          objects: [{ objectApiName: 'Contact', recordCount: 2 }],
+        },
+      ],
     });
   });
 });

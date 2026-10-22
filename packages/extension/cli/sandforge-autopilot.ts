@@ -32,6 +32,10 @@ import type {
 } from '@sandforge/shared';
 import { recordWriteHeaders } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
+import { refuseProductionTarget } from './targetKind.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import { endWith, runExitCode, type RunStatus } from './exitCodes.js';
 import { AutopilotOrchestrator } from '../src/modules/autopilot/AutopilotOrchestrator.js';
 import {
   DEFAULT_SCAN_DEPTH,
@@ -116,6 +120,8 @@ Options:
   --plan-only            scan, graph and plan, then stop          (default: off)
   --json                 emit the run summary as JSON, with the id
                          of every record the run created          (default: off)
+  --fail-on-partial      exit 3, not 0, when the run wrote some records and
+                         the target refused others                (default: off)
   --help                 this text
 
 A selected object is copied whole. Of any other object, only the records the
@@ -128,9 +134,15 @@ Ctrl-C stops the run between two calls, as the panel's Stop does: the summary
 says what it wrote and which objects it did not, and --json names every record
 it created. Ctrl-C again ends the process at once.
 
-Exit codes: 0 the run finished (read the summary for per-object failures),
-1 the run could not be started or was refused, 2 a bad command line, 130 Ctrl-C
-stopped the run.
+A production target is refused before the scan: Autopilot writes to sandboxes
+and Developer Edition orgs only, and --plan-only, which only reads, runs
+against any org.
+
+Exit codes: 0 the run finished, some of its records refused included (read the
+summary for per-object failures); 1 the run could not be started or was
+refused, or it died or produced only failures; 2 a bad command line; 3 the run
+was partial and --fail-on-partial was given; 130 Ctrl-C stopped the run, 143 a
+SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP.
 `;
 
 /** Everything the command line settled. */
@@ -148,10 +160,33 @@ interface CliArgs {
   /** Write emails and phone numbers as read rather than neutralized. */
   keepContactPoints: boolean;
   json: boolean;
+  /** Exit 3, not 0, when the run wrote some records and the target refused others. */
+  failOnPartial: boolean;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/** What the line reads. */
+const FLAGS: CommandFlags = {
+  switches: [
+    '--standard-objects',
+    '--keep-contact-points',
+    '--plan-only',
+    '--json',
+    '--fail-on-partial',
+  ],
+  values: [
+    '--source',
+    '--target',
+    '--object',
+    '--max-depth',
+    '--max-objects',
+    '--max-total',
+    '--compliance',
+    '--batch-size',
+  ],
+};
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -160,6 +195,8 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stdout.write(HELP);
     process.exit(0);
   }
+  // `--plan-only=true` or `--planonly` dropped without a word ran for real.
+  refuseUnreadArguments(args, FLAGS);
   const get = (flag: string, fallback?: string): string | undefined => {
     const at = args.indexOf(flag);
     return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -224,6 +261,7 @@ export function parseArgs(argv: string[]): CliArgs {
     planOnly: args.includes('--plan-only'),
     keepContactPoints: args.includes('--keep-contact-points'),
     json: args.includes('--json'),
+    failOnPartial: args.includes('--fail-on-partial'),
   };
 }
 
@@ -250,8 +288,10 @@ export function everyPage(conn: Connection): (soql: string) => Promise<Record<st
 export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
   const args = parseArgs(argv);
+  // On stderr with --json, where stdout carries the summary alone: dropped
+  // there, the plan and the gate's counts said nothing beside the JSON.
   const log = (line: string): void => {
-    if (!args.json) process.stdout.write(`${line}\n`);
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
 
   log(`sandforge-autopilot  ${args.source} -> ${args.target}`);
@@ -259,6 +299,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const sourceConn = makeConn(await loadOrg(args.source));
   const targetConn = makeConn(await loadOrg(args.target));
+  // Refused before the scan on a production org, or one that will not say
+  // what it is: nothing keeps what an Autopilot run creates, and its write
+  // gate held it to volumes alone. --plan-only only reads.
+  if (!args.planOnly) {
+    await refuseProductionTarget(targetConn, args.target, {
+      tool: 'sandforge-autopilot',
+      action: 'write',
+      readOnly: '--plan-only',
+    });
+  }
   /** Ids of the records this run created, per object. */
   const created = new Map<string, string[]>();
 
@@ -497,16 +547,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Ctrl-C stops the run as the panel's Stop does: between two calls, the
   // batch in flight let through, and the result says what it wrote and which
   // objects it did not. Killed outright, a run printed nothing of the records
-  // it had created. A second Ctrl-C ends the process at once.
+  // it had created. A second Ctrl-C ends the process at once. A SIGTERM — a
+  // CI job cancelled or timed out — or a SIGHUP stops it the same way.
   const stop = new AbortController();
-  const interrupt = (): void => {
+  let stoppedBy: StopSignal | undefined;
+  const interrupt = (signal: StopSignal): void => {
+    stoppedBy = signal;
     process.stderr.write(
       '\ninterrupted: the run stops after the call under way, and says what it wrote ' +
         '(Ctrl-C again ends it at once)\n',
     );
     stop.abort();
   };
-  process.once('SIGINT', interrupt);
+  const releaseStop = onStopSignal(interrupt);
   let result: ExecutionResult;
   try {
     result = await orchestrator.executePlan(
@@ -520,11 +573,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       args.keepContactPoints ? { keepContactPoints: true } : {},
     );
   } finally {
-    process.off('SIGINT', interrupt);
+    releaseStop();
   }
   const elapsedMs = Date.now() - t0;
   const interrupted = stop.signal.aborted;
-  if (interrupted) process.exitCode = INTERRUPTED_EXIT;
+  // A run that died, or whose every record the target refused, exited 0 as
+  // one that wrote them all: it only said so on a line of its summary.
+  endWith(
+    interrupted
+      ? stopExitCode(stoppedBy ?? 'SIGINT')
+      : runExitCode(autopilotRunStatus(result), args.failOnPartial),
+  );
 
   if (args.json) {
     process.stdout.write(
@@ -549,8 +608,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`\ndone in ${elapsedMs}ms`);
 }
 
-/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
-const INTERRUPTED_EXIT = 130;
+/**
+ * How a run ended, as its exit code reads it: a failure when it died or
+ * produced only failures, partial when the target refused some of what it
+ * wrote, or an object of it failed. Exported so it can be tested.
+ */
+export function autopilotRunStatus(
+  result: Pick<ExecutionResult, 'fatalError' | 'totalSuccess' | 'totalFailure' | 'failedObjects'>,
+): RunStatus {
+  if (result.fatalError !== undefined) return 'failure';
+  const failed = result.totalFailure > 0 || result.failedObjects.length > 0;
+  if (!failed) return 'success';
+  return result.totalSuccess > 0 ? 'partial' : 'failure';
+}
 
 /**
  * What a run Ctrl-C stopped says last: that it stopped, the objects it did

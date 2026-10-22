@@ -43,11 +43,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join as joinPath, resolve as resolvePath } from 'node:path';
+import { join as joinPath, resolve as resolvePath, sep } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { z } from 'zod';
 import { countRequests, loadOrg, makeConn, type SfOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
 import type {
   ForgeConfig,
@@ -445,7 +447,7 @@ Clone whole tables, in place of --record:
 
 Options:
   --depth <mode>         direct | full | custom    (default: custom)
-  --custom-depth <n>     traversal depth when --depth=custom    (default: 5)
+  --custom-depth <n>     traversal depth when --depth is custom (default: 5)
   --max <n>              max records cloned per object          (default: unlimited)
   --list-objects         print the objects discovery reached, then stop
                          Answers "why was my object not cloned?" — an object
@@ -717,6 +719,8 @@ Exit codes:
      found neither in the org nor in its recycle bin, as the user it ran as
      sees them; or the sweep was refused, or left some of what it found
   130  Ctrl-C stopped the clone: the summary says what it created by then
+  143  a SIGTERM stopped it — a CI job cancelled or timed out —, 129 a SIGHUP:
+       as Ctrl-C does, the summary and the journal say what it created
 `;
 
 /** A 15- or 18-character Salesforce ID. */
@@ -1029,6 +1033,56 @@ export function readChoicesFile(
   };
 }
 
+/**
+ * What the line of a clone reads; a removal's and a verification's read their
+ * own (`REMOVE_FLAGS`, `VERIFY_FLAGS`).
+ */
+const CLONE_FLAGS: CommandFlags = {
+  switches: [
+    '--list-objects',
+    '--anonymize',
+    '--keep-contact-points',
+    '--dry-run',
+    '--rehearse',
+    '--accept-automation',
+    '--upsert',
+    '--expand-orphans',
+    '--apply-assignment-rules',
+    '--skip-preflight',
+    '--json',
+    '--write-uncertain',
+    '--files',
+    '--files-as-is',
+    // A removal's, refused with its own words below.
+    '--include-changed',
+  ],
+  values: [
+    '--record',
+    '--source',
+    '--target',
+    '--object',
+    '--where',
+    '--depth',
+    '--custom-depth',
+    '--max',
+    '--max-nodes',
+    '--max-total',
+    '--max-records-per-object',
+    '--summary',
+    '--resume',
+    '--exclude',
+    '--exclude-object',
+    '--owner-map',
+    '--filter',
+    '--map',
+    '--config',
+    '--template',
+    '--remap-csv',
+    '--max-file-size',
+    '--audit',
+  ],
+};
+
 /** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
 export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): CliArgs {
   const args = argv.slice(2);
@@ -1036,6 +1090,9 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     process.stdout.write(HELP);
     process.exit(0);
   }
+  // `--dry-run=true`, the way a pipeline writes `--dry-run=$DRY_RUN`, or a
+  // misspelt `--dryrun`, was dropped without a word, and the clone wrote.
+  refuseUnreadArguments(args, CLONE_FLAGS);
   const get = (flag: string, fallback?: string): string | undefined => {
     const i = args.indexOf(flag);
     return i >= 0 && i + 1 < args.length ? args[i + 1] : fallback;
@@ -1388,7 +1445,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     ownerMappings,
     objectSoqlFilters,
     fieldMappings,
-    remapCsv: get('--remap-csv'),
+    remapCsv: remapCsvArg(args),
     files,
     acceptAutomation: has('--accept-automation'),
     maxTotal,
@@ -1659,6 +1716,48 @@ function summaryArg(args: readonly string[]): string | undefined {
     process.exit(2);
   }
   return path;
+}
+
+/**
+ * Where `--remap-csv` writes the table of the ids the run gave, read and
+ * checked; exits 2 on a flag given no file, a file outside the working
+ * directory or without the `.csv` extension, and one already there. Checked
+ * once every record was written, the three refused the run after it had
+ * written, and its summary was never printed. The containment and the
+ * extension keep a misuse from clobbering a file that matters (an
+ * authorized_keys, a profile script, a scheduled task's XML).
+ *
+ * @returns The file, resolved against the working directory.
+ */
+function remapCsvArg(args: readonly string[]): string | undefined {
+  const at = args.indexOf('--remap-csv');
+  if (at < 0) return undefined;
+  const given = args[at + 1];
+  if (given === undefined || given.startsWith('--')) {
+    process.stderr.write('--remap-csv takes the .csv file to write the id table to.\n');
+    process.exit(2);
+  }
+  const resolved = resolvePath(process.cwd(), given);
+  const cwdResolved = resolvePath(process.cwd());
+  const inside = resolved === cwdResolved || resolved.startsWith(cwdResolved + sep);
+  if (!inside) {
+    process.stderr.write(
+      `--remap-csv must stay inside cwd: "${given}" resolves outside ${cwdResolved}\n`,
+    );
+    process.exit(2);
+  }
+  if (!resolved.toLowerCase().endsWith('.csv')) {
+    process.stderr.write(`--remap-csv must use a .csv extension: "${given}"\n`);
+    process.exit(2);
+  }
+  if (existsSync(resolved)) {
+    process.stderr.write(
+      `--remap-csv refuses to overwrite existing file: "${resolved}". Give another file, or ` +
+        'move it.\n',
+    );
+    process.exit(2);
+  }
+  return resolved;
 }
 
 /**
@@ -3949,7 +4048,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // Ctrl-C stops the removal, or the sweep, before its next call to the org,
   // as Cancel does in the panel: an order the removal set to Draft for its
   // delete gets its status back on the way out, where a process killed
-  // outright left it a draft.
+  // outright left it a draft. A SIGTERM or a SIGHUP stops it the same way.
   const stop = new AbortController();
   const interrupt = (): void => stop.abort();
   // The removal is said and its automation asked about before anything is
@@ -4006,11 +4105,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (plan.length > 0) {
     outcome = await removeThePlan();
   } else if (sweepFirst) {
-    process.once('SIGINT', interrupt);
+    const releaseStop = onStopSignal(interrupt);
     try {
       await sweepFirst();
     } finally {
-      process.off('SIGINT', interrupt);
+      releaseStop();
     }
   }
   const sweep = sweepMade.result;
@@ -4057,7 +4156,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 
   /** The removal of what is left of the run, its sweep first, recorded as it always was. */
   async function removeThePlan(): Promise<RunRemovalOutcome> {
-    process.once('SIGINT', interrupt);
+    const releaseStop = onStopSignal(interrupt);
     const span = summary.result.writtenBetween;
     let removal: RunRemovalOutcome;
     try {
@@ -4082,7 +4181,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
         signal: stop.signal,
       });
     } finally {
-      process.off('SIGINT', interrupt);
+      releaseStop();
     }
     // A removal after an earlier one of the summary takes what that one left,
     // as the panel records it: with when that one ended, by the org's clock.
@@ -4544,9 +4643,6 @@ export async function verifyMain(argv: string[] = process.argv): Promise<void> {
   if (code !== 0) process.exit(code);
 }
 
-/** The exit code of a clone Ctrl-C stopped, as a shell gives a process SIGINT ended. */
-const INTERRUPTED_EXIT = 130;
-
 /** The events that end an object, after which the summary file says what the run created. */
 const OBJECT_ENDS: ReadonlySet<ForgeProgressEvent['status']> = new Set([
   'done',
@@ -4855,9 +4951,11 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const runController = new AbortController();
   /** The executor, once made: what a stop tells to stop writing. */
   const running: { executor?: ForgeExecutor } = {};
-  let interrupted = false;
-  const interrupt = (): void => {
-    interrupted = true;
+  // A SIGTERM — Jenkins aborting a build, a `timeout` step — or a SIGHUP stops
+  // it the same way: the summary and the journal say what it created.
+  let interrupted: StopSignal | undefined;
+  const interrupt = (signal: StopSignal): void => {
+    interrupted = signal;
     process.stderr.write(
       '\ninterrupted: the clone stops after the call under way, and says what it created ' +
         '(Ctrl-C again ends it at once)\n',
@@ -4872,9 +4970,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   };
   if (!args.dryRun && !args.rehearse && !args.listObjects) {
     stops.beginRun(operationId, runController);
-    process.once('SIGINT', interrupt);
+    const releaseStop = onStopSignal(interrupt);
     interrupts.release = () => {
-      process.off('SIGINT', interrupt);
+      releaseStop();
       stops.endRun(operationId);
     };
   }
@@ -4889,7 +4987,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     recordClone({ outcome: 'stopped', code: ABORTED_BEFORE_START, context: runAudit().context() });
     await endJournal?.();
     say('interrupted: the clone stopped before it wrote anything');
-    process.exit(INTERRUPTED_EXIT);
+    process.exit(stopExitCode(interrupted ?? 'SIGINT'));
   };
 
   // What the target runs on the objects the run writes, said before anything
@@ -5543,7 +5641,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     const stoppedPartial = gate ? undefined : partialSummaryOf(err);
     const tallies = stoppedPartial ? auditTalliesOf(stoppedPartial) : undefined;
     const objects = tallies ? forgeAuditObjects(tallies) : [];
-    const cancelled = interrupted || err instanceof ForgeAbortedError;
+    const cancelled = interrupted !== undefined || err instanceof ForgeAbortedError;
     const stoppedOutcome = gate
       ? 'stopped'
       : cancelled
@@ -5576,7 +5674,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       process.exit(1);
     }
     const partial = stoppedPartial;
-    if (partial && (interrupted || err instanceof ForgeAbortedError)) {
+    if (partial && (interrupted !== undefined || err instanceof ForgeAbortedError)) {
       const document = runDocument(withRecordTypeCalls(partial), new Date(), {
         interrupted: true,
       });
@@ -5588,7 +5686,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         for (const line of summaryLines(partial, args.dryRun, args.readCeiling)) console.log(line);
       }
       say(interruptedLine(args.summary));
-      process.exit(INTERRUPTED_EXIT);
+      process.exit(stopExitCode(interrupted ?? 'SIGINT'));
     }
     // A failure past the first objects: what the run had created by then is
     // kept for --remove before the failure is said.
@@ -5622,33 +5720,19 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   const finishedAt = new Date();
   const elapsed = finishedAt.getTime() - t0;
 
+  // Machine-readable summary for CI/automation. Stable schema. The summary
+  // file, when asked for, takes the run's end over what it said as it went:
+  // kept before the CSV is written, which could fail once every record was
+  // written and left the run with no summary but its journal.
+  const document = runDocument(summary, finishedAt);
+  keepSummary(document);
+
   // BA reconciliation export. Written before the JSON/text summary so a
-  // post-execute script can pick it up by tailing the file.
+  // post-execute script can pick it up by tailing the file. Its path was
+  // checked before any org was reached (`remapCsvArg`); written only where no
+  // file is, a file made there since is not overwritten either.
+  let remapRefused: string | undefined;
   if (args.remapCsv) {
-    const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    // Containment check: resolve against cwd and refuse anything that
-    // escapes (path traversal). Force `.csv` extension and refuse to
-    // overwrite an existing file so a misuse can't clobber sensitive
-    // files (e.g. authorized_keys, profile.ps1, scheduled-task XML).
-    const resolved = path.resolve(process.cwd(), args.remapCsv);
-    const cwdResolved = path.resolve(process.cwd());
-    const inside = resolved === cwdResolved || resolved.startsWith(cwdResolved + path.sep);
-    if (!inside) {
-      throw new Error(
-        `--remap-csv must stay inside cwd: "${args.remapCsv}" resolves outside ${cwdResolved}`,
-      );
-    }
-    if (!resolved.toLowerCase().endsWith('.csv')) {
-      throw new Error(`--remap-csv must use a .csv extension: "${args.remapCsv}"`);
-    }
-    try {
-      await fs.access(resolved);
-      throw new Error(`--remap-csv refuses to overwrite existing file: "${resolved}"`);
-    } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== 'ENOENT') throw err;
-    }
     const lines = ['sourceId,targetId'];
     for (const [src, tgt] of Object.entries(summary.remapTable)) {
       // Both IDs are validated SF IDs (15/18 alphanum) — safe to embed
@@ -5656,20 +5740,29 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       // something odd, double-quote both columns to neutralize commas.
       lines.push(`"${src.replace(/"/g, '""')}","${tgt.replace(/"/g, '""')}"`);
     }
-    await fs.writeFile(resolved, lines.join('\n') + '\n', 'utf8');
-    say(`remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${resolved}`);
+    try {
+      writeFileSync(args.remapCsv, lines.join('\n') + '\n', { encoding: 'utf8', flag: 'wx' });
+      say(
+        `remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${args.remapCsv}`,
+      );
+    } catch (err: unknown) {
+      remapRefused =
+        (err as NodeJS.ErrnoException | undefined)?.code === 'EEXIST'
+          ? `--remap-csv refuses to overwrite existing file: "${args.remapCsv}"`
+          : `--remap-csv ${args.remapCsv} could not be written: ${extractErrorMessage(err)}`;
+    }
   }
 
-  // Machine-readable summary for CI/automation. Stable schema. The summary
-  // file, when asked for, takes the run's end over what it said as it went.
-  const document = runDocument(summary, finishedAt);
-  keepSummary(document);
   if (args.json) {
     process.stdout.write(JSON.stringify(document, null, 2) + '\n');
   } else {
     console.log('');
     for (const line of summaryLines(summary, args.dryRun, args.readCeiling)) console.log(line);
     console.log(`\ndone in ${elapsed}ms`);
+  }
+  if (remapRefused !== undefined) {
+    process.stderr.write(`${remapRefused}: the summary names what the run created.\n`);
+    process.exit(1);
   }
   if (failedOutright(summary)) {
     process.exit(1);

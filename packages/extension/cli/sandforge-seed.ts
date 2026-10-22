@@ -34,9 +34,9 @@
  * pnpm build:shared.
  */
 
-import { randomInt } from 'node:crypto';
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomInt, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import type {
   ForgeEmailLimit,
@@ -69,18 +69,27 @@ import { LOCALE_DATA } from '../src/modules/seed/LocaleData.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import {
+  nodeSyncRunCreations,
   readRemovalState,
+  readRunFile,
   syncRemovalPlan,
+  type SyncRunCreations,
   type SyncRunKept,
   type SyncRunRemovalState,
 } from '../src/modules/sync/SyncRunCreations.js';
+import { answerJobsInFlight, type IngestJobReading } from '../src/modules/sync/inFlightJob.js';
 import {
+  jobLines,
   removalRefusal,
   removalSummaryLines,
   removalsPathOf,
-  typeTarget,
+  runFileOf,
 } from './sandforge-sync.js';
 import { loadOrg, makeConn } from './sfSession.js';
+import { refuseProductionTarget, typeTarget } from './targetKind.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import { endWith, runExitCode } from './exitCodes.js';
 import {
   SeedOrchestrator,
   type InsertResult,
@@ -110,10 +119,19 @@ import {
   seedEmailGate,
   type SeedEmailGate,
 } from '../src/modules/seed/seedAutomation.js';
-import { seedRunKept } from '../src/modules/seed/SeedRunCreations.js';
+import {
+  nodeSeedRunCreations,
+  SEED_RUNS_DIR,
+  seedRunKept,
+} from '../src/modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
-import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
+import {
+  journalDirOf,
+  sweepLines,
+  sweepListingLines,
+  targetAutomationReader,
+} from './sandforge-clone.js';
 
 /** The locales the faker draws in. */
 const SUPPORTED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
@@ -163,6 +181,10 @@ Options:
   --json                 emit the run summary as JSON      (default: off)
                          Saved to a file, it is what --remove takes the
                          run back from: it names what the run created.
+                         The run's file does too, whatever becomes of the
+                         run (see SANDFORGE_JOURNAL_DIR).
+  --fail-on-partial      exit 3, not 0, when the run wrote some records and
+                         the org refused others            (default: off)
   --help                 this text
 
 Contact points: an object's standard email and phone fields are filled, with
@@ -180,13 +202,18 @@ writes nothing; a dry run says it would be.
 
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
-    --remove <summary.json> --target <alias> [--include-changed] [--sweep | --sweep-list]
-    [--json]
+    --remove <summary.json | run file | run id> --target <alias> [--include-changed]
+    [--sweep | --sweep-list] [--json]
 
-  --remove <file>        the summary a run printed with --json, saved to a
-                         file. Deletes from the org the records the run
-                         created, the last object written first, into the
-                         recycle bin.
+  --remove <file | id>   the summary a run printed with --json, saved to a
+                         file; or the run's file, which it names as it
+                         begins, or its run id. Deletes from the org the
+                         records the run created, the last object written
+                         first, into the recycle bin. From its file, a run
+                         killed, stopped or ended by an error is taken back
+                         too: a Bulk API job it had under way, which ran on in
+                         the org, is read back by its id first, and its
+                         records go with the rest.
   --target <alias>       the org the run wrote to, and no other. It must be a
                          sandbox or a Developer Edition org.
   --include-changed      remove also the records changed since the run, which
@@ -208,7 +235,17 @@ Remove what a run created:
   --json                 print the removal as JSON
 
   What the removal left on the run's records is kept beside the summary, in
-  <summary>.removals.json, and the next --remove of that summary reads it.
+  <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
+  and the next --remove of the same summary or file reads it.
+
+Environment:
+  SANDFORGE_JOURNAL_DIR=<dir>
+                         where every run that writes keeps its file, in
+                         <dir>/seed-runs/<run id>.ndjson (default: ~/.sandforge),
+                         said as it begins: what it created, insert by insert,
+                         its calls as they went and answered, a Bulk API job's
+                         id once the org opened it, and how it ended. Ids and
+                         dates only.
 
 Relations (with --object; the options after a --relation apply to it):
   --relation <Child>.<Lookup>=<Parent>
@@ -225,10 +262,15 @@ Relations (with --object; the options after a --relation apply to it):
                          (implies --existing)
   --parent-limit <n>     the most records --existing reads (default: 10)
 
-Exit codes: 0 the run finished (read the summary for per-object failures), or
-the removal took every record it set out to; 1 the run or the removal could
-not be started; 2 a bad command line, or a summary --remove cannot take a run
-back from; 3 the removal left records of the run in the org.
+Exit codes: 0 the run finished, some of its records refused included (read the
+summary for per-object failures), or the removal took every record it set out
+to; 1 the run or the removal could not be started, the run was refused before
+it wrote — a production org among the reasons —, or it produced only
+failures, or it stopped on an error (its file keeps what it created); 2 a bad
+command line, or a summary or a file --remove cannot take a run back from; 3
+the removal left records of the run in the org, or the run was partial and
+--fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a SIGTERM (a CI
+job cancelled or timed out), 129 a SIGHUP: its file keeps what it created.
 `;
 
 /** Everything the command line settled. */
@@ -241,6 +283,8 @@ interface CliArgs {
   batchSize: number;
   dryRun: boolean;
   json: boolean;
+  /** Exit 3, not 0, when the run wrote some records and the org refused others. */
+  failOnPartial: boolean;
   /** What the run's draws are seeded with; absent, one is drawn and printed. */
   seed?: number;
   /** The locale the faker draws in. */
@@ -406,6 +450,26 @@ function countChildren(
   return counted;
 }
 
+/** What the line of a run reads; a removal's reads its own (`REMOVE_FLAGS`). */
+const RUN_FLAGS: CommandFlags = {
+  switches: ['--list-templates', '--dry-run', '--json', '--existing', '--fail-on-partial'],
+  values: [
+    '--target',
+    '--template',
+    '--object',
+    '--batch-size',
+    '--seed',
+    '--locale',
+    '--record-type',
+    '--relation',
+    '--per-parent',
+    '--between',
+    '--ratio',
+    '--where',
+    '--parent-limit',
+  ],
+};
+
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
@@ -413,6 +477,8 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stdout.write(HELP);
     process.exit(0);
   }
+  // `--dry-run=true` or `--dryrun` dropped without a word ran for real.
+  refuseUnreadArguments(args, RUN_FLAGS);
   if (args.includes('--list-templates')) {
     for (const template of PREBUILT_SEED_TEMPLATES) {
       process.stdout.write(
@@ -516,6 +582,7 @@ export function parseArgs(argv: string[]): CliArgs {
     batchSize,
     dryRun: args.includes('--dry-run'),
     json: args.includes('--json'),
+    failOnPartial: args.includes('--fail-on-partial'),
     ...(seed !== undefined ? { seed } : {}),
     ...(locale !== undefined ? { locale } : {}),
     recordTypes,
@@ -952,8 +1019,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
   const t0 = Date.now();
   const args = parseArgs(argv);
+  // On stderr with --json, where stdout carries the summary alone: dropped
+  // there, a refusal before the first write said nothing at all.
   const log = (line: string): void => {
-    if (!args.json) process.stdout.write(`${line}\n`);
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
   };
   // Drawn once and printed, given back with --seed: the same command draws
   // the same children per parent, a dry run as the run after it.
@@ -963,6 +1032,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`sandforge-seed  -> ${args.target}`);
   log(`seed: ${seed}  (--seed ${seed} draws the same again)`);
   const conn = makeConn(await loadOrg(args.target));
+  // Refused before anything is read on a production org, or one that will
+  // not say what it is: the seed went from the session to its writes, and
+  // its own --remove refuses such an org, so what it wrote there stayed. A
+  // dry run only reads.
+  const typedTarget = args.dryRun
+    ? undefined
+    : await refuseProductionTarget(conn, args.target, {
+        tool: 'sandforge-seed',
+        action: 'write',
+        readOnly: '--dry-run',
+      });
   // Drawn in the org's own locale unless --locale says otherwise, as the
   // panel draws.
   const locale = await seedLocaleOf(args.locale, conn);
@@ -1075,17 +1155,34 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
   log(`template: ${templateDisplayName(template)} (${template.objects.length} object(s))`);
 
+  // What the run creates, kept as it writes it in its file, as the panel's
+  // Seed keeps its runs (`SeedRunCreations`): the command kept it in memory,
+  // printed once the run returned, and a run killed by its CI job's timeout,
+  // out of memory or ended by an error left its records in the org with
+  // nothing --remove could read. Ids and dates only.
+  const runId = `sandforge-seed-${randomUUID()}`;
+  const runs = args.dryRun ? undefined : nodeSeedRunCreations(journalDirOf());
+  const kept = runs?.recorder({
+    runId,
+    targetOrgId: args.target,
+    startedAt,
+    ...(typedTarget ? { targetOrganizationId: typedTarget.id } : {}),
+  });
+  const runFilePath = runs?.pathOf(runId);
+
   // Ctrl-C stops the run as the panel's Cancel does: before the next call, or
   // the Bulk API job still open aborted; what was written is kept in the
-  // summary, which --remove takes back.
+  // summary and the run's file, which --remove takes back. A SIGTERM — a CI
+  // job cancelled or timed out — or a SIGHUP stops it the same way.
   const stop = new AbortController();
-  const interrupt = (): void => {
+  let stoppedBy: StopSignal | undefined;
+  const interrupt = (signal: StopSignal): void => {
+    stoppedBy = signal;
     process.stderr.write(
       '\ninterrupted: the seed stops before its next call to the org, and says what it wrote\n',
     );
     stop.abort();
   };
-  if (!args.dryRun) process.once('SIGINT', interrupt);
   // The panel's write path (`seedInsert`): an object of more than the Bulk API
   // threshold goes as a job, past 10 000 records one job uploaded a chunk at a
   // time, an object a duplicate rule watches through REST.
@@ -1105,6 +1202,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       progressSaid.set(step, tenth);
       log(`  ${step}: ${processed} of ${total}`);
     },
+    // Each call kept before it goes — a Bulk API job with its id once the org
+    // opened it — and as it answers, as the panel's run keeps them: a job
+    // under way when the run was killed is read back by its id.
+    ...(kept
+      ? {
+          calls: {
+            sending: (objectApiName, rows, call) => kept.sending(objectApiName, rows, call),
+            answered: (objectApiName, ids) => kept.answered(objectApiName, ids),
+          },
+        }
+      : {}),
   });
   const insert = async (
     orgId: string,
@@ -1119,6 +1227,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return { successIds: records.map((_, i) => `dry-${i}`), errors: [] };
     }
     const answer = await write(orgId, objectApiName, records, batchSize);
+    kept?.note(objectApiName, answer.successIds);
     log(
       `  ${objectApiName}: ${answer.successIds.length} written, ${answer.errors.length} refused` +
         (answer.stopped ? ', stopped' : ''),
@@ -1152,20 +1261,64 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   });
 
   log(args.dryRun ? '\nexecuting… (DRY-RUN)' : '\nexecuting… (REAL)');
-  let result: Awaited<ReturnType<typeof orchestrator.execute>>;
-  try {
-    result = await orchestrator.execute(template, args.target);
-  } finally {
-    process.off('SIGINT', interrupt);
+  // Said before the first write, on stderr with --json: the file is begun
+  // with the first records the org takes.
+  if (runFilePath !== undefined) {
+    log(`run file: ${runFilePath} (--remove ${runFilePath} takes back what the run creates)`);
   }
+  const releaseStop = args.dryRun ? () => undefined : onStopSignal(interrupt);
+  let result: Awaited<ReturnType<typeof orchestrator.execute>>;
+  /** What could not be written to the run's file, said once the run has ended. */
+  let unkept: string | undefined;
+  const keepFailed = (err: unknown): void => {
+    unkept = err instanceof Error ? err.message : String(err);
+  };
+  try {
+    result = await orchestrator.execute(template, args.target, runId);
+  } catch (err: unknown) {
+    // What it inserted before it threw stays removable, the run ended failed.
+    await kept
+      ?.end({ status: 'failure', finishedAt: new Date().toISOString(), objectResults: [] })
+      .catch(keepFailed);
+    if (runFilePath !== undefined && existsSync(runFilePath)) {
+      process.stderr.write(
+        `the seed stopped on an error; what it created is kept in ${runFilePath}, and ` +
+          `--remove ${runFilePath} takes it back\n`,
+      );
+    }
+    throw err;
+  } finally {
+    releaseStop();
+  }
+  await kept
+    ?.end({
+      finishedAt: new Date().toISOString(),
+      status: result.status,
+      ...(result.cancelled ? { cancelled: true } : {}),
+      objectResults: result.objectResults,
+    })
+    .catch(keepFailed);
+  if (unkept !== undefined) {
+    process.stderr.write(
+      `what the run created could not all be written to ${runFilePath ?? 'its file'} ` +
+        `(${unkept}): --remove takes it back from the --json summary\n`,
+    );
+  }
+  const keptInFile = runFilePath !== undefined && existsSync(runFilePath) ? runFilePath : undefined;
   const elapsedMs = Date.now() - t0;
   // Said last, after the summary that names what it wrote: the run stopped.
   const interrupted = stop.signal.aborted;
-  if (interrupted) process.exitCode = INTERRUPTED_EXIT;
+  endWith(
+    interrupted
+      ? stopExitCode(stoppedBy ?? 'SIGINT')
+      : // A seed whose every record the org refused exited 0, as one that wrote them all.
+        runExitCode(result.status, args.failOnPartial),
+  );
   const created = result.objectResults.reduce((sum, o) => sum + o.createdIds.length, 0);
   // The org's own id, so --remove takes the run back from it and no other,
   // whatever alias names it then.
-  const targetOrgId = !args.dryRun && created > 0 ? await organizationIdOf(conn) : undefined;
+  const targetOrgId =
+    !args.dryRun && created > 0 ? (typedTarget?.id ?? (await organizationIdOf(conn))) : undefined;
 
   if (args.json) {
     process.stdout.write(
@@ -1187,6 +1340,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             ...(automation.gate.unknown ? { unknown: automation.gate.unknown } : {}),
           },
           result,
+          // The run's file, which --remove takes it back from too.
+          ...(keptInFile ? { runFile: keptInFile } : {}),
           elapsedMs,
           ...(interrupted ? { interrupted: true } : {}),
         },
@@ -1194,7 +1349,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         2,
       )}\n`,
     );
-    if (interrupted) process.stderr.write(`${seedInterruptedLine()}\n`);
+    if (interrupted) process.stderr.write(`${seedInterruptedLine(keptInFile)}\n`);
     return;
   }
 
@@ -1207,12 +1362,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`seed: ${seed}`);
   if (!args.dryRun && created > 0) {
     log(
-      `\ncreated ${created} record(s) in ${args.target}: run with --json and save the summary to ` +
-        'a file, and --remove takes them back from it',
+      `\ncreated ${created} record(s) in ${args.target}: ` +
+        (keptInFile !== undefined
+          ? `--remove ${keptInFile} takes them back`
+          : 'run with --json and save the summary to a file, and --remove takes them back from it'),
     );
   }
   if (interrupted) {
-    process.stderr.write(`${seedInterruptedLine()}\n`);
+    process.stderr.write(`${seedInterruptedLine(keptInFile)}\n`);
     return;
   }
   log(`\ndone in ${elapsedMs}ms`);
@@ -1239,15 +1396,17 @@ export function refusalLines(errors: readonly string[]): string[] {
   return others > 0 ? [...lines, `and ${others} other reason(s)`] : lines;
 }
 
-/** The exit code of a run Ctrl-C stopped, as a shell gives a process SIGINT ended. */
-const INTERRUPTED_EXIT = 130;
-
-/** What a seed Ctrl-C stopped says last. Exported so it can be tested. */
-export function seedInterruptedLine(): string {
-  return (
-    'interrupted: the seed stopped before it was through; the summary above says what it ' +
-    'wrote, and --remove takes it back from that summary saved to a file (--json)'
-  );
+/**
+ * What a seed Ctrl-C stopped says last. Exported so it can be tested.
+ *
+ * @param runFile - The run's file, when it keeps what the run created.
+ */
+export function seedInterruptedLine(runFile?: string): string {
+  return runFile !== undefined
+    ? `interrupted: the seed stopped before it was through; ${runFile} keeps what it wrote, ` +
+        `and --remove ${runFile} takes it back`
+    : 'interrupted: the seed stopped before it was through; the summary above says what it ' +
+        'wrote, and --remove takes it back from that summary saved to a file (--json)';
 }
 
 /** The org's own id, or undefined when it does not say. */
@@ -1265,7 +1424,7 @@ async function organizationIdOf(conn: ReturnType<typeof makeConn>): Promise<stri
 
 /** What `--remove` was given. */
 export interface RemoveArgs {
-  /** The summary a run printed with `--json`, saved to a file. */
+  /** The summary a run printed with `--json`, saved to a file; or the run's file, or its id. */
   summaryPath: string;
   /** sf CLI alias of the org the run wrote to. */
   target: string;
@@ -1315,8 +1474,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
   const target = get('--target');
   if (!summaryPath || !target || REMOVE_FLAGS.has(summaryPath) || REMOVE_FLAGS.has(target)) {
     process.stderr.write(
-      '--remove takes the file a run printed its --json summary to, and --target the org the ' +
-        'run wrote to. Run with --help.\n',
+      '--remove takes the file a run printed its --json summary to, or the run file it named ' +
+        'as it began, or its run id, and --target the org the run wrote to. Run with --help.\n',
     );
     process.exit(2);
   }
@@ -1424,24 +1583,67 @@ export function runOfSummary(summary: SeedRunSummary, removal?: SyncRunRemovalSt
 /** The exit code of a removal that left records of the run in the org. */
 const RECORDS_LEFT_EXIT = 3;
 
-/**
- * Remove from the org what a run created, from the summary the run printed
- * with `--json`: the removal Sync runs (`removeSyncRun`), which is Forge's and
- * Frozen's — every object read before anything is deleted, a record changed
- * since the run kept unless `--include-changed`, children before their
- * parents, into the recycle bin, refusals counted with their reasons. The
- * summary and what earlier removals of it kept beside it are read and checked
- * before any org is contacted; then the org is typed, and refused unless it is
- * a sandbox or a Developer Edition org, and the org the run wrote to.
- */
-export async function removeMain(argv: string[] = process.argv): Promise<void> {
-  const t0 = Date.now();
-  const args = parseRemoveArgs(argv);
-  // In --json mode stdout carries the outcome alone, for a parser to read.
-  const say = (line: string): void => {
-    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
-  };
+/** What a removal takes a run back from: the summary it printed, or its file. */
+interface RemovalSubject {
+  /** The run, as the removal reads it, with what earlier removals of it did. */
+  run: SyncRunKept;
+  /** The Organization id of the org it wrote to, when it says it. */
+  targetOrgId?: string;
+  /** What earlier removals of it did. */
+  earlier?: SyncRunRemovalState;
+  /** Keep what this removal does, for the next one. */
+  updateRemoval: (change: (state: SyncRunRemovalState) => SyncRunRemovalState) => Promise<void>;
+  /** Its file's store, when it is taken back from its file: its jobs are read back into it. */
+  runs?: SyncRunCreations;
+}
 
+/**
+ * The run a file of the command keeps, as its file reads it, with what its
+ * removals did, kept beside it in its directory (`SeedRunCreations`).
+ */
+async function subjectOfRunFile(file: string, args: RemoveArgs): Promise<RemovalSubject> {
+  const runs = nodeSyncRunCreations(dirname(file), '');
+  let read: ReturnType<typeof readRunFile>;
+  try {
+    read = readRunFile(readFileSync(file, 'utf8'));
+  } catch (err: unknown) {
+    process.stderr.write(
+      `--remove ${file} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(2);
+  }
+  if (!read || read.configId !== 'sandforge-seed') {
+    process.stderr.write(`--remove ${file} names no run of sandforge-seed.\n`);
+    process.exit(2);
+  }
+  // Read by its run's id, beside what its removals did: under another name,
+  // a removal would not find what the one before it did.
+  if (runs.pathOf(read.runId) !== file) {
+    process.stderr.write(
+      `--remove ${file} is the file of the run ${read.runId} under another name: give it as ` +
+        `${runs.pathOf(read.runId)}, where what its removals did is kept beside it.\n`,
+    );
+    process.exit(2);
+  }
+  const run: SyncRunKept = (await runs.get(read.runId)) ?? read;
+  if (run.targetOrganizationId === undefined && run.targetOrgId !== args.target) {
+    process.stderr.write(
+      `The run wrote to ${run.targetOrgId}, and what it created is removed from that org only: ` +
+        `give --target ${run.targetOrgId}.\n`,
+    );
+    process.exit(2);
+  }
+  return {
+    run,
+    ...(run.targetOrganizationId !== undefined ? { targetOrgId: run.targetOrganizationId } : {}),
+    ...(run.removal ? { earlier: run.removal } : {}),
+    updateRemoval: (change) => runs.updateRemoval(run.runId, change),
+    runs,
+  };
+}
+
+/** The run a summary names, and where what its removals did is kept: beside the summary. */
+function subjectOfSummary(args: RemoveArgs, say: (line: string) => void): RemovalSubject {
   let text: string;
   try {
     text = readFileSync(args.summaryPath, 'utf8');
@@ -1497,6 +1699,52 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
   }
   const run = runOfSummary(summary, earlier);
+  let state: SyncRunRemovalState = earlier ?? {};
+  return {
+    run,
+    ...(summary.targetOrgId !== undefined ? { targetOrgId: summary.targetOrgId } : {}),
+    ...(earlier ? { earlier } : {}),
+    // Kept beside the summary whatever the removal ended on, written whole
+    // through a file renamed over it.
+    updateRemoval: async (change) => {
+      state = change(state);
+      const written = `${removalsFile}.${process.pid}.tmp`;
+      writeFileSync(
+        written,
+        `${JSON.stringify({ version: 1, runId: run.runId, ...state }, null, 2)}\n`,
+      );
+      renameSync(written, removalsFile);
+    },
+  };
+}
+
+/**
+ * Remove from the org what a run created, from the summary the run printed
+ * with `--json`, or from its file — the file's path, or the run's id — which
+ * a run killed, stopped or ended by an error leaves too: the removal Sync runs
+ * (`removeSyncRun`), which is Forge's and Frozen's — every object read before
+ * anything is deleted, a record changed since the run kept unless
+ * `--include-changed`, children before their parents, into the recycle bin,
+ * refusals counted with their reasons. The summary, or the file, and what
+ * earlier removals of it kept beside it are read and checked before any org is
+ * contacted; then the org is typed, and refused unless it is a sandbox or a
+ * Developer Edition org, and the org the run wrote to. A Bulk API job the file
+ * names that no line of it answers is read back from the org first, by its
+ * id, and its records are removed with the rest.
+ */
+export async function removeMain(argv: string[] = process.argv): Promise<void> {
+  const t0 = Date.now();
+  const args = parseRemoveArgs(argv);
+  // In --json mode stdout carries the outcome alone, for a parser to read.
+  const say = (line: string): void => {
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
+  };
+
+  const file = runFileOf(args.summaryPath, journalDirOf(), SEED_RUNS_DIR);
+  const subject =
+    file !== undefined ? await subjectOfRunFile(file, args) : subjectOfSummary(args, say);
+  const { earlier } = subject;
+  let run = subject.run;
 
   const output = (
     status: ForgeUndoStatus,
@@ -1528,9 +1776,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     say(`\ndone in ${Date.now() - t0}ms`);
   };
 
-  const plan = syncRemovalPlan(run);
-  // A sweep, or its listing, still has the run's window to look in.
-  if (plan.length === 0 && !args.sweep && !args.sweepList) {
+  /** Whether the run's file names a Bulk API job that no line of it answers. */
+  const jobsUnanswered = subject.runs !== undefined && (run.jobs ?? []).length > 0;
+  // A sweep, or its listing, still has the run's window to look in; a job
+  // no line answers, the records it created.
+  if (syncRemovalPlan(run).length === 0 && !jobsUnanswered && !args.sweep && !args.sweepList) {
     say(
       earlier?.undo
         ? `what the run created was removed already, on ${earlier.undo.removedAt}`
@@ -1550,15 +1800,28 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.exit(1);
   }
   if (
-    summary.targetOrgId !== undefined &&
-    summary.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
+    subject.targetOrgId !== undefined &&
+    subject.targetOrgId.slice(0, 15) !== org.id.slice(0, 15)
   ) {
     process.stderr.write(
-      `${args.target} is not the org the run wrote to (${summary.targetOrgId}), and what it ` +
+      `${args.target} is not the org the run wrote to (${subject.targetOrgId}), and what it ` +
         'created is removed from that org only. Nothing was deleted.\n',
     );
     process.exit(1);
   }
+  // The Bulk API jobs the run's file names that no line of it answers: a run
+  // killed, or ended by an error, while one ran. The job ran on to its end in
+  // the org; read back by its id, what it created goes into the run's file,
+  // and is removed with the rest.
+  if (jobsUnanswered && subject.runs) {
+    const runs = subject.runs;
+    const answered = await answerJobsInFlight(runs, run, conn as unknown as IngestJobReading, () =>
+      removalOrg(conn, 'sandforge-seed --remove').serverTime(),
+    );
+    for (const line of jobLines(answered, args.target)) say(line);
+    if (answered.some((job) => job.answered)) run = (await runs.get(run.runId)) ?? run;
+  }
+  const plan = syncRemovalPlan(run);
   /** What a sweep is told: the run's records read back for its window, and what the target's flows create. */
   const sweepInput = async (signal?: AbortSignal) => {
     let automation: ForgeTargetAutomation | { error: string };
@@ -1617,10 +1880,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     );
   }
 
-  // Ctrl-C stops the removal before its next call to the org.
+  // Ctrl-C stops the removal before its next call to the org; a SIGTERM or a
+  // SIGHUP does too.
   const stop = new AbortController();
-  const interrupt = (): void => stop.abort();
-  process.once('SIGINT', interrupt);
+  const releaseStop = onStopSignal(() => stop.abort());
   let state: SyncRunRemovalState = earlier ?? {};
   // The sweep comes before the run's records go, as the panel's does: a task
   // the target's automation opened on one of them would otherwise stay. The
@@ -1656,21 +1919,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       ...(sweepFirst ? { sweep: sweepFirst } : {}),
       signal: stop.signal,
       store: {
-        // Kept beside the summary whatever the removal ended on, written
-        // whole through a file renamed over it.
-        updateRemoval: async (_runId, change) => {
-          state = change(state);
-          const written = `${removalsFile}.${process.pid}.tmp`;
-          writeFileSync(
-            written,
-            `${JSON.stringify({ version: 1, runId: run.runId, ...state }, null, 2)}\n`,
-          );
-          renameSync(written, removalsFile);
-        },
+        // Kept beside the summary, or beside the run's file, whatever the
+        // removal ended on.
+        updateRemoval: (_runId, change) =>
+          subject.updateRemoval((kept) => {
+            state = change(kept);
+            return state;
+          }),
       },
     });
   } finally {
-    process.off('SIGINT', interrupt);
+    releaseStop();
   }
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
   const sweep = sweepMade.result;

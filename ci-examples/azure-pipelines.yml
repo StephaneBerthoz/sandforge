@@ -3,7 +3,8 @@
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx, its
-#                        JSON summary saved to clone-summary.json
+#                        JSON summary written to clone-summary.json as it goes,
+#                        its journal kept under sandforge-journal/
 #   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
 #                        back what that clone created, and nothing else
 #   4. VSIX package    — pnpm package, published as a pipeline artifact
@@ -50,6 +51,10 @@ parameters:
     displayName: 'Clone for real although flows or Apex triggers of the target fire as the records are inserted'
     type: boolean
     default: false
+  - name: acceptRemovalAutomation
+    displayName: 'Remove all the same although flows or Apex triggers of the target fire as the records are deleted'
+    type: boolean
+    default: false
 
 variables:
   - group: SandForge-Credentials
@@ -65,6 +70,17 @@ variables:
       value: '--accept-automation'
     ${{ else }}:
       value: ''
+  - name: removalAutomationFlag
+    ${{ if eq(parameters.acceptRemovalAutomation, true) }}:
+      value: '--accept-automation'
+    ${{ else }}:
+      value: ''
+  # The clone's journal, line by line as it writes, ids only: what --remove
+  # takes a run back from however it ended — killed at the job's timeout
+  # included — kept in the sources folder and published with the report. In
+  # the agent's home it went away with the hosted agent.
+  - name: SANDFORGE_JOURNAL_DIR
+    value: $(Build.SourcesDirectory)/sandforge-journal
 
 pool:
   vmImage: 'ubuntu-latest'
@@ -140,6 +156,9 @@ stages:
               SFDX_AUTH_URL_TARGET: $(SFDX_AUTH_URL_TARGET)
             displayName: 'Authenticate source and target orgs'
 
+          # --summary writes the summary as the run goes, after each object it
+          # ends: a clone that fails part way keeps there what it created,
+          # where its stdout carries nothing. stdout is kept beside it.
           - script: |
               pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
                 --record "$(SF_CLONE_RECORD_ID)" \
@@ -149,9 +168,10 @@ stages:
                 $(dryRunFlag) \
                 $(automationFlag) \
                 --json \
+                --summary clone-summary.json \
                 --remap-csv remap.csv \
                 --audit clone-audit.json \
-                > clone-summary.json
+                > clone-output.json
             displayName: 'Clone record graph (sandforge-clone)'
 
           # Your checks against the cloned records go here.
@@ -162,12 +182,15 @@ stages:
           # run created nothing and its summary is refused, so this step is
           # only there after a real clone. What the removal wrote to the
           # records it kept goes to clone-summary.removals.json, which a later
-          # --remove of the same summary reads: both go with the report.
+          # --remove of the same summary reads: both go with the report. It
+          # deletes nothing and exits 1 when the target's flows or triggers
+          # fire as the records are deleted, unless acceptRemovalAutomation.
           - ${{ if and(eq(parameters.dryRun, false), eq(parameters.removeAfter, true)) }}:
               - script: |
                   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
                     --remove clone-summary.json \
                     --target ci-target \
+                    $(removalAutomationFlag) \
                     --json \
                     --audit clone-audit.json \
                     > clone-removal.json
@@ -181,10 +204,12 @@ stages:
             inputs:
               Contents: |
                 clone-summary.json
+                clone-output.json
                 clone-summary.removals.json
                 clone-removal.json
                 clone-audit.json
                 remap.csv
+                sandforge-journal/forge-runs/**
               TargetFolder: $(Build.ArtifactStagingDirectory)/clone-report
             displayName: 'Collect the clone report'
 

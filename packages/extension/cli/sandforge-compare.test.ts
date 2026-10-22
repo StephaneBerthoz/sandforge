@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { CompareItem, CompareResult } from '@sandforge/shared';
+import { join } from 'node:path';
+import type { CompareItem, CompareResult, DeploymentReport } from '@sandforge/shared';
+import type { PanelAnswer } from './panelHost.js';
 import {
+  compareExitCode,
   parseArgs,
   modifiedByType,
   describeCoverage,
@@ -305,5 +308,91 @@ describe('describeAnswer', () => {
       `    ${'ApexClass'.padEnd(26)} source     3  target     4   +1 -0 ~1 =1 ?1`,
     );
     expect(lines).toContain('  modified ApexClass: Billing');
+  });
+});
+
+describe('the exit code of a comparison', () => {
+  /** An answer to `type`, settled with `payload`. */
+  const answered = (type: string, payload: unknown, outcome: PanelAnswer['outcome'] = 'answered') =>
+    ({
+      outcome,
+      message: { id: 'r', type, timestamp: 0, payload },
+      elapsedMs: 10,
+      late: false,
+    }) as PanelAnswer;
+  /** A validation's report, a success unless `over` says otherwise. */
+  const report = (over: Partial<DeploymentReport> = {}, counts = {}) => ({
+    report: {
+      deployId: '0Af000000000001',
+      checkOnly: true,
+      status: 'Succeeded',
+      success: true,
+      testLevel: 'NoTestRun',
+      runTests: [],
+      components: [],
+      testFailures: [],
+      coverageWarnings: [],
+      ...over,
+      counts: {
+        componentsTotal: 1,
+        componentsDeployed: 1,
+        componentErrors: 0,
+        testsTotal: 0,
+        testsCompleted: 0,
+        testErrors: 0,
+        ...counts,
+      },
+    },
+  });
+
+  it('exits 3 when a validation fails to compile, or its tests fail, where it exited 0 and passed the gate', () => {
+    const validate = (payload: unknown) => [
+      {
+        op: 'validate-deployment' as const,
+        answer: answered('compare:validate-deployment:response', payload),
+      },
+    ];
+    expect(compareExitCode(validate(report()))).toBe(0);
+    expect(compareExitCode(validate(report({ success: false, status: 'Failed' })))).toBe(3);
+    expect(compareExitCode(validate(report({}, { componentErrors: 1 })))).toBe(3);
+    expect(compareExitCode(validate(report({}, { testErrors: 2 })))).toBe(3);
+    expect(compareExitCode(validate({}))).toBe(3);
+  });
+
+  it('exits 1 when a request failed, was refused or was not answered', () => {
+    for (const outcome of ['failed', 'refused', 'unanswered'] as const) {
+      expect(
+        compareExitCode([{ op: 'drift', answer: answered('compare:error', {}, outcome) }]),
+      ).toBe(1);
+    }
+  });
+
+  it('reads a diff whatever it found, unless --fail-on-drift', () => {
+    const diff = [{ op: 'execute' as const, answer: answered('compare:execute:response', RESULT) }];
+    expect(compareExitCode(diff)).toBe(0);
+    expect(compareExitCode(diff, true)).toBe(3);
+    const same = { ...RESULT, summary: { ...RESULT.summary, added: 0, removed: 0, modified: 0 } };
+    expect(
+      compareExitCode(
+        [{ op: 'execute', answer: answered('compare:execute:response', same) }],
+        true,
+      ),
+    ).toBe(0);
+  });
+
+  it('refuses --validate=Type:Name, which it dropped, and a misspelt flag', () => {
+    const line = ['--source', 'SRC', '--target', 'TGT', '--op', 'drift'];
+    expect(refuse(...line, '--validate=ApexClass:A').code).toBe(2);
+    expect(refuse(...line, '--all-type').code).toBe(2);
+    expect(refuse(...line).code).toBeUndefined();
+  });
+
+  it('keeps its store in the folder SANDFORGE_JOURNAL_DIR names, where it was a shared temp folder', () => {
+    const args = parseArgs(argv('--source', 'SRC', '--target', 'TGT', '--op', 'drift'));
+    expect(args.storeDir).toBe(join(String(process.env['SANDFORGE_JOURNAL_DIR']), 'compare'));
+    expect(
+      parseArgs(argv('--source', 'SRC', '--target', 'TGT', '--op', 'drift', '--store', 'mine'))
+        .storeDir,
+    ).toBe('mine');
   });
 });

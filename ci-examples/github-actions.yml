@@ -3,7 +3,8 @@
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx, its
-#                        JSON summary saved to clone-summary.json
+#                        JSON summary written to clone-summary.json as it goes,
+#                        its journal kept under sandforge-journal/
 #   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
 #                        back what that clone created, and nothing else
 #   4. VSIX package    — pnpm package, uploaded as an artifact
@@ -53,6 +54,14 @@ on:
         options:
           - 'true'
           - 'false'
+      accept_removal_automation:
+        description: 'Remove all the same although flows or Apex triggers of the target fire as the records are deleted'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
   schedule:
     - cron: '0 6 * * 1'
 
@@ -61,6 +70,7 @@ env:
   DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
   REMOVE_AFTER: ${{ github.event.inputs.remove_after || 'false' }}
   ACCEPT_AUTOMATION: ${{ github.event.inputs.accept_automation || 'false' }}
+  ACCEPT_REMOVAL_AUTOMATION: ${{ github.event.inputs.accept_removal_automation || 'false' }}
 
 jobs:
   quality:
@@ -97,6 +107,13 @@ jobs:
     needs: quality
     # Only runs when the repo admin has configured sf org secrets and a record.
     if: vars.SANDFORGE_SF_ORGS == 'true' && vars.SF_CLONE_RECORD_ID != ''
+    env:
+      # The clone's journal, line by line as it writes, ids only: what --remove
+      # takes a run back from however it ended — killed at the job's timeout
+      # included — kept in the workspace and uploaded with the report. In the
+      # runner's home it went away with the hosted runner. Not a hidden folder:
+      # upload-artifact leaves those out.
+      SANDFORGE_JOURNAL_DIR: ${{ github.workspace }}/sandforge-journal
     steps:
       - uses: actions/checkout@v4
 
@@ -141,6 +158,9 @@ jobs:
           # on insert, unless told to go on: see ci-examples/README.md.
           AUTOMATION_FLAG=""
           [ "$ACCEPT_AUTOMATION" = "true" ] && AUTOMATION_FLAG="--accept-automation"
+          # --summary writes the summary as the run goes, after each object it
+          # ends: a clone that fails part way keeps there what it created,
+          # where its stdout carries nothing. stdout is kept beside it.
           pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
             --record "$SF_CLONE_RECORD_ID" \
             --source ci-source \
@@ -149,9 +169,10 @@ jobs:
             $DRY_FLAG \
             $AUTOMATION_FLAG \
             --json \
+            --summary clone-summary.json \
             --remap-csv remap.csv \
             --audit clone-audit.json \
-            > clone-summary.json
+            > clone-output.json
 
       # Your checks against the cloned records go here.
 
@@ -161,13 +182,18 @@ jobs:
       # nothing and its summary is refused, so this runs after a real clone
       # only. What the removal wrote to the records it kept goes to
       # clone-summary.removals.json, which a later --remove of the same summary
-      # reads: both are kept with the report.
+      # reads: both are kept with the report. It writes nothing and exits 1
+      # when the target's flows or triggers fire as the records are deleted,
+      # unless told to go on: see ci-examples/README.md.
       - name: Remove what the clone created (sandforge-clone --remove)
         if: env.DRY_RUN != 'true' && env.REMOVE_AFTER == 'true'
         run: |
+          REMOVAL_AUTOMATION_FLAG=""
+          [ "$ACCEPT_REMOVAL_AUTOMATION" = "true" ] && REMOVAL_AUTOMATION_FLAG="--accept-automation"
           pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
             --remove clone-summary.json \
             --target ci-target \
+            $REMOVAL_AUTOMATION_FLAG \
             --json \
             --audit clone-audit.json \
             > clone-removal.json
@@ -179,10 +205,12 @@ jobs:
           name: clone-report
           path: |
             clone-summary.json
+            clone-output.json
             clone-summary.removals.json
             clone-removal.json
             clone-audit.json
             remap.csv
+            sandforge-journal/forge-runs
           retention-days: 30
 
   package-vsix:
