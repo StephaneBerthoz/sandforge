@@ -77,6 +77,7 @@ import {
   type SyncFileStore,
 } from '../src/modules/sync/SyncFiles.js';
 import { toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
+import { readColumnsApart } from '../src/core/common/wideRead.js';
 import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
 import { SyncConfigStore } from '../src/modules/sync/SyncConfigStore.js';
 import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.js';
@@ -704,9 +705,13 @@ export function cliAllowsDeletes(org: TypedTarget): boolean {
 /**
  * Read every row of an object, following the cursor.
  *
- * `FIELDS(ALL)` with the explicit-field fallback, the same two-step the panel
- * uses: an org that refuses the shorthand still gets read. Exported so the
- * read can be tested.
+ * Its fields named from the describe, as the panel names them: `FIELDS(ALL)`,
+ * which Salesforce answers only under a LIMIT of 200 at most, was asked first
+ * with none and refused every time — a request per object. Too long for one
+ * query, the fields are read in column groups (`readColumnsApart`): named in
+ * one statement, an object of hundreds of fields was refused with a 414 or a
+ * 431.
+ * Exported so the read can be tested.
  */
 export function buildQueryFn(conn: Connection) {
   return async (
@@ -724,25 +729,23 @@ export function buildQueryFn(conn: Connection) {
       query: async (q: string) => conn.query<Record<string, unknown>>(q),
       queryMore: async (url: string) => conn.queryMore<Record<string, unknown>>(url),
     };
-    const answer = (paged: { records: Record<string, unknown>[]; truncated: boolean }) => {
-      if (paged.truncated) read?.onBoundReached?.();
-      return paged.records;
-    };
-    try {
-      // No LIMIT, as the panel asks: Salesforce answers FIELDS(ALL) only under
-      // a LIMIT of 200 at most, and asked so the command synced the first 200
-      // rows of every object without a word. Refused, the read goes on by name.
-      return answer(await queryAllPages(pages, `SELECT FIELDS(ALL) FROM ${object}${where}`));
-    } catch {
-      const described = await conn.sobject(object).describe();
-      const fields = described.fields
-        .filter((f) => f.type !== 'address' && f.type !== 'location')
-        .map((f) => f.name)
-        .join(', ');
-      // Asked by name with no LIMIT, the rows come a page of 2 000 at most at
-      // a time: every page is read, as the panel reads them.
-      return answer(await queryAllPages(pages, `SELECT ${fields} FROM ${object}${where}`));
-    }
+    const described = await conn.sobject(object).describe();
+    const fields = described.fields
+      .filter((f) => f.type !== 'address' && f.type !== 'location')
+      .map((f) => f.name);
+    let truncated = false;
+    // Asked by name with no LIMIT, the rows come a page of 2 000 at most at
+    // a time: every page is read, as the panel reads them.
+    const records = await readColumnsApart(
+      `SELECT ${(fields.length > 0 ? fields : ['Id']).join(', ')} FROM ${object}${where}`,
+      async (statement) => {
+        const paged = await queryAllPages(pages, statement);
+        truncated ||= paged.truncated;
+        return paged.records;
+      },
+    );
+    if (truncated) read?.onBoundReached?.();
+    return records;
   };
 }
 

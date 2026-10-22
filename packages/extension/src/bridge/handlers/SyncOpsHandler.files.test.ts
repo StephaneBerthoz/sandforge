@@ -127,7 +127,7 @@ function mockOrgs() {
       if (source && soql.startsWith('SELECT COUNT() FROM Account')) {
         return { done: true, totalSize: soql.includes('IsPersonAccount') ? 0 : 1, records: [] };
       }
-      if (source && soql.startsWith('SELECT FIELDS(ALL) FROM Account')) {
+      if (source && soql.startsWith('SELECT Id, Name, Ext_Id__c FROM Account')) {
         return {
           done: true,
           records: [

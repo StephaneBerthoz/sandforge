@@ -448,7 +448,9 @@ function fakeDataOrg(
         .map((row) => ({ ...row }));
       return { totalSize: records.length, done: true, records };
     }
-    const table = /^SELECT [\w, ]+ FROM (\w+)$/.exec(soql);
+    // A selected object's lookups, read in the order of the ids as the run
+    // copies it: the rows are listed in that order.
+    const table = /^SELECT [\w, ]+ FROM (\w+)(?: ORDER BY Id)?$/.exec(soql);
     if (table && objects[table[1]]) {
       const records = (objects[table[1]]?.rows ?? []).map((row) => ({ ...row }));
       return { totalSize: records.length, done: true, records };

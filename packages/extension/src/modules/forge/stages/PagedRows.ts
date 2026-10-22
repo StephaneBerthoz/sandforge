@@ -9,6 +9,12 @@
  * wrote, never the rows.
  */
 
+import {
+  pagesColumnsApart,
+  readOtherColumns,
+  wideStatement,
+} from '../../../core/common/wideRead.js';
+
 /** A row as the source org answers it. */
 export type SourceRow = Record<string, unknown>;
 
@@ -73,3 +79,44 @@ export function pagesOfStatement(
     size,
   );
 }
+
+/**
+ * `deps`, reading a statement too wide for one query URI in column groups
+ * (`core/common/wideRead`): the statement as written naming its first group,
+ * the others read by the ids it returned. Every read of a run goes through
+ * these two — the stages' too, which are handed the run's deps — so none
+ * sends a statement past the URI an org accepts: an Account of eight hundred
+ * fields failed its root read with ERROR_HTTP_431 before a row was read. A
+ * statement that fits goes to `deps` as it was given.
+ *
+ * Everything else is `deps`' own, read when it is called, as `deps` itself
+ * would be.
+ */
+export function readingInColumnGroups<D extends PagedReadDeps>(deps: D): D {
+  const queryRecords: PagedReadDeps['queryRecords'] = async (...args) => {
+    const [orgId, soql, ...rest] = args;
+    const wide = wideStatement(soql);
+    if (!wide) return deps.queryRecords(...args);
+    return readOtherColumns(
+      await deps.queryRecords(orgId, wide.first, ...rest),
+      wide,
+      (statement) => deps.queryRecords(orgId, statement),
+    );
+  };
+  const queryPages = (orgId: string, soql: string): AsyncIterable<SourceRow[]> =>
+    pagesColumnsApart(
+      soql,
+      (statement) => deps.queryPages?.(orgId, statement) ?? noPages(),
+      (statement) => deps.queryRecords(orgId, statement),
+    );
+  return new Proxy(deps, {
+    get(target, property, receiver) {
+      if (property === 'queryRecords') return queryRecords;
+      if (property === 'queryPages') return target.queryPages ? queryPages : undefined;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+/** No page at all: what a cursor gone from the deps since gives. */
+async function* noPages(): AsyncGenerator<SourceRow[]> {}

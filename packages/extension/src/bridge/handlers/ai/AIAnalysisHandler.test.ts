@@ -208,9 +208,10 @@ describe('AIAnalysisHandler', () => {
     expect(response.payload.anomalies).toHaveLength(1);
   });
 
-  it('states the 200-row bound of a scan on an object too wide to name its fields', async () => {
-    // 700 described fields make the explicit query too long to send, so the
-    // scan goes out as FIELDS(ALL) at the 200 rows the platform allows.
+  it('states the bound it asked of a scan on an object too wide to name its fields in one query', async () => {
+    // 700 described fields make the explicit query too long to send whole:
+    // they are read in column groups, at the rows asked, where the scan went
+    // out as FIELDS(ALL) at the 200 rows the platform allows.
     const conn = {
       query: vi.fn().mockResolvedValue({ done: true, totalSize: 1, records: [{ Id: '001A' }] }),
       queryMore: vi.fn(),
@@ -230,7 +231,8 @@ describe('AIAnalysisHandler', () => {
     await handler.handle(createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account' }));
 
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.payload.sample).toEqual({ read: 1, limit: 200 });
+    expect(response.payload.sample).toEqual({ read: 1, limit: 500 });
+    expect(conn.query.mock.calls.some(([soql]) => String(soql).includes('FIELDS('))).toBe(false);
   });
 
   it('raises no unused-field advice on objects that carry custom fields', async () => {

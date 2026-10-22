@@ -221,6 +221,65 @@ describe('CloneRecordFetcher', () => {
     });
   });
 
+  describe('an object too wide to name its fields in one query', () => {
+    /** 700 createable fields: named in one statement, a URL the org refuses (414). */
+    const custom = Array.from(
+      { length: 700 },
+      (_, i) => `Custom_Field_${String(i).padStart(3, '0')}__c`,
+    );
+    const ids = Array.from({ length: 120 }, (_, i) => `001${String(i).padStart(12, '0')}AAA`);
+
+    /** A connection answering the fields a statement names, by its ids, refusing a URL too long. */
+    function wideConnection(): Connection {
+      return {
+        describe: vi.fn().mockResolvedValue({
+          fields: [
+            { name: 'Id', createable: false, type: 'id' },
+            ...custom.map((name) => ({ name, createable: true, type: 'string' })),
+          ],
+        }),
+        query: vi.fn(async (soql: string) => {
+          if (encodeURIComponent(soql).length > 15_400)
+            throw new Error('ERROR_HTTP_414: URI Too Long');
+          const named = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+          const asked = new Set([...soql.matchAll(/'(001\d{12}AAA)'/g)].map((m) => m[1]));
+          const limit = /LIMIT (\d+)$/.exec(soql);
+          const records = ids
+            .filter((id) => asked.size === 0 || asked.has(id))
+            .slice(0, limit ? Number(limit[1]) : undefined)
+            .map((Id) => ({
+              attributes: { type: 'Account' },
+              ...Object.fromEntries(named.map((name) => [name, name === 'Id' ? Id : 'v'])),
+            }));
+          return { done: true, totalSize: records.length, records };
+        }),
+        queryMore: vi.fn(),
+      } as unknown as Connection;
+    }
+
+    it('fetches every field of every record, each statement within the URL', async () => {
+      const wide = wideConnection();
+
+      const records = await fetcher.fetchRecords(wide, 'Account');
+
+      expect(records).toHaveLength(120);
+      expect(records[119]).toMatchObject({ Id: ids[119], Custom_Field_699__c: 'v' });
+      expect(records[0]).not.toHaveProperty('attributes');
+      for (const [soql] of vi.mocked(wide.query).mock.calls) {
+        expect(encodeURIComponent(String(soql)).length).toBeLessThanOrEqual(14_000);
+      }
+    });
+
+    it('samples every field of the records its LIMIT takes', async () => {
+      const wide = wideConnection();
+
+      const records = await fetcher.fetchSample(wide, 'Account', 5);
+
+      expect(records).toHaveLength(5);
+      expect(records[4]).toMatchObject({ Id: ids[4], Custom_Field_699__c: 'v' });
+    });
+  });
+
   it('handles empty result gracefully', async () => {
     const mockQuery = vi.mocked(conn.query);
     mockQuery.mockResolvedValueOnce({

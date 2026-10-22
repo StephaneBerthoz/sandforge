@@ -72,7 +72,7 @@ import {
   type NodeQueryResult,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
-import { pagesOfStatement } from './stages/PagedRows.js';
+import { pagesOfStatement, readingInColumnGroups } from './stages/PagedRows.js';
 import { FORGE_QUERY_MAX_RECORDS } from './queryAllPages.js';
 import { ContactPointNeutralizer } from './stages/ContactPointNeutralizer.js';
 import {
@@ -2974,9 +2974,13 @@ export class ForgeExecutor {
   /** The run `execute` has under way, for {@link summarySoFar}; null between runs. */
   private running: ExecutionState | null = null;
 
-  /** @param deps - Injected dependencies for org data operations. */
+  /**
+   * @param deps - Injected dependencies for org data operations. Their reads
+   *   of a statement too wide for one query URI are made in column groups
+   *   (`readingInColumnGroups`).
+   */
   constructor(deps: ForgeExecutorDeps) {
-    this.deps = deps;
+    this.deps = readingInColumnGroups(deps);
   }
 
   /**

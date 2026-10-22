@@ -674,6 +674,7 @@
     },
     "executeDesc": "Executar a operação de seed",
     "cancelRunConfirm": "Parar a geração em execução? Os registros já inseridos permanecem na org.",
+    "volumeTooMany": "{{object}}: no máximo {{most}} registros por objeto em uma geração.",
     "fieldRules": {
       "static": "Valor estático",
       "random": "Aleatório",
@@ -3883,7 +3884,9 @@
         "required": "um registro não pode ser gravado sem ele: esses registros serão recusados",
         "standardNeeded": "{{object}} é levado embora objetos padrão não tenham sido pedidos: {{field}} não pode ficar vazio.",
         "followedByDefault": "{{object}} é seguido embora objetos padrão não tenham sido pedidos, como é por padrão: {{fields}} fazem referência a ele.",
-        "currencies": "Moedas que a org de destino não tem ativas: {{currencies}}. Um registro em uma delas é gravado em {{writtenIn}}, sua moeda corporativa, com seus valores convertidos pelas taxas da org de origem ({{objects}})."
+        "currencies": "Moedas que a org de destino não tem ativas: {{currencies}}. Um registro em uma delas é gravado em {{writtenIn}}, sua moeda corporativa, com seus valores convertidos pelas taxas da org de origem ({{objects}}).",
+        "cutShort": "{{object}}: são copiados os primeiros {{copied}} dos seus {{total}} registros por Id, com os registros pai que eles referenciam — uma leitura dos lookups dele não leva mais.",
+        "cutShortUncounted": "{{object}}: são copiados os primeiros {{copied}} dos seus registros por Id, com os registros pai que eles referenciam — uma leitura dos lookups dele não leva mais."
       },
       "notCovered": "{{object}}: nenhuma regra de anonimização para {{missing}}. Esses dados seriam copiados como a origem os contém.",
       "personal": {
@@ -4888,6 +4891,10 @@
         "explanation": "O Salesforce recusou a solicitação: a org para a qual ela ia esgotou as solicitações de API que lhe são permitidas em 24 horas, ou está executando muitas solicitações longas ao mesmo tempo. O clone grava até 200 registros por solicitação, e as leituras e descrições dele consomem solicitações próprias.",
         "action": "Espere até que o contador dessa org libere solicitações — a página Monitor mostra o uso de API dela — e então tente de novo; uma profundidade menor ou menos registros por objeto consomem menos solicitações."
       }
+    },
+    "uriTooLong": {
+      "explanation": "O Salesforce recusou a consulta antes de lê-la: uma consulta viaja no endereço da solicitação, e esta é mais longa do que a org aceita (414 URI Too Long, ou 431 Request Header Fields Too Large). O SandForge lê um objeto de muitos campos em grupos de campos que cabem; uma consulta escrita à mão, ou um filtro longo, ainda pode passar do limite.",
+      "action": "Encurte a consulta ou o filtro dela — menos campos, ou menos IDs de cada vez — e execute de novo."
     },
     "sessionExpired": {
       "explanation": "O Salesforce não aceita mais a sessão que o SandForge mantém para esta org: ela expirou, ou foi encerrada por um logout, uma troca de senha ou um administrador.",

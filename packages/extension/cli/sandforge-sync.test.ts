@@ -537,10 +537,11 @@ describe('the files a run copies', () => {
 });
 
 describe('the read of an object', () => {
-  it('reads every page of the fields an org that refuses FIELDS(ALL) is asked for by name', async () => {
+  it('reads every page of the fields it names from the describe, never asking FIELDS(ALL)', async () => {
     // Asked by name, with no LIMIT, the fields come 2 000 records at most at
     // a time with a cursor to the rest: the command read the first page and
-    // synced the object short.
+    // synced the object short. Asked FIELDS(ALL) with no LIMIT first, the org
+    // refused the read every time.
     const NEXT = '/services/data/v66.0/query/01g000000000001-2000';
     const conn = {
       query: vi.fn(async (soql: string) => {
@@ -562,9 +563,43 @@ describe('the read of an object', () => {
 
     const rows = await buildQueryFn(conn as unknown as Connection)('SRC', account);
 
-    expect(conn.query).toHaveBeenLastCalledWith('SELECT Id, Name FROM Account');
+    expect(conn.query.mock.calls).toEqual([['SELECT Id, Name FROM Account']]);
     expect(conn.queryMore).toHaveBeenCalledWith(NEXT);
     expect(rows).toEqual([{ Id: '001000000000001AAA' }, { Id: '001000000000002AAA' }]);
+  });
+
+  it('reads every field of an object too wide to name them in one query, within the URL', async () => {
+    // Named in one statement, 700 fields make a URL the org refuses (414).
+    const fields = [
+      'Id',
+      ...Array.from({ length: 700 }, (_, i) => `Custom_Field_${String(i).padStart(3, '0')}__c`),
+    ];
+    const ids = Array.from({ length: 300 }, (_, i) => `001${String(i).padStart(12, '0')}AAA`);
+    const conn = {
+      query: vi.fn(async (soql: string) => {
+        if (encodeURIComponent(soql).length > 15_400)
+          throw new Error('ERROR_HTTP_414: URI Too Long');
+        const named = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+        const asked = new Set([...soql.matchAll(/'(001\d{12}AAA)'/g)].map((m) => m[1]));
+        const records = ids
+          .filter((id) => asked.size === 0 || asked.has(id))
+          .map((Id) => Object.fromEntries(named.map((name) => [name, name === 'Id' ? Id : 'v'])));
+        return { records, done: true };
+      }),
+      queryMore: vi.fn(),
+      sobject: () => ({
+        describe: async () => ({ fields: fields.map((name) => ({ name, type: 'string' })) }),
+      }),
+    };
+    const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
+
+    const rows = await buildQueryFn(conn as unknown as Connection)('SRC', account);
+
+    expect(rows).toHaveLength(300);
+    expect(rows[299]?.['Custom_Field_699__c']).toBe('v');
+    for (const [soql] of conn.query.mock.calls) {
+      expect(encodeURIComponent(soql).length).toBeLessThanOrEqual(14_000);
+    }
   });
 
   it('reads every row of an object, not the 200 a FIELDS(ALL) query may ask for', async () => {
@@ -605,6 +640,7 @@ describe('the read of an object', () => {
     const conn = {
       query: vi.fn(async () => ({ records: [], done: true })),
       queryMore: vi.fn(),
+      sobject: () => ({ describe: async () => ({ fields: [{ name: 'Id', type: 'id' }] }) }),
     };
     const [account] = buildConfig(
       parseArgs(argv(...MINIMAL, '--where', "Account=Type = 'A' OR Type = 'B'")),
@@ -615,7 +651,7 @@ describe('the read of an object', () => {
     });
 
     expect(conn.query).toHaveBeenCalledWith(
-      "SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z AND (Type = 'A' OR Type = 'B')",
+      "SELECT Id FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z AND (Type = 'A' OR Type = 'B')",
     );
   });
 
@@ -628,6 +664,7 @@ describe('the read of an object', () => {
         done: false,
         nextRecordsUrl: '/next',
       })),
+      sobject: () => ({ describe: async () => ({ fields: [{ name: 'Id', type: 'id' }] }) }),
     };
     const [account] = buildConfig(parseArgs(argv(...MINIMAL))).objects;
     const onBoundReached = vi.fn();

@@ -674,6 +674,7 @@
     },
     "executeDesc": "Seed-Operation starten",
     "cancelRunConfirm": "Laufenden Seed stoppen? Bereits eingefügte Datensätze bleiben in der Org.",
+    "volumeTooMany": "{{object}}: höchstens {{most}} Datensätze pro Objekt in einem Seed.",
     "fieldRules": {
       "static": "Statischer Wert",
       "random": "Zufällig",
@@ -3883,7 +3884,9 @@
         "required": "ein Datensatz kann ohne ihn nicht geschrieben werden: Diese Datensätze werden abgelehnt",
         "standardNeeded": "{{object}} wird übernommen, obwohl keine Standardobjekte angefordert wurden: {{field}} darf nicht leer bleiben.",
         "followedByDefault": "{{object}} wird verfolgt, obwohl keine Standardobjekte angefordert wurden, wie standardmäßig: {{fields}} verweisen darauf.",
-        "currencies": "Währungen, die in der Ziel-Org nicht aktiv sind: {{currencies}}. Ein Datensatz in einer davon wird in {{writtenIn}} geschrieben, ihrer Unternehmenswährung, seine Beträge zu den Kursen der Quell-Org umgerechnet ({{objects}})."
+        "currencies": "Währungen, die in der Ziel-Org nicht aktiv sind: {{currencies}}. Ein Datensatz in einer davon wird in {{writtenIn}} geschrieben, ihrer Unternehmenswährung, seine Beträge zu den Kursen der Quell-Org umgerechnet ({{objects}}).",
+        "cutShort": "{{object}}: Die ersten {{copied}} seiner {{total}} Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lesevorgang seiner Lookups nimmt nicht mehr.",
+        "cutShortUncounted": "{{object}}: Die ersten {{copied}} seiner Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lesevorgang seiner Lookups nimmt nicht mehr."
       },
       "notCovered": "{{object}}: keine Anonymisierungsregel für {{missing}}. Diese Daten würden so kopiert, wie die Quelle sie enthält.",
       "personal": {
@@ -4888,6 +4891,10 @@
         "explanation": "Salesforce hat die Anfrage abgelehnt: Die Org, an die sie ging, hat die API-Anfragen aufgebraucht, die ihr in 24 Stunden zustehen, oder führt zu viele lange Anfragen gleichzeitig aus. Der Klon schreibt bis zu 200 Datensätze pro Anfrage, und seine Lese- und Describe-Vorgänge brauchen eigene Anfragen.",
         "action": "Warten Sie, bis der Zähler dieser Org wieder Anfragen freigibt — die Seite Monitor zeigt ihre API-Nutzung —, und wiederholen Sie dann; eine geringere Tiefe oder weniger Datensätze pro Objekt brauchen weniger Anfragen."
       }
+    },
+    "uriTooLong": {
+      "explanation": "Salesforce hat die Abfrage abgelehnt, bevor sie gelesen wurde: Eine Abfrage wird in der Adresse der Anfrage gesendet, und diese ist länger, als die Org annimmt (414 URI Too Long oder 431 Request Header Fields Too Large). SandForge liest ein Objekt mit vielen Feldern in Gruppen von Feldern, die hineinpassen; eine von Hand geschriebene Abfrage oder ein langer Filter kann die Grenze dennoch überschreiten.",
+      "action": "Kürzen Sie die Abfrage oder ihren Filter — weniger Felder oder weniger IDs auf einmal — und starten Sie dann erneut."
     },
     "sessionExpired": {
       "explanation": "Salesforce akzeptiert die Sitzung, die SandForge für diese Org hält, nicht mehr: Sie ist abgelaufen oder wurde durch eine Abmeldung, eine Passwortänderung oder einen Administrator beendet.",

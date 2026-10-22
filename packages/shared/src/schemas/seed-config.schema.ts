@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { SEED_RELATION_LIMITS } from '../utils/seed-relations.js';
+import { SEED_MAX_RECORDS_PER_OBJECT } from '../constants/defaults.js';
 
 /** Configuration for a single field generation rule */
 export const fieldRuleConfigSchema = z.object({
@@ -44,7 +45,7 @@ export const fieldRuleSchema = z.object({
 /** Per-object seed configuration */
 export const seedObjectConfigSchema = z.object({
   objectApiName: z.string().min(1),
-  recordCount: z.number().int().positive(),
+  recordCount: z.number().int().positive().max(SEED_MAX_RECORDS_PER_OBJECT),
   recordTypeId: z.string().optional(),
   fieldRules: z.array(fieldRuleSchema),
   excludedFields: z.array(z.string()),

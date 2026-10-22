@@ -17,7 +17,10 @@
  * reads and grouped values — and reads its WHERE clauses leniently: the
  * equality and IN terms it can test are tested, any other term (a date bound)
  * holds. What matters to the tests built on it is how many calls a step makes
- * and which records it reaches.
+ * and which records it reaches. A read answers the fields it names, and a
+ * statement longer than a query URI holds is refused as the org refuses it,
+ * with a 414: an Account of eight hundred custom fields (`wideAccount`) is
+ * what an Unlimited Edition org can have, and no single query names them all.
  *
  * Lives under `src/test/` with no `.test.ts` suffix: a helper, not a suite.
  */
@@ -84,7 +87,23 @@ export interface LargeOrgOptions {
     /** Territories beside the one each work order is booked in, under the same parent. */
     territories: number;
   };
+  /**
+   * Custom text fields on `Account`, each filled on every account; none
+   * unless asked.
+   */
+  wideAccount?: number;
 }
+
+/** The name of the `index`-th custom field of a wide account, from 1. */
+export function accountFieldName(index: number): string {
+  return `Customer_Attribute_${String(index).padStart(4, '0')}__c`;
+}
+
+/**
+ * Characters of a query past which an org refuses its request: a scratch org
+ * answered a statement of 15 271 characters and refused one of 15 487.
+ */
+const MOST_URI_CHARS = 15_400;
 
 /** Key prefixes of the standard objects. */
 const STANDARD_PREFIXES: Readonly<Record<string, string>> = {
@@ -191,6 +210,9 @@ export function largeOrg(options: LargeOrgOptions = {}): LargeOrg {
     lookup('ParentId', ['Account']),
     lookup('OperatingHoursId', ['OperatingHours']),
     field('Phone', 'phone'),
+    ...Array.from({ length: options.wideAccount ?? 0 }, (_, i) =>
+      field(accountFieldName(i + 1), 'string'),
+    ),
   ]);
   add('Contact', false, [
     ...base(false),
@@ -291,6 +313,12 @@ export function largeOrg(options: LargeOrgOptions = {}): LargeOrg {
     OperatingHoursId: null,
     OwnerId: fakeId(org, 'User', 1),
     CreatedDate: created,
+    ...Object.fromEntries(
+      Array.from({ length: options.wideAccount ?? 0 }, (_, f) => [
+        accountFieldName(f + 1),
+        `A${i + 1}-${f + 1}`,
+      ]),
+    ),
   }));
   org.rows.Contact = Array.from({ length: 40 }, (_, i) => ({
     Id: fakeId(org, 'Contact', i + 1),
@@ -557,7 +585,14 @@ export function answerQuery(org: LargeOrg, soql: string): FakeQueryResult {
   const sorted = [...matched].sort((a, b) => String(a.Id).localeCompare(String(b.Id)));
   const from = offset ? Number(offset) : 0;
   const rows = sorted.slice(from, limit ? from + Number(limit) : undefined);
-  return { records: rows.map((row) => ({ ...row })), totalSize: rows.length, done: true };
+  const named = new Set(select.split(',').map((name) => name.trim()));
+  return {
+    records: rows.map((row) =>
+      Object.fromEntries(Object.entries(row).filter(([name]) => named.has(name))),
+    ),
+    totalSize: rows.length,
+    done: true,
+  };
 }
 
 /** The describe of one object, its child relationships read off every other object's lookups. */
@@ -618,6 +653,14 @@ export function countingConnection(org: LargeOrg) {
     sobject: (name: string) => ({ describe: () => describe(name) }),
     query: async (soql: string) => {
       calls.queries.push(soql);
+      // jsforce sends the statement in the URI, and the org refuses one past
+      // what it holds, with the code jsforce builds from the status.
+      if (encodeURIComponent(soql).length > MOST_URI_CHARS) {
+        throw Object.assign(new Error('Request Header Fields Too Large'), {
+          name: 'ERROR_HTTP_431',
+          errorCode: 'ERROR_HTTP_431',
+        });
+      }
       return answerQuery(org, soql);
     },
     queryMore: async () => ({ records: [], totalSize: 0, done: true as const }),

@@ -288,6 +288,20 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     keys: ['errors.requestLimit.explanation', 'errors.requestLimit.action'],
     forge: ['errors.requestLimit.forge.explanation', 'errors.requestLimit.forge.action'],
   },
+  // jsforce sends a query in the URL of a GET, and Salesforce refuses one
+  // past some 15 000 characters: 414, URI Too Long, or 431, Request Header
+  // Fields Too Large, which a scratch org answered. jsforce names the refusal
+  // after the status. SandForge's own reads name a wide object's fields in
+  // groups that fit, so what is left to meet it is a query or a filter
+  // written long.
+  ERROR_HTTP_414: {
+    severity: 'error',
+    keys: ['errors.uriTooLong.explanation', 'errors.uriTooLong.action'],
+  },
+  ERROR_HTTP_431: {
+    severity: 'error',
+    keys: ['errors.uriTooLong.explanation', 'errors.uriTooLong.action'],
+  },
   // The session the extension holds for the org was refused: nothing the run
   // changes gets past it, and the org has to be connected again — by the
   // Reconnect button its card on Organizations carries.

@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { inPagesOf, pagesOfStatement, type SourceRow } from './PagedRows.js';
+import {
+  inPagesOf,
+  pagesOfStatement,
+  readingInColumnGroups,
+  type PagedReadDeps,
+  type SourceRow,
+} from './PagedRows.js';
+import { MAX_STATEMENT_URI_CHARS, uriLength } from '../../../core/common/wideRead.js';
 
 async function* from<T>(pages: T[][]): AsyncGenerator<T[]> {
   for (const page of pages) yield page;
@@ -68,5 +75,81 @@ describe('the pages of a read', () => {
     );
     expect(pages.map((page) => page.length)).toEqual([2, 2, 1]);
     expect(onTruncated).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('reads of a statement too wide for one query', () => {
+  const fields = [
+    'Id',
+    ...Array.from({ length: 900 }, (_, i) => `Customer_Field_${String(i).padStart(4, '0')}__c`),
+  ];
+  const wide = `SELECT ${fields.join(', ')} FROM Account WHERE Name != 'x'`;
+  const idOf = (n: number): string => `001${String(n).padStart(12, '0')}AAA`;
+
+  /** An org of 40 accounts that refuses a URI past what Salesforce takes and answers the fields named. */
+  function org() {
+    const sent: string[] = [];
+    const answer = (soql: string): SourceRow[] => {
+      sent.push(soql);
+      if (uriLength(soql) > 15_400)
+        throw new Error('ERROR_HTTP_431: Request Header Fields Too Large');
+      const named = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+      const ids = new Set([...soql.matchAll(/'(001\d{12}AAA)'/g)].map((m) => m[1]));
+      return Array.from({ length: 40 }, (_, n) => idOf(n + 1))
+        .filter((id) => ids.size === 0 || ids.has(id))
+        .map((id) => Object.fromEntries(named.map((field) => [field, field === 'Id' ? id : 'v'])));
+    };
+    return { sent, answer };
+  }
+
+  it('reads them in column groups, every statement within the URI, every row with every field', async () => {
+    const source = org();
+    const onTruncated = vi.fn();
+    const deps = readingInColumnGroups<PagedReadDeps>({
+      queryRecords: vi.fn(async (_org: string, soql: string) => source.answer(soql)),
+    });
+
+    const rows = await deps.queryRecords('src', wide, onTruncated);
+
+    expect(rows).toHaveLength(40);
+    expect(Object.keys(rows[39])).toHaveLength(fields.length);
+    expect(source.sent.length).toBeGreaterThan(1);
+    for (const soql of source.sent) {
+      expect(uriLength(soql)).toBeLessThanOrEqual(MAX_STATEMENT_URI_CHARS);
+    }
+    expect(source.sent[0]).toMatch(/ WHERE Name != 'x'$/);
+  });
+
+  it('gives each page of a cursor every field', async () => {
+    const source = org();
+    const deps = readingInColumnGroups<PagedReadDeps>({
+      queryRecords: async (_org, soql) => source.answer(soql),
+      queryPages: (_org, soql) =>
+        from([source.answer(soql).slice(0, 25), source.answer(soql).slice(25)]),
+    });
+
+    const pages = await all(pagesOfStatement(deps, 'src', wide));
+
+    expect(pages.map((page) => page.length)).toEqual([25, 15]);
+    expect(pages.flat().every((row) => Object.keys(row).length === fields.length)).toBe(true);
+    for (const soql of source.sent) {
+      expect(uriLength(soql)).toBeLessThanOrEqual(MAX_STATEMENT_URI_CHARS);
+    }
+  });
+
+  it('hands a statement that fits to the deps as it was given, and the deps swapped since are the ones called', async () => {
+    const first = vi.fn(async () => rows(1));
+    const given: PagedReadDeps = { queryRecords: first };
+    const deps = readingInColumnGroups(given);
+    const onTruncated = vi.fn();
+
+    await deps.queryRecords('src', 'SELECT Id FROM Account', onTruncated);
+    expect(first).toHaveBeenCalledWith('src', 'SELECT Id FROM Account', onTruncated);
+    expect(deps.queryPages).toBeUndefined();
+
+    const swapped = vi.fn(async () => rows(2));
+    given.queryRecords = swapped;
+    expect(await deps.queryRecords('src', 'SELECT Id FROM Account')).toHaveLength(2);
+    expect(swapped).toHaveBeenCalledWith('src', 'SELECT Id FROM Account');
   });
 });

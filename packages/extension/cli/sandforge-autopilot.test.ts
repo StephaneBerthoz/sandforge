@@ -305,6 +305,30 @@ describe('sandforge-autopilot — the plan', () => {
     );
   });
 
+  it('says a selected table larger than one read takes is copied from its first records by Id, of how many', () => {
+    // Said in the log alone, the plan showed 50 000 beside a count of millions.
+    const lines = scopeLines({
+      maxDepth: 5,
+      maxObjects: 50,
+      selected: ['Account', 'Case'],
+      parents: [],
+      leftEmpty: [],
+      standardNeeded: [],
+      cutShort: [
+        { objectApiName: 'Account', copied: 50_000, total: 2_000_000 },
+        { objectApiName: 'Case', copied: 50_000 },
+      ],
+    });
+
+    expect(lines).toContain(
+      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- one read of its lookups ' +
+        'takes no more',
+    );
+    expect(lines).toContain(
+      '  Case: 50000 record(s) copied, the first by Id -- one read of its lookups takes no more',
+    );
+  });
+
   it('says which standard parents were followed by default, and through which lookups', () => {
     // Left out with standard objects off, the account of every opportunity
     // stayed empty; it is followed now, and the plan says so.

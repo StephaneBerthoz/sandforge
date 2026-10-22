@@ -55,6 +55,7 @@ import {
 } from '../../core/common/platformRecords.js';
 import { RecordScopeCache } from '../forge/RecordScopeCache.js';
 import { ScopedSoqlBuilder, type ScopableField } from '../forge/ScopedSoqlBuilder.js';
+import { readColumnsApart } from '../../core/common/wideRead.js';
 import {
   CATALOG_OBJECTS,
   PRODUCT_OBJECT,
@@ -298,6 +299,17 @@ export class FrozenDatasetExtractor {
     this.deps = deps;
   }
 
+  /**
+   * Every row of a statement, read in column groups when its fields do not
+   * fit one query URI (`readColumnsApart`): the builder measures a
+   * statement's ids against the first group it sends, so a dossier holding an
+   * object of hundreds of fields is read whole, where its statement was
+   * refused before a row was read.
+   */
+  private query(soql: string): Promise<Record<string, unknown>[]> {
+    return readColumnsApart(soql, (statement) => this.deps.query(statement));
+  }
+
   /** Run the extraction; writes rt-map.json into the sas. */
   async extract(options: FrozenExtractionOptions): Promise<ExtractedDataset> {
     if (!ISO_INSTANT_REGEX.test(options.asOf)) {
@@ -451,7 +463,7 @@ export class FrozenDatasetExtractor {
       const read: Record<string, unknown>[] = [];
       const reached: string[] = [];
       for (const [index, soql] of built.statements.entries()) {
-        const answered = await this.deps.query(soql);
+        const answered = await this.query(soql);
         read.push(...answered);
         if (index < built.byIdCount) continue;
         for (const row of answered) if (typeof row.Id === 'string') reached.push(row.Id);
@@ -725,7 +737,7 @@ export class FrozenDatasetExtractor {
       ids: named,
       extraWhere: context.extraWhere,
     })) {
-      rows.push(...(await this.deps.query(soql)));
+      rows.push(...(await this.query(soql)));
     }
     const kept = context.leftToThePlatform.keep(
       rootObject,
@@ -773,7 +785,7 @@ export class FrozenDatasetExtractor {
     if (!child) return rows;
     const lifecycle = STATUS_LIFECYCLES[child.parent];
     const categories = lifecycle
-      ? await statusCategories((soql) => this.deps.query(soql), lifecycle)
+      ? await statusCategories((soql) => this.query(soql), lifecycle)
       : undefined;
     const pastDraft = new Set<string>();
     for (const [id, record] of recordsByObject.get(child.parent) ?? []) {
@@ -815,7 +827,7 @@ export class FrozenDatasetExtractor {
       const reached = context.cache.reachedOf(parent);
       const named = [...parents].filter(([recordId]) => !reached?.has(recordId));
       if (named.length === 0) continue;
-      const categories = await statusCategories((soql) => this.deps.query(soql), lifecycle);
+      const categories = await statusCategories((soql) => this.query(soql), lifecycle);
       if (!categories) continue;
       const pastDraft = named
         .filter(([, row]) => draftStartOf(row.Status, categories))
@@ -844,11 +856,7 @@ export class FrozenDatasetExtractor {
       }
       const lookups = requiredLookupsOf(child.object, fields);
       for (const soql of built.statements) {
-        const rows = context.leftToThePlatform.keep(
-          child.object,
-          await this.deps.query(soql),
-          lookups,
-        );
+        const rows = context.leftToThePlatform.keep(child.object, await this.query(soql), lookups);
         for (const row of rows) {
           if (typeof row.Id === 'string' && !bucket.has(row.Id)) {
             bucket.set(row.Id, withoutEnvelope(row));
@@ -955,7 +963,7 @@ export class FrozenDatasetExtractor {
         });
         const lookups = requiredLookupsOf(target, fields);
         for (const soql of statements) {
-          for (const row of leftToThePlatform.keep(target, await this.deps.query(soql), lookups)) {
+          for (const row of leftToThePlatform.keep(target, await this.query(soql), lookups)) {
             if (typeof row.Id === 'string' && !bucket.has(row.Id)) {
               bucket.set(row.Id, withoutEnvelope(row));
             }
@@ -1002,7 +1010,7 @@ export class FrozenDatasetExtractor {
   ): Promise<string | undefined> {
     const entries = recordsByObject.get(PRICEBOOK_ENTRY_OBJECT);
     if (!entries || entries.size === 0) return undefined;
-    const [book] = await this.deps.query(STANDARD_PRICEBOOK_SOQL);
+    const [book] = await this.query(STANDARD_PRICEBOOK_SOQL);
     const standardId = typeof book?.Id === 'string' ? book.Id : undefined;
     if (!standardId) return undefined;
 
@@ -1038,7 +1046,7 @@ export class FrozenDatasetExtractor {
         .map((f) => assertSoqlIdentifier(f))
         .join(', ');
       const bound = fields.some((f) => f.name === 'CreatedDate') ? ` AND ${asOfWhere}` : '';
-      return this.deps.query(`SELECT ${select} FROM ${objectApiName} WHERE ${where}${bound}`);
+      return this.query(`SELECT ${select} FROM ${objectApiName} WHERE ${where}${bound}`);
     };
 
     let books = recordsByObject.get(PRICEBOOK_OBJECT);
@@ -1066,7 +1074,7 @@ export class FrozenDatasetExtractor {
       extraWhere: priceFields.some((f) => f.name === 'CreatedDate') ? asOfWhere : undefined,
     });
     for (const soql of statements) {
-      for (const row of await this.deps.query(soql)) {
+      for (const row of await this.query(soql)) {
         if (typeof row.Id !== 'string' || entries.has(row.Id)) continue;
         if (!pricedPairs.has(pairOf(row))) continue;
         entries.set(row.Id, withoutEnvelope(row));
@@ -1152,7 +1160,7 @@ export class FrozenDatasetExtractor {
       recordsByObject.set(SELLING_MODEL_OPTION_OBJECT, bucket);
     }
     for (const soql of statements) {
-      for (const row of await this.deps.query(soql)) {
+      for (const row of await this.query(soql)) {
         if (typeof row.Id !== 'string' || bucket.has(row.Id)) continue;
         if (!pairs.has(pairOf(row))) continue;
         bucket.set(row.Id, withoutEnvelope(row));
@@ -1257,7 +1265,7 @@ export class FrozenDatasetExtractor {
       const parents = recordsByObject.get(parent);
       const lifecycle = STATUS_LIFECYCLES[parent];
       if (!parents || parents.size === 0 || !lifecycle) continue;
-      const categories = await statusCategories((soql) => this.deps.query(soql), lifecycle);
+      const categories = await statusCategories((soql) => this.query(soql), lifecycle);
       if (!categories) continue;
       // The records a row under them that can be loaded names, and those a row
       // that cannot names, with the object excluded that row needs.
@@ -1319,7 +1327,7 @@ export class FrozenDatasetExtractor {
   private async pullRecordTypes(options: FrozenExtractionOptions): Promise<RecordTypeMapEntry[]> {
     const template = options.recordTypesSoqlTemplate ?? DEFAULT_RECORD_TYPES_SOQL;
     const soql = renderQueryTemplate(template, options.tokens ?? {});
-    const rows = await this.deps.query(soql);
+    const rows = await this.query(soql);
     const entries: RecordTypeMapEntry[] = [];
     for (const row of rows) {
       if (

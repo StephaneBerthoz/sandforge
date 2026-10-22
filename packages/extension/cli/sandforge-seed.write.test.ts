@@ -165,8 +165,12 @@ describe('a seed from the command line', () => {
 
     expect(org.jobs).toEqual([]);
     expect(org.restCalls).toEqual([]);
+    // Generated and written ten thousand at a time: a job for each slice.
     expect(stdout.join('')).toContain(
-      '[dry-run] Asset: 10500 record(s) (one Bulk API job, its records gathered 2000 at a time)',
+      '[dry-run] Asset: 10000 record(s) (a Bulk API job, or REST when an active duplicate rule watches the object)',
+    );
+    expect(stdout.join('')).toContain(
+      '[dry-run] Asset: 500 record(s) (a Bulk API job, or REST when an active duplicate rule watches the object)',
     );
     expect(seedWritePathOf(201, 200)).toBe(
       '(a Bulk API job, or REST when an active duplicate rule watches the object)',

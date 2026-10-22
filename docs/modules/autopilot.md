@@ -4,7 +4,7 @@ Copy whole objects from one Salesforce org into another, in the order their depe
 
 Before you start, know three things:
 
-- **It copies whole tables.** Each object you select is read and written whole, every record of it, as selected; of the other objects, only the records the selection references are read.
+- **It copies whole tables.** Each object you select is read and written whole, every record of it, as selected; of the other objects, only the records the selection references are read. A selected object whose lookups the plan follows is read to 50,000 records: past that, its first 50,000 by Id are copied, with the records they reference, and the plan says so beside the count the source holds.
 - **Masking is off by default.** Emails and phone numbers are neutralized unless you untick the box, but names, addresses and every other field go in as the source holds them unless you pick a compliance framework on the review step.
 - **A run cannot be removed.** Autopilot keeps no list of the records it created, so nothing takes a run back: try it on an org you can refresh or throw away, such as a scratch org. To copy objects and be able to take a run back, use [Sync](sync.md); to copy one record and what hangs on it, [Forge](../forge-quickstart.md).
 
@@ -18,7 +18,7 @@ Before you start, know three things:
 
 ## What a run copies
 
-- **The objects you select**, copied whole: the plan says _Copied whole, as selected_ and names them.
+- **The objects you select**, copied whole: the plan says _Copied whole, as selected_ and names them. One whose lookups the plan follows, holding more than the 50,000 records a read of them takes, is named apart: the plan says how many of its records it copies, the first by Id, of how many the source holds, and copies the records those reference.
 - **The records they reference**: of any other object, only the records the selected ones point at, read by id -- the accounts of the contacts you copy, say. The plan lists these objects apart from the ones copied whole.
 - **What it leaves empty**: a lookup the plan does not follow -- too many lookups away from a selected object, or past the objects a plan holds -- is left empty, and the plan lists each with why. A lookup a record cannot be written without is named too: those records will be refused.
 - **Dependency order**: parents go before the records that point at them, in waves; a lookup of a cycle goes in empty and is filled by a second pass. A record whose parent the target refused is held back rather than written without it, and statuses are applied after the records under them.

@@ -6,6 +6,7 @@
  * pagination via `queryMore` for result sets exceeding a single page.
  */
 import type { Connection, QueryResult } from 'jsforce';
+import { readColumnsApart } from './wideRead.js';
 
 /** Default maximum number of records returned by queryAll before stopping pagination. */
 const DEFAULT_MAX_RECORDS = 50_000;
@@ -138,14 +139,6 @@ function exceedsFieldsAllLimit(soql: string): boolean {
   return limit === null || Number(limit[1]) > FIELDS_ALL_MAX_LIMIT;
 }
 
-/**
- * The longest query, URL-encoded, sent with an inlined field list. jsforce sends
- * a query as a GET with the SOQL in `?q=`, so every described field lengthens
- * the URL, and on an object with hundreds of fields it can pass the size a
- * server accepts for a request line (commonly 16 KB). Not measured against an org.
- */
-const MAX_ENCODED_QUERY_CHARS = 15_000;
-
 /** The query with FIELDS(ALL) or FIELDS(STANDARD) replaced by the described field list. */
 async function describedQuery(
   conn: Connection,
@@ -162,13 +155,13 @@ async function describedQuery(
  *
  * A `FIELDS(ALL)` query above the platform's 200-row bound is not sent: it
  * would be refused, so the explicit field list obtained via `describe()` is
- * used straight away, with the query's own LIMIT. When that list makes the
- * query too long for its URL and the query has a LIMIT, `FIELDS(ALL)` is sent
- * at 200 rows instead: a smaller sample that runs. Without a LIMIT the long
- * query is still sent, since capping it would silently drop records the caller
- * reads in full. Any other query is tried as written, and retried with the
- * field list if the org refuses its FIELDS() form. All results are
- * automatically paginated via `queryMore`.
+ * used straight away, with the query's own LIMIT. Any other query is tried as
+ * written, and retried with the field list if the org refuses its FIELDS()
+ * form. A field list too long for one query URL is read in column groups
+ * (`readColumnsApart`), the query's rows with every field: sent whole, an
+ * object of hundreds of fields was refused with a 414 or a 431, and a read with a
+ * LIMIT was cut to the 200 rows `FIELDS(ALL)` allows without a word. All
+ * results are automatically paginated via `queryMore`.
  *
  * @param conn - The jsforce Connection to query against.
  * @param objectApiName - The sanitized SObject API name used in the query.
@@ -198,11 +191,9 @@ function limitOf(statement: string): number | undefined {
 
 /**
  * {@link queryWithFieldsFallback}, saying which LIMIT the statement it sent
- * carried.
- *
- * On an object too wide to name its fields in the query, a read asked for
- * more rows is sent at the 200 FIELDS(ALL) allows: a caller that states the
- * bound of its sample has to state that one, not the one it asked for.
+ * carried: the one it was asked, now that a field list too long for one
+ * query is read in column groups rather than at the 200 rows `FIELDS(ALL)`
+ * allows.
  */
 export async function queryWithFieldsFallbackBounded<T extends Record<string, unknown>>(
   conn: Connection,
@@ -210,16 +201,11 @@ export async function queryWithFieldsFallbackBounded<T extends Record<string, un
   soql: string,
 ): Promise<FieldsReadResult<T>> {
   const read = async (statement: string): Promise<FieldsReadResult<T>> => ({
-    records: await queryAll<T>(conn, statement),
+    records: await readColumnsApart<T>(statement, (part) => queryAll<T>(conn, part)),
     limit: limitOf(statement),
   });
   if (exceedsFieldsAllLimit(soql)) {
-    const described = await describedQuery(conn, objectApiName, soql);
-    const limit = /\bLIMIT\s+\d+/i;
-    if (encodeURIComponent(described).length > MAX_ENCODED_QUERY_CHARS && limit.test(soql)) {
-      return read(soql.replace(limit, `LIMIT ${FIELDS_ALL_MAX_LIMIT}`));
-    }
-    return read(described);
+    return read(await describedQuery(conn, objectApiName, soql));
   }
   try {
     return await read(soql);

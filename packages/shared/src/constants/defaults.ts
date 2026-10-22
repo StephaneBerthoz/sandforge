@@ -216,6 +216,15 @@ export const CSV_IMPORT_MAX_ROWS = 50_000;
  */
 export const CSV_IMPORT_MAX_COLUMNS = 500;
 
+/**
+ * Records a seed generates of one object, at most: what the panel's host
+ * takes, said by the volume field and by a template read, where a count past
+ * it was refused only once the run was sent, as a payload the host did not
+ * take. A run generates and inserts an object a slice at a time, so the heap
+ * holds a slice whatever the count.
+ */
+export const SEED_MAX_RECORDS_PER_OBJECT = 1_000_000;
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

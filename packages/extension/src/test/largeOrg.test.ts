@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  accountFieldName,
   answerQuery,
   countingConnection,
   customObjectName,
@@ -54,6 +55,25 @@ describe('largeOrg', () => {
     const children = describeOf(org, 'Case').childRelationships.map((c) => c.childSObject);
     expect(children).toContain(customObjectName(4));
     expect(children).not.toContain(customObjectName(5));
+  });
+
+  it('answers the fields a read names, and nothing more', () => {
+    const org = largeOrg();
+
+    const [row] = answerQuery(org, 'SELECT Id, Name FROM Account LIMIT 1').records;
+    expect(row).toEqual({ Id: fakeId(org, 'Account', 1), Name: 'Account 1' });
+  });
+
+  it('gives a wide account its custom fields, and refuses a read naming them all as an org refuses a URI too long', async () => {
+    const org = largeOrg({ wideAccount: 900 });
+    const { conn } = countingConnection(org);
+    const fields = describeOf(org, 'Account').fields.map((f) => f.name);
+
+    expect(fields).toContain(accountFieldName(900));
+    expect(org.rows.Account?.[19]?.[accountFieldName(900)]).toBe('A20-900');
+    await expect(conn.query(`SELECT ${fields.join(', ')} FROM Account`)).rejects.toMatchObject({
+      errorCode: 'ERROR_HTTP_431',
+    });
   });
 
   it('counts every call its connection answers', async () => {

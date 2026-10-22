@@ -5,6 +5,7 @@
 
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { assertSoqlIdentifier, assertSoqlWhere } from '../../core/common/soqlValidator.js';
+import { readColumnsApart } from '../../core/common/wideRead.js';
 
 /**
  * Reject a WHERE clause that is unreasonably long or does more than filter.
@@ -71,7 +72,10 @@ export class CloneRecordFetcher {
 
   /**
    * Fetch all records for an object from the source org.
-   * Automatically paginates using cursor-based `queryMore()`.
+   * Automatically paginates using cursor-based `queryMore()`. An object whose
+   * fields are too many to name in one query URL is read in column groups
+   * (`readColumnsApart`): named in one statement, they were refused (414, or
+   * 431 on a scratch org).
    *
    * @param conn - jsforce Connection to the source org.
    * @param objectApiName - The Salesforce object API name.
@@ -85,15 +89,18 @@ export class CloneRecordFetcher {
   ): Promise<Record<string, unknown>[]> {
     const fields = await this.getQueryFields(conn, objectApiName);
     const soql = this.buildSoql(fields, objectApiName, whereClause);
-    const allRecords: Record<string, unknown>[] = [];
-
-    let result = await conn.query<Record<string, unknown>>(soql);
-    allRecords.push(...this.cleanRecords(result.records));
-
-    while (!result.done && result.nextRecordsUrl) {
-      result = await conn.queryMore<Record<string, unknown>>(result.nextRecordsUrl);
-      allRecords.push(...this.cleanRecords(result.records));
-    }
+    const allRecords = this.cleanRecords(
+      await readColumnsApart(soql, async (statement) => {
+        const rows: Record<string, unknown>[] = [];
+        let result = await conn.query<Record<string, unknown>>(statement);
+        rows.push(...result.records);
+        while (!result.done && result.nextRecordsUrl) {
+          result = await conn.queryMore<Record<string, unknown>>(result.nextRecordsUrl);
+          rows.push(...result.records);
+        }
+        return rows;
+      }),
+    );
 
     this.log(`[CloneRecordFetcher] Fetched ${allRecords.length} records from ${objectApiName}`);
     return allRecords;
@@ -143,8 +150,12 @@ export class CloneRecordFetcher {
     let soql = this.buildSoql(fields, objectApiName, whereClause, sends);
     soql += ` LIMIT ${limit}`;
 
-    const result = await conn.query<Record<string, unknown>>(soql);
-    return this.cleanRecords(result.records);
+    return this.cleanRecords(
+      await readColumnsApart(
+        soql,
+        async (statement) => (await conn.query<Record<string, unknown>>(statement)).records,
+      ),
+    );
   }
 
   /**

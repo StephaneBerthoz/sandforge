@@ -2,6 +2,7 @@ import {
   AUTOPILOT_COUNTS_PER_REQUEST,
   CSV_IMPORT_MAX_COLUMNS,
   CSV_IMPORT_MAX_ROWS,
+  SEED_MAX_RECORDS_PER_OBJECT,
   SYNC_CONFLICT_STRATEGIES,
   isFileBodiedObject,
   syncConfigSchema,
@@ -104,9 +105,6 @@ export const orderByClauseSchema = z.string().refine(isSafeSoqlOrderBy, {
 
 /** Max objects accepted per data operation (bounds API-call fan-out per request). */
 const MAX_OBJECTS_PER_REQUEST = 100;
-
-/** Max records a single seed object may generate (bounds memory + API usage). */
-const MAX_SEED_RECORDS_PER_OBJECT = 1_000_000;
 
 /** Max batch size accepted from the webview (matches manifest caps). */
 const MAX_BATCH_SIZE = 10_000;
@@ -520,7 +518,7 @@ export const syncScheduleIdPayloadSchema = z.object({ scheduleId: opaqueIdSchema
 export const seedObjectPayloadSchema = seedObjectConfigSchema
   .extend({
     objectApiName: sfApiNameSchema,
-    recordCount: z.number().int().positive().max(MAX_SEED_RECORDS_PER_OBJECT),
+    recordCount: z.number().int().positive().max(SEED_MAX_RECORDS_PER_OBJECT),
     batchSize: z.number().int().positive().max(MAX_BATCH_SIZE).optional(),
   })
   .loose();
@@ -1107,7 +1105,7 @@ export const autopilotScanSchemaPayloadSchema = z.object({
 /** Plan request: the framework is the only field the handler consumes. */
 export const autopilotGeneratePlanPayloadSchema = z.object({
   complianceFramework: complianceFrameworkTypeSchema,
-  maxRecordsPerObject: z.number().int().nonnegative().max(MAX_SEED_RECORDS_PER_OBJECT).optional(),
+  maxRecordsPerObject: z.number().int().nonnegative().max(SEED_MAX_RECORDS_PER_OBJECT).optional(),
   objectFilters: z.record(z.string(), whereClauseSchema).optional(),
   overrides: z
     .array(

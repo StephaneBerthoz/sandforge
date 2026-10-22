@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import i18n from '../../../i18n';
 import fr from '../../../i18n/locales/fr.json';
 import { Step4Review } from './Step4_Review';
+import { uiLocale } from '../../../utils/formatters';
 
 const defaultProps = {
   sourceOrgId: 'org-1',
@@ -224,6 +225,41 @@ describe('Step4_Review', () => {
         object: 'Account',
         fields: 'Opportunity.AccountId, Contact.AccountId',
       }),
+    );
+  });
+
+  it('says a selected table is copied from its first records by Id, of how many, and not among those copied whole', () => {
+    // Said in the log alone, the plan showed 50 000 beside a count of millions.
+    render(
+      <Step4Review
+        {...defaultProps}
+        scope={{
+          maxDepth: 5,
+          maxObjects: 50,
+          selected: ['Account', 'Lead', 'Case'],
+          parents: [],
+          leftEmpty: [],
+          standardNeeded: [],
+          cutShort: [
+            { objectApiName: 'Account', copied: 50_000, total: 2_000_000 },
+            { objectApiName: 'Case', copied: 50_000 },
+          ],
+        }}
+      />,
+    );
+
+    const fmt = (n: number): string => n.toLocaleString(uiLocale());
+    const lines = screen.getAllByTestId('step4-scope-cut-short').map((line) => line.textContent);
+    expect(lines).toEqual([
+      i18n.t('autopilot.step4.scope.cutShort', {
+        object: 'Account',
+        copied: fmt(50_000),
+        total: fmt(2_000_000),
+      }),
+      i18n.t('autopilot.step4.scope.cutShortUncounted', { object: 'Case', copied: fmt(50_000) }),
+    ]);
+    expect(screen.getByTestId('step4-scope').textContent).toContain(
+      i18n.t('autopilot.step4.scope.selected', { objects: 'Lead' }),
     );
   });
 

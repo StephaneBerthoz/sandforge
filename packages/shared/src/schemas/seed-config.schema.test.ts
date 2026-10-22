@@ -8,6 +8,7 @@ import {
   fieldRuleSchema,
   seedRelationSchema,
 } from './seed-config.schema.js';
+import { SEED_MAX_RECORDS_PER_OBJECT } from '../constants/defaults.js';
 
 describe('seedConfigSchema', () => {
   function createValidSeedConfig(): Record<string, unknown> {
@@ -141,6 +142,26 @@ describe('seedObjectConfigSchema', () => {
     expect(result.objectApiName).toBe('Account');
     expect(result.recordCount).toBe(100);
     expect(result.batchSize).toBe(200);
+  });
+
+  it('takes as many records of an object as the host does, and refuses one more', () => {
+    // Past it, the run was refused only once sent, as a payload the host did
+    // not take.
+    const config = (recordCount: number) => ({
+      objectApiName: 'Account',
+      recordCount,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder: 0,
+    });
+
+    expect(SEED_MAX_RECORDS_PER_OBJECT).toBe(1_000_000);
+    expect(seedObjectConfigSchema.parse(config(SEED_MAX_RECORDS_PER_OBJECT)).recordCount).toBe(
+      SEED_MAX_RECORDS_PER_OBJECT,
+    );
+    expect(seedObjectConfigSchema.safeParse(config(SEED_MAX_RECORDS_PER_OBJECT + 1)).success).toBe(
+      false,
+    );
   });
 
   it('should reject non-positive recordCount', () => {

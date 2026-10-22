@@ -791,6 +791,104 @@ describe('metadata and what the target will not create', () => {
   });
 });
 
+describe('a selected table larger than one read takes', () => {
+  /**
+   * A source whose `Big__c` holds two million rows, each naming one of the
+   * `Ref__c` records — the n-th row the (n / 1 000)-th — and which pages a
+   * read by 2 000 rows: in the order of the ids when the read asks for it,
+   * from the last id first otherwise, as a table read in no order may come.
+   */
+  function bigSource(): AutopilotConnection & { queries: string[] } {
+    const TOTAL = 2_000_000;
+    const PAGE = 2_000;
+    const bigId = (n: number): string => `a01${String(n).padStart(12, '0')}AAA`;
+    const refId = (n: number): string => `a02${String(n).padStart(12, '0')}AAA`;
+    const rowAt = (n: number) => ({ Id: bigId(n), Parent__c: refId(Math.floor(n / 1_000)) });
+    const queries: string[] = [];
+    const pageOf = (ordered: boolean, from: number) => {
+      const records = Array.from({ length: Math.min(PAGE, TOTAL - from) }, (_, i) =>
+        rowAt(ordered ? from + i : TOTAL - 1 - (from + i)),
+      );
+      const next = from + records.length;
+      return {
+        totalSize: TOTAL,
+        done: next >= TOTAL,
+        records,
+        ...(next < TOTAL ? { nextRecordsUrl: `/query/${ordered ? 'o' : 'u'}-${next}` } : {}),
+      };
+    };
+    return {
+      queries,
+      describe: async (name: string) =>
+        mockDescribe(
+          name,
+          name === 'Big__c'
+            ? [mockField({ name: 'Id', type: 'id' }), lookupField('Parent__c', ['Ref__c'])]
+            : [mockField({ name: 'Id', type: 'id' }), mockField({ name: 'Name' })],
+          true,
+        ),
+      describeGlobal: async () => ({
+        sobjects: [
+          mockGlobalSObject('Big__c', { keyPrefix: 'a01' }),
+          mockGlobalSObject('Ref__c', { keyPrefix: 'a02' }),
+        ],
+      }),
+      query: async (soql: string) => {
+        queries.push(soql);
+        if (soql === 'SELECT COUNT() FROM Big__c') {
+          return { totalSize: TOTAL, done: true, records: [] };
+        }
+        if (soql.startsWith('SELECT Id, Parent__c FROM Big__c')) {
+          return pageOf(/ ORDER BY Id$/.test(soql), 0);
+        }
+        const ids = [...soql.matchAll(/'(a02\d{12}AAA)'/g)].map((m) => m[1]);
+        return { totalSize: ids.length, done: true, records: ids.map((Id) => ({ Id })) };
+      },
+      queryMore: async (url: string) => {
+        const [, kind, from] = /\/query\/(o|u)-(\d+)$/.exec(url) ?? [];
+        return pageOf(kind === 'o', Number(from));
+      },
+    };
+  }
+
+  it('plans the first records by id, the ones the run copies, and says how many of how many', async () => {
+    // Read in no order, the plan held the parents of one sample of 50 000
+    // rows while the run copied the first 50 000 by id: required parents of
+    // another set, and Step 4 showing 50 000 beside a count of two million.
+    const source = bigSource();
+    const target = mockConn({
+      globalSObjects: [mockGlobalSObject('Big__c'), mockGlobalSObject('Ref__c')],
+    });
+
+    const result = await new SchemaScanner().scan(source, target, ['Big__c'], false);
+
+    expect(result.recordCounts.get('Big__c')).toBe(50_000);
+    // The parents of rows 0 to 49 999 by id: the first fifty references.
+    const parents = [...(result.parentIds.get('Ref__c') ?? [])].sort();
+    expect(parents).toHaveLength(50);
+    expect(parents[0]).toBe(`a02${'0'.repeat(12)}AAA`);
+    expect(parents[49]).toBe(`a02${String(49).padStart(12, '0')}AAA`);
+    expect(result.scope.cutShort).toEqual([
+      { objectApiName: 'Big__c', copied: 50_000, total: 2_000_000 },
+    ]);
+  });
+
+  it('says nothing of an object read to its end', async () => {
+    const { result } = await (async () => {
+      const org = largeOrg();
+      const scanned = await new SchemaScanner().scan(
+        countingConnection(org).conn as unknown as AutopilotConnection,
+        countingConnection(org).conn as unknown as AutopilotConnection,
+        ['Obj004__c'],
+        false,
+      );
+      return { result: scanned };
+    })();
+
+    expect(result.scope.cutShort).toBeUndefined();
+  });
+});
+
 describe('the first look at an org of six hundred objects', () => {
   it('lists every object a run may copy in two global describes, with no call per object', async () => {
     // The panel's first scan described every object it listed and counted

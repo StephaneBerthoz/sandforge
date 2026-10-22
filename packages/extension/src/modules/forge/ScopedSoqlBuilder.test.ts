@@ -4,6 +4,7 @@ import type { ScopableField } from './ScopedSoqlBuilder.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import type { ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
+import { MAX_STATEMENT_URI_CHARS, uriLength, wideStatement } from '../../core/common/wideRead.js';
 
 function makeNode(objectApiName: string, level = 0): ForgeGraphNode {
   return {
@@ -38,8 +39,6 @@ const ROOT_ID = '500XX00000000001AAA';
 
 describe('ScopedSoqlBuilder', () => {
   describe('scopes too large for one query', () => {
-    /** Characters a statement costs once jsforce puts it in the query URI. */
-    const uriLength = (soql: string): number => encodeURIComponent(soql).length;
     const ids = (prefix: string, count: number): string[] =>
       Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(15, '0')}`);
 
@@ -224,26 +223,65 @@ describe('ScopedSoqlBuilder', () => {
       }
     });
 
-    it('refuses a field list so long that no Id fits beside it, and names the object', () => {
+    it('reads by id an object whose field list alone fills a query URI, each statement fitting once read in column groups', () => {
+      // Seven hundred names of 35 characters take some 29 000 URI characters:
+      // measured against them, no id fitted, and the read was refused with
+      // advice to exclude fields that changed nothing it read.
       const builder = new ScopedSoqlBuilder();
       const cache = new RecordScopeCache();
-      cache.add('Contact', ids('003', 2));
-      const selectFields = Array.from(
-        { length: 700 },
-        (_, i) => `Very_Long_Custom_Field_${String(i).padStart(4, '0')}__c`,
-      );
+      const contactIds = ids('003', 300);
+      cache.add('Contact', contactIds);
+      const selectFields = [
+        'Id',
+        ...Array.from(
+          { length: 700 },
+          (_, i) => `Very_Long_Custom_Field_${String(i).padStart(4, '0')}__c`,
+        ),
+      ];
 
-      expect(() =>
-        builder.build({
-          node: makeNode('Contact', 1),
-          fields: [],
-          selectFields,
-          edges: [],
-          cache,
-          rootObjectApiName: 'Case',
-          rootRecordId: ROOT_ID,
-        }),
-      ).toThrow(/Contact/);
+      const result = builder.build({
+        node: makeNode('Contact', 1),
+        fields: [],
+        selectFields,
+        edges: [],
+        cache,
+        rootObjectApiName: 'Case',
+        rootRecordId: ROOT_ID,
+      });
+
+      const queried: string[] = [];
+      for (const soql of result.statements) {
+        // Every field is named; the read sends the first group with the WHERE.
+        expect(soql.startsWith(`SELECT ${selectFields.join(', ')} FROM Contact WHERE `)).toBe(true);
+        const sent = wideStatement(soql);
+        expect(sent).toBeDefined();
+        expect(uriLength(sent?.first ?? soql)).toBeLessThanOrEqual(MAX_STATEMENT_URI_CHARS);
+        queried.push(...(soql.match(/003\d{15}/g) ?? []));
+      }
+      expect(new Set(queried)).toEqual(new Set(contactIds));
+    });
+
+    it('reads the root of a wide object by its id within a query URI', () => {
+      const builder = new ScopedSoqlBuilder();
+      const selectFields = [
+        'Id',
+        ...Array.from({ length: 900 }, (_, i) => `Customer_Field_${String(i).padStart(4, '0')}__c`),
+      ];
+
+      const result = builder.build({
+        node: makeNode('Account', 0),
+        fields: [],
+        selectFields,
+        edges: [],
+        cache: new RecordScopeCache(),
+        rootObjectApiName: 'Account',
+        rootRecordId: '001XX00000000001AAA',
+      });
+
+      expect(result.scope).toBe('root');
+      const sent = wideStatement(result.statements[0]);
+      expect(sent?.first).toMatch(/ WHERE Id = '001XX00000000001AAA'$/);
+      expect(uriLength(sent?.first ?? '')).toBeLessThanOrEqual(MAX_STATEMENT_URI_CHARS);
     });
   });
 
@@ -1183,9 +1221,9 @@ describe('ScopedSoqlBuilder', () => {
 
   describe('rows read by their ids', () => {
     it('lays the ids over as many statements as the field list leaves room for', () => {
-      // Four hundred fields leave room for fewer than two hundred ids a
-      // statement: a fixed count of ids is what sent a query past the URI the
-      // org takes.
+      // Four hundred fields, read in column groups, leave the statement that
+      // carries the WHERE room for fewer than three hundred ids: a fixed count
+      // of ids is what sent a query past the URI the org takes.
       const wide = Array.from(
         { length: 420 },
         (_, i) => `Price_Attribute_${String(i).padStart(3, '0')}__c`,
@@ -1200,9 +1238,12 @@ describe('ScopedSoqlBuilder', () => {
       });
 
       for (const soql of statements) {
-        expect(encodeURIComponent(soql).length).toBeLessThanOrEqual(15_800);
+        // Read in column groups, the first carrying the WHERE.
+        expect(uriLength(wideStatement(soql)?.first ?? soql)).toBeLessThanOrEqual(
+          MAX_STATEMENT_URI_CHARS,
+        );
         expect(soql).toMatch(/ WHERE Id IN \('01t\d{15}'(, '01t\d{15}')*\) AND \(CreatedDate <= /);
-        expect((soql.match(/01t\d{15}/g) ?? []).length).toBeLessThan(200);
+        expect((soql.match(/01t\d{15}/g) ?? []).length).toBeLessThan(300);
       }
       expect(statements.flatMap((soql) => soql.match(/01t\d{15}/g) ?? [])).toEqual(ids);
     });

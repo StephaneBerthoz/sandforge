@@ -306,6 +306,17 @@ describe('FakerFallback', () => {
       ).toEqual([0, 1, 2].map((index) => reservedPhone('fr_FR', index)));
     });
 
+    it('draws the phone numbers of a slice from its place among the records, as one generation of all would', () => {
+      // A seed generates an object a slice at a time: the second slice drew
+      // the numbers of the first again.
+      const rules = [createFakerRule('phone', 'Phone'), createFakerRule('phone', 'MobilePhone')];
+      const whole = new FakerFallback('fr_FR').generate(rules, 10);
+
+      const slice = new FakerFallback('fr_FR').generate(rules, 4, 6);
+
+      expect(slice).toEqual(whole.slice(6));
+    });
+
     it('should support per-rule fakerLocale override', () => {
       const enFaker = new FakerFallback('en_US');
       const rule: FieldRule = {

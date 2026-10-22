@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { TFunction } from 'i18next';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, SEED_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
@@ -113,6 +113,22 @@ describe('useSeedWizardState', () => {
     seedBridge.described = null;
     seedBridge.execute.mockClear();
     seedBridge.running = false;
+  });
+
+  it('holds the first step while a count asks for more records of an object than the host takes', () => {
+    // Sent, the run was refused as a payload the host did not take.
+    const { result } = renderHook(() => useSeedWizardState(mockT));
+    act(() => {
+      result.current.handleOrgSelect('org-1');
+      result.current.handleToggleObject('Account');
+    });
+    expect(result.current.canGoNext).toBe(true);
+
+    act(() => result.current.handleChangeVolume('Account', SEED_MAX_RECORDS_PER_OBJECT + 1));
+    expect(result.current.canGoNext).toBe(false);
+
+    act(() => result.current.handleChangeVolume('Account', SEED_MAX_RECORDS_PER_OBJECT));
+    expect(result.current.canGoNext).toBe(true);
   });
 
   describe('a run below five objects, which skips the configure step', () => {

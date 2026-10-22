@@ -30,11 +30,16 @@ export class FieldMapper {
   /**
    * Generate an array of records for the given object configuration.
    * Uses existingIds to resolve reference fields to previously created records.
+   *
+   * @param from - The place of the first record among the object's: a seed
+   *   generates an object a slice at a time (`SeedOrchestrator`), and a
+   *   sequence, a mask or a phone number goes on from the slice before.
    */
   async mapFields(
     objectConfig: SeedObjectConfig,
     existingIds: Map<string, string[]>,
     onAiFallback?: (fallback: SeedAiFallback) => void,
+    from = 0,
   ): Promise<Record<string, unknown>[]> {
     const { recordCount, fieldRules } = objectConfig;
 
@@ -53,7 +58,7 @@ export class FieldMapper {
       aiRules.length > 0 ? await this.deps.aiGenerator.generate(aiRules, recordCount) : [];
 
     const fakerRecords =
-      fakerRules.length > 0 ? this.deps.fakerFallback.generate(fakerRules, recordCount) : [];
+      fakerRules.length > 0 ? this.deps.fakerFallback.generate(fakerRules, recordCount, from) : [];
 
     // The AI call yields no records when AI is off or the call is refused, and
     // may return fewer records or fields than asked. A field it left out was
@@ -61,7 +66,7 @@ export class FieldMapper {
     // the rule promised and the refusal stays a log line.
     const aiGaps = hasMissingAiValues(aiRules, aiRecords, recordCount);
     const aiFallbackRecords = aiGaps
-      ? this.deps.fakerFallback.generate(aiRules.map(toSentenceRule), recordCount)
+      ? this.deps.fakerFallback.generate(aiRules.map(toSentenceRule), recordCount, from)
       : [];
     // The log line alone left the run result claiming AI-written values.
     if (aiGaps) {
@@ -80,7 +85,7 @@ export class FieldMapper {
       const record: Record<string, unknown> = {};
 
       for (const rule of otherRules) {
-        record[rule.fieldApiName] = generateValue(rule, i, existingIds, random);
+        record[rule.fieldApiName] = generateValue(rule, from + i, existingIds, random);
       }
 
       if (aiRecords[i]) {

@@ -421,6 +421,34 @@ describe('executionPlanSchema', () => {
     expect(result.scope?.followedByDefault).toEqual(followedByDefault);
   });
 
+  it('keeps the selected objects a plan copies only the first records of, and how many the source holds', () => {
+    const cutShort = [{ objectApiName: 'Account', copied: 50_000, total: 2_000_000 }];
+    const result = executionPlanSchema.parse({
+      waves: [{ order: 0, objects: ['Account'], dependsOn: [] }],
+      totalRecords: 50_000,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 1,
+      complianceFramework: 'none',
+      anonymizationSummary: {
+        totalPiiFields: 0,
+        totalFieldsToAnonymize: 0,
+        methodBreakdown: {},
+        objectsWithPii: [],
+      },
+      cycleResolutions: [],
+      scope: {
+        maxDepth: 5,
+        maxObjects: 50,
+        selected: ['Account'],
+        parents: [],
+        leftEmpty: [],
+        standardNeeded: [],
+        cutShort,
+      },
+    });
+    expect(result.scope?.cutShort).toEqual(cutShort);
+  });
+
   it('should reject invalid compliance framework', () => {
     expect(() =>
       executionPlanSchema.parse({

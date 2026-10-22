@@ -145,6 +145,57 @@ function makeOptions(sasDir: string, captured: string[]): FrozenExtractionOption
 }
 
 describe('FrozenDatasetExtractor', () => {
+  it('reads a dossier of accounts of nine hundred fields within a query URI, every field of each', async () => {
+    // Named in one statement, the fields leave no room for an id: the
+    // extraction was refused before a row was read.
+    const custom = Array.from(
+      { length: 900 },
+      (_, i) => `Customer_Attribute_${String(i).padStart(4, '0')}__c`,
+    );
+    const accounts = [ACCOUNT_A, ACCOUNT_B].map((Id, n) => ({
+      Id,
+      Name: n === 0 ? 'Alpha' : 'Beta',
+      CreatedDate: '2026-01-01T00:00:00.000Z',
+      ...Object.fromEntries(custom.map((field) => [field, `${n}-${field}`])),
+    }));
+    const sent: string[] = [];
+    const deps = {
+      describeFields: async (objectApiName: string): Promise<ScopableField[]> =>
+        objectApiName === 'Account'
+          ? [
+              { name: 'Id', type: 'id', referenceTo: [] },
+              { name: 'Name', type: 'string', referenceTo: [] },
+              { name: 'CreatedDate', type: 'datetime', referenceTo: [] },
+              ...custom.map((name) => ({ name, type: 'string', referenceTo: [] })),
+            ]
+          : (fieldsByObject[objectApiName] ?? []),
+      query: async (soql: string): Promise<Record<string, unknown>[]> => {
+        sent.push(soql);
+        if (encodeURIComponent(soql).length > 15_400)
+          throw new Error('ERROR_HTTP_431: Request Header Fields Too Large');
+        if (!soql.includes('FROM Account')) return [];
+        const named = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+        return accounts
+          .filter((row) => soql.includes(`'${row.Id}'`))
+          .map((row) =>
+            Object.fromEntries(
+              named.map((field) => [field, (row as Record<string, unknown>)[field]]),
+            ),
+          );
+      },
+    };
+    const dir = makeTmpDir();
+
+    const dataset = await new FrozenDatasetExtractor(deps).extract(makeOptions(dir, []));
+
+    for (const soql of sent) expect(encodeURIComponent(soql).length).toBeLessThanOrEqual(14_000);
+    const read = dataset.objects.find((o) => o.objectApiName === 'Account')?.records ?? [];
+    expect(read.map((r) => r.sourceId).sort()).toEqual([ACCOUNT_A, ACCOUNT_B].sort());
+    expect(read.find((r) => r.sourceId === ACCOUNT_B)?.fields[custom[899]]).toBe(
+      `1-${custom[899]}`,
+    );
+  });
+
   it('scopes every query to the sas-injected root IDs — no hard-coded IDs in code', async () => {
     const dir = makeTmpDir();
     const captured: string[] = [];

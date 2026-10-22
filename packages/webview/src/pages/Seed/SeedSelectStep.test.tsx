@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { SeedSelectStep } from './SeedSelectStep';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
 import type { SalesforceOrg } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, SEED_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
+import { uiLocale } from '../../utils/formatters';
 
 vi.mock('../../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => ({
@@ -47,12 +48,15 @@ const object = (apiName: string): SeedObjectInfo => ({
   dependencies: [],
 });
 
-function renderStep(availableObjects: SeedObjectInfo[] = []) {
+function renderStep(
+  availableObjects: SeedObjectInfo[] = [],
+  volumes: Record<string, { count: number; batchSize: number }> = {},
+) {
   render(
     <SeedSelectStep
       availableObjects={availableObjects}
       loadingObjects={false}
-      volumes={{}}
+      volumes={volumes}
       onChangeVolume={vi.fn()}
     />,
   );
@@ -69,6 +73,29 @@ describe('SeedSelectStep record counts', () => {
     // the heading names the list, not the twelfth field in it.
     renderStep();
     expect(screen.getByTestId('volume-Account').getAttribute('aria-label')).toContain('Account');
+  });
+
+  it('says by the field a count past what the host takes, which the run was refused for once sent', () => {
+    renderStep([], { Account: { count: SEED_MAX_RECORDS_PER_OBJECT + 1, batchSize: 200 } });
+
+    const field = screen.getByTestId('volume-Account');
+    const said = screen.getByTestId('volume-Account-too-many');
+    expect(field.getAttribute('max')).toBe(String(SEED_MAX_RECORDS_PER_OBJECT));
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(field.getAttribute('aria-describedby')).toBe(said.id);
+    expect(said.textContent).toBe(
+      i18n.t('seed.volumeTooMany', {
+        object: 'Account',
+        most: SEED_MAX_RECORDS_PER_OBJECT.toLocaleString(uiLocale()),
+      }),
+    );
+  });
+
+  it('says nothing by a count the host takes', () => {
+    renderStep([], { Account: { count: SEED_MAX_RECORDS_PER_OBJECT, batchSize: 200 } });
+
+    expect(screen.queryByTestId('volume-Account-too-many')).toBeNull();
+    expect(screen.getByTestId('volume-Account').getAttribute('aria-invalid')).toBeNull();
   });
 
   it('shows neither a SOQL helper nor a personal-data warning between the objects and their counts', () => {

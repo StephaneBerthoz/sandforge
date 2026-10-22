@@ -42,6 +42,7 @@ import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
+import { readOtherColumns, wideStatement } from '../../core/common/wideRead.js';
 import { CRUD_FLS_DENIED, CrudFlsGuard, flsViolation } from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/describeTypes.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
@@ -1792,8 +1793,14 @@ export class DataOpsHandler implements DomainHandler {
       responseTarget: 'QueryResult',
     };
     const select = limits.select ?? (await this.selectAllFields(conn, safeObj));
+    const soql = `SELECT ${select} FROM ${safeObj}${rowsOfTheRun(limits.where, undefined)}`;
+    // An object of hundreds of fields named them all in one statement, which
+    // its URL made too long for the org (414 or 431): the backup failed before its
+    // first row. Its fields are read in column groups, the first page by
+    // page, each page given the others by its ids before it is written.
+    const wide = wideStatement(soql);
     let page: QueryResult<BackupRecord> = await conn.query<BackupRecord>(
-      `SELECT ${select} FROM ${safeObj}${rowsOfTheRun(limits.where, undefined)}`,
+      wide?.first ?? soql,
       options,
     );
     checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
@@ -1804,6 +1811,7 @@ export class DataOpsHandler implements DomainHandler {
     for (;;) {
       const room = limits.cap - read.recordCount;
       const rows = page.records.length > room ? page.records.slice(0, room) : page.records;
+      if (wide) await readOtherColumns(rows, wide, (statement) => queryAll(conn, statement));
       await writer.append(read.objectApiName, rows);
       read.recordCount += rows.length;
       const next = !page.done ? page.nextRecordsUrl : undefined;

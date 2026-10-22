@@ -105,6 +105,10 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   /** Format numbers with locale separators. */
   const fmt = (n: number): string => n.toLocaleString(uiLocale());
 
+  /** The selected objects copied whole: those no bound cut short. */
+  const cutNames = new Set((scope?.cutShort ?? []).map((cut) => cut.objectApiName));
+  const wholeTables = (scope?.selected ?? []).filter((name) => !cutNames.has(name));
+
   /**
    * The name of a compliance framework: the regulations by their acronyms,
    * which no language translates, and "custom" and "none" in the interface
@@ -237,9 +241,32 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           <span className="text-sm font-medium text-text-primary">
             {t('autopilot.step4.scope.title')}
           </span>
-          <p className="text-xs text-text-secondary">
-            {t('autopilot.step4.scope.selected', { objects: scope.selected.join(', ') })}
-          </p>
+          {wholeTables.length > 0 && (
+            <p className="text-xs text-text-secondary">
+              {t('autopilot.step4.scope.selected', { objects: wholeTables.join(', ') })}
+            </p>
+          )}
+          {/* A selected table larger than one read of its lookups takes is
+              copied from its first records by Id, which the plan said in the
+              log alone: the count above showed the bound beside millions. */}
+          {(scope.cutShort ?? []).map((cut) => (
+            <p
+              key={cut.objectApiName}
+              className="text-xs text-status-warning"
+              data-testid="step4-scope-cut-short"
+            >
+              {cut.total !== undefined
+                ? t('autopilot.step4.scope.cutShort', {
+                    object: cut.objectApiName,
+                    copied: fmt(cut.copied),
+                    total: fmt(cut.total),
+                  })
+                : t('autopilot.step4.scope.cutShortUncounted', {
+                    object: cut.objectApiName,
+                    copied: fmt(cut.copied),
+                  })}
+            </p>
+          ))}
           {scope.parents.length > 0 && (
             <div className="flex flex-col gap-0.5 text-xs text-text-secondary">
               <span>{t('autopilot.step4.scope.parents')}</span>

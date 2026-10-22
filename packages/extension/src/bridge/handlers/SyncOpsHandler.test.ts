@@ -2209,7 +2209,7 @@ describe('SyncOpsHandler', () => {
 
   describe('the source read is paginated, and a bound that cuts it is announced', () => {
     /**
-     * One row as a real `SELECT FIELDS(ALL) FROM Account` returns it:
+     * One row as a real read of every field of Account returns it:
      * `attributes` plus ~35 columns. A three-field fixture pages exactly the
      * same way and proves nothing about what a real page costs or carries.
      */
@@ -2292,7 +2292,12 @@ describe('SyncOpsHandler', () => {
           const [, cap, offset] = url.split('-');
           return page(Number(cap), Number(offset));
         }),
-        describe: vi.fn(),
+        // The fields a read names, as the org describes them.
+        describe: vi.fn(async () => ({
+          fields: Object.keys(accountRow(0))
+            .filter((name) => name !== 'attributes')
+            .map((name) => ({ name })),
+        })),
         sobject: vi.fn().mockReturnValue({
           create: vi.fn().mockResolvedValue([]),
           upsert: vi.fn().mockResolvedValue([]),
@@ -2540,8 +2545,8 @@ describe('SyncOpsHandler', () => {
       });
 
       expect(onBoundReached).toHaveBeenCalledTimes(1);
-      expect(conn.query.mock.calls[0][0]).toBe(
-        'SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z',
+      expect(conn.query.mock.calls[0][0]).toMatch(
+        /^SELECT Id, IsDeleted, .+, LastActivityDate FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z$/,
       );
     });
 
@@ -2623,23 +2628,13 @@ describe('SyncOpsHandler', () => {
       expect(warned[0].message).toContain('production-tier query cap');
     });
 
-    it('still falls back to an explicit field list when the org rejects FIELDS()', async () => {
-      // Regression guard: the paged read must not cost the FIELDS() fallback,
-      // which is the path every org below API 51 takes.
+    it('names the fields from the describe, never sending the FIELDS(ALL) the org refuses without a LIMIT of 200', async () => {
+      // Asked first, FIELDS(ALL) was refused on every read: a request per
+      // object, and a retry of the whole read wherever the refusal passed
+      // for one worth retrying.
       const conn = createOrgConnection(3, 2_000);
-      // Typed from the mock itself: `tsconfig.test.json` checks this file, and
-      // a hand-written `Promise<unknown>` does not satisfy the query result shape.
-      const realQuery = conn.query.getMockImplementation() as NonNullable<
-        ReturnType<typeof conn.query.getMockImplementation>
-      >;
-      conn.query.mockImplementation(async (soql: string) => {
-        if (soql.includes('FIELDS(ALL)')) {
-          throw new Error('MALFORMED_QUERY: FIELDS(ALL) is not supported in this API version');
-        }
-        return realQuery(soql);
-      });
       conn.describe.mockResolvedValue({
-        fields: [{ name: 'Id' }, { name: 'Name' }, { name: 'Custom__c', custom: true }],
+        fields: [{ name: 'Id' }, { name: 'Name' }, { name: 'Custom__c' }],
       });
       mockGetConn.mockResolvedValue(conn as never);
 
@@ -2648,9 +2643,79 @@ describe('SyncOpsHandler', () => {
 
       expect(records).toHaveLength(3);
       expect(conn.describe).toHaveBeenCalledWith('Account');
-      const lastSoql = conn.query.mock.calls[conn.query.mock.calls.length - 1][0] as string;
-      expect(lastSoql).toContain('Id, Name, Custom__c');
+      expect(conn.query.mock.calls.map(([soql]) => soql)).toEqual([
+        'SELECT Id, Name, Custom__c FROM Account',
+      ]);
       expect(notifications()).toHaveLength(0);
+    });
+
+    describe('an object too wide to name its fields in one query', () => {
+      /** 700 custom fields: some 18 000 characters of names once encoded in the URL. */
+      const wideFields = [
+        'Id',
+        'Name',
+        ...Array.from({ length: 700 }, (_, i) => `Custom_Field_${String(i).padStart(3, '0')}__c`),
+      ];
+
+      /**
+       * An org of `total` such accounts that answers the fields a statement
+       * names, honours `Id IN` and LIMIT, pages by 2 000, and refuses a URL
+       * past what it holds, as Salesforce does with a 414.
+       */
+      function wideOrgConnection(total: number) {
+        const idOf = (n: number): string => `001AB${String(n).padStart(10, '0')}AAA`;
+        const conn = createOrgConnection(total, 2_000);
+        conn.describe.mockResolvedValue({ fields: wideFields.map((name) => ({ name })) });
+        conn.query.mockImplementation(async (soql: string) => {
+          if (encodeURIComponent(soql).length > 15_400) {
+            throw Object.assign(new Error('URI Too Long'), { errorCode: 'ERROR_HTTP_414' });
+          }
+          const named = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+          const ids = new Set([...soql.matchAll(/'(001AB\d{10}AAA)'/g)].map((m) => m[1]));
+          const limit = /\bLIMIT (\d+)$/.exec(soql);
+          const records = Array.from({ length: total }, (_, n) => idOf(n + 1))
+            .filter((id) => ids.size === 0 || ids.has(id))
+            .slice(0, limit ? Number(limit[1]) : 2_000)
+            .map((Id) =>
+              Object.fromEntries(named.map((field) => [field, field === 'Id' ? Id : 'v'])),
+            );
+          return { totalSize: records.length, done: true, records };
+        });
+        return conn;
+      }
+
+      it('reads every field of a sandbox source, every statement within the URL', async () => {
+        const conn = wideOrgConnection(1_200);
+        mockGetConn.mockResolvedValue(conn as never);
+
+        const querySource = await captureQuerySource('Sandbox');
+        const records = await querySource('src-org', accountConfig());
+
+        expect(records).toHaveLength(1_200);
+        expect(Object.keys(records[1_199])).toHaveLength(wideFields.length);
+        for (const [soql] of conn.query.mock.calls) {
+          expect(encodeURIComponent(String(soql)).length).toBeLessThanOrEqual(14_000);
+        }
+      });
+
+      it('copies the 500 rows of a production-tier source, not 200, and says the cap cut it', async () => {
+        const conn = wideOrgConnection(2_000);
+        mockGetConn.mockResolvedValue(conn as never);
+
+        const querySource = await captureQuerySource('Production');
+        const records = await querySource('src-org', accountConfig());
+
+        expect(records).toHaveLength(500);
+        expect(records[499]?.['Custom_Field_699__c']).toBe('v');
+        expect(conn.query.mock.calls[0][0]).toMatch(/ LIMIT 500$/);
+        expect(conn.query.mock.calls.some(([soql]) => String(soql).includes('FIELDS('))).toBe(
+          false,
+        );
+        const warned = notifications().filter((n) => n.level === 'warning');
+        expect(warned).toHaveLength(1);
+        expect(warned[0].message).toContain('500 record(s)');
+        expect(warned[0].message).toContain('production-tier query cap');
+      });
     });
   });
 
@@ -2659,7 +2724,7 @@ describe('SyncOpsHandler', () => {
       return {
         query: vi.fn(async () => ({ totalSize: 0, done: true, records: [] })),
         queryMore: vi.fn(),
-        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] }),
         sobject: vi.fn(),
         limitInfo: undefined,
       };
@@ -2726,7 +2791,7 @@ describe('SyncOpsHandler', () => {
       await querySource('src-org', accountConfig("Status__c = 'Delete pending'"));
 
       expect(conn.query).toHaveBeenCalledWith(
-        "SELECT FIELDS(ALL) FROM Account WHERE Status__c = 'Delete pending'",
+        "SELECT Id, Name FROM Account WHERE Status__c = 'Delete pending'",
       );
     });
   });

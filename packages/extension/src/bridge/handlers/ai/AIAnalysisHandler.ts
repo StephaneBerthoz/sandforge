@@ -87,8 +87,8 @@ export class AIAnalysisHandler implements DomainHandler {
         ),
         // The scan judges a sample, and said nothing of it: "no anomalies"
         // read as a verdict on the object, over the first 500 rows it read.
-        // The bound is the one the statement went out with — 200 on an object
-        // too wide to name its fields — and the count is what came back.
+        // The bound is the one the statement went out with, and the count is
+        // what came back.
         sample: { read: records.length, limit: read.limit ?? limit },
       });
       this.deps.broker.postToWebview(response);

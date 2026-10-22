@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { SEED_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { Select } from '../../components/ui/Select';
@@ -7,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { orgOptionLabel } from '../../utils/orgFormatters';
+import { uiLocale } from '../../utils/formatters';
 import { Step2SelectObjects } from './Step2_SelectObjects';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
 
@@ -85,22 +87,46 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                 <span className="text-xs font-medium text-text-primary">
                   {t('common.recordCountLabel')}
                 </span>
-                {selectedObjects.map((obj) => (
-                  <div key={obj} className="flex items-center gap-2 text-xs">
-                    <span className="w-40 truncate text-text-primary">{obj}</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      // "Record count" heads the whole list; each row's own
-                      // name is the object in the span beside the field.
-                      aria-label={t('a11y.recordCountFor', { object: obj })}
-                      value={volumes[obj]?.count ?? 100}
-                      onChange={(e) => onChangeVolume(obj, parseInt(e.target.value, 10) || 0)}
-                      className="w-24"
-                      data-testid={`volume-${obj}`}
-                    />
-                  </div>
-                ))}
+                {selectedObjects.map((obj) => {
+                  const count = volumes[obj]?.count ?? 100;
+                  // Past what the host takes, the run was refused once sent,
+                  // as a payload it did not take: said here, by the field.
+                  const tooMany = count > SEED_MAX_RECORDS_PER_OBJECT;
+                  const tooManyId = `volume-${obj}-too-many`;
+                  return (
+                    <div key={obj} className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-40 truncate text-text-primary">{obj}</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={SEED_MAX_RECORDS_PER_OBJECT}
+                          // "Record count" heads the whole list; each row's own
+                          // name is the object in the span beside the field.
+                          aria-label={t('a11y.recordCountFor', { object: obj })}
+                          aria-invalid={tooMany || undefined}
+                          aria-describedby={tooMany ? tooManyId : undefined}
+                          value={count}
+                          onChange={(e) => onChangeVolume(obj, parseInt(e.target.value, 10) || 0)}
+                          className="w-24"
+                          data-testid={`volume-${obj}`}
+                        />
+                      </div>
+                      {tooMany && (
+                        <p
+                          id={tooManyId}
+                          className="text-xs text-status-error"
+                          data-testid={tooManyId}
+                        >
+                          {t('seed.volumeTooMany', {
+                            object: obj,
+                            most: SEED_MAX_RECORDS_PER_OBJECT.toLocaleString(uiLocale()),
+                          })}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>

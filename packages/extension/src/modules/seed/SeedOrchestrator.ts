@@ -9,7 +9,7 @@ import type {
   GrappeResult,
   UUID,
 } from '@sandforge/shared';
-import type { DescribedSeedField, FieldRule } from '@sandforge/shared';
+import type { DescribedSeedField, FieldRule, SeedAiFallback } from '@sandforge/shared';
 import {
   PRICEBOOK_OBJECT,
   childrenPerParent,
@@ -28,6 +28,30 @@ import type { ReferenceLinker } from './ReferenceLinker';
 import type { SeedGrappeAdapter } from './SeedGrappeAdapter';
 import { sendRefusedRowsAgain, type SentAgain } from './sendRefusedRowsAgain.js';
 import type { CoreServices } from '../../services.js';
+
+/**
+ * Records of an object a sequential seed generates and inserts at a time, at
+ * most: what it holds of an object whatever its count (see `slicesOf`). An
+ * object of no more goes in one insert, as every object did.
+ */
+export const SEED_SLICE_RECORDS = 10_000;
+
+/**
+ * Values — records times rules — one slice holds, at most: a wide object is
+ * generated in fewer records at a time. Ten thousand records of fourteen
+ * rules took some 20 MB; of the hundreds of rules a wide object gets by
+ * default, they would take hundreds.
+ */
+export const SEED_SLICE_VALUES = 500_000;
+
+/** Fewest records a slice holds, however wide the object: a REST call's worth. */
+const SEED_SLICE_LEAST = 200;
+
+/** The records of `config` one slice of a sequential seed holds: see {@link SEED_SLICE_VALUES}. */
+export function seedSliceOf(config: Pick<SeedTemplate['objects'][number], 'fieldRules'>): number {
+  const byValues = Math.floor(SEED_SLICE_VALUES / Math.max(1, config.fieldRules.length));
+  return Math.max(SEED_SLICE_LEAST, Math.min(SEED_SLICE_RECORDS, byValues));
+}
 
 /** Function signature for inserting records into Salesforce */
 export type InsertFn = (
@@ -302,20 +326,39 @@ export class SeedOrchestrator {
       if (!ready) continue;
 
       const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
-      const records = startsEmpty(ready.config, ready.relation)
-        ? emptyRecords(ready.config.recordCount)
-        : await this.deps.fieldMapper.mapFields(ready.config, run.existingIds, (aiFallback) => {
-            fallback.aiFallback = aiFallback;
-          });
-      fillLookup(records, ready.relation, ready.placed);
-      // Generating the records can take a while when AI fills them.
-      if (this.deps.signal?.aborted) {
-        return this.stoppedResult(template, operationId, run, startTime);
+      const written: InsertResult = { successIds: [], errors: [] };
+      const sentAgain: SentAgain = { result: written, unsent: [] };
+      let slicesSent = 0;
+      let stopped = false;
+      const slice = seedSliceOf(ready.config);
+      for await (const records of this.slicesOf(ready, run, slice, fallback)) {
+        // Generating the records can take a while when AI fills them.
+        if (this.deps.signal?.aborted) {
+          stopped = true;
+          break;
+        }
+        if (slicesSent > 0) {
+          this.reportProgress(
+            obj.objectApiName,
+            run.objectResults,
+            plannedRecords,
+            written.successIds.length + written.errors.length,
+          );
+        }
+        const sent = await this.insert(orgId, obj, records, ready);
+        slicesSent++;
+        keepWhatASliceWrote(sentAgain, sent);
+        if (sent.result.stopped) {
+          stopped = true;
+          break;
+        }
       }
-      const sent = await this.insert(orgId, obj, records, ready);
-      const insertResult = sent.result;
-      recordWrite(run, obj, insertResult, [...ready.notes, ...notesOf(sent)], fallback);
-      if (insertResult.stopped) return this.stoppedResult(template, operationId, run, startTime);
+      // What the slices sent before a cancel is kept, for the objects after
+      // it and in its result.
+      if (slicesSent > 0) {
+        recordWrite(run, obj, written, [...ready.notes, ...notesOf(sentAgain)], fallback);
+      }
+      if (stopped) return this.stoppedResult(template, operationId, run, startTime);
     }
 
     return buildSuccessResult(
@@ -488,6 +531,49 @@ export class SeedOrchestrator {
    * Both paths insert through here, a partition at a time on the partitioned
    * one.
    */
+  /**
+   * The records of an object, `size` at a time, each slice generated only
+   * once the caller has written the one before: what the run holds of an
+   * object is a slice, whatever its count.
+   *
+   * Every record of an object used to be generated before its first insert,
+   * each with a key for every rule and a parallel array of what faker drew:
+   * a seed of a few hundred thousand records of a wide object, under the
+   * million the host takes, ran the extension host out of memory in the
+   * middle of the run. A slice goes on from the one before: its sequences and
+   * masks from its place among the object's records, its relation's parents
+   * from the next parent placed. At least one slice, empty for an object of
+   * no record, as the run always sent one insert.
+   *
+   * @param fallback - Given what the AI could not write, across the slices.
+   */
+  private async *slicesOf(
+    ready: ReadyObject,
+    run: SeedRun,
+    size: number,
+    fallback: Pick<SeedObjectResult, 'aiFallback'>,
+  ): AsyncGenerator<Record<string, unknown>[]> {
+    const count = ready.config.recordCount;
+    const step = Math.max(1, Math.floor(size));
+    let from = 0;
+    do {
+      const n = Math.max(0, Math.min(step, count - from));
+      const records = startsEmpty(ready.config, ready.relation)
+        ? emptyRecords(n)
+        : await this.deps.fieldMapper.mapFields(
+            n === count ? ready.config : { ...ready.config, recordCount: n },
+            run.existingIds,
+            (aiFallback) => {
+              fallback.aiFallback = withAiFallback(fallback.aiFallback, aiFallback);
+            },
+            from,
+          );
+      fillLookup(records, ready.relation, ready.placed, from);
+      yield records;
+      from += n;
+    } while (from < count);
+  }
+
   private async insert(
     orgId: string,
     obj: SeedTemplate['objects'][number],
@@ -715,13 +801,8 @@ export class SeedOrchestrator {
       }
 
       const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
-      const records = startsEmpty(ready.config, ready.relation)
-        ? emptyRecords(ready.config.recordCount)
-        : await this.deps.fieldMapper.mapFields(ready.config, run.existingIds, (aiFallback) => {
-            fallback.aiFallback = aiFallback;
-          });
-      fillLookup(records, ready.relation, ready.placed);
-      const chunks = chunkArray(records, grappeSize);
+      // Each partition generated just before it is inserted: see `slicesOf`.
+      const chunkCount = Math.max(1, Math.ceil(ready.config.recordCount / grappeSize));
 
       let objSuccess = 0;
       let objFailed = 0;
@@ -732,7 +813,9 @@ export class SeedOrchestrator {
       /** Partitions of the object inserted before a cancel stopped it, if one did. */
       let stoppedAfter: number | undefined;
 
-      for (const [chunkIndex, chunk] of chunks.entries()) {
+      let chunkIndex = -1;
+      for await (const chunk of this.slicesOf(ready, run, grappeSize, fallback)) {
+        chunkIndex++;
         if (this.deps.signal?.aborted) {
           stoppedAfter = chunkIndex;
           break;
@@ -803,7 +886,7 @@ export class SeedOrchestrator {
       processedPartitions = this.settleUnusedPartitions(
         partitions,
         processedPartitions,
-        planned - chunks.length,
+        planned - chunkCount,
         objSuccess + objFailed,
       );
 
@@ -1013,30 +1096,48 @@ function emptyRecords(count: number): Record<string, unknown>[] {
   return Array.from({ length: count }, (): Record<string, unknown> => ({}));
 }
 
-/** Give each child record the parent id placed for it. */
+/**
+ * Give each child record the parent id placed for it.
+ *
+ * @param from - The place of the first of `records` among the object's.
+ */
 function fillLookup(
   records: Record<string, unknown>[],
   relation: SeedRelation | undefined,
   placed: PlacedChildren | undefined,
+  from = 0,
 ): void {
   if (!relation || !placed) return;
   for (const [index, record] of records.entries()) {
-    record[relation.lookupField] = placed.parentIds[index];
+    record[relation.lookupField] = placed.parentIds[from + index];
   }
+}
+
+/**
+ * What the AI could not write of an object, its slices taken together: the
+ * fields of each, once and in the order met, and no answer only while no
+ * slice got one.
+ */
+function withAiFallback(before: SeedAiFallback | undefined, slice: SeedAiFallback): SeedAiFallback {
+  if (!before) return slice;
+  return {
+    fields: [...new Set([...before.fields, ...slice.fields])],
+    reason:
+      before.reason === 'no-answer' && slice.reason === 'no-answer' ? 'no-answer' : 'short-answer',
+  };
+}
+
+/** Add to what the slices of an object wrote what one more wrote. */
+function keepWhatASliceWrote(kept: SentAgain, sent: SentAgain): void {
+  for (const id of sent.result.successIds) kept.result.successIds.push(id);
+  for (const error of sent.result.errors) kept.result.errors.push(error);
+  if (sent.written) kept.written = addWrittenWithoutFields(kept.written, sent.written);
+  kept.unsent.push(...sent.unsent);
 }
 
 /** The result of an object skipped before anything was written for it. */
 function skippedResult(objectApiName: string, message: string): SeedObjectResult {
   return { objectApiName, recordsCreated: 0, recordsFailed: 0, createdIds: [], errors: [message] };
-}
-
-/** Split an array into chunks of a given size */
-function chunkArray<T>(array: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-  return chunks.length === 0 ? [array] : chunks;
 }
 
 /** Build a success/partial result from object results */

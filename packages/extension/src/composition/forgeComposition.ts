@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import type { Connection } from 'jsforce';
 import { SchemaCache } from '../core/metadata/SchemaCache';
+import { forgeDescribeCache } from '../modules/forge/forgeDescribeCache.js';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
 import type { ForgeExecutorDeps } from '../modules/forge/ForgeExecutor';
@@ -211,26 +212,8 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
         // round-trips per forge run on a large org (350+ SObjects).
         // Per-call timeouts: describe 30s, describeGlobal 60s, queryCount 15s.
         // Without timeouts, jsforce calls hang indefinitely on rate-limited orgs.
-        //
-        // Byte cap backed by a structural estimator that walks each
-        // field descriptor (name/label/type/picklist values/help text) instead
-        // of JSON.stringify — see SchemaCache.estimateSize. `maxSize` is the
-        // count backstop: 100 entries of ForgeObjectDescribe, the projection
-        // Forge keeps, cover the working set of a typical forge run (root +
-        // direct children BFS) under the 200 MB byte cap. Entries go once their five minutes are
-        // up (`releaseExpired`): read again only on the next run, they used
-        // to stay on the extension host's heap for the life of the window.
-        //
-        // One describe per org and object serves discovery, the executor
-        // (source fields, target creatability, target fields for drift) and
-        // the drift check. Each of them used to send its own: a run described
-        // every object three to four times per org.
-        const describeCache = new SchemaCache<ForgeObjectDescribe>({
-          defaultTtl: 5 * 60_000,
-          maxSize: 100,
-          maxSizeBytes: 200 * 1024 * 1024,
-          releaseExpired: true,
-        });
+        // What the describe cache holds, and for how long: `forgeDescribeCache`.
+        const describeCache = forgeDescribeCache<ForgeObjectDescribe>();
         const describesUnderWay = new Map<string, Promise<ForgeObjectDescribe>>();
         const describeGlobalCache = new SchemaCache<
           Array<{ name: string; keyPrefix: string | null }>

@@ -10,8 +10,8 @@
  * It drives the same `SeedOrchestrator` the panel drives, with the same
  * validator, plan builder, field mapper and reference linker, and writes
  * through the same write path (`seedInsert`): REST calls, a Bulk API job past
- * 200 records of an object, one job gathered in chunks past 10 000, an object
- * an active duplicate rule watches through REST. What it leaves out is what the panel adds
+ * 200 records of an object, an object an active duplicate rule watches
+ * through REST, each object generated and written a slice at a time. What it leaves out is what the panel adds
  * around a run: progress posted to a webview, the AI field generator (the
  * faker fallback covers every rule on its own) and grappe partitioning.
  *
@@ -158,10 +158,10 @@ Options:
                          goes as a Bulk API 2.0 job — through REST all the same
                          when an active duplicate rule watches it, as a job
                          cannot carry the header that lets the rule's matches
-                         be saved — and one of more than 10 000 as one job its
-                         records are gathered for 2 000 at a time. Ctrl-C
-                         stops the run before its next call, or aborts the
-                         job still open, and the summary says what it wrote
+                         be saved — generated and written 10 000 records at a
+                         time at most, a job for each. Ctrl-C stops the run
+                         before its next call, or aborts the job still open,
+                         and the summary says what it wrote
   --dry-run              build and map, write nothing      (default: off)
   --seed <n>             draw as the run that printed this seed did: the
                          same command with the same seed plans and writes
@@ -1185,8 +1185,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     stop.abort();
   };
   // The panel's write path (`seedInsert`): an object of more than the Bulk API
-  // threshold goes as a job, past 10 000 records one job uploaded a chunk at a
-  // time, an object a duplicate rule watches through REST.
+  // threshold goes as a job, an object a duplicate rule watches through REST,
+  // each a slice at a time (`SeedOrchestrator.slicesOf`).
   const robustness = DEFAULT_ROBUSTNESS_CONFIG;
   const progressSaid = new Map<string, number>();
   const write = seedInsert({

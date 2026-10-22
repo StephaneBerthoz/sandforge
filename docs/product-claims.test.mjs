@@ -536,11 +536,12 @@ function assertSeedPartitionsAndReportsEachOne() {
       'so there are no partitions to report one by one',
   );
   // Positive control, measured on the writes rather than on the report: the
-  // walk finds the object loop around `mapFields` and the partition loop around
-  // `insert`, and tells them apart. Without it, "same loop" would be true for
-  // free in a body with only one loop left.
-  const mapped = calls.find((call) => call.name === 'mapFields');
-  const objectLoop = mapped ? isLooped(mapped.node, body) : null;
+  // walk finds the object loop around `readyToWrite` — each object made ready
+  // once, its partitions then generated one at a time (`slicesOf`) — and the
+  // partition loop around `insert`, and tells them apart. Without it, "same
+  // loop" would be true for free in a body with only one loop left.
+  const readied = calls.find((call) => call.name === 'readyToWrite');
+  const objectLoop = readied ? isLooped(readied.node, body) : null;
   assert.ok(
     objectLoop && objectLoop !== insertLoop,
     'the walk no longer sees the object loop nested outside the partition loop in ' +

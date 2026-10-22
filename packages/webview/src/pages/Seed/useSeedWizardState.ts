@@ -7,6 +7,7 @@ import type {
   FieldRuleType,
   PersonaMsg,
 } from '@sandforge/shared';
+import { SEED_MAX_RECORDS_PER_OBJECT } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
@@ -283,10 +284,18 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
       ),
     [objectSelection.selectedObjects, fieldConfig.fieldConfigs, recordTypeChoices],
   );
+  // A count past what the host takes is said by its field, and holds the
+  // wizard: sent, the run was refused as a payload the host did not take.
+  const volumesTaken = objectSelection.selectedObjects.every(
+    (objectApiName) =>
+      (fieldConfig.volumes[objectApiName]?.count ?? 100) <= SEED_MAX_RECORDS_PER_OBJECT,
+  );
   const canGoNext = useMemo((): boolean => {
     switch (currentStep) {
       case 0:
-        return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
+        return (
+          !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0 && volumesTaken
+        );
       case 1:
         return relationsReady && recordTypesReady;
       // The last step sends the run, and its button stayed live while the run
@@ -301,6 +310,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     currentStep,
     orgSelection.selectedOrgId,
     objectSelection.selectedObjects.length,
+    volumesTaken,
     execution.isRunning,
     relationsReady,
     fieldsReady,

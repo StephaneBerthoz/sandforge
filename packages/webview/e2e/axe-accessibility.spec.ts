@@ -5669,7 +5669,7 @@ for (const theme of SCANNED_THEMES) {
           scope: {
             maxDepth: 5,
             maxObjects: 50,
-            selected: ['Contact'],
+            selected: ['Contact', 'Lead'],
             parents: [{ objectApiName: 'Account', records: 12 }],
             leftEmpty: [
               {
@@ -5689,6 +5689,7 @@ for (const theme of SCANNED_THEMES) {
             standardNeeded: [{ objectApiName: 'Account', neededBy: 'Contact.AccountId' }],
             followedByDefault: [{ objectApiName: 'Account', referencedBy: ['Contact.AccountId'] }],
             currencies: { notInTarget: ['GBP'], writtenIn: 'USD', objects: ['Account'] },
+            cutShort: [{ objectApiName: 'Lead', copied: 50_000, total: 2_000_000 }],
           },
         },
         graph: MOCK_GRAPH,
@@ -5700,6 +5701,7 @@ for (const theme of SCANNED_THEMES) {
         'step4-scope',
         'step4-scope-currencies',
         'step4-scope-followed-by-default',
+        'step4-scope-cut-short',
         'step4-not-covered',
       ]) {
         expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
@@ -10021,6 +10023,44 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Autopilot review saying a selected table is copied from its first records by Id, of how many', async ({
+      page,
+    }) => {
+      // Said in the log alone, Step 4 showed 50 000 beside a count of millions.
+      await openPanel(bridge, page, 'autopilot', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
+        objects: MOCK_LISTING,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await pickAutopilotObjectsAndScan(bridge, page);
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: {
+          ...MOCK_PLAN,
+          scope: {
+            maxDepth: 5,
+            maxObjects: 50,
+            selected: ['Account', 'Contact'],
+            parents: [],
+            leftEmpty: [],
+            standardNeeded: [],
+            cutShort: [
+              { objectApiName: 'Account', copied: 50_000, total: 2_000_000 },
+              { objectApiName: 'Contact', copied: 50_000 },
+            ],
+          },
+        },
+        graph: MOCK_GRAPH,
+      });
+      await expect(page.getByTestId('step4-scope-cut-short')).toHaveCount(2);
+
+      await expectReadable(page, theme, '[data-testid="step4-scope"]');
+    });
+
     test('Seed relations, a row planning its children beside one that plans none', async ({
       page,
     }) => {
@@ -10108,6 +10148,27 @@ for (const theme of STATE_THEMES) {
       await openSeedExecuteSkipped(bridge, page, theme);
 
       await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
+    });
+
+    test('Seed select step saying by its field a count past what the host takes, its Next held', async ({
+      page,
+    }) => {
+      // Sent, such a run was refused as a payload the host did not take.
+      await openPanel(bridge, page, 'seed', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('mode-card-generate').click();
+      await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
+      await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+        objects: [{ apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] }],
+      });
+      await page.getByTestId('obj-Account').click();
+      await page.getByTestId('volume-Account').fill('1000001');
+      await page.getByTestId('volume-Account-too-many').waitFor({ state: 'visible' });
+      await expect(page.getByTestId('volume-Account')).toHaveAttribute('aria-invalid', 'true');
+      await expect(page.getByTestId('seed-wizard-next')).toHaveAttribute('aria-disabled', 'true');
+
+      await expectReadable(page, theme, '[data-testid="seed-step-select-content"]');
     });
 
     test('Seed execute step whose fields could not be read, then read again with its Retry held', async ({

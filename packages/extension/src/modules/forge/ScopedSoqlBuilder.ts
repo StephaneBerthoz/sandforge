@@ -1,6 +1,9 @@
 import type { ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { MAX_STATEMENT_URI_CHARS, firstColumns, uriLength } from '../../core/common/wideRead.js';
 import type { RecordScopeCache } from './RecordScopeCache.js';
+
+export { MAX_STATEMENT_URI_CHARS, uriLength };
 
 /**
  * Field metadata required to scope a SOQL query against a parent set.
@@ -191,8 +194,21 @@ export const UNSCOPED_NO_PARENT_REASON = 'no parent in cache and not the root';
 export class ScopedSoqlBuilder {
   /** Build a scope-aware SOQL query for one graph node. */
   build(opts: ScopedSoqlBuildOpts): ScopedSoqlResult {
+    const result = this.buildMeasured(opts);
+    return {
+      ...result,
+      statements: withSelect(result.statements, opts.node.objectApiName, opts.selectFields),
+    };
+  }
+
+  /**
+   * {@link build}, its statements naming the first group of columns a read
+   * of the object sends (`firstColumns`): what their WHERE is measured
+   * against. {@link withSelect} then names every field in them again.
+   */
+  private buildMeasured(opts: ScopedSoqlBuildOpts): ScopedSoqlResult {
     const objectName = assertSoqlIdentifier(opts.node.objectApiName);
-    const select = this.formatSelect(opts.selectFields);
+    const select = formatSelect(firstColumns(opts.selectFields));
     const extraSuffix = opts.extraWhere ? ` AND (${opts.extraWhere})` : '';
     const reasonSuffix = opts.extraWhere ? ' + extra filter' : '';
     const prefix = `SELECT ${select} FROM ${objectName} WHERE `;
@@ -385,12 +401,17 @@ export class ScopedSoqlBuilder {
    */
   buildJoining(opts: JoiningOpts): string[] {
     const objectName = assertSoqlIdentifier(opts.objectApiName);
-    const prefix = `SELECT ${this.formatSelect(opts.selectFields)} FROM ${objectName} WHERE `;
+    const select = formatSelect(firstColumns(opts.selectFields));
+    const prefix = `SELECT ${select} FROM ${objectName} WHERE `;
     const extraSuffix = opts.extraWhere ? ` AND (${opts.extraWhere})` : '';
-    return narrowedStatements(
-      { prefix, extraSuffix, objectApiName: opts.objectApiName },
-      [{ field: assertSoqlIdentifier(opts.split.field), ids: opts.split.ids }],
-      [{ field: assertSoqlIdentifier(opts.whole.field), ids: opts.whole.ids }],
+    return withSelect(
+      narrowedStatements(
+        { prefix, extraSuffix, objectApiName: opts.objectApiName },
+        [{ field: assertSoqlIdentifier(opts.split.field), ids: opts.split.ids }],
+        [{ field: assertSoqlIdentifier(opts.whole.field), ids: opts.whole.ids }],
+      ),
+      opts.objectApiName,
+      opts.selectFields,
     );
   }
 
@@ -401,21 +422,53 @@ export class ScopedSoqlBuilder {
    */
   buildById(opts: ByIdOpts): string[] {
     const objectName = assertSoqlIdentifier(opts.objectApiName);
-    return packInClauses(
-      {
-        prefix: `SELECT ${this.formatSelect(opts.selectFields)} FROM ${objectName} WHERE `,
-        suffix: opts.extraWhere ? ` AND (${opts.extraWhere})` : '',
-        wrap: false,
-        objectApiName: opts.objectApiName,
-      },
-      [{ field: 'Id', ids: opts.ids }],
+    return withSelect(
+      packInClauses(
+        {
+          prefix: `SELECT ${formatSelect(firstColumns(opts.selectFields))} FROM ${objectName} WHERE `,
+          suffix: opts.extraWhere ? ` AND (${opts.extraWhere})` : '',
+          wrap: false,
+          objectApiName: opts.objectApiName,
+        },
+        [{ field: 'Id', ids: opts.ids }],
+      ),
+      opts.objectApiName,
+      opts.selectFields,
     );
   }
+}
 
-  private formatSelect(selectFields: string[]): string {
-    if (selectFields.length === 0) return 'Id';
-    return selectFields.map((f) => assertSoqlIdentifier(f)).join(', ');
-  }
+/** A select list, its every name checked; `Id` for none. */
+function formatSelect(selectFields: readonly string[]): string {
+  if (selectFields.length === 0) return 'Id';
+  return selectFields.map((f) => assertSoqlIdentifier(f)).join(', ');
+}
+
+/**
+ * `statements`, built naming the first group of columns of `selectFields`,
+ * naming them all again.
+ *
+ * A statement travels in the request URI, so its WHERE is measured against
+ * what the read sends: a statement whose fields do not fit one query is read
+ * in column groups (`readColumnsApart`), its WHERE carried by the first, the
+ * others read by the ids it returns. Measured against every field, an object
+ * of hundreds of fields left no room for a single id, and its read was
+ * refused before a row was read, telling the user to exclude fields it went
+ * on reading all the same. A select list that fits is its own first group:
+ * the statements are the ones built.
+ */
+function withSelect(
+  statements: readonly string[],
+  objectApiName: string,
+  selectFields: readonly string[],
+): string[] {
+  const object = assertSoqlIdentifier(objectApiName);
+  const measured = `SELECT ${formatSelect(firstColumns(selectFields))} FROM ${object} `;
+  const written = `SELECT ${formatSelect(selectFields)} FROM ${object} `;
+  if (measured === written) return [...statements];
+  return statements.map((soql) =>
+    soql.startsWith(measured) ? written + soql.slice(measured.length) : soql,
+  );
 }
 
 /** Inputs to {@link ScopedSoqlBuilder.buildJoining}. */
@@ -445,19 +498,6 @@ export interface ByIdOpts {
 }
 
 /**
- * Longest statement, measured as it travels in the request URI, that a scoped
- * query may reach.
- *
- * jsforce sends a query over GET with the SOQL percent-encoded into `?q=`, and
- * Salesforce refuses a request URI much past 16 000 characters. Encoding is
- * what makes an Id list expensive: `'001...AAA', ` is 22 characters in the
- * statement and 26 in the URI, where the comma and the space are encoded and
- * the quotes are not. The budget leaves room for the API path in
- * front of the query and the ` LIMIT N` a per-object cap appends after it.
- */
-export const MAX_STATEMENT_URI_CHARS = 15_800;
-
-/**
  * Most Ids one statement carries even when the URI would take more. Keeps a
  * single statement's result set, and the cost of retrying it, modest.
  */
@@ -481,11 +521,6 @@ interface StatementFrame {
   wrap: boolean;
   /** Named in the error when not even one Id fits. */
   objectApiName: string;
-}
-
-/** Characters `text` occupies once percent-encoded into a query URI. */
-export function uriLength(text: string): number {
-  return encodeURIComponent(text).length;
 }
 
 /** What every statement of one read carries around the clauses it is given. */
@@ -572,7 +607,8 @@ function narrowingSuffixes(
  * no URI could carry; a row two statements return is kept once by the caller.
  *
  * @throws Error when the fixed part of a statement leaves no room for a
- *   single Id — only a field list of many hundreds of long names gets there.
+ *   single Id — measured against its first group of columns, only a filter
+ *   of the object's could get there.
  */
 function narrowedStatements(
   frame: NarrowedFrame,
@@ -610,9 +646,8 @@ function narrowedStatements(
 /** The error a statement with no room left for a single Id is refused with. */
 function noRoomLeft(objectApiName: string): Error {
   return new Error(
-    `Scoped clone for ${objectApiName} selects so many fields that a Salesforce ` +
-      `query URI has no room left for a single record Id. Exclude fields from this ` +
-      `object and run it again.`,
+    `Scoped clone for ${objectApiName}: its filter leaves a Salesforce query URI ` +
+      `no room for a single record Id. Shorten the filter on this object and run it again.`,
   );
 }
 
@@ -632,7 +667,8 @@ function noRoomLeft(objectApiName: string): Error {
  * near the cap still overflowed the URI.
  *
  * @throws Error when the fixed part of the statement leaves no room for a
- *   single Id — only a field list of many hundreds of long names gets there.
+ *   single Id — measured against its first group of columns, only a filter
+ *   of the object's could get there.
  */
 function packInClauses(frame: StatementFrame, clauses: readonly InClause[]): string[] {
   const open = frame.wrap ? '(' : '';

@@ -846,9 +846,12 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   repeated across several FK fields — `ScopedSoqlBuilder` splits the IDs
   over as many statements as needed (each kept under the URI budget, at
   most 500 IDs apiece) and the executor merges the rows, keeping one per
-  `Id`. `maxRecordsPerObject` still caps the merged total. The one case
-  still refused is an object whose field list alone leaves no room for an
-  ID; exclude fields from that object to clone it.
+  `Id`. `maxRecordsPerObject` still caps the merged total. An object whose
+  field list alone would fill the URI — hundreds of fields, as an Account
+  can have — is read in column groups: each statement names the `Id` and a
+  group of fields that fits, the first with the scope's WHERE and the others
+  by the IDs it returned, merged by `Id`, so every field is read and written
+  whatever the object's width.
 - **Excluded objects**: discovery and orphan-parent expansion share one
   list (`excludedObjects.ts`) — system and hub objects such as `User`,
   `RecordType`, `Queue`, job and log tables (`AsyncApexJob`, `CronTrigger`,

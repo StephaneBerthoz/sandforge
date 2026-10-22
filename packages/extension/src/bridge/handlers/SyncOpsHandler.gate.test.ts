@@ -156,7 +156,7 @@ function mockOrgs(contacts: number, remainingMB = 4, emails = 15) {
           if (soql.startsWith('SELECT COUNT()')) {
             return { done: true, totalSize: soql.includes('IsPersonAccount') ? 0 : rows.length };
           }
-          if (soql.startsWith('SELECT FIELDS(ALL) FROM Contact'))
+          if (/^SELECT Id, LastName\b.* FROM Contact/.test(soql))
             return { done: true, records: rows };
           return { done: true, records: [] };
         }),

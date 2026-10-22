@@ -442,6 +442,7 @@ export class SchemaScanner {
         standardNeeded: walk.standardNeeded,
         ...(walk.followedByDefault.length > 0 ? { followedByDefault: walk.followedByDefault } : {}),
         ...(currencies ? { currencies } : {}),
+        ...(walk.cutShort.length > 0 ? { cutShort: walk.cutShort } : {}),
       },
     };
   }
@@ -565,6 +566,7 @@ export class SchemaScanner {
     leftEmpty: AutopilotLookupLeftEmpty[];
     standardNeeded: AutopilotPlanScope['standardNeeded'];
     followedByDefault: NonNullable<AutopilotPlanScope['followedByDefault']>;
+    cutShort: NonNullable<AutopilotPlanScope['cutShort']>;
     recordCounts: Map<ApiName, number>;
     parentIds: Map<ApiName, string[]>;
   }> {
@@ -575,6 +577,7 @@ export class SchemaScanner {
     const leftEmpty = new Map<string, AutopilotLookupLeftEmpty>();
     const standardNeeded: AutopilotPlanScope['standardNeeded'] = [];
     const followedByDefault: NonNullable<AutopilotPlanScope['followedByDefault']> = [];
+    const cutShort: NonNullable<AutopilotPlanScope['cutShort']> = [];
     const added: ApiName[] = [];
     const recordCounts = new Map<ApiName, number>();
     /** Of each object read by id, the ids of the records read. */
@@ -663,11 +666,25 @@ export class SchemaScanner {
         const fields = ['Id', ...new Set(onward.map((lookup) => lookup.field))]
           .map(assertSoqlIdentifier)
           .join(', ');
-        const rows = await this.readAll(
+        // In the order of the ids, as the run copies the object: a read cut
+        // at its bound holds the records the run takes, and the parents it
+        // plans are theirs. Read in no order, the plan held the parents of
+        // one sample of a table of millions and the run copied another.
+        const { records: rows, truncated } = await this.readAll(
           conn,
-          `SELECT ${fields} FROM ${assertSoqlIdentifier(name)}`,
+          `SELECT ${fields} FROM ${assertSoqlIdentifier(name)} ORDER BY Id`,
         );
         recordCounts.set(name, rows.length);
+        if (truncated) {
+          // Said in the plan, with what the source holds: a warning in the
+          // log alone left Step 4 showing the bound beside a count of millions.
+          const total = (await this.countRecords(conn, [name])).get(name);
+          cutShort.push({
+            objectApiName: name,
+            copied: rows.length,
+            ...(total !== undefined ? { total } : {}),
+          });
+        }
         meet(name, rows, 0);
       } catch (err) {
         logger.warn('Autopilot could not read the lookups of a selected object', {
@@ -794,6 +811,7 @@ export class SchemaScanner {
       followedByDefault: followedByDefault.filter((followed) =>
         planned.has(followed.objectApiName),
       ),
+      cutShort,
       recordCounts,
       parentIds,
     };
@@ -860,13 +878,20 @@ export class SchemaScanner {
     }
   }
 
-  /** Every page of a read, when the connection can turn them; its first otherwise. */
+  /**
+   * Every page of a read, when the connection can turn them; its first
+   * otherwise. `truncated` when a bound, or a connection that turns no page,
+   * left records unread.
+   */
   private async readAll(
     conn: AutopilotConnection,
     soql: string,
-  ): Promise<Record<string, unknown>[]> {
+  ): Promise<{ records: Record<string, unknown>[]; truncated: boolean }> {
     const { queryMore } = conn;
-    if (!queryMore) return (await conn.query(soql)).records;
+    if (!queryMore) {
+      const first = await conn.query(soql);
+      return { records: first.records, truncated: first.done === false };
+    }
     const pages = await queryAllPages<Record<string, unknown>>(
       { query: (q) => conn.query(q), queryMore: (url) => queryMore.call(conn, url) },
       soql,
@@ -876,7 +901,7 @@ export class SchemaScanner {
         records: pages.records.length,
       });
     }
-    return pages.records;
+    return { records: pages.records, truncated: pages.truncated };
   }
 
   /**

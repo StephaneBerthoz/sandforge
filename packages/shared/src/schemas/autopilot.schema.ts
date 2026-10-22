@@ -230,6 +230,15 @@ export const autopilotPlanScopeSchema = z.object({
       objects: z.array(z.string().min(1)),
     })
     .optional(),
+  cutShort: z
+    .array(
+      z.object({
+        objectApiName: z.string().min(1),
+        copied: z.number().int().nonnegative(),
+        total: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .optional(),
 });
 
 /** Zod schema for ExecutionPlan */

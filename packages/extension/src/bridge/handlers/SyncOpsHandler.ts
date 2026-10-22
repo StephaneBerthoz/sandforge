@@ -51,7 +51,7 @@ import { toSaveOutcomes } from '../../core/common/existingRecordMatch.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
+import { readColumnsApart } from '../../core/common/wideRead.js';
 import {
   queryAllPages,
   FORGE_QUERY_MAX_RECORDS,
@@ -1301,7 +1301,8 @@ export class SyncOpsHandler implements DomainHandler {
         read?: SourceRead,
       ): Promise<Record<string, unknown>[]> => {
         const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
-        let soql = `SELECT FIELDS(ALL) FROM ${safeObj}`;
+        // What follows the field list: the filter, the order, the cap.
+        let tail = '';
         // The boundary refuses a WHERE that does more than filter; checked
         // again here because this is where it becomes query text, and a
         // `LIMIT 1` riding on the filter would cut the read short while the
@@ -1309,7 +1310,7 @@ export class SyncOpsHandler implements DomainHandler {
         // before it, and keeps the filter whole in parentheses.
         const where = sourceReadWhere(objectConfig.where, read?.changedSince);
         if (where) {
-          soql += ` WHERE ${where}`;
+          tail += ` WHERE ${where}`;
         }
         // An SFDMU export carries its read order, and the importer keeps it.
         // The boundary refuses anything but field names, ASC/DESC and NULLS
@@ -1317,7 +1318,7 @@ export class SyncOpsHandler implements DomainHandler {
         // query text — an ORDER BY ends the statement, so whatever followed
         // it would run.
         if (objectConfig.orderBy) {
-          soql += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
+          tail += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
         }
         // This query used to end in a bare
         // `LIMIT ${syncQueryLimits.defaultQueryLimit}` and read the first
@@ -1341,34 +1342,36 @@ export class SyncOpsHandler implements DomainHandler {
         // FORGE_QUERY_MAX_RECORDS / FORGE_QUERY_MAX_PAGES.
         const { tier, limits } = limitsFor(orgId);
         if (tier === 'production') {
-          soql += ` LIMIT ${limits.defaultQueryLimit}`;
+          tail += ` LIMIT ${limits.defaultQueryLimit}`;
         }
         let boundCutTheRead = false;
         const retryResult = await queryRetryOp.execute(async () => {
-          try {
-            const paged = await queryAllPages<Record<string, unknown>>(
-              {
-                // jsforce hands back a thenable `Query`, not a Promise.
-                query: async (q) => conn.query<Record<string, unknown>>(q),
-                queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
-              },
-              soql,
-            );
-            boundCutTheRead = paged.truncated;
-            return paged.records;
-          } catch {
-            // The org rejects the `FIELDS()` syntax: fall back to the
-            // explicit field list built from `describe()`. That path
-            // paginates internally and rethrows anything that is not a
-            // FIELDS() problem, so a real failure still surfaces.
-            const records = await queryWithFieldsFallback<Record<string, unknown>>(
-              conn,
-              safeObj,
-              soql,
-            );
-            boundCutTheRead = records.length >= FORGE_QUERY_MAX_RECORDS;
-            return records;
-          }
+          boundCutTheRead = false;
+          // The fields are named from the describe. Asked `FIELDS(ALL)`,
+          // which Salesforce answers only under a LIMIT of 200 at most, the
+          // org refused this read every time — a request per object — and
+          // the fallback named the fields all the same: in one statement,
+          // which an object of hundreds of fields made too long for its URL
+          // (414 or 431), and which on a production-tier source it cut to 200 rows
+          // under `FIELDS(ALL)` again, with no word of it. Too long for one
+          // query, the fields are read in column groups (`readColumnsApart`),
+          // the first with the filter, the order and the cap; the others by
+          // the ids it returned.
+          const described = (await conn.describe(safeObj)).fields.map((field) => field.name);
+          const fields = described.length > 0 ? described : ['Id'];
+          const pages = {
+            // jsforce hands back a thenable `Query`, not a Promise.
+            query: async (q: string) => conn.query<Record<string, unknown>>(q),
+            queryMore: async (url: string) => conn.queryMore<Record<string, unknown>>(url),
+          };
+          return readColumnsApart(
+            `SELECT ${fields.join(', ')} FROM ${safeObj}${tail}`,
+            async (statement) => {
+              const paged = await queryAllPages<Record<string, unknown>>(pages, statement);
+              boundCutTheRead ||= paged.truncated;
+              return paged.records;
+            },
+          );
         });
         if (!retryResult.success) {
           throw retryResult.error ?? new Error('Query failed after retries');

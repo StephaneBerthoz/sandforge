@@ -264,6 +264,17 @@ export interface AutopilotPlanScope {
    * or either org holds a single currency.
    */
   readonly currencies?: AutopilotCurrencyPlan;
+  /**
+   * The selected objects whose lookups the scan read to its bound, the table
+   * holding more: the run copies the first `copied` of their records by Id,
+   * those whose parents the plan holds, of `total` the source counts —
+   * absent when it would not count. Absent when no object was cut so.
+   */
+  readonly cutShort?: Array<{
+    readonly objectApiName: ApiName;
+    readonly copied: number;
+    readonly total?: number;
+  }>;
 }
 
 /** What a plan says of the currencies the target does not hold active. */

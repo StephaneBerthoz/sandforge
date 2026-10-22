@@ -674,6 +674,7 @@
     },
     "executeDesc": "Run the seed operation",
     "cancelRunConfirm": "Stop the running seed? Records already inserted stay in the org.",
+    "volumeTooMany": "{{object}}: at most {{most}} records an object in one seed.",
     "fieldRules": {
       "static": "Static Value",
       "random": "Random",
@@ -3883,7 +3884,9 @@
         "required": "a record cannot be written without it: those records will be refused",
         "standardNeeded": "{{object}} is taken although standard objects were not asked for: {{field}} cannot be left empty.",
         "followedByDefault": "{{object}} is followed although standard objects were not asked for, as it is by default: {{fields}} reference it.",
-        "currencies": "Currencies the target org does not hold active: {{currencies}}. A record in one of them is written in {{writtenIn}}, its corporate currency, its amounts converted at the source org's rates ({{objects}})."
+        "currencies": "Currencies the target org does not hold active: {{currencies}}. A record in one of them is written in {{writtenIn}}, its corporate currency, its amounts converted at the source org's rates ({{objects}}).",
+        "cutShort": "{{object}}: the first {{copied}} of its {{total}} records by Id are copied, with the parents they name — one read of its lookups takes no more.",
+        "cutShortUncounted": "{{object}}: the first {{copied}} of its records by Id are copied, with the parents they name — one read of its lookups takes no more."
       },
       "notCovered": "{{object}}: no anonymization rule for its {{missing}}. They would be copied as the source holds them.",
       "personal": {
@@ -4888,6 +4891,10 @@
         "explanation": "Salesforce refused the request: the org it went to has used the API requests it is allowed over 24 hours, or is running too many long requests at once. The clone writes up to 200 records a request, and its reads and describes take requests of their own.",
         "action": "Wait until that org's count frees requests — the Monitor page shows its API usage — then retry; a lower depth or fewer records per object takes fewer requests."
       }
+    },
+    "uriTooLong": {
+      "explanation": "Salesforce refused the query before reading it: a query travels in the address of the request, and this one is longer than the org accepts (414 URI Too Long, or 431 Request Header Fields Too Large). SandForge reads an object of many fields in groups of fields that fit; a query written by hand, or a long filter, can still go past it.",
+      "action": "Shorten the query or its filter — fewer fields, or fewer IDs at a time — then run again."
     },
     "sessionExpired": {
       "explanation": "Salesforce no longer accepts the session SandForge holds for this org: it expired, or was ended by a logout, a password change or an administrator.",

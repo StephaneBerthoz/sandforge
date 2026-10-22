@@ -216,26 +216,33 @@ describe('soqlQueryHelper', () => {
         })),
       };
 
-      it('samples through FIELDS(ALL) at the 200 rows the platform allows', async () => {
+      /**
+       * An org of 500 accounts that answers the fields a statement names,
+       * honours `Id IN` and LIMIT, and refuses a URI past what it holds.
+       */
+      const answering = (statement: string) => {
+        if (encodeURIComponent(statement).length > 15_400) {
+          return Promise.reject(
+            Object.assign(new Error('URI Too Long'), { errorCode: 'ERROR_HTTP_414' }),
+          );
+        }
+        const named = /^SELECT (.+?) FROM /.exec(statement)?.[1].split(', ') ?? [];
+        const ids = new Set([...statement.matchAll(/'(001\d{15})'/g)].map((m) => m[1]));
+        const limit = /LIMIT (\d+)$/.exec(statement);
+        const rows = Array.from({ length: 500 }, (_, n) => `001${String(n).padStart(15, '0')}`)
+          .filter((id) => ids.size === 0 || ids.has(id))
+          .slice(0, limit ? Number(limit[1]) : undefined)
+          .map((Id) =>
+            Object.fromEntries(named.map((field) => [field, field === 'Id' ? Id : 'v'])),
+          );
+        return Promise.resolve(makeQueryResult(rows, true));
+      };
+
+      it('reads the rows asked for, not the 200 FIELDS(ALL) allows, each with every field', async () => {
+        // Sent at FIELDS(ALL) LIMIT 200, a production-tier Sync copied 200
+        // of the 500 rows it asked for, and said nothing.
         mockConn.describe.mockResolvedValue(wideDescribe);
-        mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001' }], true));
-
-        await queryWithFieldsFallback<TestRecord>(
-          mockConn as unknown as Connection,
-          'Account',
-          'SELECT FIELDS(ALL) FROM Account LIMIT 500',
-        );
-
-        expect(mockConn.query).toHaveBeenCalledTimes(1);
-        const sent = String(mockConn.query.mock.calls[0][0]);
-        expect(sent).toBe('SELECT FIELDS(ALL) FROM Account LIMIT 200');
-        expect(encodeURIComponent(sent).length).toBeLessThanOrEqual(15_000);
-      });
-
-      it('says the read was sent at 200 rows, not at the 500 asked for', async () => {
-        // A caller stating the bound of its sample would state the wrong one.
-        mockConn.describe.mockResolvedValue(wideDescribe);
-        mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001' }], true));
+        mockConn.query.mockImplementation(answering);
 
         const read = await queryWithFieldsFallbackBounded<TestRecord>(
           mockConn as unknown as Connection,
@@ -243,24 +250,32 @@ describe('soqlQueryHelper', () => {
           'SELECT FIELDS(ALL) FROM Account LIMIT 500',
         );
 
-        expect(read).toEqual({ records: [{ Id: '001' }], limit: 200 });
+        expect(read.limit).toBe(500);
+        expect(read.records).toHaveLength(500);
+        // The id every group carries, and the 700 fields.
+        expect(Object.keys(read.records[499])).toHaveLength(701);
+        for (const [sent] of mockConn.query.mock.calls) {
+          expect(String(sent)).not.toContain('FIELDS(ALL)');
+          expect(encodeURIComponent(String(sent)).length).toBeLessThanOrEqual(14_000);
+        }
       });
 
-      it('still names every field when the query reads without a LIMIT', async () => {
-        // Capping it at 200 rows would silently drop records the caller reads
-        // in full, so the long query is sent and a refusal surfaces as one.
+      it('reads every field of every row when the query reads without a LIMIT, within the URI', async () => {
+        // Sent whole, the described query was refused with a 414.
         mockConn.describe.mockResolvedValue(wideDescribe);
-        mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001' }], true));
+        mockConn.query.mockImplementation(answering);
 
-        await queryWithFieldsFallback<TestRecord>(
+        const records = await queryWithFieldsFallback<TestRecord>(
           mockConn as unknown as Connection,
           'Account',
           'SELECT FIELDS(ALL) FROM Account',
         );
 
-        const sent = String(mockConn.query.mock.calls[0][0]);
-        expect(sent).toContain('Custom_Field_699__c');
-        expect(sent).not.toContain('LIMIT');
+        expect(records).toHaveLength(500);
+        expect(records[0]['Custom_Field_699__c']).toBe('v');
+        for (const [sent] of mockConn.query.mock.calls) {
+          expect(encodeURIComponent(String(sent)).length).toBeLessThanOrEqual(14_000);
+        }
       });
     });
 

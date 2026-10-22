@@ -1884,6 +1884,63 @@ describe('DataOpsHandler', () => {
       expect(response?.payload.totalRecords).toBe(1);
     });
 
+    it('backs up every field of every row of an object too wide to name them in one query', async () => {
+      // Named in one statement, 700 fields make a URL the org refuses (414):
+      // the backup failed before its first row.
+      const fields = [
+        'Id',
+        ...Array.from({ length: 700 }, (_, i) => `Custom_Field_${String(i).padStart(3, '0')}__c`),
+      ];
+      const ids = Array.from({ length: 250 }, (_, i) => `001${String(i).padStart(12, '0')}AAA`);
+      const conn = mockOrg([], fields);
+      conn.query.mockImplementation(async (soql: string) => {
+        if (encodeURIComponent(soql).length > 15_400) {
+          throw Object.assign(new Error('URI Too Long'), { errorCode: 'ERROR_HTTP_414' });
+        }
+        if (soql === 'SELECT Id FROM Organization') return answer([]);
+        const named = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+        const asked = new Set([...soql.matchAll(/'(001\d{12}AAA)'/g)].map((m) => m[1]));
+        return answer(
+          ids
+            .filter((id) => asked.size === 0 || asked.has(id))
+            .map((Id) => Object.fromEntries(named.map((name) => [name, name === 'Id' ? Id : 'v']))),
+        );
+      });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const stored = new Map<string, unknown>();
+      deps.configStore = {
+        get: vi.fn((key: string) => stored.get(key)),
+        set: vi.fn((key: string, value: unknown) => {
+          stored.set(key, value);
+        }),
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn((prefix: string) =>
+          [...stored.keys()].filter((key) => key.startsWith(prefix)),
+        ),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-wide',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+
+      expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
+      for (const [soql] of conn.query.mock.calls) {
+        expect(encodeURIComponent(String(soql)).length).toBeLessThanOrEqual(14_000);
+      }
+      const [rows] = [...stored.entries()]
+        .filter(([key]) => /^backup:.+:Account$/.test(key))
+        .map(([, value]) => value as Array<Record<string, unknown>>);
+      expect(rows).toHaveLength(250);
+      expect(rows[249]?.['Custom_Field_699__c']).toBe('v');
+      expect(Object.keys(rows[0] ?? {})).toHaveLength(fields.length);
+    });
+
     it('says a backup the cap cut short is partial, in its answer and in the list', async () => {
       // Live: 1 220 contacts on a Developer Edition, 500 read, said complete.
       const full = Array.from({ length: 2_000 }, (_, i) => ({ Id: `001${i}`, Name: `A${i}` }));

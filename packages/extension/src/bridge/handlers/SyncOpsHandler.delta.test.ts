@@ -315,7 +315,9 @@ describe('sync:execute of a saved delta configuration', () => {
     expect(firstReads[0]).toBe(
       'SELECT SystemModstamp FROM Account ORDER BY SystemModstamp DESC LIMIT 1',
     );
-    expect(firstReads[1]).toBe("SELECT FIELDS(ALL) FROM Account WHERE Type = 'Customer'");
+    expect(firstReads[1]).toBe(
+      "SELECT Id, Name, Ext_Id__c, Type FROM Account WHERE Type = 'Customer'",
+    );
     expect(orgs.target.size).toBe(3);
 
     // Acme renamed, Globex deleted, after the first run.
@@ -338,7 +340,7 @@ describe('sync:execute of a saved delta configuration', () => {
         scanAll: false,
       },
       {
-        soql: "SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z AND (Type = 'Customer')",
+        soql: "SELECT Id, Name, Ext_Id__c, Type FROM Account WHERE SystemModstamp > 2026-10-13T08:55:00Z AND (Type = 'Customer')",
         scanAll: false,
       },
       {

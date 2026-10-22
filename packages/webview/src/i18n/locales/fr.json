@@ -674,6 +674,7 @@
     },
     "executeDesc": "Lancer l'opération de seed",
     "cancelRunConfirm": "Arrêter le seed en cours ? Les enregistrements déjà insérés restent dans l'org.",
+    "volumeTooMany": "{{object}} : au plus {{most}} enregistrements par objet dans un seed.",
     "fieldRules": {
       "static": "Valeur statique",
       "random": "Aléatoire",
@@ -3883,7 +3884,9 @@
         "required": "un enregistrement ne peut pas être écrit sans lui : ces enregistrements seront refusés",
         "standardNeeded": "{{object}} est pris bien que les objets standard n'aient pas été demandés : {{field}} ne peut pas rester vide.",
         "followedByDefault": "{{object}} est suivi bien que les objets standard n'aient pas été demandés, comme il l'est par défaut : {{fields}} y font référence.",
-        "currencies": "Devises que l'org cible n'a pas actives : {{currencies}}. Un enregistrement dans l'une d'elles est écrit en {{writtenIn}}, sa devise de société, ses montants convertis aux taux de l'org source ({{objects}})."
+        "currencies": "Devises que l'org cible n'a pas actives : {{currencies}}. Un enregistrement dans l'une d'elles est écrit en {{writtenIn}}, sa devise de société, ses montants convertis aux taux de l'org source ({{objects}}).",
+        "cutShort": "{{object}} : les {{copied}} premiers de ses {{total}} enregistrements par Id sont copiés, avec les parents qu'ils désignent — une lecture de ses lookups n'en prend pas plus.",
+        "cutShortUncounted": "{{object}} : les {{copied}} premiers de ses enregistrements par Id sont copiés, avec les parents qu'ils désignent — une lecture de ses lookups n'en prend pas plus."
       },
       "notCovered": "{{object}} : aucune règle d'anonymisation pour {{missing}}. Ces données seraient copiées telles que la source les contient.",
       "personal": {
@@ -4888,6 +4891,10 @@
         "explanation": "Salesforce a refusé la requête : l'org à laquelle elle s'adressait a épuisé les requêtes d'API qui lui sont permises sur 24 heures, ou exécute trop de requêtes longues à la fois. Le clone écrit jusqu'à 200 enregistrements par requête, et ses lectures et ses descriptions prennent des requêtes à part.",
         "action": "Attendez que le compteur de cette org libère des requêtes — la page Moniteur affiche sa consommation d'API — puis relancez ; une profondeur plus faible ou moins d'enregistrements par objet demandent moins de requêtes."
       }
+    },
+    "uriTooLong": {
+      "explanation": "Salesforce a refusé la requête avant de la lire : une requête voyage dans l'adresse de la demande, et celle-ci dépasse ce que l'org accepte (414 URI Too Long, ou 431 Request Header Fields Too Large). SandForge lit un objet aux nombreux champs par groupes de champs qui tiennent ; une requête écrite à la main, ou un long filtre, peut encore la dépasser.",
+      "action": "Raccourcissez la requête ou son filtre — moins de champs, ou moins d'ID à la fois — puis relancez."
     },
     "sessionExpired": {
       "explanation": "Salesforce n'accepte plus la session que SandForge détient pour cette org : elle a expiré, ou a été fermée par une déconnexion, un changement de mot de passe ou un administrateur.",

@@ -400,6 +400,25 @@ describe('translateError in every other module', () => {
     expect(result?.vars).toBeUndefined();
   });
 
+  it.each([
+    ['ERROR_HTTP_414', 'ERROR_HTTP_414: URI Too Long'],
+    // What a scratch org answered a query of 15 487 characters with.
+    ['ERROR_HTTP_431', 'ERROR_HTTP_431: <html><head><title>Request Header Fields Too Large'],
+  ])(
+    'explains %s, a query the org refused for a URI too long, in Forge as in every other module',
+    (code, raw) => {
+      // What jsforce makes of the status when the answer is no API error.
+      for (const hint of [translateError(raw), forge(raw)]) {
+        expect(hint).toMatchObject({
+          code,
+          explanationKey: 'errors.uriTooLong.explanation',
+          actionKey: 'errors.uriTooLong.action',
+          severity: 'error',
+        });
+      }
+    },
+  );
+
   it('falls back to the shared action for a code a seed has no wording of its own for', () => {
     const result = translateError('ENTITY_IS_LOCKED: entity is locked', { module: 'seed' });
     expect(result?.actionKey).toBe('errors.entityLocked.action');

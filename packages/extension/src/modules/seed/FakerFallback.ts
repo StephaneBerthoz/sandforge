@@ -220,8 +220,12 @@ export class FakerFallback {
    * Generate records from field rules using faker-style generation.
    * Each field rule with ruleType 'faker' uses its config.fakerMethod
    * to select the appropriate generator.
+   *
+   * @param first - The place of the first record among the object's, for a
+   *   slice of them: what a record's phone numbers and other values drawn
+   *   from its place go on from.
    */
-  generate(fieldRules: FieldRule[], count: number): Record<string, unknown>[] {
+  generate(fieldRules: FieldRule[], count: number, first = 0): Record<string, unknown>[] {
     if (count <= 0 || fieldRules.length === 0) {
       return [];
     }
@@ -236,7 +240,7 @@ export class FakerFallback {
       (rule) => resolveFakerMethod(rule.config.fakerMethod ?? 'lorem') === 'phone',
     );
 
-    for (let i = 0; i < count; i++) {
+    for (let i = first; i < first + count; i++) {
       const record: Record<string, unknown> = {};
       const drawn = new Map<string, number>();
       const draw: RecordDraw = (key, size) => {
