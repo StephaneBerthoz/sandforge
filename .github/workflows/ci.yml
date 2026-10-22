@@ -93,7 +93,10 @@ jobs:
   e2e:
     name: E2E (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A shard runs its third of the suite in 25 to 35 minutes; one whose
+    # browsers were not in the cache spent ten more installing them, and at
+    # 1 712 tests (1.65.0) the 45 minutes ran out with its tests still going.
+    timeout-minutes: 60
     strategy:
       # Each shard reports its own result and uploads its own report.
       fail-fast: false
