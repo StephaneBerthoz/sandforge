@@ -31,6 +31,7 @@ export * from './operation.messages.js';
 export * from './realtime.messages.js';
 export * from './smart-action.messages.js';
 export * from './frozen.messages.js';
+export * from './checkpoint.messages.js';
 
 import type {
   OrgListRequest,
@@ -537,6 +538,30 @@ import type {
   FrozenRemoveSweepErrorMessage,
 } from './frozen.messages.js';
 
+import type {
+  CheckpointListRequest,
+  CheckpointScopeRequest,
+  CheckpointTakeRequest,
+  CheckpointPreviewRequest,
+  CheckpointRewindRequest,
+  CheckpointUndoRequest,
+  CheckpointDeleteRequest,
+  CheckpointKeepRequest,
+  CheckpointRenameRequest,
+  CheckpointIgnoreFieldsRequest,
+  CheckpointListResponse,
+  CheckpointScopeResponse,
+  CheckpointTakeResponse,
+  CheckpointPreviewResponse,
+  CheckpointRewindResponse,
+  CheckpointUndoResponse,
+  CheckpointDeleteResponse,
+  CheckpointKeepResponse,
+  CheckpointRenameResponse,
+  CheckpointIgnoreFieldsResponse,
+  CheckpointErrorResponse,
+} from './checkpoint.messages.js';
+
 /** Message from WebView to Extension (requests) */
 export type WebViewToExtensionMessage =
   // File
@@ -758,7 +783,18 @@ export type WebViewToExtensionMessage =
   | FrozenVerifyRequest
   | FrozenRemoveRequest
   | FrozenRemoveSweepRequest
-  | FrozenStatusRequest;
+  | FrozenStatusRequest
+  // Checkpoint & Rewind
+  | CheckpointListRequest
+  | CheckpointScopeRequest
+  | CheckpointTakeRequest
+  | CheckpointPreviewRequest
+  | CheckpointRewindRequest
+  | CheckpointUndoRequest
+  | CheckpointDeleteRequest
+  | CheckpointKeepRequest
+  | CheckpointRenameRequest
+  | CheckpointIgnoreFieldsRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -1050,4 +1086,16 @@ export type ExtensionToWebViewMessage =
   | FrozenLoadPreviewErrorMessage
   | FrozenVerifyErrorMessage
   | FrozenRemoveErrorMessage
-  | FrozenRemoveSweepErrorMessage;
+  | FrozenRemoveSweepErrorMessage
+  // Checkpoint & Rewind
+  | CheckpointListResponse
+  | CheckpointScopeResponse
+  | CheckpointTakeResponse
+  | CheckpointPreviewResponse
+  | CheckpointRewindResponse
+  | CheckpointUndoResponse
+  | CheckpointDeleteResponse
+  | CheckpointKeepResponse
+  | CheckpointRenameResponse
+  | CheckpointIgnoreFieldsResponse
+  | CheckpointErrorResponse;

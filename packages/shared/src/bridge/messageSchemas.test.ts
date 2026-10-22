@@ -15,6 +15,7 @@ import {
   RealtimeMessageSchema,
   SmartActionMessageSchema,
   FrozenMessageSchema,
+  CheckpointMessageSchema,
 } from './messageSchemas.js';
 import { PROTOCOL_VERSION } from './protocolVersion.js';
 
@@ -125,6 +126,13 @@ describe('Domain schemas — valid / invalid samples', () => {
     expect(FrozenMessageSchema.safeParse(baseFields('frozen:status')).success).toBe(true);
     expect(FrozenMessageSchema.safeParse(baseFields('frozen:bogus')).success).toBe(false);
   });
+
+  it('CheckpointMessageSchema accepts checkpoint:take and checkpoint:error; rejects unknown', () => {
+    expect(CheckpointMessageSchema.safeParse(baseFields('checkpoint:take')).success).toBe(true);
+    expect(CheckpointMessageSchema.safeParse(baseFields('checkpoint:error')).success).toBe(true);
+    expect(CheckpointMessageSchema.safeParse(baseFields('checkpoint:bogus')).success).toBe(false);
+    expect(CheckpointMessageSchema.safeParse(baseFields('frozen:status')).success).toBe(false);
+  });
 });
 
 describe('BridgeMessageSchema — full union', () => {
@@ -136,6 +144,7 @@ describe('BridgeMessageSchema — full union', () => {
       baseFields('monitor:refresh'),
       baseFields('ai:chat'),
       baseFields('realtime:start'),
+      baseFields('checkpoint:rewind'),
     ];
     for (const sample of samples) {
       expect(BridgeMessageSchema.safeParse(sample).success).toBe(true);

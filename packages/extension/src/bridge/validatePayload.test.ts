@@ -1,6 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, expectTypeOf, vi, beforeEach } from 'vitest';
 import * as z from 'zod';
-import type { BaseMessage } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  CheckpointDeleteRequest,
+  CheckpointIgnoreFieldsRequest,
+  CheckpointKeepRequest,
+  CheckpointListRequest,
+  CheckpointPreviewRequest,
+  CheckpointRenameRequest,
+  CheckpointRewindRequest,
+  CheckpointScopeRequest,
+  CheckpointTakeRequest,
+  CheckpointUndoRequest,
+} from '@sandforge/shared';
 import { CSV_IMPORT_MAX_COLUMNS, CSV_IMPORT_MAX_ROWS } from '@sandforge/shared';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import {
@@ -24,6 +36,16 @@ import {
   pipelineRunPayloadSchema,
   savedPipelineSchema,
   seedCsvPayloadSchema,
+  checkpointListPayloadSchema,
+  checkpointScopePayloadSchema,
+  checkpointTakePayloadSchema,
+  checkpointPreviewPayloadSchema,
+  checkpointRewindPayloadSchema,
+  checkpointUndoPayloadSchema,
+  checkpointDeletePayloadSchema,
+  checkpointKeepPayloadSchema,
+  checkpointRenamePayloadSchema,
+  checkpointIgnoreFieldsPayloadSchema,
 } from './validatePayload.js';
 import { inboundRequest } from '../test/mockFactories.js';
 
@@ -600,5 +622,204 @@ describe('seedCsvPayloadSchema', () => {
     expect(seedCsvPayloadSchema.safeParse(csvImport(1, CSV_IMPORT_MAX_COLUMNS + 1)).success).toBe(
       false,
     );
+  });
+});
+
+describe('checkpoint:* payloads', () => {
+  const CHECKPOINT = 'ck-20261022-140512-a1b2';
+
+  /** A take as the Take a checkpoint step sends it. */
+  const take = (patch: Record<string, unknown> = {}): Record<string, unknown> => ({
+    orgId: 'org-1',
+    name: 'Before UAT',
+    mode: 'everything',
+    keepDays: 30,
+    ...patch,
+  });
+
+  it('validates each request as the shared contract declares its payload', () => {
+    expectTypeOf<z.infer<typeof checkpointListPayloadSchema>>().toEqualTypeOf<
+      CheckpointListRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointScopePayloadSchema>>().toEqualTypeOf<
+      CheckpointScopeRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointTakePayloadSchema>>().toEqualTypeOf<
+      CheckpointTakeRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointPreviewPayloadSchema>>().toEqualTypeOf<
+      CheckpointPreviewRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointRewindPayloadSchema>>().toEqualTypeOf<
+      CheckpointRewindRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointUndoPayloadSchema>>().toEqualTypeOf<
+      CheckpointUndoRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointDeletePayloadSchema>>().toEqualTypeOf<
+      CheckpointDeleteRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointKeepPayloadSchema>>().toEqualTypeOf<
+      CheckpointKeepRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointRenamePayloadSchema>>().toEqualTypeOf<
+      CheckpointRenameRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointIgnoreFieldsPayloadSchema>>().toEqualTypeOf<
+      CheckpointIgnoreFieldsRequest['payload']
+    >();
+  });
+
+  it('lists the checkpoints of one org, or of every org when none is named', () => {
+    expect(checkpointListPayloadSchema.safeParse(undefined).success).toBe(true);
+    expect(checkpointListPayloadSchema.safeParse({}).success).toBe(true);
+    expect(checkpointListPayloadSchema.safeParse({ orgId: 'org-1' }).success).toBe(true);
+    expect(checkpointListPayloadSchema.safeParse({ orgId: '' }).success).toBe(false);
+  });
+
+  it('takes everything people work in without objects, and picked objects only with them', () => {
+    expect(checkpointTakePayloadSchema.safeParse(take()).success).toBe(true);
+    expect(
+      checkpointTakePayloadSchema.safeParse(take({ mode: 'picked', objects: ['Account', 'Case'] }))
+        .success,
+    ).toBe(true);
+    for (const scope of [
+      { mode: 'picked' },
+      { mode: 'picked', objects: [] },
+      { mode: 'everything', objects: ['Account'] },
+      { mode: 'all' },
+    ]) {
+      expect(checkpointTakePayloadSchema.safeParse(take(scope)).success).toBe(false);
+    }
+    expect(
+      checkpointScopePayloadSchema.safeParse({ orgId: 'org-1', mode: 'picked', objects: ['Case'] })
+        .success,
+    ).toBe(true);
+    expect(
+      checkpointScopePayloadSchema.safeParse({
+        orgId: 'org-1',
+        mode: 'everything',
+        objects: ['Case'],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('refuses a picked object named twice, or not by its API name', () => {
+    for (const objects of [['Account', 'Account'], ['Account WHERE Id != null']]) {
+      expect(checkpointTakePayloadSchema.safeParse(take({ mode: 'picked', objects })).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('keeps a checkpoint for whole days, or until it is deleted with 0', () => {
+    expect(checkpointTakePayloadSchema.safeParse(take({ keepDays: 0 })).success).toBe(true);
+    for (const keepDays of [-1, 1.5, 3651, '30']) {
+      expect(checkpointTakePayloadSchema.safeParse(take({ keepDays })).success).toBe(false);
+    }
+  });
+
+  it('takes the fields not to compare named with their object, each once', () => {
+    expect(
+      checkpointTakePayloadSchema.safeParse(take({ ignoredFields: ['Case.Last_Touched__c'] }))
+        .success,
+    ).toBe(true);
+    for (const ignoredFields of [['Last_Touched__c'], ['Case.A__c', 'Case.A__c']]) {
+      expect(checkpointTakePayloadSchema.safeParse(take({ ignoredFields })).success).toBe(false);
+    }
+    expect(
+      checkpointIgnoreFieldsPayloadSchema.safeParse({ checkpointId: CHECKPOINT, fields: [] })
+        .success,
+    ).toBe(true);
+  });
+
+  it('names a checkpoint with one line of text, kept without the spaces around it', () => {
+    const named = checkpointTakePayloadSchema.safeParse(take({ name: '  Before demo ' }));
+    expect(named.data?.name).toBe('Before demo');
+    for (const name of ['', '  ', 'Before\nUAT']) {
+      expect(checkpointTakePayloadSchema.safeParse(take({ name })).success).toBe(false);
+      expect(
+        checkpointRenamePayloadSchema.safeParse({ checkpointId: CHECKPOINT, name }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('refuses a rewind that does not say whether it accepts each consequence', () => {
+    const rewind = {
+      checkpointId: CHECKPOINT,
+      previewId: 'pv-20261022-141030-c3d4',
+      acceptAutomation: false,
+      acceptNoUndo: false,
+      acceptOutside: false,
+    };
+    expect(checkpointRewindPayloadSchema.safeParse(rewind).success).toBe(true);
+    for (const said of ['acceptAutomation', 'acceptNoUndo', 'acceptOutside']) {
+      const unsaid: Record<string, unknown> = { ...rewind };
+      delete unsaid[said];
+      expect(checkpointRewindPayloadSchema.safeParse(unsaid).success).toBe(false);
+      expect(checkpointRewindPayloadSchema.safeParse({ ...rewind, [said]: 'yes' }).success).toBe(
+        false,
+      );
+    }
+    expect(
+      checkpointUndoPayloadSchema.safeParse({
+        checkpointId: CHECKPOINT,
+        rewindId: 'rw-20261022-141102-e5f6',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('refuses ids that would name another folder than the one they stand for', () => {
+    const traversal = '../../ck-20261022-140512-a1b2';
+    expect(checkpointPreviewPayloadSchema.safeParse({ checkpointId: traversal }).success).toBe(
+      false,
+    );
+    expect(
+      checkpointKeepPayloadSchema.safeParse({ checkpointId: traversal, keep: true }).success,
+    ).toBe(false);
+    expect(
+      checkpointRewindPayloadSchema.safeParse({
+        checkpointId: CHECKPOINT,
+        previewId: 'pv-20261022-141030-c3d4/../../x',
+        acceptAutomation: true,
+        acceptNoUndo: true,
+        acceptOutside: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      checkpointUndoPayloadSchema.safeParse({
+        checkpointId: CHECKPOINT,
+        // A preview's id where the rewind's is expected.
+        rewindId: 'pv-20261022-141030-c3d4',
+        acceptAutomation: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      checkpointDeletePayloadSchema.safeParse({ checkpointIds: [CHECKPOINT, traversal] }).success,
+    ).toBe(false);
+  });
+
+  it('deletes at least one checkpoint, each named once', () => {
+    expect(checkpointDeletePayloadSchema.safeParse({ checkpointIds: [CHECKPOINT] }).success).toBe(
+      true,
+    );
+    for (const checkpointIds of [[], [CHECKPOINT, CHECKPOINT]]) {
+      expect(checkpointDeletePayloadSchema.safeParse({ checkpointIds }).success).toBe(false);
+    }
+  });
+
+  it("answers a malformed checkpoint request with INVALID_PAYLOAD on the domain's error channel", () => {
+    const deps = createMockDeps();
+    const msg = makeMsg('checkpoint:take', take({ keepDays: -1 }));
+    expect(validatePayload(checkpointTakePayloadSchema, msg, 'checkpoint:error', deps)).toBeNull();
+    const posted = deps.postToWebview.mock.calls[0][0] as {
+      type: string;
+      correlationId?: string;
+      payload: { code: string; message: string };
+    };
+    expect(posted.type).toBe('checkpoint:error');
+    expect(posted.correlationId).toBe('msg-1');
+    expect(posted.payload.code).toBe('INVALID_PAYLOAD');
+    expect(posted.payload.message).toContain('keepDays');
   });
 });

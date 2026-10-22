@@ -30,8 +30,18 @@ import {
   savedTemplateRuleSchema,
   isPipelineStepType,
   isRetiredPipelineStepType,
+  checkpointIdSchema,
+  checkpointIgnoredFieldsSchema,
+  checkpointNameSchema,
+  checkpointScopeModeSchema,
+  previewIdSchema,
+  rewindIdSchema,
 } from '@sandforge/shared';
-import type { PipelineStepType, RetiredPipelineStepType } from '@sandforge/shared';
+import type {
+  CheckpointScopeMode,
+  PipelineStepType,
+  RetiredPipelineStepType,
+} from '@sandforge/shared';
 import { isAbsolute } from 'node:path';
 import * as z from 'zod';
 import {
@@ -1074,6 +1084,95 @@ export const frozenRemovePayloadSchema = z.object({
 export const frozenRemoveSweepPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   loadedAt: z.string().min(1).max(64),
+});
+
+// ── checkpoint:* payload schemas ────────────────────────────────────────────
+// Mirror the shared request contracts (shared/types/messages/checkpoint.messages.ts).
+// A checkpoint, a preview and a rewind are named by their id, which names a
+// folder on this machine: each id has the one shape the shared schemas give
+// it, so nothing a page sends reaches a path it does not name.
+
+/** Most objects a take may be asked to hold by name, in "Only the objects I pick". */
+const MAX_CHECKPOINT_OBJECTS = 1000;
+
+/** Longest a checkpoint may be kept, in days, short of "until I delete it" (0). */
+const MAX_CHECKPOINT_KEEP_DAYS = 3650;
+
+/** Most checkpoints one delete names. */
+const MAX_CHECKPOINTS_PER_DELETE = 200;
+
+const checkpointObjectsSchema = z
+  .array(sfApiNameSchema)
+  .min(1)
+  .max(MAX_CHECKPOINT_OBJECTS)
+  .refine((objects) => new Set(objects).size === objects.length, 'An object is named twice');
+
+/**
+ * Picked objects come with "Only the objects I pick", and only with it: a
+ * take of everything people work in that named objects would read as one of
+ * them alone, or the other way round.
+ */
+function objectsMatchMode(payload: { mode: CheckpointScopeMode; objects?: string[] }): boolean {
+  return payload.mode === 'picked' ? payload.objects !== undefined : payload.objects === undefined;
+}
+
+const OBJECTS_MATCH_MODE = {
+  path: ['objects'],
+  message: 'Name the objects with "picked", and none with "everything"',
+};
+
+export const checkpointListPayloadSchema = z.object({ orgId: orgIdSchema.optional() }).optional();
+export const checkpointScopePayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    mode: checkpointScopeModeSchema,
+    objects: checkpointObjectsSchema.optional(),
+  })
+  .refine(objectsMatchMode, OBJECTS_MATCH_MODE);
+export const checkpointTakePayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    name: checkpointNameSchema,
+    mode: checkpointScopeModeSchema,
+    objects: checkpointObjectsSchema.optional(),
+    keepDays: z.number().int().min(0).max(MAX_CHECKPOINT_KEEP_DAYS),
+    ignoredFields: checkpointIgnoredFieldsSchema.optional(),
+  })
+  .refine(objectsMatchMode, OBJECTS_MATCH_MODE);
+export const checkpointPreviewPayloadSchema = z.object({ checkpointId: checkpointIdSchema });
+// Each acceptance is said, never assumed: a rewind that deletes what Undo
+// couldn't bring back, or that fires the org's automation, writes nothing
+// unless the request says yes to it.
+export const checkpointRewindPayloadSchema = z.object({
+  checkpointId: checkpointIdSchema,
+  previewId: previewIdSchema,
+  acceptAutomation: z.boolean(),
+  acceptNoUndo: z.boolean(),
+  acceptOutside: z.boolean(),
+});
+export const checkpointUndoPayloadSchema = z.object({
+  checkpointId: checkpointIdSchema,
+  rewindId: rewindIdSchema,
+  acceptAutomation: z.boolean(),
+});
+export const checkpointDeletePayloadSchema = z.object({
+  checkpointIds: z
+    .array(checkpointIdSchema)
+    .min(1)
+    .max(MAX_CHECKPOINTS_PER_DELETE)
+    .refine((ids) => new Set(ids).size === ids.length, 'A checkpoint is named twice'),
+});
+export const checkpointKeepPayloadSchema = z.object({
+  checkpointId: checkpointIdSchema,
+  keep: z.boolean(),
+});
+export const checkpointRenamePayloadSchema = z.object({
+  checkpointId: checkpointIdSchema,
+  name: checkpointNameSchema,
+});
+export const checkpointIgnoreFieldsPayloadSchema = z.object({
+  checkpointId: checkpointIdSchema,
+  fields: checkpointIgnoredFieldsSchema,
 });
 
 // ── autopilot:* payload schemas ─────────────────────────────────────────────

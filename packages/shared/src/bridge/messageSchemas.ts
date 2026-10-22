@@ -647,6 +647,34 @@ const FrozenMessages = [
 ] as const;
 export const FrozenMessageSchema = z.discriminatedUnion('type', FrozenMessages);
 
+// ─── Domain: Checkpoint & Rewind ─────────────────────────────────────────────
+const CheckpointMessages = [
+  msg('checkpoint:list'),
+  msg('checkpoint:list:response'),
+  msg('checkpoint:scope'),
+  msg('checkpoint:scope:response'),
+  msg('checkpoint:take'),
+  msg('checkpoint:take:response'),
+  // What a rewind would do, read only; the rewind acts on what it confirmed.
+  msg('checkpoint:preview'),
+  msg('checkpoint:preview:response'),
+  msg('checkpoint:rewind'),
+  msg('checkpoint:rewind:response'),
+  msg('checkpoint:undo'),
+  msg('checkpoint:undo:response'),
+  msg('checkpoint:delete'),
+  msg('checkpoint:delete:response'),
+  msg('checkpoint:keep'),
+  msg('checkpoint:keep:response'),
+  msg('checkpoint:rename'),
+  msg('checkpoint:rename:response'),
+  msg('checkpoint:ignore-fields'),
+  msg('checkpoint:ignore-fields:response'),
+  // Error channel for every checkpoint request: refusals, malformed payloads, failures.
+  msg('checkpoint:error'),
+] as const;
+export const CheckpointMessageSchema = z.discriminatedUnion('type', CheckpointMessages);
+
 /**
  * Full bridge message surface — one flattened discriminated union over every
  * domain array (O(1) dispatch at the boundary).
@@ -670,6 +698,7 @@ export const BridgeMessageSchema = z.discriminatedUnion('type', [
   ...RealtimeMessages,
   ...SmartActionMessages,
   ...FrozenMessages,
+  ...CheckpointMessages,
 ]);
 
 /** Inferred TS type of any valid bridge message (after parse). */
