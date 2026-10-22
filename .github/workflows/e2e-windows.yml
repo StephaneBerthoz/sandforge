@@ -26,13 +26,20 @@ concurrency:
 
 jobs:
   e2e-windows:
+    name: e2e-windows (${{ matrix.shard }}/3)
     runs-on: windows-latest
     # The suite took 43 to 44 minutes here at 778 tests; at 794 it was
     # cancelled at the 45-minute mark, before its count could say anything.
-    # At 990 tests (1.47.0) the hour ran out the same way.
-    timeout-minutes: 90
+    # At 990 tests (1.47.0) the hour ran out the same way, and at 1 591
+    # (1.64.0) so did ninety minutes. In three shards, as in ci.yml, each runs
+    # about a third of the suite.
+    timeout-minutes: 60
     # Measured, not gated: see the header.
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,13 +62,15 @@ jobs:
         working-directory: packages/webview
 
       - name: Run E2E tests
-        run: pnpm --filter webview e2e
+        run: pnpm --filter webview e2e --shard=${{ matrix.shard }}/3
         env:
           CI: true
 
       - name: Count what failed on Windows
         if: always()
         shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           node -e '
             const fs = require("fs");
@@ -72,7 +81,7 @@ jobs:
             }
             const { stats } = JSON.parse(fs.readFileSync(report, "utf8"));
             const failed = stats.unexpected ?? 0;
-            const line = `${failed} E2E test(s) fail on Windows, ${stats.flaky ?? 0} passed only on retry, ${stats.expected ?? 0} passed`;
+            const line = `${failed} E2E test(s) fail on Windows in shard ${process.env.SHARD}/3, ${stats.flaky ?? 0} passed only on retry, ${stats.expected ?? 0} passed`;
             console.log(failed > 0 ? "::warning::" + line : line);
           '
 
@@ -80,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: playwright-report-windows
+          name: playwright-report-windows-${{ matrix.shard }}
           path: |
             packages/webview/playwright-report/
             packages/webview/test-results/results.json
