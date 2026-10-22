@@ -18,6 +18,17 @@
  * The removal of the run makes it before its first delete
  * (`SyncRunRemoval`): a record the run wrote over that now names a record the
  * run created would keep that record in the org, depending on it.
+ *
+ * A checkpoint's rewind gives records their values back through it too, a
+ * chunk of a snapshot at a time, its values read from the org just before
+ * they are written. It names the fields that may be written back, as a
+ * snapshot's row holds the org's stamps and `attributes` beside its values;
+ * it holds the records to the moment it read the org, on the org's clock,
+ * leaving what anyone but itself and its automation changed since; and it
+ * keeps what each update writes over before it is sent, which its undo gives
+ * back. A Sync run's removal names none of these and sends what it sent,
+ * but for an object too wide to read in one statement, which the org
+ * refused (414, or 431) and is now read in column groups.
  */
 
 import type {
@@ -27,10 +38,12 @@ import type {
 } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { readColumnsApart } from '../../core/common/wideRead.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import type { BackupRecord } from '../dataops/BackupRecordStore.js';
 import { CLOCK_LEEWAY_MS, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
 import type { SyncRunOverwritten } from './SyncRunCreations.js';
+import type { OverwriteBackup } from './syncOverwrites.js';
 
 /** The backups a restore reads the values from before of: the DataOps store (`BackupRecordStore`). */
 export interface BackupReader {
@@ -54,6 +67,48 @@ export interface SyncRestoreInput {
    * Absent, every record reads as changed since.
    */
   lastWriteAt?: string;
+  /**
+   * When the records are held to instead, on the org's own clock: a record
+   * the org cannot date modified before it was changed since. Given,
+   * `lastWriteAt` is not read, and no leeway is added — read on the org, the
+   * date has no drift between two clocks to allow for, and the ten seconds a
+   * date of this machine's gets would take a change made seconds after it
+   * for none. The org dates a write to its second, truncated: a record dated
+   * within the second the date falls in may have been modified after it, and
+   * is taken for changed since. A rewind gives the moment it read the org to
+   * rewind it.
+   */
+  changedAfter?: string;
+  /**
+   * The users, by id of either length, whose changes are the restore's own
+   * doing: a record one of them modified last is given back as one unchanged
+   * since, whenever it was modified, and one anyone else modified since is
+   * left as they made it (`LastModifiedById`). A rewind names the user it
+   * writes as and the org's Automated Process: what its own writes and the
+   * automation they fired did in answer, which its second pass gives back
+   * again. Where people sign in as that same user, their changes cannot be
+   * told from its own.
+   */
+  ownWriters?: readonly string[];
+  /**
+   * The fields each object's records may be given back, by object: the only
+   * columns read of them and the only fields written. A kept row's other
+   * keys — the `attributes` the org answers a query with, the stamps, a
+   * field deleted or hidden since — are neither read nor written, and a
+   * record that holds none of these fields is counted as not kept. An object
+   * it does not name has none. Absent, every key of a kept row is given
+   * back, as a Sync run keeps only the fields it writes.
+   */
+  fields?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Keeps what the records of an update hold of the fields it writes, read
+   * just before it, each with its `Id`, before the update is sent: a rewind's
+   * journal, which its undo gives back from (`storeOverwriteBackup`). An
+   * update whose values could not be kept is not sent, its records counted
+   * refused with why, as a Sync run writes over nothing it cannot put back
+   * (`syncOverwriteKeeper`); the next one is tried all the same.
+   */
+  keep?: OverwriteBackup['keep'];
   /** Put back the records changed since the run too. */
   includeChanged: boolean;
   /**
@@ -188,6 +243,42 @@ export async function runEndOnOrgClock(
     : Number.NEGATIVE_INFINITY;
 }
 
+/**
+ * The grain the org dates a write to: its second, truncated. An undelete
+ * begun at :26.731 by the org's clock was dated :26.000.
+ */
+const ORG_DATE_GRAIN_MS = 1_000;
+
+/**
+ * The latest date the org can give a record and have it modified before
+ * `date`, a date of its own clock (`SyncRestoreInput.changedAfter`), in epoch
+ * milliseconds: a write is dated the start of its second, so one dated a
+ * whole second or more before `date` was made before it, and one dated later
+ * may not have been. Minus infinity when `date` does not read as a date:
+ * every record then reads as changed since.
+ */
+function datedBefore(date: string): number {
+  const at = Date.parse(date);
+  return Number.isFinite(at) ? at - ORG_DATE_GRAIN_MS : Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * The fields of `objectApiName` that may be written back, by their name in
+ * lower case, as Salesforce matches a field whatever its case, to the name
+ * as given; none when the object is not named.
+ */
+function allowedFieldsOf(
+  fields: Readonly<Record<string, readonly string[]>>,
+  objectApiName: string,
+): Map<string, string> {
+  const named = Object.hasOwn(fields, objectApiName) ? fields[objectApiName] : [];
+  return new Map(
+    named
+      .filter((field) => field.toLowerCase() !== 'id')
+      .map((field) => [field.toLowerCase(), field]),
+  );
+}
+
 /** One record's answer to an update, as jsforce gives it: a REST collection names the fields refused. */
 interface UpdateAnswer {
   success?: boolean;
@@ -292,10 +383,17 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
   let cancelled = false;
   if (plan.length === 0) return { objects, left, wrote, cancelled, stamps };
 
-  const runEnd = await runEndOnOrgClock(org, input.lastWriteAt);
+  const runEnd =
+    input.changedAfter !== undefined
+      ? datedBefore(input.changedAfter)
+      : await runEndOnOrgClock(org, input.lastWriteAt);
   const stampedBefore = new Map(
     Object.entries(input.stamps ?? {}).map(([id, date]) => [recordKey(id), Date.parse(date)]),
   );
+  const owners =
+    input.ownWriters && input.ownWriters.length > 0
+      ? new Set(input.ownWriters.map(recordKey))
+      : undefined;
   const stampsFor = input.stampsFor;
   const writerOf = writerOnce(org);
 
@@ -318,18 +416,30 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
     }
     const object = assertSoqlIdentifier(objectApiName);
     const wanted = new Map(ids.map((id) => [recordKey(id), id]));
+    const allowed = input.fields ? allowedFieldsOf(input.fields, objectApiName) : undefined;
 
     // The values from before, as the run kept them: each field once, as it
-    // was before the run first wrote it.
+    // was before the run first wrote it — of the fields that may be written
+    // back, when they are named: a checkpoint's row holds the org's
+    // `attributes` and its stamps beside its values, and a restore that took
+    // every key of it read them and wrote them.
     const before = new Map<string, Record<string, unknown>>();
+    /** Records kept, by key, whose kept values are of no field that may be written back. */
+    const noneAllowed = new Set<string>();
     try {
       const batches = await input.backups.batches(backup, objectApiName, RECORDS_PER_CALL);
       for await (const batch of batches ?? []) {
         for (const record of batch) {
           if (typeof record.Id !== 'string' || !wanted.has(recordKey(record.Id))) continue;
           const values = before.get(recordKey(record.Id)) ?? {};
-          for (const [field, value] of Object.entries(record)) {
-            if (field !== 'Id' && !(field in values)) values[field] = value;
+          for (const [key, value] of Object.entries(record)) {
+            if (key === 'Id') continue;
+            const field = allowed ? allowed.get(key.toLowerCase()) : key;
+            if (field !== undefined && !(field in values)) values[field] = value;
+          }
+          if (allowed && Object.keys(values).length === 0) {
+            noneAllowed.add(recordKey(record.Id));
+            continue;
           }
           before.set(recordKey(record.Id), values);
         }
@@ -337,6 +447,14 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
     } catch (err: unknown) {
       tally.reason(`The values from before the run could not be read: ${extractErrorMessage(err)}`);
       before.clear();
+      noneAllowed.clear();
+    }
+    const nothingAllowed = [...noneAllowed].filter((key) => !before.has(key)).length;
+    if (nothingAllowed > 0) {
+      tally.reason(
+        `${nothingAllowed} ${objectApiName} record(s) hold no value of a field that may be ` +
+          'written back now: left as they are',
+      );
     }
     for (const key of [...wanted.keys()]) {
       if (before.has(key)) continue;
@@ -345,21 +463,32 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
     }
     if (wanted.size === 0) continue;
 
-    // What the records hold now, and when they were last modified.
-    const fields = new Set<string>();
+    // What the records hold now, when they were last modified, and by whom
+    // when some writers are the restore's own. A record too wide for one
+    // statement is read in column groups, each held to the write its
+    // modified date names: merged across a write made between two groups,
+    // it would show values that write left under the date of the one before,
+    // and be given back over a change made since.
+    const named = new Set<string>();
     for (const values of before.values()) {
-      for (const field of Object.keys(values)) fields.add(assertSoqlIdentifier(field));
+      for (const field of Object.keys(values)) named.add(assertSoqlIdentifier(field));
     }
-    const columns = ['Id', 'LastModifiedDate', ...fields];
+    const columns = ['Id', 'LastModifiedDate', ...(owners ? ['LastModifiedById'] : []), ...named];
     const perQuery = columns.length > WIDE_COLUMNS ? RECORDS_PER_CALL / 4 : RECORDS_PER_CALL;
     const now = new Map<string, Record<string, unknown>>();
+    const read = async (statement: string): Promise<Array<Record<string, unknown>>> => {
+      if (input.signal?.aborted) throw new RestoreStopped();
+      const answer = await org.query(statement);
+      return answer.records as Array<Record<string, unknown>>;
+    };
     try {
       for (const list of idLists([...wanted.values()], perQuery)) {
-        if (input.signal?.aborted) throw new RestoreStopped();
-        const answer = await org.query(
+        const rows = await readColumnsApart(
           `SELECT ${columns.join(', ')} FROM ${object} WHERE Id IN (${list})`,
+          read,
+          { stamp: 'LastModifiedDate' },
         );
-        for (const row of answer.records as Array<Record<string, unknown>>) {
+        for (const row of rows) {
           if (typeof row.Id === 'string') now.set(recordKey(row.Id), row);
         }
       }
@@ -389,9 +518,14 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
         continue;
       }
       const modified = Date.parse(String(current.LastModifiedDate ?? ''));
+      const lastBy = current.LastModifiedById;
       // Changed since the run: modified after it, and after what a removal
-      // that took back a later run's write of it left on it.
-      const unchanged = modified <= runEnd || modified <= (stampedBefore.get(key) ?? Number.NaN);
+      // that took back a later run's write of it left on it, by someone
+      // other than the restore's own writers.
+      const unchanged =
+        modified <= runEnd ||
+        modified <= (stampedBefore.get(key) ?? Number.NaN) ||
+        (owners !== undefined && typeof lastBy === 'string' && owners.has(recordKey(lastBy)));
       if (!unchanged && !input.includeChanged) {
         tally.result.keptChanged++;
         left.push(id);
@@ -443,6 +577,38 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
         return batch.map(() => ({ success: false, errors: [words] }));
       }
     };
+    /**
+     * What an update is about to write over, kept before it is sent: the
+     * values the records hold now of the fields it writes, as read just
+     * before. Whether it may go; when they could not be kept, its records
+     * are refused, with why. Its records sent again without a refused field
+     * write fewer of the same fields, already kept.
+     */
+    const keptFirst = async (
+      batch: ReadonlyArray<Record<string, unknown> & { Id: string }>,
+    ): Promise<boolean> => {
+      const keep = input.keep;
+      if (!keep) return true;
+      const held = batch.map((record) => {
+        const current = now.get(recordKey(record.Id)) ?? {};
+        const values: Record<string, unknown> = { Id: record.Id };
+        for (const field of Object.keys(record)) {
+          if (field !== 'Id') values[field] = current[field] ?? null;
+        }
+        return values;
+      });
+      try {
+        await keep(objectApiName, held);
+        return true;
+      } catch (err: unknown) {
+        const words =
+          `What these ${batch.length} ${objectApiName} record(s) hold now could not be kept ` +
+          `before they were written (${extractErrorMessage(err)}), so none of them was written: ` +
+          'nothing is written over that cannot be put back.';
+        for (const record of batch) refused(record, words);
+        return false;
+      }
+    };
     for (let at = 0; at < updates.length; at += RECORDS_PER_CALL) {
       const batch = updates.slice(at, at + RECORDS_PER_CALL);
       if (input.signal?.aborted) {
@@ -452,6 +618,7 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
         left.push(...rest.map((record) => wanted.get(recordKey(record.Id)) ?? record.Id));
         break;
       }
+      if (!(await keptFirst(batch))) continue;
       const answers = await send(batch);
       answers.forEach((answer, place) => {
         const record = batch[place];

@@ -464,9 +464,10 @@ function leftOver(object: SyncRestoreObjectResult): number {
 /**
  * How a removal ended once what it brought back from the recycle bin is
  * counted too: a success only when it left none of the run's deletions
- * deleted either; partial when it did anything, and left some.
+ * deleted either; partial when it did anything, and left some. A
+ * checkpoint's rewind and its undo end by it as a Sync run's removal does.
  */
-function withUndelete(
+export function withUndelete(
   status: ForgeUndoStatus,
   deleted: readonly ForgeUndoObjectResult[],
   restored: SyncRestoreOutcome | undefined,
@@ -488,8 +489,9 @@ function withUndelete(
  * How a removal ended once what it gave back is counted with what it
  * deleted: a success only when it left nothing holding the run's values
  * either; partial when it deleted or gave back something, and left the rest.
+ * A checkpoint's rewind and its undo end by it as a Sync run's removal does.
  */
-function withRestore(
+export function withRestore(
   status: ForgeUndoStatus,
   deleted: readonly ForgeUndoObjectResult[],
   restored: SyncRestoreOutcome | undefined,

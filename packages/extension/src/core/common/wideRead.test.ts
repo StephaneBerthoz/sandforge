@@ -403,6 +403,50 @@ describe('readColumnsApart', () => {
     expect(org.sent).toEqual(['SELECT Id, Name FROM Account']);
   });
 
+  it('holds each row to one write when told its stamp: a row written between two of its groups is read again, every group carrying the stamp', async () => {
+    const fields = ['Id', 'Name', ...wideFields(900).slice(2)];
+    const at = '2026-10-22T10:00:00.000+0000';
+    const org = stampedOrg(
+      Array.from({ length: 3 }, (_, n) => ({
+        ...Object.fromEntries(fields.map((field) => [field, 'v1'])),
+        Id: idOf(n + 1),
+        Name: `Account ${n + 1}`,
+        SystemModstamp: at,
+      })),
+    );
+    let written = false;
+    org.hooks.before = (statement) => {
+      if (written || !statement.includes('Id IN (')) return;
+      written = true;
+      org.write(idOf(2), 'v2', '2026-10-22T10:00:07.000+0000');
+    };
+
+    const rows = await readColumnsApart(`SELECT ${fields.join(', ')} FROM Account`, org.read, {
+      stamp: 'SystemModstamp',
+    });
+
+    const values = Object.entries(rows[1])
+      .filter(([field]) => field.endsWith('__c'))
+      .map(([, value]) => value);
+    expect(new Set(values)).toEqual(new Set(['v2']));
+    expect(rows[1].SystemModstamp).toBe('2026-10-22T10:00:07.000+0000');
+    for (const statement of org.sent) {
+      expect(statement).toMatch(/^SELECT Id, SystemModstamp, /);
+      expect(uriLength(statement)).toBeLessThanOrEqual(MAX_STATEMENT_URI_CHARS);
+    }
+  });
+
+  it('sends a statement whose fields fit once, as written, when told a stamp too', async () => {
+    const org = fakeOrg(rowsOf(['Id', 'Name'], 3));
+
+    const rows = await readColumnsApart('SELECT Id, Name FROM Account', org.read, {
+      stamp: 'SystemModstamp',
+    });
+
+    expect(rows).toHaveLength(3);
+    expect(org.sent).toEqual(['SELECT Id, Name FROM Account']);
+  });
+
   it('keeps the fields of a related record read through two groups', async () => {
     const fields = ['Id', 'Owner.Name', ...wideFields(900).slice(2), 'Owner.Email'];
     const read = async (soql: string): Promise<Array<Record<string, unknown>>> => {

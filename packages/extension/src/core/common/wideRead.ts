@@ -391,14 +391,22 @@ export async function readOtherColumnsAtOneStamp<T extends Record<string, unknow
  * @param read - Runs one statement and answers with its rows: the first
  *   statement with the caller's bounds, those by id with at most
  *   {@link IDS_PER_STATEMENT} rows each.
+ * @param oneStamp - Holds each row to one write
+ *   ({@link readOtherColumnsAtOneStamp}): its stamp carried in every group,
+ *   a row whose groups disagree read again, one a later group no longer
+ *   finds dropped. Absent, the groups are merged as they were read.
  */
 export async function readColumnsApart<T extends Record<string, unknown>>(
   soql: string,
   read: (statement: string) => Promise<T[]>,
+  oneStamp?: OneStamp,
 ): Promise<T[]> {
-  const wide = wideStatement(soql);
+  const wide = wideStatement(soql, oneStamp === undefined ? undefined : ['Id', oneStamp.stamp]);
   if (!wide) return read(soql);
-  return readOtherColumns(await read(wide.first), wide, read);
+  const first = await read(wide.first);
+  return oneStamp === undefined
+    ? readOtherColumns(first, wide, read)
+    : readOtherColumnsAtOneStamp(first, wide, read, oneStamp);
 }
 
 /**
