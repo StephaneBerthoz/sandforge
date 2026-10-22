@@ -256,6 +256,10 @@ describe('a sweep asked with the removal of a Sync run', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // This machine's clock held still: the org's clock answers with it, and a
+    // runner under load would otherwise read the org a second behind, the
+    // half of a slow round trip, and move the window.
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() });
     storage = mkdtempSync(join(tmpdir(), 'sandforge-sync-sweep-'));
     store = new ConfigStore(new InMemoryConfigStoreBackend());
     store.initialize();
@@ -300,6 +304,7 @@ describe('a sweep asked with the removal of a Sync run', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     rmSync(storage, { recursive: true, force: true });
   });
 
