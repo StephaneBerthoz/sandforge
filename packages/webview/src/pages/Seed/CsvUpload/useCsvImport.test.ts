@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import '../../../i18n/index';
 import { useCsvImport } from './useCsvImport';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
@@ -286,10 +286,15 @@ describe('useCsvImport', () => {
     result: { current: ReturnType<typeof useCsvImport> },
     text: string,
   ): Promise<void> {
-    await act(async () => {
+    act(() => {
       result.current.handleFileSelected(new File([text], 'export.csv', { type: 'text/csv' }));
-      await new Promise((r) => setTimeout(r, 50));
     });
+    // Read and parsed once the hook holds its headers or says why it cannot:
+    // a fixed 50 ms ran out on 50 000 rows under coverage.
+    await waitFor(
+      () => expect(result.current.headers.length > 0 || result.current.error !== null).toBe(true),
+      { timeout: 10_000 },
+    );
   }
 
   /** Describe the target as the extension answers: one text field per name. */
