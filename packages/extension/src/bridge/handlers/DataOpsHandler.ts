@@ -67,7 +67,7 @@ import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js
 import type { BackupRecord, BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import type { AnonymizationEngine } from '../../modules/dataops/AnonymizationEngine.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
-import { rowsToRestore } from '../../modules/dataops/restoreDiff.js';
+import { mergedById, rowsToRestore } from '../../modules/dataops/restoreDiff.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
@@ -2057,6 +2057,8 @@ export class DataOpsHandler implements DomainHandler {
         // did not say.
         objectResults: (meta.objects ?? []).map(heldOf),
         ...(meta.partial ? { partial: true } : {}),
+        // A Sync run's, which the Restore tab says: removing the run gives it back.
+        ...(meta.origin === 'sync' ? { origin: 'sync' as const } : {}),
       });
     }
     // Newest first — the list is a history, and the most recent restore point
@@ -2555,8 +2557,13 @@ export class DataOpsHandler implements DomainHandler {
         failure.objectName = safeObj;
         // A batch at a time, whichever form the backup was kept in: a backup
         // now holds up to the cap of rows per object, and the whole of one in
-        // memory was what writing it a page at a time stopped doing.
-        const batches = await this.backupBatches(payload.operationId, obj.objectApiName);
+        // memory was what writing it a page at a time stopped doing. A Sync
+        // run's keeps a record once per call that wrote over it: its lines
+        // are merged by record, as the run's removal merges them.
+        const kept = await this.backupBatches(payload.operationId, obj.objectApiName);
+        const merged =
+          backupMeta.origin === 'sync' ? mergedById(kept, RESTORE_BATCH_SIZE) : undefined;
+        const batches = merged?.batches ?? kept;
         let first: BackupRecord | undefined;
         for await (const batch of batches) {
           first = batch[0];
@@ -2716,7 +2723,8 @@ export class DataOpsHandler implements DomainHandler {
           }
         }
         checkApiLimits(conn.limitInfo, `dataops:rollback upsert ${safeObj}`);
-        rowsRead.set(obj.objectApiName, read);
+        // The lines read, as the backup counts them, merged or not.
+        rowsRead.set(obj.objectApiName, merged && !cancelled ? merged.lines() : read);
         totalRestored += successCount;
         totalFailed += failureCount;
         totalUnchanged += unchangedCount;

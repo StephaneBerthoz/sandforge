@@ -338,6 +338,133 @@ test.describe('Keyboard and screen reader — DataOps backups', () => {
     await expect(page.getByTestId('restore-backup-op-backup-2')).toHaveCount(0);
     await expect(card('op-backup-1')).toBeFocused();
   });
+
+  /** The Restore tab, its two backups listed, opened with the keys. */
+  async function openRestoreTab(page: Page): Promise<MockBridge> {
+    const bridge = await openModule(page, 'dataops');
+    await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+    await answerAll(page, 'backup:list', 'backup:list:result', { backups: BACKUPS });
+    await answerAll(
+      page,
+      'dataops:anonymization-templates',
+      'dataops:anonymization-templates:response',
+      { templates: [] },
+    );
+    const restoreTab = page.getByTestId('page-tabs').getByRole('tab', { name: 'Restore' });
+    await restoreTab.focus();
+    await page.keyboard.press('Enter');
+    return bridge;
+  }
+
+  test('Cancel and Confirm hand the focus back to the Delete that asked, and the card in its place takes it once the backup is gone', async ({
+    page,
+  }) => {
+    // Both answers took the question away, and the focus with it to <body>.
+    const bridge = await openRestoreTab(page);
+    const card = (id: string) =>
+      page.getByTestId(`restore-backup-${id}`).locator('[role="button"]');
+    await card('op-backup-2').focus();
+    await page.keyboard.press('Enter');
+    const remove = page.getByTestId('delete-backup-btn-op-backup-2');
+
+    await pressWithKeyboard(page, 'delete-backup-btn-op-backup-2');
+    await pressWithKeyboard(page, 'delete-backup-cancel');
+    await expect(page.getByTestId('delete-backup-question')).toHaveCount(0);
+    await expect(remove).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await pressWithKeyboard(page, 'delete-backup-confirm');
+    const deletion = await bridge.waitForMessage('backup:delete', { timeout: 10_000 });
+    // While the deletion runs, the Delete keeps the keyboard and says it is unavailable.
+    await expect(remove).toBeFocused();
+    await expect(remove).toHaveAttribute('aria-disabled', 'true');
+
+    const listReads = (await bridge.getMessages('backup:list')).length;
+    await sendExtensionMessage(page, {
+      type: 'backup:delete:result',
+      id: 'delete-done',
+      correlationId: String(deletion.id),
+      payload: { orgId: 'org-src-1', deleted: ['op-backup-2'] },
+    });
+    await expect
+      .poll(async () => (await bridge.getMessages('backup:list')).length)
+      .toBeGreaterThan(listReads);
+    await answerAll(page, 'backup:list', 'backup:list:result', { backups: BACKUPS.slice(0, 1) });
+    await expect(page.getByTestId('restore-backup-op-backup-2')).toHaveCount(0);
+    await expect(card('op-backup-1')).toBeFocused();
+  });
+
+  test('Delete all hands the focus back to itself, and the Restore heading takes it once every backup is gone', async ({
+    page,
+  }) => {
+    const bridge = await openRestoreTab(page);
+    const deleteAll = page.getByTestId('delete-all-backups-btn');
+
+    await pressWithKeyboard(page, 'delete-all-backups-btn');
+    await pressWithKeyboard(page, 'delete-backup-cancel');
+    await expect(deleteAll).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await pressWithKeyboard(page, 'delete-backup-confirm');
+    const deletion = await bridge.waitForMessage('backup:delete', { timeout: 10_000 });
+    await expect(deleteAll).toBeFocused();
+    const listReads = (await bridge.getMessages('backup:list')).length;
+    await sendExtensionMessage(page, {
+      type: 'backup:delete:result',
+      id: 'delete-all-done',
+      correlationId: String(deletion.id),
+      payload: { orgId: 'org-src-1', deleted: ['op-backup-1', 'op-backup-2'] },
+    });
+    await expect
+      .poll(async () => (await bridge.getMessages('backup:list')).length)
+      .toBeGreaterThan(listReads);
+    await answerAll(page, 'backup:list', 'backup:list:result', { backups: [] });
+
+    await expect(
+      page.getByTestId('restore-panel').getByRole('heading', { name: 'Restore', exact: true }),
+    ).toBeFocused();
+  });
+});
+
+test.describe('Keyboard and screen reader — Monitor', () => {
+  test('Refresh keeps the focus while the read it started runs, and a second press sends nothing', async ({
+    page,
+  }) => {
+    // It took `disabled` under the Enter that pressed it: the focus fell to
+    // <body>, and the next Tab started over at the skip link.
+    const bridge = await openModule(page, 'monitor');
+    const data = {
+      healthScore: 85,
+      healthReport: null,
+      jobs: [],
+      limits: [{ name: 'DailyApiRequests', max: 100000, remaining: 45000, usedPercent: 55 }],
+      orgInfo: null,
+      trends: {},
+      lastUpdated: '2026-10-21T08:00:00Z',
+    };
+    await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+    await answerAll(page, 'monitor:refresh', 'monitor:data', data);
+    await page.getByTestId('monitor-page').waitFor({ timeout: 10_000 });
+    const refresh = page.getByTestId('refresh-btn');
+    const reads = (await bridge.getMessages('monitor:refresh')).length;
+
+    await pressWithKeyboard(page, 'refresh-btn');
+    await expect
+      .poll(async () => (await bridge.getMessages('monitor:refresh')).length)
+      .toBeGreaterThan(reads);
+    await expect(refresh).toBeFocused();
+    await expect(refresh).toHaveAttribute('aria-disabled', 'true');
+    const asked = (await bridge.getMessages('monitor:refresh')).length;
+    await page.keyboard.press('Enter');
+    expect((await bridge.getMessages('monitor:refresh')).length).toBe(asked);
+
+    await answerAll(page, 'monitor:refresh', 'monitor:data', {
+      ...data,
+      lastUpdated: '2026-10-21T08:05:00Z',
+    });
+    await expect(refresh).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(refresh).toBeFocused();
+  });
 });
 
 test.describe('Keyboard and screen reader — the org pickers', () => {

@@ -449,6 +449,10 @@ export const MonitorPage: React.FC = () => {
             size="sm"
             onClick={handleRefresh}
             disabled={loading}
+            // Taking `disabled` under the Enter that pressed it, it handed the
+            // focus to <body>: it stays focusable, and ignores a press while
+            // the read it started runs.
+            focusableWhenDisabled
             aria-label={t('monitor.refresh')}
             data-testid="refresh-btn"
           >

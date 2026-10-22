@@ -644,6 +644,24 @@ describe('MonitorPage', () => {
     expect(mockRefetch).toHaveBeenCalledOnce();
   });
 
+  it('keeps the refresh button focusable while the read it started runs, and ignores a press', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: true,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    const refresh = screen.getByTestId('refresh-btn') as HTMLButtonElement;
+    expect(refresh.disabled).toBe(false);
+    expect(refresh.getAttribute('aria-disabled')).toBe('true');
+    mockRefetch.mockClear();
+    fireEvent.click(refresh);
+    expect(mockRefetch).not.toHaveBeenCalled();
+  });
+
   // 10. Error handling
   it('says under the refresh banner what an error the catalogue knows means, and what to do', () => {
     // An org whose edition has no API refused the first call: the page said

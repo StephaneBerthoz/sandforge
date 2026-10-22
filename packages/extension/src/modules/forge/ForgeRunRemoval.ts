@@ -523,6 +523,37 @@ export interface RunRemovalOptions {
   signal?: AbortSignal;
   /** Told how many of the run's records are settled, after each step. */
   onProgress?: (settled: number, total: number, objectApiName: string) => void;
+  /**
+   * The run's other parts, each removed apart from this one: the part a
+   * resume took the run up with, the part it resumed, a retry of it. What
+   * this removal's deletes restamp of their records is said back, part by
+   * part (`RunRemovalOutcome.otherPartStamps`), for each part's own removal
+   * to read as the run's doing, not as a change since.
+   */
+  otherParts?: readonly RunPartAlongside[];
+}
+
+/**
+ * Another part of the run a removal takes one part of, as that part's own
+ * removal would read it: its records left in the org, its span, and what its
+ * earlier removals stamped.
+ *
+ * Removed part by part from the panel, a clone killed while it wrote an
+ * opportunity outside its graph and then resumed lost that opportunity: the
+ * resumed part's removal deleted the contact role it had written under it,
+ * the org dated the opportunity anew as modified by the removal's user, and
+ * the killed part's removal kept it as changed since the run. Its removal
+ * spans stay out of it: what the removal's user created meanwhile is read as
+ * a removal's doing, and a record a colleague hung under the part's records
+ * would go with them.
+ */
+export interface RunPartAlongside {
+  /** Its records left in the org, children before their parents. */
+  plan: readonly ForgeRunObjectRecords[] | RunRecords;
+  /** Its span, as {@link RunRemovalOptions} takes a run's. */
+  span: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs' | 'runRecordedAt'>;
+  /** What its earlier removals stamped: see {@link RunRemovalOptions.removalStamps}. */
+  removalStamps?: Readonly<Record<string, string>>;
 }
 
 /** What a removal did, object by object. */
@@ -562,6 +593,14 @@ export interface RunRemovalOutcome {
    * when the org did not tell its clock or its user.
    */
   span?: ForgeRemovalSpan;
+  /**
+   * What this removal left on the records of the run's other parts, one map
+   * per part in the order `RunRemovalOptions.otherParts` gives them, as
+   * {@link stamps} says it of the part removed: only records unchanged since
+   * their own part when it began, and last modified by its user since it
+   * started. Absent when no other part was given, or when it wrote nothing.
+   */
+  otherPartStamps?: Array<Record<string, string>>;
 }
 
 /** One row of a delete's answer, or an update's. */
@@ -984,6 +1023,16 @@ export async function removeRunRecords(
       }
     }
   }
+  // The run's other parts are read before the first write too, as their own
+  // removals would read them: what this one stamps of their records is said
+  // back only of those that had not changed since their part.
+  const otherParts = await unchangedOfOtherParts(
+    session,
+    options.otherParts ?? [],
+    clock.aheadMs,
+    stopped,
+  );
+  if (!otherParts) return untouched();
 
   /** The objects the removal has been through, or is going through. */
   const reachedObjects = new Set<string>();
@@ -1079,6 +1128,14 @@ export async function removeRunRecords(
     const stamps = wrote
       ? await stampsLeft(session, leftUnchanged(), { start: clock.start, user: removalUser })
       : {};
+    const otherPartStamps: Array<Record<string, string>> = [];
+    if (wrote) {
+      for (const part of otherParts) {
+        otherPartStamps.push(
+          await stampsLeft(session, part.unchanged(), { start: clock.start, user: removalUser }),
+        );
+      }
+    }
     const span = wrote ? removalSpanOf(clock, removalUser) : undefined;
     // Handed over in memory, the records taken are said by their ids; read a
     // page at a time, they are not gathered — what is left is read instead.
@@ -1095,6 +1152,7 @@ export async function removeRunRecords(
       left: () => recordsWhere(records.objects, (_object, _id, taken) => !taken),
       stamps,
       ...(span ? { span } : {}),
+      ...(otherPartStamps.length > 0 ? { otherPartStamps } : {}),
     };
   };
   // Stopped during the sweep: none of the run's records goes, and what the
@@ -1633,6 +1691,100 @@ async function stampsLeft(
     }
   }
   return stamps;
+}
+
+/** Of another part of the run, its records that had not changed since it when the removal began. */
+interface PartUnchanged {
+  /** Those records, per object a page at a time, read again from the part's records. */
+  unchanged(): AsyncIterable<ForgeRunObjectRecords>;
+}
+
+/**
+ * Of each of the run's other parts, the records that had not changed since it
+ * as the removal begins, read before its first write — by `LastModifiedDate`,
+ * against the part's own end and what its earlier removals stamped, as its
+ * own removal reads a change since the run — and marked by their place, a bit
+ * each, so that a part of a million records is read again a page at a time
+ * rather than held. What the removal stamps of them is read back as it ends
+ * ({@link stampsLeft}): a record a colleague had changed since its part is
+ * never among them, and keeps the change.
+ *
+ * A part whose end cannot be read on the org's clock, and an object whose
+ * records cannot be read by their modified date, leave their records
+ * unstamped: the part's own removal then reads them as it would have.
+ *
+ * @returns Undefined when the removal was stopped while it read them.
+ */
+async function unchangedOfOtherParts(
+  org: RemovalOrg,
+  parts: readonly RunPartAlongside[],
+  orgAheadMs: number,
+  stopped: () => boolean,
+): Promise<PartUnchanged[] | undefined> {
+  const read: PartUnchanged[] = [];
+  for (const part of parts) {
+    const records = isRunRecords(part.plan) ? part.plan : runRecordsOf(part.plan);
+    const { end } = runSpan(part.span, [], orgAheadMs);
+    const stamped = new Map(
+      Object.entries(part.removalStamps ?? {}).map(([id, date]) => [recordKey(id), epochOf(date)]),
+    );
+    const marks = new Map<string, PlaceMarks>();
+    if (Number.isFinite(end)) {
+      for (const { objectApiName } of records.objects) {
+        const unchanged = new PlaceMarks();
+        let at = 0;
+        let unread = false;
+        for await (const page of records.pages(objectApiName)) {
+          if (stopped()) return undefined;
+          const place = at;
+          at += page.length;
+          if (unread) continue;
+          let rows: Array<Record<string, unknown>>;
+          try {
+            rows = await readRecordsById(
+              org,
+              objectApiName,
+              ['LastModifiedDate'],
+              page,
+              DEPENDENT_READS_AT_ONCE,
+            );
+          } catch {
+            unread = true;
+            continue;
+          }
+          const modifiedOf = new Map<string, number>();
+          for (const row of rows) {
+            if (typeof row.Id === 'string') {
+              modifiedOf.set(recordKey(row.Id), epochOf(row.LastModifiedDate));
+            }
+          }
+          page.forEach((id, offset) => {
+            const key = recordKey(id);
+            const modified = modifiedOf.get(key);
+            if (modified === undefined) return;
+            if (modified <= end || modified <= (stamped.get(key) ?? Number.NaN)) {
+              unchanged.add(place + offset);
+            }
+          });
+        }
+        if (!unread) marks.set(objectApiName, unchanged);
+      }
+    }
+    read.push({
+      unchanged: async function* () {
+        for (const { objectApiName } of records.objects) {
+          const unchanged = marks.get(objectApiName);
+          if (!unchanged) continue;
+          let place = 0;
+          for await (const page of records.pages(objectApiName)) {
+            const ids = page.filter(() => unchanged.has(place++));
+            if (ids.length > 0) yield { objectApiName, ids };
+          }
+        }
+      },
+    });
+  }
+  return read;
 }
 
 /** One delete of a removal: a call of up to {@link RECORDS_PER_CALL} records, or a job. */

@@ -304,10 +304,127 @@ describe('RestorePanel', () => {
         />,
       );
 
-      expect((screen.getByTestId('delete-backup-btn-op-1') as HTMLButtonElement).disabled).toBe(
-        true,
-      );
+      const remove = screen.getByTestId('delete-backup-btn-op-1');
+      expect(remove.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(remove);
+      expect(screen.queryByTestId('delete-backup-question')).toBeNull();
       expect(screen.queryByTestId('delete-all-backups-btn')).toBeNull();
+    });
+
+    describe('where the keyboard goes once the question is answered', () => {
+      /** Two backups the panel can restore, newest first, as the host lists them. */
+      const two: BackupSummary[] = [
+        { ...backups[0], operationId: 'op-new', timestamp: '2026-01-02T00:00:00Z' },
+        { ...backups[0], operationId: 'op-old' },
+      ];
+      const cardOf = (operationId: string): HTMLElement | null =>
+        screen.getByTestId(`restore-backup-${operationId}`).querySelector('[role="button"]');
+
+      it('goes back to the Delete that asked, on Cancel', () => {
+        render(<RestorePanel backups={two} selectedBackupId="op-new" onDelete={vi.fn()} />);
+        fireEvent.click(screen.getByTestId('delete-backup-btn-op-new'));
+
+        fireEvent.click(screen.getByTestId('delete-backup-cancel'));
+
+        expect(document.activeElement).toBe(screen.getByTestId('delete-backup-btn-op-new'));
+      });
+
+      it('stays on the Delete that asked while the deletion runs, then goes to the card now in its place', () => {
+        const onDelete = vi.fn();
+        const { rerender } = render(
+          <RestorePanel backups={two} selectedBackupId="op-new" onDelete={onDelete} />,
+        );
+        fireEvent.click(screen.getByTestId('delete-backup-btn-op-new'));
+
+        fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+        rerender(
+          <RestorePanel backups={two} selectedBackupId="op-new" onDelete={onDelete} isDeleting />,
+        );
+
+        const remove = screen.getByTestId('delete-backup-btn-op-new');
+        expect(document.activeElement).toBe(remove);
+        expect(remove.getAttribute('aria-disabled')).toBe('true');
+
+        rerender(<RestorePanel backups={two.slice(1)} onDelete={onDelete} />);
+
+        expect(document.activeElement).toBe(cardOf('op-old'));
+      });
+
+      it('goes to the card before the one deleted when that one was the last', () => {
+        const { rerender } = render(
+          <RestorePanel backups={two} selectedBackupId="op-old" onDelete={vi.fn()} />,
+        );
+        fireEvent.click(screen.getByTestId('delete-backup-btn-op-old'));
+        fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+
+        rerender(<RestorePanel backups={two.slice(0, 1)} onDelete={vi.fn()} />);
+
+        expect(document.activeElement).toBe(cardOf('op-new'));
+      });
+
+      it('goes to the heading once every backup is deleted', () => {
+        const { rerender } = render(<RestorePanel backups={two} onDeleteAll={vi.fn()} />);
+        fireEvent.click(screen.getByTestId('delete-all-backups-btn'));
+
+        fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+        expect(document.activeElement).toBe(screen.getByTestId('delete-all-backups-btn'));
+        rerender(<RestorePanel backups={[]} onDeleteAll={vi.fn()} />);
+
+        expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Restore' }));
+      });
+
+      it('leaves the keyboard where it went while the deletion ran', () => {
+        const panel = (list: BackupSummary[], selected?: string) => (
+          <>
+            <button type="button">Elsewhere on the page</button>
+            <RestorePanel backups={list} selectedBackupId={selected} onDelete={vi.fn()} />
+          </>
+        );
+        const { rerender } = render(panel(two, 'op-new'));
+        fireEvent.click(screen.getByTestId('delete-backup-btn-op-new'));
+        fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+        const elsewhere = screen.getByRole('button', { name: 'Elsewhere on the page' });
+        elsewhere.focus();
+        rerender(panel(two, 'op-new'));
+
+        rerender(panel(two.slice(1)));
+
+        expect(document.activeElement).toBe(elsewhere);
+      });
+
+      it('stays on the Delete that asked when the backup is still listed: the org refused it', () => {
+        const { rerender } = render(
+          <RestorePanel backups={two} selectedBackupId="op-new" onDelete={vi.fn()} />,
+        );
+        fireEvent.click(screen.getByTestId('delete-backup-btn-op-new'));
+        fireEvent.click(screen.getByTestId('delete-backup-confirm'));
+
+        rerender(<RestorePanel backups={two} selectedBackupId="op-new" onDelete={vi.fn()} />);
+
+        expect(document.activeElement).toBe(screen.getByTestId('delete-backup-btn-op-new'));
+      });
+    });
+  });
+
+  describe('the backup a Sync run kept of what it wrote over', () => {
+    const kept: BackupSummary = { ...backups[0], operationId: 'sync-before-run-1', origin: 'sync' };
+
+    it('says it is a Sync run’s, and that removing the run puts it back too', () => {
+      render(<RestorePanel backups={[kept, backups[0]]} />);
+
+      expect(screen.getByTestId('restore-sync-badge-sync-before-run-1').textContent).toBe(
+        en.dataops.restoreSyncBadge,
+      );
+      expect(screen.getByTestId('restore-sync-sync-before-run-1').textContent).toBe(
+        en.dataops.restoreSyncNote,
+      );
+    });
+
+    it('says nothing of the kind of a DataOps backup', () => {
+      render(<RestorePanel backups={[kept, backups[0]]} />);
+
+      expect(screen.queryByTestId('restore-sync-badge-op-1')).toBeNull();
+      expect(screen.queryByTestId('restore-sync-op-1')).toBeNull();
     });
   });
 });

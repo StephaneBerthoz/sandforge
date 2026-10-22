@@ -251,6 +251,12 @@ export interface SweepInput {
   remap: RecordKeys;
   /** What the target's automation creates, as {@link sweepAutomationOf} reads it. */
   automation: SweepAutomation;
+  /**
+   * The user the run wrote as, told where none of its records can tell it: a
+   * Sync run that created nothing and only wrote over records the target
+   * held (`seedSweepInput`). Records the run created tell it first.
+   */
+  user?: string;
   /** Stops the sweep before its next call to the org. */
   signal?: AbortSignal;
 }
@@ -422,7 +428,19 @@ async function findSweep(org: RemovalOrg, input: SweepInput): Promise<SweepFindi
   findings.window = window;
   listing.window = { from: soqlDate(window.from), to: soqlDate(window.to) };
 
-  const told = await runUserOf(org, input.created, stopped);
+  // A user told goes into the sweep's queries: an id, or nothing.
+  const toldUser = input.user !== undefined && SF_ID_RE.test(input.user) ? input.user : undefined;
+  const createdAny = input.created.some((object) => object.ids.length > 0);
+  const told = createdAny
+    ? await runUserOf(org, input.created, stopped)
+    : toldUser !== undefined
+      ? { user: toldUser }
+      : {
+          refusal:
+            'The run created nothing, and none of the records it wrote over still says, in its ' +
+            'window, who last modified it: the user it wrote as cannot be told, and nothing is ' +
+            'swept.',
+        };
   if ('refusal' in told) {
     listing.refusal = told.refusal;
     findings.stopped = stopped();

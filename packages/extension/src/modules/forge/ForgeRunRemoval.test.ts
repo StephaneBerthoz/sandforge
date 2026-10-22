@@ -2643,6 +2643,214 @@ describe('removeRunRecords', () => {
     });
   });
 
+  describe("a run removed part by part: what one part's deletes restamp of another's", () => {
+    const CONTACT = id('003', 1);
+    const OPPORTUNITY = id('006', 1);
+    const ROLE = id('00K', 1);
+    /** The part a kill stopped: the contact, and the opportunity outside the graph it wrote. */
+    const KILLED = [
+      { objectApiName: 'Opportunity', ids: [OPPORTUNITY] },
+      { objectApiName: 'Contact', ids: [CONTACT] },
+    ];
+    /** The part its resume wrote: the contact role under both. */
+    const RESUMED = [{ objectApiName: 'OpportunityContactRole', ids: [ROLE] }];
+    const KILLED_SPAN = { runStartedAt: new Date(RUN_STARTED), runEndedAt: new Date(RUN_ENDED) };
+
+    /**
+     * The target once both parts ran: the role's delete dates its opportunity
+     * anew, as modified by the user who deleted it, as a Developer Edition did.
+     */
+    function resumedClone(): FakeOrg {
+      const org = new FakeOrg();
+      org.add('Contact', runRow(CONTACT, { LastModifiedById: USER }));
+      org.add('Opportunity', runRow(OPPORTUNITY, { LastModifiedById: USER }));
+      org.add(
+        'OpportunityContactRole',
+        runRow(ROLE, { OpportunityId: OPPORTUNITY, ContactId: CONTACT, LastModifiedById: USER }),
+      );
+      org.relationships.set('Opportunity', [
+        { childSObject: 'OpportunityContactRole', field: 'OpportunityId', cascadeDelete: true },
+      ]);
+      org.relationships.set('Contact', [
+        { childSObject: 'OpportunityContactRole', field: 'ContactId', cascadeDelete: true },
+      ]);
+      org.onDelete = (object, row) => {
+        if (object !== 'OpportunityContactRole') return;
+        const opportunity = (org.rows.get('Opportunity') ?? []).find(
+          (o) => o.Id === row.OpportunityId,
+        );
+        if (opportunity) {
+          Object.assign(opportunity, { LastModifiedDate: org.now(), LastModifiedById: USER });
+        }
+      };
+      return org;
+    }
+
+    const counts = (outcome: { objects: ForgeUndoObjectResult[] }): unknown[] =>
+      outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptChanged]);
+
+    it("names the stamp its deletes left on another part's record, which that part's removal then takes", async () => {
+      const org = resumedClone();
+
+      const resumed = await removeRunRecords(
+        org,
+        RESUMED,
+        options({ otherParts: [{ plan: KILLED, span: KILLED_SPAN }] }),
+      );
+      const restamped = String((org.rows.get('Opportunity') ?? [])[0].LastModifiedDate);
+      const killed = await removeRunRecords(
+        org,
+        KILLED,
+        options({ removalStamps: resumed.otherPartStamps?.[0] }),
+      );
+
+      expect(counts(resumed)).toEqual([['OpportunityContactRole', 1, 0]]);
+      expect(Date.parse(restamped)).toBeGreaterThan(Date.parse(RUN_ENDED));
+      expect(resumed.otherPartStamps).toEqual([{ [OPPORTUNITY]: restamped }]);
+      // Of the part removed, nothing is left to stamp.
+      expect(resumed.stamps).toEqual({});
+      expect(counts(killed)).toEqual([
+        ['Opportunity', 1, 0],
+        ['Contact', 1, 0],
+      ]);
+      expect([...org.rows.values()].flat()).toEqual([]);
+    });
+
+    it('without it, the other part kept the record its deletes restamped as changed since', async () => {
+      // What the panel did before: each part's removal saw its own records alone.
+      const org = resumedClone();
+
+      const resumed = await removeRunRecords(org, RESUMED, options());
+      const killed = await removeRunRecords(org, KILLED, options());
+
+      expect(resumed.otherPartStamps).toBeUndefined();
+      expect(counts(killed)).toEqual([
+        ['Opportunity', 0, 1],
+        ['Contact', 1, 0],
+      ]);
+    });
+
+    it('names no stamp for a record of another part someone changed since that part, which stays a change', async () => {
+      const org = resumedClone();
+      // A colleague edits the opportunity after the killed part, before any removal.
+      Object.assign((org.rows.get('Opportunity') ?? [])[0], {
+        LastModifiedDate: AFTER_RUN,
+        LastModifiedById: COLLEAGUE,
+      });
+
+      const resumed = await removeRunRecords(
+        org,
+        RESUMED,
+        options({ otherParts: [{ plan: KILLED, span: KILLED_SPAN }] }),
+      );
+      const killed = await removeRunRecords(
+        org,
+        KILLED,
+        options({ removalStamps: resumed.otherPartStamps?.[0] }),
+      );
+
+      expect(resumed.otherPartStamps).toEqual([{}]);
+      expect(counts(killed)).toEqual([
+        ['Opportunity', 0, 1],
+        ['Contact', 1, 0],
+      ]);
+      expect(org.has('Opportunity', OPPORTUNITY)).toBe(true);
+    });
+
+    it('takes a stamp an earlier removal left on the other part for its own, as that part reads it', async () => {
+      const org = resumedClone();
+      // An earlier removal of the killed part stamped the opportunity.
+      const earlier = '2026-09-21T09:00:00.000+0000';
+      Object.assign((org.rows.get('Opportunity') ?? [])[0], {
+        LastModifiedDate: earlier,
+        LastModifiedById: USER,
+      });
+
+      const resumed = await removeRunRecords(
+        org,
+        RESUMED,
+        options({
+          otherParts: [
+            { plan: KILLED, span: KILLED_SPAN, removalStamps: { [OPPORTUNITY]: earlier } },
+          ],
+        }),
+      );
+
+      expect(resumed.otherPartStamps).toEqual([
+        { [OPPORTUNITY]: String((org.rows.get('Opportunity') ?? [])[0].LastModifiedDate) },
+      ]);
+    });
+
+    it('names no stamp on a record of another part a colleague modified last, after its deletes', async () => {
+      const org = resumedClone();
+      const rollUp = org.onDelete;
+      org.onDelete = (object, row) => {
+        rollUp?.(object, row);
+        const opportunity = (org.rows.get('Opportunity') ?? [])[0];
+        if (object === 'OpportunityContactRole' && opportunity) {
+          Object.assign(opportunity, { LastModifiedDate: org.now(), LastModifiedById: COLLEAGUE });
+        }
+      };
+
+      const resumed = await removeRunRecords(
+        org,
+        RESUMED,
+        options({ otherParts: [{ plan: KILLED, span: KILLED_SPAN }] }),
+      );
+
+      expect(resumed.otherPartStamps).toEqual([{}]);
+    });
+
+    it('reads the other parts before its first delete', async () => {
+      const org = resumedClone();
+      /** How many deletes had gone each time the other part's opportunity was read. */
+      const deletesBefore: number[] = [];
+      org.onQuery = (soql) => {
+        if (soql.startsWith('SELECT Id, LastModifiedDate FROM Opportunity ')) {
+          deletesBefore.push(org.deletes.length);
+        }
+      };
+
+      await removeRunRecords(
+        org,
+        RESUMED,
+        options({ otherParts: [{ plan: KILLED, span: KILLED_SPAN }] }),
+      );
+
+      expect(deletesBefore).toEqual([0]);
+    });
+
+    it('leaves every record where it is when stopped while it reads the other parts, and stamps none', async () => {
+      const org = resumedClone();
+      const stop = new AbortController();
+      org.onQuery = (soql) => {
+        if (soql.startsWith('SELECT Id, LastModifiedDate FROM Opportunity ')) stop.abort();
+      };
+
+      const outcome = await removeRunRecords(
+        org,
+        RESUMED,
+        options({ otherParts: [{ plan: KILLED, span: KILLED_SPAN }], signal: stop.signal }),
+      );
+
+      expect(outcome).toMatchObject({ cancelled: true, stamps: {} });
+      expect(outcome.otherPartStamps).toBeUndefined();
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('stamps nothing of a part whose end cannot be read on the org’s clock', async () => {
+      const org = resumedClone();
+
+      const resumed = await removeRunRecords(
+        org,
+        RESUMED,
+        options({ otherParts: [{ plan: KILLED, span: { runDurationMs: 60_000 } }] }),
+      );
+
+      expect(resumed.otherPartStamps).toEqual([{}]);
+    });
+  });
+
   describe("the org's clock, never this machine's", () => {
     /** A run's opportunity and line item, whose delete the org answers with a feed item. */
     function opportunityWithLineItem() {

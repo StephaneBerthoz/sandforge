@@ -2475,17 +2475,20 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   /**
    * What a sweep is told: the records the run created read back for its
    * window, as the panel's sweep reads them, and what the target's flows
-   * create on their objects.
+   * create on their objects and on those whose records it wrote over. A run
+   * that created nothing is dated by its writes, and its user read from the
+   * records it wrote over, before their values are put back.
    */
   const sweepInput = async (signal?: AbortSignal) => {
     let automation: ForgeTargetAutomation | { error: string };
     try {
-      automation = await targetAutomationReader(conn).read(
-        args.target,
-        run.created
-          .map((object) => object.objectApiName)
-          .filter((name) => !SYNC_FILE_OBJECTS.includes(name)),
-      );
+      automation = await targetAutomationReader(conn).read(args.target, [
+        ...new Set(
+          [...run.created, ...(run.overwritten ?? [])]
+            .map((object) => object.objectApiName)
+            .filter((name) => !SYNC_FILE_OBJECTS.includes(name)),
+        ),
+      ]);
     } catch (err: unknown) {
       automation = { error: err instanceof Error ? err.message : String(err) };
     }
@@ -2504,6 +2507,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             serverTime: () => org.serverTime(),
           }
         : undefined,
+      run.overwritten ?? [],
     );
   };
 
@@ -2567,26 +2571,24 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   let state: SyncRunRemovalState = earlier ?? {};
   // The sweep comes before the run's records go, as the panel's does: a task
   // the target's automation opened on one of them would otherwise stay. The
-  // removal makes it once it has read the run's records.
+  // removal makes it once it has read the run's records; what it is told is
+  // read before anything is put back.
   const sweepMade: { result?: ForgeSweepResult } = {};
-  const sweepFirst = args.sweep
+  const told = args.sweep ? await sweepInput(stop.signal) : undefined;
+  const sweepFirst = told
     ? async (): Promise<boolean> => {
-        sweepMade.result = await sweepRunRecords(
-          removalOrg(conn, 'sandforge-sync --sweep'),
-          await sweepInput(stop.signal),
-          {
-            includeChanged: args.includeChanged,
-            // What the earlier removals of the run changed while they ran is no
-            // change since the run.
-            removalSpans: state.removalSpans ?? [],
-            // What it found, said before the first delete: --sweep asked for it.
-            approve: async (listing) => {
-              say('');
-              for (const line of sweepListingLines(listing, args.target)) say(line);
-              return undefined;
-            },
+        sweepMade.result = await sweepRunRecords(removalOrg(conn, 'sandforge-sync --sweep'), told, {
+          includeChanged: args.includeChanged,
+          // What the earlier removals of the run changed while they ran is no
+          // change since the run.
+          removalSpans: state.removalSpans ?? [],
+          // What it found, said before the first delete: --sweep asked for it.
+          approve: async (listing) => {
+            say('');
+            for (const line of sweepListingLines(listing, args.target)) say(line);
+            return undefined;
           },
-        );
+        });
         return sweepMade.result.objects.some((object) => object.deleted > 0);
       }
     : undefined;

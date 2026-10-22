@@ -467,8 +467,10 @@ export class SyncRemovalHandler implements DomainHandler {
    * run being kept as a Sync run is), from the run's first write to its last
    * — an update before its first creation or after its last is the run's
    * too, and what the target's automation did on it was left out; and what
-   * the target's flows create on the objects whose records it created, read
-   * now.
+   * the target's flows create on the objects whose records it created or
+   * wrote over, read now. A run that created nothing is dated by its writes
+   * alone, and its user read from the records it wrote over: read before a
+   * removal puts their values back, which dates them anew.
    */
   private async sweepInputOf(
     conn: Parameters<typeof removalOrg>[0],
@@ -477,9 +479,14 @@ export class SyncRemovalHandler implements DomainHandler {
     signal?: AbortSignal,
   ): Promise<SweepInput> {
     const reader = this.targetAutomation;
-    const objects = run.created
-      .map((object) => object.objectApiName)
-      .filter((name) => !SYNC_FILE_OBJECTS.includes(name));
+    // The objects whose records it wrote over too: an update flow fires on them.
+    const objects = [
+      ...new Set(
+        [...run.created, ...(run.overwritten ?? [])]
+          .map((object) => object.objectApiName)
+          .filter((name) => !SYNC_FILE_OBJECTS.includes(name)),
+      ),
+    ];
     let automation: ForgeTargetAutomation | { error: string };
     try {
       automation = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS).withTimeout(
@@ -502,6 +509,7 @@ export class SyncRemovalHandler implements DomainHandler {
             serverTime: () => org.serverTime(),
           }
         : undefined,
+      run.overwritten ?? [],
     );
   }
 
@@ -581,16 +589,18 @@ export class SyncRemovalHandler implements DomainHandler {
   private async sweepBeforeRemoval(context: {
     conn: Parameters<typeof removalOrg>[0];
     run: SyncRunKept;
+    /** What the sweep is told (`sweepInputOf`), read as the removal began, or why it could not be. */
+    input: SweepInput | Error;
     includeChanged: boolean;
     signal: AbortSignal;
     guard: ProductionGuard;
     operationId: string;
   }): Promise<ForgeSweepResult> {
-    const { conn, run, guard } = context;
+    const { conn, run, guard, input } = context;
     let guardDecision: GuardDecision | undefined;
     let result: ForgeSweepResult;
     try {
-      const input = await this.sweepInputOf(conn, run, 'sync:remove sweep', context.signal);
+      if (input instanceof Error) throw input;
       result = await sweepRunRecords(removalOrg(conn, 'sync:remove sweep'), input, {
         includeChanged: context.includeChanged,
         removalSpans: run.removal?.removalSpans ?? [],
@@ -839,15 +849,24 @@ export class SyncRemovalHandler implements DomainHandler {
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      // What the sweep is told is read before the removal writes anything:
+      // the records a run that created nothing wrote over tell the user it
+      // wrote as, and once their values are put back they no longer do.
+      const sweepInput = asked.sweep
+        ? await this.sweepInputOf(conn, run, 'sync:remove sweep', abortController.signal).catch(
+            (err: unknown) => new Error(extractErrorMessage(err)),
+          )
+        : undefined;
       // Made by the removal once it has read the run's records: a child the
       // sweep deletes under one of them restamps that record when a roll-up
       // counts it, which read afterwards was a change since the run.
       const sweepMade: { result?: ForgeSweepResult } = {};
-      const sweepFirst = asked.sweep
+      const sweepFirst = sweepInput
         ? async (): Promise<boolean> => {
             sweepMade.result = await this.sweepBeforeRemoval({
               conn,
               run,
+              input: sweepInput,
               includeChanged,
               signal: abortController.signal,
               guard,

@@ -1680,6 +1680,8 @@
     "restoreInProgress": "Restoring data...",
     "restoreRewriteAll": "Write every row of the backup back, including the ones the org already holds as the backup does. Unchecked, a restore reads the org first and writes only the rows that changed since the backup.",
     "restoreResult": "Last restore — written: {{written}} · already as in the backup, left alone: {{unchanged}} · refused: {{failed}}",
+    "restoreSyncBadge": "Sync run",
+    "restoreSyncNote": "Kept by a Sync run: the values the records it wrote over held before it. Removing that run in Sync puts them back too.",
     "selectTemplate": "Select a template",
     "noTemplates": "No templates available",
     "createTemplate": "Create Template",

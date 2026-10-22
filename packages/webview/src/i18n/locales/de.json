@@ -1680,6 +1680,8 @@
     "restoreInProgress": "Wiederherstellung läuft...",
     "restoreRewriteAll": "Jede Zeile der Sicherung zurückschreiben, auch die, die die Org bereits so enthält wie die Sicherung. Nicht angehakt, liest eine Wiederherstellung zuerst die Org und schreibt nur die Zeilen, die sich seit der Sicherung geändert haben.",
     "restoreResult": "Letzte Wiederherstellung — geschrieben: {{written}} · bereits wie in der Sicherung, unverändert gelassen: {{unchanged}} · abgelehnt: {{failed}}",
+    "restoreSyncBadge": "Sync-Lauf",
+    "restoreSyncNote": "Von einem Sync-Lauf aufbewahrt: die Werte, die die von ihm überschriebenen Datensätze vor ihm hatten. Diesen Lauf in Sync zu entfernen, stellt sie ebenfalls wieder her.",
     "selectTemplate": "Vorlage auswählen",
     "noTemplates": "Keine Vorlagen verfügbar",
     "createTemplate": "Vorlage erstellen",

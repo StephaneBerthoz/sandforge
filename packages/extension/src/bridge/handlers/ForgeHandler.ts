@@ -155,6 +155,7 @@ import {
   removalOrg,
   removeRunRecords,
   setBackToDraftOf,
+  type RunPartAlongside,
   type RunRecords,
   type RunRemovalOutcome,
 } from '../../modules/forge/ForgeRunRemoval.js';
@@ -735,6 +736,48 @@ type RunToRemove = Pick<
     journalId?: string;
     journalPart?: number;
   };
+
+/** Another part of the run a removal takes one part of, as {@link ForgeHandler} reads it. */
+interface OtherPart {
+  forgeId: string;
+  /** The part of the journal its ids are in, when its entry keeps none. */
+  inJournal?: { journalId: string; part: number };
+  alongside: RunPartAlongside;
+}
+
+/** The run's other parts, and what lets their journals go once the removal is through. */
+interface OtherParts {
+  parts: OtherPart[];
+  close: () => void;
+}
+
+/**
+ * The entries of `history` in the line of runs of `forgeId` — the runs it
+ * retried or resumed, those that retried or resumed it, and so on both ways
+ * (`retryOf`) — itself left out: the parts of one run, each kept, and
+ * removed, apart.
+ */
+function otherPartsInItsLine(
+  forgeId: string,
+  history: readonly ForgeExecutionResult[],
+): ForgeExecutionResult[] {
+  const inLine = new Set([forgeId]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const entry of history) {
+      const linked = entry.retryOf;
+      if (linked === undefined) continue;
+      if (inLine.has(entry.forgeId) && !inLine.has(linked)) {
+        inLine.add(linked);
+        grew = true;
+      } else if (inLine.has(linked) && !inLine.has(entry.forgeId)) {
+        inLine.add(entry.forgeId);
+        grew = true;
+      }
+    }
+  }
+  return history.filter((entry) => entry.forgeId !== forgeId && inLine.has(entry.forgeId));
+}
 
 /** The rows of a run a call may have written before its answer was lost. */
 function unreachableOf(entry: Pick<ForgeExecutionResult, 'mayHaveBeenWritten'>): number {
@@ -4703,6 +4746,8 @@ export class ForgeHandler implements DomainHandler {
     this.liveTracker?.register(operationId, 'forge', description, total);
     /** What the removal failed on, so the registry lists it as failed. */
     let runError: unknown;
+    /** The run's other parts, read as the removal begins; let go once it is through. */
+    let parts: OtherParts | undefined;
 
     try {
       const conn = await getJsforceConnection(
@@ -4766,6 +4811,9 @@ export class ForgeHandler implements DomainHandler {
         : undefined;
       // Nothing of the run to remove: the sweep alone, and no record of the run goes.
       if (total === 0) await sweep?.();
+      // The run's other parts, removed apart from this one: what this
+      // removal's deletes restamp of their records is kept on each.
+      if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
       const outcome: RunRemovalOutcome =
         total === 0
           ? NOTHING_REMOVED
@@ -4776,6 +4824,9 @@ export class ForgeHandler implements DomainHandler {
               ...(Object.keys(stampedBefore).length > 0 ? { removalStamps: stampedBefore } : {}),
               ...(entry.removalSpans ? { removalSpans: entry.removalSpans } : {}),
               ...(sweep ? { sweep } : {}),
+              ...(parts && parts.parts.length > 0
+                ? { otherParts: parts.parts.map((part) => part.alongside) }
+                : {}),
               includeChanged,
               signal: stop.signal,
               onProgress: (settled, of, objectApiName) => {
@@ -4789,6 +4840,7 @@ export class ForgeHandler implements DomainHandler {
                 this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
               },
             });
+      if (parts) await this.keepOtherPartStamps(parts.parts, outcome.otherPartStamps ?? []);
       const sweepResult = sweepMade.result;
       // A removal after one that marked the run takes what that one left:
       // the result and the audit trail say so, with when it ended.
@@ -4944,7 +4996,106 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });
       this.liveTracker?.fail(operationId, extractErrorMessage(error));
     } finally {
+      parts?.close();
       releaseRun(runError);
+    }
+  }
+
+  /**
+   * The run's other parts, as the removal of one of them reads them: the
+   * runs in its line (`retryOf`, both ways) — the part it resumed, the part a
+   * resume took it up with, a retry — that wrote to the same org and have
+   * records left, and that no removal is taking now. Each with its records,
+   * read from its journal a page at a time when its entry keeps no ids, its
+   * span as its own removal dates it, and what its earlier removals stamped.
+   * A part whose journal cannot be read is left out: its own removal says so.
+   */
+  private async otherPartsOf(
+    forgeId: string,
+    targetOrgId: string,
+    conn: JournalDatesTarget,
+  ): Promise<OtherParts> {
+    const closes: Array<() => void> = [];
+    const parts: OtherPart[] = [];
+    for (const other of otherPartsInItsLine(forgeId, this.loadHistory())) {
+      if (other.targetOrgId !== targetOrgId || !other.idRemapCreated) continue;
+      if (this.removing.has(other.forgeId) || forgeRunCountsLeft(other).length === 0) continue;
+      const inJournal =
+        other.remapInJournal && other.journalId && other.journalPart !== undefined
+          ? { journalId: other.journalId, part: other.journalPart }
+          : undefined;
+      let plan: ForgeRunObjectRecords[] | RunRecords;
+      if (inJournal) {
+        const read = await this.journalRecordsOf(inJournal, other.undo);
+        if ('gone' in read) continue;
+        plan = read.records;
+        closes.push(read.close);
+      } else {
+        plan = forgeRunRecordsLeft(other);
+      }
+      const span =
+        other.writtenBetween ??
+        (await this.datedByItsJournal(
+          { journalId: other.journalId, part: other.journalPart },
+          conn,
+        ));
+      const removalStamps = {
+        ...other.removalStamps,
+        ...(inJournal
+          ? await this.runJournal?.stampsOf(inJournal.journalId, inJournal.part).catch(() => ({}))
+          : {}),
+      };
+      parts.push({
+        forgeId: other.forgeId,
+        ...(inJournal ? { inJournal } : {}),
+        alongside: {
+          plan,
+          span: span
+            ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+            : { runDurationMs: other.duration, runRecordedAt: new Date(other.timestamp) },
+          ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
+        },
+      });
+    }
+    return { parts, close: () => closes.forEach((close) => close()) };
+  }
+
+  /**
+   * Keep on each of the run's other parts what a removal of one part left on
+   * its records (`RunRemovalOutcome.otherPartStamps`), as that part's own
+   * removal keeps what it stamps: beside its journal for a part whose ids are
+   * there, on its history entry and its kept plan otherwise. Its removal
+   * spans are not touched.
+   */
+  private async keepOtherPartStamps(
+    parts: readonly OtherPart[],
+    stampsByPart: ReadonlyArray<Record<string, string>>,
+  ): Promise<void> {
+    for (const [at, part] of parts.entries()) {
+      const stamps = stampsByPart[at] ?? {};
+      if (Object.keys(stamps).length === 0) continue;
+      if (part.inJournal) {
+        await this.runJournal
+          ?.keepStamps(part.inJournal.journalId, part.inJournal.part, stamps)
+          .catch((err: unknown) => {
+            logger.warn(
+              `Forge removal stamps of another part not kept: ${extractErrorMessage(err)}`,
+            );
+          });
+        continue;
+      }
+      const stamped = <T extends RemovalState>(e: T): T => ({
+        ...e,
+        removalStamps: { ...e.removalStamps, ...stamps },
+      });
+      this.saveHistory(
+        this.loadHistory().map((e) => (e.forgeId === part.forgeId ? stamped(e) : e)),
+      );
+      await this.removalPlans
+        ?.update(part.forgeId, (kept) => stamped(kept))
+        .catch((err: unknown) => {
+          logger.warn(`Forge removal plan not updated: ${extractErrorMessage(err)}`);
+        });
     }
   }
 

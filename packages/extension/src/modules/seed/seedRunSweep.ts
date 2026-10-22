@@ -21,6 +21,13 @@
  * to a minute after the last, and stayed once the run was removed. Its window
  * runs from its first write to its last instead, the dates its file gave its
  * calls, read on the org's clock (`writtenSince`).
+ *
+ * A Sync run that created nothing — it updated, or upserted onto records the
+ * target held — had no window at all: none of its records dated one, and its
+ * removal swept nothing, whatever the target's update flows had opened. Its
+ * window is its first write to its last alone (`writesWindow`), and the user
+ * it wrote as is read from the records it wrote over (`writerOf`), before a
+ * removal puts their values back.
  */
 
 import type { ForgeTargetAutomation, ForgeWrittenBetween } from '@sandforge/shared';
@@ -28,7 +35,12 @@ import type { ForgeTargetAutomation, ForgeWrittenBetween } from '@sandforge/shar
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
 import type { RemovalOrg } from '../forge/ForgeRunRemoval.js';
-import { sweepAutomationOf, type SweepInput } from '../forge/ForgeRunSweep.js';
+import {
+  SWEEP_LEAD_MS,
+  SWEEP_TRAIL_MS,
+  sweepAutomationOf,
+  type SweepInput,
+} from '../forge/ForgeRunSweep.js';
 
 /** What a run created, per object, as it kept it. */
 type Created = ReadonlyArray<{ readonly objectApiName: string; readonly ids: readonly string[] }>;
@@ -104,16 +116,8 @@ export async function writtenSince(
   const last = Date.parse(written.last);
   if (!Number.isFinite(first) || !Number.isFinite(last)) return written;
   if (!Number.isFinite(at) && !Number.isFinite(lastAt)) return written;
-  const now = writes.now ?? (() => new Date());
-  let ahead: number;
-  try {
-    const before = now().getTime();
-    const orgNow = Date.parse(await writes.serverTime());
-    if (!Number.isFinite(orgNow)) return written;
-    ahead = orgNow - (before + now().getTime()) / 2;
-  } catch {
-    return written;
-  }
+  const ahead = await orgAheadOf(writes);
+  if (ahead === undefined) return written;
   const began = Number.isFinite(at) ? Math.min(first, at + ahead) : first;
   const ended = Number.isFinite(lastAt) ? Math.max(last, lastAt + ahead) : last;
   if (began === first && ended === last) return written;
@@ -121,6 +125,96 @@ export async function writtenSince(
     first: began === first ? written.first : new Date(began).toISOString(),
     last: ended === last ? written.last : new Date(ended).toISOString(),
   };
+}
+
+/** How far the org's clock runs ahead of this machine's, or undefined when it cannot be read. */
+async function orgAheadOf(writes: RunWrites): Promise<number | undefined> {
+  const now = writes.now ?? (() => new Date());
+  try {
+    const before = now().getTime();
+    const orgNow = Date.parse(await writes.serverTime());
+    if (!Number.isFinite(orgNow)) return undefined;
+    return orgNow - (before + now().getTime()) / 2;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The window of a run that created nothing, from the dates its file gave its
+ * writes alone: its first write to its last, moved onto the org's clock as
+ * {@link writtenSince} moves them. Undefined when it names no first write, or
+ * the org's clock cannot be read: this machine's may stand minutes away.
+ */
+export async function writesWindow(
+  writes: RunWrites | undefined,
+): Promise<ForgeWrittenBetween | undefined> {
+  if (!writes) return undefined;
+  const at = Date.parse(writes.at);
+  if (!Number.isFinite(at)) return undefined;
+  const lastAt = Date.parse(writes.lastAt ?? '');
+  const ahead = await orgAheadOf(writes);
+  if (ahead === undefined) return undefined;
+  const last = Number.isFinite(lastAt) ? Math.max(at, lastAt) : at;
+  return { first: new Date(at + ahead).toISOString(), last: new Date(last + ahead).toISOString() };
+}
+
+/** Records read per object, and objects read, to tell who wrote over them. */
+const WRITER_SAMPLE = 50;
+const WRITER_SAMPLE_OBJECTS = 3;
+
+/** A 15- or 18-character Salesforce id. */
+const SF_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * The user a run that created nothing wrote as: who last modified, in its
+ * window (`written`, a second before and a minute after, as a sweep looks),
+ * the records it wrote over — a few of a few objects, who must agree. A
+ * record modified since, by a colleague or a removal that put its values
+ * back, is out of the window and tells nothing; read once a removal has put
+ * them all back, none does, and the sweep is refused, as for a run whose
+ * user cannot be read. Undefined when none tells it, or two users do.
+ */
+export async function writerOf(
+  org: Pick<RemovalOrg, 'query'>,
+  writtenOver: Created,
+  written: ForgeWrittenBetween,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const from = Date.parse(written.first) - SWEEP_LEAD_MS;
+  const to = Date.parse(written.last) + SWEEP_TRAIL_MS;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return undefined;
+  const writers = new Map<string, string>();
+  let objectsRead = 0;
+  for (const { objectApiName, ids } of writtenOver) {
+    if (objectsRead >= WRITER_SAMPLE_OBJECTS || writers.size > 1 || signal?.aborted) break;
+    const sample = ids.slice(0, WRITER_SAMPLE);
+    if (sample.length === 0) continue;
+    let rows: unknown[];
+    try {
+      const [list] = idLists(sample, sample.length);
+      rows = (
+        await org.query(
+          `SELECT Id, LastModifiedById, LastModifiedDate FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id IN (${list})`,
+        )
+      ).records;
+    } catch {
+      continue;
+    }
+    let told = false;
+    for (const row of rows) {
+      const { LastModifiedById: by, LastModifiedDate: date } = (row ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const at = typeof date === 'string' ? Date.parse(date) : Number.NaN;
+      if (typeof by !== 'string' || !SF_ID.test(by) || !(at >= from && at <= to)) continue;
+      if (!writers.has(by.slice(0, 15))) writers.set(by.slice(0, 15), by);
+      told = true;
+    }
+    if (told) objectsRead++;
+  }
+  return writers.size === 1 ? [...writers.values()][0] : undefined;
 }
 
 /**
@@ -134,19 +228,36 @@ export async function writtenSince(
  *   could not be read: Forge's reader.
  * @param writes - When the run first and last wrote: a Sync run's calls,
  *   which may be updates before anything was created or after the last.
+ * @param writtenOver - The records a Sync run wrote over: never swept, and,
+ *   of a run that created nothing, what tells the user it wrote as. Read
+ *   before a removal puts their values back.
  */
 export async function seedSweepInput(
-  org: Pick<RemovalOrg, 'queryDeleted'>,
+  org: Pick<RemovalOrg, 'queryDeleted'> & Partial<Pick<RemovalOrg, 'query'>>,
   created: Created,
   automation: ForgeTargetAutomation | { error: string },
   signal?: AbortSignal,
   writes?: RunWrites,
+  writtenOver: Created = [],
 ): Promise<SweepInput> {
+  const createdAny = created.some(({ ids }) => ids.length > 0);
+  // A run that created nothing is dated by its writes alone.
+  const writtenBetween = createdAny
+    ? await writtenSince(await seedWrittenBetween(org, created, signal), writes)
+    : await writesWindow(writes);
+  const query = org.query?.bind(org);
+  const user =
+    !createdAny && writtenBetween && query
+      ? await writerOf({ query }, writtenOver, writtenBetween, signal)
+      : undefined;
   return {
-    writtenBetween: await writtenSince(await seedWrittenBetween(org, created, signal), writes),
+    writtenBetween,
     created,
-    remap: new Set(created.flatMap(({ ids }) => ids.map((id) => id.slice(0, 15)))),
+    remap: new Set(
+      [...created, ...writtenOver].flatMap(({ ids }) => ids.map((id) => id.slice(0, 15))),
+    ),
     automation: sweepAutomationOf(automation),
+    ...(user ? { user } : {}),
     ...(signal ? { signal } : {}),
   };
 }

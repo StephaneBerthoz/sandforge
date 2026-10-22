@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { rowsToRestore, sameValue } from './restoreDiff.js';
+import { mergedById, rowsToRestore, sameValue } from './restoreDiff.js';
 
 /** A fake contact id, the length of a real one. */
 const contactId = (n: number): string => `003${String(n).padStart(12, '0')}AAA`;
@@ -110,5 +110,68 @@ describe('rowsToRestore', () => {
 
     expect(outcome).toEqual({ write: [{ LastName: 'No id' }], unchanged: 0 });
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('mergedById', () => {
+  /** A backup's lines of one object, read again each time they are gone through. */
+  const linesOf = (...batches: Array<Array<Record<string, unknown>>>) => ({
+    async *[Symbol.asyncIterator]() {
+      for (const batch of batches) yield batch;
+    },
+  });
+
+  /** Every batch of a pass, as the restore goes through them. */
+  async function passOf(
+    rows: AsyncIterable<Array<Record<string, unknown>>>,
+  ): Promise<Array<Array<Record<string, unknown>>>> {
+    const batches: Array<Array<Record<string, unknown>>> = [];
+    for await (const batch of rows) batches.push(batch);
+    return batches;
+  }
+
+  it('holds each record once, each field as the first line that holds it kept it', async () => {
+    // An update kept the name and the title; the pass that set a lookup kept
+    // the account and the name again, as the update had written it.
+    const merged = mergedById(
+      linesOf(
+        [{ Id: contactId(1), Name: 'Before', Title: 'Buyer' }],
+        [{ Id: contactId(1).slice(0, 15), Name: 'Written by the run', AccountId: null }],
+      ),
+      200,
+    );
+
+    expect(await passOf(merged.batches)).toEqual([
+      [{ Id: contactId(1), Name: 'Before', Title: 'Buyer', AccountId: null }],
+    ]);
+    expect(merged.lines()).toBe(2);
+  });
+
+  it('hands the records on a batch of the size asked at a time, and as often as asked', async () => {
+    const merged = mergedById(
+      linesOf(
+        [1, 2, 3].map((n) => ({ Id: contactId(n), Name: `Before ${n}` })),
+        [{ Id: contactId(2), Name: 'Again' }],
+      ),
+      2,
+    );
+
+    const first = await passOf(merged.batches);
+    const second = await passOf(merged.batches);
+
+    expect(first.map((batch) => batch.map((row) => row.Name))).toEqual([
+      ['Before 1', 'Before 2'],
+      ['Before 3'],
+    ]);
+    expect(second).toEqual(first);
+    expect(merged.lines()).toBe(4);
+  });
+
+  it('keeps a line that names no record as it is, for the org to answer', async () => {
+    const merged = mergedById(linesOf([{ Name: 'No id' }, { Id: 'not-an-id', Name: 'Odd' }]), 200);
+
+    expect(await passOf(merged.batches)).toEqual([
+      [{ Name: 'No id' }, { Id: 'not-an-id', Name: 'Odd' }],
+    ]);
   });
 });

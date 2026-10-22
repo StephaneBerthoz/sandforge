@@ -1022,6 +1022,88 @@ describe('DataOpsHandler backup record storage', () => {
       expect(postedOf(deps, 'notification')[0]?.payload).toMatchObject({ message });
     });
 
+    describe('the backup a Sync run kept of what it wrote over', () => {
+      const C1 = '003000000000001AAA';
+      const C2 = '003000000000002AAA';
+      const BACKUP = 'sync-before-run-1';
+
+      /**
+       * Two contacts an update wrote over, then the first again by the pass
+       * that sets lookups: kept before each call, the first in two lines, its
+       * second holding what the run had written.
+       */
+      async function keptByTheRun(harness: Harness): Promise<void> {
+        await harness.files.store.begin(BACKUP, 'Contact');
+        await harness.files.store.append(BACKUP, 'Contact', [
+          { Id: C1, Name: 'Before 1' },
+          { Id: C2, Name: 'Before 2' },
+        ]);
+        await harness.files.store.append(BACKUP, 'Contact', [
+          { Id: C1, Name: 'Written by the run' },
+        ]);
+        keepMeta(
+          harness.config,
+          BACKUP,
+          [{ objectApiName: 'Contact', recordCount: 3, truncated: false }],
+          { origin: 'sync', runId: 'run-1' },
+        );
+      }
+
+      it('is listed as a Sync run’s', async () => {
+        const harness = createHarness();
+        await keptByTheRun(harness);
+
+        await harness.handler.handle(
+          inboundRequest({
+            id: 'list-sync',
+            type: 'backup:list',
+            timestamp: Date.now(),
+            payload: { orgId: 'org-1' },
+          } as BaseMessage),
+        );
+
+        expect(postedOf(harness.deps, 'backup:list:result')[0]?.payload).toMatchObject({
+          backups: [{ operationId: BACKUP, origin: 'sync' }],
+        });
+      });
+
+      it('restores each record once, with its values from before the run, whatever lines held it', async () => {
+        const harness = createHarness();
+        await keptByTheRun(harness);
+        const { upsert } = restoringOrg();
+
+        await harness.handler.handle(rollbackMsg(BACKUP));
+
+        expect(upsert.mock.calls.map(([batch]) => batch)).toEqual([
+          [
+            { Id: C1, Name: 'Before 1' },
+            { Id: C2, Name: 'Before 2' },
+          ],
+        ]);
+        const answer = postedOf(harness.deps, 'dataops:rollback:response')[0]?.payload;
+        expect(answer).toMatchObject({
+          status: 'success',
+          message: 'Rollback completed: 2 records restored',
+          totalRestored: 2,
+        });
+        // Its three lines were all read: none is said to be missing from disk.
+        expect(String(answer?.message)).not.toContain('not found on disk');
+      });
+
+      it('leaves a DataOps backup’s lines as they come', async () => {
+        const harness = createHarness();
+        await keptByTheRun(harness);
+        keepMeta(harness.config, BACKUP, [
+          { objectApiName: 'Contact', recordCount: 3, truncated: false },
+        ]);
+        const { upsert } = restoringOrg();
+
+        await harness.handler.handle(rollbackMsg(BACKUP));
+
+        expect(upsert.mock.calls.flatMap(([batch]) => batch)).toHaveLength(3);
+      });
+    });
+
     it('says so when an object’s records are no longer on disk', async () => {
       const { handler, deps, config } = createHarness();
       keepMeta(config, 'bk-gone', [

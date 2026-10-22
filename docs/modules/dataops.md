@@ -75,6 +75,10 @@ Restore data from a previously saved backup:
 - Select a specific backup and restore it to the current org
 - A restore puts the whole backup back: there is no choice of records, objects
   or moment in time, only of which snapshot
+- The backup a Sync run kept of the records it wrote over is listed here too,
+  marked as the run's and saying that removing the run in Sync puts the values
+  back as well. Restored from here, a record the run's calls kept in more than
+  one line is written once, each field as the run first found it
 
 What a restore does, in order:
 

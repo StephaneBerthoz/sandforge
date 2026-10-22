@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
-import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 
 vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -253,6 +253,43 @@ describe('sandforge-sync --remove with a sweep', () => {
     expect(
       Math.abs(Date.parse(input.writtenBetween?.last ?? '') - Date.parse(lastWrite)),
     ).toBeLessThan(5_000);
+  });
+
+  it('dates a run that created nothing by its writes, and reads its user from the records it wrote over', async () => {
+    // An upsert that matched an account the target held, and created nothing:
+    // the account as the run left it, written by the session's user.
+    const held = fakeId('001', 2);
+    const wrote = new Date(Date.now() - 10 * 60_000);
+    org.add(
+      'Account',
+      { Id: held, LastModifiedById: MEMORY_ORG_USER },
+      new Date(wrote.getTime() + 1_000).toISOString(),
+    );
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...summary(),
+        created: {
+          runId: 'sandforge-sync-1',
+          firstWrittenAt: wrote.toISOString(),
+          lastWriteAt: new Date(wrote.getTime() + 5_000).toISOString(),
+          objects: [],
+          overwritten: [{ objectApiName: 'Account', backup: 'sync-before-1', ids: [held] }],
+        },
+      }),
+    );
+    vi.mocked(listSweep).mockResolvedValue({ looked: [], found: [], unread: [], handWork: [] });
+
+    await main(argv('--remove', file, '--target', 'TGT', '--sweep-list', '--json'));
+
+    const [, input] = vi.mocked(listSweep).mock.calls[0];
+    expect(Math.abs(Date.parse(input.writtenBetween?.first ?? '') - wrote.getTime())).toBeLessThan(
+      5_000,
+    );
+    expect(input.user).toBe(MEMORY_ORG_USER);
+    expect(input.remap.has(held.slice(0, 15))).toBe(true);
+    // What the target runs on the object it wrote over is read: its update flows.
+    expect(automationRead).toHaveBeenCalledWith('TGT', ['Account']);
   });
 
   it('removes without sweeping unless asked', async () => {

@@ -228,8 +228,12 @@ journal names, not by when it began. Resume is refused, writing nothing, when th
 refreshed or replaced since, or is no longer registered; when the clone on
 the page, or `sandforge.forge.maxRecordsPerObject`, changed since it stopped;
 and when its records were removed, or it was resumed already. Each part is a
-run of the history of its own, with what it created and its own removal. The
-clone command does the same with `--resume`.
+run of the history of its own, with what it created and its own removal; what
+one part's removal makes the org date anew among the other parts' records —
+the opportunity a resumed part wrote a contact role under, once the role is
+deleted — is kept on those parts, and their removal takes it as the run's
+doing, not as a change since. A record someone else changed stays a change.
+The clone command does the same with `--resume`.
 
 ## The run's audit entry
 

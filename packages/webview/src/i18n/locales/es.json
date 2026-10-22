@@ -1680,6 +1680,8 @@
     "restoreInProgress": "Restaurando datos...",
     "restoreRewriteAll": "Volver a escribir cada fila del respaldo, incluidas las que la org ya contiene tal como las guardó el respaldo. Sin marcar, una restauración lee primero la org y solo escribe las filas que cambiaron desde el respaldo.",
     "restoreResult": "Última restauración — escritas: {{written}} · ya como en el respaldo, sin tocar: {{unchanged}} · rechazadas: {{failed}}",
+    "restoreSyncBadge": "Ejecución de Sync",
+    "restoreSyncNote": "Guardado por una ejecución de Sync: los valores que tenían antes de ella los registros que sobrescribió. Quitar esa ejecución en Sync también los devuelve.",
     "selectTemplate": "Seleccionar una plantilla",
     "noTemplates": "No hay plantillas disponibles",
     "createTemplate": "Crear plantilla",

@@ -9434,6 +9434,128 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps Restore with the Delete that asked holding the keyboard while the deletion runs', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [
+          {
+            operationId: 'bk-1',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-01T10:00:00.000Z',
+            totalRecords: 100,
+            totalSize: 0,
+            status: 'completed',
+            objectResults: [{ objectApiName: 'Contact', recordCount: 100, truncated: false }],
+          },
+        ],
+      });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-restore').click();
+      await page.getByTestId('restore-backup-bk-1').getByRole('button').first().click();
+      const remove = page.getByTestId('delete-backup-btn-bk-1');
+      await remove.click();
+      await page.getByTestId('delete-backup-cancel').click();
+      await expect(remove).toBeFocused();
+      await expectReadable(page, theme);
+
+      await remove.click();
+      await page.getByTestId('delete-backup-confirm').click();
+      await bridge.waitForMessage('backup:delete', { timeout: 10_000 });
+      await expect(remove).toBeFocused();
+      await expect(remove).toHaveAttribute('aria-disabled', 'true');
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps Restore listing the backup a Sync run kept of what it wrote over, said to be its', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [
+          {
+            operationId: 'sync-before-run-1',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-02T10:00:00.000Z',
+            totalRecords: 3,
+            totalSize: 0,
+            status: 'completed',
+            objectResults: [{ objectApiName: 'Account', recordCount: 3, truncated: false }],
+            origin: 'sync',
+          },
+          {
+            operationId: 'bk-1',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-01T10:00:00.000Z',
+            totalRecords: 100,
+            totalSize: 0,
+            status: 'completed',
+            objectResults: [{ objectApiName: 'Contact', recordCount: 100, truncated: false }],
+          },
+        ],
+      });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-restore').click();
+      await expect(page.getByTestId('restore-sync-badge-sync-before-run-1')).toHaveText('Sync run');
+      await expect(page.getByTestId('restore-sync-sync-before-run-1')).toContainText(
+        'Removing that run in Sync puts them back too.',
+      );
+      await expect(page.getByTestId('restore-sync-bk-1')).toHaveCount(0);
+      await page
+        .getByTestId('restore-backup-sync-before-run-1')
+        .getByRole('button')
+        .first()
+        .click();
+      await expect(page.getByTestId('restore-btn-sync-before-run-1')).toBeVisible();
+      await expectReadable(page, theme);
+    });
+
+    test('Monitor reading again, its Refresh holding the keyboard while it reads', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [{ name: 'DailyApiRequests', max: 100000, remaining: 45000, usedPercent: 55 }],
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+      const refresh = page.getByTestId('refresh-btn');
+      const asked = (await bridge.getMessages('monitor:refresh')).length;
+      await refresh.focus();
+      await page.keyboard.press('Enter');
+      await expect
+        .poll(async () => (await bridge.getMessages('monitor:refresh')).length)
+        .toBeGreaterThan(asked);
+
+      await expect(refresh).toBeFocused();
+      await expect(refresh).toHaveAttribute('aria-disabled', 'true');
+      // The header the button sits in: the panels below read again with it.
+      await expectReadable(page, theme, '[data-testid="monitor-page"] > div:first-child');
+    });
+
     test('DataOps Anonymize saying what a restore of the latest backup brings back', async ({
       page,
     }) => {

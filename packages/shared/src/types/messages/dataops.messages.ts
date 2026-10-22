@@ -103,6 +103,12 @@ export interface BackupSummary {
   objectResults: BackupObjectHeld[];
   /** Some object holds more rows than the backup read: a restore brings back only those it holds. */
   partial?: boolean;
+  /**
+   * Set on the backup a Sync run kept of the records it wrote over: their
+   * values from before it, which removing that run gives back. Absent from a
+   * DataOps backup.
+   */
+  origin?: 'sync';
 }
 
 /** Export one backup, records included, so it can leave the machine. */

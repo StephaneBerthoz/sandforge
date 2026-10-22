@@ -1680,6 +1680,8 @@
     "restoreInProgress": "Restauration en cours...",
     "restoreRewriteAll": "Réécrire chaque ligne de la sauvegarde, y compris celles que l'org contient déjà telles que la sauvegarde les a gardées. Décoché, une restauration lit d'abord l'org et n'écrit que les lignes modifiées depuis la sauvegarde.",
     "restoreResult": "Dernière restauration — écrites : {{written}} · déjà comme dans la sauvegarde, laissées telles quelles : {{unchanged}} · refusées : {{failed}}",
+    "restoreSyncBadge": "Exécution Sync",
+    "restoreSyncNote": "Gardée par une exécution Sync : les valeurs qu'avaient avant elle les enregistrements qu'elle a écrasés. Retirer cette exécution dans Sync les remet aussi.",
     "selectTemplate": "Sélectionner un modèle",
     "noTemplates": "Aucun modèle disponible",
     "createTemplate": "Créer un modèle",

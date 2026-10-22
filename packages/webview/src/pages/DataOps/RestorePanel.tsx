@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RunStopControl } from './RunStopControl';
 import type { BackupSummary } from '@sandforge/shared';
@@ -72,6 +72,22 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
    */
   const [confirming, setConfirming] = useState<{ one: string } | 'all' | null>(null);
   const questionId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  /** Each backup's entry, where its card is found to take the focus. */
+  const entries = useRef(new Map<string, HTMLDivElement>());
+  /** Each backup's Delete, which its question hands the focus back to. */
+  const deleteButtons = useRef(new Map<string, HTMLButtonElement>());
+  const deleteAllButton = useRef<HTMLButtonElement>(null);
+  /**
+   * A deletion confirmed: the backups it takes, where the first of them stood
+   * among those listed, and the Delete that asked, which holds the focus until
+   * they are gone.
+   */
+  const afterDelete = useRef<{
+    gone: readonly string[];
+    place: number;
+    opener: HTMLElement | null;
+  } | null>(null);
 
   // A backup whose read failed part-way keeps the rows it read, and was
   // listed on the Backup tab alone: only the command line could restore it.
@@ -82,9 +98,43 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
     (b) => b.status === 'completed' || (b.status === 'failed' && b.totalRecords > 0),
   );
 
+  // Its question gone with the answer, the focus fell to <body>: Confirm and
+  // Cancel hand it back to the Delete that asked, and once the backups a
+  // deletion took leave the list, to the card now in that place, the one
+  // before it when it was the last, or the heading when none is left. A
+  // keyboard that went on meanwhile stays where it went.
+  useEffect(() => {
+    const pending = afterDelete.current;
+    if (!pending) return;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active !== pending.opener) {
+      afterDelete.current = null;
+      return;
+    }
+    if (restorableBackups.some((b) => pending.gone.includes(b.operationId))) return;
+    afterDelete.current = null;
+    const next = restorableBackups[Math.min(pending.place, restorableBackups.length - 1)];
+    const card = next
+      ? entries.current.get(next.operationId)?.querySelector<HTMLElement>('[role="button"]')
+      : undefined;
+    (card ?? headingRef.current)?.focus();
+  });
+
+  /** Answer a Delete's question: the focus goes back to the Delete that asked it. */
+  const answered = (opener: HTMLElement | null | undefined): void => {
+    setConfirming(null);
+    opener?.focus();
+  };
+
   return (
     <div className="flex flex-col gap-3" data-testid="restore-panel">
-      <h2 className="text-sm font-semibold text-text-primary">{t('dataops.restore')}</h2>
+      <h2
+        ref={headingRef}
+        tabIndex={-1}
+        className="text-sm font-semibold text-text-primary focus:outline-hidden"
+      >
+        {t('dataops.restore')}
+      </h2>
 
       {isRestoring && onStop && (
         <RunStopControl onStop={onStop} requested={stopRequested} testId="restore-stop" />
@@ -135,10 +185,17 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         />
       )}
 
-      {restorableBackups.map((backup) => {
+      {restorableBackups.map((backup, place) => {
         const isSelected = backup.operationId === selectedBackupId;
         return (
-          <div key={backup.operationId} data-testid={`restore-backup-${backup.operationId}`}>
+          <div
+            key={backup.operationId}
+            ref={(entry) => {
+              if (entry) entries.current.set(backup.operationId, entry);
+              else entries.current.delete(backup.operationId);
+            }}
+            data-testid={`restore-backup-${backup.operationId}`}
+          >
             <Card hoverable onClick={() => onSelectBackup?.(backup.operationId)}>
               <CardHeader
                 title={
@@ -148,6 +205,11 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 subtitle={t('common.recordCount', { count: backup.totalRecords })}
                 action={
                   <div className="flex items-center gap-2">
+                    {backup.origin === 'sync' && (
+                      <Badge data-testid={`restore-sync-badge-${backup.operationId}`}>
+                        {t('dataops.restoreSyncBadge')}
+                      </Badge>
+                    )}
                     {(backup.partial || backup.status === 'failed') && (
                       <Badge
                         variant="warning"
@@ -164,6 +226,17 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 <div className="flex gap-4 text-xs text-text-secondary">
                   <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
                 </div>
+                {/* What a Sync run wrote over, kept for its removal, which
+                    gives it back: listed here among the org's backups, it
+                    said nothing of whose it was. */}
+                {backup.origin === 'sync' && (
+                  <p
+                    className="mt-2 text-xs text-text-secondary"
+                    data-testid={`restore-sync-${backup.operationId}`}
+                  >
+                    {t('dataops.restoreSyncNote')}
+                  </p>
+                )}
                 {/* Said before the click: a restore of it leaves the rest of
                     each object as it is now. */}
                 {backup.partial && (
@@ -182,10 +255,16 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 <div className="flex justify-end gap-2">
                   {onDelete && (
                     <Button
+                      ref={(button) => {
+                        if (button) deleteButtons.current.set(backup.operationId, button);
+                        else deleteButtons.current.delete(backup.operationId);
+                      }}
                       variant="secondary"
                       size="sm"
                       onClick={() => setConfirming({ one: backup.operationId })}
                       disabled={isRestoring || isDeleting}
+                      // It keeps the keyboard while the deletion it asked for runs.
+                      focusableWhenDisabled
                       data-testid={`delete-backup-btn-${backup.operationId}`}
                     >
                       {t('dataops.backupDelete')}
@@ -211,10 +290,12 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                       id={questionId}
                       question={t('dataops.backupDeleteConfirm')}
                       onConfirm={() => {
-                        setConfirming(null);
+                        const opener = deleteButtons.current.get(backup.operationId) ?? null;
+                        afterDelete.current = { gone: [backup.operationId], place, opener };
+                        answered(opener);
                         onDelete(backup.operationId);
                       }}
-                      onCancel={() => setConfirming(null)}
+                      onCancel={() => answered(deleteButtons.current.get(backup.operationId))}
                     />
                   )}
               </div>
@@ -228,10 +309,13 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
       {onDeleteAll && backups.length > 0 && !isRestoring && (
         <div className="flex flex-col items-start gap-2 border-t border-subtle pt-3">
           <Button
+            ref={deleteAllButton}
             variant="secondary"
             size="sm"
             onClick={() => setConfirming('all')}
             disabled={isDeleting}
+            // It keeps the keyboard while the deletion it asked for runs.
+            focusableWhenDisabled
             data-testid="delete-all-backups-btn"
           >
             {t('dataops.backupDeleteAll')}
@@ -241,10 +325,15 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
               id={questionId}
               question={t('dataops.backupDeleteAllConfirm', { count: backups.length })}
               onConfirm={() => {
-                setConfirming(null);
+                afterDelete.current = {
+                  gone: backups.map((b) => b.operationId),
+                  place: 0,
+                  opener: deleteAllButton.current,
+                };
+                answered(deleteAllButton.current);
                 onDeleteAll();
               }}
-              onCancel={() => setConfirming(null)}
+              onCancel={() => answered(deleteAllButton.current)}
             />
           )}
         </div>

@@ -1348,6 +1348,138 @@ describe('forge:undo', () => {
     });
   });
 
+  describe('a run killed, resumed, and removed part by part', () => {
+    const CONTACT = id('003', 5);
+    const OPPORTUNITY = id('006', 5);
+    const ROLE = id('00K', 5);
+    const RESUMED_AT = { first: '2026-09-20T10:06:00.000Z', last: '2026-09-20T10:07:00.000Z' };
+
+    /**
+     * The part a kill stopped as its journal set it up — the contact, and the
+     * opportunity outside the graph its contact role needed — and the part its
+     * resume wrote: the role, linked to both. Deleting the role dates the
+     * opportunity anew, as modified by the user who deleted it.
+     */
+    beforeEach(() => {
+      const table = {
+        [src('003', 5)]: CONTACT,
+        [src('006', 5)]: OPPORTUNITY,
+        [src('00K', 5)]: ROLE,
+      };
+      const killed: ForgeExecutionResult = {
+        ...runEntry(),
+        forgeId: 'run-killed',
+        status: 'partial',
+        interrupted: true,
+        duration: 0,
+        idRemapCount: 2,
+        idRemapTable: { [src('003', 5)]: CONTACT, [src('006', 5)]: OPPORTUNITY },
+        idRemapExisting: [],
+        idRemapCreated: [
+          { objectApiName: 'Contact', sourceIds: [src('003', 5)] },
+          { objectApiName: 'Opportunity', sourceIds: [src('006', 5)] },
+        ],
+        writtenBetween: { first: '2026-09-20T10:00:00.000Z', last: RUN_ENDED },
+        journalId: 'run-killed',
+        journalPart: 0,
+      };
+      const resumed: ForgeExecutionResult = {
+        ...runEntry(),
+        forgeId: 'run-resumed',
+        timestamp: RESUMED_AT.last,
+        idRemapCount: 3,
+        idRemapTable: table,
+        idRemapExisting: [src('003', 5), src('006', 5)],
+        idRemapCreated: [{ objectApiName: 'OpportunityContactRole', sourceIds: [src('00K', 5)] }],
+        writtenBetween: RESUMED_AT,
+        retryOf: 'run-killed',
+        resumed: true,
+      };
+      store.set('forge:history', [resumed, killed], 'forge');
+      org.rows.set('Account', []);
+      org.rows.set('Contact', [
+        { Id: CONTACT, LastModifiedDate: DURING_RUN, CreatedDate: DURING_RUN },
+      ]);
+      org.rows.set('Opportunity', [
+        {
+          Id: OPPORTUNITY,
+          LastModifiedDate: DURING_RUN,
+          CreatedDate: DURING_RUN,
+          LastModifiedById: USER,
+        },
+      ]);
+      org.rows.set('OpportunityContactRole', [
+        {
+          Id: ROLE,
+          OpportunityId: OPPORTUNITY,
+          ContactId: CONTACT,
+          LastModifiedDate: '2026-09-20T10:06:30.000+0000',
+          CreatedDate: '2026-09-20T10:06:30.000+0000',
+        },
+      ]);
+      const role = [{ childSObject: 'OpportunityContactRole', cascadeDelete: true }];
+      org.children.set('Opportunity', [{ ...role[0], field: 'OpportunityId' }]);
+      org.children.set('Contact', [{ ...role[0], field: 'ContactId' }]);
+      org.onDelete((object) => {
+        const opportunity = (org.rows.get('Opportunity') ?? [])[0];
+        if (object !== 'OpportunityContactRole' || !opportunity) return;
+        Object.assign(opportunity, { LastModifiedDate: org.orgNow(), LastModifiedById: USER });
+      });
+    });
+
+    const entryOf = (forgeId: string) => history().find((e) => e.forgeId === forgeId);
+
+    it("keeps on the killed part what the resumed part's removal left on its opportunity, and the killed part's removal takes it", async () => {
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
+
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [{ objectApiName: 'OpportunityContactRole', deleted: 1 }],
+      });
+      const restamped = org.rows.get('Opportunity')?.[0].LastModifiedDate;
+      expect(entryOf('run-killed')?.removalStamps).toEqual({ [OPPORTUNITY]: restamped });
+      // The killed part's spans are its own removals': none ran yet.
+      expect(entryOf('run-killed')?.removalSpans).toBeUndefined();
+      expect(entryOf('run-resumed')?.removalSpans).toHaveLength(1);
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'run-killed' }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Opportunity', deleted: 1, keptChanged: 0 },
+          { objectApiName: 'Contact', deleted: 1, keptChanged: 0 },
+        ],
+      });
+      expect(org.rows.get('Opportunity')).toEqual([]);
+      expect(org.rows.get('Contact')).toEqual([]);
+    });
+
+    it('stamps nothing on a part of the same run another removal is taking', async () => {
+      // Two removals at once: the killed part's is under way.
+      (handler as unknown as { removing: Set<string> }).removing.add('run-killed');
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
+
+      expect(answer()).toMatchObject({ status: 'success' });
+      expect(entryOf('run-killed')?.removalStamps).toBeUndefined();
+    });
+
+    it('stamps nothing on a run of another line', async () => {
+      store.set(
+        'forge:history',
+        history().map((e) => (e.forgeId === 'run-resumed' ? { ...e, retryOf: undefined } : e)),
+        'forge',
+      );
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
+
+      expect(entryOf('run-killed')?.removalStamps).toBeUndefined();
+    });
+  });
+
   describe('a run the history no longer lists', () => {
     let plans: ForgeRemovalPlanStore;
     let disk: Map<string, string>;

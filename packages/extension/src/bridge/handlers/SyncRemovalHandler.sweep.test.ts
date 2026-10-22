@@ -14,6 +14,7 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { BackupRecordStore, nodeBackupFiles } from '../../modules/dataops/BackupRecordStore.js';
 import { nodeSyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -181,7 +182,19 @@ function targetOrg() {
           return { id: recordId, success: true, errors: [] };
         }),
       ),
-      update: vi.fn(async () => []),
+      // Stamped now, as written by the session's user.
+      update: vi.fn(async (records: Array<Record<string, unknown>>) =>
+        records.map((record) => {
+          const row = (rows.get(object) ?? []).find((r) => r.Id === record.Id);
+          if (row) {
+            Object.assign(row, record, {
+              LastModifiedDate: new Date().toISOString(),
+              LastModifiedById: USER,
+            });
+          }
+          return { id: record.Id, success: row !== undefined, errors: [] };
+        }),
+      ),
     }),
   };
   return { conn, rows };
@@ -439,6 +452,106 @@ describe('a sweep asked with the removal of a Sync run', () => {
     expect(response.payload.listing.found).toEqual([
       expect.objectContaining({ objectApiName: 'Task', count: 2 }),
     ]);
+  });
+
+  describe('a run that created nothing and only wrote over an account', () => {
+    /** The run's two lines, by this machine's clock, which agrees with the org's here. */
+    const WROTE_AT = '2026-09-20T11:00:00.000Z';
+    const ANSWERED_AT = '2026-09-20T11:00:05.000Z';
+    const BACKUP = 'sync-before-run-over-only';
+    /** What a flow on the account's update opened, as the run's user, twenty seconds in. */
+    const UPDATE_TASK = id('00T', 5);
+
+    beforeEach(async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        const backups = new BackupRecordStore(nodeBackupFiles(storage));
+        await backups.begin(BACKUP, 'Account');
+        await backups.append(BACKUP, 'Account', [{ Id: ACCOUNT, Name: 'Before' }]);
+        handler.setBackupRecordStore(backups);
+        const runs = nodeSyncRunCreations(storage);
+        handler.setRunCreations(runs);
+        vi.setSystemTime(new Date(WROTE_AT));
+        const recorder = runs.recorder({
+          runId: 'run-over-only',
+          configId: 'cfg-1',
+          configName: 'Accounts',
+          sourceOrgId: 'org-source',
+          targetOrgId: TARGET_ORG,
+        });
+        recorder.overwriting?.('Account', BACKUP, [ACCOUNT]);
+        vi.setSystemTime(new Date(ANSWERED_AT));
+        recorder.overwrote?.('Account', []);
+        await recorder.end({ status: 'success' });
+      } finally {
+        vi.useRealTimers();
+      }
+      // The account as the run left it, written by its user; the task the
+      // update flow opened.
+      Object.assign(org.rows.get('Account')?.[0] ?? {}, {
+        Name: 'After',
+        LastModifiedDate: '2026-09-20T11:00:01.000+0000',
+        LastModifiedById: USER,
+      });
+      org.rows.get('Task')?.push(
+        rec(UPDATE_TASK, 'Account updated', USER, '2026-09-20T11:00:20.000+0000', {
+          WhatId: ACCOUNT,
+        }),
+      );
+    });
+
+    it('lists, in the window its writes were dated, the task the update flow opened, its user read from the account', async () => {
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-over-only' }));
+
+      expect(errors('sync:remove:sweep:error')).toEqual([]);
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(response.payload.listing.refusal).toBeUndefined();
+      expect(response.payload.listing.window).toEqual({
+        from: '2026-09-20T10:59:59Z',
+        to: '2026-09-20T11:01:05Z',
+      });
+      expect(response.payload.listing.found).toEqual([
+        expect.objectContaining({ objectApiName: 'Task', count: 1, names: ['Account updated'] }),
+      ]);
+      // What the target runs on the object it wrote over is read: its update flows.
+      expect(read).toHaveBeenCalledWith(TARGET_ORG, ['Account']);
+    });
+
+    it('sweeps that task as its removal gives the account its values back, its user read before', async () => {
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-over-only', sweep: true }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        restored: [{ objectApiName: 'Account', planned: 1, restored: 1 }],
+        sweep: {
+          status: 'success',
+          objects: [expect.objectContaining({ objectApiName: 'Task', deleted: 1 })],
+        },
+      });
+      expect(org.rows.get('Account')?.[0]).toMatchObject({ Id: ACCOUNT, Name: 'Before' });
+      expect(ids('Task')).toEqual([FLOW_TASK, TYPED_TASK]);
+    });
+
+    it('sweeps nothing when the account no longer says, in the window, who wrote it', async () => {
+      // A colleague edited the account since: who the run's user was cannot be told.
+      Object.assign(org.rows.get('Account')?.[0] ?? {}, {
+        LastModifiedDate: LONG_AFTER,
+        LastModifiedById: id('005', 2),
+      });
+
+      await handler.handle(buildMsg('sync:remove:sweep', { runId: 'run-over-only' }));
+
+      const [response] = posted<BaseMessage & { payload: { listing: ForgeSweepListing } }>(
+        'sync:remove:sweep:response',
+      );
+      expect(response.payload.listing.refusal).toMatch(
+        /^The run created nothing, and none of the records it wrote over still says/,
+      );
+      expect(response.payload.listing.found).toEqual([]);
+    });
   });
 
   it('refuses to list a sweep after a run nothing of which is kept', async () => {

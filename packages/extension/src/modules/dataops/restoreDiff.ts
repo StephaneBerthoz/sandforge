@@ -114,3 +114,66 @@ export async function rowsToRestore(
   });
   return { write, unchanged: rows.length - write.length };
 }
+
+/** A backup's rows of one object, merged by record, and how many lines they were read from. */
+export interface MergedRows {
+  /** Each record once, `size` at a time; read again from the backup each time. */
+  batches: AsyncIterable<Array<Record<string, unknown>>>;
+  /** The lines the last pass read, before they were merged. */
+  lines(): number;
+}
+
+/**
+ * A backup's rows of one object, each record once: the lines it was kept in
+ * merged, each field as the first line holding it kept it.
+ *
+ * A Sync run keeps, before each call that writes over records, the values of
+ * the fields that call writes (`syncOverwrites`): a record two calls wrote —
+ * an update, then the pass that sets its lookups — is kept in two lines, the
+ * first holding a field as it was before the run, the second as the run had
+ * left it. Restored as they came, two lines of one record went in one upsert,
+ * which the org refuses for the Id it names twice; in two, the second wrote
+ * the run's value back. The removal of the run reads them the same way
+ * (`SyncRunRestore`). The object's rows are held while they are merged: a Sync
+ * run's backup holds what it wrote over, which its removal reads whole too.
+ *
+ * @param rows - The backup's rows of the object, read from the start each
+ *   time they are gone through.
+ */
+export function mergedById(
+  rows: AsyncIterable<readonly Record<string, unknown>[]>,
+  size: number,
+): MergedRows {
+  let lines = 0;
+  return {
+    batches: {
+      async *[Symbol.asyncIterator]() {
+        const merged = new Map<string, Record<string, unknown>>();
+        /** Rows that name no record: left as they are, for the org to answer. */
+        const unnamed: Array<Record<string, unknown>> = [];
+        let counted = 0;
+        for await (const batch of rows) {
+          for (const row of batch) {
+            counted++;
+            if (!isRecordId(row.Id)) {
+              unnamed.push({ ...row });
+              continue;
+            }
+            const kept = merged.get(keyOf(row.Id));
+            if (!kept) {
+              merged.set(keyOf(row.Id), { ...row });
+              continue;
+            }
+            for (const [field, value] of Object.entries(row)) {
+              if (!(field in kept)) kept[field] = value;
+            }
+          }
+        }
+        lines = counted;
+        const records = [...merged.values(), ...unnamed];
+        for (let at = 0; at < records.length; at += size) yield records.slice(at, at + size);
+      },
+    },
+    lines: () => lines,
+  };
+}

@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ForgeTargetAutomation } from '@sandforge/shared';
 
-import { seedSweepInput, seedWrittenBetween, writtenSince } from './seedRunSweep';
+import {
+  seedSweepInput,
+  seedWrittenBetween,
+  writerOf,
+  writesWindow,
+  writtenSince,
+} from './seedRunSweep';
 
 const fakeId = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
 
@@ -185,6 +191,34 @@ describe('writtenSince', () => {
     expect(await writtenSince(WRITTEN, undefined)).toEqual(WRITTEN);
   });
 
+  it('dates a run that created nothing by its writes alone, moved onto the org’s clock', async () => {
+    // An upsert that matched every row: no record of the run dates a window.
+    expect(
+      await writesWindow({
+        at: '2026-09-20T09:55:00.000Z',
+        lastAt: '2026-09-20T09:57:00.000Z',
+        serverTime: orgClock,
+        now,
+      }),
+    ).toEqual({ first: '2026-09-20T10:00:00.000Z', last: '2026-09-20T10:02:00.000Z' });
+    // One dated line: the window is that write.
+    expect(
+      await writesWindow({ at: '2026-09-20T09:55:00.000Z', serverTime: orgClock, now }),
+    ).toEqual({ first: '2026-09-20T10:00:00.000Z', last: '2026-09-20T10:00:00.000Z' });
+  });
+
+  it('dates no run that created nothing whose writes are not dated, or whose org’s clock cannot be read', async () => {
+    const unread = async (): Promise<string> => {
+      throw new Error('INVALID_SESSION_ID');
+    };
+
+    expect(await writesWindow(undefined)).toBeUndefined();
+    expect(await writesWindow({ at: 'soon', serverTime: orgClock, now })).toBeUndefined();
+    expect(
+      await writesWindow({ at: '2026-09-20T09:55:00.000Z', serverTime: unread, now }),
+    ).toBeUndefined();
+  });
+
   it('hands the sweep the window from the first write to the last', async () => {
     const { org } = orgDating({ [fakeId('003', 1)]: '2026-09-20T10:02:00.000+0000' });
 
@@ -205,5 +239,119 @@ describe('writtenSince', () => {
       first: '2026-09-20T10:00:00.000Z',
       last: '2026-09-20T10:06:00.000Z',
     });
+  });
+});
+
+describe('a Sync run that created nothing and only wrote over records', () => {
+  /** Its writes, as the org dated them: 10:00 to 10:02. */
+  const WRITTEN = { first: '2026-09-20T10:00:00.000Z', last: '2026-09-20T10:02:00.000Z' };
+  const USER = fakeId('005', 1);
+  const COLLEAGUE = fakeId('005', 2);
+
+  /** An org answering who last modified each record, and when. */
+  function orgModified(rows: Record<string, { by: string; at: string }>) {
+    const statements: string[] = [];
+    const query = vi.fn(async (soql: string) => {
+      statements.push(soql);
+      const list = /WHERE Id IN \((.*)\)$/.exec(soql)?.[1] ?? '';
+      const records = list
+        .split(', ')
+        .map((quoted) => quoted.slice(1, -1))
+        .filter((id) => rows[id] !== undefined)
+        .map((id) => ({ Id: id, LastModifiedById: rows[id].by, LastModifiedDate: rows[id].at }));
+      return { totalSize: records.length, records };
+    });
+    return { org: { query, queryDeleted: vi.fn(async () => ({ records: [] })) }, statements };
+  }
+
+  it('reads the user it wrote as from who last modified, in its window, the records it wrote over', async () => {
+    const { org, statements } = orgModified({
+      [fakeId('001', 1)]: { by: USER, at: '2026-09-20T10:01:00.000+0000' },
+      // Put back by a removal since: out of the window, it tells nothing.
+      [fakeId('001', 2)]: { by: COLLEAGUE, at: '2026-10-01T08:00:00.000+0000' },
+    });
+
+    const user = await writerOf(
+      org,
+      [{ objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] }],
+      WRITTEN,
+    );
+
+    expect(user).toBe(USER);
+    expect(statements).toEqual([
+      `SELECT Id, LastModifiedById, LastModifiedDate FROM Account WHERE Id IN ('${fakeId('001', 1)}', '${fakeId('001', 2)}')`,
+    ]);
+  });
+
+  it('tells no user when two wrote in the window, or none did', async () => {
+    const two = orgModified({
+      [fakeId('001', 1)]: { by: USER, at: '2026-09-20T10:01:00.000+0000' },
+      [fakeId('001', 2)]: { by: COLLEAGUE, at: '2026-09-20T10:01:30.000+0000' },
+    });
+    const none = orgModified({
+      [fakeId('001', 1)]: { by: USER, at: '2026-10-01T08:00:00.000+0000' },
+    });
+    const over = [{ objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] }];
+
+    expect(await writerOf(two.org, over, WRITTEN)).toBeUndefined();
+    expect(await writerOf(none.org, over, WRITTEN)).toBeUndefined();
+  });
+
+  it('takes the minute after its last write into the window, as the sweep does', async () => {
+    const { org } = orgModified({
+      [fakeId('001', 1)]: { by: USER, at: '2026-09-20T10:02:50.000+0000' },
+    });
+
+    expect(
+      await writerOf(org, [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }], WRITTEN),
+    ).toBe(USER);
+  });
+
+  it('hands the sweep its window from its writes, its user, and the records it wrote over never to sweep', async () => {
+    const { org } = orgModified({
+      [fakeId('001', 1)]: { by: USER, at: '2026-09-20T10:01:00.000+0000' },
+    });
+
+    const input = await seedSweepInput(
+      org,
+      [],
+      { objectsRead: [], objects: [], unread: [] } as unknown as ForgeTargetAutomation,
+      undefined,
+      {
+        at: WRITTEN.first,
+        lastAt: WRITTEN.last,
+        serverTime: async () => '2026-10-01T08:00:00.000Z',
+        now: () => new Date('2026-10-01T08:00:00.000Z'),
+      },
+      [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+    );
+
+    expect(input.writtenBetween).toEqual(WRITTEN);
+    expect(input.user).toBe(USER);
+    expect(input.remap.has(fakeId('001', 1).slice(0, 15))).toBe(true);
+  });
+
+  it('reads no user from the records it wrote over when it created some: those tell it', async () => {
+    const { org } = orgModified({
+      [fakeId('001', 1)]: { by: USER, at: '2026-09-20T10:01:00.000+0000' },
+    });
+    const dated = {
+      ...org,
+      queryDeleted: vi.fn(async () => ({
+        records: [{ Id: fakeId('003', 1), CreatedDate: '2026-09-20T10:01:00.000+0000' }],
+      })),
+    };
+
+    const input = await seedSweepInput(
+      dated,
+      [{ objectApiName: 'Contact', ids: [fakeId('003', 1)] }],
+      { objectsRead: [], objects: [], unread: [] } as unknown as ForgeTargetAutomation,
+      undefined,
+      undefined,
+      [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+    );
+
+    expect(input.user).toBeUndefined();
+    expect(org.query).not.toHaveBeenCalled();
   });
 });

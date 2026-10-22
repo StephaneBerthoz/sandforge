@@ -384,6 +384,41 @@ describe('listSweep', () => {
     expect(listing.found).toEqual([{ objectApiName: 'Task', count: 1, names: ['Welcome call'] }]);
   });
 
+  it('takes the user it is told for a run that created nothing: a Sync run that only wrote over records', async () => {
+    const org = orgAfterRun();
+    // It created no case and no contact.
+    org.rows.set('Case', []);
+    org.rows.set('Contact', []);
+    org.add('Task', rec(id('00T', 1), 'Account updated', RUN_USER, DURING));
+    org.add('Task', rec(id('00T', 2), 'A colleague’s', COLLEAGUE, DURING));
+
+    const listing = await listSweep(org, input({ created: [], user: RUN_USER }));
+
+    expect(listing.refusal).toBeUndefined();
+    expect(listing.found).toEqual([
+      { objectApiName: 'Task', count: 1, names: ['Account updated'] },
+    ]);
+  });
+
+  it('refuses a run that created nothing when no user is told, and lists nothing', async () => {
+    const org = orgAfterRun();
+    org.add('Task', rec(id('00T', 1), 'Account updated', RUN_USER, DURING));
+
+    const listing = await listSweep(org, input({ created: [] }));
+
+    expect(listing.refusal).toMatch(/^The run created nothing, and none of the records it wrote/);
+    expect(listing.found).toEqual([]);
+  });
+
+  it('reads the user from the records the run created, whatever it is told', async () => {
+    const org = orgAfterRun();
+    org.add('Task', rec(id('00T', 1), 'Welcome call', RUN_USER, DURING));
+
+    const listing = await listSweep(org, input({ user: COLLEAGUE }));
+
+    expect(listing.found).toEqual([{ objectApiName: 'Task', count: 1, names: ['Welcome call'] }]);
+  });
+
   it('refuses when the run’s records name more than one creator', async () => {
     const org = orgAfterRun();
     org.rows.set('Contact', [rec(id('003', 1), 'Cloned contact', COLLEAGUE, DURING)]);
