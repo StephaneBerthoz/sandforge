@@ -150,11 +150,14 @@ describe('StorageBreakdownPanel', () => {
 
     const hueOf = (element: Element | null, prefix: string): string | undefined =>
       [...(element?.classList ?? [])].find((name) => name.startsWith(prefix))?.slice(prefix.length);
-    // The donut comes in a chunk of its own, once the panel has painted.
-    await waitFor(() =>
-      expect(
-        screen.getByTestId('storage-donut-chart').querySelectorAll('path.recharts-sector'),
-      ).toHaveLength(objects.length),
+    // The donut comes in a chunk of its own, once the panel has painted: the
+    // second waitFor gives by default ran out on a macOS runner under coverage.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByTestId('storage-donut-chart').querySelectorAll('path.recharts-sector'),
+        ).toHaveLength(objects.length),
+      { timeout: 10_000 },
     );
     const slices = [
       ...screen.getByTestId('storage-donut-chart').querySelectorAll('path.recharts-sector'),
