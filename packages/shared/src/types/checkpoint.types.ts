@@ -238,6 +238,12 @@ export interface CheckpointListEntry {
   /** When the sandbox was refreshed, when that is why. */
   refreshedAt?: ISODateString;
   /**
+   * Set when it expires within three days, with [Keep] beside the date: said
+   * by the store that lists it, so the list, the Home tile and the command
+   * line warn on the same day.
+   */
+  expiresSoon?: true;
+  /**
    * Records deleted before this date can't come back with their Id: set once
    * the checkpoint is older than the recycle bin's 15 days.
    */
