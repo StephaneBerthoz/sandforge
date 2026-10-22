@@ -7,9 +7,8 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (importOriginal) => 
 }));
 
 import { execFileSync } from 'node:child_process';
-import jsforce from 'jsforce';
-import type { Connection } from 'jsforce';
 import { refreshTokenViaCli } from '../src/core/connection/ConnectionHelper.js';
+import * as live from '../src/core/precheck/orgKindLive.js';
 import { countRequests, loadOrg } from './sfSession.js';
 
 const mockExecFileSync = vi.mocked(execFileSync);
@@ -107,52 +106,7 @@ describe('loadOrg', () => {
 });
 
 describe('countRequests', () => {
-  /** A connection whose every request the fake org answers, and what it was asked. */
-  function answeredConnection(): { conn: Connection; asked: string[] } {
-    const conn = new jsforce.Connection({
-      instanceUrl: 'https://example.my.salesforce.com',
-      accessToken: LIVE_TOKEN,
-      version: '66.0',
-    });
-    const asked: string[] = [];
-    conn.request = (async (request: string | { url: string }) => {
-      const url = typeof request === 'string' ? request : request.url;
-      asked.push(url);
-      if (url.includes('/query')) return { totalSize: 0, done: true, records: [] };
-      if (url.endsWith('/describe')) return { name: 'Account', fields: [], childRelationships: [] };
-      return [{ id: '001000000000001AAA', success: true, errors: [] }];
-    }) as unknown as Connection['request'];
-    return { conn, asked };
-  }
-
-  it('counts each request a query, a describe and a write send, whichever method sent them', async () => {
-    const { conn, asked } = answeredConnection();
-    const sent = countRequests(conn);
-
-    await conn.query('SELECT Id FROM Account');
-    await conn.sobject('Account').describe();
-    await conn.sobject('Account').create([{ Name: 'Acme' }]);
-
-    expect(sent()).toBe(3);
-    expect(asked).toHaveLength(3);
-  });
-
-  it('counts no request for a describe the connection already holds', async () => {
-    const { conn } = answeredConnection();
-    const sent = countRequests(conn);
-
-    await conn.sobject('Account').describe();
-    await conn.describe$('Account');
-
-    expect(sent()).toBe(1);
-  });
-
-  it('counts nothing sent before it was asked to', async () => {
-    const { conn } = answeredConnection();
-    await conn.query('SELECT Id FROM Account');
-
-    const sent = countRequests(conn);
-
-    expect(sent()).toBe(0);
+  it("is the extension's own count, SOAP calls included", () => {
+    expect(countRequests).toBe(live.countRequests);
   });
 });

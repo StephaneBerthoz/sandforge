@@ -101,20 +101,7 @@ export function makeConn(org: SfOrg): Connection {
 }
 
 /**
- * Count each request `conn` sends from now on, and return what reads the count.
- *
- * Every call jsforce makes to the org goes out through the connection's
- * `request`: a query and each further page of it, a describe the connection
- * does not already hold, a write of up to 200 records, a file read or written.
- * Counted there, a run can say how many calls it made — the same requests
- * whichever method sent them.
+ * Count each request a connection sends from now on, SOAP calls included: the
+ * extension's count, which a checkpoint's runs read too.
  */
-export function countRequests(conn: Connection): () => number {
-  let sent = 0;
-  const send = conn.request.bind(conn) as Connection['request'];
-  conn.request = <R>(...args: Parameters<Connection['request']>) => {
-    sent++;
-    return send<R>(...args);
-  };
-  return () => sent;
-}
+export { countRequests } from '../src/core/precheck/orgKindLive.js';

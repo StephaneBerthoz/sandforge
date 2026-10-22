@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Connection } from 'jsforce';
+import * as live from '../src/core/precheck/orgKindLive.js';
 import {
   isProductionTarget,
   productionTargetRefusal,
@@ -29,29 +30,9 @@ const WRITE = { tool: 'sandforge-seed', action: 'write', readOnly: '--dry-run' }
 const DELETE = { tool: 'sandforge-cleanup', action: 'delete', readOnly: '--dry-run' } as const;
 
 describe('what a command line takes its target for', () => {
-  it('types a sandbox by its IsSandbox alone, and an org that is not one by its edition', async () => {
-    await expect(typeTarget(org({ Id: ORG_ID, IsSandbox: true }).conn)).resolves.toEqual({
-      id: ORG_ID,
-      sandbox: true,
-    });
-    await expect(
-      typeTarget(org({ Id: ORG_ID, IsSandbox: false }, 'Developer Edition').conn),
-    ).resolves.toEqual({ id: ORG_ID, sandbox: false, edition: 'Developer Edition' });
-    await expect(
-      typeTarget(org({ Id: ORG_ID, IsSandbox: false }, new Error('INVALID_FIELD')).conn),
-    ).resolves.toEqual({ id: ORG_ID, sandbox: false });
-    await expect(typeTarget(org(undefined).conn)).rejects.toThrow('gave no Organization record');
-  });
-
-  it("takes a paid edition, and an org that names none, for a production org, as the panel's guard does", () => {
-    expect(isProductionTarget({ id: ORG_ID, sandbox: false, edition: 'Enterprise Edition' })).toBe(
-      true,
-    );
-    expect(isProductionTarget({ id: ORG_ID, sandbox: false })).toBe(true);
-    expect(isProductionTarget({ id: ORG_ID, sandbox: false, edition: 'Developer Edition' })).toBe(
-      false,
-    );
-    expect(isProductionTarget({ id: ORG_ID, sandbox: true })).toBe(false);
+  it("types the org with the extension's own reading, so a command line and a checkpoint agree", () => {
+    expect(typeTarget).toBe(live.typeTarget);
+    expect(isProductionTarget).toBe(live.isProductionTarget);
   });
 
   it('says why it refuses, what it did not do and what runs against the org instead', () => {

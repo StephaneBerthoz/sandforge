@@ -15,46 +15,19 @@
  * before a write there and blocks a delete; a command line has nobody to ask,
  * and answers no to both, as `commandLineGuard` does for the commands that
  * drive a handler. No flag lifts it.
+ *
+ * How the org is typed lives in the extension (`core/precheck/orgKindLive.ts`),
+ * which a checkpoint's guard reads too.
  */
 
 import type { Connection } from 'jsforce';
-import { orgTypeOf, orgTypeToGuardTier } from '@sandforge/shared';
+import {
+  isProductionTarget,
+  typeTarget,
+  type TypedTarget,
+} from '../src/core/precheck/orgKindLive.js';
 
-/** An org as a command types it: a sandbox, or not and its edition. */
-export interface TypedTarget {
-  id: string;
-  sandbox: boolean;
-  edition?: string;
-}
-
-/** What the org says it is. `IsSandbox` false and no edition is a production org's. */
-export async function typeTarget(conn: Pick<Connection, 'query'>): Promise<TypedTarget> {
-  const answer = await conn.query<{ Id?: string; IsSandbox?: boolean }>(
-    'SELECT Id, IsSandbox FROM Organization LIMIT 1',
-  );
-  const row = answer.records[0];
-  if (typeof row?.Id !== 'string') {
-    throw new Error('The org gave no Organization record: whether it is a sandbox cannot be told.');
-  }
-  if (row.IsSandbox === true) return { id: row.Id, sandbox: true };
-  try {
-    const typed = await conn.query<{ OrganizationType?: string }>(
-      'SELECT OrganizationType FROM Organization LIMIT 1',
-    );
-    const edition = typed.records[0]?.OrganizationType;
-    return typeof edition === 'string' && edition !== ''
-      ? { id: row.Id, sandbox: false, edition }
-      : { id: row.Id, sandbox: false };
-  } catch {
-    return { id: row.Id, sandbox: false };
-  }
-}
-
-/** Whether the panel's guard takes an org typed so for a production org. */
-export function isProductionTarget(org: TypedTarget): boolean {
-  const orgType = orgTypeOf({ isSandbox: org.sandbox, edition: org.edition });
-  return orgTypeToGuardTier(orgType, org.edition) === 'production';
-}
+export { isProductionTarget, typeTarget, type TypedTarget };
 
 /** What a command was about to do to the org: write records, or delete them. */
 export type TargetAction = 'write' | 'delete';
