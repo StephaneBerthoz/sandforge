@@ -97,6 +97,7 @@
   "Not counted: {0} records the run it retries or resumes wrote, which it links to and does not write again.": "Not counted: {0} records the run it retries or resumes wrote, which it links to and does not write again.",
   "Not counted: {0}, {1} records, held back whole for a record type closed to the user the run writes as.": "Not counted: {0}, {1} records, held back whole for a record type closed to the user the run writes as.",
   "Not counted: {0} records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.": "Not counted: {0} records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.",
+  "Of them, up to {0} are written by an update or an upsert over records {1} holds: the values those hold are read and kept on this machine first, and removing the run puts them back.": "Of them, up to {0} are written by an update or an upsert over records {1} holds: the values those hold are read and kept on this machine first, and removing the run puts them back.",
   "a lookup filled in once its record exists": "a lookup filled in once its record exists",
   "an order or a contract given back its status after it went in as a draft": "an order or a contract given back its status after it went in as a draft",
   "an invitee of an event given its answer": "an invitee of an event given its answer",

@@ -333,6 +333,12 @@ export interface SyncRunCreated {
   objects: Array<{ objectApiName: ApiName; count: number }>;
   /** Files created: Salesforce Files and legacy attachments. */
   files: number;
+  /**
+   * Records the target held that the run wrote over — an update, an upsert
+   * that matched — whose values from before, of the fields it wrote, were
+   * read and kept first: what removing the run puts back. Absent when none.
+   */
+  overwritten?: number;
 }
 
 /**
@@ -372,6 +378,16 @@ export interface SyncRunRemovalInfo {
    * wrote them. Empty once removals took them all.
    */
   left: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Records the target held that the run wrote over, whose values from before
+   * it kept: see {@link SyncRunCreated.overwritten}. Absent when none.
+   */
+  overwritten?: number;
+  /**
+   * What a removal puts back now, per object: the records the run wrote over
+   * that no removal has given their values back. Absent when none.
+   */
+  putBack?: Array<{ objectApiName: string; count: number }>;
   /** What the removals of it did, once one took some. */
   removed?: ForgeUndoMark;
   /** Why no removal can run now; absent when one can. */
@@ -403,6 +419,38 @@ export interface SyncRemovalResult {
    * that the run did not write (Forge's sweep). Absent when none was asked.
    */
   sweep?: ForgeSweepResult;
+  /**
+   * What the removal put back, per object, before anything was deleted: the
+   * records the run wrote over, given back the values they held before it.
+   * Absent when the run wrote over none, or a removal before this one put
+   * them all back.
+   */
+  restored?: SyncRestoreObjectResult[];
+}
+
+/** What a removal of a Sync run put back of one object it wrote over. */
+export interface SyncRestoreObjectResult {
+  objectApiName: string;
+  /** Records the removal set out to give back their values from before the run. */
+  planned: number;
+  /** Records that hold their values from before the run again: written back, or holding them already. */
+  restored: number;
+  /** Records changed since the run, left as they are: the change stays unless included. */
+  keptChanged: number;
+  /** Records no longer in the target. */
+  alreadyGone: number;
+  /** Records whose write back the target refused. */
+  refused: number;
+  /**
+   * Records whose values from before are no longer kept on this machine —
+   * their backup was deleted from the Restore tab of DataOps, or reached
+   * `sandforge.backup.maxAgeDays` — and that no removal can put back.
+   */
+  notKept: number;
+  /** Records a stop kept the removal from reaching. Absent when none. */
+  notReached?: number;
+  /** Why records were refused, in the target's words, a few of each. */
+  reasons: string[];
 }
 
 /** A snapshot of a sync execution for history tracking and re-run support. */
@@ -643,6 +691,13 @@ export interface SyncWriteCheck {
   total: number;
   /** Of the records read, those an earlier run of the configuration copied, left as they are. */
   alreadyCopied: number;
+  /**
+   * Of `total`, the records an update or an upsert writes, which may each
+   * write over a record the target holds — every one an update writes, at
+   * most every one an upsert writes. Their values from before are read and
+   * kept first, and removing the run puts them back. Absent when none.
+   */
+  overwrites?: number;
   /** The `sandforge.safety.confirmAboveRecords` value `total` is past; absent when it is not. */
   aboveRecords?: number;
   /** The data storage the records it creates take, against what the target has left. */

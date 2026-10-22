@@ -21,6 +21,7 @@ import {
 import type { OperationOutcome } from './DataSync.js';
 import type { PauseGate } from './PauseGate.js';
 import type { SyncCreationRecorder } from './SyncRunCreations.js';
+import type { SyncOverwriteKeeper } from './syncOverwrites.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Record count threshold above which the streaming pipeline is used. */
@@ -130,6 +131,19 @@ export interface BulkDataWriterDeps {
 
 /** See {@link BulkDataWriterDeps.calls}. */
 export interface WriterCalls {
+  /**
+   * Before a call of `rows` of `objectName` that writes records — an insert,
+   * an update, an upsert — and before {@link sending}: what the call writes
+   * over is read and kept first (`syncOverwrites`). Answers why the call must
+   * not go, when it must not: its rows are then answered refused with those
+   * words, and nothing of it is sent.
+   */
+  before?(
+    objectName: string,
+    operation: BulkOperation,
+    rows: ReadonlyArray<Record<string, unknown>>,
+    externalIdField?: string,
+  ): Promise<string | undefined>;
   /** A call of `rows` rows of `objectName` is about to go. */
   sending(objectName: string, operation: BulkOperation, rows: number): void;
   /**
@@ -154,6 +168,9 @@ function bothCalls(
 ): WriterCalls | undefined {
   if (!own || !more) return own ?? more;
   return {
+    before: async (objectName, operation, rows, externalIdField) =>
+      (await own.before?.(objectName, operation, rows, externalIdField)) ??
+      (await more.before?.(objectName, operation, rows, externalIdField)),
     sending: (objectName, operation, rows) => {
       own.sending(objectName, operation, rows);
       more.sending(objectName, operation, rows);
@@ -186,13 +203,25 @@ function bothCalls(
  * or a delete creates nothing of the run's, but it is a write, dated as it
  * goes and as it answers: the sweep of the run's removal looks from its first
  * write to its last.
+ *
+ * Given the run's keeper of what it writes over (`syncOverwrites`), each call
+ * that writes records asks it first, and tells it how it answered: an update
+ * or an upsert that reaches records the target holds keeps their values
+ * before it goes, and is not sent when they could not be kept.
  */
 export function syncWriterCalls(
   recorder: Pick<SyncCreationRecorder, 'sending' | 'answered' | 'writing'>,
+  overwrites?: Pick<SyncOverwriteKeeper, 'before' | 'answered'>,
 ): WriterCalls {
   const creates = (operation: BulkOperation): boolean =>
     operation === 'insert' || operation === 'upsert';
   return {
+    ...(overwrites
+      ? {
+          before: (objectName, operation, rows, externalIdField) =>
+            overwrites.before(objectName, operation, rows, externalIdField),
+        }
+      : {}),
     sending: (objectName, operation, rows) => {
       if (creates(operation)) {
         recorder.sending?.(objectName, rows, operation === 'upsert' ? { upsert: true } : undefined);
@@ -210,6 +239,7 @@ export function syncWriterCalls(
     answered: (objectName, operation, outcomes) => {
       if (creates(operation)) recorder.answered?.(objectName, createdIds(operation, outcomes));
       else if (outcomes.length > 0) recorder.writing?.(objectName, outcomes.length);
+      overwrites?.answered(objectName, operation, outcomes);
     },
   };
 }
@@ -321,6 +351,8 @@ export class BulkDataWriter {
           headers: recordWriteHeaders(),
         }) as unknown as Promise<JsforceResult[]>,
       'Upsert failed after retries',
+      this.deps.calls,
+      externalIdField,
     );
   }
 
@@ -410,6 +442,16 @@ export class BulkDataWriter {
     // A cancel that came before the write opens no job: see `tryBulk`.
     if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName);
 
+    // What the job writes over, kept before it is opened: a job that could
+    // not keep it is not opened, and its rows are refused with why.
+    const refused = await this.refusedBefore(
+      calls,
+      objectName,
+      operation,
+      records,
+      externalIdField,
+    );
+    if (refused) return refused;
     const chunkedExecutor = new ChunkedBulkExecutor({ signal: this.deps.signal });
     calls?.sending(objectName, operation, records.length);
     const bulkDeps: BulkApiExecutorDeps = {
@@ -478,6 +520,14 @@ export class BulkDataWriter {
       signal: this.deps.signal,
       onOpened: (jobId) => calls?.opened?.(objectName, operation, records.length, jobId),
     };
+    const refused = await this.refusedBefore(
+      calls,
+      objectName,
+      operation,
+      records,
+      externalIdField,
+    );
+    if (refused) return refused;
     calls?.sending(objectName, operation, records.length);
     const bulkResult = await this.deps.bulkExecutor.executeBulk(
       bulkDeps,
@@ -507,6 +557,25 @@ export class BulkDataWriter {
     );
     calls?.answered(objectName, operation, outcomes);
     return outcomes;
+  }
+
+  /**
+   * Ask the call's hook before a call that writes records goes
+   * (`WriterCalls.before`): the rows answered refused, with its words, when
+   * it says the call must not go; nothing otherwise, and for a delete.
+   */
+  private async refusedBefore(
+    calls: WriterCalls | undefined,
+    objectName: string,
+    operation: BulkOperation,
+    rows: ReadonlyArray<Record<string, unknown>>,
+    externalIdField?: string,
+  ): Promise<OperationOutcome[] | undefined> {
+    if (operation === 'delete' || !calls?.before) return undefined;
+    const refusal = await calls.before(objectName, operation, rows, externalIdField);
+    if (refusal === undefined) return undefined;
+    this.deps.log(`[WARN] ${operation} ${objectName}: ${rows.length} row(s) not sent: ${refusal}`);
+    return rows.map(() => ({ success: false, errors: [refusal] }));
   }
 
   /**
@@ -546,6 +615,7 @@ export class BulkDataWriter {
     call: (batch: T[]) => Promise<JsforceResult[]>,
     failureMessage: string,
     calls: WriterCalls | undefined = this.deps.calls,
+    externalIdField?: string,
   ): Promise<OperationOutcome[]> {
     const outcomes: OperationOutcome[] = [];
     for (let i = 0; i < items.length; i += batchSize) {
@@ -559,6 +629,23 @@ export class BulkDataWriter {
       await this.deps.pauseGate?.whilePaused(this.deps.signal);
       if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
       const batch = items.slice(i, i + batchSize);
+      // What the batch writes over, kept before it goes: a batch that could
+      // not keep it is not sent, its rows refused with why, and the next
+      // batch is tried as it comes.
+      if (operation !== 'delete') {
+        const refused = await this.refusedBefore(
+          calls,
+          objectName,
+          operation,
+          batch as unknown as Array<Record<string, unknown>>,
+          externalIdField,
+        );
+        if (refused) {
+          outcomes.push(...refused);
+          continue;
+        }
+        if (this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
+      }
       calls?.sending(objectName, operation, batch.length);
       const retryResult = await this.retryOp.execute(() => call(batch));
       // The batch failed and the cancel came before it was tried again: none

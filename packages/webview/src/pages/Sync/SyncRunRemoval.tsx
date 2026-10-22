@@ -5,6 +5,7 @@ import type {
   ForgeSweepListing,
   SyncRemovalRefusalCode,
   SyncRemovalResult,
+  SyncRestoreObjectResult,
   SyncRunRemovalInfo,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
@@ -105,6 +106,63 @@ const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
   );
 };
 
+/**
+ * What a removal gave back of what the run wrote over, per object: the
+ * records holding their values from before the run again, and those it left,
+ * with why — changed since, gone, refused, no longer kept, not reached.
+ */
+const SyncRestoredResult: React.FC<{ restored: SyncRestoreObjectResult[]; org: string }> = ({
+  restored,
+  org,
+}) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const left = (object: SyncRestoreObjectResult): string[] =>
+    [
+      [object.keptChanged, 'runRemoval.sync.restoredKeptChanged'],
+      [object.alreadyGone, 'runRemoval.sync.restoredGone'],
+      [object.refused, 'runRemoval.sync.restoredRefused'],
+      [object.notKept, 'runRemoval.sync.restoredNotKept'],
+      [object.notReached ?? 0, 'runRemoval.sync.restoredNotReached'],
+    ].flatMap(([count, key]) =>
+      (count as number) > 0 ? [t(key as string, { n: formatNumber(count as number), org })] : [],
+    );
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="sync-removal-restored"
+      className="flex flex-col gap-1 mt-1.5 text-[11px]"
+    >
+      <h4 id={headingId} className="text-[11px] font-semibold text-text-primary">
+        {t('runRemoval.sync.restoredTitle', { org })}
+      </h4>
+      <ul className="flex flex-col gap-1">
+        {restored.map((object) => (
+          <li
+            key={object.objectApiName}
+            data-testid={`sync-removal-restored-${object.objectApiName}`}
+            className="text-text-secondary"
+          >
+            {t('runRemoval.sync.restored', {
+              object: object.objectApiName,
+              restored: formatNumber(object.restored),
+              planned: formatNumber(object.planned),
+            })}
+            {left(object).length > 0 && ` · ${left(object).join(' · ')}`}
+            {object.reasons.length > 0 && (
+              <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
+                {object.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
 /** Props for {@link SyncRunRemoval}. */
 export interface SyncRunRemovalProps {
   /** The run, by the id its creations are kept under (`SyncRunCreated.runId`). */
@@ -120,7 +178,9 @@ export interface SyncRunRemovalProps {
  * What the run created is read from what it kept — nothing is asked of the
  * org until a removal is confirmed. The removal takes what the run created
  * and nothing else: the records it inserted, or upserted where the target
- * held none, and the files it created, never a record it updated — and,
+ * held none, and the files it created. A record it wrote over — an update,
+ * an upsert that found it — is given back first the values it held before
+ * the run, which the run kept, unless it changed since — and,
  * when asked, sweeps first what the target's automation created during the
  * run, as its user: a flow that opens a task on each contact left those tasks
  * behind. The confirmation names the org, typed, and the records per object;
@@ -177,8 +237,11 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
     ? (formatStoredDate(kept.removed.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
     : undefined;
 
+  /** What the run wrote over that a removal gives back now, per object. */
+  const putBack = kept.putBack ?? [];
+  const offered = kept.left.length > 0 || putBack.length > 0;
   let action: React.ReactNode = null;
-  if (kept.left.length > 0 && kept.refusal) {
+  if (offered && kept.refusal) {
     action = (
       <div className="flex flex-col gap-0.5" data-testid="sync-removal-refused">
         <p className="text-[11px] text-text-primary">
@@ -187,7 +250,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
         <p className="text-[10px] text-text-secondary wrap-break-word">{kept.refusal.message}</p>
       </div>
     );
-  } else if (kept.left.length > 0) {
+  } else if (offered) {
     action = (
       <Button
         variant="secondary"
@@ -225,13 +288,24 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
       aria-label={t('runRemoval.sync.title')}
     >
       <h5 className="text-xs font-semibold text-text-primary">{t('runRemoval.sync.title')}</h5>
-      <p className="text-[11px] text-text-secondary" data-testid="sync-removal-created">
-        {t('runRemoval.sync.created', {
-          count: kept.created,
-          formatted: formatNumber(kept.created),
-          org,
-        })}
-      </p>
+      {(kept.created > 0 || (kept.overwritten ?? 0) === 0) && (
+        <p className="text-[11px] text-text-secondary" data-testid="sync-removal-created">
+          {t('runRemoval.sync.created', {
+            count: kept.created,
+            formatted: formatNumber(kept.created),
+            org,
+          })}
+        </p>
+      )}
+      {(kept.overwritten ?? 0) > 0 && (
+        <p className="text-[11px] text-text-secondary" data-testid="sync-removal-overwritten">
+          {t('runRemoval.sync.overwritten', {
+            count: kept.overwritten ?? 0,
+            formatted: formatNumber(kept.overwritten ?? 0),
+            org,
+          })}
+        </p>
+      )}
       {kept.removed && removedOn !== undefined && (
         <ForgeRunRemovalMark mark={kept.removed} date={removedOn} />
       )}
@@ -270,7 +344,10 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
       )}
       {result && (
         <>
-          <ForgeRunRemovalResult result={result} org={org} />
+          {(result.objects.length > 0 || result.sweep || !result.restored) && (
+            <ForgeRunRemovalResult result={result} org={org} />
+          )}
+          {result.restored && <SyncRestoredResult restored={result.restored} org={org} />}
           {result.readWhole && result.readWhole.length > 0 && (
             <p className="text-[11px] text-text-secondary" data-testid="sync-removal-read-whole">
               {t('runRemoval.sync.readWhole', {
@@ -298,14 +375,37 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
         onClose={() => setConfirming(false)}
         onConfirm={confirmRemoval}
         title={t('runRemoval.sync.removeTitle', { org })}
-        description={t('runRemoval.sync.removeDescription', { org })}
+        description={
+          putBack.length > 0
+            ? t('runRemoval.sync.removeDescriptionPutBack', { org })
+            : t('runRemoval.sync.removeDescription', { org })
+        }
         confirmText={org}
       >
-        <ForgeRunRemovalPlan
-          plan={kept.left}
-          linked={0}
-          {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
-        />
+        {putBack.length > 0 && (
+          <ul className="flex flex-col gap-0.5" data-testid="sync-removal-put-back">
+            {putBack.map((object) => (
+              <li
+                key={object.objectApiName}
+                data-testid={`sync-removal-put-back-${object.objectApiName}`}
+                className="font-mono"
+              >
+                {t('runRemoval.sync.putBack', {
+                  count: object.count,
+                  formatted: formatNumber(object.count),
+                  object: object.objectApiName,
+                })}
+              </li>
+            ))}
+          </ul>
+        )}
+        {kept.left.length > 0 && (
+          <ForgeRunRemovalPlan
+            plan={kept.left}
+            linked={0}
+            {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
+          />
+        )}
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input
             type="checkbox"

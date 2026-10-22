@@ -1093,7 +1093,8 @@
       "orderLoading": "Reading the lookups of each object in the target org…",
       "orderUnread": "The order could not be read from the target org: the run computes it again before it writes.",
       "insertsSaved": "Saved: each run of this configuration leaves as they are the records an earlier run copied, and inserts the others.",
-      "insertsUnsaved": "Not saved: each run inserts every record it reads again. Save the configuration, and its runs leave what an earlier run copied as it is."
+      "insertsUnsaved": "Not saved: each run inserts every record it reads again. Save the configuration, and its runs leave what an earlier run copied as it is.",
+      "overwriteKept": "What an update or an upsert writes over is read from the target org first and kept on this machine: removing the run puts back the values the records held."
     },
     "configSaved": "Configuration saved. A schedule can now run it.",
     "execute": "Execute",
@@ -1449,7 +1450,9 @@
         "asks": "The run asks you before it writes.",
         "refused": "The run is refused before it writes anything."
       },
-      "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be."
+      "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be.",
+      "overwrites_one": "Of them, {{count}} may write over a record the target org holds: what it holds is read and kept first, and removing the run puts it back.",
+      "overwrites_other": "Of them, up to {{count}} may write over records the target org holds: what they hold is read and kept first, and removing the run puts it back."
     },
     "runControls": {
       "cancelSimulation": "Cancel simulation",
@@ -4316,7 +4319,19 @@
       "unfinishedNote": "A window closed under these runs, or the history no longer lists them. What they created is kept as each call to the target answered, and can be removed.",
       "unfinishedRun": "{{config}}, started {{date}}",
       "unfinishedInFlight_one": "It stopped while it was writing {{formatted}} {{object}} row: if the target took it, it is in the org but not listed here, and its removal does not take it.",
-      "unfinishedInFlight_other": "It stopped while it was writing {{formatted}} {{object}} rows: those the target took are in the org but not listed here, and its removal does not take them."
+      "unfinishedInFlight_other": "It stopped while it was writing {{formatted}} {{object}} rows: those the target took are in the org but not listed here, and its removal does not take them.",
+      "overwritten_one": "{{formatted}} record of {{org}} written over, its values from before kept on this machine",
+      "overwritten_other": "{{formatted}} records of {{org}} written over, their values from before kept on this machine",
+      "removeDescriptionPutBack": "First gives the records this run wrote over in {{org}} — by an update, or an upsert that found the record — the values they held before it, of the fields it wrote; a record changed since the run stays as it is unless you include it below. Then deletes from {{org}} what this run created — the records it inserted, or upserted where {{org}} held none, and the files it created — the files first, then children before their parents; they go to its recycle bin. A record that records staying in {{org}} depend on is kept, and so is a record changed since the run, or one that records added since depend on, unless you include it below.",
+      "putBack_one": "{{object}}: {{formatted}} record to be given back its values from before the run",
+      "putBack_other": "{{object}}: {{formatted}} records to be given back their values from before the run",
+      "restoredTitle": "What this run wrote over in {{org}}",
+      "restored": "{{object}}: {{restored}} of {{planned}} given back their values from before the run",
+      "restoredKeptChanged": "changed since the run, left as they are: {{n}}",
+      "restoredGone": "no longer in {{org}}: {{n}}",
+      "restoredRefused": "refused by {{org}}: {{n}}",
+      "restoredNotKept": "values from before no longer kept (their backup was deleted from the Restore tab, or reached its retention): {{n}}",
+      "restoredNotReached": "not reached before the stop: {{n}}"
     },
     "resultSuccess": "No record this run created is left in {{org}}.",
     "resultPartial": "Records this run created were removed from {{org}}; the others stay, as listed.",

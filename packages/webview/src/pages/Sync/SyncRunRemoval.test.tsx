@@ -313,4 +313,71 @@ describe('SyncRunRemoval', () => {
 
     expect(screen.getByTestId('sync-removal-not-kept').textContent).toContain('is no longer kept');
   });
+
+  describe('a run that wrote over records of the target', () => {
+    /** An upsert that matched three accounts and created nothing. */
+    const OVER: SyncRunRemovalInfo = {
+      ...KEPT,
+      created: 0,
+      left: [],
+      overwritten: 3,
+      putBack: [{ objectApiName: 'Account', count: 3 }],
+    };
+
+    it('says what it wrote over, offers its removal, and names what goes back before anything is deleted', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: OVER });
+
+      expect(screen.queryByTestId('sync-removal-created')).toBeNull();
+      expect(screen.getByTestId('sync-removal-overwritten').textContent).toBe(
+        '3 records of DEV-SANDBOX written over, their values from before kept on this machine',
+      );
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+
+      expect(screen.getByRole('dialog').textContent).toContain(
+        'First gives the records this run wrote over in DEV-SANDBOX',
+      );
+      expect(screen.getByRole('dialog').textContent).not.toContain('keep their new values');
+      expect(screen.getByTestId('sync-removal-put-back-Account').textContent).toBe(
+        'Account: 3 records to be given back their values from before the run',
+      );
+      expect(screen.queryByTestId('forge-removal-plan')).toBeNull();
+    });
+
+    it('shows what the removal gave back, and what it left with why', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: OVER });
+      confirmRemoval();
+
+      answer('sync:remove', 'sync:remove:response', {
+        result: {
+          runId: 'run-1',
+          status: 'partial',
+          includeChanged: false,
+          finishedAt: '2026-10-14T09:00:00.000Z',
+          objects: [],
+          restored: [
+            {
+              objectApiName: 'Account',
+              planned: 3,
+              restored: 2,
+              keptChanged: 1,
+              alreadyGone: 0,
+              refused: 0,
+              notKept: 0,
+              reasons: [],
+            },
+          ],
+        },
+        operationId: 'req-1',
+      });
+
+      // Nothing deleted, nothing said of deletes.
+      expect(screen.queryByTestId('forge-removal-result')).toBeNull();
+      expect(screen.getByTestId('sync-removal-restored-Account').textContent).toBe(
+        'Account: 2 of 3 given back their values from before the run · changed since the run, ' +
+          'left as they are: 1',
+      );
+    });
+  });
 });

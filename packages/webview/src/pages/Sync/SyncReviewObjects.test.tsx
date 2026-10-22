@@ -64,6 +64,25 @@ describe('SyncReviewObjects', () => {
     expect(screen.getByTestId('sync-review-object-Lead').textContent).toContain(
       "Delete by Id: the target record holding the source record's Id is deleted.",
     );
+    // What the update overwrites is kept first, and a removal of the run puts it back.
+    expect(screen.getByTestId('sync-review-overwrites').textContent).toBe(
+      'What an update or an upsert writes over is read from the target org first and kept on ' +
+        'this machine: removing the run puts back the values the records held.',
+    );
+  });
+
+  it('says nothing of what is written over for a run that only inserts', () => {
+    render(
+      <SyncReviewObjects
+        entries={[entry('Case', 'insert')]}
+        order={null}
+        orderLoading={false}
+        orderUnread={false}
+        saved={false}
+      />,
+    );
+
+    expect(screen.queryByTestId('sync-review-overwrites')).toBeNull();
   });
 
   it('says that an unsaved configuration inserts every record again on each run, and a saved one does not', () => {

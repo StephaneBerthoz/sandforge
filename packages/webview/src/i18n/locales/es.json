@@ -1093,7 +1093,8 @@
       "orderLoading": "Leyendo los campos de búsqueda de cada objeto en la org de destino…",
       "orderUnread": "No se pudo leer el orden en la org de destino: la ejecución lo vuelve a calcular antes de escribir.",
       "insertsSaved": "Guardada: cada ejecución de esta configuración deja como están los registros que copió una ejecución anterior e inserta los demás.",
-      "insertsUnsaved": "Sin guardar: cada ejecución vuelve a insertar cada registro que lee. Guarde la configuración, y sus ejecuciones dejarán como está lo que copió una ejecución anterior."
+      "insertsUnsaved": "Sin guardar: cada ejecución vuelve a insertar cada registro que lee. Guarde la configuración, y sus ejecuciones dejarán como está lo que copió una ejecución anterior.",
+      "overwriteKept": "Lo que una actualización o un upsert sobrescribe se lee primero de la org de destino y se conserva en este equipo: eliminar la ejecución restablece los valores que tenían los registros."
     },
     "configSaved": "Configuración guardada. Ya puede ejecutarla una programación.",
     "execute": "Ejecutar",
@@ -1449,7 +1450,9 @@
         "asks": "La ejecución le pregunta antes de escribir.",
         "refused": "La ejecución se rechaza antes de escribir nada."
       },
-      "unread": "No se pudieron contar los registros por escribir ({{reason}}): una ejecución se rechaza mientras no se puedan contar."
+      "unread": "No se pudieron contar los registros por escribir ({{reason}}): una ejecución se rechaza mientras no se puedan contar.",
+      "overwrites_one": "De ellos, {{count}} puede sobrescribir un registro que la org de destino contiene: lo que contiene se lee y se conserva antes, y eliminar la ejecución lo restablece.",
+      "overwrites_other": "De ellos, hasta {{count}} pueden sobrescribir registros que la org de destino contiene: lo que contienen se lee y se conserva antes, y eliminar la ejecución lo restablece."
     },
     "runControls": {
       "cancelSimulation": "Cancelar simulación",
@@ -4316,7 +4319,19 @@
       "unfinishedNote": "Una ventana se cerró durante estas ejecuciones, o el historial ya no las lista. Lo que crearon se conserva a medida que cada llamada al destino respondía, y se puede quitar.",
       "unfinishedRun": "{{config}}, iniciada el {{date}}",
       "unfinishedInFlight_one": "Se detuvo mientras escribía {{formatted}} fila de {{object}}: si el destino la aceptó, está en la org pero no aparece aquí, y su eliminación no la quita.",
-      "unfinishedInFlight_other": "Se detuvo mientras escribía {{formatted}} filas de {{object}}: las que el destino aceptó están en la org pero no aparecen aquí, y su eliminación no las quita."
+      "unfinishedInFlight_other": "Se detuvo mientras escribía {{formatted}} filas de {{object}}: las que el destino aceptó están en la org pero no aparecen aquí, y su eliminación no las quita.",
+      "overwritten_one": "{{formatted}} registro de {{org}} sobrescrito, sus valores anteriores conservados en este equipo",
+      "overwritten_other": "{{formatted}} registros de {{org}} sobrescritos, sus valores anteriores conservados en este equipo",
+      "removeDescriptionPutBack": "Primero devuelve a los registros que esta ejecución sobrescribió en {{org}} — con una actualización, o un upsert que encontró el registro — los valores que tenían antes de ella, de los campos que escribió; un registro modificado desde la ejecución se queda como está, salvo que lo incluya abajo. Después elimina de {{org}} lo que esta ejecución creó — los registros que insertó, o escribió con upsert donde {{org}} no tenía ninguno, y los archivos que creó — primero los archivos, luego los hijos antes que sus padres; van a su papelera. Se conserva un registro del que dependen registros que se quedan en {{org}}, y también un registro modificado desde la ejecución, o uno del que dependen registros añadidos desde entonces, salvo que lo incluya abajo.",
+      "putBack_one": "{{object}}: {{formatted}} registro al que devolver sus valores de antes de la ejecución",
+      "putBack_other": "{{object}}: {{formatted}} registros a los que devolver sus valores de antes de la ejecución",
+      "restoredTitle": "Lo que esta ejecución sobrescribió en {{org}}",
+      "restored": "{{object}}: {{restored}} de {{planned}} recuperaron sus valores de antes de la ejecución",
+      "restoredKeptChanged": "modificados desde la ejecución, dejados como están: {{n}}",
+      "restoredGone": "ya no están en {{org}}: {{n}}",
+      "restoredRefused": "rechazados por {{org}}: {{n}}",
+      "restoredNotKept": "valores anteriores ya no conservados (su respaldo se eliminó desde la pestaña Restaurar, o llegó al final de su conservación): {{n}}",
+      "restoredNotReached": "no alcanzados antes de la detención: {{n}}"
     },
     "resultSuccess": "No queda en {{org}} ningún registro creado por esta ejecución.",
     "resultPartial": "Se eliminaron de {{org}} registros creados por esta ejecución; los demás se quedan, como se indica.",

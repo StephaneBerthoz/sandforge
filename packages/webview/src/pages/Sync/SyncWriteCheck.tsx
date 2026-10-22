@@ -92,6 +92,11 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {t('sync.writeCheck.alreadyCopied', { count: check.alreadyCopied })}
                 </p>
               )}
+              {(check.overwrites ?? 0) > 0 && (
+                <p className="text-text-secondary" data-testid="sync-write-check-overwrites">
+                  {t('sync.writeCheck.overwrites', { count: check.overwrites ?? 0 })}
+                </p>
+              )}
               {check.total > 0 && (
                 <p
                   className={check.storage.verdict === 'fits' ? undefined : 'text-status-warning'}

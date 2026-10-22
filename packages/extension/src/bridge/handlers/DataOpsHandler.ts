@@ -467,6 +467,13 @@ interface BackupMeta {
   cap?: number;
   timestamp?: string;
   totalRecords?: number;
+  /**
+   * Set on the backup a Sync run keeps of what it writes over
+   * (`syncOverwrites`), with the run it is of: the values its removal gives
+   * back. Absent from a DataOps backup.
+   */
+  origin?: 'sync';
+  runId?: string;
 }
 
 /**
@@ -2215,8 +2222,12 @@ export class DataOpsHandler implements DomainHandler {
       // `backup:<operationId>:<objectApiName>` — skip the latter.
       const rest = key.slice('backup:'.length);
       if (rest.includes(':')) continue;
-      const meta = this.deps.configStore.get<{ orgId?: string; timestamp?: string }>(key);
+      const meta =
+        this.deps.configStore.get<Pick<BackupMeta, 'orgId' | 'timestamp' | 'origin'>>(key);
       if (meta?.orgId !== orgId) continue;
+      // What a Sync run wrote over is what its removal gives back: no number
+      // of DataOps backups of the org pushes it out, only its age does.
+      if (meta.origin === 'sync') continue;
       metas.push({ key, timestamp: meta.timestamp ?? '' });
     }
     if (metas.length <= maxCount) return;

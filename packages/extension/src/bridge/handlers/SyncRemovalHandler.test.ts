@@ -22,8 +22,10 @@ import {
   nodeSyncRunCreations,
   type SyncRunCreations,
 } from '../../modules/sync/SyncRunCreations.js';
+import { BackupRecordStore, nodeBackupFiles } from '../../modules/dataops/BackupRecordStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
+import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
@@ -586,6 +588,87 @@ describe('SyncRemovalHandler', () => {
       expect(org.all('Account')).toEqual([]);
     });
   });
+
+  describe('a run that wrote over records of the target', () => {
+    const HELD = fakeId('001', 7);
+    const BACKUP = 'sync-before-run-over';
+    let target: MemoryRestoreOrg;
+
+    beforeEach(async () => {
+      // An upsert that matched an account the target held: its name kept
+      // in the DataOps store before the run wrote over it.
+      const backups = new BackupRecordStore(nodeBackupFiles(dir));
+      await backups.begin(BACKUP, 'Account');
+      await backups.append(BACKUP, 'Account', [{ Id: HELD, Name: 'Before' }]);
+      handler.setBackupRecordStore(backups);
+      const recorder = creations.recorder({
+        runId: 'run-over',
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+      });
+      recorder.overwriting?.('Account', BACKUP, [HELD]);
+      recorder.overwrote?.('Account', []);
+      await recorder.end({ status: 'success' });
+      target = new MemoryRestoreOrg();
+      target.add(
+        'Account',
+        { Id: HELD, Name: 'After' },
+        new Date(Date.now() - 60_000).toISOString(),
+      );
+      vi.mocked(removalOrg).mockReturnValue(target);
+    });
+
+    it('is listed and offered with what it wrote over, though it created nothing', async () => {
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-over' }));
+
+      expect(info()).toMatchObject({
+        runId: 'run-over',
+        created: 0,
+        left: [],
+        overwritten: 1,
+        putBack: [{ objectApiName: 'Account', count: 1 }],
+      });
+      expect(info()?.refusal).toBeUndefined();
+
+      await handler.handle(buildMsg('sync:removal:list'));
+      const [response] = posted<BaseMessage & { payload: { runs: SyncRunRemovalInfo[] } }>(
+        'sync:removal:list:response',
+      );
+      expect(response.payload.runs.map((run) => run.runId)).toContain('run-over');
+    });
+
+    it('gives the record its values back, records it updated in the audit trail, and is not offered again', async () => {
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-over' }));
+
+      expect(errors()).toEqual([]);
+      expect(target.all('Account')).toEqual([
+        expect.objectContaining({ Id: HELD, Name: 'Before' }),
+      ]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [],
+        restored: [{ objectApiName: 'Account', planned: 1, restored: 1 }],
+      });
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          action: 'cleanup_delete',
+          module: 'sync',
+          outcome: 'success',
+          objects: [expect.objectContaining({ objectApiName: 'Account', updated: 1, failed: 0 })],
+        }),
+      ]);
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-over' }));
+      expect(info()?.putBack).toBeUndefined();
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-over' }));
+      expect(errors()[0]?.payload.code).toBe('ALREADY_REMOVED');
+    });
+  });
+
   describe('sync:earlier-copies', () => {
     const copies = () =>
       posted<BaseMessage & { payload: { copies: unknown } }>('sync:earlier-copies:response')[0]

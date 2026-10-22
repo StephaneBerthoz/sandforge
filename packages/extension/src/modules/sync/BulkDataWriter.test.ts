@@ -678,6 +678,79 @@ describe('BulkDataWriter', () => {
         'answered',
       ]);
     });
+
+    it('asks before each REST batch that writes records, with its rows and key, and sends none it is told not to', async () => {
+      const h = createHarness();
+      const told: string[] = [];
+      let asked = 0;
+      const writer = new BulkDataWriter({
+        ...h.deps,
+        calls: {
+          before: async (object, operation, rows, key) => {
+            told.push(`before ${operation} ${object} ${rows.length} ${key ?? '-'}`);
+            return asked++ === 0 ? 'could not be kept' : undefined;
+          },
+          sending: (object, operation, rows) => told.push(`sending ${operation} ${object} ${rows}`),
+          answered: (_object, _operation, outcomes) => told.push(`answered ${outcomes.length}`),
+        },
+      });
+      h.sobject.upsert.mockImplementation(async (batch: unknown[]) => {
+        told.push(`call ${batch.length}`);
+        return okResults(batch.length);
+      });
+
+      const outcomes = await writer.upsert('Account', 'Ext__c', makeRecords(3), 2);
+
+      // The first batch is not sent, its rows refused in the hook's words;
+      // the second goes as it comes.
+      expect(told).toEqual([
+        'before upsert Account 2 Ext__c',
+        'before upsert Account 1 Ext__c',
+        'sending upsert Account 1',
+        'call 1',
+        'answered 1',
+      ]);
+      expect(outcomes.slice(0, 2)).toEqual([
+        { success: false, errors: ['could not be kept'] },
+        { success: false, errors: ['could not be kept'] },
+      ]);
+      expect(outcomes[2]).toMatchObject({ success: true });
+    });
+
+    it('asks before a Bulk API job opens, and opens none it is told not to', async () => {
+      const h = createHarness({ useBulkApi: true });
+      const writer = new BulkDataWriter({
+        ...h.deps,
+        calls: {
+          before: async () => 'could not be kept',
+          sending: vi.fn(),
+          answered: vi.fn(),
+        },
+      });
+
+      const outcomes = await writer.update('Account', makeRecords(2), 200);
+
+      expect(h.executeBulk).not.toHaveBeenCalled();
+      expect(outcomes).toEqual([
+        { success: false, errors: ['could not be kept'] },
+        { success: false, errors: ['could not be kept'] },
+      ]);
+    });
+
+    it('asks nothing before a delete, which writes no value', async () => {
+      const h = createHarness();
+      const before = vi.fn(async () => 'never asked');
+      const writer = new BulkDataWriter({
+        ...h.deps,
+        calls: { before, sending: vi.fn(), answered: vi.fn() },
+      });
+      h.sobject.destroy.mockResolvedValue(okResults(1));
+
+      await writer.delete('Account', ['001000000000001AAA'], 200);
+
+      expect(before).not.toHaveBeenCalled();
+      expect(h.sobject.destroy).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('Bulk API path', () => {
@@ -1095,5 +1168,23 @@ describe('syncWriterCalls', () => {
     calls.answered('Account', 'delete', []);
 
     expect(said).toEqual(['writing Account 2', 'writing Account 2', 'writing Account 1']);
+  });
+
+  it('asks the keeper of what the run writes over before each call, and tells it every answer', async () => {
+    const { recorder } = told();
+    const keeper = {
+      before: vi.fn(async () => 'refused'),
+      answered: vi.fn(),
+    };
+    const calls = syncWriterCalls(recorder, keeper);
+    const rows = [{ Id: '001000000000001AAA', Name: 'After' }];
+    const answer = [{ id: '001000000000001AAA', success: true, errors: [] }];
+
+    expect(await calls.before?.('Account', 'update', rows)).toBe('refused');
+    calls.answered('Account', 'update', answer);
+
+    expect(keeper.before).toHaveBeenCalledWith('Account', 'update', rows, undefined);
+    expect(keeper.answered).toHaveBeenCalledWith('Account', 'update', answer);
+    expect(syncWriterCalls(recorder).before).toBeUndefined();
   });
 });

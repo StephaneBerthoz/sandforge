@@ -683,6 +683,20 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(call[0]).toBe('SandForge: confirm this sync');
   });
 
+  it("names in a Sync run's question what it may write over, and that removing it puts that back", () => {
+    expect(
+      runQuestionDetail({ ...write, module: 'sync', counted: true, overwrites: 2400 }).split('\n'),
+    ).toEqual([
+      'This sync is about to write 2401 records to DEV:',
+      '• Contact: 2400',
+      '• Account: 1',
+      'Of them, up to 2400 are written by an update or an upsert over records DEV holds: the values those hold are read and kept on this machine first, and removing the run puts them back.',
+      'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+  });
+
   it('says what it does not count, and that rows only counted have not been read yet', () => {
     expect(
       runQuestionDetail({

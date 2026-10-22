@@ -232,8 +232,10 @@ export interface SyncOrchestratorDeps {
    * Where the run keeps what it creates in the target, as it writes it: the
    * records it inserted, or upserted where the target held none, and the
    * files it created. What a removal of the run takes back, and nothing else:
-   * a record it updated was the target's before. Without it, nothing is kept
-   * and the run cannot be taken back.
+   * a record it updated was the target's before. The records it wrote over
+   * are named in it by the writer's keeper (`syncOverwrites`), which kept
+   * their values first, and the result counts them: a removal gives them
+   * back. Without it, nothing is kept and the run cannot be taken back.
    */
   creations?: SyncCreationRecorder;
   /**
@@ -890,13 +892,18 @@ export class SyncOrchestrator {
         ...(filePlan ? { files: filePlan.storage } : {}),
         ...(said ? { contactPoints: said } : {}),
       };
-      if (!recorder || (createdByObject.size === 0 && filesCreated === 0)) return withFiles;
+      // What it wrote over, its values kept first, is the run's to give back.
+      const overwritten = recorder?.overwrittenCount?.() ?? 0;
+      if (!recorder || (createdByObject.size === 0 && filesCreated === 0 && overwritten === 0)) {
+        return withFiles;
+      }
       return {
         ...withFiles,
         created: {
           runId: recorder.runId,
           objects: [...createdByObject].map(([objectApiName, count]) => ({ objectApiName, count })),
           files: filesCreated,
+          ...(overwritten > 0 ? { overwritten } : {}),
         },
       };
     };

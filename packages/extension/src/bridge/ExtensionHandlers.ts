@@ -384,6 +384,9 @@ export class ExtensionHandlers {
   /** Inject the file-backed store that holds backup record payloads. */
   setBackupRecordStore(store: BackupRecordStore): void {
     this.dataOpsHandler.setBackupRecordStore(store);
+    // A Sync run keeps there what it writes over, and its removal gives it back.
+    this.syncHandler.setBackupRecordStore(store);
+    this.syncRemovalHandler.setBackupRecordStore(store);
   }
 
   /**

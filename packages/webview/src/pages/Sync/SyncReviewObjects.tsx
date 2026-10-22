@@ -54,6 +54,11 @@ export const SyncReviewObjects: React.FC<SyncReviewObjectsProps> = ({
   const headingId = useId();
   const moved = new Map((order?.moved ?? []).map((move) => [move.objectApiName, move]));
   const inserts = entries.some((entry) => entry.operation === 'insert');
+  // What an update or an upsert writes over is kept first, and a removal of
+  // the run puts it back: said once for the run.
+  const overwrites = entries.some(
+    (entry) => entry.operation === 'update' || entry.operation === 'upsert',
+  );
 
   const operationWords = (entry: ObjectSetEntry): string => {
     switch (entry.operation) {
@@ -117,6 +122,11 @@ export const SyncReviewObjects: React.FC<SyncReviewObjectsProps> = ({
       {orderUnread && !orderLoading && (
         <p className="text-xs text-text-secondary" data-testid="sync-review-order-unread">
           {t('sync.reviewObjects.orderUnread')}
+        </p>
+      )}
+      {overwrites && (
+        <p className="text-xs text-text-secondary" data-testid="sync-review-overwrites">
+          {t('sync.reviewObjects.overwriteKept')}
         </p>
       )}
       {inserts && (

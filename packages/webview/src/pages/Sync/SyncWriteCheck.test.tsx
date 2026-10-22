@@ -44,6 +44,15 @@ describe('SyncWriteCheckCard', () => {
     );
   });
 
+  it('says how many records it may write over, kept first and put back by its removal', () => {
+    render(<SyncWriteCheckCard check={{ ...PAST_EMAILS, overwrites: 30 }} />);
+
+    expect(screen.getByTestId('sync-write-check-overwrites').textContent).toBe(
+      'Of them, up to 30 may write over records the target org holds: what they hold is read ' +
+        'and kept first, and removing the run puts it back.',
+    );
+  });
+
   it('says a run past the storage is refused before it writes anything', () => {
     render(
       <SyncWriteCheckCard

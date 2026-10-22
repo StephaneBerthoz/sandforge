@@ -67,6 +67,7 @@ import type {
   SyncWriteCheck,
 } from '@sandforge/shared';
 import { guardTierOf, isDeveloperEdition, orgTypeOf, recordWriteHeaders } from '@sandforge/shared';
+import type { SyncRestoreObjectResult } from '@sandforge/shared';
 import {
   orgFileCopyDeps,
   targetAllowsDeletes,
@@ -87,16 +88,23 @@ import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
 import {
   nodeSyncRunCreations,
+  backupIdSchema,
   readRemovalState,
   readRunFile,
   SYNC_FILE_OBJECTS,
   SYNC_RUNS_DIR,
   syncRemovalPlan,
+  syncRestorePlan,
+  OverwritesRead,
   type SyncCreationRecorder,
   type SyncRunCreations,
   type SyncRunKept,
+  type SyncRunOverwritten,
   type SyncRunRemovalState,
 } from '../src/modules/sync/SyncRunCreations.js';
+import { storeOverwriteBackup, syncOverwriteKeeper } from '../src/modules/sync/syncOverwrites.js';
+import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
+import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
 import { answerJobsInFlight, type IngestJobReading } from '../src/modules/sync/inFlightJob.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
@@ -227,9 +235,14 @@ Remove what a run created:
                          file; or the run's file, which it names as it
                          begins, or its run id. Deletes from the target what
                          the run created: the records it inserted, or
-                         upserted where the target held none — never one it
-                         updated — the last object written first, into the
-                         target's recycle bin. From its file, a run killed,
+                         upserted where the target held none, the last object
+                         written first, into the target's recycle bin. Before
+                         that, gives the records it wrote over — an update,
+                         an upsert that found the record — the values they
+                         held before the run, of the fields it wrote, which
+                         the run kept first in <dir>/backups (below); one
+                         changed since the run stays as it is unless
+                         --include-changed. From its file, a run killed,
                          stopped or ended by an error is taken back too: a
                          Bulk API job it had under way, which ran on in the
                          target, is read back by its id first, and its
@@ -237,7 +250,9 @@ Remove what a run created:
   --target <alias>       the org the run wrote to, and no other. It must be a
                          sandbox or a Developer Edition org.
   --include-changed      remove also the records changed since the run, which
-                         are kept otherwise
+                         are kept otherwise, and give back their values from
+                         before the run to the records it wrote over that
+                         were changed since
   --store <dir>          for a run of a saved configuration: its store, which
                          the removal tells what it took, so that the next
                          delta run reads those objects whole and copies the
@@ -274,6 +289,13 @@ Environment:
                          said as it begins: what it created, its calls as
                          they went and answered, a Bulk API job's id once the
                          org opened it, and how it ended. Ids and dates only.
+                         What a run writes over — an update, an upsert that
+                         finds the record — is read from the target first and
+                         kept in <dir>/backups, readable by you alone, as
+                         sandforge-backup keeps a snapshot: the values the
+                         records held, of the fields the run writes, which
+                         --remove gives back. A call whose values cannot be
+                         kept is not sent, its rows refused with why.
 
 Before its first write, a run counts the records it writes under each filter,
 and is refused, with nothing written, when they would take more data storage
@@ -763,6 +785,12 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
         'copied, still in the target, left as they are',
     );
   }
+  if ((check.overwrites ?? 0) > 0) {
+    lines.push(
+      `  of them, up to ${check.overwrites} written by an update or an upsert over records ` +
+        `${target} holds: their values are kept first, and --remove puts them back`,
+    );
+  }
   const { storage } = check;
   if (storage.verdict === 'unread') {
     lines.push(
@@ -1060,8 +1088,11 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
    * went or as it answered, as the run's file dates it (`SyncRunKept.lastWriteAt`).
    */
   lastWriteAt(): string | undefined;
+  /** What it wrote over, per object, as the run's file reads it back (`SyncRunKept.overwritten`). */
+  overwritten(): SyncRunOverwritten[];
 } {
   const byObject = new Map<string, string[]>();
+  const overwrites = new OverwritesRead();
   /** The ids kept so far, by their first fifteen characters, as a run's file reads them back. */
   const seen = new Set<string>();
   let last: string | undefined;
@@ -1108,11 +1139,24 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
       last = new Date().toISOString();
       lastWrite = last;
     },
+    // What a call writes over, named before it goes and answered after it:
+    // writes of the run, dated as the run's file dates them.
+    overwriting: (objectApiName, backup, ids) => {
+      if (ids.length === 0) return;
+      overwrites.candidates(objectApiName, backup, ids);
+      calling(ids.length);
+    },
+    overwrote: (objectApiName, notWritten) => {
+      overwrites.answer(objectApiName, notWritten);
+      lastWrite = new Date().toISOString();
+    },
+    overwrittenCount: () => overwrites.count,
     flush: async () => undefined,
     created: () => [...byObject].map(([objectApiName, ids]) => ({ objectApiName, ids: [...ids] })),
     lastWrittenAt: () => last,
     firstWrittenAt: () => first,
     lastWriteAt: () => lastWrite,
+    overwritten: () => overwrites.read(),
   };
 }
 
@@ -1151,6 +1195,15 @@ export function bothRecorders(
       summary.touched?.(objectApiName, rows);
       file.touched?.(objectApiName, rows);
     },
+    overwriting: (objectApiName, backup, ids) => {
+      summary.overwriting?.(objectApiName, backup, ids);
+      file.overwriting?.(objectApiName, backup, ids);
+    },
+    overwrote: (objectApiName, notWritten) => {
+      summary.overwrote?.(objectApiName, notWritten);
+      file.overwrote?.(objectApiName, notWritten);
+    },
+    overwrittenCount: () => summary.overwrittenCount?.() ?? file.overwrittenCount?.() ?? 0,
     flush: async () => (await summary.flush()) ?? (await file.flush()),
   };
 }
@@ -1242,6 +1295,57 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     ...(typed ? { targetOrganizationId: typed.id } : {}),
   });
   const recorder = bothRecorders(kept, runFile);
+  const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
+    const cached = targetFieldsByObject.get(objectApiName);
+    if (cached) return cached;
+    const described = await targetConn.sobject(objectApiName).describe();
+    // Fields and record types from the one describe, as the panel reads them.
+    const answer = targetWriteFieldsOf(described);
+    targetFieldsByObject.set(objectApiName, answer);
+    return answer;
+  };
+
+  // What it writes over, read from the target first and kept in the backup
+  // store DataOps' command lines keep their snapshots in, its owner's alone:
+  // what --remove gives back. A run that only inserts keeps none.
+  const writesOver = config.objects.some(
+    (object) => object.operation === 'update' || object.operation === 'upsert',
+  );
+  const backupDir = defaultBackupStoreOf();
+  let overwrites: ReturnType<typeof storeOverwriteBackup> | undefined;
+  if (!args.dryRun && writesOver) {
+    const refused = openBackupStore(backupDir);
+    if (refused !== undefined) {
+      process.stderr.write(
+        `${refused} What the run would write over could not be kept, so nothing was written.\n`,
+      );
+      process.exit(1);
+    }
+    overwrites = storeOverwriteBackup({
+      runId,
+      orgId: args.target,
+      ...(typed ? { organizationId: typed.id } : {}),
+      files: new BackupRecordStore(nodeBackupFiles(backupDir)),
+      meta: fileConfigStore(join(backupDir, 'snapshots.json')),
+    });
+  }
+  const keeper = overwrites
+    ? syncOverwriteKeeper({
+        query: async (soql) =>
+          (
+            await queryAllPages<Record<string, unknown>>(
+              {
+                query: async (q) => targetConn.query<Record<string, unknown>>(q),
+                queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+              },
+              soql,
+            )
+          ).records,
+        backup: overwrites,
+        recorder,
+        describe: (objectApiName) => describeTargetFields(objectApiName),
+      })
+    : undefined;
   const writer = new BulkDataWriter({
     connection: targetConn,
     bulkExecutor: new BulkApiExecutor(),
@@ -1251,8 +1355,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     onProgress: (processed, total, label) => log(`  ${label}: ${processed}/${total}`),
     log,
     // Each call as it goes and as it answers, a Bulk API job with its id once
-    // the org opened it, as the panel's run keeps them (`syncWriterCalls`).
-    calls: syncWriterCalls(recorder),
+    // the org opened it, as the panel's run keeps them (`syncWriterCalls`),
+    // and what each call writes over kept before it goes.
+    calls: syncWriterCalls(recorder, keeper),
   });
 
   // A dry run is the panel's simulation: the same reads, mappings and
@@ -1282,16 +1387,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return writer.update(objectName, records as Record<string, unknown>[], batchSize);
     }
     return writer.insert(objectName, records as Record<string, unknown>[], batchSize);
-  };
-
-  const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
-    const cached = targetFieldsByObject.get(objectApiName);
-    if (cached) return cached;
-    const described = await targetConn.sobject(objectApiName).describe();
-    // Fields and record types from the one describe, as the panel reads them.
-    const answer = targetWriteFieldsOf(described);
-    targetFieldsByObject.set(objectApiName, answer);
-    return answer;
   };
 
   const startedAt = new Date().toISOString();
@@ -1507,6 +1602,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     ending = { status: result.status, ...(result.cancelled ? { cancelled: true } : {}) };
   } catch (err: unknown) {
     // Refused before its first write: nothing was written.
+    overwrites?.close();
     if (!(err instanceof SyncRunRefused)) {
       await runFile?.end(ending);
       if (runFilePath !== undefined && existsSync(runFilePath)) {
@@ -1541,6 +1637,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     process.off('SIGINT', interrupt);
   }
   await runFile?.end(ending);
+  overwrites?.close();
   const unkept = await runFile?.flush();
   if (unkept !== undefined) {
     process.stderr.write(
@@ -1553,10 +1650,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const lastWrittenAt = kept.lastWrittenAt();
   const firstWrittenAt = kept.firstWrittenAt();
   const lastWriteAt = kept.lastWriteAt();
+  const overwritten = kept.overwritten();
   // The org's own id, so --remove takes the run back from it and no other,
   // whatever alias names it then.
   const targetOrgId =
-    created.length > 0 ? (typed?.id ?? (await organizationIdOf(targetConn))) : undefined;
+    created.length > 0 || overwritten.length > 0
+      ? (typed?.id ?? (await organizationIdOf(targetConn)))
+      : undefined;
   const keptInFile = runFilePath !== undefined && existsSync(runFilePath) ? runFilePath : undefined;
 
   if (args.json) {
@@ -1583,6 +1683,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             // Its file, which --remove takes it back from too.
             ...(keptInFile ? { runFile: keptInFile } : {}),
             objects: created,
+            // What it wrote over, by id, and the backup its values went to.
+            ...(overwritten.length > 0 ? { overwritten } : {}),
           },
           elapsedMs,
         },
@@ -1653,6 +1755,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     log(`  ${line}`);
   }
   const count = created.reduce((sum, object) => sum + object.ids.length, 0);
+  const over = overwritten.reduce((sum, object) => sum + object.ids.length, 0);
+  if (over > 0) {
+    log(
+      `\nwrote over ${over} record(s) of ${args.target}, their values from before kept in ` +
+        `${join(backupDir, 'backups')}: --remove ${keptInFile ?? 'with the --json summary'} ` +
+        'gives them back',
+    );
+  }
   if (count > 0) {
     log(
       `\ncreated ${count} record(s) and file(s) in ${args.target}: ` +
@@ -1782,6 +1892,15 @@ const runSummarySchema = z
             ids: z.array(z.string().regex(ID)),
           }),
         ),
+        overwritten: z
+          .array(
+            z.object({
+              objectApiName: z.string().regex(API_NAME_RE),
+              backup: backupIdSchema,
+              ids: z.array(z.string().regex(ID)),
+            }),
+          )
+          .optional(),
       })
       .optional(),
   })
@@ -1848,6 +1967,9 @@ export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState)
     ...(created?.firstWrittenAt ? { firstWrittenAt: created.firstWrittenAt } : {}),
     ...(created?.lastWriteAt ? { lastWriteAt: created.lastWriteAt } : {}),
     created: (created?.objects ?? []).filter((object) => object.ids.length > 0),
+    ...((created?.overwritten ?? []).some((object) => object.ids.length > 0)
+      ? { overwritten: (created?.overwritten ?? []).filter((object) => object.ids.length > 0) }
+      : {}),
     ...(removal ? { removal } : {}),
   };
 }
@@ -1929,6 +2051,30 @@ export function removalSummaryLines(
       ...o.reasons.map((reason) => `      ${reason}`),
     ]),
   ];
+}
+
+/**
+ * What a removal gave back of what the run wrote over, as the lines the
+ * command prints: per object, the records holding their values from before
+ * the run again, and those it left, with why. Exported so it can be tested.
+ */
+export function restoredLines(restored: readonly SyncRestoreObjectResult[]): string[] {
+  return restored.flatMap((o) => {
+    const left = [
+      o.keptChanged > 0 ? `${o.keptChanged} left as they are, changed since the run` : '',
+      o.alreadyGone > 0 ? `${o.alreadyGone} no longer in the org` : '',
+      o.refused > 0 ? `${o.refused} refused` : '',
+      o.notKept > 0
+        ? `${o.notKept} whose values from before are no longer kept (their backup was deleted, or past its retention)`
+        : '',
+      (o.notReached ?? 0) > 0 ? `${o.notReached} not reached` : '',
+    ].filter(Boolean);
+    return [
+      `  ${o.objectApiName}: ${o.restored} of ${o.planned} given back their values from before ` +
+        `the run${left.length > 0 ? `; ${left.join(', ')}` : ''}`,
+      ...o.reasons.map((reason) => `      ${reason}`),
+    ];
+  });
 }
 
 /** What a removal told the saved configuration its run was of. */
@@ -2228,6 +2374,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     planned: number,
     told: ConfigurationTold = {},
     sweep?: ForgeSweepResult,
+    restored?: SyncRestoreObjectResult[],
   ) => {
     if (args.json) {
       process.stdout.write(
@@ -2238,7 +2385,14 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
             summary: args.summaryPath,
             target: args.target,
             includeChanged: args.includeChanged,
-            result: { status, planned, objects, ...told, ...(sweep ? { sweep } : {}) },
+            result: {
+              status,
+              planned,
+              objects,
+              ...told,
+              ...(sweep ? { sweep } : {}),
+              ...(restored ? { restored } : {}),
+            },
             elapsedMs: Date.now() - t0,
           },
           null,
@@ -2247,9 +2401,11 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       );
       return;
     }
-    // The sweep ran first, before the run's records went.
+    // The sweep ran first, before the run's records went, and what the run
+    // wrote over was given back before either.
     for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
+    for (const line of restored ? restoredLines(restored) : []) say(line);
     for (const line of configurationToldLines(subject.configId, told)) say(line);
     say(`\ndone in ${Date.now() - t0}ms`);
   };
@@ -2258,10 +2414,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   const jobsUnanswered = subject.runs !== undefined && (run.jobs ?? []).length > 0;
   // A sweep, or its listing, still has the run's window to look in; a job
   // no line answers, the records it created.
-  if (syncRemovalPlan(run).length === 0 && !jobsUnanswered && !args.sweep && !args.sweepList) {
+  if (
+    syncRemovalPlan(run).length === 0 &&
+    syncRestorePlan(run).length === 0 &&
+    !jobsUnanswered &&
+    !args.sweep &&
+    !args.sweepList
+  ) {
+    const removedAt = earlier?.undo?.removedAt ?? earlier?.restoredAt;
     say(
-      earlier?.undo
-        ? `what the run created was removed already, on ${earlier.undo.removedAt}`
+      removedAt !== undefined
+        ? `what the run created was removed already, on ${removedAt}`
         : 'The run created nothing: there is nothing of it to remove.',
     );
     output('success', [], 0);
@@ -2373,9 +2536,22 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
+  // What the run wrote over, given back before anything is deleted, from
+  // the backup store it was kept in.
+  const back = syncRestorePlan(run);
+  let backups: BackupRecordStore | undefined;
+  if (back.length > 0) {
+    const backupDir = defaultBackupStoreOf();
+    const refused = openBackupStore(backupDir);
+    if (refused !== undefined) say(refused);
+    else backups = new BackupRecordStore(nodeBackupFiles(backupDir));
+  }
   say(`sandforge-sync --remove  ${args.summaryPath}  from ${args.target}`);
+  for (const { objectApiName, ids } of back) {
+    say(`  ${objectApiName}: ${ids.length} to give back their values from before the run`);
+  }
   for (const { objectApiName, ids } of plan) say(`  ${objectApiName}: ${ids.length} to remove`);
-  if (plan.length === 0) say('nothing left of the run to remove');
+  if (plan.length === 0 && back.length === 0) say('nothing left of the run to remove');
   if (args.sweep) {
     say(
       "before them, a sweep deletes what the target's automation created during the run, as " +
@@ -2425,6 +2601,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // The configuration's store, told what the removal took: its
       // watermarks and copied files, and which records its runs wrote.
       ...(configs && args.store !== undefined ? { configs, links: nodeSyncIdMap(args.store) } : {}),
+      ...(backups ? { backups } : {}),
       store: {
         // Kept beside the summary, or beside the run's file, whatever the
         // removal ended on.
@@ -2460,6 +2637,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       ...(outcome.linksForgotten !== undefined ? { linksForgotten: outcome.linksForgotten } : {}),
     },
     sweep,
+    outcome.result.restored,
   );
   if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
     process.exit(RECORDS_LEFT_EXIT);

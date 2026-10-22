@@ -159,6 +159,29 @@ describe('SyncOrchestrator — what a run creates, kept for its removal', () => 
     expect(result.created?.objects).toEqual([{ objectApiName: 'Account', count: 1 }]);
   });
 
+  it('counts what an upsert wrote over, its values kept, and says it of a run that created nothing', async () => {
+    const recorder = { ...memoryRecorder(), overwrittenCount: () => 2 };
+    const unused = async (): Promise<never> => {
+      throw new Error('not used');
+    };
+    const matching = new DataSync({
+      insert: unused,
+      update: unused,
+      delete: unused,
+      upsert: async () => [
+        { id: fakeId('001', 8), success: true, errors: [], created: false },
+        { id: fakeId('001', 9), success: true, errors: [], created: false },
+      ],
+    });
+
+    const result = await orchestrator(matching, recorder).execute(
+      config([objectConfig({ operation: 'upsert', externalIdField: 'Ext__c' })]),
+    );
+
+    // The removal is offered for it: it has values to give back.
+    expect(result.created).toEqual({ runId: 'run-1', objects: [], files: 0, overwritten: 2 });
+  });
+
   it('keeps what a write cancelled part way wrote before the cancel', async () => {
     const recorder = memoryRecorder();
     const unused = async (): Promise<never> => {

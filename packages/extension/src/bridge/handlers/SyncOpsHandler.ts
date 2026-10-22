@@ -112,6 +112,11 @@ import {
   type SyncFileStore,
 } from '../../modules/sync/SyncFiles.js';
 import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
+import {
+  storeOverwriteBackup,
+  syncOverwriteKeeper,
+  type BackupRecordFiles,
+} from '../../modules/sync/syncOverwrites.js';
 import { savedConfigIdMap, type SyncIdMapStore } from '../../modules/sync/SyncIdMap.js';
 import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 import type { RunCurrencies } from '../../core/common/recordCurrencies.js';
@@ -375,6 +380,13 @@ export class SyncOpsHandler implements DomainHandler {
   private runCreations?: SyncRunCreations;
 
   /**
+   * The DataOps backup store, where a run keeps the values of what it writes
+   * over before it writes (`syncOverwrites`). Without it, or without
+   * {@link runCreations}, nothing is kept and an update cannot be taken back.
+   */
+  private backupRecords?: BackupRecordFiles;
+
+  /**
    * What reads the target's automation for a run's write gate: the handler's
    * own reader, as Forge reads it, loaded the first time a run needs it,
    * unless another is set.
@@ -502,6 +514,15 @@ export class SyncOpsHandler implements DomainHandler {
    */
   setRunCreations(store: SyncRunCreations): void {
     this.runCreations = store;
+  }
+
+  /**
+   * Inject the DataOps backup store: a run keeps there, before it writes, the
+   * values the records it writes over hold, listed on the Restore tab as a
+   * backup of the target, and its removal gives them back.
+   */
+  setBackupRecordStore(store: BackupRecordFiles): void {
+    this.backupRecords = store;
   }
 
   /**
@@ -1970,10 +1991,51 @@ export class SyncOpsHandler implements DomainHandler {
       sourceOrgId: config.sourceOrgId,
       targetOrgId: config.targetOrgId,
     });
+    // What it writes over, its values kept first in the DataOps store, as a
+    // backup of the target: what its removal gives back.
+    const backupFiles = this.backupRecords;
+    const overwrites =
+      creations && backupFiles
+        ? storeOverwriteBackup({
+            runId: operationId,
+            orgId: config.targetOrgId,
+            files: backupFiles,
+            meta: this.deps.configStore,
+          })
+        : undefined;
+    /** Say how many records the backup holds, once the run has ended. */
+    const closeBackup = (): void => {
+      try {
+        overwrites?.close();
+      } catch (err: unknown) {
+        this.deps.log(
+          `[WARN] sync ${operationId}: the backup of what it wrote over could not be listed whole: ` +
+            extractErrorMessage(err),
+        );
+      }
+    };
 
     try {
       const readers = await this.readersFor(config, abortController.signal);
       const { sourceConn, targetConn } = readers;
+      const keeper =
+        creations && overwrites
+          ? syncOverwriteKeeper({
+              query: async (soql) =>
+                (
+                  await queryAllPages<Record<string, unknown>>(
+                    {
+                      query: async (q) => targetConn.query<Record<string, unknown>>(q),
+                      queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+                    },
+                    soql,
+                  )
+                ).records,
+              backup: overwrites,
+              recorder: creations,
+              describe: readers.describeTargetFields,
+            })
+          : undefined;
 
       // Build robustness utilities
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
@@ -2001,7 +2063,7 @@ export class SyncOpsHandler implements DomainHandler {
         // a Bulk API job with its id once the org opened it: see
         // `syncWriterCalls`. The object's write still notes what it created
         // once it returns, which the file reads once.
-        ...(creations ? { calls: syncWriterCalls(creations) } : {}),
+        ...(creations ? { calls: syncWriterCalls(creations, keeper) } : {}),
       });
 
       // Lazy-import sync dependencies
@@ -2099,6 +2161,7 @@ export class SyncOpsHandler implements DomainHandler {
       sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Initializing sync');
       const result = await orchestrator.execute(config);
       await creations?.end({ status: result.status, cancelled: result.cancelled === true });
+      closeBackup();
       if (result.cancelled) {
         this.endCancelled(operationId);
       } else {
@@ -2137,6 +2200,7 @@ export class SyncOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       // What it created before it failed stays removable, the run ended.
       await creations?.end({ status: 'failure' });
+      closeBackup();
       this.dmlTracker.markFailed(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
       // Refused before its first write — by its write gate, or for an insert

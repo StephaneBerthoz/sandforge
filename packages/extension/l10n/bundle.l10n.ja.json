@@ -97,6 +97,7 @@
   "Not counted: {0} records the run it retries or resumes wrote, which it links to and does not write again.": "カウント対象外: 再試行または再開する実行がすでに書き込んだ {0} 件のレコード。これらにはリンクし、再度書き込みません。",
   "Not counted: {0}, {1} records, held back whole for a record type closed to the user the run writes as.": "カウント対象外: {0} の {1} 件のレコード。実行で書き込むユーザーが使用できないレコードタイプのため、オブジェクトごと保留されます。",
   "Not counted: {0} records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.": "カウント対象外: この設定の以前の実行がコピーし、まだターゲットにある {0} 件のレコード。同期はこれらをそのまま残します。",
+  "Of them, up to {0} are written by an update or an upsert over records {1} holds: the values those hold are read and kept on this machine first, and removing the run puts them back.": "そのうち最大 {0} 件は、{1} が保持するレコードへの更新または upsert で書き込まれます。これらの値は先に読み取られてこのマシンに保持され、実行を削除すると元に戻ります。",
   "a lookup filled in once its record exists": "参照先のレコードが書き込まれた後に入力される参照",
   "an order or a contract given back its status after it went in as a draft": "ドラフトとして挿入された後にステータスを戻される注文または契約",
   "an invitee of an event given its answer": "回答を戻される行動の招待者",

@@ -1093,7 +1093,8 @@
       "orderLoading": "Die Lookup-Felder jedes Objekts werden in der Ziel-Org gelesen…",
       "orderUnread": "Die Reihenfolge konnte nicht aus der Ziel-Org gelesen werden: Der Lauf berechnet sie vor dem Schreiben erneut.",
       "insertsSaved": "Gespeichert: Jeder Lauf dieser Konfiguration lässt die Datensätze, die ein früherer Lauf kopiert hat, wie sie sind, und fügt die anderen ein.",
-      "insertsUnsaved": "Nicht gespeichert: Jeder Lauf fügt jeden gelesenen Datensatz erneut ein. Speichern Sie die Konfiguration, dann lassen ihre Läufe, was ein früherer Lauf kopiert hat, wie es ist."
+      "insertsUnsaved": "Nicht gespeichert: Jeder Lauf fügt jeden gelesenen Datensatz erneut ein. Speichern Sie die Konfiguration, dann lassen ihre Läufe, was ein früherer Lauf kopiert hat, wie es ist.",
+      "overwriteKept": "Was ein Update oder ein Upsert überschreibt, wird zuerst aus der Ziel-Org gelesen und auf diesem Rechner aufbewahrt: Das Entfernen des Laufs stellt die Werte wieder her, die die Datensätze hatten."
     },
     "configSaved": "Konfiguration gespeichert. Ein Zeitplan kann sie jetzt ausführen.",
     "execute": "Ausführen",
@@ -1449,7 +1450,9 @@
         "asks": "Der Lauf fragt Sie, bevor er schreibt.",
         "refused": "Der Lauf wird abgelehnt, bevor er etwas schreibt."
       },
-      "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können."
+      "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können.",
+      "overwrites_one": "Davon kann {{count}} einen Datensatz überschreiben, den die Ziel-Org enthält: Sein Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",
+      "overwrites_other": "Davon können bis zu {{count}} Datensätze überschreiben, die die Ziel-Org enthält: Ihr Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her."
     },
     "runControls": {
       "cancelSimulation": "Simulation abbrechen",
@@ -4316,7 +4319,19 @@
       "unfinishedNote": "Während dieser Läufe wurde ein Fenster geschlossen, oder der Verlauf führt sie nicht mehr. Was sie erstellt haben, wird aufbewahrt, sobald jeder Aufruf an das Ziel beantwortet war, und kann entfernt werden.",
       "unfinishedRun": "{{config}}, gestartet am {{date}}",
       "unfinishedInFlight_one": "Er hielt an, während er {{formatted}} {{object}}-Zeile schrieb: Hat das Ziel sie übernommen, ist sie in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht.",
-      "unfinishedInFlight_other": "Er hielt an, während er {{formatted}} {{object}}-Zeilen schrieb: Die vom Ziel übernommenen sind in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht."
+      "unfinishedInFlight_other": "Er hielt an, während er {{formatted}} {{object}}-Zeilen schrieb: Die vom Ziel übernommenen sind in der Org, aber hier nicht aufgeführt, und seine Entfernung erfasst sie nicht.",
+      "overwritten_one": "{{formatted}} Datensatz in {{org}} überschrieben, seine vorherigen Werte auf diesem Rechner aufbewahrt",
+      "overwritten_other": "{{formatted}} Datensätze in {{org}} überschrieben, ihre vorherigen Werte auf diesem Rechner aufbewahrt",
+      "removeDescriptionPutBack": "Gibt zuerst den Datensätzen, die dieser Lauf in {{org}} überschrieben hat — per Update oder per Upsert, der den Datensatz gefunden hat —, die Werte zurück, die sie vor ihm hatten, für die Felder, die er geschrieben hat; ein seit dem Lauf geänderter Datensatz bleibt, wie er ist, es sei denn, Sie schließen ihn unten ein. Löscht dann aus {{org}}, was dieser Lauf erstellt hat — die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo {{org}} keinen hatte, und die Dateien, die er erstellt hat — zuerst die Dateien, dann die untergeordneten Datensätze vor ihren übergeordneten; sie kommen in den Papierkorb. Ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen, wird behalten, ebenso ein seit dem Lauf geänderter Datensatz oder einer, von dem seither hinzugefügte Datensätze abhängen, es sei denn, Sie schließen ihn unten ein.",
+      "putBack_one": "{{object}}: {{formatted}} Datensatz, dem seine Werte von vor dem Lauf zurückgegeben werden",
+      "putBack_other": "{{object}}: {{formatted}} Datensätze, denen ihre Werte von vor dem Lauf zurückgegeben werden",
+      "restoredTitle": "Was dieser Lauf in {{org}} überschrieben hat",
+      "restored": "{{object}}: {{restored}} von {{planned}} haben ihre Werte von vor dem Lauf zurück",
+      "restoredKeptChanged": "seit dem Lauf geändert, belassen, wie sie sind: {{n}}",
+      "restoredGone": "nicht mehr in {{org}}: {{n}}",
+      "restoredRefused": "von {{org}} abgelehnt: {{n}}",
+      "restoredNotKept": "vorherige Werte nicht mehr aufbewahrt (Sicherung auf dem Tab Wiederherstellen gelöscht oder Aufbewahrungsdauer erreicht): {{n}}",
+      "restoredNotReached": "vor dem Anhalten nicht erreicht: {{n}}"
     },
     "resultSuccess": "Kein von diesem Durchlauf erstellter Datensatz ist mehr in {{org}}.",
     "resultPartial": "Von diesem Durchlauf erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",

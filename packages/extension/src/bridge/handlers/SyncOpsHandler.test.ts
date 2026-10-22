@@ -1866,6 +1866,76 @@ describe('SyncOpsHandler', () => {
       expect((kept[1] as { inFlight?: unknown }).inFlight).toBeUndefined();
     });
 
+    it('keeps, before an update goes, what it writes over as a backup of the target, and names it in the run', async () => {
+      handler.setRunCreations(creations);
+      const HELD = '001000000000777AAA';
+      const files: Array<{ operationId: string; objectApiName: string; records: unknown[] }> = [];
+      handler.setBackupRecordStore({
+        begin: async () => undefined,
+        append: async (operationId, objectApiName, records) => {
+          files.push({ operationId, objectApiName, records: [...records] });
+        },
+      });
+      const query = vi.fn(async (soql: string) => ({
+        done: true,
+        records: soql.includes(HELD) ? [{ Id: HELD, Name: 'Before' }] : [],
+      }));
+      mockGetConn.mockResolvedValue({
+        query,
+        queryMore: vi.fn(),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn(),
+        limitInfo: undefined,
+      } as never);
+      let refusal: string | undefined = 'never asked';
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return {
+            execute: vi.fn(async () => {
+              const { calls } = vi.mocked(BulkDataWriter).mock.calls[0][0];
+              refusal = await calls?.before?.('Account', 'update', [{ Id: HELD, Name: 'After' }]);
+              calls?.sending('Account', 'update', 1);
+              calls?.answered('Account', 'update', [{ success: true, id: HELD, errors: [] }]);
+              return { status: 'success', objectResults: [] };
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-over-1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      expect(refusal).toBeUndefined();
+      expect(query).toHaveBeenCalledWith(`SELECT Id, Name FROM Account WHERE Id IN ('${HELD}')`);
+      expect(files).toEqual([
+        {
+          operationId: 'sync-before-sync-over-1',
+          objectApiName: 'Account',
+          records: [{ Id: HELD, Name: 'Before' }],
+        },
+      ]);
+      // Listed on the Restore tab as a backup of the target, its count said once the run ended.
+      expect(deps.configStore.get('backup:sync-before-sync-over-1')).toMatchObject({
+        orgId: 'tgt-org',
+        origin: 'sync',
+        runId: 'sync-over-1',
+        objects: [{ objectApiName: 'Account', recordCount: 1 }],
+        totalRecords: 1,
+      });
+      expect((await creations.get('sync-over-1'))?.overwritten).toEqual([
+        { objectApiName: 'Account', backup: 'sync-before-sync-over-1', ids: [HELD] },
+      ]);
+    });
+
     it('keeps the id of a Bulk API job once the org has opened it, and whether it upserts', async () => {
       // A Seed run kept it, a Sync run did not: a window closed while the job
       // ran left its records in the target, and the run listed none of them.

@@ -1093,7 +1093,8 @@
       "orderLoading": "Lecture des champs de référence de chaque objet dans l'org cible…",
       "orderUnread": "L'ordre n'a pas pu être lu dans l'org cible : l'exécution le calcule de nouveau avant d'écrire.",
       "insertsSaved": "Enregistrée : chaque exécution de cette configuration laisse tels quels les enregistrements qu'une exécution précédente a copiés, et insère les autres.",
-      "insertsUnsaved": "Non enregistrée : chaque exécution insère de nouveau chaque enregistrement qu'elle lit. Enregistrez la configuration, et ses exécutions laissent tel quel ce qu'une exécution précédente a copié."
+      "insertsUnsaved": "Non enregistrée : chaque exécution insère de nouveau chaque enregistrement qu'elle lit. Enregistrez la configuration, et ses exécutions laissent tel quel ce qu'une exécution précédente a copié.",
+      "overwriteKept": "Ce qu'une mise à jour ou un upsert écrase est d'abord lu dans l'org cible et conservé sur cette machine : supprimer l'exécution remet en place les valeurs que les enregistrements avaient."
     },
     "configSaved": "Configuration enregistrée. Une planification peut désormais l'exécuter.",
     "execute": "Exécuter",
@@ -1449,7 +1450,9 @@
         "asks": "L'exécution vous demande confirmation avant d'écrire.",
         "refused": "L'exécution est refusée avant d'écrire quoi que ce soit."
       },
-      "unread": "Les enregistrements à écrire n'ont pas pu être comptés ({{reason}}) : une exécution est refusée tant qu'ils ne peuvent pas l'être."
+      "unread": "Les enregistrements à écrire n'ont pas pu être comptés ({{reason}}) : une exécution est refusée tant qu'ils ne peuvent pas l'être.",
+      "overwrites_one": "Parmi eux, {{count}} peut écraser un enregistrement que l'org cible détient : ce qu'il contient est d'abord lu et conservé, et supprimer l'exécution le remet en place.",
+      "overwrites_other": "Parmi eux, jusqu'à {{count}} peuvent écraser des enregistrements que l'org cible détient : ce qu'ils contiennent est d'abord lu et conservé, et supprimer l'exécution le remet en place."
     },
     "runControls": {
       "cancelSimulation": "Annuler la simulation",
@@ -4316,7 +4319,19 @@
       "unfinishedNote": "Une fenêtre s'est fermée pendant ces exécutions, ou l'historique ne les liste plus. Ce qu'elles ont créé est conservé à mesure que chaque appel à la cible répondait, et peut être retiré.",
       "unfinishedRun": "{{config}}, lancée le {{date}}",
       "unfinishedInFlight_one": "Elle s'est arrêtée pendant l'écriture de {{formatted}} ligne {{object}} : si la cible l'a prise, elle est dans l'org sans être listée ici, et son retrait ne la prend pas.",
-      "unfinishedInFlight_other": "Elle s'est arrêtée pendant l'écriture de {{formatted}} lignes {{object}} : celles que la cible a prises sont dans l'org sans être listées ici, et son retrait ne les prend pas."
+      "unfinishedInFlight_other": "Elle s'est arrêtée pendant l'écriture de {{formatted}} lignes {{object}} : celles que la cible a prises sont dans l'org sans être listées ici, et son retrait ne les prend pas.",
+      "overwritten_one": "{{formatted}} enregistrement de {{org}} écrasé, ses valeurs d'avant conservées sur cette machine",
+      "overwritten_other": "{{formatted}} enregistrements de {{org}} écrasés, leurs valeurs d'avant conservées sur cette machine",
+      "removeDescriptionPutBack": "Rend d'abord aux enregistrements que cette exécution a écrasés dans {{org}} — par une mise à jour, ou un upsert qui a trouvé l'enregistrement — les valeurs qu'ils avaient avant elle, pour les champs qu'elle a écrits ; un enregistrement modifié depuis l'exécution reste tel quel, sauf si vous l'incluez ci-dessous. Supprime ensuite de {{org}} ce que cette exécution a créé — les enregistrements qu'elle a insérés, ou écrits par upsert là où {{org}} n'en avait aucun, et les fichiers qu'elle a créés — les fichiers d'abord, puis les enfants avant leurs parents ; ils vont dans sa corbeille. Un enregistrement dont dépendent des enregistrements qui restent dans {{org}} est conservé, de même qu'un enregistrement modifié depuis l'exécution, ou dont dépendent des enregistrements ajoutés depuis, sauf si vous l'incluez ci-dessous.",
+      "putBack_one": "{{object}} : {{formatted}} enregistrement à qui rendre ses valeurs d'avant l'exécution",
+      "putBack_other": "{{object}} : {{formatted}} enregistrements à qui rendre leurs valeurs d'avant l'exécution",
+      "restoredTitle": "Ce que cette exécution a écrasé dans {{org}}",
+      "restored": "{{object}} : {{restored}} sur {{planned}} ont retrouvé leurs valeurs d'avant l'exécution",
+      "restoredKeptChanged": "modifiés depuis l'exécution, laissés tels quels : {{n}}",
+      "restoredGone": "plus dans {{org}} : {{n}}",
+      "restoredRefused": "refusés par {{org}} : {{n}}",
+      "restoredNotKept": "valeurs d'avant plus conservées (sauvegarde supprimée depuis l'onglet Restaurer, ou arrivée au terme de sa conservation) : {{n}}",
+      "restoredNotReached": "non atteints avant l'arrêt : {{n}}"
     },
     "resultSuccess": "Aucun enregistrement créé par cette exécution ne reste dans {{org}}.",
     "resultPartial": "Des enregistrements créés par cette exécution ont été supprimés de {{org}} ; les autres restent, comme indiqué.",

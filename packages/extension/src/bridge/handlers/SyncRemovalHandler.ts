@@ -43,12 +43,15 @@ import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import {
   createdCount,
+  overwrittenCount,
   SYNC_FILE_OBJECTS,
   syncRemovalPlan,
+  syncRestorePlan,
   type SyncRunCreations,
   type SyncRunKept,
 } from '../../modules/sync/SyncRunCreations.js';
 import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
+import { withRestoreAudit, type BackupReader } from '../../modules/sync/SyncRunRestore.js';
 import {
   answerJobsInFlight,
   jobAnsweredLines,
@@ -115,6 +118,8 @@ const JOB_READ_TIMEOUT_MS = 60_000;
  */
 export class SyncRemovalHandler implements DomainHandler {
   private creations?: SyncRunCreations;
+  /** The DataOps backup store, where a run kept the values it wrote over. */
+  private backups?: BackupReader;
   private registry?: BackgroundOperationRegistry;
   private liveTracker?: LiveOperationTracker;
   /** The runs being removed now: one removal at a time each. */
@@ -147,6 +152,11 @@ export class SyncRemovalHandler implements DomainHandler {
   /** Where every run keeps what it created. */
   setRunCreations(store: SyncRunCreations): void {
     this.creations = store;
+  }
+
+  /** The DataOps backup store: a run's removal gives back from it what the run wrote over. */
+  setBackupRecordStore(store: BackupReader): void {
+    this.backups = store;
   }
 
   /** The registry a removal runs on, where Live Operations' Cancel reaches it. */
@@ -222,6 +232,8 @@ export class SyncRemovalHandler implements DomainHandler {
   private infoOf(run: SyncRunKept): SyncRunRemovalInfo {
     const plan = syncRemovalPlan(run);
     const left = plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length }));
+    const back = syncRestorePlan(run);
+    const overwritten = overwrittenCount(run);
     const info: SyncRunRemovalInfo = {
       runId: run.runId,
       configId: run.configId,
@@ -235,15 +247,39 @@ export class SyncRemovalHandler implements DomainHandler {
         : {}),
       created: createdCount(run),
       left,
+      ...(overwritten > 0 ? { overwritten } : {}),
+      ...(back.length > 0
+        ? {
+            putBack: back.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
+          }
+        : {}),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
     };
-    if (plan.length === 0) return info;
-    const refusal = this.refusalOf(
-      run,
-      plan.reduce((sum, o) => sum + o.ids.length, 0),
-      plan,
-    );
+    if (plan.length === 0 && back.length === 0) return info;
+    const refusal = this.refusalOf(run, plan, back);
     return refusal ? { ...info, refusal } : info;
+  }
+
+  /**
+   * What Production Guard judges a removal of the run as: the delete it is,
+   * of what it takes and what it gives back, when it deletes; an update, of
+   * what it gives back, when it only gives back what the run wrote over.
+   */
+  private guardRequestOf(
+    run: SyncRunKept,
+    plan: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
+    back: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
+  ): Parameters<ProductionGuard['check']>[0] {
+    const count = (objects: typeof plan): number =>
+      objects.reduce((sum, o) => sum + o.ids.length, 0);
+    return {
+      orgId: run.targetOrgId,
+      orgTier: this.tierOf(run.targetOrgId),
+      operation: plan.length > 0 ? 'delete' : 'update',
+      objectName: [...new Set([...plan, ...back].map((o) => o.objectApiName))].join(', '),
+      recordCount: count(plan) + count(back),
+      module: 'sync',
+    };
   }
 
   /**
@@ -252,8 +288,8 @@ export class SyncRemovalHandler implements DomainHandler {
    */
   private refusalOf(
     run: SyncRunKept,
-    total: number,
-    plan: ReadonlyArray<{ objectApiName: string }>,
+    plan: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
+    back: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
   ): SyncRunRemovalInfo['refusal'] {
     if (this.isRunning(run.runId)) {
       return { code: 'RUNNING', message: 'The run is still writing: remove it once it has ended.' };
@@ -267,14 +303,7 @@ export class SyncRemovalHandler implements DomainHandler {
     }
     const guard = this.deps.infraServices?.productionGuard;
     if (!guard) return { code: 'NO_GUARD', message: PRODUCTION_GUARD_MISSING.message };
-    const check = guard.check({
-      orgId: run.targetOrgId,
-      orgTier: this.tierOf(run.targetOrgId),
-      operation: 'delete',
-      objectName: plan.map((o) => o.objectApiName).join(', '),
-      recordCount: total,
-      module: 'sync',
-    });
+    const check = guard.check(this.guardRequestOf(run, plan, back));
     return check.allowed
       ? undefined
       : { code: 'GUARD_BLOCKED', message: check.blockedReason ?? check.impactSummary };
@@ -373,7 +402,9 @@ export class SyncRemovalHandler implements DomainHandler {
         (run) =>
           !listed.has(run.runId) &&
           !this.isRunning(run.runId) &&
-          (createdCount(run) > 0 || (!run.end && run.inFlight !== undefined)),
+          (createdCount(run) > 0 ||
+            overwrittenCount(run) > 0 ||
+            (!run.end && run.inFlight !== undefined)),
       );
       const response = buildResponse(this.deps, msg, 'sync:removal:list:response', {
         runs: unlisted.map((run) => this.infoOf(run)) as unknown as Record<string, unknown>[],
@@ -677,11 +708,12 @@ export class SyncRemovalHandler implements DomainHandler {
       this.refuse(msg, 'The run is still writing: remove it once it has ended.', 'RUNNING');
       return;
     }
-    if (syncRemovalPlan(run).length === 0) {
-      if (run.removal?.undo) {
+    if (syncRemovalPlan(run).length === 0 && syncRestorePlan(run).length === 0) {
+      const removedAt = run.removal?.undo?.removedAt ?? run.removal?.restoredAt;
+      if (removedAt !== undefined) {
         this.refuse(
           msg,
-          `What this run created was removed already, on ${run.removal.undo.removedAt}.`,
+          `What this run created was removed already, on ${removedAt}.`,
           'ALREADY_REMOVED',
         );
       } else {
@@ -731,7 +763,9 @@ export class SyncRemovalHandler implements DomainHandler {
   ): Promise<void> {
     const { includeChanged } = asked;
     const plan = syncRemovalPlan(run);
+    const back = syncRestorePlan(run);
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
+    const totalBack = back.reduce((sum, object) => sum + object.ids.length, 0);
     const orgId = run.targetOrgId;
 
     // Production Guard judges the delete before anything is read, as on every
@@ -742,14 +776,10 @@ export class SyncRemovalHandler implements DomainHandler {
       this.refuse(msg, PRODUCTION_GUARD_MISSING.message, PRODUCTION_GUARD_MISSING.code);
       return;
     }
-    const { check, decision } = await consultProductionGuard(guard, {
-      orgId,
-      orgTier: this.tierOf(orgId),
-      operation: 'delete',
-      objectName: plan.map((o) => o.objectApiName).join(', '),
-      recordCount: total,
-      module: 'sync',
-    });
+    const { check, decision } = await consultProductionGuard(
+      guard,
+      this.guardRequestOf(run, plan, back),
+    );
     if (decision === 'refused' || decision === 'declined') {
       this.recordNotRemoved(msg, run, 'stopped', { guard: decision });
       if (decision === 'refused') {
@@ -788,7 +818,11 @@ export class SyncRemovalHandler implements DomainHandler {
     }
 
     const operationId = msg.id;
-    const description = `Removing ${total} record(s) and file(s) a Sync run created`;
+    const description =
+      totalBack > 0
+        ? `Removing ${total} record(s) and file(s) a Sync run created, and giving ${totalBack} ` +
+          'record(s) it wrote over their values back'
+        : `Removing ${total} record(s) and file(s) a Sync run created`;
     const abortController = new AbortController();
     let settle: (err?: unknown) => void = () => {};
     const tracked = new Promise<void>((resolve, reject) => {
@@ -799,7 +833,7 @@ export class SyncRemovalHandler implements DomainHandler {
     tracked.catch(() => {});
     sendOperationStarted(this.deps, operationId, 'sync', description);
     this.registry?.register(operationId, 'sync', description, tracked, abortController);
-    this.liveTracker?.register(operationId, 'sync', description, total);
+    this.liveTracker?.register(operationId, 'sync', description, total + totalBack);
     /** What the removal failed on, so the registry lists it as failed. */
     let runError: unknown;
 
@@ -830,6 +864,8 @@ export class SyncRemovalHandler implements DomainHandler {
         configs: this.configs,
         // What it took leaves the configuration's pairs, kept beside the runs.
         links: store.idMap(),
+        // What the run wrote over gets back the values it kept of them.
+        ...(this.backups ? { backups: this.backups } : {}),
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
@@ -853,7 +889,7 @@ export class SyncRemovalHandler implements DomainHandler {
         orgId,
         outcome: removalAuditOutcome(result),
         guard: decision,
-        objects: removalAuditObjects(result.objects),
+        objects: withRestoreAudit(removalAuditObjects(result.objects), result.restored ?? []),
         ...(result.leftBy ? { leftBy: result.leftBy } : {}),
         details: { runId: run.runId },
       });

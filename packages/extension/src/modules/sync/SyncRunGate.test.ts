@@ -106,6 +106,38 @@ describe('measureSyncWrite', () => {
     expect(check.aboveRecords).toBeUndefined();
   });
 
+  it('counts what an update or an upsert may write over with the rest against the setting, and says it apart', async () => {
+    const confirm = vi.fn(async (_question: WriteConfirmation) => 'confirmed' as const);
+    const measured = await measureSyncWrite(
+      counted([
+        { objectApiName: 'Account', operation: 'upsert', rows: 1_500 },
+        { objectApiName: 'Case', operation: 'update', rows: 600 },
+        { objectApiName: 'Lead', operation: 'insert', rows: 10 },
+      ]),
+      measures({ readStorage: async () => ({ maxMB: 500, remainingMB: 400 }) }),
+    );
+
+    expect(measured.check).toMatchObject({
+      total: 2_110,
+      overwrites: 2_100,
+      aboveRecords: 2_000,
+      verdict: 'asks',
+    });
+    await gateSyncWrite(measured, {
+      policy: 'ask',
+      org: 'TRAP',
+      orgTier: 'development',
+      confirm,
+    });
+    expect(confirm.mock.calls[0][0]).toMatchObject({ total: 2_110, overwrites: 2_100 });
+
+    const inserts = await measureSyncWrite(
+      counted([{ objectApiName: 'Lead', operation: 'insert', rows: 10 }]),
+      measures(),
+    );
+    expect(inserts.check.overwrites).toBeUndefined();
+  });
+
   it('is refused past the storage the target has left', async () => {
     // A Quick Sync of 3 000 contacts into a Developer Edition of 5 MB.
     const { check } = await measureSyncWrite(

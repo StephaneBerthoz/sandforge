@@ -1,7 +1,10 @@
 /**
  * Taking back what a Sync run created: the records it inserted, or upserted
  * where the target held none, and the files it created — as the run kept
- * them (`SyncRunCreations`), never what a request names.
+ * them (`SyncRunCreations`), never what a request names. And giving back what
+ * it wrote over: the records an update, or an upsert that matched, wrote,
+ * given the values they held before the run (`SyncRunRestore`), before
+ * anything is deleted.
  *
  * The removal is Forge's (`removeRunRecords`), which a Frozen load's removal
  * runs too: every object read before anything is deleted, a record changed
@@ -18,7 +21,12 @@
  * later run points its lookups by.
  */
 
-import type { ForgeUndoObjectResult, SyncRemovalResult } from '@sandforge/shared';
+import type {
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
+  SyncRemovalResult,
+  SyncRestoreObjectResult,
+} from '@sandforge/shared';
 import { removeRunRecords, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
 import { removalMark, removalStatus } from '../forge/removalOutcome.js';
 import type { SyncCopiedFile } from './SyncFiles.js';
@@ -26,9 +34,11 @@ import type { SyncLinkForgetter } from './SyncIdMap.js';
 import {
   SYNC_FILE_OBJECTS,
   syncRemovalPlan,
+  syncRestorePlan,
   type SyncRunKept,
   type SyncRunRemovalState,
 } from './SyncRunCreations.js';
+import { restoreOverwrites, type BackupReader, type SyncRestoreOutcome } from './SyncRunRestore.js';
 
 /** Where what the removals of a run did is kept: see `SyncRunCreations.updateRemoval`. */
 export interface SyncRemovalStateStore {
@@ -83,6 +93,12 @@ export interface SyncRunRemovalInput {
    * A Seed run's removal offers it, and a Sync run's.
    */
   sweep?: () => Promise<boolean>;
+  /**
+   * The DataOps backup store the run kept the values it wrote over in, by
+   * the backup its file names: what the removal gives back reads it. Absent,
+   * nothing is given back, and the records stay offered.
+   */
+  backups?: BackupReader;
   /** Stops the removal before its next call to the org. */
   signal?: AbortSignal;
   /** Told how many of the run's creations are settled, after each step. */
@@ -94,6 +110,8 @@ export interface SyncRunRemovalOutcome {
   result: SyncRemovalResult;
   /** How many records and files it set out to take. */
   planned: number;
+  /** How many records it set out to give their values back. */
+  plannedBack: number;
   /** Why a follow-up could not be made, when one could not: said, never thrown. */
   notes: string[];
   /** How many of the configuration's pairs it forgot, the records it took. */
@@ -131,25 +149,64 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   const { run, includeChanged } = input;
   const plan = syncRemovalPlan(run);
   const planned = plan.reduce((sum, object) => sum + object.ids.length, 0);
+  const back = syncRestorePlan(run);
+  const plannedBack = back.reduce((sum, object) => sum + object.ids.length, 0);
+  const notes: string[] = [];
+  const backups = input.backups;
+  if (back.length > 0 && !backups) {
+    notes.push(
+      `The values from before the run of ${plannedBack} record(s) it wrote over could not be ` +
+        'read here: they were not put back, and the next removal offers them again.',
+    );
+  }
+  // What the run wrote over gets its values back once the removal has read
+  // what changed since the run among the records it created, and before the
+  // sweep and the first delete: a record put back first no longer names a
+  // record the run created, which would stay in the org depending on it,
+  // and a roll-up a delete recalculates would date it as changed since.
+  let restored: SyncRestoreOutcome | undefined;
+  const sweep = input.sweep;
+  const beforeDeletes =
+    (back.length > 0 && backups) || sweep
+      ? async (): Promise<boolean> => {
+          if (back.length > 0 && backups) {
+            restored = await restoreOverwrites({
+              org: input.org,
+              plan: back,
+              backups,
+              ...(writtenUntil(run) !== undefined ? { lastWriteAt: writtenUntil(run) } : {}),
+              includeChanged,
+              ...(input.signal ? { signal: input.signal } : {}),
+            });
+          }
+          if (restored?.cancelled || input.signal?.aborted) return restored?.wrote ?? false;
+          const swept = sweep ? await sweep() : false;
+          return (restored?.wrote ?? false) || swept;
+        }
+      : undefined;
   const outcome = await removeRunRecords(input.org, plan, {
     ...runTimes(run),
     ...(run.removal?.removalStamps ? { removalStamps: run.removal.removalStamps } : {}),
     ...(run.removal?.removalSpans ? { removalSpans: run.removal.removalSpans } : {}),
     includeChanged,
-    ...(input.sweep ? { sweep: input.sweep } : {}),
+    ...(beforeDeletes ? { sweep: beforeDeletes } : {}),
     signal: input.signal,
     onProgress: input.onProgress,
   });
   const finishedAt = new Date().toISOString();
   const leftBy = run.removal?.undo?.removedAt;
-  const notes: string[] = [];
   let result: SyncRemovalResult = {
     runId: run.runId,
-    status: removalStatus(outcome.objects, outcome.cancelled),
+    status: withRestore(
+      removalStatus(outcome.objects, outcome.cancelled),
+      outcome.objects,
+      restored,
+    ),
     includeChanged,
     objects: outcome.objects,
     finishedAt,
     ...(leftBy ? { leftBy } : {}),
+    ...(restored && restored.objects.length > 0 ? { restored: restored.objects } : {}),
   };
 
   // Kept whatever the removal ended on, cancelled included: the run's
@@ -161,7 +218,9 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   const left =
     gone.size > 0 ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id))) : undefined;
   const stamped = Object.keys(outcome.stamps).length > 0;
-  if (mark || stamped || outcome.span || left) {
+  // What it gave back is no longer offered, and when it last gave some back.
+  const gaveBack = restored?.objects.some((object) => object.restored > 0) === true;
+  if (mark || stamped || outcome.span || left || restored) {
     try {
       await input.store.updateRemoval(run.runId, (state) => ({
         ...state,
@@ -169,6 +228,8 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
         ...(stamped ? { removalStamps: { ...state.removalStamps, ...outcome.stamps } } : {}),
         ...(outcome.span ? { removalSpans: [...(state.removalSpans ?? []), outcome.span] } : {}),
         ...(left ? { removalLeft: left } : {}),
+        ...(restored ? { restoreLeft: restored.left } : {}),
+        ...(gaveBack ? { restoredAt: finishedAt } : {}),
       }));
     } catch (err: unknown) {
       notes.push(
@@ -229,5 +290,39 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
       );
     }
   }
-  return { result, planned, notes, ...(linksForgotten ? { linksForgotten } : {}) };
+  return { result, planned, plannedBack, notes, ...(linksForgotten ? { linksForgotten } : {}) };
+}
+
+/**
+ * When the run last wrote, by this machine's clock: its last write of any
+ * kind, or, for a run kept before its writes were all dated, its last
+ * creation or its end. A record it wrote over modified later was changed since.
+ */
+function writtenUntil(run: SyncRunKept): string | undefined {
+  return run.lastWriteAt ?? run.lastWrittenAt ?? run.end?.at;
+}
+
+/** Records a restore left holding the run's values: changed since, refused, no longer kept, not reached. */
+function leftOver(object: SyncRestoreObjectResult): number {
+  return object.keptChanged + object.refused + object.notKept + (object.notReached ?? 0);
+}
+
+/**
+ * How a removal ended once what it gave back is counted with what it
+ * deleted: a success only when it left nothing holding the run's values
+ * either; partial when it deleted or gave back something, and left the rest.
+ */
+function withRestore(
+  status: ForgeUndoStatus,
+  deleted: readonly ForgeUndoObjectResult[],
+  restored: SyncRestoreOutcome | undefined,
+): ForgeUndoStatus {
+  if (!restored || status === 'cancelled') return status;
+  if (restored.cancelled) return 'cancelled';
+  const backLeft = restored.objects.some((object) => leftOver(object) > 0);
+  if (status === 'success' && !backLeft) return 'success';
+  const did =
+    deleted.some((object) => object.deleted > 0) ||
+    restored.objects.some((object) => object.restored > 0);
+  return did ? 'partial' : 'failure';
 }

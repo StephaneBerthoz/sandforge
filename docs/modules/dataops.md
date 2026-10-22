@@ -54,7 +54,9 @@ Take a snapshot of the objects an Anonymize writes over:
   files only your user can read. It is kept until ten newer ones of the org
   push it out (`sandforge.backup.maxCount`), or for
   `sandforge.backup.maxAgeDays` days, 30 unless you set it (0 keeps them),
-  removed as SandForge starts and after each backup. A backup taken before
+  removed as SandForge starts and after each backup. A Sync run keeps here,
+  listed as a backup of the org it wrote to, the values it wrote over, which
+  removing the run gives back: only their age takes those. A backup taken before
   that setting existed is kept until you delete it: the retention counts from
   the first start that had it, so an upgrade never takes a backup away. The Restore tab deletes
   one, or every backup of the org; disconnecting an org asks whether its

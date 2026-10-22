@@ -121,7 +121,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
     return { records: this.select(soql, true) };
   }
 
-  async update(): Promise<unknown> {
+  async update(_objectApiName: string, _records: Array<Record<string, unknown>>): Promise<unknown> {
     return [];
   }
 

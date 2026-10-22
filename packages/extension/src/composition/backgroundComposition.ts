@@ -388,6 +388,15 @@ function writeQuestion(question: WriteConfirmation): string[] {
       ),
     );
   }
+  if (question.overwrites !== undefined && question.overwrites > 0) {
+    lines.push(
+      vscode.l10n.t(
+        'Of them, up to {0} are written by an update or an upsert over records {1} holds: the values those hold are read and kept on this machine first, and removing the run puts them back.',
+        question.overwrites,
+        question.org,
+      ),
+    );
+  }
   if (question.aboveRecords !== undefined) {
     lines.push(
       vscode.l10n.t(

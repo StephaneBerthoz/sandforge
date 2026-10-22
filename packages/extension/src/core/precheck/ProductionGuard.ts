@@ -215,6 +215,12 @@ export interface WriteConfirmation {
    * copied, which this one leaves as they are and does not count. Absent when none.
    */
   alreadyCopied?: number;
+  /**
+   * Of a Sync run: of `total`, the records an update or an upsert writes,
+   * which may write over records the target holds — their values are kept
+   * first, and removing the run puts them back. Absent when none.
+   */
+  overwrites?: number;
   /** The org the run writes to, as the user knows it. */
   org: string;
   orgTier: SafetyTier;

@@ -1093,7 +1093,8 @@
       "orderLoading": "Lendo os campos de pesquisa de cada objeto na org de destino…",
       "orderUnread": "Não foi possível ler a ordem na org de destino: a execução a calcula de novo antes de gravar.",
       "insertsSaved": "Salva: cada execução desta configuração deixa como estão os registros que uma execução anterior copiou e insere os outros.",
-      "insertsUnsaved": "Não salva: cada execução insere de novo cada registro que lê. Salve a configuração, e suas execuções deixarão como está o que uma execução anterior copiou."
+      "insertsUnsaved": "Não salva: cada execução insere de novo cada registro que lê. Salve a configuração, e suas execuções deixarão como está o que uma execução anterior copiou.",
+      "overwriteKept": "O que uma atualização ou um upsert sobrescreve é lido antes na org de destino e guardado nesta máquina: remover a execução restaura os valores que os registros tinham."
     },
     "configSaved": "Configuração salva. Um agendamento já pode executá-la.",
     "execute": "Executar",
@@ -1449,7 +1450,9 @@
         "asks": "A execução pergunta antes de gravar.",
         "refused": "A execução é recusada antes de gravar qualquer coisa."
       },
-      "unread": "Não foi possível contar os registros a gravar ({{reason}}): uma execução é recusada enquanto não puderem ser contados."
+      "unread": "Não foi possível contar os registros a gravar ({{reason}}): uma execução é recusada enquanto não puderem ser contados.",
+      "overwrites_one": "Deles, {{count}} pode sobrescrever um registro que a org de destino contém: o que ele contém é lido e guardado antes, e remover a execução o restaura.",
+      "overwrites_other": "Deles, até {{count}} podem sobrescrever registros que a org de destino contém: o que eles contêm é lido e guardado antes, e remover a execução o restaura."
     },
     "runControls": {
       "cancelSimulation": "Cancelar simulação",
@@ -4316,7 +4319,19 @@
       "unfinishedNote": "Uma janela foi fechada durante estas execuções, ou o histórico não as lista mais. O que elas criaram é guardado à medida que cada chamada ao destino respondia, e pode ser removido.",
       "unfinishedRun": "{{config}}, iniciada em {{date}}",
       "unfinishedInFlight_one": "Ela parou enquanto gravava {{formatted}} linha de {{object}}: se o destino a aceitou, ela está na org mas não aparece aqui, e a remoção não a inclui.",
-      "unfinishedInFlight_other": "Ela parou enquanto gravava {{formatted}} linhas de {{object}}: as que o destino aceitou estão na org mas não aparecem aqui, e a remoção não as inclui."
+      "unfinishedInFlight_other": "Ela parou enquanto gravava {{formatted}} linhas de {{object}}: as que o destino aceitou estão na org mas não aparecem aqui, e a remoção não as inclui.",
+      "overwritten_one": "{{formatted}} registro de {{org}} sobrescrito, seus valores anteriores guardados nesta máquina",
+      "overwritten_other": "{{formatted}} registros de {{org}} sobrescritos, seus valores anteriores guardados nesta máquina",
+      "removeDescriptionPutBack": "Primeiro devolve aos registros que esta execução sobrescreveu em {{org}} — por uma atualização, ou um upsert que encontrou o registro — os valores que tinham antes dela, dos campos que ela gravou; um registro alterado desde a execução fica como está, a menos que você o inclua abaixo. Depois exclui de {{org}} o que esta execução criou — os registros que inseriu, ou gravou por upsert onde {{org}} não tinha nenhum, e os arquivos que criou — primeiro os arquivos, depois os filhos antes dos pais; eles vão para a lixeira. Um registro do qual dependem registros que ficam em {{org}} é mantido, assim como um registro alterado desde a execução, ou um do qual dependem registros adicionados desde então, a menos que você o inclua abaixo.",
+      "putBack_one": "{{object}}: {{formatted}} registro a receber de volta seus valores de antes da execução",
+      "putBack_other": "{{object}}: {{formatted}} registros a receber de volta seus valores de antes da execução",
+      "restoredTitle": "O que esta execução sobrescreveu em {{org}}",
+      "restored": "{{object}}: {{restored}} de {{planned}} recuperaram seus valores de antes da execução",
+      "restoredKeptChanged": "alterados desde a execução, deixados como estão: {{n}}",
+      "restoredGone": "não estão mais em {{org}}: {{n}}",
+      "restoredRefused": "recusados por {{org}}: {{n}}",
+      "restoredNotKept": "valores anteriores não mais guardados (o backup foi excluído na aba Restaurar, ou chegou ao fim da retenção): {{n}}",
+      "restoredNotReached": "não alcançados antes da parada: {{n}}"
     },
     "resultSuccess": "Nenhum registro criado por esta execução ficou em {{org}}.",
     "resultPartial": "Registros criados por esta execução foram removidos de {{org}}; os demais ficam, como listado.",

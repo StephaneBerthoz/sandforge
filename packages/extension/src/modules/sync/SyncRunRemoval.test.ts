@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { removeSyncRun, type SyncRemovalConfigs } from './SyncRunRemoval';
 import type { SyncRunKept, SyncRunRemovalState } from './SyncRunCreations';
-import { syncRemovalPlan } from './SyncRunCreations';
+import { syncRemovalPlan, syncRestorePlan } from './SyncRunCreations';
+import type { BackupReader } from './SyncRunRestore';
 import { MemoryRemovalOrg } from '../../test/memoryRemovalOrg';
+import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -249,5 +251,124 @@ describe('removeSyncRun', () => {
       'What this removal did could not be kept (EACCES: permission denied): the next removal ' +
         'of the run may set out to take records already gone.',
     ]);
+  });
+});
+
+describe('removeSyncRun, of a run that wrote over records of the target', () => {
+  const HELD = fakeId('003', 7);
+  const OLD_ACCOUNT = fakeId('001', 9);
+  const BACKUP = 'sync-before-run-1';
+
+  /** The backups store, holding the contact's values from before the run. */
+  const backups: BackupReader = {
+    batches: async (operationId, objectApiName) =>
+      operationId === BACKUP && objectApiName === 'Contact'
+        ? {
+            async *[Symbol.asyncIterator]() {
+              yield [{ Id: HELD, AccountId: OLD_ACCOUNT, LastName: 'Before' }];
+            },
+          }
+        : null,
+  };
+
+  /** A run that created an account, and upserted onto a contact the target held, under it. */
+  function overwriting(removal?: SyncRunRemovalState): SyncRunKept {
+    return {
+      ...run(removal),
+      lastWriteAt: minutesAgo(10),
+      created: [{ objectApiName: 'Account', ids: [A1] }],
+      overwritten: [{ objectApiName: 'Contact', backup: BACKUP, ids: [HELD] }],
+    };
+  }
+
+  /** The target as that run left it: the contact the target held, under the run's account. */
+  function written(): MemoryRestoreOrg {
+    const org = new MemoryRestoreOrg({
+      Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+    });
+    org.add('Account', { Id: OLD_ACCOUNT }, minutesAgo(600));
+    org.add('Account', { Id: A1 }, minutesAgo(10));
+    org.add(
+      'Contact',
+      { Id: HELD, AccountId: A1, LastName: 'After', CreatedDate: minutesAgo(600) },
+      minutesAgo(10),
+    );
+    return org;
+  }
+
+  it('gives back what it wrote over before deleting what it created, which nothing then depends on', async () => {
+    const org = written();
+    const store = stateStore();
+
+    const { result, plannedBack } = await removeSyncRun({
+      run: overwriting(),
+      org,
+      includeChanged: false,
+      store,
+      backups,
+    });
+
+    expect(plannedBack).toBe(1);
+    expect(result.status).toBe('success');
+    // Put back under the account it was under, the run's account deleted, not kept for it.
+    expect(org.all('Contact')).toEqual([
+      expect.objectContaining({ Id: HELD, AccountId: OLD_ACCOUNT, LastName: 'Before' }),
+    ]);
+    expect(org.all('Account').map((row) => row.Id)).toEqual([OLD_ACCOUNT]);
+    expect(result.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', deleted: 1, keptDependents: 0 }),
+    ]);
+    expect(result.restored).toEqual([
+      expect.objectContaining({ objectApiName: 'Contact', planned: 1, restored: 1 }),
+    ]);
+    expect(store.state).toMatchObject({ restoreLeft: [], restoredAt: result.finishedAt });
+    expect(syncRestorePlan({ ...overwriting(), removal: store.state })).toEqual([]);
+  });
+
+  it('removes a run that only wrote over records, and leaves one changed since to the next removal', async () => {
+    const org = written();
+    org.touch('Contact', HELD, new Date(Date.now() + 60_000).toISOString());
+    const store = stateStore();
+    const onlyOver: SyncRunKept = { ...overwriting(), created: [] };
+
+    const kept = await removeSyncRun({ run: onlyOver, org, includeChanged: false, store, backups });
+
+    expect(kept.result.status).toBe('failure');
+    expect(kept.result.restored).toEqual([
+      expect.objectContaining({ planned: 1, restored: 0, keptChanged: 1 }),
+    ]);
+    expect(org.all('Contact')[0]).toMatchObject({ AccountId: A1, LastName: 'After' });
+    expect(store.state.restoreLeft).toEqual([HELD]);
+    expect(store.state.restoredAt).toBeUndefined();
+
+    const again = await removeSyncRun({
+      run: { ...onlyOver, removal: store.state },
+      org,
+      includeChanged: true,
+      store,
+      backups,
+    });
+    expect(again.result.status).toBe('success');
+    expect(org.all('Contact')[0]).toMatchObject({ AccountId: OLD_ACCOUNT, LastName: 'Before' });
+    expect(store.state.restoreLeft).toEqual([]);
+  });
+
+  it('keeps the records it wrote over offered when the backups cannot be read here, and says so', async () => {
+    const org = written();
+    const store = stateStore();
+
+    const { result, notes } = await removeSyncRun({
+      run: overwriting(),
+      org,
+      includeChanged: false,
+      store,
+    });
+
+    expect(result.restored).toBeUndefined();
+    expect(notes).toEqual([
+      'The values from before the run of 1 record(s) it wrote over could not be read here: ' +
+        'they were not put back, and the next removal offers them again.',
+    ]);
+    expect(syncRestorePlan({ ...overwriting(), removal: store.state })).toHaveLength(1);
   });
 });

@@ -857,6 +857,53 @@ describe('DataOpsHandler', () => {
 
       vi.restoreAllMocks();
     });
+
+    it('never prunes what a Sync run wrote over, which only its age takes', async () => {
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] }),
+        query: vi.fn().mockResolvedValue({ records: [] }),
+      } as never);
+      const configStore = createInMemoryConfigStore();
+      const meta = (operationId: string, timestamp: string, sync = false) => ({
+        operationId,
+        orgId: 'org-1',
+        objects: [{ objectApiName: 'Account', recordCount: 1 }],
+        timestamp,
+        totalRecords: 1,
+        ...(sync ? { origin: 'sync', runId: 'run-1' } : {}),
+      });
+      // The oldest of the org's: a Sync run's, then two DataOps backups.
+      configStore.set(
+        'backup:sync-before-run-1',
+        meta('sync-before-run-1', '2025-12-01T00:00:00.000Z', true),
+        'backups',
+      );
+      configStore.set('backup:old-1', meta('old-1', '2026-01-01T00:00:00.000Z'), 'backups');
+      configStore.set('backup:old-2', meta('old-2', '2026-02-01T00:00:00.000Z'), 'backups');
+      deps.configStore = configStore as unknown as HandlerDeps['configStore'];
+      deps.services = {
+        getSandforgeSetting: (key: string, fallback: unknown) =>
+          key === 'backup.maxCount' ? 2 : key === 'backup.maxAgeDays' ? 0 : fallback,
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'new-backup',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        }),
+      );
+
+      // Two DataOps backups kept, the newest; the Sync run's kept beside them.
+      expect(configStore.has('backup:sync-before-run-1')).toBe(true);
+      expect(configStore.has('backup:old-1')).toBe(false);
+      expect(configStore.has('backup:old-2')).toBe(true);
+      expect(configStore.has('backup:new-backup')).toBe(true);
+
+      vi.restoreAllMocks();
+    });
   });
 
   describe('background registry', () => {

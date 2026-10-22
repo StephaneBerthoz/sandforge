@@ -8,8 +8,11 @@ import {
   SYNC_RUNS_DIR,
   SyncRunCreations,
   createdCount,
+  overwrittenCount,
   readRunFile,
+  settled,
   syncRemovalPlan,
+  syncRestorePlan,
   type SyncRunCreationsDeps,
 } from './SyncRunCreations';
 
@@ -657,5 +660,100 @@ describe('syncRemovalPlan', () => {
         },
       }),
     ).toEqual([]);
+  });
+});
+
+describe('SyncRunCreations — what a run wrote over, named as it goes', () => {
+  const HELD1 = fakeId('001', 11);
+  const HELD2 = fakeId('001', 12);
+  const BACKUP = 'sync-before-run-1';
+  const head = JSON.stringify({ run: { ...start('run-1'), answersNameJobs: true } });
+  const over = (ids: string[], at: string, backup = BACKUP): string =>
+    JSON.stringify({ overwriting: { object: 'Account', backup, ids, at } });
+  const answer = (notWritten: string[], at: string): string =>
+    JSON.stringify({ overwrote: { object: 'Account', notWritten, at } });
+
+  it('begins the file of a run that only writes over records, and reads back what it wrote over', async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.writing?.('Account', 2);
+    recorder.overwriting?.('Account', BACKUP, [HELD1, HELD2]);
+    recorder.overwrote?.('Account', []);
+    await recorder.end({ status: 'success' });
+
+    const text = files.get(path.join(DIR, 'run-1.ndjson')) ?? '';
+    expect(text.split('\n').filter(Boolean)).toHaveLength(5);
+    const run = await store.get('run-1');
+    expect(run?.overwritten).toEqual([
+      { objectApiName: 'Account', backup: BACKUP, ids: [HELD1, HELD2] },
+    ]);
+    expect(run?.created).toEqual([]);
+    expect(overwrittenCount(run ?? { overwritten: [] })).toBe(2);
+    expect(recorder.overwrittenCount?.()).toBe(2);
+  });
+
+  it('takes back a record the call did not write, unless an earlier call wrote over it', () => {
+    const lines = [
+      head,
+      over([HELD1], '2026-10-14T08:01:00.000Z'),
+      answer([], '2026-10-14T08:01:01.000Z'),
+      // A second call writes HELD1 again and HELD2 for the first time; it writes neither.
+      over([HELD1, HELD2], '2026-10-14T08:02:00.000Z'),
+      answer([HELD1, HELD2], '2026-10-14T08:02:01.000Z'),
+    ];
+
+    const run = readRunFile(`${lines.join('\n')}\n`);
+
+    expect(run?.overwritten).toEqual([{ objectApiName: 'Account', backup: BACKUP, ids: [HELD1] }]);
+    expect(run?.lastWriteAt).toBe('2026-10-14T08:02:01.000Z');
+    expect(run?.firstWrittenAt).toBe('2026-10-14T08:01:00.000Z');
+  });
+
+  it('keeps named what a call cut short wrote over, its answer never written', () => {
+    const lines = [head, over([HELD1, HELD2], '2026-10-14T08:01:00.000Z')];
+
+    expect(readRunFile(lines.join('\n'))?.overwritten).toEqual([
+      { objectApiName: 'Account', backup: BACKUP, ids: [HELD1, HELD2] },
+    ]);
+  });
+
+  it('reads no backup the DataOps store could not name its files by', () => {
+    const lines = [
+      head,
+      over([HELD1], '2026-10-14T08:01:00.000Z', '../escape'),
+      over([HELD2], '2026-10-14T08:01:00.000Z', 'a__b'),
+    ];
+
+    expect(readRunFile(lines.join('\n'))?.overwritten).toBeUndefined();
+  });
+
+  it('keeps what its removals put back, and is settled once nothing is left to put back', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.overwriting?.('Account', BACKUP, [HELD1, HELD2]);
+    recorder.overwrote?.('Account', []);
+    await recorder.end({ status: 'success' });
+    const run = await store.get('run-1');
+    if (!run) throw new Error('kept no run');
+    expect(settled(run)).toBe(false);
+
+    await store.updateRemoval('run-1', () => ({ restoreLeft: [HELD2] }));
+    const once = (await store.get('run-1')) ?? run;
+    expect(once.removal).toEqual({ restoreLeft: [HELD2] });
+    expect(syncRestorePlan(once)).toEqual([
+      { objectApiName: 'Account', backup: BACKUP, ids: [HELD2] },
+    ]);
+    expect(settled(once)).toBe(false);
+
+    await store.updateRemoval('run-1', () => ({
+      restoreLeft: [],
+      restoredAt: '2026-10-14T09:00:00.000Z',
+    }));
+    const twice = (await store.get('run-1')) ?? run;
+    expect(syncRestorePlan(twice)).toEqual([]);
+    expect(settled(twice)).toBe(true);
   });
 });

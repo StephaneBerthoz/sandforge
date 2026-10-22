@@ -97,6 +97,7 @@
   "Not counted: {0} records the run it retries or resumes wrote, which it links to and does not write again.": "No contados: {0} registros que escribió la ejecución que se reintenta o reanuda; se vinculan y no se vuelven a escribir.",
   "Not counted: {0}, {1} records, held back whole for a record type closed to the user the run writes as.": "No contados: {0}, {1} registros, retenidos por completo por un tipo de registro cerrado al usuario con el que escribe la ejecución.",
   "Not counted: {0} records an earlier run of this configuration copied, still in the target, which the sync leaves as they are.": "No contados: {0} registros que una ejecución anterior de esta configuración copió, todavía en el destino, que la sincronización deja como están.",
+  "Of them, up to {0} are written by an update or an upsert over records {1} holds: the values those hold are read and kept on this machine first, and removing the run puts them back.": "De ellos, hasta {0} se escriben con una actualización o un upsert sobre registros que {1} contiene: sus valores se leen y se conservan antes en este equipo, y eliminar la ejecución los restablece.",
   "a lookup filled in once its record exists": "una búsqueda completada cuando su registro ya existe",
   "an order or a contract given back its status after it went in as a draft": "un pedido o un contrato que recupera su estado tras entrar como borrador",
   "an invitee of an event given its answer": "un invitado de un evento que recupera su respuesta",

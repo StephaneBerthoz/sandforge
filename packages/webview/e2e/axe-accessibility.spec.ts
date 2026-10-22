@@ -8698,6 +8698,8 @@ for (const theme of STATE_THEMES) {
         'Written after Contact, which its ContactId names.',
       );
       await expect(page.getByTestId('sync-review-inserts')).toBeVisible();
+      // The upsert's records written over are kept first, and a removal puts them back.
+      await expect(page.getByTestId('sync-review-overwrites')).toBeVisible();
 
       await expectReadable(page, theme);
     });
@@ -8755,6 +8757,7 @@ for (const theme of STATE_THEMES) {
           ],
           total: 33,
           alreadyCopied: 2,
+          overwrites: 3,
           storage: { verdict: 'near', estimateMB: 0.07, maxMB: 5, remainingMB: 0.08 },
           emails: [
             {
@@ -8772,6 +8775,7 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('sync-write-check').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('sync-simulation-copied-Account')).toBeVisible();
+      await expect(page.getByTestId('sync-write-check-overwrites')).toBeVisible();
 
       await expectReadable(page, theme);
     });

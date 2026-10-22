@@ -114,6 +114,78 @@ for (const theme of THEMES) {
       expect(removal.payload).toEqual({ runId: 'run-stopped' });
     });
 
+    test('lists a run that only wrote over records, confirms what goes back, says what went back, and passes axe', async ({
+      page,
+    }) => {
+      const OVER = {
+        ...STOPPED,
+        runId: 'run-over',
+        created: 0,
+        left: [],
+        overwritten: 3,
+        putBack: [{ objectApiName: 'Account', count: 3 }],
+      };
+      const bridge = await openHistory(page, theme);
+      await answerAll(bridge, 'sync:removal:list', 'sync:removal:list:response', {
+        runs: [OVER],
+      });
+      await answerAll(bridge, 'sync:removal:info', 'sync:removal:info:response', {
+        info: OVER,
+      });
+
+      const card = page.getByTestId('sync-unfinished-removal-run-over');
+      await expect(card.getByTestId('sync-removal-overwritten')).toContainText(
+        `3 records of ${QA_SANDBOX.alias} written over`,
+      );
+      const listed = await checkAccessibility(page);
+      expect(listed.violations.length, formatViolations(listed.violations)).toBe(0);
+
+      await card.getByTestId('sync-removal-remove').click();
+      await expect(page.getByTestId('sync-removal-put-back-Account')).toContainText(
+        'Account: 3 records to be given back their values from before the run',
+      );
+      const confirming = await checkAccessibility(page);
+      expect(confirming.violations.length, formatViolations(confirming.violations)).toBe(0);
+
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      const removal = await bridge.waitForMessage('sync:remove', { timeout: 10_000 });
+      expect(removal.payload).toEqual({ runId: 'run-over' });
+      for (const request of await bridge.getMessages('sync:remove')) {
+        await bridge.respond(
+          'sync:remove:response',
+          {
+            result: {
+              runId: 'run-over',
+              status: 'partial',
+              includeChanged: false,
+              finishedAt: '2026-10-14T09:00:00.000Z',
+              objects: [],
+              restored: [
+                {
+                  objectApiName: 'Account',
+                  planned: 3,
+                  restored: 2,
+                  keptChanged: 1,
+                  alreadyGone: 0,
+                  refused: 0,
+                  notKept: 0,
+                  reasons: [],
+                },
+              ],
+            },
+            operationId: String(request.id),
+          },
+          String(request.id),
+        );
+      }
+      await expect(card.getByTestId('sync-removal-restored-Account')).toContainText(
+        'changed since the run, left as they are: 1',
+      );
+      const restored = await checkAccessibility(page);
+      expect(restored.violations.length, formatViolations(restored.violations)).toBe(0);
+    });
+
     test('offers nothing where Production Guard allows no delete, says why, and passes axe', async ({
       page,
     }) => {

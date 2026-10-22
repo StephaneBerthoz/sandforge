@@ -67,6 +67,14 @@ function creates(operation: SyncOperation): boolean {
 }
 
 /**
+ * Whether an object's write may write over records the target holds: an
+ * update, every record it writes; an upsert, every one whose key it holds.
+ */
+function writesOver(operation: SyncOperation): boolean {
+  return operation === 'update' || operation === 'upsert';
+}
+
+/**
  * The records a run creates, per object, and the data storage they take, as
  * Forge sizes them (`writePlanOf`): a person account at 4 KB, being an
  * account and a contact, its contact at nothing of its own. Every upsert is
@@ -123,6 +131,11 @@ export async function measureSyncWrite(
     .map(({ objectApiName, rows }) => ({ objectApiName, rows }))
     .sort((a, b) => b.rows - a.rows || a.objectApiName.localeCompare(b.objectApiName));
   const total = objects.reduce((sum, object) => sum + object.rows, 0);
+  // Of them, what may write over a record the target holds: counted with the
+  // rest against the setting's volume, and said apart, its values kept first.
+  const overwrites = counted.objects
+    .filter((object) => writesOver(object.operation))
+    .reduce((sum, object) => sum + object.rows, 0);
   let storage: StorageCheck = storageCheckOf(plan, { maxMB: 0, remainingMB: 0 });
   let emails: EmailCheck[] = [];
   let emailsUnread: string | undefined;
@@ -158,6 +171,7 @@ export async function measureSyncWrite(
     objects,
     total,
     alreadyCopied: counted.alreadyCopied,
+    ...(overwrites > 0 ? { overwrites } : {}),
     ...(aboveRecords !== undefined ? { aboveRecords } : {}),
     storage:
       storage.verdict === 'unread'
@@ -264,6 +278,7 @@ export async function gateSyncWrite(
         ...(line !== undefined && check.total > line ? { largeVolume: line } : {}),
         storage: confirmationStorageOf(storage),
         counted: true,
+        ...(check.overwrites !== undefined ? { overwrites: check.overwrites } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
         ...(check.alreadyCopied > 0 ? { alreadyCopied: check.alreadyCopied } : {}),
       })

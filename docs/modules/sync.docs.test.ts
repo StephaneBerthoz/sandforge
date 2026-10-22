@@ -310,6 +310,34 @@ describe('docs/modules/sync.md', () => {
     );
   });
 
+  it('says a run keeps what it writes over before it writes, and its removal gives it back first', () => {
+    // Positive control: each call that writes over records asks the keeper
+    // first, which keeps the values in the DataOps store before the call goes
+    // and refuses the call when it cannot; the removal gives them back from
+    // the sweep's place, before its first delete, as an update when it
+    // deletes nothing; the retention by count leaves them alone.
+    const KEEPER = source('packages/extension/src/modules/sync/syncOverwrites.ts');
+    const REMOVAL = source('packages/extension/src/modules/sync/SyncRunRemoval.ts');
+    const DATAOPS = source('packages/extension/src/bridge/handlers/DataOpsHandler.ts');
+    expect(SYNC_HANDLER).toContain('calls: syncWriterCalls(creations, keeper)');
+    expect(SYNC_CLI).toContain('calls: syncWriterCalls(recorder, keeper),');
+    expect(KEEPER).toContain("origin: 'sync',");
+    expect(KEEPER).toContain('so none of them was ');
+    expect(REMOVAL).toContain('...(beforeDeletes ? { sweep: beforeDeletes } : {}),');
+    expect(SYNC_REMOVAL_HANDLER).toContain("operation: plan.length > 0 ? 'delete' : 'update',");
+    expect(DATAOPS).toContain("if (meta.origin === 'sync') continue;");
+
+    expect(DOC).toContain('**What a run writes over**');
+    expect(DOC).toContain('keeps them in the DataOps backup store before the call goes');
+    expect(DOC).toContain('A call whose values cannot be read or kept is not sent');
+    expect(DOC).toContain(
+      'First, before anything is deleted, the records the run wrote over are given back',
+    );
+    expect(DOC).toContain(
+      'a removal that only gives back what the run wrote over as the update it is',
+    );
+  });
+
   it('says a delta run looks for files gained since past the newest stamp the last one looked at', () => {
     // Positive control: the lookups start past the stamp kept with the
     // watermark when it is the later of the two, and the run records it.
