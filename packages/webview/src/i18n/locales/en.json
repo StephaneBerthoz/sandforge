@@ -4352,7 +4352,9 @@
       "intro": "As it deletes these records, {{org}} runs:",
       "drafted": "as the removal sets it back to Draft to delete it",
       "none": "Nothing {{org}} automates runs as these records are deleted.",
-      "error": "What {{org}} runs as these records go could not be read: {{reason}}"
+      "error": "What {{org}} runs as these records go could not be read: {{reason}}",
+      "givenBack": "as the removal gives it back its values from before the run",
+      "broughtBack": "after undelete, as the removal brings it back from the recycle bin"
     },
     "sync": {
       "title": "What this run created",
@@ -4419,7 +4421,12 @@
       "undeletedGone": "no longer in the recycle bin, gone for good: {{n}}",
       "restoredWithout": "given back but for fields {{org}} no longer takes, which keep the run's values: {{n}}",
       "notKeptEncrypted": "Not kept, encrypted: {{fields}}. The run's user cannot view encrypted data, and read their values from before masked: a removal leaves them as the run wrote them.",
-      "unfinishedElsewhere": "Still writing in another window: what it creates can be removed once it has ended there."
+      "unfinishedElsewhere": "Still writing in another window: what it creates can be removed once it has ended there.",
+      "automationTitle": "What {{org}} runs as this run is taken back",
+      "automationLoading": "Reading what {{org}} runs as this run is taken back…",
+      "automationIntro": "As this run is taken back, {{org}} runs:",
+      "automationNone": "Nothing {{org}} automates runs as this run is taken back.",
+      "automationError": "What {{org}} runs as this run is taken back could not be read: {{reason}}"
     },
     "resultSuccess": "No record this run created is left in {{org}}.",
     "resultPartial": "Records this run created were removed from {{org}}; the others stay, as listed.",

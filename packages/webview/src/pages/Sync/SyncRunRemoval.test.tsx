@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type {
   BaseMessage,
+  ForgeTargetAutomation,
   SalesforceOrg,
   SyncRemovalResult,
   SyncRunRemovalInfo,
@@ -569,6 +570,132 @@ describe('SyncRunRemoval', () => {
     expect(screen.getByRole('dialog').textContent).toContain(
       'Nothing it wrote over is given back now',
     );
+  });
+
+  describe('what the target runs as the run is taken back', () => {
+    /**
+     * A run that created accounts, wrote over contacts and deleted cases: a
+     * trigger after a case's undelete, a flow on a contact's update, a
+     * trigger before an account's delete, and a flow on an account's update
+     * that no step of the removal makes.
+     */
+    const AUTOMATION: ForgeTargetAutomation = {
+      objectsRead: ['Case', 'Contact', 'Account'],
+      objects: [
+        {
+          objectApiName: 'Case',
+          flows: [],
+          triggers: [{ name: 'CaseRestore', events: ['afterUndelete'] }],
+        },
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              apiName: 'Contact_Audit',
+              label: 'Contact audit',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [],
+        },
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_Update',
+              label: 'Account update',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+            },
+          ],
+          triggers: [{ name: 'AccountGuard', events: ['beforeDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 6,
+    };
+    const STEPS = {
+      bringBack: ['Case'],
+      giveBack: ['Contact'],
+      setToDraft: [],
+      delete: ['ContentDocument', 'Account'],
+    };
+
+    it('asks for it by the run alone as the confirmation opens, and lists it step by step before the org name is typed', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      expect(sentAll('sync:remove:automation')).toEqual([]);
+
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({ runId: 'run-1' });
+      expect(screen.getByTestId('sync-removal-automation-loading').textContent).toBe(
+        'Reading what DEV-SANDBOX runs as this run is taken back…',
+      );
+      answer('sync:remove:automation', 'sync:remove:automation:response', {
+        runId: 'run-1',
+        automation: AUTOMATION,
+        steps: STEPS,
+      });
+
+      const section = screen.getByTestId('sync-removal-automation');
+      expect(within(section).getByRole('heading').textContent).toBe(
+        'What DEV-SANDBOX runs as this run is taken back',
+      );
+      expect(
+        within(section)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
+        'Case: Apex trigger: CaseRestore · after undelete, as the removal brings it back from the recycle bin',
+        'Contact: Flow: Contact audit · as the removal gives it back its values from before the run',
+        'Account: Apex trigger: AccountGuard · before delete',
+      ]);
+      expect(screen.getByTestId('sync-removal-automation-bringBack-Case')).toBeTruthy();
+      expect(sentAll('sync:remove')).toEqual([]);
+    });
+
+    it('says nothing fires when nothing does', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+
+      answer('sync:remove:automation', 'sync:remove:automation:response', {
+        runId: 'run-1',
+        automation: { ...AUTOMATION, objects: [] },
+        steps: STEPS,
+      });
+
+      expect(screen.getByTestId('sync-removal-automation-none').textContent).toBe(
+        'Nothing DEV-SANDBOX automates runs as this run is taken back.',
+      );
+    });
+
+    it('says the read failed, and reads again when asked', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: KEPT });
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+
+      answer('sync:remove:automation', 'sync:remove:automation:error', {
+        message: 'INVALID_SESSION_ID',
+        code: 'AUTOMATION_ERROR',
+        retryable: true,
+      });
+
+      expect(screen.getByTestId('sync-removal-automation-error').textContent).toBe(
+        'What DEV-SANDBOX runs as this run is taken back could not be read: INVALID_SESSION_ID',
+      );
+      const asked = sentAll('sync:remove:automation').length;
+      fireEvent.click(screen.getByTestId('sync-removal-automation-read-again'));
+      expect(sentAll('sync:remove:automation')).toHaveLength(asked + 1);
+    });
   });
 
   it('says which encrypted fields it could not keep, read masked', () => {

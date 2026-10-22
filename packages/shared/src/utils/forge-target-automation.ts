@@ -11,12 +11,20 @@ import type {
 import { LOCKED_PAST_DRAFT } from '../constants/status-children.js';
 
 /**
- * A write a Forge run makes of a record: the insert of every record it
- * creates, the update of those it writes a second time — a lookup filled in
- * once its record exists, an order given back its status — and the delete of
- * a removal of the run.
+ * A write a run or its removal makes of a record: the insert of every record
+ * a run creates, the update of those it writes a second time — a lookup
+ * filled in once its record exists, an order given back its status — or that
+ * a removal gives back their values from before the run, the delete of a
+ * removal, and the undelete of a removal that brings back from the recycle
+ * bin what its run deleted, as a Sync run's removal does.
  */
-export type ForgeAutomationWrite = 'insert' | 'update' | 'delete';
+export type ForgeAutomationWrite = 'insert' | 'update' | 'delete' | 'undelete';
+
+/**
+ * The writes a Forge run and its removal make: neither takes a record back
+ * from the recycle bin.
+ */
+export type ForgeRunWrite = Exclude<ForgeAutomationWrite, 'undelete'>;
 
 /** What one write of a record fires of the target's automation. */
 export interface ForgeAutomationFired {
@@ -35,13 +43,17 @@ export interface ForgeAutomationFired {
   keptQuiet?: boolean;
 }
 
-/** What one write fires on an object, the writes that fire nothing left out. */
+/** What one write of a Forge run fires on an object, the writes that fire nothing left out. */
 export interface ForgeAutomationOfWrite {
-  write: ForgeAutomationWrite;
+  write: ForgeRunWrite;
   fired: ForgeAutomationFired[];
 }
 
-/** The writes that start a flow, by what `RecordTriggerType` says. */
+/**
+ * The writes that start a flow, by what `RecordTriggerType` says. None of
+ * them is an undelete: a record-triggered flow has no undelete event, and
+ * the read takes a process or a workflow rule to start on a save.
+ */
 const FLOW_WRITES: Readonly<Record<ForgeTargetFlow['startsOn'], readonly ForgeAutomationWrite[]>> =
   {
     create: ['insert'],
@@ -51,18 +63,23 @@ const FLOW_WRITES: Readonly<Record<ForgeTargetFlow['startsOn'], readonly ForgeAu
   };
 
 /**
- * The trigger events of each write, before then after. `afterUndelete` is
- * none of them: a run never takes a record back from the recycle bin.
+ * The trigger events of each write, before then after. An undelete has no
+ * before: Apex runs a trigger after one, `afterUndelete`, and only then.
  */
 const TRIGGER_EVENTS: Readonly<
-  Record<ForgeAutomationWrite, readonly [ForgeTriggerEvent, ForgeTriggerEvent]>
+  Record<ForgeAutomationWrite, readonly [ForgeTriggerEvent | undefined, ForgeTriggerEvent]>
 > = {
   insert: ['beforeInsert', 'afterInsert'],
   update: ['beforeUpdate', 'afterUpdate'],
   delete: ['beforeDelete', 'afterDelete'],
+  undelete: [undefined, 'afterUndelete'],
 };
 
-const WRITES: readonly ForgeAutomationWrite[] = ['insert', 'update', 'delete'];
+/** The writes of a Forge run, in the order {@link automationByWrite} lists them. */
+const RUN_WRITES: readonly ForgeRunWrite[] = ['insert', 'update', 'delete'];
+
+/** Every write, a removal's undelete last. */
+const WRITES: readonly ForgeAutomationWrite[] = [...RUN_WRITES, 'undelete'];
 
 /**
  * Whether the user the run writes as holds a permission that keeps `flow`
@@ -74,44 +91,55 @@ function keptQuiet(flow: ForgeTargetFlow): boolean {
 }
 
 /**
- * What each write of a record of `object` fires in the target, in the order
+ * What one write of a record of `object` fires in the target, in the order
  * the platform runs it: the flows before the save, the triggers, the workflow
- * rules, the processes, then the flows after it. A flow that starts on a
- * record created or updated fires on both writes, and is listed under each.
+ * rules, the processes, then the flows after it. An undelete fires the
+ * triggers that run after one, and nothing else.
+ */
+function firedOn(
+  object: ForgeTargetObjectAutomation,
+  write: ForgeAutomationWrite,
+): ForgeAutomationFired[] {
+  const starting = (list: readonly ForgeTargetFlow[] | undefined): ForgeTargetFlow[] =>
+    (list ?? []).filter((flow) => FLOW_WRITES[flow.startsOn].includes(write));
+  const entry =
+    (kind: ForgeAutomationFired['kind']) =>
+    (f: ForgeTargetFlow): ForgeAutomationFired => ({
+      kind,
+      name: f.label,
+      when: f.timing === 'afterSave' ? 'after' : 'before',
+      flow: f,
+      ...(keptQuiet(f) ? { keptQuiet: true } : {}),
+    });
+  const flows = starting(object.flows);
+  const [before, after] = TRIGGER_EVENTS[write];
+  const triggers = object.triggers.flatMap((trigger): ForgeAutomationFired[] => {
+    const runsBefore = before !== undefined && trigger.events.includes(before);
+    const runsAfter = trigger.events.includes(after);
+    if (!runsBefore && !runsAfter) return [];
+    const when = runsBefore && runsAfter ? 'beforeAndAfter' : runsBefore ? 'before' : 'after';
+    return [{ kind: 'trigger', name: trigger.name, when }];
+  });
+  return [
+    ...flows.filter((f) => f.timing !== 'afterSave').map(entry('flow')),
+    ...triggers,
+    ...starting(object.workflowRules).map(entry('workflowRule')),
+    ...starting(object.processes).map(entry('process')),
+    ...flows.filter((f) => f.timing === 'afterSave').map(entry('flow')),
+  ];
+}
+
+/**
+ * What each write a Forge run makes of a record of `object` fires in the
+ * target ({@link firedOn}). A flow that starts on a record created or
+ * updated fires on both writes, and is listed under each. A trigger that
+ * runs on an undelete alone is under none: a Forge run never takes a record
+ * back from the recycle bin.
  */
 export function automationByWrite(object: ForgeTargetObjectAutomation): ForgeAutomationOfWrite[] {
-  return WRITES.map((write) => {
-    const starting = (list: readonly ForgeTargetFlow[] | undefined): ForgeTargetFlow[] =>
-      (list ?? []).filter((flow) => FLOW_WRITES[flow.startsOn].includes(write));
-    const entry =
-      (kind: ForgeAutomationFired['kind']) =>
-      (f: ForgeTargetFlow): ForgeAutomationFired => ({
-        kind,
-        name: f.label,
-        when: f.timing === 'afterSave' ? 'after' : 'before',
-        flow: f,
-        ...(keptQuiet(f) ? { keptQuiet: true } : {}),
-      });
-    const flows = starting(object.flows);
-    const [before, after] = TRIGGER_EVENTS[write];
-    const triggers = object.triggers.flatMap((trigger): ForgeAutomationFired[] => {
-      const runsBefore = trigger.events.includes(before);
-      const runsAfter = trigger.events.includes(after);
-      if (!runsBefore && !runsAfter) return [];
-      const when = runsBefore && runsAfter ? 'beforeAndAfter' : runsBefore ? 'before' : 'after';
-      return [{ kind: 'trigger', name: trigger.name, when }];
-    });
-    return {
-      write,
-      fired: [
-        ...flows.filter((f) => f.timing !== 'afterSave').map(entry('flow')),
-        ...triggers,
-        ...starting(object.workflowRules).map(entry('workflowRule')),
-        ...starting(object.processes).map(entry('process')),
-        ...flows.filter((f) => f.timing === 'afterSave').map(entry('flow')),
-      ],
-    };
-  }).filter((entry) => entry.fired.length > 0);
+  return RUN_WRITES.map((write) => ({ write, fired: firedOn(object, write) })).filter(
+    (entry) => entry.fired.length > 0,
+  );
 }
 
 /** Every flow, process and workflow rule the target runs on the objects of `automation`. */
@@ -211,7 +239,7 @@ export function firedOnWriteOf(
   return automation.objects
     .filter((object) => on(object.objectApiName))
     .flatMap((object) =>
-      (automationByWrite(object).find((entry) => entry.write === write)?.fired ?? [])
+      firedOn(object, write)
         .filter((fired) => fired.keptQuiet !== true)
         .map((fired) => ({
           objectApiName: object.objectApiName,
@@ -277,9 +305,8 @@ export function bypassesOfWrites(
   writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
 ): string[] {
   const names = automation.objects.flatMap((object) =>
-    automationByWrite(object)
-      .filter(({ write }) => writes(object.objectApiName, write))
-      .flatMap(({ fired }) => fired)
+    WRITES.filter((write) => writes(object.objectApiName, write))
+      .flatMap((write) => firedOn(object, write))
       .flatMap((fired) =>
         (fired.flow?.permissions ?? []).filter((p) => p.bypass).map((p) => p.name),
       ),
@@ -317,6 +344,77 @@ export function removalBypassesOf(
     automation,
     (objectApiName, write) =>
       write === 'delete' || (write === 'update' && drafting.has(objectApiName)),
+  );
+}
+
+/**
+ * The objects whose records each step of a removal that takes a whole run
+ * back writes: those it brings back from the recycle bin, those it gives back
+ * their values from before the run, those past Draft it sets back to Draft
+ * before deleting them, and those it deletes. A Sync run's removal makes the
+ * four; a step it does not make is absent or empty.
+ */
+export interface ForgeRemovalSteps {
+  /** Undeleted: what the run deleted. */
+  bringBack?: readonly string[];
+  /** Updated: what the run wrote over. */
+  giveBack?: readonly string[];
+  /** Updated: what the run created past Draft, an activated order, which the platform deletes no other way. */
+  setToDraft?: readonly string[];
+  /** Deleted: what the run created. */
+  delete?: readonly string[];
+}
+
+/** One step of {@link ForgeRemovalSteps}. */
+export type ForgeRemovalStep = keyof ForgeRemovalSteps;
+
+/** One flow, trigger, process or rule that fires as a step of a removal writes a record of its object. */
+export interface ForgeFiredOnRemovalStep extends ForgeFiredOnWrite {
+  step: ForgeRemovalStep;
+}
+
+/** The write each step makes, in the order the removal makes them. */
+const REMOVAL_STEPS: ReadonlyArray<readonly [ForgeRemovalStep, ForgeAutomationWrite]> = [
+  ['bringBack', 'undelete'],
+  ['giveBack', 'update'],
+  ['setToDraft', 'update'],
+  ['delete', 'delete'],
+];
+
+/**
+ * What fires in the target as a removal takes a whole run back, step by step
+ * in the order it writes — it brings back, gives back, sets back to Draft,
+ * then deletes — on the objects each step writes, per object as the read
+ * lists them. The undelete fires the Apex triggers that run after one: a Sync
+ * run's removal brought records back from the recycle bin, and what its
+ * `after undelete` triggers would run was never said.
+ */
+export function firedOnRemovalStepsOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  steps: ForgeRemovalSteps,
+): ForgeFiredOnRemovalStep[] {
+  return REMOVAL_STEPS.flatMap(([step, write]) => {
+    const objects = new Set(steps[step] ?? []);
+    return firedOnWriteOf(automation, write, (name) => objects.has(name)).map((fired) => ({
+      ...fired,
+      step,
+    }));
+  });
+}
+
+/**
+ * The custom permissions that keep quiet, for the user who holds them, what a
+ * removal that takes a whole run back fires ({@link firedOnRemovalStepsOf}),
+ * each once, in name order.
+ */
+export function removalStepsBypassesOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  steps: ForgeRemovalSteps,
+): string[] {
+  return bypassesOfWrites(automation, (objectApiName, write) =>
+    REMOVAL_STEPS.some(
+      ([step, written]) => written === write && (steps[step] ?? []).includes(objectApiName),
+    ),
   );
 }
 

@@ -1,4 +1,5 @@
 import type {
+  ForgeRemovalSteps,
   ForgeSweepResult,
   ForgeTargetAutomation,
   GuardDecision,
@@ -22,6 +23,7 @@ import {
   validatePayload,
   syncEarlierCopiesPayloadSchema,
   syncRemovalInfoPayloadSchema,
+  syncRemoveAutomationPayloadSchema,
   syncRemovePayloadSchema,
   syncRemoveSweepPayloadSchema,
 } from '../validatePayload.js';
@@ -34,11 +36,11 @@ import type {
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import type { ProductionGuard, SafetyTier } from '../../core/precheck/ProductionGuard.js';
-import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+import { TimeoutError, TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
-import { removalOrg } from '../../modules/forge/ForgeRunRemoval.js';
+import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
 import { removalAuditObjects, removalAuditOutcome } from '../../modules/forge/removalOutcome.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
@@ -54,12 +56,14 @@ import {
   writtenAgainBy,
   type SyncRunCreations,
   type SyncRunKept,
+  type SyncRunOverwritten,
 } from '../../modules/sync/SyncRunCreations.js';
 import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
 import {
   backupMaxAgeDays,
   putBackKept,
   type BackupTaken,
+  type PutBackKept,
 } from '../../modules/dataops/backupRetention.js';
 import { withRestoreAudit, type BackupReader } from '../../modules/sync/SyncRunRestore.js';
 import {
@@ -86,6 +90,7 @@ const SYNC_REMOVAL_TYPES = new Set([
   'sync:removal:list',
   'sync:remove',
   'sync:remove:sweep',
+  'sync:remove:automation',
   'sync:earlier-copies',
 ]);
 
@@ -94,6 +99,9 @@ const SWEEP_AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** How long listing what a sweep would take may take: the automation read, then one read per object. */
 const SWEEP_LIST_TIMEOUT_MS = 120_000;
+
+/** How long the read of what a removal fires may take: as Forge's removal's. */
+const REMOVAL_AUTOMATION_TIMEOUT_MS = 60_000;
 
 /** How long reading back the job a run left under way may take: two reads of the job. */
 const JOB_READ_TIMEOUT_MS = 60_000;
@@ -115,6 +123,9 @@ const RUNNING_ELSEWHERE =
  *   history no longer lists. Removable all the same.
  * - `sync:remove:sweep` — what a sweep asked with the removal would take,
  *   read only, for the confirmation to list (`listSweep`).
+ * - `sync:remove:automation` — what the target runs as the removal takes
+ *   the run back, read only, for the confirmation to list
+ *   (`firedOnRemovalStepsOf`).
  * - `sync:remove` — the removal itself, its sweep first when asked: Forge's,
  *   on what the run kept (see `SyncRunRemoval`), judged by Production Guard
  *   as the delete it is, at the tier Forge's and Frozen's removals take the
@@ -146,7 +157,8 @@ export class SyncRemovalHandler implements DomainHandler {
    * removal reads it.
    */
   private targetAutomation: Pick<TargetAutomationReader, 'read'> = {
-    read: async (orgId, objectApiNames) => (await this.ownReader()).read(orgId, objectApiNames),
+    read: async (orgId, objectApiNames, options) =>
+      (await this.ownReader()).read(orgId, objectApiNames, options),
   };
   /** The reader {@link targetAutomation} reads through, once loaded. */
   private reader?: Promise<TargetAutomationReader>;
@@ -239,6 +251,9 @@ export class SyncRemovalHandler implements DomainHandler {
       case 'sync:remove:sweep':
         await this.handleSweepList(msg);
         return true;
+      case 'sync:remove:automation':
+        await this.handleRemovalAutomation(msg);
+        return true;
       case 'sync:earlier-copies':
         await this.handleEarlierCopies(msg);
         return true;
@@ -271,13 +286,7 @@ export class SyncRemovalHandler implements DomainHandler {
     const again = writtenAgainBy(run, runs);
     const left = plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length }));
     const back = syncRestorePlan(run);
-    // What is put back is what the backup store still keeps: the retention
-    // takes a run's backup at its age, whatever the run's file says.
-    const kept = putBackKept(
-      back,
-      (backup) => this.deps.configStore.get<BackupTaken>(`backup:${backup}`),
-      backupMaxAgeDays(this.deps.services),
-    );
+    const kept = this.keptBack(back);
     const overwritten = overwrittenCount(run);
     const deleted = deletedCount(run);
     const bringBack = syncUndeletePlan(run);
@@ -328,6 +337,38 @@ export class SyncRemovalHandler implements DomainHandler {
     if (plan.length === 0 && back.length === 0 && bringBack.length === 0) return info;
     const refusal = this.refusalOf(run, plan, [...back, ...bringBack]);
     return refusal ? { ...info, refusal } : info;
+  }
+
+  /**
+   * What a removal gives back of what the run wrote over: what the backup
+   * store still keeps of it. The retention takes a run's backup at its age,
+   * whatever the run's file says.
+   */
+  private keptBack(back: readonly SyncRunOverwritten[]): PutBackKept {
+    return putBackKept(
+      back,
+      (backup) => this.deps.configStore.get<BackupTaken>(`backup:${backup}`),
+      backupMaxAgeDays(this.deps.services),
+    );
+  }
+
+  /**
+   * The objects each step of a removal of the run writes, as the removal
+   * takes them: what it brings back from the recycle bin, what it gives back
+   * of what the backup store keeps, the activated orders it sets back to
+   * Draft and what it deletes — files and records alike.
+   */
+  private removalStepsOf(run: SyncRunKept): ForgeRemovalSteps {
+    const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
+      ...new Set(objects.map(({ objectApiName }) => objectApiName)),
+    ];
+    const deleted = names(syncRemovalPlan(run));
+    return {
+      bringBack: names(syncUndeletePlan(run)),
+      giveBack: names(this.keptBack(syncRestorePlan(run)).kept),
+      setToDraft: setBackToDraftOf(deleted),
+      delete: deleted,
+    };
   }
 
   /**
@@ -651,6 +692,72 @@ export class SyncRemovalHandler implements DomainHandler {
         code: 'SWEEP_ERROR',
         retryable: true,
       });
+    }
+  }
+
+  /**
+   * `sync:remove:automation`: what the target runs as a removal of the run
+   * takes it back, for the confirmation to list before the user types the
+   * org's name — read on the objects each step of the removal writes
+   * ({@link removalStepsOf}), the triggers that run after an undelete among
+   * it: the removal brings back from the recycle bin what the run deleted,
+   * and what those triggers would run was never said. Read only.
+   */
+  private async handleRemovalAutomation(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      syncRemoveAutomationPayloadSchema,
+      msg,
+      'sync:remove:automation:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const refuse = (message: string, code: string): void =>
+      sendHandlerError(
+        this.deps,
+        'sync:remove:automation',
+        'sync:remove:automation:error',
+        msg,
+        new Error(message),
+        { code },
+      );
+    try {
+      const run = await this.runOf(parsed.runId);
+      if (!run) {
+        refuse('Nothing this run created is kept: there is nothing to remove.', 'NOT_KEPT');
+        return;
+      }
+      if (!this.deps.orgManager.getOrg(run.targetOrgId)) {
+        refuse(
+          'The org the run wrote to is no longer connected: connect it again to remove the run.',
+          'ORG_GONE',
+        );
+        return;
+      }
+      const steps = this.removalStepsOf(run);
+      const objects = [...new Set(Object.values(steps).flat())];
+      const reader = this.targetAutomation;
+      const automation = await new TimeoutManager(REMOVAL_AUTOMATION_TIMEOUT_MS).withTimeout(
+        'sync:remove:automation',
+        () => reader.read(run.targetOrgId, objects, { undeletes: true }),
+      );
+      const response = buildResponse(this.deps, msg, 'sync:remove:automation:response', {
+        runId: run.runId,
+        automation,
+        steps,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      const isTimeout = err instanceof TimeoutError;
+      sendHandlerError(
+        this.deps,
+        'sync:remove:automation',
+        'sync:remove:automation:error',
+        msg,
+        err,
+        { code: isTimeout ? 'TIMEOUT' : 'AUTOMATION_ERROR', retryable: true },
+      );
     }
   }
 

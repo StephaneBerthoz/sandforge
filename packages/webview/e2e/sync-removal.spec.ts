@@ -186,6 +186,60 @@ for (const theme of THEMES) {
       expect(restored.violations.length, formatViolations(restored.violations)).toBe(0);
     });
 
+    test('lists what the target runs as a run that deleted is taken back, the trigger after an undelete among it, and passes axe', async ({
+      page,
+    }) => {
+      const DELETED = {
+        ...STOPPED,
+        runId: 'run-deleted',
+        created: 2,
+        left: [{ objectApiName: 'Account', count: 2 }],
+        deleted: 1,
+        bringBack: [{ objectApiName: 'Case', count: 1 }],
+      };
+      const bridge = await openHistory(page, theme);
+      await answerAll(bridge, 'sync:removal:list', 'sync:removal:list:response', {
+        runs: [DELETED],
+      });
+      await answerAll(bridge, 'sync:removal:info', 'sync:removal:info:response', {
+        info: DELETED,
+      });
+
+      const card = page.getByTestId('sync-unfinished-removal-run-deleted');
+      await card.getByTestId('sync-removal-remove').click();
+      await answerAll(bridge, 'sync:remove:automation', 'sync:remove:automation:response', {
+        runId: 'run-deleted',
+        automation: {
+          objectsRead: ['Case', 'Account'],
+          objects: [
+            {
+              objectApiName: 'Case',
+              flows: [],
+              triggers: [{ name: 'CaseRestore', events: ['afterUndelete'] }],
+            },
+            {
+              objectApiName: 'Account',
+              flows: [],
+              triggers: [{ name: 'AccountGuard', events: ['beforeDelete'] }],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 25,
+          requests: 6,
+        },
+        steps: { bringBack: ['Case'], giveBack: [], setToDraft: [], delete: ['Account'] },
+      });
+      await expect(page.getByTestId('sync-removal-automation-bringBack-Case')).toContainText(
+        'CaseRestore · after undelete, as the removal brings it back from the recycle bin',
+      );
+      await expect(page.getByTestId('sync-removal-automation-delete-Account')).toContainText(
+        'AccountGuard · before delete',
+      );
+      const confirming = await checkAccessibility(page);
+      expect(confirming.violations.length, formatViolations(confirming.violations)).toBe(0);
+    });
+
     test('offers nothing where Production Guard allows no delete, says why, and passes axe', async ({
       page,
     }) => {

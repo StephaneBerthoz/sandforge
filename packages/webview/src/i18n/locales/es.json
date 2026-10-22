@@ -4352,7 +4352,9 @@
       "intro": "Al eliminar estos registros, {{org}} ejecuta:",
       "drafted": "cuando la eliminación lo devuelve a Borrador para eliminarlo",
       "none": "Nada de lo que {{org}} automatiza se ejecuta al eliminar estos registros.",
-      "error": "No se pudo leer lo que {{org}} ejecuta cuando se van estos registros: {{reason}}"
+      "error": "No se pudo leer lo que {{org}} ejecuta cuando se van estos registros: {{reason}}",
+      "givenBack": "cuando la eliminación le devuelve sus valores de antes de la ejecución",
+      "broughtBack": "tras recuperarlo, cuando la eliminación lo recupera de la papelera"
     },
     "sync": {
       "title": "Lo que creó esta ejecución",
@@ -4419,7 +4421,12 @@
       "undeletedGone": "ya no están en la papelera, perdidos para siempre: {{n}}",
       "restoredWithout": "devueltos salvo los campos que {{org}} ya no acepta, que conservan los valores de la ejecución: {{n}}",
       "notKeptEncrypted": "No conservados, cifrados: {{fields}}. El usuario de la ejecución no puede ver datos cifrados y leyó sus valores anteriores enmascarados: una eliminación los deja como la ejecución los escribió.",
-      "unfinishedElsewhere": "Todavía está escribiendo en otra ventana: lo que crea se podrá quitar cuando haya terminado allí."
+      "unfinishedElsewhere": "Todavía está escribiendo en otra ventana: lo que crea se podrá quitar cuando haya terminado allí.",
+      "automationTitle": "Lo que {{org}} ejecuta cuando se deshace esta ejecución",
+      "automationLoading": "Leyendo lo que {{org}} ejecuta cuando se deshace esta ejecución…",
+      "automationIntro": "Cuando se deshace esta ejecución, {{org}} ejecuta:",
+      "automationNone": "Nada de lo que {{org}} automatiza se ejecuta cuando se deshace esta ejecución.",
+      "automationError": "No se pudo leer lo que {{org}} ejecuta cuando se deshace esta ejecución: {{reason}}"
     },
     "resultSuccess": "No queda en {{org}} ningún registro creado por esta ejecución.",
     "resultPartial": "Se eliminaron de {{org}} registros creados por esta ejecución; los demás se quedan, como se indica.",

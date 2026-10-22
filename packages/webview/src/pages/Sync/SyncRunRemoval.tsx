@@ -1,14 +1,18 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Trash2 } from 'lucide-react';
 import type {
+  ForgeRemovalStep,
+  ForgeRemovalSteps,
   ForgeSweepListing,
+  ForgeTargetAutomation,
   SyncRemovalRefusalCode,
   SyncRemovalResult,
   SyncRestoreObjectResult,
   SyncRunRemovalInfo,
   SyncUndeleteObjectResult,
 } from '@sandforge/shared';
+import { firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -22,6 +26,12 @@ import {
   ForgeRunRemovalResult,
 } from '../Forge/ForgeRunRemovalView';
 import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
+import {
+  DELETE_WHEN_KEYS,
+  RemovalAutomationView,
+  type RemovalAutomationShown,
+  type RemovalAutomationWords,
+} from '../Forge/ForgeRemovalAutomation';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 
 /**
@@ -35,6 +45,9 @@ const ERROR_CHANNEL = 'sync:remove:error';
 
 /** How long the read of what a sweep would take may take: the target's automation, then one read per object. */
 const SWEEP_READ_TIMEOUT_MS = 150_000;
+
+/** How long the read of what the removal fires may take: the extension gives up after 60 seconds. */
+const AUTOMATION_READ_TIMEOUT_MS = 90_000;
 
 /** What the card says of a removal that cannot run, by why. */
 const REFUSAL_KEYS: Record<SyncRemovalRefusalCode, string> = {
@@ -55,6 +68,89 @@ interface SweepAnswer {
   runId: string;
   listing: ForgeSweepListing;
 }
+
+/** What `sync:remove:automation` answers. */
+interface AutomationAnswer {
+  runId: string;
+  automation: ForgeTargetAutomation;
+  steps: ForgeRemovalSteps;
+}
+
+/** What the confirmation's automation section says, as a removal of a Sync run takes it back. */
+const AUTOMATION_WORDS: RemovalAutomationWords = {
+  title: 'runRemoval.sync.automationTitle',
+  loading: 'runRemoval.sync.automationLoading',
+  intro: 'runRemoval.sync.automationIntro',
+  none: 'runRemoval.sync.automationNone',
+  error: 'runRemoval.sync.automationError',
+};
+
+/** Why a step of the removal other than its delete writes the record it fires on. */
+const STEP_KEYS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> = {
+  bringBack: 'runRemoval.automation.broughtBack',
+  giveBack: 'runRemoval.automation.givenBack',
+  setToDraft: 'runRemoval.automation.drafted',
+};
+
+/**
+ * What the target runs as the removal takes the run back, read as the
+ * confirmation opens and listed before the user types the org's name, step
+ * by step as the removal writes: the Apex triggers that run after an
+ * undelete as it brings back from the recycle bin what the run deleted, what
+ * fires as it gives back what the run wrote over and as it sets an activated
+ * order back to Draft, then before and after each delete. A removal brought
+ * records back from the recycle bin, and nothing said what their
+ * `after undelete` triggers would run. Read again when the user asks; the
+ * read shown stays until the answer lands.
+ */
+const SyncRemovalAutomation: React.FC<{ runId: string; org: string; targetOrgId: string }> = ({
+  runId,
+  org,
+  targetOrgId,
+}) => {
+  const read = useBridgeMutation<AutomationAnswer>('sync:remove:automation', {
+    responseType: 'sync:remove:automation:response',
+    errorType: 'sync:remove:automation:error',
+    timeoutMs: AUTOMATION_READ_TIMEOUT_MS,
+  });
+  const { mutate } = read;
+  // A new request clears the answer it waits on: the last one is shown
+  // meanwhile.
+  const [lastRead, setLastRead] = useState<AutomationAnswer | null>(null);
+  useEffect(() => {
+    setLastRead(null);
+    mutate({ runId });
+  }, [runId, mutate]);
+  useEffect(() => {
+    if (read.data) setLastRead(read.data);
+  }, [read.data]);
+  const readAgain = useCallback(() => mutate({ runId }), [runId, mutate]);
+  const answer = read.data ?? lastRead;
+  const shown: RemovalAutomationShown | undefined =
+    answer && answer.runId === runId
+      ? {
+          automation: answer.automation,
+          entries: firedOnRemovalStepsOf(answer.automation, answer.steps).map((fired) => ({
+            part: fired.step,
+            fired,
+            whyKey: fired.step === 'delete' ? DELETE_WHEN_KEYS[fired.when] : STEP_KEYS[fired.step],
+          })),
+          bypasses: removalStepsBypassesOf(answer.automation, answer.steps),
+        }
+      : undefined;
+  return (
+    <RemovalAutomationView
+      testId="sync-removal-automation"
+      org={org}
+      targetOrgId={targetOrgId}
+      words={AUTOMATION_WORDS}
+      shown={shown}
+      error={read.error}
+      reading={read.loading}
+      onReadAgain={readAgain}
+    />
+  );
+};
 
 /**
  * What a sweep asked with the removal would take, read as the confirmation's
@@ -314,7 +410,8 @@ export interface SyncRunRemovalProps {
  * from the results of the run just made, or for a run a closed window stopped.
  *
  * What the run created is read from what it kept — nothing is asked of the
- * org until a removal is confirmed. The removal takes what the run created
+ * org until a removal's confirmation opens, and reads what the target runs as
+ * the removal writes. The removal takes what the run created
  * and nothing else: the records it inserted, or upserted where the target
  * held none, and the files it created. A record it wrote over — an update,
  * an upsert that found it — is given back first the values it held before
@@ -615,6 +712,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
             {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
           />
         )}
+        <SyncRemovalAutomation runId={runId} org={org} targetOrgId={kept.targetOrgId} />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input
             type="checkbox"

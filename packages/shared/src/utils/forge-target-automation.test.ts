@@ -9,8 +9,13 @@ import {
   bypassPermissionsOf,
   emailsPerInsertOf,
   firedOnInsert,
+  firedOnRemovalOf,
+  firedOnRemovalStepsOf,
+  firedOnWriteOf,
   heldBypassPermissionsOf,
+  removalBypassesOf,
   removalRisksOf,
+  removalStepsBypassesOf,
 } from './forge-target-automation.js';
 
 /** A flow read with its start condition, naming no permission unless told. */
@@ -453,5 +458,173 @@ describe('removalRisksOf', () => {
         objects: [object({ flows: [flow()], triggers: [{ name: 'T', events: ['afterInsert'] }] })],
       }),
     ).toEqual([]);
+  });
+});
+
+describe('firedOnWriteOf, on an undelete', () => {
+  it('fires the triggers that run after an undelete, after it', () => {
+    const automation = {
+      objects: [
+        object({
+          triggers: [
+            { name: 'CaseAll', events: ['beforeInsert', 'afterDelete', 'afterUndelete'] },
+            { name: 'CaseRestore', events: ['afterUndelete'] },
+          ],
+        }),
+      ],
+    };
+    expect(firedOnWriteOf(automation, 'undelete')).toEqual([
+      { objectApiName: 'Case', write: 'undelete', kind: 'trigger', name: 'CaseAll', when: 'after' },
+      {
+        objectApiName: 'Case',
+        write: 'undelete',
+        kind: 'trigger',
+        name: 'CaseRestore',
+        when: 'after',
+      },
+    ]);
+  });
+
+  it('fires no flow, process or workflow rule, whatever save or delete starts them', () => {
+    const automation = {
+      objects: [
+        object({
+          flows: [
+            flow({ startsOn: 'createAndUpdate' }),
+            flow({ apiName: 'Guard', timing: 'beforeDelete', startsOn: 'delete' }),
+          ],
+          processes: [flow({ apiName: 'Case_Process', label: 'Case process' })],
+          workflowRules: [flow({ apiName: 'Case_Rule', startsOn: 'createAndUpdate' })],
+          triggers: [{ name: 'CaseSave', events: ['beforeInsert', 'afterUpdate', 'beforeDelete'] }],
+        }),
+      ],
+    };
+    expect(firedOnWriteOf(automation, 'undelete')).toEqual([]);
+  });
+});
+
+describe('firedOnRemovalStepsOf', () => {
+  const afterUpdate = flow({
+    apiName: 'Account_Update',
+    label: 'Account update',
+    startsOn: 'update',
+  });
+  const automation = {
+    objects: [
+      object({
+        objectApiName: 'Account',
+        flows: [afterUpdate],
+        triggers: [{ name: 'AccountRestore', events: ['afterUndelete'] }],
+      }),
+      object({
+        objectApiName: 'Order',
+        flows: [flow({ apiName: 'Order_Update', label: 'Order update', startsOn: 'update' })],
+        triggers: [{ name: 'OrderGuard', events: ['beforeDelete'] }],
+      }),
+      object({
+        objectApiName: 'Case',
+        triggers: [{ name: 'CaseAll', events: ['afterUpdate', 'afterDelete', 'afterUndelete'] }],
+      }),
+    ],
+  };
+
+  it('lists what fires step by step, as the removal writes: brought back, given back, set to Draft, deleted', () => {
+    expect(
+      firedOnRemovalStepsOf(automation, {
+        bringBack: ['Account'],
+        giveBack: ['Account'],
+        setToDraft: ['Order'],
+        delete: ['Order'],
+      }),
+    ).toEqual([
+      {
+        step: 'bringBack',
+        objectApiName: 'Account',
+        write: 'undelete',
+        kind: 'trigger',
+        name: 'AccountRestore',
+        when: 'after',
+      },
+      {
+        step: 'giveBack',
+        objectApiName: 'Account',
+        write: 'update',
+        kind: 'flow',
+        name: 'Account update',
+        when: 'after',
+      },
+      {
+        step: 'setToDraft',
+        objectApiName: 'Order',
+        write: 'update',
+        kind: 'flow',
+        name: 'Order update',
+        when: 'after',
+      },
+      {
+        step: 'delete',
+        objectApiName: 'Order',
+        write: 'delete',
+        kind: 'trigger',
+        name: 'OrderGuard',
+        when: 'before',
+      },
+    ]);
+  });
+
+  it('fires each write only on the objects whose records that step writes', () => {
+    // Case's records are only brought back: its update and its delete do not run.
+    expect(
+      firedOnRemovalStepsOf(automation, { bringBack: ['Case'], delete: ['Order'] }).map(
+        (fired) => `${fired.step} ${fired.objectApiName} ${fired.name}`,
+      ),
+    ).toEqual(['bringBack Case CaseAll', 'delete Order OrderGuard']);
+  });
+
+  it('lists nothing for a removal that writes nothing', () => {
+    expect(firedOnRemovalStepsOf(automation, {})).toEqual([]);
+  });
+
+  it('leaves the steps of a Forge removal as it fired them: the drafted, then every delete', () => {
+    const steps = firedOnRemovalStepsOf(automation, {
+      setToDraft: ['Order'],
+      delete: ['Account', 'Order', 'Case'],
+    });
+    expect(steps.map(({ step: _step, ...fired }) => fired)).toEqual(
+      firedOnRemovalOf(automation, ['Order']),
+    );
+  });
+});
+
+describe('removalStepsBypassesOf', () => {
+  const bypassed = (name: string, startsOn: ForgeTargetFlow['startsOn']): ForgeTargetFlow =>
+    flow({
+      apiName: name,
+      label: name,
+      startsOn,
+      ...(startsOn === 'delete' ? { timing: 'beforeDelete' as const } : {}),
+      permissions: [{ name: `Skip_${name}`, bypass: true, held: false }],
+    });
+  const automation = {
+    objects: [
+      object({
+        objectApiName: 'Account',
+        flows: [bypassed('OnUpdate', 'update'), bypassed('OnDelete', 'delete')],
+      }),
+    ],
+  };
+
+  it('names the bypasses of what the steps that write an object fire, and no other', () => {
+    expect(removalStepsBypassesOf(automation, { giveBack: ['Account'] })).toEqual([
+      'Skip_OnUpdate',
+    ]);
+    expect(removalStepsBypassesOf(automation, { delete: ['Account'] })).toEqual(['Skip_OnDelete']);
+    expect(removalStepsBypassesOf(automation, { bringBack: ['Account'] })).toEqual([]);
+  });
+
+  it('names what a Forge removal names for the same steps', () => {
+    expect(
+      removalStepsBypassesOf(automation, { setToDraft: ['Account'], delete: ['Account'] }),
+    ).toEqual(removalBypassesOf(automation, ['Account']));
   });
 });

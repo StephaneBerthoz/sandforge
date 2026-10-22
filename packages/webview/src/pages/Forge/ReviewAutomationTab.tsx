@@ -2,10 +2,10 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   ForgeAutomationFired,
-  ForgeAutomationWrite,
   ForgeFlowPath,
   ForgeMessageAction,
   ForgeRemovalRisk,
+  ForgeRunWrite,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
   ForgeTargetObjectAutomation,
@@ -23,8 +23,8 @@ import { useForgeStore } from '../../stores/useForgeStore';
 import { formatNumber, uiLocale } from '../../utils/formatters';
 import { BypassAssistant, ReadAgainButton, type BypassTarget } from './BypassAssistant';
 
-/** The heading of each write, as the tab says it. */
-const WRITE_KEYS: Readonly<Record<ForgeAutomationWrite, string>> = {
+/** The heading of each write of a run, as the tab says it. */
+const WRITE_KEYS: Readonly<Record<ForgeRunWrite, string>> = {
   insert: 'forgeRun.review.automation.onInsert',
   update: 'forgeRun.review.automation.onUpdate',
   delete: 'forgeRun.review.automation.onDelete',
@@ -453,7 +453,7 @@ const PathLine: React.FC<{ path: ForgeFlowPath }> = ({ path }) => {
 };
 
 /** One flow, trigger, process or rule a write fires, with when it runs and what keeps it quiet. */
-const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomationWrite }> = ({
+const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeRunWrite }> = ({
   entry,
   write,
 }) => {

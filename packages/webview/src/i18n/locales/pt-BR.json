@@ -4352,7 +4352,9 @@
       "intro": "Ao excluir estes registros, {{org}} executa:",
       "drafted": "quando a remoção o volta para Rascunho para excluí-lo",
       "none": "Nada do que {{org}} automatiza é executado ao excluir estes registros.",
-      "error": "Não foi possível ler o que {{org}} executa quando estes registros saem: {{reason}}"
+      "error": "Não foi possível ler o que {{org}} executa quando estes registros saem: {{reason}}",
+      "givenBack": "quando a remoção lhe devolve seus valores de antes da execução",
+      "broughtBack": "depois da restauração, quando a remoção o recupera da lixeira"
     },
     "sync": {
       "title": "O que esta execução criou",
@@ -4419,7 +4421,12 @@
       "undeletedGone": "não estão mais na lixeira, perdidos de vez: {{n}}",
       "restoredWithout": "devolvidos exceto os campos que {{org}} não aceita mais, que mantêm os valores da execução: {{n}}",
       "notKeptEncrypted": "Não guardados, criptografados: {{fields}}. O usuário da execução não pode ver dados criptografados e leu seus valores anteriores mascarados: uma remoção os deixa como a execução os gravou.",
-      "unfinishedElsewhere": "Ainda está gravando em outra janela: o que ela cria poderá ser removido quando ela terminar lá."
+      "unfinishedElsewhere": "Ainda está gravando em outra janela: o que ela cria poderá ser removido quando ela terminar lá.",
+      "automationTitle": "O que {{org}} executa quando esta execução é desfeita",
+      "automationLoading": "Lendo o que {{org}} executa quando esta execução é desfeita…",
+      "automationIntro": "Quando esta execução é desfeita, {{org}} executa:",
+      "automationNone": "Nada do que {{org}} automatiza é executado quando esta execução é desfeita.",
+      "automationError": "Não foi possível ler o que {{org}} executa quando esta execução é desfeita: {{reason}}"
     },
     "resultSuccess": "Nenhum registro criado por esta execução ficou em {{org}}.",
     "resultPartial": "Registros criados por esta execução foram removidos de {{org}}; os demais ficam, como listado.",

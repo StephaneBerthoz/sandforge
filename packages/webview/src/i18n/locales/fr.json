@@ -4352,7 +4352,9 @@
       "intro": "Quand ces enregistrements sont supprimés, {{org}} exécute :",
       "drafted": "quand la suppression le remet en Brouillon pour le supprimer",
       "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés.",
-      "error": "Ce que {{org}} exécute quand ces enregistrements partent n'a pas pu être lu : {{reason}}"
+      "error": "Ce que {{org}} exécute quand ces enregistrements partent n'a pas pu être lu : {{reason}}",
+      "givenBack": "quand le retrait lui rend ses valeurs d'avant l'exécution",
+      "broughtBack": "après restauration, quand le retrait le rétablit depuis la corbeille"
     },
     "sync": {
       "title": "Ce que cette exécution a créé",
@@ -4419,7 +4421,12 @@
       "undeletedGone": "plus dans la corbeille, perdus définitivement : {{n}}",
       "restoredWithout": "rendus sauf les champs que {{org}} n'accepte plus, qui gardent les valeurs de l'exécution : {{n}}",
       "notKeptEncrypted": "Non conservés, chiffrés : {{fields}}. L'utilisateur de l'exécution ne peut pas voir les données chiffrées et a lu leurs valeurs d'avant masquées : un retrait les laisse tels que l'exécution les a écrits.",
-      "unfinishedElsewhere": "Écrit encore dans une autre fenêtre : ce qu'elle crée pourra être retiré une fois qu'elle y sera terminée."
+      "unfinishedElsewhere": "Écrit encore dans une autre fenêtre : ce qu'elle crée pourra être retiré une fois qu'elle y sera terminée.",
+      "automationTitle": "Ce que {{org}} exécute quand on revient sur cette exécution",
+      "automationLoading": "Lecture de ce que {{org}} exécute quand on revient sur cette exécution…",
+      "automationIntro": "Quand on revient sur cette exécution, {{org}} exécute :",
+      "automationNone": "Rien de ce que {{org}} automatise ne s'exécute quand on revient sur cette exécution.",
+      "automationError": "Ce que {{org}} exécute quand on revient sur cette exécution n'a pas pu être lu : {{reason}}"
     },
     "resultSuccess": "Aucun enregistrement créé par cette exécution ne reste dans {{org}}.",
     "resultPartial": "Des enregistrements créés par cette exécution ont été supprimés de {{org}} ; les autres restent, comme indiqué.",

@@ -4352,7 +4352,9 @@
       "intro": "Beim Löschen dieser Datensätze führt {{org}} aus:",
       "drafted": "wenn das Entfernen ihn zum Löschen auf Entwurf zurücksetzt",
       "none": "Nichts, was {{org}} automatisiert, läuft beim Löschen dieser Datensätze.",
-      "error": "Was {{org}} beim Entfernen dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}"
+      "error": "Was {{org}} beim Entfernen dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}",
+      "givenBack": "wenn das Entfernen ihm seine Werte von vor dem Lauf zurückgibt",
+      "broughtBack": "nach dem Wiederherstellen, wenn das Entfernen ihn aus dem Papierkorb zurückholt"
     },
     "sync": {
       "title": "Was dieser Lauf erstellt hat",
@@ -4419,7 +4421,12 @@
       "undeletedGone": "nicht mehr im Papierkorb, endgültig weg: {{n}}",
       "restoredWithout": "zurückgegeben bis auf Felder, die {{org}} nicht mehr annimmt und die die Werte des Laufs behalten: {{n}}",
       "notKeptEncrypted": "Nicht aufbewahrt, verschlüsselt: {{fields}}. Der Benutzer des Laufs kann verschlüsselte Daten nicht sehen und hat ihre vorherigen Werte maskiert gelesen: Ein Entfernen lässt sie so, wie der Lauf sie geschrieben hat.",
-      "unfinishedElsewhere": "Schreibt noch in einem anderen Fenster: Was er erstellt, kann entfernt werden, sobald er dort beendet ist."
+      "unfinishedElsewhere": "Schreibt noch in einem anderen Fenster: Was er erstellt, kann entfernt werden, sobald er dort beendet ist.",
+      "automationTitle": "Was {{org}} ausführt, wenn dieser Lauf zurückgenommen wird",
+      "automationLoading": "Es wird gelesen, was {{org}} ausführt, wenn dieser Lauf zurückgenommen wird…",
+      "automationIntro": "Wenn dieser Lauf zurückgenommen wird, führt {{org}} aus:",
+      "automationNone": "Nichts, was {{org}} automatisiert, läuft, wenn dieser Lauf zurückgenommen wird.",
+      "automationError": "Was {{org}} ausführt, wenn dieser Lauf zurückgenommen wird, konnte nicht gelesen werden: {{reason}}"
     },
     "resultSuccess": "Kein von diesem Durchlauf erstellter Datensatz ist mehr in {{org}}.",
     "resultPartial": "Von diesem Durchlauf erstellte Datensätze wurden aus {{org}} entfernt; die übrigen bleiben, wie aufgeführt.",

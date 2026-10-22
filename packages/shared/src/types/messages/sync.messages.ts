@@ -11,7 +11,8 @@ import type {
   SyncWriteOrder,
 } from '../sync.types.js';
 import type { ExportFormat } from '../reporting.types.js';
-import type { ForgeSweepListing } from '../forge.types.js';
+import type { ForgeSweepListing, ForgeTargetAutomation } from '../forge.types.js';
+import type { ForgeRemovalSteps } from '../../utils/forge-target-automation.js';
 
 /** Sync messages */
 export interface SyncExecuteRequest extends BaseMessage {
@@ -333,6 +334,34 @@ export interface SyncRemoveSweepResponse extends BaseMessage {
 /** `sync:remove:sweep:error`. Extension -> WebView. The read of what a sweep would take failed. */
 export interface SyncRemoveSweepErrorResponse extends BaseMessage {
   type: 'sync:remove:sweep:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `sync:remove:automation`. WebView -> Extension. What the target runs as the
+ * removal of a run takes it back, read only, for the confirmation to list.
+ * The run is named, never its objects: the extension reads them from what
+ * the run kept, as the removal does.
+ */
+export interface SyncRemoveAutomationRequest extends BaseMessage {
+  type: 'sync:remove:automation';
+  payload: { runId: string };
+}
+
+/**
+ * `sync:remove:automation:response`. Extension -> WebView. What the target
+ * runs on the objects of the run, the triggers after an undelete among it,
+ * and the objects each step of the removal writes: those it brings back from
+ * the recycle bin, gives back their values, sets back to Draft and deletes.
+ */
+export interface SyncRemoveAutomationResponse extends BaseMessage {
+  type: 'sync:remove:automation:response';
+  payload: { runId: string; automation: ForgeTargetAutomation; steps: ForgeRemovalSteps };
+}
+
+/** `sync:remove:automation:error`. Extension -> WebView. The read of what the removal fires failed. */
+export interface SyncRemoveAutomationErrorResponse extends BaseMessage {
+  type: 'sync:remove:automation:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

@@ -245,16 +245,22 @@ export {
   emailsPerInsertOf,
   firedOnInsert,
   firedOnRemovalOf,
+  firedOnRemovalStepsOf,
   firedOnWriteOf,
   heldBypassPermissionsOf,
   removalBypassesOf,
   removalRisksOf,
+  removalStepsBypassesOf,
   type ForgeAutomationFired,
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,
   type ForgeBypassAssignment,
   type ForgeEmailsPerInsert,
+  type ForgeFiredOnRemovalStep,
   type ForgeFiredOnWrite,
+  type ForgeRemovalStep,
+  type ForgeRemovalSteps,
+  type ForgeRunWrite,
 } from './utils/forge-target-automation.js';
 export { seedEmailEstimates, seedEmailsRefused } from './utils/seed-automation.js';
 export {

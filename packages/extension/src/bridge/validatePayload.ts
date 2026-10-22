@@ -470,6 +470,8 @@ export const syncRemovePayloadSchema = z.object({
 });
 // What a sweep asked with a Sync run's removal would take: the run, named as for its removal.
 export const syncRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
+// What the target runs as a run's removal takes it back: the run is named, never its objects.
+export const syncRemoveAutomationPayloadSchema = z.object({ runId: opaqueIdSchema });
 // ── seed:removal:info / seed:remove payload schemas ─────────────────────────
 // The run is named, never its records: what is removed is what the run kept.
 export const seedRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });

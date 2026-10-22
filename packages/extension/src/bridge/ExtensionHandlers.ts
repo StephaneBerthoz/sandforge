@@ -719,6 +719,7 @@ export class ExtensionHandlers {
         'sync:removal:list',
         'sync:remove',
         'sync:remove:sweep',
+        'sync:remove:automation',
         'sync:earlier-copies',
       ],
       this.syncRemovalHandler,

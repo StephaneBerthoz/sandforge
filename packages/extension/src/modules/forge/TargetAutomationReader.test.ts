@@ -1321,6 +1321,31 @@ describe('TargetAutomationReader', () => {
     expect(automation.objects).toEqual([]);
   });
 
+  it('keeps a trigger that runs on an undelete alone when what it reads for undeletes records', async () => {
+    const target = fakeTarget({
+      triggers: [
+        triggerRow('Case', 'CaseRestore', ['UsageAfterUndelete']),
+        triggerRow('Case', 'CaseSave', ['UsageBeforeInsert', 'UsageAfterUndelete']),
+        triggerRow('Case', 'CaseIdle', []),
+      ],
+    });
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Case'], {
+      undeletes: true,
+    });
+    expect(automation.objects.map((o) => [o.objectApiName, o.triggers])).toEqual([
+      [
+        'Case',
+        [
+          { name: 'CaseRestore', events: ['afterUndelete'] },
+          { name: 'CaseSave', events: ['beforeInsert', 'afterUndelete'] },
+        ],
+      ],
+    ]);
+    // A Forge run's read of the same org: the trigger of a save alone.
+    const forRun = await new TargetAutomationReader(target.deps).read('tgt', ['Case']);
+    expect(forRun.objects.map((o) => o.triggers.map((t) => t.name))).toEqual([['CaseSave']]);
+  });
+
   it('reads, for a graph, the objects a run of it writes', async () => {
     const target = fakeTarget({
       flows: [

@@ -60,7 +60,6 @@
 
 import type {
   ForgeAutomationFired,
-  ForgeAutomationWrite,
   ForgeBypassGrant,
   ForgeEmailLimit,
   ForgeFlowPath,
@@ -71,6 +70,7 @@ import type {
   ForgeGraph,
   ForgeMessageAction,
   ForgePermissionSetGrant,
+  ForgeRunWrite,
   ForgeTargetAssignmentRule,
   ForgeTargetAutomation,
   ForgeTargetAutomationUnread,
@@ -1642,6 +1642,16 @@ export function objectsTheRunWrites(
   ];
 }
 
+/** How {@link TargetAutomationReader.read} reads. */
+export interface TargetAutomationReadOptions {
+  /**
+   * What is read for brings records back from the recycle bin — a Sync run's
+   * removal does: a trigger that runs on an undelete alone fires on it, and
+   * is kept. A Forge run never undeletes, and its read leaves one out.
+   */
+  undeletes?: boolean;
+}
+
 /**
  * Reads what the target org runs on the objects a Forge run writes.
  */
@@ -1671,10 +1681,12 @@ export class TargetAutomationReader {
    *
    * @param targetOrgId - The org the run writes to.
    * @param objectApiNames - The objects the run writes ({@link objectsTheRunWrites}).
+   * @param options - Whether what is read for undeletes records.
    */
   async read(
     targetOrgId: string,
     objectApiNames: readonly string[],
+    options: TargetAutomationReadOptions = {},
   ): Promise<ForgeTargetAutomation> {
     const unread: ForgeTargetAutomationUnread[] = [];
     let requests = 0;
@@ -1726,13 +1738,16 @@ export class TargetAutomationReader {
         const objectApiName = ofTheRun(read.objectApiName);
         return objectApiName ? [{ ...read, objectApiName }] : [];
       });
-    // A trigger that runs on an undelete alone fires on no write a run makes.
+    // A trigger that runs on an undelete alone fires on no write a run makes,
+    // only on a removal's undelete, when what is read for makes one.
     const triggers = triggerRows
       .map(triggerOfRow)
       .filter((read) => read !== undefined)
       .flatMap((read) => {
         const objectApiName = ofTheRun(read.objectApiName);
-        const fires = read.trigger.events.some((event) => event !== 'afterUndelete');
+        const fires = read.trigger.events.some(
+          (event) => event !== 'afterUndelete' || options.undeletes === true,
+        );
         return objectApiName && fires ? [{ ...read, objectApiName }] : [];
       });
 
@@ -2200,7 +2215,7 @@ function switchWords(test: ForgeFlowSwitch): string {
 }
 
 /** What the command's lines say of one flow, trigger, process or rule a write fires. */
-function firedNotes(fired: ForgeAutomationFired, write: ForgeAutomationWrite): string[] {
+function firedNotes(fired: ForgeAutomationFired, write: ForgeRunWrite): string[] {
   const flow = fired.flow;
   const permissions = flow?.permissions ?? [];
   const switches = flow?.switches ?? [];
