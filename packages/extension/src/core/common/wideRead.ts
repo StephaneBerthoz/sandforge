@@ -18,6 +18,14 @@
  * then each other group by the ids that read returned, merged by id into its
  * rows. The rows are the statement's, in its order, with every field it names.
  * A statement whose fields fit is sent as it is written.
+ *
+ * Two groups are two reads, and a record written between them comes back
+ * with columns of two writes, merged into one row as if one write had left
+ * them; one deleted between them keeps the columns the first read gave. A
+ * read that must hold each row as one write left it — a checkpoint's, whose
+ * rewind compares every value it holds with the org's — carries the record's
+ * stamp in every group, reads again the rows whose stamps disagree, and drops
+ * those a later group no longer finds ({@link readOtherColumnsAtOneStamp}).
  */
 
 /**
@@ -54,35 +62,54 @@ export function uriLength(text: string): number {
   return encodeURIComponent(text).length;
 }
 
-/** Whether `field` is the id, however it is cased. */
-function isId(field: string): boolean {
-  return field.toLowerCase() === 'id';
+/**
+ * The columns every group of a read names first: the id, which the rows of
+ * the groups are merged by, then each of `carried` once.
+ */
+function headOf(carried: readonly string[]): string[] {
+  const head = ['Id'];
+  const named = new Set(['id']);
+  for (const column of carried) {
+    if (named.has(column.toLowerCase())) continue;
+    named.add(column.toLowerCase());
+    head.push(column);
+  }
+  return head;
 }
 
 /**
  * The groups a read names `fields` in: `fields` itself when its select list
  * fits {@link MAX_SELECT_URI_CHARS}, otherwise groups that each fit, the id
- * first in every one of them — it is what their rows are merged by.
+ * first in every one of them — it is what their rows are merged by — and
+ * the `carried` columns after it.
+ *
+ * @param carried - The columns every group names, the id unless given: a
+ *   read that holds each row to one write carries the record's stamp too.
  */
-export function columnGroups(fields: readonly string[]): string[][] {
+export function columnGroups(
+  fields: readonly string[],
+  carried: readonly string[] = ['Id'],
+): string[][] {
   if (uriLength(fields.join(', ')) <= MAX_SELECT_URI_CHARS) return [[...fields]];
+  const head = headOf(carried);
+  const inHead = new Set(head.map((column) => column.toLowerCase()));
   const separator = uriLength(', ');
-  const idOnly = uriLength('Id');
+  const headLength = uriLength(head.join(', '));
   const groups: string[][] = [];
-  let group = ['Id'];
-  let length = idOnly;
+  let group = [...head];
+  let length = headLength;
   for (const field of fields) {
-    if (isId(field)) continue;
+    if (inHead.has(field.toLowerCase())) continue;
     const cost = separator + uriLength(field);
-    if (group.length > 1 && length + cost > MAX_SELECT_URI_CHARS) {
+    if (group.length > head.length && length + cost > MAX_SELECT_URI_CHARS) {
       groups.push(group);
-      group = ['Id'];
-      length = idOnly;
+      group = [...head];
+      length = headLength;
     }
     group.push(field);
     length += cost;
   }
-  if (group.length > 1 || groups.length === 0) groups.push(group);
+  if (group.length > head.length || groups.length === 0) groups.push(group);
   return groups;
 }
 
@@ -101,6 +128,8 @@ export interface WideStatement {
   objectApiName: string;
   /** The statement as written, naming the first group of its fields. */
   first: string;
+  /** The columns of the first group: what a row read again by its id names first. */
+  firstGroup: string[];
   /** The other groups, each read by the ids the first returned. */
   others: string[][];
 }
@@ -110,19 +139,25 @@ export interface WideStatement {
  * `undefined` when it is sent as written: its select list fits, or it is not
  * a list of field names — a `FIELDS()`, a `COUNT()`, a function or a
  * sub-query is never split.
+ *
+ * @param carried - The columns every group names (`columnGroups`).
  */
-export function wideStatement(soql: string): WideStatement | undefined {
+export function wideStatement(
+  soql: string,
+  carried?: readonly string[],
+): WideStatement | undefined {
   const parts = /^\s*SELECT\s+([\s\S]+?)\s+FROM\s+([A-Za-z][A-Za-z0-9_]*)(\s[\s\S]*)?$/i.exec(soql);
   if (!parts) return undefined;
   const [, select, objectApiName, rest = ''] = parts;
   const fields = select.split(',').map((field) => field.trim());
   if (!fields.every((field) => FIELD_PATH.test(field))) return undefined;
-  const groups = columnGroups(fields);
+  const groups = columnGroups(fields, carried);
   if (groups.length < 2) return undefined;
   const [first, ...others] = groups;
   return {
     objectApiName,
     first: `SELECT ${first.join(', ')} FROM ${objectApiName}${rest}`,
+    firstGroup: first,
     others,
   };
 }
@@ -149,9 +184,17 @@ function mergeInto(row: Record<string, unknown>, more: Record<string, unknown>):
 /**
  * The statements that read `group` of `objectApiName` for `ids`, as many as
  * the URI and {@link IDS_PER_STATEMENT} take.
+ *
+ * @param where - A term each statement holds its rows to beside their ids.
  */
-function byIdStatements(objectApiName: string, group: readonly string[], ids: string[]): string[] {
-  const prefix = `SELECT ${group.join(', ')} FROM ${objectApiName} WHERE Id IN (`;
+function byIdStatements(
+  objectApiName: string,
+  group: readonly string[],
+  ids: string[],
+  where?: string,
+): string[] {
+  const held = where === undefined ? '' : `${where} AND `;
+  const prefix = `SELECT ${group.join(', ')} FROM ${objectApiName} WHERE ${held}Id IN (`;
   const frame = uriLength(`${prefix})`);
   const separator = uriLength(', ');
   const statements: string[] = [];
@@ -207,6 +250,138 @@ export async function readOtherColumns<T extends Record<string, unknown>>(
     }
   }
   return rows;
+}
+
+/** How {@link readOtherColumnsAtOneStamp} holds each row to one write. */
+export interface OneStamp {
+  /**
+   * The column every group carries, which every write to a record moves:
+   * `SystemModstamp`. The statement the groups were split from must carry it
+   * ({@link wideStatement}'s `carried`).
+   */
+  stamp: string;
+  /**
+   * A term each read by id adds to its filter: `IsDeleted = false` for a read
+   * that goes through the recycle bin and keeps to the live rows, where a
+   * record deleted between two groups would otherwise be found in the bin.
+   */
+  idsWhere?: string;
+  /**
+   * How many times the rows a write moved between two groups are read again
+   * before the read gives up: {@link REREADS} unless given.
+   */
+  rereads?: number;
+}
+
+/**
+ * Times the rows written between two groups are read again. A row that a
+ * write moves between its groups on every read, this many times in a row, is
+ * one some process keeps writing: the read fails rather than hold it as no
+ * write left it.
+ */
+const REREADS = 3;
+
+/**
+ * Read the other groups of `pending` by their ids, and merge each into its
+ * row while its stamp is the one the first group read. A row the org no
+ * longer answers for is taken out of `pending`: it was deleted since.
+ *
+ * @returns The ids of the rows a later group answered with another stamp:
+ *   written since the first group was read, their columns left unmerged.
+ */
+async function mergeAtOneStamp(
+  pending: Map<string, Record<string, unknown>>,
+  wide: WideStatement,
+  read: (statement: string) => Promise<Array<Record<string, unknown>>>,
+  oneStamp: OneStamp,
+): Promise<Set<string>> {
+  const moved = new Set<string>();
+  for (const group of wide.others) {
+    const ids = [...pending.keys()].filter((id) => !moved.has(id));
+    if (ids.length === 0) break;
+    const found = new Set<string>();
+    for (const statement of byIdStatements(wide.objectApiName, group, ids, oneStamp.idsWhere)) {
+      for (const more of await read(statement)) {
+        const id = more['Id'];
+        const row = typeof id === 'string' ? pending.get(id) : undefined;
+        if (typeof id !== 'string' || !row || found.has(id)) continue;
+        found.add(id);
+        if (more[oneStamp.stamp] !== row[oneStamp.stamp]) moved.add(id);
+        else mergeInto(row, more);
+      }
+    }
+    for (const id of ids) if (!found.has(id)) pending.delete(id);
+  }
+  return moved;
+}
+
+/**
+ * {@link readOtherColumns}, each row held to one write. Every group carries
+ * the record's stamp, and a row a later group answers with another stamp —
+ * written between the two reads — is read again, every group of it, until
+ * its groups agree: merged as it was, it would hold the values of two writes,
+ * which the org never held together. A row the org no longer answers for, in
+ * a later group or when it is read again, is dropped: it was deleted while it
+ * was read, and kept with the columns of the first group alone it would hold
+ * none of the others.
+ *
+ * Rows without a record id are kept as the first read gave them, as
+ * {@link readOtherColumns} keeps them.
+ *
+ * @param rows - The rows the first statement of `wide` returned.
+ * @param read - Runs one statement and answers with its rows.
+ * @returns The rows kept, in the order of `rows`, a row read again in the
+ *   place of the one first read.
+ * @throws When rows were still written between two reads of their groups
+ *   after being read again {@link OneStamp.rereads} times.
+ */
+export async function readOtherColumnsAtOneStamp<T extends Record<string, unknown>>(
+  rows: T[],
+  wide: WideStatement,
+  read: (statement: string) => Promise<Array<Record<string, unknown>>>,
+  oneStamp: OneStamp,
+): Promise<T[]> {
+  const rereads = oneStamp.rereads ?? REREADS;
+  let pending = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const id = row['Id'];
+    if (typeof id === 'string' && RECORD_ID.test(id) && !pending.has(id)) pending.set(id, row);
+  }
+  const kept = new Map<string, Record<string, unknown>>();
+  for (let reread = 0; pending.size > 0; reread++) {
+    const moved = await mergeAtOneStamp(pending, wide, read, oneStamp);
+    for (const [id, row] of pending) if (!moved.has(id)) kept.set(id, row);
+    if (moved.size === 0) break;
+    if (reread >= rereads) {
+      throw new Error(
+        `${moved.size} record(s) of ${wide.objectApiName} were written between two reads of ` +
+          `their columns ${rereads + 1} times in a row: they could not be read as one write left them.`,
+      );
+    }
+    const again = new Map<string, Record<string, unknown>>();
+    for (const statement of byIdStatements(
+      wide.objectApiName,
+      wide.firstGroup,
+      [...moved],
+      oneStamp.idsWhere,
+    )) {
+      for (const row of await read(statement)) {
+        const id = row['Id'];
+        if (typeof id === 'string' && moved.has(id) && !again.has(id)) again.set(id, row);
+      }
+    }
+    pending = again;
+  }
+  const held: T[] = [];
+  for (const row of rows) {
+    const id = row['Id'];
+    if (typeof id !== 'string' || !RECORD_ID.test(id)) held.push(row);
+    else {
+      const whole = kept.get(id);
+      if (whole) held.push(whole as T);
+    }
+  }
+  return held;
 }
 
 /**

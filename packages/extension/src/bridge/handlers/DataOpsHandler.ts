@@ -36,13 +36,21 @@ import {
 } from './HandlerTypes.js';
 import type { Connection, QueryOptions, QueryResult } from 'jsforce';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import { assertSoqlWhere, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import {
+  assertSoqlIdentifier,
+  assertSoqlWhere,
+  sanitizeSoqlValue,
+} from '../../core/common/soqlValidator.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
-import { readOtherColumns, wideStatement } from '../../core/common/wideRead.js';
+import {
+  readOtherColumns,
+  readOtherColumnsAtOneStamp,
+  wideStatement,
+} from '../../core/common/wideRead.js';
 import {
   CRUD_FLS_DENIED,
   CrudFlsGuard,
@@ -242,6 +250,37 @@ class BackupWriteError extends Error {
     this.name = 'BackupWriteError';
   }
 }
+
+/**
+ * What a snapshot that must hold every row of its objects throws where it
+ * would hold fewer: an object past the cap of rows, or a read the org stopped
+ * answering before it said it was done. Nothing of the snapshot is kept. A
+ * checkpoint holding part of an object would have its rewind delete the
+ * rest, as records created since.
+ */
+class BackupNotWholeError extends Error {
+  /**
+   * @param retryable - Whether reading again may hold every row: not for an
+   *   object past the cap, which holds as many rows the next time.
+   */
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = 'BackupNotWholeError';
+  }
+}
+
+/** What a read through the recycle bin keeps to: the live rows. */
+const LIVE_ROWS = 'IsDeleted = false';
+
+/**
+ * The column every group of a checkpoint's wide read carries, which every
+ * write to a record moves: a row whose groups disagree on it was written
+ * between two of them, and is read again.
+ */
+const CHECKPOINT_STAMP = 'SystemModstamp';
 
 /** Rows of each object a backup reads when `sandforge.backup.maxRecordsPerObject` says nothing. */
 const BACKUP_CAP_DEFAULT = 50_000;
@@ -487,9 +526,12 @@ interface BackupMeta {
   /**
    * Set on the backup a Sync run keeps of what it writes over
    * (`syncOverwrites`), with the run it is of: the values its removal gives
-   * back. Absent from a DataOps backup.
+   * back. `checkpoint` on the snapshot a checkpoint holds, in the
+   * checkpoint's own folder, which lives as long as the checkpoint does:
+   * neither the count of backups per org nor their age removes it. Absent
+   * from a DataOps backup.
    */
-  origin?: 'sync';
+  origin?: 'sync' | 'checkpoint';
   runId?: string;
 }
 
@@ -858,6 +900,83 @@ function rowsOfTheRun(where: string | undefined, afterId: string | undefined): s
 function filterOf(payload: { where?: string }): string | undefined {
   const where = payload.where?.trim();
   return where ? where : undefined;
+}
+
+/** `where`, kept to the live rows of a read through the recycle bin. */
+function liveRowsOf(where: string | undefined): string {
+  const filter = where?.trim();
+  return filter ? `(${assertSoqlWhere(filter)}) AND ${LIVE_ROWS}` : LIVE_ROWS;
+}
+
+/**
+ * Per object, the select list a snapshot reads: each field named once checked
+ * to be one, so nothing but field names reaches the statement.
+ *
+ * @throws When a name is not a field's, or an object names no field.
+ */
+function selectsOf(fields: ReadonlyMap<string, readonly string[]>): Map<string, string> {
+  const selects = new Map<string, string>();
+  for (const [objectApiName, names] of fields) {
+    if (names.length === 0) {
+      throw new Error(`No field of ${objectApiName} was named for the snapshot to read.`);
+    }
+    selects.set(objectApiName, names.map((name) => assertSoqlIdentifier(name)).join(', '));
+  }
+  return selects;
+}
+
+/** Why a snapshot holding every row or none fails on an object past the cap. */
+function pastTheCap(
+  objectApiName: string,
+  orgCount: number | undefined,
+  cap: number,
+): BackupNotWholeError {
+  const held = orgCount === undefined ? 'more records' : `${orgCount} records`;
+  return new BackupNotWholeError(
+    `${objectApiName} holds ${held}, past the ${cap} a snapshot reads of one object: no ` +
+      'snapshot was kept, as one holding part of the object would be taken for all of it.',
+    false,
+  );
+}
+
+/** Why a snapshot holding every row or none fails on a read the org stopped answering. */
+function endedBeforeDone(objectApiName: string, rows: number): string {
+  return (
+    `The org stopped answering the read of ${objectApiName} after ${rows} record(s), before it ` +
+    'said the read was done: no snapshot was kept.'
+  );
+}
+
+/**
+ * Every row `soql` selects, page after page, through the recycle bin when
+ * `scanAll` says so.
+ *
+ * @throws {BackupNotWholeError} When the org stops before it says the read
+ *   is done: some rows would be missing.
+ */
+async function everyRow(
+  conn: Connection,
+  soql: string,
+  scanAll: boolean,
+  objectApiName: string,
+): Promise<BackupRecord[]> {
+  const options: QueryOptions = {
+    headers: {},
+    maxFetch: 10_000,
+    autoFetch: false,
+    scanAll,
+    responseTarget: 'QueryResult',
+  };
+  let page: QueryResult<BackupRecord> = await conn.query<BackupRecord>(soql, options);
+  const rows = [...page.records];
+  while (!page.done) {
+    if (!page.nextRecordsUrl) {
+      throw new BackupNotWholeError(endedBeforeDone(objectApiName, rows.length), true);
+    }
+    page = await conn.queryMore<BackupRecord>(page.nextRecordsUrl, options);
+    rows.push(...page.records);
+  }
+  return rows;
 }
 
 /**
@@ -1384,7 +1503,12 @@ export class DataOpsHandler implements DomainHandler {
    * the step rather than to a page. Nothing is written to the org; the records
    * go to local storage, where the DataOps page lists them.
    *
-   * @param request - The snapshot's id, the org, and the objects to read.
+   * The snapshot a checkpoint holds is taken here too, by a handler bound to
+   * the checkpoint's own folder: its columns, its Tasks and Events read with
+   * the archived ones, each row held to one write, and every row or none.
+   *
+   * @param request - The snapshot's id, the org, and the objects to read;
+   *   for a checkpoint's, how it reads them.
    * @param signal - Stops the snapshot between two pages or before it is
    *   saved, with nothing saved.
    * @returns What the snapshot holds.
@@ -1392,16 +1516,49 @@ export class DataOpsHandler implements DomainHandler {
    *   Operations' on its own registry entry, or the run's — so the step is not
    *   tried again: a retry took a new snapshot of what the person had just
    *   stopped.
-   * @throws With the reason, when no snapshot was taken for any other reason.
+   * @throws With the reason, when no snapshot was taken for any other reason;
+   *   before any read when a field named is not one.
    */
   async backupForPipeline(
-    request: { operationId: string; orgId: string; objects: string[] },
+    request: {
+      operationId: string;
+      orgId: string;
+      objects: string[];
+      /** Per object, the fields read; every field of an object it names none for. */
+      fields?: ReadonlyMap<string, readonly string[]>;
+      /**
+       * The objects read with `queryAll`, kept to their live rows: a
+       * checkpoint's Tasks and Events, which a plain query reads without the
+       * ones Salesforce has archived.
+       */
+      scanAll?: readonly string[];
+      /**
+       * `checkpoint` for a checkpoint's snapshot: the record's stamp read in
+       * every column group of a wide object, a row whose groups disagree on
+       * it read again, and the snapshot kept out of the retention of backups.
+       */
+      origin?: 'checkpoint';
+      /**
+       * Every row of every object, or no snapshot: an object past the cap, a
+       * read the org stopped answering before it said it was done, or a read
+       * it failed part-way keeps nothing and fails.
+       */
+      failWhenTruncated?: boolean;
+    },
     signal?: AbortSignal,
   ): Promise<BackupTaken> {
+    const fields = request.fields ? selectsOf(request.fields) : undefined;
     const outcome = await this.takeBackup(
       request.operationId,
-      { orgId: request.orgId, objects: request.objects },
-      'pipeline:execute',
+      {
+        orgId: request.orgId,
+        objects: request.objects,
+        ...(fields ? { fields } : {}),
+        ...(request.scanAll ? { scanAll: new Set(request.scanAll) } : {}),
+        ...(request.origin ? { origin: request.origin } : {}),
+        ...(request.failWhenTruncated === true ? { failWhenTruncated: true } : {}),
+      },
+      request.origin === 'checkpoint' ? 'checkpoint:take' : 'pipeline:execute',
       signal,
     );
     if ('error' in outcome) {
@@ -1446,7 +1603,8 @@ export class DataOpsHandler implements DomainHandler {
    * @param operationId - The snapshot's id: its storage key and its registry entry.
    * @param payload - The org and the objects to read; for the snapshot a
    *   masking run takes, the rows its filter holds it to and, per object, the
-   *   fields it masks, which are all a restore of it writes back.
+   *   fields it masks, which are all a restore of it writes back; for a
+   *   checkpoint's, how it reads them (`backupForPipeline`).
    * @param origin - The request that asked for it, for the fix suggestion.
    * @param signal - Stops the snapshot between two pages or before it is
    *   saved, as a cancel from Live Operations does.
@@ -1459,6 +1617,12 @@ export class DataOpsHandler implements DomainHandler {
       /** Per object, the rows the snapshot keeps; every row of an object it names none for. */
       wheres?: ReadonlyMap<string, string>;
       fields?: ReadonlyMap<string, string>;
+      /** The objects read with `queryAll`, kept to their live rows. */
+      scanAll?: ReadonlySet<string>;
+      /** What the snapshot is kept for, beside DataOps' own: see `BackupMeta.origin`. */
+      origin?: 'checkpoint';
+      /** Every row of every object, or no snapshot: see `backupForPipeline`. */
+      failWhenTruncated?: boolean;
     },
     origin: string,
     signal?: AbortSignal,
@@ -1585,6 +1749,9 @@ export class DataOpsHandler implements DomainHandler {
             cap,
             select: payload.fields?.get(safeObj),
             where: payload.wheres?.get(safeObj),
+            scanAll: payload.scanAll?.has(safeObj) === true,
+            ...(payload.origin === 'checkpoint' ? { stamp: CHECKPOINT_STAMP } : {}),
+            whole: payload.failWhenTruncated === true,
           },
           stop.signal,
           () => {
@@ -1637,7 +1804,13 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const backupMeta = this.saveBackupMeta(
-        { operationId, orgId: payload.orgId, organizationId, cap },
+        {
+          operationId,
+          orgId: payload.orgId,
+          organizationId,
+          cap,
+          ...(payload.origin ? { origin: payload.origin } : {}),
+        },
         taken,
         writer,
         false,
@@ -1677,12 +1850,18 @@ export class DataOpsHandler implements DomainHandler {
       // cancelled rather than failed, and was not tried again.
       const cancelled = err instanceof BackupCancelledError;
       // A read the org failed part-way keeps what it read, said to be partial;
-      // a cancel, or a page the disk did not take whole, keeps nothing.
+      // a cancel, or a page the disk did not take whole, keeps nothing, and
+      // neither does a snapshot that holds every row or none.
       const kept =
-        cancelled || err instanceof BackupWriteError
+        cancelled || err instanceof BackupWriteError || payload.failWhenTruncated === true
           ? undefined
           : await this.keepFailedBackup(
-              { operationId, orgId: payload.orgId, cap },
+              {
+                operationId,
+                orgId: payload.orgId,
+                cap,
+                ...(payload.origin ? { origin: payload.origin } : {}),
+              },
               connection,
               { taken, reading, planned: payload.objects },
               writer,
@@ -1709,7 +1888,8 @@ export class DataOpsHandler implements DomainHandler {
       if (cancelled) this.deps.infraServices?.backgroundRegistry?.abort(operationId);
       if (cancelled) live?.cancel();
       else live?.fail(extractErrorMessage(reported));
-      return { error: reported, retryable: true, context: failure, cancelled };
+      const retryable = !(err instanceof BackupNotWholeError) || err.retryable;
+      return { error: reported, retryable, context: failure, cancelled };
     } finally {
       signal?.removeEventListener('abort', onAbort);
       settleBackup(backupError);
@@ -1791,37 +1971,63 @@ export class DataOpsHandler implements DomainHandler {
    * the rows it read. Reaching the cap, it stops with the rows past it unread
    * and records why.
    *
+   * A checkpoint's snapshot reads its Tasks and Events through the recycle
+   * bin, kept to the live rows, and holds each row of a wide object to one
+   * write (`readOtherColumnsAtOneStamp`). Holding every row or none, it
+   * fails where it would hold fewer, rather than stop.
+   *
    * @param read - The object as read so far, updated page by page, so that a
    *   read that fails part-way still says how many rows it wrote.
    * @param limits - The rows a page reads and the most the snapshot takes;
    *   and, for a masking run's snapshot, the fields read — every field
-   *   otherwise — and the rows its filter holds it to.
+   *   otherwise — and the rows its filter holds it to; for a checkpoint's,
+   *   whether it reads through the recycle bin (`scanAll`), the stamp every
+   *   group of a wide read carries, and whether it holds every row or none
+   *   (`whole`).
    * @param onPage - Called between two pages, once more are to come.
    * @throws {BackupCancelledError} At a cancel, between two pages.
+   * @throws {BackupNotWholeError} For a read that holds every row or none,
+   *   where it would hold fewer.
    */
   private async readIntoBackup(
     conn: Connection,
     safeObj: string,
     read: BackupObjectRead,
     writer: BackupWriter,
-    limits: { pageSize: number; cap: number; select?: string; where?: string },
+    limits: {
+      pageSize: number;
+      cap: number;
+      select?: string;
+      where?: string;
+      scanAll?: boolean;
+      stamp?: string;
+      whole?: boolean;
+    },
     stop: AbortSignal,
     onPage: () => void,
   ): Promise<void> {
+    const scanAll = limits.scanAll === true;
     const options: QueryOptions = {
       headers: { 'Sforce-Query-Options': `batchSize=${limits.pageSize}` },
       maxFetch: 10_000,
       autoFetch: false,
-      scanAll: false,
+      scanAll,
       responseTarget: 'QueryResult',
     };
     const select = limits.select ?? (await this.selectAllFields(conn, safeObj));
-    const soql = `SELECT ${select} FROM ${safeObj}${rowsOfTheRun(limits.where, undefined)}`;
+    // Read through the recycle bin, a statement keeps to the live rows: the
+    // archived activities a plain query leaves out, not the deleted ones.
+    const where = scanAll ? liveRowsOf(limits.where) : limits.where;
+    const soql = `SELECT ${select} FROM ${safeObj}${rowsOfTheRun(where, undefined)}`;
     // An object of hundreds of fields named them all in one statement, which
     // its URL made too long for the org (414 or 431): the backup failed before its
     // first row. Its fields are read in column groups, the first page by
     // page, each page given the others by its ids before it is written.
-    const wide = wideStatement(soql);
+    const wide = wideStatement(soql, limits.stamp === undefined ? undefined : ['Id', limits.stamp]);
+    const byIds =
+      scanAll || limits.whole === true
+        ? (statement: string) => everyRow(conn, statement, scanAll, safeObj)
+        : (statement: string) => queryAll(conn, statement);
     let page: QueryResult<BackupRecord> = await conn.query<BackupRecord>(
       wide?.first ?? soql,
       options,
@@ -1830,18 +2036,37 @@ export class DataOpsHandler implements DomainHandler {
     if (typeof page.totalSize === 'number' && Number.isInteger(page.totalSize)) {
       read.orgCount = page.totalSize;
     }
+    if (limits.whole === true && read.orgCount !== undefined && read.orgCount > limits.cap) {
+      throw pastTheCap(safeObj, read.orgCount, limits.cap);
+    }
     await writer.begin(read.objectApiName);
     for (;;) {
       const room = limits.cap - read.recordCount;
-      const rows = page.records.length > room ? page.records.slice(0, room) : page.records;
-      if (wide) await readOtherColumns(rows, wide, (statement) => queryAll(conn, statement));
+      const cut = page.records.length > room;
+      const taken = cut ? page.records.slice(0, room) : page.records;
+      let rows = taken;
+      if (wide && limits.stamp !== undefined) {
+        rows = await readOtherColumnsAtOneStamp(taken, wide, byIds, {
+          stamp: limits.stamp,
+          ...(scanAll ? { idsWhere: LIVE_ROWS } : {}),
+        });
+      } else if (wide) {
+        await readOtherColumns(taken, wide, byIds);
+      }
+      const next = !page.done ? page.nextRecordsUrl : undefined;
+      if (limits.whole === true && !page.done && next === undefined) {
+        throw new BackupNotWholeError(
+          endedBeforeDone(safeObj, read.recordCount + rows.length),
+          true,
+        );
+      }
+      const truncated = cut || (next !== undefined && read.recordCount + rows.length >= limits.cap);
+      if (truncated && limits.whole === true) {
+        throw pastTheCap(safeObj, read.orgCount, limits.cap);
+      }
       await writer.append(read.objectApiName, rows);
       read.recordCount += rows.length;
-      const next = !page.done ? page.nextRecordsUrl : undefined;
-      if (
-        rows.length < page.records.length ||
-        (next !== undefined && read.recordCount >= limits.cap)
-      ) {
+      if (truncated) {
         read.truncated = true;
         read.stoppedAt = 'cap';
         return;
@@ -1863,7 +2088,13 @@ export class DataOpsHandler implements DomainHandler {
    * @returns The metadata written.
    */
   private saveBackupMeta(
-    backup: { operationId: string; orgId: string; organizationId?: string; cap: number },
+    backup: {
+      operationId: string;
+      orgId: string;
+      organizationId?: string;
+      cap: number;
+      origin?: 'checkpoint';
+    },
     objects: readonly BackupObjectRead[],
     writer: BackupWriter,
     failed: boolean,
@@ -1872,6 +2103,7 @@ export class DataOpsHandler implements DomainHandler {
       operationId: backup.operationId,
       orgId: backup.orgId,
       ...(backup.organizationId !== undefined ? { organizationId: backup.organizationId } : {}),
+      ...(backup.origin !== undefined ? { origin: backup.origin } : {}),
       objects: objects.map(heldOf),
       // True when any object stopped short, or was never reached, so the
       // listing can say so without reading every object of every snapshot.
@@ -1905,7 +2137,7 @@ export class DataOpsHandler implements DomainHandler {
    * @returns The metadata written, or undefined when nothing was kept.
    */
   private async keepFailedBackup(
-    backup: { operationId: string; orgId: string; cap: number },
+    backup: { operationId: string; orgId: string; cap: number; origin?: 'checkpoint' },
     conn: Connection | undefined,
     read: {
       taken: readonly BackupObjectRead[];
@@ -1971,6 +2203,9 @@ export class DataOpsHandler implements DomainHandler {
         const taken = Date.parse(meta?.timestamp ?? '');
         if (!Number.isFinite(taken) || taken >= takenBefore) continue;
         if (taken < since) continue;
+        // A checkpoint's snapshot lives as long as its checkpoint, which may
+        // be kept until its owner deletes it.
+        if (meta?.origin === 'checkpoint') continue;
         if (meta?.orgId !== undefined && this.backupBusy(meta.orgId)) continue;
         await this.removeBackup(key);
         // A Sync run's is named: what that run wrote over is no longer put
@@ -2335,6 +2570,9 @@ export class DataOpsHandler implements DomainHandler {
       // What a Sync run wrote over is what its removal gives back: no number
       // of DataOps backups of the org pushes it out, only its age does.
       if (meta.origin === 'sync') continue;
+      // A checkpoint's snapshot is no DataOps backup either, and its age is
+      // the checkpoint's own.
+      if (meta.origin === 'checkpoint') continue;
       metas.push({ key, timestamp: meta.timestamp ?? '' });
     }
     if (metas.length <= maxCount) return;
